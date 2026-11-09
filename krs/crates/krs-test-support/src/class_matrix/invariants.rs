@@ -32,9 +32,11 @@
 //! KRS does: rustc parses the item before it runs the attribute, and no token stream a macro
 //! emits removes a parse error in its own input. KRS still answers, since rustc's "expected
 //! expression, found `@`" does not say what the construct means. So a refusal there may carry
-//! rustc's parse error beside KRS's one error: an uncoded rustc error ([`FORWARDED_RUSTC`]; rustc
-//! gives its parse errors no code) inside the case's spelling, and exactly one other error, also
-//! inside the spelling. The full tier's K2 judges that other error alone
+//! rustc's parse errors beside KRS's one error: uncoded rustc errors ([`FORWARDED_RUSTC`]; rustc
+//! gives its parse errors no code) inside the case's spelling, one or more as rustc's recovery
+//! meets the construct again (`[0, r @ ..]` in a struct literal's field is refused in the array
+//! and then in the field list), and exactly one other error, also inside the spelling. The full
+//! tier's K2 judges that other error alone
 //! ([`without_rustc_parse_error`]), by the invariants above and by the table's code and site. The
 //! rule is the slot's, not a reading of rustc's message, and no other position has it: rustc
 //! parses nothing inside a macro's own tokens (a `k::term!`, a `k::rules!` block, an attribute's
@@ -174,9 +176,10 @@ impl fmt::Display for Violation {
 pub const FORWARDED_RUSTC: &str = "krs::rust-expansion::uncoded-error";
 
 /// The observation K2 judges: `observed` itself, or, at a position rustc parses, `observed`
-/// without rustc's parse error, when that error (an uncoded rustc error) and exactly one other
-/// error both lie inside the case's spelling and nothing panicked (see the module documentation).
-/// A deviation's signature is still taken from `observed`, so it names both.
+/// without rustc's parse errors, when those errors (uncoded rustc errors, at least one) and
+/// exactly one other error all lie inside the case's spelling and nothing panicked (see the
+/// module documentation). A deviation's signature is still taken from `observed`, so it names
+/// them all.
 #[must_use]
 pub fn without_rustc_parse_error<'o>(
     observed: &'o Observed,
@@ -187,11 +190,11 @@ pub fn without_rustc_parse_error<'o>(
     }
     let rustc_parse = |error: &ObservedDiagnostic| error.code.as_deref() == Some(FORWARDED_RUSTC);
     let errors = observed.errors().collect::<Vec<_>>();
-    let parse = match errors.as_slice() {
-        [first, second] if rustc_parse(first) && !rustc_parse(second) => *first,
-        [first, second] if rustc_parse(second) && !rustc_parse(first) => *second,
-        _ => return Cow::Borrowed(observed),
-    };
+    let (parse, other): (Vec<&ObservedDiagnostic>, Vec<&ObservedDiagnostic>) =
+        errors.iter().partition(|error| rustc_parse(error));
+    if parse.is_empty() || other.len() != 1 {
+        return Cow::Borrowed(observed);
+    }
     if !errors.iter().all(|error| in_spelling(error, placed)) {
         return Cow::Borrowed(observed);
     }
@@ -200,7 +203,7 @@ pub fn without_rustc_parse_error<'o>(
         diagnostics: observed
             .diagnostics
             .iter()
-            .filter(|diagnostic| !std::ptr::eq(*diagnostic, parse))
+            .filter(|diagnostic| !parse.iter().any(|error| std::ptr::eq(*diagnostic, *error)))
             .cloned()
             .collect(),
         panic: None,

@@ -376,22 +376,6 @@ kind = "k8"
 # S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
 # the first mistake the compiler meets.
 
-["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
-finding = "S0-9"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
-
-["full/init/kinds/stack/[0, r @ ..]"]
-finding = "S0-9"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
-
-["init/kinds/frame/f @ G { a: 0, b: 0 }"]
-finding = "S0-9"
-deviation = "krs::expand::parse @ spelling"
-
-["init/kinds/stack/[0, r @ ..]"]
-finding = "S0-9"
-deviation = "krs::expand::parse @ spelling"
-
 # S5.3 part 2: readable and claim reds the sentence-order rulings move (a readable route is S5.2's):
 # a result case on a cell below a marked ancestor whose subject now matches the cell through the ancestor
 # (readable refuses it as an unmatched cell before the path), and g5-c's sentence answer, `hstack`'s path

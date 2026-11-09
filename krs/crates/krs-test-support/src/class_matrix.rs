@@ -580,8 +580,8 @@ pub struct Case {
     pub packaging: Packaging,
     /// Whether rustc parses the construct's position as Rust before any KRS macro reads it: a
     /// fn body an attribute macro takes (a `#[k::rule]`, `#[k::equation]` or
-    /// `#[k::simplification]` result, a `#[k::function]` shorthand) or a `#[k::constant]`
-    /// value. A construct rustc's parser refuses there (`y @ P`) is reported by rustc whatever
+    /// `#[k::simplification]` result, a `#[k::function]` shorthand, a `#[k::init]` method's
+    /// cell value) or a `#[k::constant]` value. A construct rustc's parser refuses there (`y @ P`) is reported by rustc whatever
     /// KRS does, which K2 admits ([`invariants::without_rustc_parse_error`]).
     pub rustc_parses: bool,
     /// A term case's position and its construct's nodes, which the oracle reads
@@ -1261,7 +1261,9 @@ impl CaseSpec {
             kind: self.kind,
             construct: self.construct,
             packaging,
-            rustc_parses: false,
+            // An initializer's value stands in the `#[k::init]` method's body, which rustc parses
+            // before the attribute runs (a term family's slot states its own).
+            rustc_parses: self.side == Side::Initializer,
             term: None,
             k7: k7::K7::skip(
                 k7::SkipKind::Form,

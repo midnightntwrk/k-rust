@@ -279,6 +279,27 @@ fn a_group_record_update_is_read_as_its_children_and_refused_once_the_cell_s_kin
 }
 
 #[test]
+fn an_alias_in_an_initializer_s_value_is_refused_as_no_pattern() {
+    // No Rust expression holds `name @ pattern`, so the method does not parse; the value is no
+    // pattern whatever cell it fills.
+    for (source, at) in [
+        (
+            "fn init() -> Self { Self { frame: f @ G { a: 0, b: 0 } } }",
+            "f @",
+        ),
+        ("fn init() -> Self { Self { stack: [0, r @ ..] } }", "r @"),
+    ] {
+        let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::InvalidPatternAs { .. }),
+            "{source}: {error:?}"
+        );
+        assert!(error.to_string().contains("the value of an initializer"));
+        assert_eq!(error.span().start().column, source.find(at).unwrap());
+    }
+}
+
+#[test]
 fn unsupported_signatures_variables_and_ambiguous_main_are_rejected_locally() {
     let ambiguous_source = "fn init(\
          #[k::config_var(name = \"ONE\", main)] one: Term<dyn KItem>,\

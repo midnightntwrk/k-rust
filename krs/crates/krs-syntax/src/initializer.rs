@@ -736,8 +736,85 @@ const KEYED: &str = "an initializer is keyed when it is parsed";
 
 impl KrsSyntax for InitializerFunction {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        Self::from_item(syn::parse2::<ImplItemFn>(tokens)?)
+        match syn::parse2::<ImplItemFn>(tokens.clone()) {
+            Ok(item) => Self::from_item(item),
+            Err(error) => Err(alias_in_body(&tokens).unwrap_or_else(|| error.into())),
+        }
     }
+}
+
+/// The refusal of the first `name @ pattern` in an initializer's body, where no Rust expression
+/// holds one, so the method does not parse; `None` where the body holds none outside a macro's
+/// tokens and a `let` pattern.
+///
+/// An initializer builds its configuration, so no part of a value is a pattern: an alias names
+/// the term a pattern matched, and the value matches nothing, whatever cell it fills. That is
+/// the value's first mistake, before its cell's kind (a named rest `r @ ..` included, which names
+/// the rest a pattern leaves). rustc parses the method before the attribute runs and reports its
+/// own parse error there; this is KRS's answer beside it.
+fn alias_in_body(tokens: &TokenStream) -> Option<SyntaxError> {
+    let body = tokens
+        .clone()
+        .into_iter()
+        .filter_map(|tree| match tree {
+            proc_macro2::TokenTree::Group(group)
+                if group.delimiter() == proc_macro2::Delimiter::Brace =>
+            {
+                Some(group)
+            }
+            _ => None,
+        })
+        .last()?;
+    let span = value_alias(&body.stream())?;
+    let class = crate::positions::Class::AliasOutsidePattern;
+    let position = crate::positions::Position::root(
+        crate::positions::Form::Initializer,
+        crate::positions::Slot::InitializerValue,
+    );
+    Some(SyntaxError::new(
+        SyntaxErrorKind::InvalidPatternAs {
+            reason: class.message(position),
+        },
+        span,
+    ))
+}
+
+/// Where the first `name @ ..` or `name @ pattern` of `tokens` is, at its name: outside a macro's
+/// tokens, which its own reader reads, and outside a `let` statement's pattern, which the term
+/// reader refuses with its own reason.
+fn value_alias(tokens: &TokenStream) -> Option<proc_macro2::Span> {
+    use proc_macro2::TokenTree;
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let mut in_let_pattern = false;
+    for (index, tree) in trees.iter().enumerate() {
+        match tree {
+            TokenTree::Ident(ident) if ident == "let" => in_let_pattern = true,
+            TokenTree::Punct(punct)
+                if in_let_pattern
+                    && (punct.as_char() == ';'
+                        || (punct.as_char() == '='
+                            && punct.spacing() == proc_macro2::Spacing::Alone)) =>
+            {
+                in_let_pattern = false;
+            }
+            _ if in_let_pattern => {}
+            TokenTree::Punct(punct) if punct.as_char() == '@' => {
+                return Some(match index.checked_sub(1).map(|before| &trees[before]) {
+                    Some(TokenTree::Ident(name)) => name.span(),
+                    _ => punct.span(),
+                });
+            }
+            TokenTree::Group(group) => {
+                let after_macro = index > 0
+                    && matches!(&trees[index - 1], TokenTree::Punct(bang) if bang.as_char() == '!');
+                if !after_macro && let Some(span) = value_alias(&group.stream()) {
+                    return Some(span);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Attributes an initializer may carry besides the invoking `#[k::init]`.

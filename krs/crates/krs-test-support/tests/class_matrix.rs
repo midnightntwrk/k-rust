@@ -30,7 +30,8 @@ use krs_test_support::class_matrix::table::{
     self as table, Accepted, At, Expected, Glob, MistakeClass, TERM_ACCEPTS_FILE, Table, TableError,
 };
 use krs_test_support::class_matrix::{
-    self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
+    self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, Side, entry_points,
+    render,
 };
 
 fn expand(source: &str) -> Result<FileExpansion, Vec<ExpandDiagnostic>> {
@@ -3068,13 +3069,65 @@ fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
     );
 }
 
+/// rustc's recovery may meet a construct it refuses again (`[0, r @ ..]` in a field is refused in
+/// the array, then in the field list): each of those parse errors is rustc's, beside KRS's one.
+#[test]
+fn several_rustc_parse_errors_are_admitted_beside_krss_one_error() {
+    let cases = class_matrix::cases();
+    let case = cases
+        .iter()
+        .find(|case| case.id == "init/kinds/stack/[0, r @ ..]")
+        .expect("the case is generated")
+        .render();
+    let placed = &case.cases[0];
+    let at = placed.spelling.start + 5..placed.spelling.start + 6;
+    let rustc = |message: &str| error(Some(FORWARDED_RUSTC), Some(at.clone()), message);
+    let observed = Observed {
+        accepted: false,
+        diagnostics: vec![
+            rustc("expected one of `,`, `]`, found `@`"),
+            rustc("expected one of `,`, `}`, found `@`"),
+            error(
+                Some("krs::syntax::invalid-pattern-as"),
+                Some(at.clone()),
+                "`@` stands only in a pattern",
+            ),
+        ],
+        panic: None,
+    };
+    let judged = without_rustc_parse_error(&observed, placed);
+    assert_eq!(
+        judged
+            .errors()
+            .map(|error| error.code.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("krs::syntax::invalid-pattern-as")]
+    );
+}
+
 /// The slots rustc parses as Rust before a KRS macro reads them: fn bodies an attribute macro
-/// takes, and a `const` value. Nothing inside a macro's own tokens is one.
+/// takes, and a `const` value. Nothing inside a macro's own tokens is one. An initializer's cell
+/// value (a cell-entry case of the init family or the sweep) stands in the `#[k::init]`
+/// method's body.
 #[test]
 fn rustc_parses_exactly_the_fn_bodies_and_the_constant_value() {
-    let slots = class_matrix::cases()
+    let cases = class_matrix::cases();
+    let term = |case: &Case| {
+        matches!(
+            case.family,
+            Family::Terms | Family::Import | Family::Notation
+        )
+    };
+    for case in cases.iter().filter(|case| !term(case)) {
+        assert!(
+            case.rustc_parses == (case.side == Side::Initializer),
+            "{}: an initializer value, and no other cell entry, is a position rustc parses",
+            case.id
+        );
+    }
+    let slots = cases
         .iter()
-        .filter(|case| case.rustc_parses)
+        .filter(|case| case.rustc_parses && term(case))
         .map(|case| {
             let mut segments = case.id.split('/');
             let family = segments.next().unwrap_or_default();
