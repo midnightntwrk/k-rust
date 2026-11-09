@@ -280,7 +280,7 @@ The proposer keeps the unsettled queries (at most 64, one per rule, symbolic hol
 It runs the configuration under strategy `all` on fresh backends of its own, on a thread of its own, within 4 times the case's work plus 64 states, and asks `Backend::model_for_with` for a model of the constraint of a leaf whose path applied the blocked rule (up to 4 leaves), with the holes' declared constraints conjoined.
 A model is a candidate case like any other: admissible values, the round-trip check, and confirmation on a fresh backend.
 Every query is asked once: whatever it answers (a candidate, no path, no model, an undecided model, a run stopped by a cancellation or the per-case safety limit, which is charged at least 1 work), it is settled and the next pending query is asked at the next draw while the stall lasts. A blocked rule with a given set of symbolic holes is given up for the campaign after 4 settled queries that gave no candidate.
-The proposer's solver is clock-free (`BackendOptions::smt_resource_limit`): each decision of its run gets 250,000 Z3 resource units with 2 retries at doubled units, each model query 2,000,000 with 2 retries, and an undecided model query is a deterministic "no candidate", and an undecided decision of the run is handled as the backend handles any undecided answer (an indeterminate step, or both sides kept).
+The proposer's solver is clock-free (`SmtBudget::Units`): each decision of its run gets 250,000 Z3 resource units with 2 retries at doubled units, each model query 2,000,000 with 2 retries, and an undecided model query is a deterministic "no candidate", and an undecided decision of the run is handled as the backend handles any undecided answer (an indeterminate step, or both sides kept).
 It spends at most a quarter of the cases and of the work; the work of its runs (states visited) and model queries (1 each) counts in its share and in `totals.work` before its candidate runs, so the share, and a work budget, may be exceeded by one run's bound plus one case's work.
 A positive `solve` weight needs a positive `blind` or `dictionary` weight beside it; the report then records its parameters (`identity.solve`, with the unit budgets and the Z3 version that counts them) and its runs (`totals.solve`).
 A build without the `z3` feature, and the WebAssembly package, refuse a positive `solve` weight.
@@ -369,7 +369,7 @@ rule = "IMP.overflow"         # --reach-rule: FILE:LINE, a unique id or a label;
 # comparable = true           # --comparable: a hit's program must have a run of every path kink can compare
 
 [options]                     # paths = "all-paths" (--all-paths), max-depth, max-work, normal-end-pattern,
-safety-limit-seconds = 60     # shrink, smt-timeout-ms, smt-retry-limit; no-safety-limit = true (--no-safety-limit)
+safety-limit-seconds = 60     # shrink, smt-resource-limit (default 370000 units) or smt-timeout-ms (a clock; never both), smt-retry-limit; no-safety-limit = true (--no-safety-limit)
 # assume-joined = ["root:LIST-INT.get-a,LIST-INT.get-b#0123456789abcdef0123456789abcdef"]   # --assume-joined NAME (repeatable, added to these)
 
 [[hole]]
