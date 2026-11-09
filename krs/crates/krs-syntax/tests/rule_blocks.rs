@@ -582,6 +582,11 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "for Expr; x: Wrap(a) => a where have env[Key(a, other) -> let v];",
             "`other` is bound nowhere in this rule",
         ),
+        // A lookup's key is a term it computes, which matches nothing (RDRA item 3).
+        (
+            "for Expr; x: Wrap(a) => a where have env[k @ Key(a) -> let v];",
+            "names the term a pattern matched, so it stands only where a sentence matches: a subject, or a `k::matches!` pattern in a condition; a single-body rule's subject outside its `k::rewrite!` islands is kept as it is, as a context's and a context alias's are around their hole, and a result only builds; here it stands in the key of a `have` clause, the term the entry is looked up by, and a lookup matches nothing",
+        ),
         (
             "for Machine; x: { computation: [a, ..], env: { a => v, .. } } => { computation: [a, ..] };",
             "`=>` is reserved for rewrites; map entries use `->`",

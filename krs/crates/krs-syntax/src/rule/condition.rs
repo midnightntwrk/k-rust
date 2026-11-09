@@ -330,8 +330,14 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, P
     })
 }
 
-/// The reason a `have` clause's key refuses `name @ pattern`.
-const ALIAS_IN_HAVE_KEY: &str = "`name @ pattern` (K's #as) is not supported in the key of a `have` clause: the key is read as the term the entry is looked up by, which binds no name";
+/// The reason a `have` clause's key refuses `name @ pattern`: the class's own meaning, at the key,
+/// which is a lookup's and matches nothing.
+fn alias_in_have_key() -> String {
+    format!(
+        "{}; here it stands in the key of a `have` clause, the term the entry is looked up by, and a lookup matches nothing",
+        crate::positions::Class::AliasOutsidePattern.summary()
+    )
+}
 
 /// The key of a `have` clause, a condition that looks an entry up: the
 /// term it is looked up by, read as an expression. A `let` pattern in it is
@@ -349,7 +355,7 @@ fn have_key(tokens: &TokenStream) -> Result<Expr, ParseError> {
     if let Some(alias) = crate::recover::first_alias(&key) {
         return Err(crate::SyntaxError::new(
             crate::SyntaxErrorKind::InvalidPatternAs {
-                reason: ALIAS_IN_HAVE_KEY.to_owned(),
+                reason: alias_in_have_key(),
             },
             alias
                 .into_iter()
