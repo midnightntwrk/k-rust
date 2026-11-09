@@ -88,8 +88,10 @@ impl KeyPattern {
             Self::Alias => {
                 "an alias names the term a pattern matched, and nothing is matched there"
             }
+            // A key reads `|` as alternatives at every depth (R-K1), so the bitwise operator
+            // there is its call.
             Self::Alternatives => {
-                "alternatives match one of several terms, and a built term is one term"
+                "alternatives match one of several terms, and a built term is one term; a key's `|` is alternatives at every depth, and the bitwise or of `a` and `b` is the call `a.bit_or::<Int>(b)`"
             }
             // The walker's reason, which the compiler gives for a constructor's record too.
             Self::OpenRecord => krs_syntax::positions::Class::OpenRecordOutsidePattern.summary(),

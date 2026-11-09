@@ -126,7 +126,7 @@ advice = "none"
 
 [class.alternatives-outside-pattern]
 code = "krs::analysis::ambiguous-operator"
-doc = "`A | B` in a result, a condition or an initializer, where `|` is the bitwise operator"
+doc = "`A | B` in a result, a condition or an initializer, where `|` is the bitwise operator; or below a function's application in a key, which computes it: a key's `|` is alternatives at every depth (R-K1), so the position, built once the head resolves to a function, holds none, and the bitwise or there is `a.bit_or::<Int>(b)` (KEYS)"
 advice = "none"
 
 [class.anonymous-rest-in-map-literal]
@@ -2262,9 +2262,10 @@ match = 'terms/{cells/map-key,cells/map-key/beside-fresh}/{!(x < 1),-(x + 1),x %
 class = "binder-sort"
 at = "spelling"
 
-# list-notation-sort (NT-2 review): list brackets at a `KItem` position, at a sibling whose product refuses it for another reason first
+# list-notation-sort (NT-2 review, KEYS): list brackets at a `KItem` position, at a sibling whose product refuses it for another reason first;
+# below a function's application in a key, `Wk(HOLE)`, the rest is outside a pattern only once the head resolves to a function, and the sort mistake is met first
 [[refuse]]
-match = 'terms/{readable/map-key/beside-fresh,readable/map-key,readable/map-key/as-body,readable/map-key/let-pattern,readable/map-key/or-branch}/[x\, ..]'
+match = 'terms/{readable/map-key/beside-fresh,readable/map-key,readable/map-key/as-body,readable/map-key/function-argument,readable/map-key/let-pattern,readable/map-key/or-branch}/[x\, ..]'
 class = "list-notation-sort"
 at = "spelling"
 

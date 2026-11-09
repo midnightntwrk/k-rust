@@ -41,8 +41,8 @@ const NOT_RED: [(&str, &str); 4] = [
         "a readable result also creates cell instances, whose `..` gives the other cells their defaults, and the table cannot tell an instance's record from a constructor's before resolution: the compiler refuses a constructor's open record there, with the class's code at the record (NT-28)",
     ),
     (
-        r"terms/readable/map-key/function-argument/{Cmd::Go() | Cmd::Hold(_),Cmd::Pair \{ a: x\, .. \},_,k::ml::exists(|v: Int| k::ml::equals(v\, 0)),y @ Cmd::Hold(_)}",
-        "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution: the compiler refuses the open record there (`key_names`), and the readable key's reader, which reads an expression, refuses `_`, alternatives, `@` and a closure first",
+        r"terms/readable/map-key/function-argument/k::ml::exists(|v: Int| k::ml::equals(v\, 0))",
+        "a function's argument in a key is built, and the table cannot tell it from a constructor's before resolution, which the oracle defers `_`, `@`, alternatives and an open record to as the table does: the key's reader refuses a closure first",
     ),
     (
         r"terms/{cells-claim/item-root,cells-claim/result-item-root,cells-claim/result,cells-claim/subject,cells-local/subject,cells/item-root,cells/map-key,cells/map-key/beside-fresh,cells/map-value,cells/result-item-root,cells/result-map-key,cells/result-map-value,cells/result,cells/subject,context-alias/item-root,context-alias/subject}/Cmd::Pair \{ a: x\, .. \}",

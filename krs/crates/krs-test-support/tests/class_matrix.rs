@@ -417,7 +417,7 @@ fn reads_x_and_applies(case: &Case) -> bool {
     reads_x && !value && !pattern
 }
 
-const OVERRIDDEN: [(&str, &str); 66] = [
+const OVERRIDDEN: [(&str, &str); 67] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -624,6 +624,10 @@ const OVERRIDDEN: [(&str, &str); 66] = [
         "record-update-in-pattern",
     ),
     (
+        "terms/readable/map-key/function-argument/[x, ..]",
+        "rest-outside-pattern",
+    ),
+    (
         "terms/readable/map-key/matches-pattern/Size(x)",
         "function-in-pattern",
     ),
@@ -702,7 +706,7 @@ fn the_shipped_table_and_red_list_parse() {
     // sort mistake, which is met first: an unbound `x` (in a constant, at a root, where a bare
     // name names a unit constructor), a `k::matches!` pattern that rebinds `x`, alternatives that
     // bind other names, a `KItem` binder an operand sorts as `Int`, `_` in a desugar result
-    // without `unbound_variables`, a record update's base, brackets at a `KItem` root, a name an
+    // without `unbound_variables`, a record update's base, brackets at a `KItem` root or a function's `KItem` argument in a key, a name an
     // alias clause's subject binds and its result does not use.
     let positions = cases.iter().filter_map(|case| {
         let position = case.id.strip_suffix(&format!("/{}", case.construct))?;

@@ -344,10 +344,42 @@ pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
                         _ => Some(refusal),
                     }
                 }
-                _ => admits(node.construct, position),
+                _ => admits(node.construct, position).map(|refusal| {
+                    if built_by_function(position) && outside_pattern(refusal.class) {
+                        resolution(refusal.class)
+                    } else {
+                        refusal
+                    }
+                }),
             }
         })
         .collect()
+}
+
+/// Whether `position` is built only because a function's application stands above it in a key
+/// or a set's element a subject looks it up by: below a constructor's application the key would
+/// be matched there, and only resolution tells the head from a constructor's.
+const fn built_by_function(position: Position) -> bool {
+    position.nesting.in_function_argument
+        && in_pattern_key(position)
+        && position.nesting.local.is_none()
+        && matches!(position.kind, Kind::Built)
+}
+
+/// Whether `class` refuses a pattern-only construct where a term is built. Below a function's
+/// application in a key it is told by resolution, which tells the position is built: a name or
+/// sort mistake is met first (the table's sort rules), and of two such constructs the outer one,
+/// whose meaning the inner one's depends on (`Wk(Cmd::Go() | Cmd::Hold(_))`: the alternatives,
+/// not the `_` inside one).
+const fn outside_pattern(class: Class) -> bool {
+    matches!(
+        class,
+        Class::WildcardOutsidePattern
+            | Class::AliasOutsidePattern
+            | Class::AlternativesOutsidePattern
+            | Class::OpenRecordOutsidePattern
+            | Class::RestOutsidePattern
+    )
 }
 
 /// The oracle's answer for `nodes` at `hole`.

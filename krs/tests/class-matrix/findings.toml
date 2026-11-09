@@ -27,11 +27,6 @@
 # check) never under a `diagnostic`; a K2 red of a case the table does not decide only under a
 # `generator`.
 
-["K-2"]
-owner = "S5"
-kind = "diagnostic"
-what = "a map read's key below a function's application (`Wk(x | 1)`, `Wk(Cmd::Go() | Cmd::Hold(_))`, `Wk([x, ..])`) is refused, rightly: R-K1 makes `|` in a key alternatives at every depth (bitwise OR is `bit_or`), since reading it by the head's declaration would flip its meaning silently when a constructor becomes a function; a rest is likewise a pattern's. The table refuses all three (TRI-E: its BitOr row for `function-argument/x | 1` is alternatives, built, and conforms). Owed: one class whose advice names `bit_or` for `|`, which the other two answer instead of the class the table gives their inner `_` and `..` first, and of `invalid-list-notation`. With no binding of `x` outside the alternatives, `Wk(x | 1)` is told the binding message first: the expansion cannot tell a function's head from a constructor's"
-
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"

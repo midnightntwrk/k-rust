@@ -102,15 +102,6 @@ kind = "diagnostic"
 
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
-# K-2 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
-["terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)"]
-finding = "K-2"
-deviation = "krs::analysis::ambiguous-operator @ spelling"
-
-["terms/readable/map-key/function-argument/[x, ..]"]
-finding = "K-2"
-deviation = "krs::analysis::invalid-list-notation @ spelling"
-
 # NT-3: a readable key beside a name bound nowhere else (`Cmd::Pair { a: HOLE, b: z }`) cannot spell
 # `_`, `@` or alternatives below its root, and reads `x | 1` as the operator.
 
