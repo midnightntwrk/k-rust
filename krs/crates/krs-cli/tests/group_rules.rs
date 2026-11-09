@@ -6057,7 +6057,9 @@ fn smt_with(replacements: &[(&str, &str)]) -> String {
 /// the sentence's own record, which names a cell at any depth by its name because it is the
 /// sentence's set of cells, as its `cells!` entries are (`crate::Thread::tenv:`): accepted, the
 /// same step whether the sentence is for `Core` or for the configuration (IC-3). A name that
-/// is no cell of the struct's tree keeps the bare refusal.
+/// is no cell of the struct's tree keeps the bare refusal. A record that is not its struct's
+/// (a field the struct lacks, a head naming another struct) is one mistake, a term's
+/// (`invalid-term`), for a group record and an instance record alike.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -6207,6 +6209,23 @@ pub fn go(
             ),
         ),
         ("instance-record-no-such-cell", SMT, instance("nope: v")),
+        (
+            "group-record-no-such-cell",
+            &fixed,
+            rules(
+                "Smt",
+                "go: { core: Core { nope: v, .. }, k: [Go(), ..] } => { k: [Done { n: v }, ..] };",
+            ),
+        ),
+        // A record of another struct than its cell's group (an instance record's: readable_records).
+        (
+            "group-record-other-struct",
+            &fixed_regs,
+            rules(
+                "Smt",
+                "go: { core: Regs { r0: v }, k: [Go(), ..] } => { k: [Done { n: v }, ..] };",
+            ),
+        ),
     ];
     let outcomes = cases
         .iter()
@@ -6240,22 +6259,22 @@ pub fn go(
             ],
             [
                 "instance-record",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
             ],
             [
                 "instance-record-cells",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `tenv: k::map![0`",
             ],
             [
                 "instance-record-claim",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
             ],
             [
                 "instance-record-list",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the List collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the List collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
             ],
             [
@@ -6269,7 +6288,7 @@ pub fn go(
             ],
             [
                 "instance-record-two-levels",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `sv`: a record names its struct's own children, each as that child's entry, and `sv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `sv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `sv`: a record names its struct's own children, each as that child's entry, and `sv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `sv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `sv: v, .. }, ..`",
             ],
             [
@@ -6278,7 +6297,7 @@ pub fn go(
             ],
             [
                 "instance-record-optional",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `busy`: a record names its struct's own children, each as that child's entry, and `busy` lies in the optional cell `fpu` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `busy`, or `fpu`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `busy`: a record names its struct's own children, each as that child's entry, and `busy` lies in the optional cell `fpu` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `busy`, or `fpu`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `busy: v, .. }, .`",
             ],
             [
@@ -6287,7 +6306,7 @@ pub fn go(
             ],
             [
                 "instance-record-group-child",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `r0`: a record names its struct's own children, each as that child's entry, and `r0` is a cell of its child `regs`, so write it inside that child's record, `regs: Regs { r0: .., .. }`",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `r0`: a record names its struct's own children, each as that child's entry, and `r0` is a cell of its child `regs`, so write it inside that child's record, `regs: Regs { r0: .., .. }`",
                 "--> smt/src/lib.rs: `r0: v, .. }, ..`",
             ],
             [
@@ -6300,18 +6319,28 @@ pub fn go(
             ],
             [
                 "group-record-tenv",
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-GROUPS-SMT::go (rule): the group `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "error[krs::analysis::invalid-term]: the group `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
                 "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
             ],
             [
                 "group-record-group-child",
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-GROUPS-SMT::go (rule): the group `Core` has no child `r0`: a record names its struct's own children, each as that child's entry, and `r0` is a cell of its child `regs`, so write it inside that child's record, `regs: Regs { r0: .., .. }`",
-                "--> smt/src/lib.rs: `Core { r0: v, ..`",
+                "error[krs::analysis::invalid-term]: the group `Core` has no child `r0`: a record names its struct's own children, each as that child's entry, and `r0` is a cell of its child `regs`, so write it inside that child's record, `regs: Regs { r0: .., .. }`",
+                "--> smt/src/lib.rs: `r0: v, .. }, k:`",
             ],
             [
                 "instance-record-no-such-cell",
-                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `nope`",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `nope`",
                 "--> smt/src/lib.rs: `nope: v, .. }, .`",
+            ],
+            [
+                "group-record-no-such-cell",
+                "error[krs::analysis::invalid-term]: the group `Core` has no child `nope`",
+                "--> smt/src/lib.rs: `nope: v, .. }, k`",
+            ],
+            [
+                "group-record-other-struct",
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-GROUPS-SMT::go (rule): complete cell term is not admissible at the expected sort",
+                "--> smt/src/lib.rs: `Regs { r0: v },`",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);

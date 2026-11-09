@@ -184,6 +184,83 @@ pub(super) fn descendant_reason(
     )
 }
 
+/// Which record at a configuration position a refusal is of: a group record, the entry of a
+/// group cell, or an instance record in a collection's instance list.
+#[derive(Clone, Copy)]
+pub(super) enum RecordOf {
+    Group,
+    Instance,
+}
+
+/// The refusal of a record's field `field` that names none of the children of the struct
+/// `group`, declared `children`, whose record it is.
+///
+/// A record at a configuration position is the record of its struct, as a constructor record is
+/// its constructor's ([`descendant_reason`]), so a field its struct lacks is the one mistake a
+/// constructor record makes with a field its constructor lacks: a term whose fields disagree with
+/// its struct's (`krs::analysis::invalid-term`), a group's record and an instance's alike.
+pub(super) fn no_child(
+    descriptor: &Descriptor,
+    of: RecordOf,
+    group: &str,
+    children: &[DescriptorCellField],
+    field: &str,
+    key: &ProvenanceKey,
+    declarations: &DescriptorIndex<'_>,
+) -> DescriptorLoweringError {
+    let record = match of {
+        RecordOf::Group => format!("the group `{group}`"),
+        RecordOf::Instance => format!("the instance cell `{group}`"),
+    };
+    collection_error(
+        descriptor,
+        codes::analysis::INVALID_TERM,
+        key,
+        format!(
+            "{record} has no child `{field}`{}",
+            descendant_reason(group, children, field, declarations)
+        ),
+    )
+}
+
+/// The refusal of a record whose head names another struct than `group`, the struct the cell
+/// `cell` holds (or its collection's instances are), or no `#[k::cell]` struct; `None` when it
+/// names `group`.
+///
+/// The record says which struct it is the record of, and that struct's records are terms of its
+/// cell sort, which is not the cell's: the mistake of a term of another sort than its position's
+/// (`krs::analysis::invalid-term`), a group's record and an instance's alike.
+pub(super) fn foreign_record(
+    descriptor: &Descriptor,
+    of: RecordOf,
+    cell: &str,
+    head: &DescriptorTerm,
+    key: &ProvenanceKey,
+    group: &StableItemId,
+) -> Option<DescriptorLoweringError> {
+    let named = match head {
+        DescriptorTerm::Cell { declaration, .. } if declaration == group => return None,
+        DescriptorTerm::Cell { declaration, .. } => format!("`{}`", declaration.item_name()),
+        _ => "no `#[k::cell]` struct".to_owned(),
+    };
+    let reason = match of {
+        RecordOf::Group => format!(
+            "the record names {named}, and `{cell}` holds `{}`",
+            group.item_name()
+        ),
+        RecordOf::Instance => format!(
+            "the instance record names {named}, and `{cell}`'s instances are `{}`",
+            group.item_name()
+        ),
+    };
+    Some(collection_error(
+        descriptor,
+        codes::analysis::INVALID_TERM,
+        key,
+        reason,
+    ))
+}
+
 /// A result's `..` over a subject with no unnamed rest of the computation for it to keep (P6):
 /// an exact subject has none, and a named one (`rest @ ..`, `named`) that the result does not
 /// put back with `..rest` is dropped (D2). The entry table answers it as `rest-mismatch` at the
@@ -936,7 +1013,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
 
     /// Refuses an instance record whose head names another struct than the collection's
     /// instance cell: the record says which struct it is of, and a collection holds instances of
-    /// one (TRI-D2).
+    /// one (TRI-D2, [`foreign_record`]).
     fn head(
         &self,
         instance: &ProtocolRuleInstance<DescriptorTerm>,
@@ -944,22 +1021,15 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         let Some(head) = &instance.head else {
             return Ok(());
         };
-        let named = match head {
-            DescriptorTerm::Cell { declaration, .. } if *declaration == self.declaration.id => {
-                return Ok(());
-            }
-            DescriptorTerm::Cell { declaration, .. } => format!("`{}`", declaration.item_name()),
-            _ => "no `#[k::cell]` struct".to_owned(),
-        };
-        Err(collection_error(
+        foreign_record(
             self.descriptor,
-            codes::analysis::COLLECTION_ENTRY,
+            RecordOf::Instance,
+            &self.collection.cell.field,
+            head,
             &instance.key,
-            format!(
-                "the instance record names {named}, and `{}`'s instances are `{}`",
-                self.collection.cell.field, self.declaration.name
-            ),
-        ))
+            &self.declaration.id,
+        )
+        .map_or(Ok(()), Err)
     }
 
     fn child<'d>(
@@ -969,21 +1039,14 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
     ) -> Result<&'d krs_ir::ProtocolRuleInstanceField<DescriptorTerm>, DescriptorLoweringError>
     {
         let Some(declared) = self.declaration.child(&field.field) else {
-            return Err(collection_error(
+            return Err(no_child(
                 self.descriptor,
-                codes::analysis::COLLECTION_ENTRY,
+                RecordOf::Instance,
+                &self.declaration.name,
+                self.declaration.fields,
+                &field.field,
                 &field.key,
-                format!(
-                    "the instance cell `{}` has no child `{}`{}",
-                    self.declaration.name,
-                    field.field,
-                    descendant_reason(
-                        &self.declaration.name,
-                        self.declaration.fields,
-                        &field.field,
-                        self.declarations,
-                    )
-                ),
+                self.declarations,
             ));
         };
         if declared_multiplicity(declared, self.declarations) != Multiplicity::One {

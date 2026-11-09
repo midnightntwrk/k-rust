@@ -576,7 +576,7 @@ fn an_instance_record_of_another_struct_is_refused() {
         let errors = check_errors(target.path(), &manifest);
         assert!(
             errors.iter().any(|error| error
-                == "error[krs::analysis::collection-entry]: the instance record names `H`, and `acct`'s instances are `Acct`"),
+                == "error[krs::analysis::invalid-term]: the instance record names `H`, and `acct`'s instances are `Acct`"),
             "{name}: {errors:#?}"
         );
     }

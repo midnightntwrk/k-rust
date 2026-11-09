@@ -16,6 +16,7 @@ use krs_ir_levels::{
 use krs_syntax::ProvenanceRole;
 
 use super::catalog::{ProductionSignature, semantic_is_subsort, semantic_sort_ref};
+use super::cell_states::{RecordOf, foreign_record, no_child};
 use super::collection_types::{CollectionTyping, Root, SortType, Walker, selected_cell_type};
 use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
@@ -1343,19 +1344,28 @@ fn infer_readable_state(
             }
         }
         // A group record's children, each at its own cell's sort, as an instance's are; its
-        // head names the record and is no term the rule matches or writes.
+        // head names the record and is no term the rule matches or writes. A record that is no
+        // record of the cell's group is refused here, before its names are given sorts, so the
+        // refusal names the record rather than a name only its field binds.
         State::Record(record) => {
             let ProtocolCellContent::Nested { declaration } = &field.content else {
                 return Ok(());
             };
-            let children = &declarations.cell(&declaration.declaration)?.fields;
+            let group = &declaration.declaration;
+            if let Some(refusal) = foreign_record(
+                builder.descriptor,
+                RecordOf::Group,
+                &field.rust_field,
+                &record.head,
+                &record.key,
+                group,
+            ) {
+                return Err(refusal);
+            }
+            let children = &declarations.cell(group)?.fields;
             for child in &record.fields {
-                if let Some(declared) = children
-                    .iter()
-                    .find(|candidate| candidate.rust_field == child.field)
-                {
-                    infer_readable_state(builder, declarations, declared, &child.value, subject)?;
-                }
+                let declared = record_child(builder, RecordOf::Group, group, children, child)?;
+                infer_readable_state(builder, declarations, declared, &child.value, subject)?;
             }
         }
         State::Instances(instances) => {
@@ -1368,33 +1378,74 @@ fn infer_readable_state(
                 && super::function_patterns::matches_evaluated_sentence(
                     builder.descriptor.payload(),
                 );
-            let children = &declarations.cell(&declaration.declaration)?.fields;
+            let group = &declaration.declaration;
+            let children = &declarations.cell(group)?.fields;
+            let records = instances.front.iter().chain(&instances.back);
+            instance_heads(builder, field, group, records.clone())?;
             let enclosing = builder.in_key;
             builder.in_key |= looked_up;
-            let inferred = instances
-                .front
-                .iter()
-                .chain(&instances.back)
+            let inferred = records
                 .flat_map(|instance| &instance.fields)
                 .try_for_each(|child| {
-                    children
-                        .iter()
-                        .find(|candidate| candidate.rust_field == child.field)
-                        .map_or(Ok(()), |declared| {
-                            infer_readable_state(
-                                builder,
-                                declarations,
-                                declared,
-                                &child.value,
-                                subject,
-                            )
-                        })
+                    let declared =
+                        record_child(builder, RecordOf::Instance, group, children, child)?;
+                    infer_readable_state(builder, declarations, declared, &child.value, subject)
                 });
             builder.in_key = enclosing;
             inferred?;
         }
     }
     Ok(())
+}
+
+/// Refuses an instance record whose head names another struct than `group`, the instances of
+/// the collection cell `field` ([`foreign_record`]).
+fn instance_heads<'r>(
+    builder: &StructuredTermBuilder<'_>,
+    field: &krs_ir::DescriptorCellField,
+    group: &StableItemId,
+    records: impl Iterator<Item = &'r krs_ir::ProtocolRuleInstance<DescriptorTerm>>,
+) -> Result<(), DescriptorLoweringError> {
+    for instance in records {
+        if let Some(head) = &instance.head
+            && let Some(refusal) = foreign_record(
+                builder.descriptor,
+                RecordOf::Instance,
+                &field.rust_field,
+                head,
+                &instance.key,
+                group,
+            )
+        {
+            return Err(refusal);
+        }
+    }
+    Ok(())
+}
+
+/// The child of the struct `group`, declared `children`, that a record's field names, or the
+/// refusal of a field that names none ([`no_child`]).
+fn record_child<'d>(
+    builder: &StructuredTermBuilder<'_>,
+    of: RecordOf,
+    group: &StableItemId,
+    children: &'d [krs_ir::DescriptorCellField],
+    child: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+) -> Result<&'d krs_ir::DescriptorCellField, DescriptorLoweringError> {
+    children
+        .iter()
+        .find(|candidate| candidate.rust_field == child.field)
+        .ok_or_else(|| {
+            no_child(
+                builder.descriptor,
+                of,
+                group.item_name(),
+                children,
+                &child.field,
+                &child.key,
+                builder.declarations,
+            )
+        })
 }
 
 fn collect_declared_leaf_identities(

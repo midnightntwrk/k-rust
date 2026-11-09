@@ -249,16 +249,6 @@ fn bracket_sequence(
     })
 }
 
-/// The struct a record's head names, for a message: its `#[k::cell]` struct, else none.
-fn head_name(record: &Record) -> String {
-    match &record.head {
-        DescriptorTerm::Cell { declaration, .. } => {
-            format!("`{}`", declaration.item_name())
-        }
-        _ => "no `#[k::cell]` struct".to_owned(),
-    }
-}
-
 /// `rule` with each group record of entries ([`ProtocolRuleStateTerm::Record`]) lowered to the
 /// entries the clauses lower: the group's cell term where every child's entry on both sides is
 /// a term ([`record_term`]), else each child's own entry. `None` when the rule holds no record.
@@ -333,8 +323,8 @@ pub(super) fn with_group_records(
                 _ => None,
             })
             .collect::<Vec<_>>();
-        for (cell, record) in &records {
-            check_head(descriptor, cell, record, declared, &group)?;
+        for (_, record) in &records {
+            check_head(descriptor, record, declared, &group)?;
         }
         // The one place a record's lowering is chosen. Where every child's entry on both sides
         // is a term of its content, the record is the group's cell term over those terms, the
@@ -414,7 +404,7 @@ fn present_group_terms(
         let ProtocolCellContent::Nested { declaration } = &declared.content else {
             continue;
         };
-        check_head(descriptor, cell, record, declared, &declaration.declaration)?;
+        check_head(descriptor, record, declared, &declaration.declaration)?;
         let record = record.clone();
         let State::Present { value } = &mut cell.value else {
             continue;
@@ -470,30 +460,23 @@ fn group_of(
     .within(descriptor.id(), key_range(descriptor, &cell.field.key).as_ref()))
 }
 
-/// Refuses a record whose head names another struct than the cell's group.
+/// Refuses a record whose head names another struct than the cell's group
+/// ([`super::cell_states::foreign_record`]).
 fn check_head(
     descriptor: &Descriptor,
-    cell: &DescriptorRuleCell,
     record: &Record,
     declared: &DescriptorCellField,
     group: &StableItemId,
 ) -> Result<(), DescriptorLoweringError> {
-    if matches!(&record.head, DescriptorTerm::Cell { declaration, .. } if declaration == group) {
-        return Ok(());
-    }
-    Err(DescriptorLoweringError::invalid_term(
-        descriptor.id(),
-        format!(
-            "the record names {}, and `{}` holds `{}`",
-            head_name(record),
-            declared.rust_field,
-            group.item_name()
-        ),
+    super::cell_states::foreign_record(
+        descriptor,
+        super::cell_states::RecordOf::Group,
+        &declared.rust_field,
+        &record.head,
+        &record.key,
+        group,
     )
-    .within(
-        descriptor.id(),
-        key_range(descriptor, &cell.field.key).as_ref(),
-    ))
+    .map_or(Ok(()), Err)
 }
 
 /// A record's children as their own cells' entries, in authored order.
@@ -511,27 +494,20 @@ fn children(
         .fields
         .iter()
         .map(|field| {
-            let at = || key_range(descriptor, &field.key);
             let Some(child) = declaration
                 .fields
                 .iter()
                 .find(|child| child.rust_field == field.field)
             else {
-                return Err(DescriptorLoweringError::invalid_term(
-                    descriptor.id(),
-                    format!(
-                        "the group `{}` has no child `{}`{}",
-                        group.item_name(),
-                        field.field,
-                        super::cell_states::descendant_reason(
-                            group.item_name(),
-                            &declaration.fields,
-                            &field.field,
-                            declarations,
-                        )
-                    ),
-                )
-                .within(descriptor.id(), at().as_ref()));
+                return Err(super::cell_states::no_child(
+                    descriptor,
+                    super::cell_states::RecordOf::Group,
+                    group.item_name(),
+                    &declaration.fields,
+                    &field.field,
+                    &field.key,
+                    declarations,
+                ));
             };
             let presence = matches!(field.value, State::Present { .. } | State::Absent);
             if presence
