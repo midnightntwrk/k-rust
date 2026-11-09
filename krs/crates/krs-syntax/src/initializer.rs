@@ -241,6 +241,9 @@ pub struct FixedCellInitializer {
     field_key: Option<ProvenanceKey>,
     constructor_key: Option<ProvenanceKey>,
     absent_key: Option<ProvenanceKey>,
+    /// Where a group record's update `..base` is: the record is read as the children it names,
+    /// and its refusal waits until the cell's kind has answered ([`Self::record_update`]).
+    record_update: Option<proc_macro2::Span>,
 }
 
 impl FixedCellInitializer {
@@ -324,16 +327,40 @@ impl FixedCellInitializer {
 
     /// Whether the cell, or a cell inside it, names its Rust wrapper (`Cell::new(..)`,
     /// `KCell::new(..)`): the author spelled the Rust form of the value's kind, which rustc
-    /// checks against the field's type, so the macro hands rustc that value as written.
+    /// checks against the field's type, so the macro hands rustc that value as written. A value
+    /// that holds a record update never is: its `..base` is no Rust value of the record's type,
+    /// so the update is KRS's to judge ([`Self::record_update`]), and rustc sees no part of it.
     #[must_use]
     pub fn names_wrapper(&self) -> bool {
+        self.record_update().is_none() && self.writes_wrapper()
+    }
+
+    fn writes_wrapper(&self) -> bool {
         match &self.content {
             InitializerCellContent::Leaf {
                 inferred_constructor,
                 ..
             } => !inferred_constructor,
             InitializerCellContent::Nested { children, .. } => {
-                children.iter().any(Self::names_wrapper)
+                children.iter().any(Self::writes_wrapper)
+            }
+        }
+    }
+
+    /// The refusal of the first group record update `G { a: 0, ..base }` in the cell's value,
+    /// the cell's own first, then its children's in source order. A nested cell group's struct
+    /// literal writes every cell of the group: an update of another record is not supported yet.
+    /// It is raised once the cell's kind has answered, since on a leaf, an optional cell or the
+    /// computation the record is another mistake first.
+    #[must_use]
+    pub fn record_update(&self) -> Option<SyntaxError> {
+        if let Some(span) = self.record_update {
+            return Some(unsupported_body(INCOMPLETE_GROUP_LITERAL, span));
+        }
+        match &self.content {
+            InitializerCellContent::Leaf { .. } => None,
+            InitializerCellContent::Nested { children, .. } => {
+                children.iter().find_map(Self::record_update)
             }
         }
     }
@@ -615,6 +642,15 @@ impl InitializerFunction {
             }
         }
         Some(fields)
+    }
+
+    /// The refusal the reader leaves until the entries are judged by their cells' kinds: the
+    /// first cell's group record update ([`FixedCellInitializer::record_update`]).
+    #[must_use]
+    pub fn deferred_refusal(&self) -> Option<SyntaxError> {
+        self.cells
+            .iter()
+            .find_map(FixedCellInitializer::record_update)
     }
 
     /// The names the configuration variables bind, in authored parameter order.
@@ -1168,8 +1204,10 @@ fn parse_initializer_cell(
             field_key: None,
             constructor_key: None,
             absent_key: None,
+            record_update: None,
         });
     }
+    let mut record_update = None;
     let content = match &field.expr {
         // A call reaches here only as a cell form: a `Some(..)` the optional cell's start above
         // does not take (other than one value, with attributes, or with generic arguments), or
@@ -1228,11 +1266,18 @@ fn parse_initializer_cell(
             }
         }
         Expr::Struct(nested) => {
-            if nested.qself.is_some() || !is_plain_path(&nested.path) || nested.rest.is_some() {
-                return Err(unsupported_body(
-                    "nested cell initialization requires a complete plain struct literal",
-                    nested.span(),
-                ));
+            if nested.qself.is_some() || !is_plain_path(&nested.path) {
+                return Err(unsupported_body(INCOMPLETE_GROUP_LITERAL, nested.span()));
+            }
+            // A record update `G { a: 0, ..base }` is a value only once the cell it fills is
+            // known: on a leaf no group record names the leaf's sort, on an optional cell the
+            // value lacks its presence, on the computation its items, and only on a group of
+            // `G` (or a `*` collection's template of one) is it the record update an
+            // initializer does not support yet. So the record is read as the children it
+            // names, and its refusal waits for the cell's kind ([`FixedCellInitializer::
+            // record_update`]).
+            if nested.rest.is_some() {
+                record_update = Some(nested.span());
             }
             let mut names = std::collections::BTreeSet::new();
             let mut children = Vec::with_capacity(nested.fields.len());
@@ -1336,8 +1381,14 @@ fn parse_initializer_cell(
         field_key: None,
         constructor_key: None,
         absent_key: None,
+        record_update,
     })
 }
+
+/// The refusal of a nested cell group's struct literal that is no complete plain literal: a
+/// qualified one, or a record update, which a group's initializer does not support yet.
+const INCOMPLETE_GROUP_LITERAL: &str =
+    "nested cell initialization requires a complete plain struct literal";
 
 /// Whether `path` is `Some`/`None` alone or under `Option::`.
 pub(crate) fn is_option_variant(path: &syn::Path, variant: &str) -> bool {

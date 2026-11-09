@@ -243,6 +243,42 @@ fn host_statements_control_flow_mutation_calls_and_early_return_are_rejected() {
 }
 
 #[test]
+fn a_group_record_update_is_read_as_its_children_and_refused_once_the_cell_s_kind_has_answered() {
+    // `G { a: 0, ..base }` is another mistake on each kind of cell (a record on a leaf, a value
+    // without its presence on an optional cell), so the reader reads the children it names and
+    // leaves the update's refusal for after the entries are judged.
+    for source in [
+        "fn init() -> Self { Self { frame: G { a: 0, ..base } } }",
+        "fn init() -> Self { Self { outer: Outer { frame: G { a: 0, ..base }, b: 1 } } }",
+        "fn init() -> Self { Self { frame: Some(G { a: 0, ..base }) } }",
+    ] {
+        let initializer = krs_syntax::InitializerFunction::parse_source(source).unwrap();
+        let refusal = initializer.deferred_refusal().unwrap();
+        assert!(matches!(
+            refusal.kind(),
+            SyntaxErrorKind::UnsupportedInitializerBody { .. }
+        ));
+        assert_eq!(
+            refusal.span().start().column,
+            source.find("G {").unwrap(),
+            "{source}"
+        );
+        // rustc is handed no part of the update.
+        assert!(!initializer.cells()[0].names_wrapper());
+    }
+    let complete = krs_syntax::InitializerFunction::parse_source(
+        "fn init() -> Self { Self { frame: G { a: 0, b: 1 } } }",
+    )
+    .unwrap();
+    assert!(complete.deferred_refusal().is_none());
+    // A qualified struct literal is no group record at all.
+    let qualified = krs_syntax::InitializerFunction::parse_source(
+        "fn init() -> Self { Self { frame: <G>::Inner { a: 0 } } }",
+    );
+    assert!(qualified.is_err());
+}
+
+#[test]
 fn unsupported_signatures_variables_and_ambiguous_main_are_rejected_locally() {
     let ambiguous_source = "fn init(\
          #[k::config_var(name = \"ONE\", main)] one: Term<dyn KItem>,\

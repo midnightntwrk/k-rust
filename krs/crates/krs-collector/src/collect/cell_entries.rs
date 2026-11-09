@@ -258,14 +258,26 @@ impl ParsedCells<Coordinates> {
     }
 
     /// The fields of an initializer's body, each read with the initializer's configuration
-    /// variables as such, and the names they bind; `None` where the body is no list of fields.
+    /// variables as such, the names they bind, and the refusal its reader left until the entries
+    /// are judged (a group record update, [`krs_syntax::InitializerFunction::deferred_refusal`]);
+    /// `None` where the body is no list of fields and the reader left none.
     pub(super) fn of_initializer(initializer: &krs_syntax::InitializerFunction) -> Option<Self> {
+        let after = initializer
+            .deferred_refusal()
+            .map(|error| After::of(deferred(&error), &error))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let subject = match initializer.entry_fields().and_then(located_fields) {
+            Some(subject) => subject,
+            None if !after.is_empty() => Vec::new(),
+            None => return None,
+        };
         Some(Self {
             form: EntryForm::Initializer,
-            subject: located_fields(initializer.entry_fields()?)?,
+            subject,
             result: None,
             parameters: initializer.variable_names(),
-            after: Vec::new(),
+            after,
         })
     }
 
@@ -316,6 +328,14 @@ impl ParsedCells<Coordinates> {
                 })
                 .collect(),
         }
+    }
+}
+
+impl LocatedCells {
+    /// The first refusal the reader left until the entries were judged, where it is: raised once
+    /// they are admitted.
+    pub(super) fn left_after_admission(&self) -> Option<CollectionError> {
+        self.after.first().map(After::refused)
     }
 }
 

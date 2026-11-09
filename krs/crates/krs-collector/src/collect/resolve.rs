@@ -554,14 +554,15 @@ pub(super) fn decide_neutral_leaves(
 /// Judges, by the entry-admission table, every initializer entry of the configuration
 /// `pending[index]` ([`super::cell_entries::judge_initializer`]): each against its declared
 /// cell, from the initializer's authored fields. Then, the entries admitted, the sort step for
-/// what the wire's shape says of a value ([`initializer_shape`]). Answers whether it judged them:
+/// what the wire's shape says of a value ([`initializer_shape`]), then the refusal the reader
+/// left until both had answered (a group record update). Answers whether it judged them:
 /// an initializer whose source or declaration does not resolve here is left as it is, for the
 /// configuration's resolution to report.
 ///
 /// # Errors
 ///
 /// The table's refusal of the first refused entry, located at what it refuses; else the first
-/// value whose shape is another cell's than its own.
+/// value whose shape is another cell's than its own; else the reader's deferred refusal.
 pub(super) fn admit_initializer(
     pending: &[PendingDescriptor],
     index: usize,
@@ -622,6 +623,11 @@ pub(super) fn admit_initializer(
         return Err(super::cell_entries::initializer_content_sort(
             authored, &path, reason,
         ));
+    }
+    // Every value fits its cell's kind and shape, so a group record update left by the reader
+    // is the record update itself, on a group of its own struct or a `*` template of one.
+    if let Some(error) = authored.left_after_admission() {
+        return Err(error);
     }
     Ok(true)
 }

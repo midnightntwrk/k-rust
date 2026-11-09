@@ -51,7 +51,7 @@ match = 'terms/constant/value-root/y @ Cmd::Hold(_)'
 finding = "NT-2-26"
 kind = "diagnostic"
 
-# S0-9, diagnostic: 178 reds
+# S0-9, diagnostic: 173 reds
 
 # sweep: 1
 [[family]]
@@ -62,18 +62,6 @@ kind = "diagnostic"
 # sweep: 1
 [[family]]
 match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/init/init/{counter,olist,omap,prog}/G \{ a: 0\, ..base \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/init/init/ogroup/Gp \{ pa: 0\, ..base \}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -90,13 +78,6 @@ finding = "S0-9"
 kind = "k8"
 
 # S5-Q1, diagnostic: 4 reds
-
-# S5-U1, diagnostic: 5 reds
-# sweep: 5
-[[family]]
-match = 'sweep/init/init/{env,pc,seq,set,stack}/G \{ a: 0\, ..base \}'
-finding = "S5-U1"
-kind = "diagnostic"
 
 # Exact entries, one per case, in place.
 
