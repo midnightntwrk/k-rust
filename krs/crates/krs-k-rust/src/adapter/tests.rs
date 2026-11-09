@@ -1688,12 +1688,12 @@ fn open_cell<'t>(term: &'t Term, name: &str) -> &'t Term {
 /// optional cell created (`flag`) and an instance record of a collection inside the instance
 /// (`job`), and a context alias's cell, are written inside the one instance cell, open on the
 /// right (`<hart> <pc> .. </pc> (.Bag => <flag> ..) <job> .. ... </hart>`), so each matches in
-/// one instance. A sentence whose cells lie in an instance and outside it has no one instance
-/// cell to hold its clauses, and is refused.
+/// one instance. A cell outside every instance occurs once, so a rule's clause for it stays at the
+/// top, beside the instance cell, after it (`<hart> <pc> .. </pc> ... </hart> <mem> .. </mem>`).
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "Builds each clause kind, the context alias and the refused sentence together."
+    reason = "Builds each clause kind, the context alias and the rule beside the instance together."
 )]
 fn clauses_inside_an_instance_are_written_inside_the_instance_cell() {
     let definition = harts_definition();
@@ -1792,12 +1792,16 @@ fn clauses_inside_an_instance_are_written_inside_the_instance_cell() {
     }
 
     let mixed = sentence(krs_ir::ConfigurationSentenceKind::Transition, vec![pc, mem]);
-    let error = adapter.rule(&mixed, MODULE, 3).unwrap_err();
-    assert!(
-        matches!(&error, AdapterError::MissingReference { target, .. }
-            if target.contains("instances.cell.pc") && target.contains("instances.cell.mem")),
-        "{error:?}"
-    );
+    let Sentence::Rule { body: mixed, .. } = adapter.rule(&mixed, MODULE, 3).unwrap() else {
+        panic!("a configuration rule stays a native rule")
+    };
+    let (label, cells) = application(&mixed);
+    assert_eq!(label, "#cells");
+    let [hart, mem] = cells else {
+        panic!("the memory beside the instance: {mixed:?}")
+    };
+    assert_eq!(application(mem).0, "<mem>");
+    assert_eq!(application(open_cell(hart, "hart")).0, "<pc>");
 
     let here = semantic_id("here");
     let alias = ContextAliasSentence::new(

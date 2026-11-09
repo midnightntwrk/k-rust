@@ -13,7 +13,8 @@
     "krs-configuration-cells-group-board": "4b97ddaf69a9df729209d5198bb8341b9de63dd53d55c0ea601d49b6d35abcf1",
     "krs-configuration-cells-group-harts-smp": "f6a2063e67982273c4f93318e426e8aa6661ad5e83cf37d8d3b7ebc173950073",
     "krs-configuration-cells-group-harts-nested": "16c1b27b8bb2d498ac69978c96ba390b9baeb74a0c27cea38894f826ef0f589e",
-    "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274"
+    "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274",
+    "krs-configuration-cells-shared-memory": "c63c226b4baab998d7088ea9a709b95d7356204b450a89a587613761a542c8d7"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -54,6 +55,9 @@
     },
     "krs-configuration-cells-group-harts-opt": {
       "definition.k": "d75b4bb735dcd08e0390838fac55c49bf4c2385e6ac050a137e1a45465c9e555"
+    },
+    "krs-configuration-cells-shared-memory": {
+      "definition.k": "c5bfa22f4d452b52b6675edba5099677482e1fd85415f372033db335bfd373a1"
     }
   },
   "reference_sha256": {
@@ -69,7 +73,8 @@
     "krs-configuration-cells-group-board": "11f1e07e6ec9c002645d74e9c23fd434f72ca9837b47648cd2b396fd7d3c63fa",
     "krs-configuration-cells-group-harts-smp": "2e41e6e5073e5037bc5c91ebcca12ed18e5dec3bbdbcb5337b09495341a60761",
     "krs-configuration-cells-group-harts-nested": "acb0ddd22230d5ef2177183b4daa57381587369f5baf6804574c0ca031138f07",
-    "krs-configuration-cells-group-harts-opt": "a8f55a0409fbd50073517b851e7c6607237a051b4710672850b2c3cc39999fa3"
+    "krs-configuration-cells-group-harts-opt": "a8f55a0409fbd50073517b851e7c6607237a051b4710672850b2c3cc39999fa3",
+    "krs-configuration-cells-shared-memory": "c77646b802c24690f7ffe3d86e3d4fa7564194b58ef40ef692665146045be5ed"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -529,6 +534,34 @@
         "parse": "accepted",
         "run": "guard ( here )"
       }
+    },
+    "krs-configuration-cells-shared-memory": {
+      "store-load": {
+        "parse": "accepted",
+        "run": "5",
+        "cells": {
+          "mem": "0 |-> 5"
+        }
+      },
+      "peek": {
+        "parse": "accepted",
+        "run": "6",
+        "cells": {
+          "mem": "0 |-> 5"
+        },
+        "search": [
+          "6"
+        ]
+      },
+      "race": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "0",
+          "1",
+          "1"
+        ]
+      }
     }
   },
   "diagnostics": {
@@ -671,6 +704,11 @@
     "krs-configuration-cells-group-harts-opt": {
       "forms": [],
       "guarded": []
+    },
+    "krs-configuration-cells-shared-memory": {
+      "store-load": [],
+      "peek": [],
+      "race": []
     }
   },
   "known_round_trip_failures": {}

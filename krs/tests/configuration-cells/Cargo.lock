@@ -145,6 +145,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-shared-memory"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-configuration-cells-threads"
 version = "0.1.0"
 dependencies = [

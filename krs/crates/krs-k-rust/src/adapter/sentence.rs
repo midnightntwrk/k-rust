@@ -1451,6 +1451,8 @@ impl Adapter<'_> {
     /// so all of its clauses match in that one instance, and cell completion supplies the cells
     /// above it and frames the other instances. A key cell of an enclosing instance, which the
     /// sentence passes a function, is placed in that instance's cell, around the instance's own.
+    /// A clause of a cell outside every instance, which the configuration holds once, is placed
+    /// at the top beside the outermost instance's cell, after it.
     fn in_instances(
         &self,
         clauses: Vec<(&SymbolId, &NodeOrigin, Vec<NativeTerm>)>,
@@ -1488,6 +1490,13 @@ impl Adapter<'_> {
         if layout.chain.is_empty() {
             return Ok(levels.into_iter().flatten().collect());
         }
+        // The clauses outside every instance, which the top holds after the outermost instance's
+        // cell.
+        let top = layout
+            .top
+            .iter()
+            .flat_map(|&index| std::mem::take(&mut adapted[index]))
+            .collect::<Vec<_>>();
         // Each instance's cell, innermost first, holds the clauses that lie in it and the cell
         // of the instance inside it.
         let mut inner = None;
@@ -1499,7 +1508,7 @@ impl Adapter<'_> {
                 true,
             ));
         }
-        Ok(inner.into_iter().collect())
+        Ok(inner.into_iter().chain(top).collect())
     }
 
     fn configuration_pattern(

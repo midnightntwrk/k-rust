@@ -920,7 +920,8 @@ fn emit_rule(
 /// that cell, `<hart> .. ... </hart>`: the sentence is about one instance, so all of its clauses
 /// match in that one instance, and cell completion supplies the cells above it and frames the
 /// other instances. A key cell of an enclosing instance the sentence passes a function is
-/// written in that instance's cell, around the instance's own.
+/// written in that instance's cell, around the instance's own. A clause of a cell outside every
+/// instance, which the configuration holds once, is written at the top beside that cell.
 fn emit_configuration_clauses(
     body: &krs_ir::FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     names: &SentenceVariables,
@@ -941,7 +942,8 @@ fn emit_configuration_clauses(
 /// [`DefinitionIndex::clause_layout`](krs_ir_levels::k_surface::DefinitionIndex::clause_layout)
 /// places them: inside the cells of the instances they lie in, each instance's cell holding the
 /// items that lie in it directly, then the cell of the next instance, open on the right for the
-/// instance's other cells; items outside every instance at the top.
+/// instance's other cells; items outside every instance at the top, after the outermost
+/// instance's cell where some item lies in an instance.
 fn emit_in_instances<'c>(
     cells: impl IntoIterator<Item = &'c SymbolId>,
     context: &EmitContext<'_>,
@@ -979,6 +981,10 @@ fn emit_in_instances<'c>(
         writer.push("</");
         writer.push(context.cell_name(instance)?);
         writer.push(">");
+    }
+    for &index in &layout.top {
+        writer.push("\n");
+        emit(index, indent, writer)?;
     }
     Ok(())
 }

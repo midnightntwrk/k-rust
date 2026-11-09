@@ -355,11 +355,6 @@ code = "krs::analysis::collection-entry"
 doc = "an instance record naming a child that is a `?` cell, its presence or absence (`acounter: Some(y)`, `acounter: None`), or a group child's `*` collection (`aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }`): inside one instance it means whether, or which, cells that instance holds there (P1, P2), and no lowering writes it; not supported yet, said at the child"
 advice = "none"
 
-[class.instance-beside-outer-cell]
-code = "krs::analysis::collection-entry"
-doc = "a rule whose cells lie both inside a Map collection's instance, named at the record's level (`apc` of one account, beside the top-level `k`), and outside every instance: it would match the outer cell beside one instance, which K states, but writing the instance's clauses beside an outer one is not supported yet (IC finding 1), said at the outer cell; the instance is matched through its holder's instance list instead"
-advice = "none"
-
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
 doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item other than a name or `_` in an unordered collection's braces (Q2: its instance is chosen by a written record, and a name or `_` is a whole instance, `x @ Decl { .. }`); or, a stated limitation, a List collection rule the product does not lower: one that changes instances at both ends, or keeps a back instance in place (it creates or removes instances at the back, and reads and updates them at the front)"
@@ -1417,11 +1412,6 @@ class = "unmatched-optional-result"
 at = "spelling"
 
 [[refuse]]
-match = 'cells/overwrite/kinds/acode/k::configuration::KCell(x)'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
 match = 'cells/overwrite/kinds/hbag/k::fragment![crate::Hobj \{ hkey: x\, .. \}]'
 class = "collection-without-instances"
 at = "entry"
@@ -1499,11 +1489,6 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/kinds/{aenv,apc}/k::configuration::Cell(x)'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
 match = 'cells/subject/kinds/aacct/k::fragment![crate::Aacct \{ aid: x\, .. \}]'
 class = "collection-without-instances"
 at = "entry"
@@ -1514,19 +1499,9 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/subject/kinds/{aenv,apc}/x'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
 match = 'cells/subject/kinds/bag/x'
 class = "collection-without-instances"
 at = "entry"
-
-[[refuse]]
-match = 'cells/subject/kinds/aacct/\{ k::fragment![crate::Aacct \{ aid: x\, .. \}]\, .. \}'
-class = "instance-beside-outer-cell"
-at = "item"
 
 [[refuse]]
 match = 'init/kinds/{account,bag,env,frame,job,seq,set,stack}/0'
@@ -6879,26 +6854,6 @@ match = 'cells/g4-d/kinds/account/\{ k::fragment![crate::Acct \{ aenv: k::map![v
 class = "anonymous-rest-in-map-literal"
 at = "spelling"
 
-[[refuse]]
-match = 'cells/deep-a/kinds/aa/k::configuration::Cell(x)'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
-match = '{claim,readable}/deep-a/kinds/aa/x'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
-match = 'cells/deep-b/kinds/aa/k::configuration::Cell(x)'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
-match = '{claim,readable}/deep-b/kinds/aa/x'
-class = "instance-beside-outer-cell"
-at = "item"
-
 # G6 (S5.3 part 3): an equation's function context, a context alias and a context keep their
 # `cells!` pattern as they matched it, and S1 (b) holds there as in a rule: an entry naming a cell
 # below a `*` ancestor is refused for the ancestor (`sentence_outcome`).
@@ -6914,11 +6869,6 @@ at = "entry"
 match = 'cells/{g6-function-context,g6-context-alias}/kinds/apc/k::configuration::Cell(x)'
 class = "collection-without-instances"
 at = "entry"
-
-[[refuse]]
-match = 'cells/g6-context/kinds/apc/k::configuration::Cell(x)'
-class = "instance-beside-outer-cell"
-at = "item"
 
 # A kept pattern changes nothing, so it means what a rule with that pattern on both sides means
 # (P0; S5.3 part 3, ruling B): a `?` cell's `None` there creates nothing, at the cell's root and
@@ -6998,16 +6948,6 @@ at = "entry"
 match = '{claim,readable}/path-c/kinds/key/x'
 class = "collection-without-instances"
 at = "entry"
-
-[[refuse]]
-match = 'cells/path-d/kinds/id/k::configuration::Cell(x)'
-class = "instance-beside-outer-cell"
-at = "item"
-
-[[refuse]]
-match = '{claim,readable}/path-d/kinds/id/x'
-class = "instance-beside-outer-cell"
-at = "item"
 
 [[refuse]]
 match = 'cells/path-e/kinds/id/k::configuration::Cell(x)'
@@ -7572,6 +7512,45 @@ rule [case-TAG]:
 <pc> _ => 1 </pc>
 """
 
+[accept."cells/subject/kinds/aacct/{ k::fragment![crate::Aacct { aid: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<account>
+<aacct>
+<aid> V0:Int </aid>
+...
+</aacct>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/kinds/aenv/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<account>
+<aenv> ... </aenv>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/subject/kinds/apc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<account>
+<apc> V0:Int </apc>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."cells/subject/kinds/frame/x"]
 k = """
 rule [case-TAG]:
@@ -7655,6 +7634,30 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."claim/deep-a/kinds/aa/x"]
+k = """
+claim [case-TAG]:
+<account>
+<aa> V0:Int </aa>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/deep-b/kinds/aa/x"]
+k = """
+claim [case-TAG]:
+<account>
+<aa> _ => V0:Int </aa>
+...
+</account>
+<k> cTAG ( V0:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."claim/nochange/kinds/pc/x"]
 k = """
 claim [case-TAG]:
@@ -7671,6 +7674,18 @@ claim [case-TAG]:
 <pc> _ => 0 </pc>
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/path-d/kinds/id/x"]
+k = """
+claim [case-TAG]:
+<account>
+<id> V0:Int </id>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."claim/result/counter/None"]
@@ -8189,6 +8204,30 @@ k = """
 claim [case-TAG]:
 <k> V0:KItem ... </k>
 <pc> _ => 1 </pc>
+"""
+
+[accept."claim/subject/kinds/aenv/x"]
+k = """
+claim [case-TAG]:
+<account>
+<aenv> ... </aenv>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/subject/kinds/apc/x"]
+k = """
+claim [case-TAG]:
+<account>
+<apc> V0:Int </apc>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
@@ -11390,6 +11429,18 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."readable/path-d/kinds/id/x"]
+k = """
+rule [case-TAG]:
+<account>
+<id> V0:Int </id>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."readable/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -11917,6 +11968,30 @@ rule [case-TAG]:
 <pc> _ => 1 </pc>
 """
 same_k_as = ["cells/subject/k/k::configuration::KCell(x, ..)"]
+
+[accept."readable/subject/kinds/aenv/x"]
+k = """
+rule [case-TAG]:
+<account>
+<aenv> ... </aenv>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/subject/kinds/apc/x"]
+k = """
+rule [case-TAG]:
+<account>
+<apc> V0:Int </apc>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
 k = """
@@ -12756,6 +12831,30 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."cells/deep-a/kinds/aa/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<account>
+<aa> V0:Int </aa>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/deep-b/kinds/aa/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<account>
+<aa> _ => V0:Int </aa>
+...
+</account>
+<k> cTAG ( V0:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."readable-run/result/bag/{ Obj { key: k::builtin::int::add(x, 1), m: map![x -> y] }, .. }"]
 k = """
 rule [case-TAG]:
@@ -13127,6 +13226,30 @@ rule [case-TAG]:
 <stack> ... </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/deep-a/kinds/aa/x"]
+k = """
+rule [case-TAG]:
+<account>
+<aa> V0:Int </aa>
+...
+</account>
+<k> cTAG => .K ... </k>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/deep-b/kinds/aa/x"]
+k = """
+rule [case-TAG]:
+<account>
+<aa> _ => V0:Int </aa>
+...
+</account>
+<k> cTAG ( V0:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."readable-run/subject/bag/{ Obj { key: 1, m: map![k::builtin::int::add(0, 1) -> 2] }, .. }"]
@@ -17358,6 +17481,18 @@ context alias [caseTAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."cells/g6-context/kinds/apc/k::configuration::Cell(x)"]
+k = """
+context [case-TAG]:
+<account>
+<apc> V0:Int </apc>
+...
+</account>
+<k> cTAG ( V1:Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."cells/g6-context/kinds/bag/{ k::fragment![crate::Obj { key: x }], .. }"]
 k = """
 context [case-TAG]:
@@ -17510,6 +17645,30 @@ k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
 <prog> .K ... </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/overwrite/kinds/acode/k::configuration::KCell(x)"]
+k = """
+rule [case-TAG]:
+<account>
+<acode> _ => V0:Int </acode>
+...
+</account>
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/path-d/kinds/id/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<account>
+<id> V0:Int </id>
+...
+</account>
+<k> cTAG => .K ... </k>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -17935,11 +18094,6 @@ findings = ["S5-C2"]
 code = "krs::expand::cell-collection-placement"
 docs = "A context alias and an equation's function context read fixed cells only"
 findings = ["S5-Z1"]
-
-[limit.instance-beside-outer-cell]
-code = "krs::analysis::collection-entry"
-message = "a rule whose cells lie both inside an instance and outside every instance is not supported yet"
-findings = ["IC-1"]
 
 [limit.instance-child-multiplicity]
 code = "krs::analysis::collection-entry"

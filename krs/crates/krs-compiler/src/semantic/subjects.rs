@@ -845,19 +845,19 @@ fn matched_paths<'s>(
 /// Refuses each configuration rule whose matched cells no one nesting of instance cells holds,
 /// whether or not the definition has instance contexts. A rule typed by a group matches its own
 /// cells in its one instance, and may name cells of the Map collections' instances inside it,
-/// so it is judged as well: two such collections neither of which holds the other, or a group at
-/// a fixed position beside an instance inside it, have no one nesting either.
+/// so it is judged as well: two such collections neither of which holds the other have no one
+/// nesting either.
 ///
 /// The emitted rule writes each clause inside the cells of the instances it lies in, one nesting
-/// for the whole rule ([`crate::instance_keys::rule_instances`]). Two shapes have no such
-/// nesting, though each means a match K can state:
-/// - cells in instances of two holders neither of which holds the other (a core's computation
-///   cell and a device's cell beside the cores): the rule would match one instance of each;
-/// - a cell inside an instance beside a cell outside every instance (a core's computation cell
-///   and a memory beside the cores): the rule would match the outer cell beside one instance.
-///
-/// Writing those clauses outside one nesting is not supported yet, so each is the author's
-/// refusal, never the emitter's internal error.
+/// for the whole rule ([`crate::instance_keys::rule_instances`]). A cell outside every instance
+/// (a memory beside the cores, or the own cell of a group at a fixed position beside a cell of
+/// an instance inside it) occurs once, so its clause matches that occurrence beside the one
+/// instance of each holder the other clauses match, and is written at the top, beside that
+/// nesting ([`DefinitionIndex::clause_layout`](krs_ir_levels::k_surface::DefinitionIndex::clause_layout)).
+/// Cells in instances of two holders neither of which holds the other (a core's computation cell
+/// and a device's cell beside the cores) have no such nesting, though the rule means a match K
+/// can state: one instance of each. Writing those clauses outside one nesting is not supported
+/// yet, so it is the author's refusal, never the emitter's internal error.
 ///
 /// # Errors
 ///
@@ -899,23 +899,18 @@ fn check_rule_instances(
         if deepest.is_empty() {
             continue;
         }
-        let Some((cell, path, _)) = paths
-            .iter()
-            .find(|(_, path, _)| path.is_empty() || !deepest.starts_with(path))
+        // A cell outside every instance, whose path is empty, lies beside every nesting; so a
+        // path off the deepest one's chain names a holder, as the deepest's does.
+        let Some((cell, path, _)) = paths.iter().find(|(_, path, _)| !deepest.starts_with(path))
         else {
             continue;
         };
         let instance = |path: &[usize]| {
-            path.last().map_or_else(
-                || "a cell outside every instance".to_owned(),
-                |holder| format!("a cell of an instance of {}", holder_text(tree, *holder)),
-            )
+            path.last().map_or_else(String::new, |holder| {
+                format!("a cell of an instance of {}", holder_text(tree, *holder))
+            })
         };
-        let shape = if path.is_empty() {
-            "the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration"
-        } else {
-            "neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration"
-        };
+        let shape = "neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration";
         return Err(DescriptorLoweringError::GroupInstance {
             code: krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
             reason: format!(

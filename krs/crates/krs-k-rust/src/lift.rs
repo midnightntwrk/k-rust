@@ -1890,8 +1890,9 @@ fn cell_items(body: &Term) -> Vec<&Term> {
 /// `?` or `*` cell, is about one instance, so its clauses are written inside that instance's
 /// cell, open on the right, nested in the cells of the enclosing instances it names, each
 /// instance's cell holding the clauses that lie in it directly and then the cell of the next
-/// instance; the clauses of a rule whose cells lie in no instance are written at the top; each
-/// clause as the items [`written_items`] counts. Mentioning an instance's cells this way is the
+/// instance, and the clauses of its cells outside every instance at the top after the outermost
+/// instance's cell; the clauses of a rule whose cells lie in no instance are written at the top;
+/// each clause as the items [`written_items`] counts. Mentioning an instance's cells this way is the
 /// footprint, not a change of it. The body must hold exactly that placement: an instance cell
 /// missing, added, or holding another instance's cell, or a cell added or dropped at some level,
 /// changes the cells (or instances) the rule reads or writes, and is refused. What this reads of
@@ -1933,10 +1934,12 @@ fn clause_items<'t, T>(
         assign(top, items, clauses, &mut groups)?;
         return Ok(groups);
     }
-    // The top holds the outermost instance's cell alone.
-    let &[mut cell] = items.as_slice() else {
+    // The top holds the outermost instance's cell, then the clauses outside every instance.
+    let Some((&first, rest)) = items.split_first() else {
         return Err(footprint());
     };
+    assign(&layout.top, rest.to_vec(), clauses, &mut groups)?;
+    let mut cell = first;
     for (position, (instance, level)) in layout.chain.iter().zip(&layout.levels).enumerate() {
         let name = definition.cell_name(instance).ok_or_else(|| {
             Refusal::NotJudged(NotJudged::Sentence(format!("instance cell {instance}")))

@@ -50,6 +50,16 @@ the outcomes must agree:
   two equal instances, which a set never holds, and guards; each program ends
   with the same computation cell and the same `<objects>` and `<sacks>`
   contents on both routes (NT-10);
+- `shared-memory`: cores in a Map collection keyed by `cid`, beside one
+  memory outside every instance. `load` and `peek` are clauses for an
+  instruction, steps of one core, that read the memory: each emitted rule
+  writes the memory's clause at the top, after the core's `<core> .. ...
+  </core>`, and `peek` passes the core's key to `cidPlus`, whose function
+  context reads the core's id. `store` and `mark` write the memory from
+  rules for the configuration over the cores' instance list. A stored value
+  is loaded back, a spawned core 1 peeks 5 + 1 and core 0 joins it, and a
+  search of two cores marking one address reaches every order of the marks,
+  on both routes, each compiling the same `definition.kore`;
 - `queue`: a `cell_type = "List"` collection where `enqueue` appends at
   the back and `dequeue` removes the front, so jobs leave first in first
   out; the emitted back rewrite names the leading instances `_Instances1:Bag`.
@@ -421,6 +431,40 @@ SET_INSTANCES_PROGRAMS = (
         "bagc-other-key", "mkb 5 bagc 5", "accepted", "bagc 5",
         cells=(("objects", ".ObjCellSet"), ("sacks", "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>")),
     ),
+)
+
+SHARED_MEMORY = Fixture(MANIFEST, "krs-configuration-cells-shared-memory")
+SHARED_MEMORY_PROGRAMS = (
+    Program("store-load", "store ( 0 , 5 ) ; load ( 0 )", "accepted", "5", cells=(("mem", "0 |-> 5"),)),
+    # Core 1 reads 5 and adds its own id; core 0 takes the 6 it ends with.
+    Program(
+        "peek", "store ( 0 , 5 ) ; spawn { peek ( 0 ) } ; join ( 1 )", "accepted", "6",
+        search=("6",), cells=(("mem", "0 |-> 5"),),
+    ),
+    # Core 1 marks 1 and loads; core 0 marks 0 before core 1's mark, between it and the load,
+    # or after the load: core 1 reads 1, 0 and 1.
+    Program(
+        "race", "spawn { mark ( 0 ) ; load ( 0 ) } ; mark ( 0 ) ; join ( 1 )", "accepted", None,
+        search=("0", "1", "1"),
+    ),
+)
+# A clause for an instruction that reads the memory: the computation's clause inside the core,
+# the memory's at the top after the core's cell, and the core's key passed where `cidPlus` reads
+# the core.
+SHARED_MEMORY_K = (
+    "  rule [load]:\n"
+    "    <core>\n"
+    "        <k> load ( Addr:Int ) => V:Int ... </k>\n"
+    "        ...\n"
+    "    </core>\n"
+    "    <mem> Addr:Int |-> V:Int ... </mem>\n",
+    "  rule [peek]:\n"
+    "    <core>\n"
+    "        <k> peek ( Addr:Int ) => cidPlus ( V:Int ) #instance ( Krs_KeyCore:Int ) ... </k>\n"
+    "        <cid> Krs_KeyCore:Int </cid>\n"
+    "        ...\n"
+    "    </core>\n"
+    "    <mem> Addr:Int |-> V:Int ... </mem>\n",
 )
 
 QUEUE = Fixture(MANIFEST, "krs-configuration-cells-queue")
@@ -863,6 +907,15 @@ def main() -> int:
         print(
             "PASS set-instances: computed ids, hits, and set and map cells select the same Set instances "
             "on both routes"
+        )
+
+        harness.compare(
+            verify_emitted(harness, SHARED_MEMORY, SHARED_MEMORY_K), SHARED_MEMORY_PROGRAMS,
+            sort="Prog", search=True, kore=True,
+        )
+        print(
+            "PASS shared-memory: a core's step reads the memory beside the cores, its clause at the top; "
+            "peek passes the core's key; the race reaches every order of the marks on both routes"
         )
 
         harness.compare(verify_emitted(harness, QUEUE, QUEUE_K), QUEUE_PROGRAMS, sort="Stmt", search=True)

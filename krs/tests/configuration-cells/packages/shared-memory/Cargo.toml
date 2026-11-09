@@ -1,0 +1,21 @@
+[package]
+name = "krs-configuration-cells-shared-memory"
+description = "Cores in a Map collection whose rules read and write one memory beside the cores"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_shared_memory"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SHARED-MEMORY"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

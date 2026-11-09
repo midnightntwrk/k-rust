@@ -4730,21 +4730,18 @@ fn an_edit_of_an_entry_that_steps_one_instance_is_judged_as_that_instances_rule(
 
 /// The clauses of [`a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet`]:
 /// a table clause at the main cell, inside a core, whose `have` reads a
-/// device's map, beside the cores, or the memory, outside every instance.
-const UNNESTED_CASES: [(&str, &str); 2] = [
-    ("sibling", "have denv[0 -> let v]"),
-    ("top-level", "have mem[0 -> let v]"),
-];
+/// device's map, beside the cores.
+const UNNESTED_CASES: [(&str, &str); 1] = [("sibling", "have denv[0 -> let v]")];
 
 /// A rule whose cells lie in instances of two holders neither of which holds
-/// the other (a core's computation cell and a device's map), or both inside
-/// an instance and outside every instance (a core's computation cell and the
-/// memory), would match one instance of each, or the memory beside one core:
-/// no one nesting of instance cells holds its clauses, and writing them
-/// otherwise is not supported yet. Each is refused at the cell that leaves
-/// the core (`collection-entry`), the same whether or not the definition has
-/// a function context typed by a group in an instance, never with the
-/// emitter's internal error.
+/// the other (a core's computation cell and a device's map) would match one
+/// instance of each: no one nesting of instance cells holds its clauses, and
+/// writing them otherwise is not supported yet. It is refused at the cell that
+/// leaves the core (`collection-entry`), the same whether or not the
+/// definition has a function context typed by a group in an instance, never
+/// with the emitter's internal error. A cell outside every instance beside a
+/// core's is no such rule
+/// ([`a_step_of_one_instance_matches_a_cell_outside_every_instance_beside_it`]).
 #[test]
 fn a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet() {
     let target = shared_fixture_target();
@@ -4781,15 +4778,331 @@ fn a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet() {
                 "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
                 "--> smt/src/lib.rs: `denv[0 -> let v]`",
             ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// One case of [`a_step_of_one_instance_matches_a_cell_outside_every_instance_beside_it`]: its
+/// name, its sentences after [`SMT`], [`TV_PLUS`] and [`CID_PLUS`], and the start of the sentence
+/// it reports.
+struct TopCase {
+    name: &'static str,
+    sentences: String,
+    start: &'static str,
+}
+
+/// The cases of [`a_step_of_one_instance_matches_a_cell_outside_every_instance_beside_it`]: a
+/// core's step that also matches the memory, outside every instance, in each spelling and
+/// position, and its neighbours.
+fn top_cases() -> Vec<TopCase> {
+    let instr = |clause: &str| {
+        format!("k::rules! {{\n    for lib::Instr;\n    use Step::*;\n\n    {clause}\n}}\n")
+    };
+    let core =
+        |rule: &str| format!("k::rules! {{\n    for Core;\n    use Step::*;\n\n    {rule}\n}}\n");
+    let rule = "rule [go]:";
+    [
+        ("have", instr("go: Go() => Done { n: crate::CidPlus(v) } where have mem[0 -> let v];"), rule),
+        (
+            "record",
+            configuration_record(
+                "go: { k: [Go(), ..], mem: { 0 -> v, .. } } => { k: [Done { n: crate::CidPlus(v) }, ..] };",
+            ),
+            rule,
+        ),
+        (
+            "cells",
+            configuration_cells(
+                "v: k::Term<k::builtin::Int>,",
+                "mem: k::configuration::Cell(k::map![0 -> v, ..]),",
+                "crate::CidPlus(v)",
+                "",
+            ),
+            rule,
+        ),
+        (
+            "stepping-entry",
+            configuration_record(
+                "go: { core: { me @ Core { k: [Go(), ..], .. }, .. }, mem: { 0 -> v, .. } } => { core: { Core { k: [Done { n: crate::CidPlus(v) }, ..], ..me }, .. } };",
+            ),
+            rule,
+        ),
+        (
+            "have-update",
+            instr("go: Go() => Done { n: crate::CidPlus(1) } where update mem = k::builtin::map::update(mem, 0, 4);"),
+            rule,
+        ),
+        (
+            "record-update",
+            configuration_record(
+                "go: { k: [Go(), ..], mem } => { k: [Done { n: crate::CidPlus(1) }, ..], mem: k::builtin::map::update(mem, 0, 4) };",
+            ),
+            rule,
+        ),
+        (
+            "have-thread",
+            instr("go: Go() => Done { n: crate::TvPlus(k::builtin::int::add(a, b)) } where have tenv[0 -> let a], have mem[0 -> let b];"),
+            rule,
+        ),
+        (
+            "have-thread-call",
+            instr("go: Go() => Done { n: crate::TvPlus(v) } where have mem[0 -> let v];"),
+            rule,
+        ),
+        (
+            "record-devices",
+            configuration_record(
+                "go: { k: [Go(), ..], dev: { Dev { did: 0, denv: { 0 -> v, .. } }, .. } } => { k: [Done { n: crate::CidPlus(v) }, ..] };",
+            ),
+            rule,
+        ),
+        (
+            "context",
+            r"
+#[k::context(hole = h)]
+fn done_arg(
+    h: Int,
+    k::cells! {
+        crate::Core::k: k::configuration::KCell(crate::Step::Done(h), ..),
+        mem: k::configuration::Cell(k::map![0 -> 11, ..]),
+        state @ ..
+    }: crate::Smt,
+) {}
+"
+            .to_owned(),
+            "context [done-arg]:",
+        ),
+        (
+            "group",
+            core("go: { k: [Go(), ..], mem: { 0 -> v, .. } } => { k: [Done { n: v }, ..] };"),
+            rule,
+        ),
+    ]
+    .into_iter()
+    .map(|(name, sentences, start)| TopCase {
+        name,
+        sentences,
+        start,
+    })
+    .collect()
+}
+
+/// A cell outside every instance occurs once in the configuration, so a rule whose other cells
+/// lie in one core (a clause at its main cell whose `have` or `update` names the memory beside
+/// the cores) matches that core and the one memory beside it: it is a step of the core, inside
+/// it, passing its key to `cidPlus`, and its memory clause is written at the top, after the
+/// core's cell. The clause, the rule for the configuration naming `k` and `mem` flat, and that
+/// rule's `cells!` spelling emit one rule and run to `done ( 11 )` (memory `0 |-> 11`, core 0);
+/// the rule whose instance list steps the core beside the memory matches the same, up to how its
+/// computation's rest is named, with the same run. Writing the memory is the same in both
+/// spellings and leaves `0 |-> 4`. Beside a thread's map the rule is inside the thread too and
+/// passes both keys (`done ( 23 )`); without one it is inside no thread, so `tvPlus` is refused.
+/// A devices' instance list at the top and a `#[k::context]` naming the core's `k` and the memory
+/// are written the same way. A rule for `Core` cannot name the memory, which is no cell of the
+/// group. `krs expand` prints each clause as the flat `cells!` rule for the configuration, and the
+/// print checks and emits the clause's K.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The cases, their runs, the comparison of the spellings and the prints read as one table."
+)]
+fn a_step_of_one_instance_matches_a_cell_outside_every_instance_beside_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cases = top_cases();
+    let mut accepted = Vec::new();
+    let outcomes = cases
+        .iter()
+        .map(|case| {
+            let manifest = instance_definitions(
+                &temporary.path().join(case.name),
+                "",
+                &[(
+                    "smt",
+                    &format!("{SMT}{TV_PLUS}{CID_PLUS}{}", case.sentences),
+                )],
+            )
+            .remove(0);
+            let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
+            let mut report = vec![case.name.to_owned()];
+            if !success {
+                report.extend(check_report(target.path(), &manifest, "smt"));
+                return report;
+            }
+            let flat = emitted(target.path(), &manifest, "smt");
+            let sentence = sentence(&flat, case.start).to_owned();
+            report.push(sentence.clone());
+            if case.start != "rule [go]:" {
+                return report;
+            }
+            let path = manifest.with_file_name("program.txt");
+            fs::write(&path, "go").unwrap();
+            let (success, stdout, stderr) = krs_on(
+                target.path(),
+                &manifest,
+                "smt",
+                "run",
+                &[path.to_str().unwrap()],
+            );
+            assert!(success, "{}:\n{stdout}\n{stderr}", case.name);
+            let stdout = whitespace(&stdout);
+            let run = (cell(&stdout, "k"), cell(&stdout, "mem"));
+            report.push(format!("{} / mem {}", run.0, run.1));
+            accepted.push((case.name, manifest, sentence, run));
+            report
+        })
+        .collect::<Vec<_>>();
+    let find = |name: &str| {
+        accepted
+            .iter()
+            .find(|(accepted, ..)| *accepted == name)
+            .unwrap_or_else(|| panic!("{name} is refused: {outcomes:#?}"))
+    };
+    for names in [
+        &["have", "record", "cells"][..],
+        &["have-update", "record-update"],
+    ] {
+        let (_, _, first, run) = find(names[0]);
+        for name in &names[1..] {
+            let (_, _, rule, other) = find(name);
+            assert_eq!(rule, first, "{name}");
+            assert_eq!(other, run, "{name}");
+        }
+    }
+    // The stepping entry keeps the computation's rest under a name and writes its clauses in the
+    // order the rule names them: the same cells, the same key, the same run.
+    let (_, _, stepped, stepped_run) = find("stepping-entry");
+    let (_, _, flat_rule, flat_run) = find("have");
+    let items = |rule: &str| {
+        let mut items = rule
+            .replace(" ~> Tail0:K =>", " =>")
+            .replace(" ~> Tail0:K </k>", " ... </k>")
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        items.sort();
+        items
+    };
+    assert_eq!(items(stepped), items(flat_rule));
+    assert_eq!(stepped_run, flat_run);
+    // Each clause's print is the flat rule for the configuration, which checks and emits the
+    // clause's rule.
+    let mut prints = Vec::new();
+    for name in ["have", "have-update", "have-thread"] {
+        let (_, manifest, ..) = find(name);
+        let (success, print, stderr) = krs_on(target.path(), manifest, "smt", "expand", &[]);
+        assert!(success, "{name}:\n{stderr}");
+        prints.push(format!("// {name}\n{}", printed_rule(&print, "go")));
+        let printed = instance_definitions(
+            &temporary.path().join(format!("{name}-printed")),
+            "",
+            &[("smt", &print)],
+        )
+        .remove(0);
+        assert_print_emits_the_readable_k(target.path(), manifest, &printed, "smt", &["go"]);
+    }
+    expect_test::expect![[r#"
+        // have
+        #[k::rule(label = "go")]
+        pub fn go(
+            v: k::Term<k::builtin::Int>,
+            k::cells! {
+                crate ::Core::k : k::configuration::KCell(crate ::Step::Go(), ..), mem :
+                k::configuration::Cell(map![0 -> v, ..]), state @ ..
+            }: crate::Smt,
+        ) -> crate::Smt {
+            k::cells! {
+                crate ::Core::k : k::configuration::KCell(crate ::Step::Done(crate ::CidPlus(v)),
+                ..), ..state
+            }
+        }
+        // have-update
+        #[k::rule(label = "go")]
+        pub fn go(
+            mem: k::Term<k::builtin::Map>,
+            k::cells! {
+                crate ::Core::k : k::configuration::KCell(crate ::Step::Go(), ..), mem :
+                k::configuration::Cell(mem), state @ ..
+            }: crate::Smt,
+        ) -> crate::Smt {
+            k::cells! {
+                crate ::Core::k : k::configuration::KCell(crate ::Step::Done(crate ::CidPlus(1)),
+                ..), mem : k::configuration::Cell(k::builtin::map::update(mem, 0, 4)), ..state
+            }
+        }
+        // have-thread
+        #[k::rule(label = "go")]
+        pub fn go(
+            a: k::Term<k::builtin::Int>,
+            b: k::Term<k::builtin::Int>,
+            k::cells! {
+                crate ::Core::k : k::configuration::KCell(crate ::Step::Go(), ..), crate
+                ::Thread::tenv : k::configuration::Cell(map![0 -> a, ..]), mem :
+                k::configuration::Cell(map![0 -> b, ..]), state @ ..
+            }: crate::Smt,
+        ) -> crate::Smt {
+            k::cells! {
+                crate ::Core::k : k::configuration::KCell(crate ::Step::Done(crate
+                ::TvPlus(k::builtin::int::add(a, b))), ..), ..state
+            }
+        }"#]]
+    .assert_eq(&prints.join("\n"));
+    expect_test::expect![[r#"
+        [
             [
-                "top-level, contexts",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
-                "--> smt/src/lib.rs: `mem[0 -> let v];`",
+                "have",
+                "rule [go]: <core> <k> go => done ( cidPlus ( V:Int ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core> <mem> 0 |-> V:Int ... </mem>",
+                "done ( 11 ) ~> .K / mem 0 |-> 11",
             ],
             [
-                "top-level, no contexts",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
-                "--> smt/src/lib.rs: `mem[0 -> let v];`",
+                "record",
+                "rule [go]: <core> <k> go => done ( cidPlus ( V:Int ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core> <mem> 0 |-> V:Int ... </mem>",
+                "done ( 11 ) ~> .K / mem 0 |-> 11",
+            ],
+            [
+                "cells",
+                "rule [go]: <core> <k> go => done ( cidPlus ( V:Int ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core> <mem> 0 |-> V:Int ... </mem>",
+                "done ( 11 ) ~> .K / mem 0 |-> 11",
+            ],
+            [
+                "stepping-entry",
+                "rule [go]: <mem> 0 |-> V:Int ... </mem> <core> <k> go ~> Tail0:K => done ( cidPlus ( V:Int ) #instance ( Krs_KeyCore:Int ) ) ~> Tail0:K </k> <cid> Krs_KeyCore:Int </cid> ... </core>",
+                "done ( 11 ) ~> .K / mem 0 |-> 11",
+            ],
+            [
+                "have-update",
+                "rule [go]: <core> <k> go => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core> <mem> Mem:Map => Mem:Map [ 0 <- 4 ] </mem>",
+                "done ( 1 ) ~> .K / mem 0 |-> 4",
+            ],
+            [
+                "record-update",
+                "rule [go]: <core> <k> go => done ( cidPlus ( 1 ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core> <mem> Mem:Map => Mem:Map [ 0 <- 4 ] </mem>",
+                "done ( 1 ) ~> .K / mem 0 |-> 4",
+            ],
+            [
+                "have-thread",
+                "rule [go]: <core> <k> go => done ( tvPlus ( A:Int +Int B:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> A:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core> <mem> 0 |-> B:Int ... </mem>",
+                "done ( 23 ) ~> .K / mem 0 |-> 11",
+            ],
+            [
+                "have-thread-call",
+                "error[krs::analysis::instance-context-caller]: `TvPlus` reads the cell group `Thread` through its function context in one instance of the Map collection cell `thread`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smt/src/lib.rs: `crate::TvPlus(v)`",
+            ],
+            [
+                "record-devices",
+                "rule [go]: <core> <k> go => done ( cidPlus ( V:Int ) #instance ( Krs_KeyCore:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> ... </core> <dev> <did> 0 </did> <denv> 0 |-> V:Int ... </denv> </dev>",
+                "done ( 13 ) ~> .K / mem 0 |-> 11",
+            ],
+            [
+                "context",
+                "context [done-arg]: <core> <k> done ( HOLE:Int ) ... </k> ... </core> <mem> 0 |-> 11 ... </mem>",
+            ],
+            [
+                "group",
+                "error[krs::analysis::cell-outside-subject]: `Core` has no cell `mem`: a sentence about the cell group `Core` names only the cells inside the group, and `mem` is another cell of configuration `Smt`; write the sentence for `Smt` to name it",
+                "--> smt/src/lib.rs: `mem: { 0 -> v, .`",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
@@ -5048,9 +5361,9 @@ fn smt_fixed_core() -> String {
 /// instance, and run to `done ( 12 )`; without the call the record matches what the `have` form
 /// matches and ends at `done ( 7 )`. Naming the thread's key cell matches its key, which the
 /// call is then passed, and writing another key is refused, as for the group's own key. A
-/// device's cell is no cell of the group, and a core at a fixed position beside an instance of
-/// its threads has no one nesting of instance cells: both stay refused, the latter in the `have`
-/// form too.
+/// device's cell is no cell of the group, and stays refused. A core at a fixed position lies
+/// outside every instance, so its `k` beside a thread's `tenv` is matched once beside that
+/// thread, inside which the rule is, in the record and the `have` form alike.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -5164,6 +5477,7 @@ fn a_record_naming_a_cell_of_a_nested_instance_is_inside_it() {
         }
     }
     alike(&["have-no-call", "record-no-call"]);
+    alike(&["record-fixed-core", "have-fixed-core"]);
     expect_test::expect![[r#"
         [
             [
@@ -5213,13 +5527,13 @@ fn a_record_naming_a_cell_of_a_nested_instance_is_inside_it() {
             ],
             [
                 "record-fixed-core",
-                "error[krs::analysis::collection-entry]: the rule matches `tenv`, a cell of an instance of the Map collection cell `thread`, and `k`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
-                "--> smt/src/lib.rs: `Go(), ..], tenv:`",
+                "rule [go]: <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyThread:Int ) ) ... </k>",
+                "done ( 12 ) ~> .K",
             ],
             [
                 "have-fixed-core",
-                "error[krs::analysis::collection-entry]: the rule matches `tenv`, a cell of an instance of the Map collection cell `thread`, and `k`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
-                "--> smt/src/lib.rs: `Go() => Done { n`",
+                "rule [go]: <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyThread:Int ) ) ... </k>",
+                "done ( 12 ) ~> .K",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
@@ -5578,8 +5892,8 @@ fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
             ],
             [
                 "configuration-k-mem",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `mem`, a cell outside every instance: the rule would match the outer cell beside one instance, and a rule whose cells lie both inside an instance and outside every instance is not supported yet; match the instance through its holder's instance list in a rule for the configuration",
-                "--> smt/src/lib.rs: `mem: { 0 -> v, .`",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> ... </core> <mem> 0 |-> V:Int ... </mem>",
+                "done ( 11 ) ~> .K",
             ],
             [
                 "configuration-k-device",

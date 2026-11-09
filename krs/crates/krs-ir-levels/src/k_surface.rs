@@ -143,11 +143,16 @@ impl<'a> DefinitionIndex<'a> {
     /// each clause is written inside the cell of the instance it lies in, nested in the cells
     /// of the enclosing instances the sentence names, or at the top.
     ///
+    /// A cell outside every instance occurs once in the configuration, so its clause matches that
+    /// occurrence wherever the instance clauses match: a rule that matches a core's computation
+    /// and the memory beside the cores is a step of one core that reads or writes the one memory.
+    /// The instances are those of the cells inside an instance alone; a cell outside every
+    /// instance adds none, and its clause is written at the top ([`Self::clause_layout`]).
+    ///
     /// # Errors
     ///
-    /// Returns [`MixedInstances`] for two cells that lie in no one chain of nested instances, or
-    /// one in an instance and one outside every instance: no nesting of instance cells holds
-    /// both.
+    /// Returns [`MixedInstances`] for two cells inside instances that lie in no one chain of
+    /// nested instances: no nesting of instance cells holds both.
     pub fn sentence_instances<'c>(
         &self,
         cells: impl IntoIterator<Item = &'c SymbolId>,
@@ -160,14 +165,14 @@ impl<'a> DefinitionIndex<'a> {
             return Ok(Vec::new());
         };
         let mut outermost = chain.len();
-        for (cell, other) in &chains {
-            if other.is_empty() != chain.is_empty() || !chain.starts_with(other) {
+        for (cell, other) in chains.iter().filter(|(_, other)| !other.is_empty()) {
+            if !chain.starts_with(other) {
                 return Err(MixedInstances {
                     first: (*deepest).clone(),
                     other: (*cell).clone(),
                 });
             }
-            outermost = outermost.min(other.len().saturating_sub(1));
+            outermost = outermost.min(other.len() - 1);
         }
         Ok(chain[outermost.min(chain.len())..].to_vec())
     }
@@ -176,7 +181,9 @@ impl<'a> DefinitionIndex<'a> {
     /// inside the cells of the instances they lie in ([`Self::sentence_instances`]), each
     /// instance's cell holding the clauses that lie in it directly, in clause order, then the
     /// cell of the next instance, open on the right for the instance's other cells; or at the
-    /// top, every clause in order, where they lie in no instance.
+    /// top, every clause in order, where they lie in no instance. The clauses of cells outside
+    /// every instance beside those inside one ([`ClauseLayout::top`]) are written at the top,
+    /// beside the outermost instance's cell, after it.
     ///
     /// # Errors
     ///
@@ -187,10 +194,10 @@ impl<'a> DefinitionIndex<'a> {
     ) -> Result<ClauseLayout<'_>, MixedInstances> {
         let cells = cells.into_iter().collect::<Vec<_>>();
         let chain = self.sentence_instances(cells.iter().copied())?;
-        let levels = if chain.is_empty() {
-            vec![(0..cells.len()).collect()]
+        let (levels, top) = if chain.is_empty() {
+            (vec![(0..cells.len()).collect()], Vec::new())
         } else {
-            chain
+            let levels = chain
                 .iter()
                 .map(|instance| {
                     cells
@@ -200,9 +207,16 @@ impl<'a> DefinitionIndex<'a> {
                         .map(|(index, _)| index)
                         .collect()
                 })
-                .collect()
+                .collect();
+            let top = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, cell)| self.instance_holder(cell).is_none())
+                .map(|(index, _)| index)
+                .collect();
+            (levels, top)
         };
-        Ok(ClauseLayout { chain, levels })
+        Ok(ClauseLayout { chain, levels, top })
     }
 
     /// The instances `cell` lies in, outermost first ([`Self::instance_holder`], then the
@@ -293,6 +307,11 @@ pub struct ClauseLayout<'a> {
     /// The clauses each level holds directly, by index, in clause order: one level, the top,
     /// where `chain` is empty, else one for each instance of `chain`, in its order.
     pub levels: Vec<Vec<usize>>,
+    /// Where `chain` is not empty, the clauses outside every instance, by index, in clause order:
+    /// a cell the configuration holds once, matched beside the one instance of each holder the
+    /// other clauses match, and written at the top after the outermost instance's cell. Empty
+    /// where `chain` is, whose one level is the top.
+    pub top: Vec<usize>,
 }
 
 /// The number of items a clause is written as among the cells of its level
@@ -415,13 +434,13 @@ pub fn stepped_instance_layout<C, T>(
     })
 }
 
-/// Two cells of one sentence that lie in different instances
+/// Two cells of one sentence that lie in instances on no one chain of nested instances
 /// ([`DefinitionIndex::sentence_instances`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MixedInstances {
-    /// The sentence's first cell.
+    /// A cell of the sentence that lies deepest.
     pub first: SymbolId,
-    /// A later cell that lies in another instance than `first`, or in none.
+    /// A cell that lies in an instance whose chain is no part of `first`'s.
     pub other: SymbolId,
 }
 
