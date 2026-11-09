@@ -1318,7 +1318,7 @@ fn readable_form_step(
             // literal in any term.
             let error = if located.refusal == Refusal::AnonymousRestInMapLiteral {
                 error.with_help(
-                    "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a map's entries with `{ k -> v, .. }`",
+                    "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a cell's map with `{ k -> v, .. }`, and a map in a term with `map![k -> v, ..]`",
                 )
             } else {
                 error

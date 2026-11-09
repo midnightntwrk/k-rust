@@ -2244,6 +2244,15 @@ fn collect_pattern_names(term: &DescriptorTerm, names: &mut BTreeSet<String>) {
                 collect_pattern_names(&field.value, names);
             }
         }
+        DescriptorTerm::MapEntries { entries, rest, .. } => {
+            for entry in entries {
+                collect_pattern_names(&entry.key, names);
+                collect_pattern_names(&entry.value, names);
+            }
+            if let Some(rest) = rest {
+                collect_pattern_names(rest, names);
+            }
+        }
         _ => {}
     }
 }

@@ -109,7 +109,7 @@ pub(crate) fn entry_head_collection(head: &Path) -> Option<&'static str> {
 }
 
 /// Why a built map's rest is no anonymous `..`.
-const ANONYMOUS_MAP_REST: &str = "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` pattern's entry";
+const ANONYMOUS_MAP_REST: &str = "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `map![k -> v, ..]`, and a readable record with `{ k -> v, .. }`";
 
 /// Why a built set's rest is no anonymous `..`.
 const ANONYMOUS_SET_REST: &str = "in a term, `set![..]` is a literal, and its rest is the set its elements join, `set![x, ..s]`; an anonymous `..` names no set. A pattern matches a set's elements with `set::concat(set::item(x), rest)`";
@@ -129,6 +129,147 @@ fn literal_error(reason: impl Into<String>, span: Span) -> SyntaxError {
         },
         span,
     )
+}
+
+/// The rest of a map pattern ([`pattern_parts`]).
+pub(crate) enum PatternRest {
+    /// `..`: the map's other entries, unnamed.
+    Anonymous(Token![..]),
+    /// `name @ ..`: the map's other entries, named.
+    Named {
+        /// The name.
+        binding: Ident,
+        /// The `..` it names.
+        dots: Token![..],
+    },
+}
+
+/// A map literal in a pattern read as the entries it matches: each entry's key and value tokens,
+/// and its rest.
+pub(crate) struct PatternParts {
+    /// Each entry's key and value, as authored.
+    pub(crate) entries: Vec<(TokenStream, TokenStream)>,
+    /// The rest, last; `None` when the entries are the whole map.
+    pub(crate) rest: Option<PatternRest>,
+}
+
+/// The entries and rest of `literal`, a `map![..]` in a pattern, when it is a map pattern
+/// (`TermTree::MapEntries`): one or more entries `key -> value` and a rest `rest @ ..` or `..`,
+/// or none. `None` for what the pattern holds as the term it builds: `map![]`, the empty map, and
+/// a literal written over a base, `map![k -> v, ..m]`, the update `m[k <- v]`.
+///
+/// A pattern reads a map by its entries: it holds an entry at each key, the keys pairwise
+/// different, and its rest is the map without them. Two keys written as the same term could
+/// never differ, so such a pattern never matches: a syntax error, as in a `cells!` map.
+///
+/// # Errors
+///
+/// Returns [`SyntaxErrorKind::InvalidExpressionNotation`] for a malformed entry, a key written
+/// twice, a rest that is not last, and a rest with no entry, which is the whole map (`_` or the
+/// name).
+pub(crate) fn pattern_parts(literal: &Macro) -> Result<Option<PatternParts>, SyntaxError> {
+    if literal_collection(&literal.path) != Some(Collection::Map) {
+        return Ok(None);
+    }
+    let parser =
+        |input: ParseStream<'_>| -> syn::Result<Result<Option<PatternParts>, SyntaxError>> {
+            let parts = read_pattern_parts(input);
+            // A mistake is reported where it is found, and a literal the pattern holds as the term
+            // it builds is read again whole: the tokens after either are not read here.
+            if !matches!(parts, Ok(Some(_))) {
+                input.parse::<TokenStream>()?;
+            }
+            Ok(parts)
+        };
+    parser.parse2(literal.tokens.clone())?
+}
+
+fn read_pattern_parts(input: ParseStream<'_>) -> Result<Option<PatternParts>, SyntaxError> {
+    let mut entries = Vec::new();
+    let mut keys: Vec<String> = Vec::new();
+    let mut rest = None;
+    while !input.is_empty() {
+        // A base `..m` makes the literal the update it is.
+        if input.peek(Token![..]) && !is_anonymous_rest(input) {
+            return Ok(None);
+        }
+        if input.peek(Token![..]) {
+            rest = Some(PatternRest::Anonymous(
+                input.parse::<Token![..]>().map_err(SyntaxError::from)?,
+            ));
+        } else if input.peek(Ident) && input.peek2(Token![@]) && input.peek3(Token![..]) {
+            let binding = input.parse::<Ident>().map_err(SyntaxError::from)?;
+            input.parse::<Token![@]>().map_err(SyntaxError::from)?;
+            let dots = input.parse::<Token![..]>().map_err(SyntaxError::from)?;
+            rest = Some(PatternRest::Named { binding, dots });
+        }
+        if let Some(found) = &rest {
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+            }
+            if !input.is_empty() {
+                let dots = match found {
+                    PatternRest::Anonymous(dots) | PatternRest::Named { dots, .. } => dots,
+                };
+                return Err(literal_error(
+                    "the rest `rest @ ..` of a map pattern comes last: it is the map without the entries written before it",
+                    dots.spans[0],
+                ));
+            }
+            break;
+        }
+        let key_start = input.cursor();
+        let (key, _) = parse_map_entry_key(input)?;
+        let key_tokens = crate::term::tokens_between(key_start, input.cursor());
+        input.parse::<Token![->]>().map_err(SyntaxError::from)?;
+        let value_start = input.cursor();
+        input
+            .call(crate::term::parse_term_pattern)
+            .map_err(SyntaxError::from)?;
+        let value_tokens = crate::term::tokens_between(value_start, input.cursor());
+        // The entries are distinct entries of the map, so two keys that are the same term can
+        // never both match; two `_` keys match two distinct entries.
+        let text = key.to_token_stream().to_string();
+        if text != "_" && keys.contains(&text) {
+            return Err(literal_error(
+                "a map pattern names one key twice; its entries are distinct entries of the map, so no map matches it",
+                key.span(),
+            ));
+        }
+        keys.push(text);
+        entries.push((key_tokens, value_tokens));
+        if !input.is_empty() {
+            input.parse::<Token![,]>().map_err(|_| {
+                literal_error(
+                    "expected `,` between the entries of a `map![..]`",
+                    input.span(),
+                )
+            })?;
+        }
+    }
+    if entries.is_empty() {
+        return match rest {
+            None => Ok(None),
+            Some(PatternRest::Anonymous(dots)) => Err(literal_error(
+                "`map![..]` names no entry: it matches every map, which `_` says",
+                dots.spans[0],
+            )),
+            Some(PatternRest::Named { binding, .. }) => Err(literal_error(
+                format!(
+                    "`map![{binding} @ ..]` names no entry: it is the whole map `{binding}`, so write `{binding}`"
+                ),
+                binding.span(),
+            )),
+        };
+    }
+    Ok(Some(PatternParts { entries, rest }))
+}
+
+/// Whether the next tokens are an anonymous rest `..`, which ends the literal or a comma
+/// follows, rather than a base `..m`.
+fn is_anonymous_rest(input: ParseStream<'_>) -> bool {
+    let fork = input.fork();
+    fork.parse::<Token![..]>().is_ok() && (fork.is_empty() || fork.peek(Token![,]))
 }
 
 /// One written entry: a map's `key -> value` or a set's element, with its
@@ -381,6 +522,14 @@ fn read_parts(collection: Collection, input: ParseStream<'_>) -> Result<Parts, S
 /// in a turbofish `Wrap::<A, B>(x)`, is the key's; a comma that separates
 /// what no arrow follows, or what is no term, ends an entry without one.
 fn parse_map_entry(input: ParseStream<'_>) -> Result<(Expr, Expr), SyntaxError> {
+    let (key, _) = parse_map_entry_key(input)?;
+    input.parse::<Token![->]>().map_err(SyntaxError::from)?;
+    let value = parse_part(input)?;
+    Ok((key, value))
+}
+
+/// Reads an entry's key, up to its arrow `->`, which it leaves unread; the key's tokens beside.
+fn parse_map_entry_key(input: ParseStream<'_>) -> Result<(Expr, TokenStream), SyntaxError> {
     let start = input.span();
     if input.peek(Token![.]) && !input.peek(Token![..]) {
         return Err(literal_error(
@@ -411,14 +560,13 @@ fn parse_map_entry(input: ParseStream<'_>) -> Result<(Expr, Expr), SyntaxError> 
     if !input.peek(Token![->]) {
         return Err(without_arrow(comma.unwrap_or(start)));
     }
-    input.parse::<Token![->]>().map_err(SyntaxError::from)?;
     // A key that is no term past a comma is entries the comma separates, the
     // last of which has the arrow.
+    let tokens = key.clone();
     let key = crate::term::parse_term_expression
         .parse2(key)
         .map_err(|error| comma.map_or_else(|| error.into(), without_arrow))?;
-    let value = parse_part(input)?;
-    Ok((key, value))
+    Ok((key, tokens))
 }
 
 /// Reads one term of a literal: a value, or a set's element.

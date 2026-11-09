@@ -667,9 +667,14 @@ pub enum Notation {
     /// A collection method without a turbofish, `m.update(k, v)`, `s.contains(x)`: the Map, List
     /// or Set operation of the receiver's collection.
     CollectionMethod,
-    /// A map literal with entries, `map![k -> v, ..]` or `k::map![k -> v, ..m]`: each entry written
-    /// over the map before it, `map::update(.., k, v)`, the first over `map::empty()` or the rest.
+    /// A map literal with entries written over a base, `map![k -> v, ..m]`: each entry written over
+    /// the map before it, `map::update(.., k, v)`, the first over the base.
     MapLiteral,
+    /// A map literal with entries and no rest, `map![k -> v]` or `k::map![a -> x, b -> y]`: where a
+    /// pattern matches an evaluated map, outside a key and a subject's root, the map pattern of
+    /// its entries (MAP-PARAM-PATTERN), K's `(K |-> V)`; elsewhere the map it builds, its updates
+    /// over `map::empty()`, as [`Self::MapLiteral`].
+    MapPattern,
     /// A set literal that joins sets, `set![x, y]` or `set![x, ..s]`: `set::union(..)`.
     SetLiteral,
     /// A collection literal that denotes a value: `map![]` and `set![]`, the empty collection, and
@@ -679,7 +684,7 @@ pub enum Notation {
 
 impl Notation {
     /// Every notation form.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Arithmetic,
         Self::Bitwise,
         Self::BitwiseOr,
@@ -694,6 +699,7 @@ impl Notation {
         Self::Index,
         Self::CollectionMethod,
         Self::MapLiteral,
+        Self::MapPattern,
         Self::SetLiteral,
         Self::CollectionValue,
     ];
@@ -708,6 +714,7 @@ impl Notation {
             Self::Index
                 | Self::CollectionMethod
                 | Self::MapLiteral
+                | Self::MapPattern
                 | Self::SetLiteral
                 | Self::CollectionValue
         )
@@ -802,7 +809,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct, each notation form apart.
-    pub const ALL: [Self; 46] = [
+    pub const ALL: [Self; 47] = [
         Self::Reference,
         Self::Fresh,
         Self::Constructor,
@@ -828,6 +835,7 @@ impl Construct {
         Self::Notation(Notation::Index),
         Self::Notation(Notation::CollectionMethod),
         Self::Notation(Notation::MapLiteral),
+        Self::Notation(Notation::MapPattern),
         Self::Notation(Notation::SetLiteral),
         Self::Notation(Notation::CollectionValue),
         Self::Wildcard,

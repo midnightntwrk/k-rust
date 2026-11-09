@@ -658,7 +658,7 @@ fn what_a_static_subject_cannot_mean_is_refused() {
     let sort_test = clause("sort_test", "k::is!(Int, x)");
     let in_alias = alias("whole_digit", "Sugar::Digit(x)");
     let alias_function = alias("whole_size", "Data::Box(Size(x))");
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         recursive:
         error[krs::analysis::invalid-static-clause]: desugar clause `recursive`: `Sugar::Nest` is marked `#[k::desugar]`, so a program's `Sugar::Nest` is expanded before this clause is tried, and the clause matches its expansion, which KRS writes here where it needs no value; but these arguments are not ground, and `Sugar::Nest` is recursive, so its expansion depends on the values a program gives them: write one clause for each clause of `Sugar::Nest` instead, each with that clause's arguments and its expansion written out
         --> src/lib.rs:180:35
@@ -696,7 +696,7 @@ fn what_a_static_subject_cannot_mean_is_refused() {
         error[krs::analysis::collection-in-static-subject]: desugar clause `list`: a list of two or more parts matches only one way of writing it: static expansion matches a program's terms as they are written, before anything evaluates, and does not reorder a set's elements or a map's entries or regroup a list's parts, so the clause would rewrite one spelling of the collection and not the others (`[1, 2, 3]` but not `list::concat([1, 2], [3])`); the empty collection and one element or entry have one spelling: write the parts as a constructor's arguments, or rewrite the collection with a rule
         --> src/lib.rs:180:51
         map:
-        error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update`, which a map literal `map![k -> v, ..]` denotes, stands in the subject of a desugar clause, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors
+        error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update`, which a map literal `map![k -> v]` denotes, stands in the subject of a desugar clause, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors
         --> src/lib.rs:180:49
         function:
         error[krs::analysis::function-in-pattern]: the function `Size` stands in the subject of a desugar clause, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors
@@ -709,7 +709,7 @@ fn what_a_static_subject_cannot_mean_is_refused() {
         --> src/lib.rs:180:35
         alias-function:
         error[krs::analysis::function-in-pattern]: the function `Size` stands in the subject of an alias clause, which static expansion matches against a program's terms as they are written, before anything evaluates: there an application stands for its own spelling, not for the value it denotes everywhere else (`f(x + 1)` would expand the program `f(y + 1)` but not `f(1 + y)`), so the clause would rewrite some spellings of a value and not others: to rewrite a computation, write a rule (`#[k::rule]`) or the function's equation (`#[k::equation]`); to expand a term a program writes, write it with constructors
-        --> src/lib.rs:180:44"]].assert_eq(&refusals([
+        --> src/lib.rs:180:44"#]].assert_eq(&refusals([
         ("recursive", recursive.as_str()),
         ("clauses", clauses.as_str()),
         ("pattern", pattern.as_str()),

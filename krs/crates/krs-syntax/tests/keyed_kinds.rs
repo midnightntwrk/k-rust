@@ -14,7 +14,7 @@ use krs_syntax::{
 };
 
 /// How many kinds [`kind`] tells apart.
-const KINDS: usize = 17;
+const KINDS: usize = 18;
 
 /// A node's kind, numbered, and the keys a node of the kind holds at least: one for its own
 /// place, one per turbofish instance of an application head, one per part of a lexeme (its sort
@@ -50,6 +50,7 @@ fn kind(node: &TermNode) -> (usize, usize) {
         TermNode::LetWildcard(_) => (14, 1),
         TermNode::Closure { .. } => (15, 3),
         TermNode::Rewrite { .. } => (16, 3),
+        TermNode::MapEntries(_) => (17, 1),
     }
 }
 
@@ -134,7 +135,7 @@ fn forms() -> Vec<Form> {
     record("constant", vec![constant.value()]);
 
     let source = format!(
-        "#[k::requires(k::matches!(x, Cmd::Hold(_)))]\nfn every(k::term![Cmd::Every(k::id!(\"$x\"), k::bytes!(b\"ab\"), k::lexeme!(Word, \"w\"), Wrap::<dyn KItemSort>(x), y @ Cmd::Hold(_), Cmd::Go() | Cmd::Hold(_), -1)]: Term<Stmt>) -> Term<Stmt> {{ {BUILT} }}"
+        "#[k::requires(k::matches!(x, Cmd::Hold(_)))]\nfn every(k::term![Cmd::Every(k::id!(\"$x\"), k::bytes!(b\"ab\"), k::lexeme!(Word, \"w\"), Wrap::<dyn KItemSort>(x), y @ Cmd::Hold(_), Cmd::Go() | Cmd::Hold(_), -1, map![x -> v, rest @ ..])]: Term<Stmt>) -> Term<Stmt> {{ {BUILT} }}"
     );
     let rule = RuleItem::parse_rule_tokens(krs_syntax::parse::tokens_from_source(&source).unwrap())
         .unwrap();

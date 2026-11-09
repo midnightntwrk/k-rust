@@ -229,6 +229,7 @@ pub(super) enum NodeKind {
     SortTest,
     As,
     Or,
+    MapEntries,
     Matches,
     MatchesWildcard,
     Let,
@@ -254,6 +255,7 @@ impl NodeKind {
             TermNode::SortTest { .. } => Self::SortTest,
             TermNode::As { .. } => Self::As,
             TermNode::Or(_) => Self::Or,
+            TermNode::MapEntries(_) => Self::MapEntries,
             TermNode::Matches(_) => Self::Matches,
             TermNode::MatchesWildcard(_) => Self::MatchesWildcard,
             TermNode::Let { .. } => Self::Let,
@@ -1477,6 +1479,11 @@ impl<'a> TermBuilder<'a> {
                     None => Ok(WireTerm::Or { key, alternatives }),
                 }
             }
+            TermTree::MapEntries {
+                range,
+                entries,
+                rest,
+            } => self.expand_map_pattern(*range, entries, rest.as_deref(), keys, side, slots),
             TermTree::Matches {
                 range,
                 subject,
@@ -1629,6 +1636,65 @@ impl<'a> TermBuilder<'a> {
     /// The shell key of one `A | B` or-pattern (K's `#Or`).
     pub(super) fn take_pattern_or(node: NodeKeys<'_>) -> crate::Result<ProvenanceKey> {
         node.key(ProvenanceRole::PatternOr)
+    }
+
+    /// Expands a map pattern `map![k -> v, rest @ ..]`. With a rest it is a pattern's
+    /// construct, judged as a list pattern's rest is: the entries the pattern leaves unnamed. With
+    /// no rest it is also what the literal builds, its updates `map::update(..)`, which the
+    /// compiler reads it as where a pattern does not match evaluated terms or looks a map up
+    /// (`krs_compiler`'s map literal reading): as their application, it is the compiler's to
+    /// judge, and in a key its terms are built with it.
+    fn expand_map_pattern(
+        &mut self,
+        range: TokenRange,
+        entries: &[(TermTree, TermTree)],
+        rest: Option<&TermTree>,
+        keys: &mut TermKeyReader<'_>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        if matches!(side, TermSide::Left)
+            && self.depth == 1
+            && !self.form.admits_collection_literal_root()
+        {
+            return Err(self.collection_literal_root("map", range));
+        }
+        let built = rest.is_none();
+        if let Some(rest) = rest {
+            let rest_range = match rest {
+                TermTree::Wildcard(range) => *range,
+                other => match other.reference() {
+                    Some(path) => TokenRange::for_tokens(path)?,
+                    None => range,
+                },
+            };
+            self.admit(side, Construct::Rest, rest_range)?;
+        }
+        let key = keys
+            .node(NodeKind::MapEntries, range)?
+            .key(ProvenanceRole::PatternMap)?;
+        let entries = self.below_computed(built, |this| {
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    let enclosing = (this.in_map_key, this.in_set_element);
+                    // A key is what the map is looked up by, read as a cell map's key is.
+                    this.in_map_key = true;
+                    let expanded_key = this.expand_node(key, keys, side, slots);
+                    (this.in_map_key, this.in_set_element) = enclosing;
+                    let value = this.expand_node(value, keys, side, slots);
+                    Ok(krs_ir::MapTermEntry {
+                        key: Box::new(expanded_key?),
+                        value: Box::new(value?),
+                    })
+                })
+                .collect::<crate::Result<Vec<_>>>()
+        })?;
+        let rest = match rest {
+            Some(rest) => Some(Box::new(self.expand_node(rest, keys, side, slots)?)),
+            None => None,
+        };
+        Ok(WireTerm::MapEntries { key, entries, rest })
     }
 
     /// Lowers `k::lexeme!(Sort, "text")` to a token term whose sort rustc

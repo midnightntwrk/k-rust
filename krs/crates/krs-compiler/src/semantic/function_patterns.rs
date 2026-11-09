@@ -314,13 +314,14 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
             } else {
                 "a desugar clause"
             },
-            // A map literal denotes its updates, the one way KRS writes a map it builds; read
-            // as written, even `map![k -> v]` would meet no term KRS writes as its entry.
+            // A map literal without a rest denotes its updates there, the one way KRS writes a
+            // map it builds; read as written, even `map![k -> v]` would meet no term KRS writes
+            // as its entry.
             written = if matches!(
                 found.application,
                 Some(DescriptorApplicationRef::Map(TermMapOperation::Update))
             ) {
-                format!("{function}, which a map literal `map![k -> v, ..]` denotes,")
+                format!("{function}, which a map literal `map![k -> v]` denotes,")
             } else {
                 function.clone()
             },
@@ -344,7 +345,7 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
                 _ => None,
             };
             let instead = match (method, root) {
-                // A map written with an entry (`map![k -> v]`, `map::update`)
+                // A map written over a base (`map![k -> v, ..m]`, `map::update`)
                 // or a union of sets builds a collection; a pattern reads a
                 // collection's entries and elements instead.
                 (None, _)
@@ -353,7 +354,7 @@ fn refusal(descriptor: &Descriptor, found: &Found<'_>) -> DescriptorLoweringErro
                         Some(DescriptorApplicationRef::Map(TermMapOperation::Update))
                     ) =>
                 {
-                    "a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)"
+                    "a pattern reads a map's entries with `map![k -> v, ..]` (`{ k -> v, .. }` in a readable record), the map holding an entry at `k` and others, or match a variable here and relate it to the map in a guard (`requires`)"
                 }
                 (None, _)
                     if matches!(
@@ -783,7 +784,7 @@ pub(super) enum Applied {
 
 /// The type of the collection cell `cell` names; `None` when it names no
 /// collection.
-fn collection_type(
+pub(super) fn collection_type(
     declarations: &DescriptorIndex<'_>,
     cell: &DescriptorCellIdentity,
 ) -> Option<CellCollectionType> {

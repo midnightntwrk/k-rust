@@ -486,9 +486,10 @@ impl InitializerFunction {
         // `k::matches!` shells and pattern wildcards (KF-031), and `let` statements and their
         // pattern wildcards (KF-032), each kind in expansion order, as a rule's terms number
         // them.
-        let islands: [crate::term::IslandKeys; 5] = [
+        let islands: [crate::term::IslandKeys; 6] = [
             crate::term::allocate_sort_test_keys,
             crate::term::allocate_pattern_or_keys,
+            crate::term::allocate_map_pattern_keys,
             crate::term::allocate_application_instance_keys,
             crate::term::allocate_matches_keys,
             crate::term::allocate_let_keys,

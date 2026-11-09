@@ -894,6 +894,11 @@ impl Spelling {
 /// holds an unevaluated application.
 const COMPUTED: &str = "a computed term, which no evaluated term is";
 
+/// Why a map pattern of the entries `x -> 1, 2 -> 3` has no witness of every `x`: its entries are
+/// distinct entries of the map, so at `x` = 2 no map matches it.
+const TWO_ENTRIES: &str =
+    "a map pattern of the entries x -> 1 and 2 -> 3, which no map matches where x is 2";
+
 /// Why a bare binder has no counter-witness: it matches every term where it is the only
 /// occurrence of its name.
 const BINDER: &str = "a binder matches every term where it is the only occurrence of its name";
@@ -1433,22 +1438,26 @@ fn spellings() -> Vec<Spelling> {
         .at(int(SECOND))
         .matches_x(),
     ];
-    // A map literal, in the facade's path and bare: `map::update(map::empty(), x, 1)`, its nodes
-    // in the walker's order, the denoted call's. And list brackets with a rest.
+    // A map literal, in the facade's path and bare: built, `map::update(map::empty(), x, 1)`, its
+    // nodes in the walker's order, the denoted call's; where a pattern matches an evaluated map,
+    // the map pattern of its one entry, which matches the map `{x ↦ 1}`. And list brackets with a
+    // rest.
     for text in ["k::map![x -> 1]", "map![x -> 1]"] {
         spellings.push(
             spelling(
                 text,
                 &[
-                    node(C::Notation(Notation::MapLiteral), &[]),
+                    node(C::Notation(Notation::MapPattern), &[]),
                     node(C::Notation(Notation::CollectionValue), &[FunctionArgument]),
                     node(C::Reference, &[FunctionArgument]),
                     node(C::Literal, &[FunctionArgument]),
                 ],
             )
-            .unmatched(COMPUTED)
+            .matching_x(|x| Ground::map(vec![(x.clone(), int(1))]))
             .denoting_x(|x| Ground::map(vec![(x.clone(), int(1))]))
-            .at(int(SECOND)),
+            .at(int(SECOND))
+            // The map of its one entry exactly: one entry more is another map.
+            .refuting(Ground::map(vec![(int(1), int(1)), (int(2), int(1))])),
         );
     }
     spellings.push(
@@ -1589,9 +1598,15 @@ fn collection_meaning(spelling: Spelling) -> Spelling {
         | "k::builtin::map::in_keys(x, k::builtin::map::empty())" => computed
             .denoting(Ground::Bool(false))
             .at_one_only("the empty map holds no key at any x"),
-        "map![x -> 1, 2 -> 3]"
-        | "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)" =>
-        {
+        // Where a pattern matches an evaluated map the literal is the map pattern of its two
+        // entries, distinct entries of the map, so at x = 2 no map matches it and no witness is
+        // stated; its call is a function's application.
+        "map![x -> 1, 2 -> 3]" => computed
+            .unmatched(TWO_ENTRIES)
+            .denoting_x(|x| Ground::map(vec![(x.clone(), int(1)), (int(2), int(3))]))
+            .at(int(SECOND))
+            .at(int(2)),
+        "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)" => {
             // Of two keys that are equal the later entry is the map's: at 2 the map is `{2 ↦ 3}`,
             // where entries written in the other order would make it `{2 ↦ 1}`.
             computed
@@ -1599,7 +1614,10 @@ fn collection_meaning(spelling: Spelling) -> Spelling {
                 .at(int(SECOND))
                 .at(int(2))
         }
-        "map![0 -> 1]" | "k::builtin::map::update(k::builtin::map::empty(), 0, 1)" => {
+        "map![0 -> 1]" => computed
+            .value(Ground::map(vec![(int(0), one())]))
+            .refuting(Ground::map(vec![(int(0), one()), (one(), one())])),
+        "k::builtin::map::update(k::builtin::map::empty(), 0, 1)" => {
             computed.denoting(Ground::map(vec![(int(0), one())]))
         }
         // `set![x, 1]` is the union of `{x}` and `{1}`: one element at 1, two at -2.
@@ -1647,8 +1665,8 @@ fn literal_spellings() -> Vec<Spelling> {
             "map![x -> 1, 2 -> 3]",
             "k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3)",
             vec![
-                at(C::Notation(Notation::MapLiteral), 0),
-                at(C::Notation(Notation::MapLiteral), 1),
+                at(C::Notation(Notation::MapPattern), 0),
+                at(C::Notation(Notation::MapPattern), 1),
                 at(C::Notation(Notation::CollectionValue), 2),
                 at(C::Reference, 2),
                 at(C::Literal, 2),
@@ -1686,7 +1704,7 @@ fn literal_spellings() -> Vec<Spelling> {
             "map![0 -> 1]",
             "k::builtin::map::update(k::builtin::map::empty(), 0, 1)",
             vec![
-                at(C::Notation(Notation::MapLiteral), 0),
+                at(C::Notation(Notation::MapPattern), 0),
                 at(C::Notation(Notation::CollectionValue), 1),
                 at(C::Literal, 1),
                 at(C::Literal, 1),

@@ -1313,6 +1313,15 @@ fn local_names<'t>(pattern: &'t DescriptorTerm, names: &mut BTreeSet<&'t str>) {
                 local_names(&field.value, names);
             }
         }
+        DescriptorTerm::MapEntries { entries, rest, .. } => {
+            for entry in entries {
+                local_names(&entry.key, names);
+                local_names(&entry.value, names);
+            }
+            if let Some(rest) = rest {
+                local_names(rest, names);
+            }
+        }
         _ => {}
     }
 }

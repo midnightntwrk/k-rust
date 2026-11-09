@@ -67,7 +67,8 @@ const MISSING: &[&str] = &[
     "no value: the update's base, x, is no Pair: terms Cmd::Pair { a: x, ..x }",
     "no value: x is no Bool: terms x && true | terms x || true",
     "no witness: a cell's value, which a program writes no syntax for: terms k::fragment![crate::Frame { ret: 1 }]",
-    "no witness: a computed term, which no evaluated term is: terms k::builtin::int::add(1, 2) | terms Size(x) | terms k::or_bool!(true, false) | terms k::is!(Int, x) | terms k::project!(Int, x) | terms k::matches!(x, Cmd::Hold(_)) | terms { let y = x; y } | terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms Cmd::Pair { a: x, ..x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } } | terms x + 1 | terms x & 1 | terms x << 1 | terms x / 2 | terms x % 2 | terms x >> 1 | terms x < 1 | terms x == 1 | terms x && true | terms x || true | terms !(x < 1) | terms -(x + 1) | terms x.add::<Int>(1) | terms k::builtin::int::add(x, 1) | terms k::map![x -> 1] | terms map![x -> 1] | notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x) | notation k::builtin::list::item(x)[0] | notation k::builtin::list::get(k::builtin::list::item(x), 0) | notation k::builtin::map::empty().update(x, 1) | notation k::builtin::map::update(k::builtin::map::empty(), x, 1) | notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x)) | notation k::builtin::set::item(x).to_list() | notation k::builtin::set::to_list(k::builtin::set::item(x)) | notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty()) | notation map![x -> 1, 2 -> 3] | notation k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3) | notation map![x -> 1, ..k::builtin::map::empty()] | notation map![0 -> 1] | notation k::builtin::map::update(k::builtin::map::empty(), 0, 1) | notation set![x, 1] | notation k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1)) | notation set![x, ..k::builtin::set::empty()] | notation k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
+    "no witness: a computed term, which no evaluated term is: terms k::builtin::int::add(1, 2) | terms Size(x) | terms k::or_bool!(true, false) | terms k::is!(Int, x) | terms k::project!(Int, x) | terms k::matches!(x, Cmd::Hold(_)) | terms { let y = x; y } | terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms Cmd::Pair { a: x, ..x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } } | terms x + 1 | terms x & 1 | terms x << 1 | terms x / 2 | terms x % 2 | terms x >> 1 | terms x < 1 | terms x == 1 | terms x && true | terms x || true | terms !(x < 1) | terms -(x + 1) | terms x.add::<Int>(1) | terms k::builtin::int::add(x, 1) | notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x) | notation k::builtin::list::item(x)[0] | notation k::builtin::list::get(k::builtin::list::item(x), 0) | notation k::builtin::map::empty().update(x, 1) | notation k::builtin::map::update(k::builtin::map::empty(), x, 1) | notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x)) | notation k::builtin::set::item(x).to_list() | notation k::builtin::set::to_list(k::builtin::set::item(x)) | notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty()) | notation k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3) | notation map![x -> 1, ..k::builtin::map::empty()] | notation k::builtin::map::update(k::builtin::map::empty(), 0, 1) | notation set![x, 1] | notation k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1)) | notation set![x, ..k::builtin::set::empty()] | notation k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
+    "no witness: a map pattern of the entries x -> 1 and 2 -> 3, which no map matches where x is 2: notation map![x -> 1, 2 -> 3]",
     "no witness: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "no witness: its expansion depends on what a program writes, or there is none: terms Cmd::Dn(x) | terms Cmd::Tw(_) | terms Cmd::Dn(2) | terms Cmd::Lp(0) | terms Cmd::Pb(Cmd::Go())",
 ];
@@ -231,11 +232,14 @@ const STATUSES: &[&str] = &[
     "2 no value: the let's pattern does not match x",
     "6 no value: x is no Bool",
     "43 no witness: a cell's value, which a program writes no syntax for",
-    "1872 no witness: a computed term, which no evaluated term is",
+    "1716 no witness: a computed term, which no evaluated term is",
+    "39 no witness: a map pattern of the entries x -> 1 and 2 -> 3, which no map matches where x is 2",
     "43 no witness: a matching-logic predicate, which only a prover reads",
     "4 no witness: a program writes $x only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "4 no witness: a program writes Wrap(1) only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "4 no witness: a program writes [1, 2] only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "4 no witness: a program writes map{0 -> 1} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
+    "8 no witness: a program writes map{1 -> 1} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "8 no witness: a program writes map{} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "2 no witness: a program writes set{1, Cmd::Hold(1)} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
     "16 no witness: a program writes set{1} only through a maker, a function, which a static clause's expansion of the program meets unevaluated",
@@ -244,12 +248,12 @@ const STATUSES: &[&str] = &[
     "12 no witness: the clause's result leaves `y` to the sentence it is expanded in, and a program binds no name",
     "80 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
-    "1205 runs a counter-witness",
-    "2136 runs at another input",
-    "1679 runs, liveness",
+    "1319 runs a counter-witness",
+    "2206 runs at another input",
+    "1781 runs, liveness",
     "246 runs, undefined",
     "266 runs, undefined result",
-    "2790 runs, value",
+    "2793 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it
@@ -1346,6 +1350,9 @@ fn every_term_collection_spelling_follows_the_rule() {
     // (spelling, open, the items it writes)
     const COLLECTIONS: &[(&str, bool, usize)] = &[
         ("[x, ..]", true, 1),
+        ("k::map![x -> 1]", false, 1),
+        ("map![x -> 1]", false, 1),
+        ("map![0 -> 1]", false, 1),
         ("k::builtin::map::empty()", false, 0),
         ("k::builtin::set::empty()", false, 0),
         ("k::builtin::set::item(x)", false, 1),

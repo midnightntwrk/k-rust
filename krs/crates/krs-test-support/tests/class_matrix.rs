@@ -409,10 +409,15 @@ fn reads_x_and_applies(case: &Case) -> bool {
                 | Construct::Notation(Notation::CollectionValue)
         )
     });
-    reads_x && !value
+    // In a `k::matches!` pattern a map literal without a rest is a map pattern, which applies
+    // nothing (MAP-PARAM-PATTERN).
+    let pattern = root
+        .is_some_and(|root| root.construct == Construct::Notation(Notation::MapPattern))
+        && case.id.contains("/matches-pattern/");
+    reads_x && !value && !pattern
 }
 
-const OVERRIDDEN: [(&str, &str); 72] = [
+const OVERRIDDEN: [(&str, &str); 66] = [
     (
         "import/alias/subject-root-binding/Go()",
         "static-clause-root-not-marked",
@@ -627,14 +632,6 @@ const OVERRIDDEN: [(&str, &str); 72] = [
         "function-in-pattern",
     ),
     (
-        "terms/readable/map-key/matches-pattern/k::map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/readable/map-key/matches-pattern/map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
         "terms/rule/guard/closure-body/Cmd::Pair { a: x, ..x }",
         "ml-in-condition",
     ),
@@ -644,14 +641,6 @@ const OVERRIDDEN: [(&str, &str); 72] = [
     ),
     (
         "terms/rule/guard/matches-pattern/k::builtin::int::add(x, 1)",
-        "function-in-pattern",
-    ),
-    (
-        "terms/rule/guard/matches-pattern/k::map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/rule/guard/matches-pattern/map![x -> 1]",
         "function-in-pattern",
     ),
     (
@@ -670,14 +659,7 @@ const OVERRIDDEN: [(&str, &str); 72] = [
         "terms/sort-rule/result/matches-pattern/k::builtin::int::add(x, 1)",
         "function-in-pattern",
     ),
-    (
-        "terms/sort-rule/result/matches-pattern/k::map![x -> 1]",
-        "function-in-pattern",
-    ),
-    (
-        "terms/sort-rule/result/matches-pattern/map![x -> 1]",
-        "function-in-pattern",
-    ), // A collection's value as a context's whole subject (decision NT-11-2), where the table
+    // A collection's value as a context's whole subject (decision NT-11-2), where the table
     // refuses the context whose hole the subject does not bind, or list brackets at a `KItem`
     // position, first.
     ("terms/context/subject-root/[x, ..]", "function-in-pattern"),

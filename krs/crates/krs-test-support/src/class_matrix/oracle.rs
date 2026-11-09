@@ -200,6 +200,21 @@ const fn in_pattern_key(position: Position) -> bool {
         && matches!(position.slot, Slot::Subject)
 }
 
+/// Whether a map literal without a rest at `position` is the map pattern of its entries: matched
+/// against an evaluated map (a subject of a sentence that meets evaluated terms, a local pattern,
+/// which matches a computed value wherever it stands), outside every key and set element of a
+/// subject, which the pattern computes and looks up, and below the subject's root
+/// (MAP-PARAM-PATTERN).
+const fn reads_map_entries(position: Position) -> bool {
+    matches!(position.kind, Kind::Matched)
+        && meets_evaluated_terms(position)
+        && !matched_as_written(position)
+        && !at_subject_root(position)
+        && (position.nesting.local.is_some()
+            || (!position.nesting.entries.contains(Entry::MapKey)
+                && !position.nesting.entries.contains(Entry::SetElement)))
+}
+
 /// Whether `position` lies in a Map collection's instance in a pattern over evaluated terms,
 /// outside a key and a local pattern: matched, but written in the braces a Set collection's
 /// instance is written in, which a pattern looks up instead. Only the cell's declared type tells
@@ -254,6 +269,7 @@ const fn in_selection(construct: Construct) -> Option<Refusal> {
             | Notation::Index
             | Notation::CollectionMethod
             | Notation::MapLiteral
+            | Notation::MapPattern
             | Notation::SetLiteral,
         ) => Some(resolution(Class::FunctionInPattern)),
         Construct::SortTest | Construct::Projection => Some(resolution(Class::SortTestInPattern)),
@@ -511,11 +527,15 @@ pub const fn admits(construct: Construct, position: Position) -> Option<Refusal>
         // whatever calls KRS builds it with: a simplification, which rewrites a function's
         // unevaluated application, is not rooted at one, as it is not at `set::item(x)`; its
         // subject spells the update or the union as the call. The spelling tells it.
-        Construct::Notation(Notation::MapLiteral | Notation::SetLiteral)
+        Construct::Notation(Notation::MapLiteral | Notation::MapPattern | Notation::SetLiteral)
             if at_subject_root(position) && matches!(position.form, Form::Simplification) =>
         {
             Some(placement(Class::SimplificationRootNotFunction))
         }
+        // A map literal without a rest, where a pattern matches an evaluated map, is the map
+        // pattern of its entries: the map holding them, its keys pairwise different. A built map
+        // there would be a function's application, which never matches; elsewhere it is one.
+        Construct::Notation(Notation::MapPattern) if reads_map_entries(position) => None,
         Construct::Notation(notation) if notation.is_collection() => {
             application(Construct::BuiltinApplication, position)
         }

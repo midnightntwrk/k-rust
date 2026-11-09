@@ -326,6 +326,28 @@ fn same(left: &DescriptorTerm, right: &DescriptorTerm) -> bool {
         ) => left == right,
         (DescriptorTerm::Wildcard { .. }, DescriptorTerm::Wildcard { .. }) => true,
         (
+            DescriptorTerm::MapEntries {
+                entries: left,
+                rest: left_rest,
+                ..
+            },
+            DescriptorTerm::MapEntries {
+                entries: right,
+                rest: right_rest,
+                ..
+            },
+        ) => {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| {
+                    same(&left.key, &right.key) && same(&left.value, &right.value)
+                })
+                && match (left_rest, right_rest) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => same(left, right),
+                    _ => false,
+                }
+        }
+        (
             DescriptorTerm::Literal { literal: left, .. },
             DescriptorTerm::Literal { literal: right, .. },
         ) => left == right,

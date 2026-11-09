@@ -326,7 +326,7 @@ fn root_rule(construct: model::Construct, position: model::Position) -> Option<&
     if position.root == Some(PatternRoot::Subject)
         && matches!(
             construct,
-            M::Notation(Notation::MapLiteral | Notation::SetLiteral)
+            M::Notation(Notation::MapLiteral | Notation::MapPattern | Notation::SetLiteral)
         )
         && !product_form(position.form).admits_collection_literal_root()
     {

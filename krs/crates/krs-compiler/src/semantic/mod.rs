@@ -25,6 +25,7 @@ mod lexicals;
 mod list_patterns;
 mod lists;
 mod local_functions;
+mod map_literals;
 pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;
@@ -61,6 +62,7 @@ pub use definedness::guard_warnings;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
 pub use raw_k::{RawKPolicy, raw_k_policy};
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
@@ -84,6 +86,7 @@ fn ordered_descriptors(
     descriptors.sort_by(|left, right| left.id().cmp(right.id()));
     let mut inlined = constants::inline_constants(&descriptors)?;
     inlined.descriptors = equation_alternatives::distribute_root_alternatives(inlined.descriptors)?;
+    inlined.descriptors = map_literals::read_map_literals(inlined.descriptors)?;
     Ok(inlined)
 }
 
@@ -556,6 +559,14 @@ fn printed_rules(
 ) -> Result<BTreeMap<StableItemId, Descriptor>, DescriptorLoweringError> {
     let mut collected = bundle.descriptors().iter().collect::<Vec<_>>();
     collected.sort_by(|left, right| left.id().cmp(right.id()));
+    // A map literal reads as lowering reads it, before it is elaborated.
+    let read = map_literals::read_map_literals(
+        collected
+            .iter()
+            .map(|descriptor| Cow::Borrowed(*descriptor))
+            .collect(),
+    )?;
+    let collected = read.iter().map(AsRef::as_ref).collect::<Vec<_>>();
     let printed = elaborate::printed_readable_rules(&collected, readable, declarations, catalog)?;
     let replaced = collected
         .iter()

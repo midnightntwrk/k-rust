@@ -537,12 +537,13 @@ impl StateContextAliasItem {
         // The pattern's islands, each kind in the order a rule's subject
         // numbers them: expansion reads the alias's pattern as a rule's, so
         // every node kind a rule's pattern keys holds its key here too.
-        let islands: [IslandKeys; 10] = [
+        let islands: [IslandKeys; 11] = [
             crate::term::allocate_rewrite_keys,
             allocate_lexeme_keys,
             allocate_sort_test_keys,
             crate::term::allocate_pattern_as_keys,
             crate::term::allocate_pattern_or_keys,
+            crate::term::allocate_map_pattern_keys,
             crate::term::allocate_application_instance_keys,
             crate::term::allocate_matches_keys,
             crate::term::allocate_let_keys,
@@ -1038,10 +1039,14 @@ impl StateRuleItem {
         self.visit_terms(&mut |nodes, term_keys| {
             crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)
         })?;
+        self.visit_terms(&mut |nodes, term_keys| {
+            crate::term::allocate_map_pattern_keys(keys, nodes, term_keys)
+        })?;
         self.visit_ensures(&mut |nodes, term_keys| {
             allocate_sort_test_keys(keys, nodes, term_keys)?;
             crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)?;
-            crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)
+            crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)?;
+            crate::term::allocate_map_pattern_keys(keys, nodes, term_keys)
         })?;
         // Turbofish sort markers (KF-027), `k::matches!` shells and pattern
         // wildcards (KF-031), `let` statements and their pattern wildcards
@@ -2279,6 +2284,7 @@ fn append_term_candidates(
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
             | TermNode::Or(_)
+            | TermNode::MapEntries(_)
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
@@ -2393,6 +2399,7 @@ fn allocate_claim_ensures_keys(
     allocate_sort_test_keys(keys, nodes, term_keys)?;
     crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)?;
     crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_map_pattern_keys(keys, nodes, term_keys)?;
     crate::term::allocate_matches_keys(keys, nodes, term_keys)?;
     crate::term::allocate_let_keys(keys, nodes, term_keys)?;
     crate::term::allocate_ml_binder_keys(keys, nodes, term_keys)?;
@@ -2485,6 +2492,7 @@ pub(crate) fn allocate_claim_node_keys<'a, K: std::borrow::BorrowMut<TermKeys>>(
                 | TermNode::SortTest { .. }
                 | TermNode::As { .. }
                 | TermNode::Or(_)
+                | TermNode::MapEntries(_)
                 | TermNode::Matches(_)
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }

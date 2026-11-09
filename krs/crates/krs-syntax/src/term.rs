@@ -233,6 +233,10 @@ pub enum TermNode {
     /// `A | B | ..` (K's `#Or`) shell in a pattern payload; it precedes the
     /// nodes of its alternatives.
     Or(TokenRange),
+    /// `map![k -> v, rest @ ..]` (K's `(K |-> V) REST`) shell in a pattern
+    /// payload; it precedes the nodes of each entry's key and value, then of
+    /// its rest.
+    MapEntries(TokenRange),
     /// `k::matches!(subject, pattern)` (K's `:=K`) shell; it precedes the
     /// nodes of its subject, then of its pattern.
     Matches(TokenRange),
@@ -293,6 +297,7 @@ impl TermNode {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or(_)
+            | Self::MapEntries(_)
             | Self::Matches(_)
             | Self::MatchesWildcard(_)
             | Self::Let { .. }
@@ -317,6 +322,7 @@ impl TermNode {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or(_)
+            | Self::MapEntries(_)
             | Self::Matches(_)
             | Self::MatchesWildcard(_)
             | Self::Let { .. }
@@ -345,6 +351,7 @@ impl TermNode {
             | Self::SortTest { range, .. }
             | Self::As { range, .. }
             | Self::Or(range)
+            | Self::MapEntries(range)
             | Self::Matches(range)
             | Self::MatchesWildcard(range)
             | Self::Let { range, .. }
@@ -725,6 +732,21 @@ pub enum TermTree {
         /// The aliased subpattern.
         pattern: Box<TermTree>,
     },
+    /// `map![k1 -> v1, .., kn -> vn, rest @ ..]`, `map![.., ..]` or
+    /// `map![k1 -> v1, .., kn -> vn]` in a pattern: K's
+    /// `(K1 |-> V1) .. (Kn |-> Vn) REST`, the map holding an entry at each key,
+    /// the keys pairwise different, and the rest the map without them. A
+    /// built term writes a map with its updates, `map![k -> v, ..m]`.
+    MapEntries {
+        /// The literal's range, from its path to its closing bracket.
+        range: TokenRange,
+        /// Each entry's key and value, in source order.
+        entries: Vec<(TermTree, TermTree)>,
+        /// The rest: a [`TermTree::Reference`] for `rest @ ..`, a
+        /// [`TermTree::Wildcard`] for `..`; `None` when the entries are the
+        /// whole map.
+        rest: Option<Box<TermTree>>,
+    },
     /// `A | B | ..`: K's `( A #Or B #Or .. )`, only in patterns.
     Or {
         /// Complete or-pattern range.
@@ -822,6 +844,7 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
+            | Self::MapEntries { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
             | Self::Closure { .. }
@@ -846,6 +869,7 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
+            | Self::MapEntries { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
             | Self::Closure { .. }
@@ -870,6 +894,7 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
+            | Self::MapEntries { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
             | Self::Closure { .. }
@@ -894,6 +919,7 @@ impl TermTree {
             | Self::SortTest { .. }
             | Self::As { .. }
             | Self::Or { .. }
+            | Self::MapEntries { .. }
             | Self::Matches { .. }
             | Self::Let { .. }
             | Self::Closure { .. }
@@ -940,6 +966,16 @@ impl TermTree {
             Self::Or { alternatives, .. } => {
                 for alternative in alternatives {
                     alternative.record_field_names_preorder(output);
+                }
+                return;
+            }
+            Self::MapEntries { entries, rest, .. } => {
+                for (key, value) in entries {
+                    key.record_field_names_preorder(output);
+                    value.record_field_names_preorder(output);
+                }
+                if let Some(rest) = rest {
+                    rest.record_field_names_preorder(output);
                 }
                 return;
             }
@@ -1022,6 +1058,15 @@ impl TermTree {
             Self::Or { alternatives, .. } => {
                 for alternative in alternatives {
                     alternative.wildcard_ranges_preorder(output);
+                }
+            }
+            Self::MapEntries { entries, rest, .. } => {
+                for (key, value) in entries {
+                    key.wildcard_ranges_preorder(output);
+                    value.wildcard_ranges_preorder(output);
+                }
+                if let Some(rest) = rest {
+                    rest.wildcard_ranges_preorder(output);
                 }
             }
             // A `k::matches!` pattern's wildcards are its own
@@ -1881,6 +1926,7 @@ impl TermExpression {
                 | TermNode::SortTest { .. }
                 | TermNode::As { .. }
                 | TermNode::Or(_)
+                | TermNode::MapEntries(_)
                 | TermNode::Matches(_)
                 | TermNode::MatchesWildcard(_)
                 | TermNode::Let { .. }
@@ -2600,11 +2646,16 @@ pub(crate) fn read_pattern(
             Ok(TermTree::Wildcard(TokenRange::for_tokens(wildcard)?))
         }
         // A collection literal is the calls it denotes, a pattern holds it
-        // as it holds them, and the root reads it as it reads them.
+        // as it holds them, and the root reads it as it reads them; a map's
+        // entries with a rest, or with none, are the entries a pattern matches.
         Pat::Macro(value)
             if crate::collection_literal::literal_collection(&value.mac.path).is_some() =>
         {
             signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
+            reject_attributes(&value.attrs, value.span())?;
+            if let Some(parts) = crate::collection_literal::pattern_parts(&value.mac)? {
+                return read_map_pattern(value, parts, symbols, nodes);
+            }
             validate_expression(
                 &Expr::Macro(value.clone()),
                 TermExpressionContext::Pattern,
@@ -2654,6 +2705,50 @@ pub(crate) fn read_pattern(
         .for_whole_subject()),
         other => Err(unsupported_pattern_form(other)),
     }
+}
+
+/// Reads a map pattern `map![k -> v, rest @ ..]` ([`TermTree::MapEntries`]): its shell node,
+/// then each entry's key, read as a key a pattern looks a map up by, and its value, read as a
+/// pattern, then its rest, a name or `_`.
+fn read_map_pattern(
+    literal: &syn::PatMacro,
+    parts: crate::collection_literal::PatternParts,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    let range = TokenRange::for_tokens(literal)?;
+    nodes.push(TermNode::MapEntries(range));
+    let mut entries = Vec::with_capacity(parts.entries.len());
+    let mut splice = |term: TermExpression, symbols: &mut Vec<TermSymbol>| {
+        symbols.extend(term.symbols);
+        nodes.extend(term.nodes);
+        term.tree
+    };
+    for (key, value) in parts.entries {
+        let key = splice(TermExpression::parse_key_pattern_tokens(key)?, symbols);
+        let value = splice(TermExpression::parse_pattern_tokens(value)?, symbols);
+        entries.push((key, value));
+    }
+    let rest = match parts.rest {
+        None => None,
+        Some(crate::collection_literal::PatternRest::Anonymous(dots)) => {
+            Some(Box::new(TermTree::Wildcard(TokenRange::for_tokens(&dots)?)))
+        }
+        Some(crate::collection_literal::PatternRest::Named { binding, .. }) => {
+            let path = Path::from(binding);
+            symbols.push(TermSymbol {
+                path: path.clone(),
+                kind: TermSymbolKind::Reference,
+            });
+            nodes.push(TermNode::Reference(path.clone()));
+            Some(Box::new(TermTree::Reference(path)))
+        }
+    };
+    Ok(TermTree::MapEntries {
+        range,
+        entries,
+        rest,
+    })
 }
 
 /// The error for a macro at the root of a rule's subject. A compiler-owned
@@ -3185,6 +3280,15 @@ fn tree_names(tree: &TermTree, root: bool, lets: bool, output: &mut Vec<syn::Ide
                 tree_names(alternative, root, lets, output);
             }
         }
+        TermTree::MapEntries { entries, rest, .. } => {
+            for (key, value) in entries {
+                tree_names(key, false, lets, output);
+                tree_names(value, false, lets, output);
+            }
+            if let Some(rest) = rest {
+                tree_names(rest, false, lets, output);
+            }
+        }
         TermTree::Application(application) => match &application.arguments {
             TermArguments::Positional(arguments) => {
                 for argument in arguments {
@@ -3482,6 +3586,11 @@ fn subterms(tree: &TermTree) -> Vec<&TermTree> {
         TermTree::OrBool { arguments, .. } => arguments.iter().collect(),
         TermTree::As { pattern, .. } => vec![pattern],
         TermTree::Or { alternatives, .. } => alternatives.iter().collect(),
+        TermTree::MapEntries { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|(key, value)| [key, value])
+            .chain(rest.as_deref())
+            .collect(),
         TermTree::Matches {
             subject, pattern, ..
         } => vec![subject, pattern],
@@ -3927,6 +4036,25 @@ pub(crate) fn allocate_pattern_or_keys(
     for (index, node) in nodes.iter().enumerate() {
         if let TermNode::Or(range) = node {
             term_keys.push_node(index, keys.key(ProvenanceRole::PatternOr, *range)?);
+        }
+    }
+    Ok(())
+}
+
+/// Keys every map pattern `map![k -> v, ..]` node in `nodes`. A sentence numbers its map
+/// patterns once, in the order its left-hand side expands.
+///
+/// # Errors
+///
+/// Returns an occurrence-overflow error.
+pub(crate) fn allocate_map_pattern_keys(
+    keys: &mut KeyAllocator,
+    nodes: &[TermNode],
+    term_keys: &mut TermKeys,
+) -> Result<(), SyntaxError> {
+    for (index, node) in nodes.iter().enumerate() {
+        if let TermNode::MapEntries(range) = node {
+            term_keys.push_node(index, keys.key(ProvenanceRole::PatternMap, *range)?);
         }
     }
     Ok(())

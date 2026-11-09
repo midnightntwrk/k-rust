@@ -853,6 +853,10 @@ struct Admission<'b> {
     /// pushed before the spelling it leads to is judged and popped once that spelling is
     /// admitted, so a refusal leaves the path at the spelling it is raised at.
     path: Vec<usize>,
+    /// Whether the spelling being judged stands in a term: an argument of a call, or inside a
+    /// `Cell(..)`, a `KCell(..)`, a computation's or a map's literal. A record's, a fragment's
+    /// and `Some(..)`'s children, and what brackets and braces hold, stand where they do.
+    in_term: bool,
 }
 
 impl Admission<'_> {
@@ -869,6 +873,7 @@ impl Admission<'_> {
             groups,
             sorted: false,
             path: Vec::new(),
+            in_term: false,
         }
     }
 
@@ -930,22 +935,36 @@ impl Admission<'_> {
                 self.path.push(REST);
                 return Err(Refusal::InitializerRemainder);
             }
-            // `..` names the rest of a map only where a `cells!` pattern frames one. A `cells!`
-            // result's map at a content root (`Cell(k::map![.., ..])`, a record field's
-            // `k::map![.., ..]`) keeps its subject's rest, a frame write this route does not
-            // lower yet (the stated M3 limitation).
+            // `..` names the rest of a map only where a `cells!` pattern frames one, or where a
+            // pattern matches a map in a term, below every configuration position: there a map
+            // literal is a map pattern, the map's entries and the rest that holds its others
+            // (`Load(map![1 -> v, ..])`). A readable record writes a cell's own map with braces,
+            // `{ k -> v, .. }`. A `cells!` result's map at a content root
+            // (`Cell(k::map![.., ..])`, a record field's `k::map![.., ..]`) keeps its subject's
+            // rest, a frame write this route does not lower yet (the stated M3 limitation).
             EntrySpelling::MapLiteral(map)
                 if map.rest == Some(EntryRest::Anonymous)
-                    && !(self.form == EntryForm::Cells && pattern) =>
+                    && !(pattern && (self.form == EntryForm::Cells || self.in_term)) =>
             {
                 self.path.push(REST);
                 return Err(Refusal::AnonymousRestInMapLiteral);
             }
             _ => {}
         }
+        let in_term = self.in_term;
+        self.in_term |= matches!(
+            spelling,
+            EntrySpelling::Call(_)
+                | EntrySpelling::Cell(_)
+                | EntrySpelling::KCell(_)
+                | EntrySpelling::MapLiteral(_)
+                | EntrySpelling::MapRead(_)
+                | EntrySpelling::KMacro(_)
+        );
         for (step, one) in inner(spelling).into_iter().enumerate() {
             self.within(step, |admission| admission.form(one))?;
         }
+        self.in_term = in_term;
         Ok(())
     }
 

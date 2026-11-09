@@ -650,8 +650,8 @@ impl RuleClause {
     fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         use crate::term::{
             allocate_application_instance_keys, allocate_let_keys, allocate_lexeme_keys,
-            allocate_matches_keys, allocate_ml_binder_keys, allocate_pattern_as_keys,
-            allocate_pattern_or_keys, allocate_sort_test_keys,
+            allocate_map_pattern_keys, allocate_matches_keys, allocate_ml_binder_keys,
+            allocate_pattern_as_keys, allocate_pattern_or_keys, allocate_sort_test_keys,
         };
         let subject = self.head.as_ref().is_some_and(|head| head.subject);
         // A claim clause is a claim: its declaration has the claim role.
@@ -741,12 +741,13 @@ impl RuleClause {
         }
         // `k::lexeme!` terms, then `k::is!` and `k::project!` terms, then the
         // other islands, each kind in expansion order.
-        let islands: [IslandKeys; 8] = [
+        let islands: [IslandKeys; 9] = [
             allocate_lexeme_keys,
             allocate_sort_test_keys,
             allocate_application_instance_keys,
             allocate_pattern_as_keys,
             allocate_pattern_or_keys,
+            allocate_map_pattern_keys,
             allocate_matches_keys,
             allocate_let_keys,
             allocate_ml_binder_keys,

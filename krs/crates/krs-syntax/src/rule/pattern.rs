@@ -567,6 +567,7 @@ pub(super) fn allocate_rule_pattern_keys(
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
             | TermNode::Or(_)
+            | TermNode::MapEntries(_)
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
@@ -828,6 +829,7 @@ pub(crate) fn allocate_term_node_keys(
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
             | TermNode::Or(_)
+            | TermNode::MapEntries(_)
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }
@@ -882,6 +884,7 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::SortTest { .. }
             | TermNode::As { .. }
             | TermNode::Or(_)
+            | TermNode::MapEntries(_)
             | TermNode::Matches(_)
             | TermNode::MatchesWildcard(_)
             | TermNode::Let { .. }

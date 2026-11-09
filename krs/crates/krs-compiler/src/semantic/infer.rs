@@ -8,7 +8,8 @@ use krs_ir::{
     SemanticId, SetOperation, SortTestKind, StableItemId,
 };
 use krs_ir_levels::{
-    ListOperands, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
+    ListOperands, MapEntry, MapOperands, SemanticSortRef, SemanticTerm, SemanticVariable,
+    SetOperands,
 };
 
 use super::catalog::{
@@ -33,9 +34,6 @@ pub(super) enum HeadPlace {
 /// roots hold one, and the rule names it for its cell first.
 const KEPT_REST_UNNAMED: &str =
     "an unnamed list rest stands only as the rest of a `cells!` list cell's root brackets";
-
-/// Why a map pattern reaches term inference before its lowering is written.
-const MAP_PATTERN_NOT_LOWERED: &str = "a map pattern `map![k -> v, ..]` is not lowered yet";
 
 #[expect(
     clippy::struct_excessive_bools,
@@ -640,8 +638,14 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::KeptRest { .. } => {
                 return Err(self.invalid_term(KEPT_REST_UNNAMED));
             }
-            DescriptorTerm::MapEntries { .. } => {
-                return Err(self.invalid_term(MAP_PATTERN_NOT_LOWERED));
+            DescriptorTerm::MapEntries { key, entries, rest } => {
+                return self.infer_map_pattern(
+                    key,
+                    entries,
+                    rest.as_deref(),
+                    expected_sort,
+                    subject,
+                );
             }
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
@@ -1532,6 +1536,7 @@ impl StructuredTermBuilder<'_> {
                 Some(SemanticSortRef::Cell(declaration.clone()))
             }
             DescriptorTerm::As { pattern, .. } => self.pattern_head_sort(pattern),
+            DescriptorTerm::MapEntries { .. } => Some(SemanticSortRef::map()),
             _ => None,
         }
     }
@@ -1907,6 +1912,96 @@ impl StructuredTermBuilder<'_> {
             && subject
             && !self.in_key
             && super::function_patterns::matches_evaluated_sentence(self.descriptor.payload())
+    }
+
+    /// Whether a map pattern's keys, at a pattern's matched position (`subject`), are what a
+    /// pattern over evaluated terms looks the map up by: computed from names the pattern binds
+    /// elsewhere and looked up, or a selection among the map's keys, as a cell map's keys are
+    /// ([`super::function_patterns`] judges which).
+    fn looks_up_keys(&self, subject: bool) -> bool {
+        subject
+            && !self.in_key
+            && super::function_patterns::matches_evaluated_sentence(self.descriptor.payload())
+    }
+
+    /// Infers a map pattern `map![k -> v, rest @ ..]`: a `Map`, whose keys and values are the
+    /// elements of the map its position carries, and whose rest is that map without them.
+    fn infer_map_pattern(
+        &mut self,
+        key: &ProvenanceKey,
+        entries: &[krs_ir::DescriptorMapTermEntry],
+        rest: Option<&DescriptorTerm>,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let sort = SemanticSortRef::map();
+        self.admit(
+            key,
+            || "map![..]".to_owned(),
+            &sort,
+            expected_sort,
+            |expected| {
+                format!("a map pattern is a Map, which is not admissible at sort {expected}")
+            },
+        )?;
+        let looked_up = self.looks_up_keys(subject);
+        for entry in entries {
+            let expected =
+                self.collection_operand_expected(&entry.key, CollectionOperandSort::Element);
+            if looked_up {
+                self.infer_key(&entry.key, expected.as_ref())?;
+            } else {
+                self.infer(&entry.key, expected.as_ref(), subject)?;
+            }
+            let expected =
+                self.collection_operand_expected(&entry.value, CollectionOperandSort::Element);
+            self.infer(&entry.value, expected.as_ref(), subject)?;
+        }
+        if let Some(rest) = rest {
+            self.infer(rest, Some(&sort), subject)?;
+        }
+        Ok(())
+    }
+
+    /// Lowers a map pattern: its items, each key looked up where a pattern over evaluated terms
+    /// matches ([`Self::looks_up_keys`]), joined with its rest, or the items alone.
+    fn lower_map_pattern(
+        &mut self,
+        key: &ProvenanceKey,
+        entries: &[krs_ir::DescriptorMapTermEntry],
+        rest: Option<&DescriptorTerm>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let looked_up = self.looks_up_keys(subject);
+        let mut items = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let expected = self.collections.typing.element_sort(&entry.key);
+            let lowered_key = if looked_up {
+                self.lower_key(&entry.key, expected.as_ref())?
+            } else {
+                self.lower(&entry.key, expected.as_ref(), subject)?
+            };
+            let expected = self.collections.typing.element_sort(&entry.value);
+            let value = self.lower(&entry.value, expected.as_ref(), subject)?;
+            items.push(MapEntry {
+                key: lowered_key,
+                value,
+            });
+        }
+        let Ok(MapOperands::Items(items)) = MapOperands::items(items) else {
+            return Err(self.invalid_term("a map pattern names no entry"));
+        };
+        let operands = match rest {
+            None => MapOperands::Items(items),
+            Some(rest) => MapOperands::ItemsWithRest {
+                items,
+                rest: self.lower(rest, Some(&SemanticSortRef::map()), subject)?,
+            },
+        };
+        Ok(SemanticTerm::map(
+            semantic_origin(self.descriptor, key.clone(), "term-map-pattern")?,
+            operands,
+        ))
     }
 
     /// Lowers a collection application's operands, in wire order, with its result sort; each as
@@ -2349,7 +2444,9 @@ impl StructuredTermBuilder<'_> {
                 ))
             }
             DescriptorTerm::KeptRest { .. } => Err(self.invalid_term(KEPT_REST_UNNAMED)),
-            DescriptorTerm::MapEntries { .. } => Err(self.invalid_term(MAP_PATTERN_NOT_LOWERED)),
+            DescriptorTerm::MapEntries { key, entries, rest } => {
+                self.lower_map_pattern(key, entries, rest.as_deref(), subject)
+            }
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
                     return Err(self.refused_position(key, "`_`"));

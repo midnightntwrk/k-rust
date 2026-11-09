@@ -189,6 +189,19 @@ fn denoted(tree: &TermTree) -> String {
         }
         TermTree::Reference(path) => quote::ToTokens::to_token_stream(path).to_string(),
         TermTree::Literal(literal) => literal.spelling(),
+        // A map pattern, whose entries a pattern holds as written.
+        TermTree::MapEntries { entries, rest, .. } => {
+            let mut parts = entries
+                .iter()
+                .map(|(key, value)| format!("{} -> {}", denoted(key), denoted(value)))
+                .collect::<Vec<_>>();
+            match rest.as_deref() {
+                Some(TermTree::Wildcard(_)) => parts.push("..".to_owned()),
+                Some(rest) => parts.push(format!("{} @ ..", denoted(rest))),
+                None => {}
+            }
+            format!("map![{}]", parts.join(", "))
+        }
         other => panic!("unexpected notation operand {other:?}"),
     }
 }
@@ -869,12 +882,15 @@ fn malformed_collection_literals_are_notation_errors_at_their_token() {
 #[test]
 fn a_left_hand_side_holds_a_collection_literal_as_its_calls() {
     let rule = krs_syntax::RuleItem::parse_source(
-        "fn r(k::term![Check(map![], set![x], map![k -> v])]: Term<Bool>) -> Term<Bool> { x }",
+        "fn r(k::term![Check(map![], set![x], map![k -> v], map![a -> b, rest @ ..], map![c -> d, ..m])]: Term<Bool>) -> Term<Bool> { x }",
     )
     .unwrap();
+    // A map literal with entries and no base is a map pattern there, its entries as written,
+    // which the compiler reads as the updates where a pattern meets no evaluated map; written
+    // over a base it is the update.
     assert_eq!(
         denoted(rule.subject_tree()),
-        "Check(map::empty(), set::item(x), map::update(map::empty(), k, v))"
+        "Check(map::empty(), set::item(x), map![k -> v], map![a -> b, rest @ ..], map::update(m, c, d))"
     );
 }
 

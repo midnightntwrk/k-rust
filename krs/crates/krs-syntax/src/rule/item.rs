@@ -1069,6 +1069,9 @@ impl RuleItem {
             crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)?;
         }
         for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_map_pattern_keys(keys, nodes, term_keys)?;
+        }
+        for (nodes, term_keys) in &mut sides {
             crate::term::allocate_matches_keys(keys, nodes, term_keys)?;
         }
         for (nodes, term_keys) in &mut sides {
@@ -1153,6 +1156,7 @@ impl RuleItem {
                         | TermNode::SortTest { .. }
                         | TermNode::As { .. }
                         | TermNode::Or(_)
+                        | TermNode::MapEntries(_)
                         | TermNode::Matches(_)
                         | TermNode::MatchesWildcard(_)
                         | TermNode::Let { .. }

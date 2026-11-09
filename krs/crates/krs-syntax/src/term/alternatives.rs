@@ -154,6 +154,15 @@ fn surely_bound(tree: &TermTree, target: &TermTree, output: &mut BTreeSet<String
                 surely_bound(&field.value, target, output);
             }
         }
+        TermTree::MapEntries { entries, rest, .. } => {
+            for (key, value) in entries {
+                surely_bound(key, target, output);
+                surely_bound(value, target, output);
+            }
+            if let Some(rest) = rest {
+                surely_bound(rest, target, output);
+            }
+        }
         TermTree::SortTest { operand, .. } => surely_bound(operand, target, output),
         TermTree::Rewrite { from, .. } => surely_bound(from, target, output),
         TermTree::Matches { .. }

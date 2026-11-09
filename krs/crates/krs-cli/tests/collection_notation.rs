@@ -963,9 +963,9 @@ fn check_error_at(target: &Path, item: &str) -> (String, String) {
 
 /// A malformed literal is an error at its token: a key written twice, an
 /// anonymous or misplaced rest, a rest alone, an entry without `->`, K's
-/// `.Map`; a literal that applies a function where a pattern matches a term is
-/// a function in a pattern, as its call is, told over the whole literal, and
-/// so is a constant's map.
+/// `.Map`; a literal written over a base, which applies a function where a
+/// pattern matches a term, is a function in a pattern, as its call is, told
+/// over the whole literal, and so is a constant's map.
 #[test]
 fn malformed_collection_literals_and_literals_in_a_pattern_are_errors() {
     let target = shared_fixture_target();
@@ -994,7 +994,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
     .into_iter()
     .chain(
         [
-            "env: map![n -> 1, 2 -> 3]",
+            "env: map![n -> 1, ..env0]",
             "seen: set![n, 1]",
             "env: map![n -> v, ..]",
             "seen: set![n, ..]",
@@ -1012,7 +1012,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 93, width 1",
             ),
             (
-                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `{ k -> v, .. }`, or `map![k -> v, ..]` in a `cells!` pattern's entry",
+                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `map![k -> v, ..]`, and a readable record with `{ k -> v, .. }`",
                 "column 93, width 1",
             ),
             (
@@ -1036,7 +1036,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 85, width 1",
             ),
             (
-                "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries (`{ k -> v, .. }` in a readable record, `map![k -> v, ..]` in a `cells!` entry), or match a variable here and relate it to the map in a guard (`requires`)",
+                "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries with `map![k -> v, ..]` (`{ k -> v, .. }` in a readable record), the map holding an entry at `k` and others, or match a variable here and relate it to the map in a guard (`requires`)",
                 "column 33, width 20",
             ),
             (

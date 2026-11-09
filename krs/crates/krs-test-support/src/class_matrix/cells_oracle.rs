@@ -877,6 +877,9 @@ struct Place {
     position: bool,
     /// A cell entry's content: a content root (P6).
     root: bool,
+    /// In a term: below a call's argument, `Cell(..)`, `KCell(..)`, or a computation's or a
+    /// map's literal; what records, `Some(..)`, brackets and braces hold stands where they do.
+    term: bool,
 }
 
 impl Place {
@@ -884,27 +887,42 @@ impl Place {
     const HEAD: Self = Self {
         position: true,
         root: false,
+        term: false,
     };
 
     /// Where the spellings directly inside `spelling`, standing here, stand.
     const fn inside(self, spelling: &Spelling) -> Self {
+        let term = self.term
+            || matches!(
+                spelling,
+                Spelling::Call(_)
+                    | Spelling::Cell(_)
+                    | Spelling::KCell(_)
+                    | Spelling::MapLit(_)
+                    | Spelling::MapRead(_)
+                    | Spelling::KMacro(_)
+            );
         match spelling {
             Spelling::Cell(_) => Self {
                 position: false,
                 root: true,
+                term,
             },
             Spelling::Present(_) | Spelling::Absent(_) | Spelling::Alias(..) => self,
             Spelling::Record(_) | Spelling::Fragment(_) if self.position => Self {
                 position: true,
                 root: true,
+                term,
             },
             Spelling::InstList(_) | Spelling::InstSet(_) if self.position => Self {
                 position: true,
                 root: false,
+                term,
             },
             _ => Self {
                 position: false,
                 root: false,
+                term,
             },
         }
     }
@@ -957,9 +975,13 @@ impl Judge<'_> {
             // a pattern writes is matched) and in a result alike: whether its `..` keeps a rest
             // is pairing's (P4: it needs the declaration and the other side; S5.0g pattern review
             // P-R2, and the fixes review's F-1 for a record's child). A readable `map![..]` is a
-            // literal everywhere: readable writes a map's root as `{ k -> v, .. }` (P2).
+            // literal at a configuration position: readable writes a map's root as
+            // `{ k -> v, .. }` (P2). Below every configuration position, in a term, a subject's
+            // map literal is a map pattern, its entries and the rest that holds the others
+            // (MAP-PARAM-PATTERN).
             Spelling::MapLit(entries)
                 if entries.rest == Some(Rest::Anon)
+                    && !(self.side == Side::Subject && place.term)
                     && !(self.form == Form::Cells
                         && (self.side == Side::Subject
                             || (self.side == Side::Result && place.root))) =>
