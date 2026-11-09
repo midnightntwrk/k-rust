@@ -545,6 +545,10 @@ pub enum ExpSyntax {
     Same(),
     #[k::syntax("twin")]
     Twin(),
+    #[k::syntax("named-second")]
+    NamedSecond(),
+    #[k::syntax("named-front")]
+    NamedFront(),
 }
 
 /// The value at 2 of a map of Ints, read by a `let`: an Int.
@@ -558,6 +562,23 @@ pub fn ValueAtTwo(memory: Term<Map<Int, Int>>) -> Term<Int> {
 #[k::function(partial, internal)]
 pub fn First(stack: Term<List<Int>>) -> Term<Int> {
     let [x, ..] = stack;
+    x
+}
+
+/// The value at 2 of a map of Ints, read through a local that names the map: an Int, since
+/// the local is that map.
+#[k::function(partial, internal)]
+pub fn NamedValueAtTwo(memory: Term<Map<Int, Int>>) -> Term<Int> {
+    let named = memory;
+    let map![2 -> v, ..] = named;
+    v
+}
+
+/// The first element of a list of Ints, read through a local that names the list: an Int.
+#[k::function(partial, internal)]
+pub fn NamedFirst(stack: Term<List<Int>>) -> Term<Int> {
+    let named = stack;
+    let [x, ..] = named;
     x
 }
 
@@ -608,6 +629,8 @@ k::rules! {
     front: { k: [Front(), ..], stack: s } => { k: [..], seen: First(s) };
     same: { k: [Same(), ..], mem: m } => { k: [..], out: SameAtTwoAndThree(m) };
     twin: { k: [Twin(), ..], stack: s } => { k: [..], out: StartsTwice(s) };
+    named_second: { k: [NamedSecond(), ..], mem: m } => { k: [..], seen: NamedValueAtTwo(m) };
+    named_front: { k: [NamedFront(), ..], stack: s } => { k: [..], seen: NamedFirst(s) };
 }
 "#;
 
@@ -624,6 +647,8 @@ fn a_local_pattern_binds_the_parts_of_a_typed_collection_at_their_types() {
     expect_test::expect![[r#"
         [
             "rule first ( Stack:List ) => ( #let ListItem(X:Int) _ = Stack:List #in X:Int ) [label(org_krs_mappatterns--first)]",
+            "rule namedFirst ( Stack:List ) => ( #let Named:List = Stack:List #in ( #let ListItem(X:Int) _ = Named:List #in X:Int ) ) [label(org_krs_mappatterns--named_first)]",
+            "rule namedValueAtTwo ( Memory:Map ) => ( #let Named:Map = Memory:Map #in ( #let 2 |-> V:Int _ = Named:Map #in V:Int ) ) [label(org_krs_mappatterns--named_value_at_two)]",
             "rule valueAtTwo ( Memory:Map ) => ( #let 2 |-> V:Int _ = Memory:Map #in V:Int ) [label(org_krs_mappatterns--value_at_two)]",
             "rule sameAtTwoAndThree ( Memory:Map ) => ( 2 |-> V:Int 3 |-> V:Int _ :=K Memory:Map ) [label(org_krs_mappatterns--same_at_two_and_three)]",
             "rule startsTwice ( Stack:List ) => ( ListItem(X:Int) ListItem(X:Int) _ :=K Stack:List ) [label(org_krs_mappatterns--starts_twice)]",
@@ -636,6 +661,8 @@ fn a_local_pattern_binds_the_parts_of_a_typed_collection_at_their_types() {
         ("front", "seen"),
         ("same", "out"),
         ("twin", "out"),
+        ("named-second", "seen"),
+        ("named-front", "seen"),
     ]
     .map(|(program, cell)| {
         format!(
@@ -649,6 +676,8 @@ fn a_local_pattern_binds_the_parts_of_a_typed_collection_at_their_types() {
             "front => seen: 7",
             "same => out: true",
             "twin => out: true",
+            "named-second => seen: 20",
+            "named-front => seen: 7",
         ]
     "#]]
     .assert_debug_eq(&outcomes);

@@ -625,8 +625,12 @@ pub(super) struct Walker<'a> {
     /// Whether this pass records binder types (the first) or checks (the
     /// second).
     binding: bool,
-    /// Names a `let`, `k::matches!`, or `ml::exists` binds in scope.
-    locals: Vec<BTreeSet<String>>,
+    /// Names a `let`, `k::matches!`, or `ml::exists` binds in scope, each
+    /// with the typed position its pattern matched it at, if any.
+    locals: Vec<BTreeMap<String, Option<(SortType, Position)>>>,
+    /// Whether the walk is inside a local pattern, where a local name at a
+    /// typed position is bound there rather than read.
+    in_local_pattern: bool,
 }
 
 /// A term of a sentence and the position it stands at.
@@ -692,6 +696,7 @@ impl<'a> Walker<'a> {
             },
             binding: true,
             locals: Vec::new(),
+            in_local_pattern: false,
         }
     }
 
@@ -1012,7 +1017,79 @@ impl<'a> Walker<'a> {
     }
 
     fn is_local(&self, name: &str) -> bool {
-        self.locals.iter().any(|scope| scope.contains(name))
+        self.locals.iter().any(|scope| scope.contains_key(name))
+    }
+
+    /// The typed position a local was bound at, if it was bound at one. A
+    /// local names the value its pattern matched, so it has the type of the
+    /// position it matched: the value's own for `let s = v`, a part's for a
+    /// name inside the pattern.
+    fn local_type(&self, name: &str) -> Option<&(SortType, Position)> {
+        self.locals
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+            .and_then(Option::as_ref)
+    }
+
+    /// Records that the local `name` is matched at a typed position. A name
+    /// written twice in one pattern stands for one value, so it has the meet
+    /// of both positions' types, as a binder of the sentence's patterns does.
+    fn bind_local(&mut self, name: &str, ty: &SortType, position: &Position) {
+        if !ty.is_typed() {
+            return;
+        }
+        let parents = self.parents;
+        let Some(slot) = self
+            .locals
+            .iter_mut()
+            .rev()
+            .find_map(|scope| scope.get_mut(name))
+        else {
+            return;
+        };
+        *slot = Some(match slot.take() {
+            None => (ty.clone(), position.clone()),
+            Some((left, left_position)) => {
+                let meet = left.clone().meet(ty.clone(), parents);
+                if meet == left {
+                    (left, left_position)
+                } else {
+                    (meet, position.clone())
+                }
+            }
+        });
+    }
+
+    /// A local pattern, walked at the type of the value it matches, with its
+    /// names in scope. The caller pops the scope.
+    fn local_pattern(
+        &mut self,
+        pattern: &DescriptorTerm,
+        matched: Option<&(SortType, Position)>,
+    ) -> Result<(), DescriptorLoweringError> {
+        self.locals.push(
+            pattern_names(pattern)
+                .into_iter()
+                .map(|name| (name, None))
+                .collect(),
+        );
+        let outer = std::mem::replace(&mut self.in_local_pattern, true);
+        let walked = self.walk(pattern, matched, true);
+        self.in_local_pattern = outer;
+        walked
+    }
+
+    /// What a local is known to be at a typed position: the typed collection
+    /// its pattern matched it at, else for sort inference to decide.
+    fn local_source(&self, name: &str) -> Source {
+        match self.local_type(name) {
+            Some((ty, position)) => Source::Typed(
+                Box::new(ty.clone()),
+                format!("`{name}`, bound to {},", position.describe()),
+            ),
+            None => Source::Unknown,
+        }
     }
 
     /// Walks `term` standing at `at` (a collection position, typed or not)
@@ -1029,18 +1106,27 @@ impl<'a> Walker<'a> {
     ) -> Result<(), DescriptorLoweringError> {
         match term {
             DescriptorTerm::Variable { name, key, .. } => match at {
+                Some((ty, position)) if self.in_local_pattern && self.is_local(name) => {
+                    self.bind_local(name, ty, position);
+                }
                 Some((ty, position)) if subject && self.binding => self.bind(name, ty, position),
-                Some(at) if !subject && !self.binding && !self.is_local(name) => {
-                    let source = self.binder_source(name);
+                Some(at) if !subject && !self.binding => {
+                    let source = if self.is_local(name) {
+                        self.local_source(name)
+                    } else {
+                        self.binder_source(name)
+                    };
                     self.flow(source, at, key)?;
                 }
                 _ => {}
             },
             DescriptorTerm::As { name, pattern, .. } => {
-                if let Some((ty, position)) = at
-                    && self.binding
-                {
-                    self.bind(name, ty, position);
+                if let Some((ty, position)) = at {
+                    if self.in_local_pattern && self.is_local(name) {
+                        self.bind_local(name, ty, position);
+                    } else if self.binding {
+                        self.bind(name, ty, position);
+                    }
                 }
                 self.walk(pattern, at, subject)?;
             }
@@ -1065,8 +1151,7 @@ impl<'a> Walker<'a> {
             } => {
                 self.walk(value, None, subject)?;
                 let matched = self.typed_source(value);
-                self.locals.push(pattern_names(pattern));
-                self.walk(pattern, matched.as_ref(), true)?;
+                self.local_pattern(pattern, matched.as_ref())?;
                 self.walk(body, at, subject)?;
                 self.locals.pop();
             }
@@ -1077,12 +1162,11 @@ impl<'a> Walker<'a> {
             } => {
                 self.walk(tested, None, subject)?;
                 let matched = self.typed_source(tested);
-                self.locals.push(pattern_names(pattern));
-                self.walk(pattern, matched.as_ref(), true)?;
+                self.local_pattern(pattern, matched.as_ref())?;
                 self.locals.pop();
             }
             DescriptorTerm::Closure { name, body, .. } => {
-                self.locals.push(BTreeSet::from([name.clone()]));
+                self.locals.push(BTreeMap::from([(name.clone(), None)]));
                 self.walk(body, None, subject)?;
                 self.locals.pop();
             }
@@ -1543,12 +1627,13 @@ impl<'a> Walker<'a> {
     /// one.
     fn typed_source(&self, term: &DescriptorTerm) -> Option<(SortType, Position)> {
         match term {
-            DescriptorTerm::Variable { name, .. } if !self.is_local(name) => {
-                match self.typing.binders.get(name) {
-                    Some(Matched::Typed(typed)) => Some((**typed).clone()),
-                    _ => None,
-                }
+            DescriptorTerm::Variable { name, .. } if self.is_local(name) => {
+                self.local_type(name).cloned()
             }
+            DescriptorTerm::Variable { name, .. } => match self.typing.binders.get(name) {
+                Some(Matched::Typed(typed)) => Some((**typed).clone()),
+                _ => None,
+            },
             DescriptorTerm::Application {
                 reference,
                 arguments,
@@ -1620,7 +1705,7 @@ impl<'a> Walker<'a> {
         match term {
             DescriptorTerm::Variable { name, .. } => {
                 if self.is_local(name) {
-                    Source::Unknown
+                    self.local_source(name)
                 } else {
                     self.binder_source(name)
                 }

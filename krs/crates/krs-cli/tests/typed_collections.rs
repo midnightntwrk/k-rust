@@ -542,6 +542,13 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "e",
         ),
         (
+            // A local is the value it names, so it has that value's type at a typed position.
+            "typed-local-flow",
+            "#[k::function(total, internal)]\npub fn Narrow(e: Term<Map<Id, Value>>) -> Term<Map<Id, Int>> {\n    let named = e;\n    named\n}\n".to_owned(),
+            "error[krs::analysis::collection-element-sort]: `named`, bound to the parameter `e` of `Narrow`, has type `Map<Id, Value>`, which does not fit the result of `Narrow`, declared `Map<Id, Int>`: Value is not an Int".to_owned(),
+            "named",
+        ),
+        (
             "read-narrowing",
             rules(
                 "probe: { k: [Put(name, _), ..], env: { name -> v, .. } } => { k: [..] } where v: Stmt;",
