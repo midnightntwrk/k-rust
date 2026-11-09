@@ -583,3 +583,149 @@ fn a_leaf_of_sort_k_is_written_by_a_term_of_that_sort_on_every_route() {
         assert!(stderr.contains(&location), "{name}: {location}: {stderr}");
     }
 }
+
+/// A machine with an `Int` leaf `pc` and a List collection of `T` instances, each with an `Int`
+/// leaf child `tn`, whose initializer writes `pc` as `PC`.
+const LEAF_TERMS: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+}
+
+#[k::cell]
+pub struct T {
+    #[k::cell]
+    pub tk: KSequence,
+    #[k::cell]
+    pub tn: Int,
+}
+
+#[k::cell]
+pub struct Tqueue {
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub tjob: T,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell(nested)]
+    pub tqueue: Tqueue,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            pc: PC,
+            tqueue: Tqueue { tjob: T { tk: k::k![], tn: 0 } },
+        }
+    }
+}
+"#;
+
+/// A known two-verdict inventory (COHERE-F1, AUDIT-R A1-4, RDRA item 4): `k::k![..]` where a
+/// leaf's term stands is one construct, the computation's item notation, which no leaf holds, and
+/// each route that reads it answers today with its own reader's class. The `cells!` routes read
+/// the payload as a sequence before any term reader sees it, so merging them into the term
+/// reader's class needs `cells!` to read a leaf's value as a term first, a move of its reading
+/// order (queued as COHERE F1). Until then this pins each route's class, so that a merge has its
+/// witness and a drift of any route is seen.
+#[test]
+fn the_computation_s_items_where_a_leaf_s_term_stands_are_refused_by_each_route_s_reader() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let library = |pc: &str, sentences: &str| {
+        format!(
+            "{}{sentences}",
+            LEAF_TERMS.replace("pc: PC", &format!("pc: {pc}"))
+        )
+    };
+    let readable = |clause: &str| {
+        format!("k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    {clause}\n}}\n")
+    };
+    let cells = |subject: &str, result: &str| {
+        format!(
+            "#[k::rule]\npub fn r(\n    k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {subject}state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}..state }}\n}}\n"
+        )
+    };
+    let routes = [
+        (
+            "readable-leaf",
+            library(
+                "0",
+                &readable("go: { k: [Go(), ..], pc: _ } => { k: [..], pc: k::k![1] };"),
+            ),
+        ),
+        (
+            "readable-instance-child",
+            library(
+                "0",
+                &readable(
+                    "go: { k: [Go(), ..], tjob: [T { tn: k::k![1], .. }, ..] } => { k: [..] };",
+                ),
+            ),
+        ),
+        (
+            "cells-leaf",
+            library(
+                "0",
+                &cells(
+                    "pc: k::configuration::Cell(_), ",
+                    "pc: k::configuration::Cell(k::k![1]), ",
+                ),
+            ),
+        ),
+        (
+            "cells-instance-child",
+            library(
+                "0",
+                &cells(
+                    "Tqueue::tjob: [k::fragment![crate::T { tn: k::k![1], .. }], rest @ ..], ",
+                    "Tqueue::tjob: [..rest], ",
+                ),
+            ),
+        ),
+        ("initializer-value", library("k::k![1]", "")),
+        (
+            "initializer-constructor",
+            library("k::configuration::Cell::new(k::k![1])", ""),
+        ),
+    ];
+    let classes = routes.map(|(route, source)| {
+        let manifest = package(temporary.path(), &format!("leaf-items-{route}"), &source);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{route}: {stderr}");
+        let headline = stderr
+            .lines()
+            .find(|line| line.starts_with("error["))
+            .unwrap_or_else(|| panic!("{route}: no error headline:\n{stderr}"));
+        let code = &headline["error[".len()..headline.find(']').unwrap()];
+        format!("{route}: {code}")
+    });
+    expect_test::expect![[r#"
+        [
+            "readable-leaf: krs::syntax::unsupported-term-expression",
+            "readable-instance-child: krs::syntax::unsupported-term-expression",
+            "cells-leaf: krs::expand::cell-state-family-mismatch",
+            "cells-instance-child: krs::analysis::invalid-term",
+            "initializer-value: krs::analysis::cell-wrapper",
+            "initializer-constructor: krs::syntax::unsupported-initializer-body",
+        ]
+    "#]]
+    .assert_debug_eq(&classes);
+}
