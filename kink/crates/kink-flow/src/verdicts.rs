@@ -6,23 +6,27 @@
 //! verdict shows in review and an unchanged corpus renders the same bytes.
 //!
 //! ```toml
+//! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).
+//! # As a lock (`coverage --lock FILE`; krs keeps <corpus>/coverage.lock) the next run tries each
+//! # ...
 //! schema = "kink-flow-verdicts"
-//! version = 23
+//! version = 24
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-//! krs_annotation = 9
+//! krs_annotation = 10
 //!
 //! [spec]
 //! outcome = "admitted"
 //!
 //! [settings]
-//! tiers = [1, 2]
 //! depth = 1
 //! mcdc = [
 //! ]
 //!
+//! # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
+//! # ...
 //! [rules]
 //! open = [
 //!   "rule:crate::plus_succ",
@@ -34,7 +38,7 @@
 //! open = [
 //! ]
 //! argued = [
-//!   "requirement:crate::wake:held",
+//!   { id = "requirement:crate::wake:held", standing = "text" },
 //! ]
 //!
 //! [syntax]
@@ -43,22 +47,37 @@
 //! argued = [
 //! ]
 //!
-//! [arguments]
-//! "requirement:crate::wake:held" = "text"
-//! "flip--halted+wake--I" = "text"
-//!
+//! # Each [[flip]] is a condition flip: a mutant kink generates from the definition by negating
+//! # ...
 //! [flips]
 //! run = true
 //!
 //! [[flip]]
 //! id = "flip--dispatch+wake--H"
+//! negates = "self.halted"
+//! rules = [
+//!   "rule:crate::dispatch",
+//!   "rule:crate::wake",
+//! ]
 //! status = "distinguished"
 //! killer = "irq"
 //!
 //! [[flip]]
 //! id = "flip--halted+wake--I"
+//! negates = "self.irq"
+//! rules = [
+//!   "rule:crate::halted",
+//!   "rule:crate::wake",
+//! ]
 //! status = "argued"
+//! standing = "text"
 //! ```
+//!
+//! A rendering says what it is without the README: it opens with a comment naming the command
+//! whose verdicts it holds and what that command does with it as a lock ([`RUN_PREAMBLE`],
+//! [`COVERAGE_PREAMBLE`]), and a comment before its families and before its rows says what an
+//! entry and each status word is ([`MUTATIONS_LEGEND`], [`FAMILIES_LEGEND`], [`FLIPS_LEGEND`]).
+//! Each comment is a constant of the rendering's version, so it moves no line of a lock.
 //!
 //! The header names the document and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
 //! class, a status and a cell can move between `killed`, `unknown` and `survived` with the solver's
@@ -82,19 +101,26 @@
 //! the ids, not in what is open. A run rendering names no rule, so it has no `krs_annotation`
 //! line, which could only move a lock without any verdict moving.
 //!
-//! A `coverage` document gives its settings (the tiers computed, `depth`, `mcdc`), then per
-//! family the ids of its open obligations and of its argued ones, in item order (`[rules]`,
+//! A `coverage` document gives its settings (`depth`, `mcdc`; not the tiers computed, since a
+//! lock is written only where both ran and `[flips] run` says whether tier 2 did), then per
+//! family the ids of its open obligations and its argued ones, in item order (`[rules]`,
 //! `[requirements]`, `[syntax]`, and `[rule_windows]` and `[syntax_paths]` where the document has
 //! the family, at a depth above 1; [`crate::coverage::open_ids`], [`crate::coverage::argued_ids`]),
-//! and, where it has any, of its undecided ones (`undecided`; [`crate::coverage::undecided_ids`]),
-//! then each argued item, of every family, with the standing of its argument (`[arguments]`,
-//! one `"<id>" = "<standing>"` line per item, in family then item order, the section written
-//! where no item is argued, a standing that rests on findings of the critical-pair check that
-//! `[spec] assume_joined` assumes followed by `, assuming joined` and their names;
-//! [`crate::coverage::argument_standings`]), and for the flips family
-//! whether it ran and, when it ran, each flip (`[[flip]]`, in item order) with its status
-//! (`argued` for an argued one), a refused flip's reason, a distinguished flip's `killer`, and an
+//! each argued one with the standing of its argument (`{ id = "<id>", standing = "<standing>" }`,
+//! a standing that rests on findings of the critical-pair check that `[spec] assume_joined`
+//! assumes followed by `, assuming joined` and their names;
+//! [`crate::coverage::argument_standings`]), and, where it has any, its undecided ones
+//! (`undecided`; [`crate::coverage::undecided_ids`]); then for the flips family whether it ran
+//! and, when it ran, each flip (`[[flip]]`, in item order) with its id, the condition it negates
+//! as the source writes it (`negates`) or the bit it toggles (`toggles`; the item's `text`), the
+//! rules it edits by their ids in the rules family (`rules`), its status (`argued` for an argued
+//! one, with its `standing`), a refused flip's reason, a distinguished flip's `killer`, and an
 //! undistinguished flip's `horizon` where it rests on one, as a run rendering gives a survivor's.
+//! An argued item is written once, where its family lists it, so a standing that moves changes
+//! that item's line alone. A flip's id is the front end's (`flip--<sentences>--<atom>`,
+//! `bitflip--<sentences>--bit<k>`), stable while the definition's guard families are, since it
+//! keys the flip's recorded killer and its argued entry; `negates` and `rules` resolve it without
+//! the coverage document, and are functions of the definition, as the id is.
 //! It lists no programs and no counts, so that it moves only when a gap opens or closes, an
 //! argument is added or removed or its standing moves, or a killer changes: a case that covers
 //! nothing new renders the same bytes. An argument's text is not rendered, since it explains a
@@ -139,12 +165,12 @@
 //! `timeout` class or status depends on the host by its nature.
 //!
 //! Every array of strings or inline tables the rendering writes (`open`, `argued`, `undecided`,
-//! `[settings] mcdc`, `horizon`, `killed_by`) has one value per line, with a trailing comma, from
-//! the key's line to a `]` on its own, an empty array included: so a lock's diff of a set that
-//! changed is exactly the lines of the values that joined or left it, in the set's order, and
-//! no other line moves. `tiers`, at most two numbers, is inline. `[arguments]` is a table, not
-//! an array, so that each item's line carries its standing: a standing that moves changes that
-//! item's line alone, and an argument added or removed adds or removes its line.
+//! `[settings] mcdc`, a flip's `rules`, `horizon`, `killed_by`) has one value per line, with a
+//! trailing comma, from the key's line to a `]` on its own, an empty array included: so a lock's
+//! diff of a set that changed is exactly the lines of the values that joined or left it, in the
+//! set's order, and no other line moves. An `argued` entry is an inline table, one per line, so that each item's
+//! line carries its standing: a standing that moves changes that item's line alone, and an
+//! argument added moves its item's line from `open` to `argued`.
 
 use serde_json::{Value, json};
 use std::fmt::Write as _;
@@ -211,7 +237,67 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// kind, sentences and digest (`root:A,B#D`, KINK-FINDING-NAMES), where 22 named them by
 /// generated-K positions, so that a lock whose arguments name findings shows a new version; a lock
 /// whose standings assume nothing differs in its `version` line only.
-pub const VERDICTS_VERSION: u64 = 23;
+/// 24 since a rendering says what it is without the README (FB48-NAMES): it opens with a comment
+/// naming the command whose verdicts it holds and what that command does with it as a lock, and
+/// a comment before its rows says what a row and each status is; a coverage rendering gives each
+/// argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued
+/// flip's `standing` on its row), where `[arguments]` repeated the ids, gives each flip the
+/// condition it negates or the bit it toggles and the rules it edits, and no longer writes
+/// `[settings] tiers`, which `[flips] run` states. Under `--locked` a lock of another version is
+/// refused, naming the command that rewrites it ([`crate::lock`]).
+pub const VERDICTS_VERSION: u64 = 24;
+
+/// The comment a `run` rendering opens with: the command whose verdicts these are, and what each
+/// command does with them as a lock, so that a reader of `verdicts.lock` needs no README to tell
+/// what wrote it.
+pub const RUN_PREAMBLE: &[&str] = &[
+    "The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation list.",
+    "As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries each",
+    "`killer` first, a run without --locked rewrites it, and `run --locked` checks it is current.",
+];
+
+/// The comment a `coverage` rendering opens with ([`RUN_PREAMBLE`]'s, for `coverage.lock`).
+pub const COVERAGE_PREAMBLE: &[&str] = &[
+    "The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).",
+    "As a lock (`coverage --lock FILE`; krs keeps <corpus>/coverage.lock) the next run tries each",
+    "flip's `killer` first, a run without --locked rewrites it, and `coverage --locked` checks it",
+    "is current.",
+];
+
+/// The comment before a run rendering's first `[[mutation]]`: what a row is and what each status
+/// says.
+pub const MUTATIONS_LEGEND: &[&str] = &[
+    "Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a program's",
+    "result differs on the mutant; `killer` names it), survived (every program agreed; `horizon`,",
+    "those that agreed only up to an observation horizon), equivalent or unkillable (no program",
+    "can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation or",
+    "not-admitted (its author must fix it; `reason` says why).",
+];
+
+/// The comment before a coverage rendering's first family: what `open`, `argued` and
+/// `undecided` list, and what each standing says.
+pub const FAMILIES_LEGEND: &[&str] = &[
+    "Each family lists its obligations by id: `open`, those no program covers; `argued`, those an",
+    "argument of FLOW.toml ([[coverage.argued]]) stands in for, each with the `standing` it rests",
+    "on (text: its text alone; connected, checked-on-runs or proved: its invariant's checks hold;",
+    "unchecked: a check did not decide); `undecided`, those the records cannot decide.",
+];
+
+/// The comment before `[flips]` where the flips ran: what a `[[flip]]` is and what each status
+/// says.
+pub const FLIPS_LEGEND: &[&str] = &[
+    "Each [[flip]] is a condition flip: a mutant kink generates from the definition by negating",
+    "one condition (`negates`, as the source writes it) or toggling one bit of an encoding",
+    "(`toggles`) in the `rules` it lists, and runs as `run` runs a mutation. Its status:",
+    "distinguished (a program's result differs on it; `killer` names it), undistinguished (every",
+    "comparable program agreed), unreached (no program reaches the condition), argued (an",
+    "argument stands in for a program; its `standing`), equivalent (no program can tell it",
+    "apart), refused (the flipped definition is not admitted; `reason`), unknown (no verdict).",
+];
+
+/// The comment before `[flips]` where they did not run.
+pub const FLIPS_NOT_RUN: &[&str] =
+    &["No condition flip ran: the front end derives none, or `--tier 1` runs none."];
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run
@@ -261,6 +347,14 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
         }
     };
     let mut text = String::new();
+    comment(
+        &mut text,
+        if kind == "coverage" {
+            COVERAGE_PREAMBLE
+        } else {
+            RUN_PREAMBLE
+        },
+    );
     line(&mut text, "schema", &string(VERDICTS_SCHEMA));
     line(&mut text, "version", &VERDICTS_VERSION.to_string());
     line(&mut text, "document", &string(kind));
@@ -373,23 +467,14 @@ pub fn refusal_details(document: &Value) -> Vec<String> {
     details
 }
 
-/// A coverage document's settings, each family's open ids and whether the flips ran (module
-/// documentation); nothing for a refused specification, which has no families.
+/// A coverage document's settings, each family's open, argued and undecided ids, and the flips
+/// (module documentation); nothing for a refused specification, which has no families.
 fn coverage(text: &mut String, document: &Value) {
     let settings = &document["settings"];
     if settings.is_object() {
+        // No `tiers`: a lock is written only where both tiers ran, and `[flips] run` says whether
+        // tier 2 did.
         text.push_str("\n[settings]\n");
-        let numbers = |value: &Value| {
-            let items = value
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>();
-            format!("[{}]", items.join(", "))
-        };
-        // At most two numbers, a setting rather than a list a corpus grows: inline.
-        line(text, "tiers", &numbers(&settings["tiers"]));
         line(text, "depth", &settings["depth"].to_string());
         let mcdc = if settings["mcdc"] == true {
             "true".to_owned()
@@ -409,42 +494,83 @@ fn coverage(text: &mut String, document: &Value) {
     if !document["families"].is_object() {
         return;
     }
+    let standings = crate::coverage::argument_standings(document)
+        .into_iter()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let standing = |id: &str| {
+        standings
+            .get(id)
+            .map_or(crate::coverage::STANDING_TEXT, String::as_str)
+    };
     let argued = crate::coverage::argued_ids(document);
     let undecided = crate::coverage::undecided_ids(document);
+    text.push('\n');
+    comment(text, FAMILIES_LEGEND);
+    let mut first = true;
     for (((family, open), (_, argued)), (_, undecided)) in crate::coverage::open_ids(document)
         .into_iter()
         .zip(argued)
         .zip(undecided)
     {
-        let _ = write!(text, "\n[{family}]\n");
+        if !first {
+            text.push('\n');
+        }
+        first = false;
+        let _ = writeln!(text, "[{family}]");
         line(text, "open", &strings(&open));
-        line(text, "argued", &strings(&argued));
+        // Each argued item once, with the standing its argument rests on.
+        let argued = argued
+            .iter()
+            .map(|id| {
+                format!(
+                    "{{ id = {}, standing = {} }}",
+                    string(id),
+                    string(standing(id))
+                )
+            })
+            .collect::<Vec<_>>();
+        line(text, "argued", &list(&argued));
         if !undecided.is_empty() {
             line(text, "undecided", &strings(&undecided));
         }
     }
-    // One line per argued item, the section included where there is none, as an empty array is.
-    text.push_str("\n[arguments]\n");
-    for (id, standing) in crate::coverage::argument_standings(document) {
-        line(text, &string(&id), &string(&standing));
-    }
     let flips = &document["families"]["flips"];
     if flips.is_object() {
-        text.push_str("\n[flips]\n");
-        line(
-            text,
-            "run",
-            &flips["run"].as_bool().unwrap_or(false).to_string(),
-        );
+        let ran = flips["run"].as_bool().unwrap_or(false);
+        text.push('\n');
+        comment(text, if ran { FLIPS_LEGEND } else { FLIPS_NOT_RUN });
+        text.push_str("[flips]\n");
+        line(text, "run", &ran.to_string());
     }
     for item in flips["items"].as_array().into_iter().flatten() {
         text.push_str("\n[[flip]]\n");
-        line(text, "id", &string(item["id"].as_str().unwrap_or_default()));
+        let id = item["id"].as_str().unwrap_or_default();
+        line(text, "id", &string(id));
+        // What the mutant changes: the condition as the source writes it, and the rules it edits
+        // by their ids in the rules family, so that the id needs no other document to resolve.
+        if let Some(condition) = item["text"].as_str() {
+            let key = if item["operator"] == "bitflip" {
+                "toggles"
+            } else {
+                "negates"
+            };
+            line(text, key, &string(condition));
+        }
+        if let Some(sentences) = item["sentences"].as_array() {
+            let rules = sentences
+                .iter()
+                .filter_map(|sentence| sentence["rule"].as_str().map(str::to_owned))
+                .collect::<Vec<_>>();
+            line(text, "rules", &strings(&rules));
+        }
         let rendered = rendered_flip(item);
         for key in ["status", "reason", "killer"] {
             if let Some(value) = rendered[key].as_str() {
                 line(text, key, &string(value));
             }
+        }
+        if rendered["status"] == crate::coverage::ARGUED {
+            line(text, "standing", &string(standing(id)));
         }
         if let Some(horizons) = rendered["horizon"].as_array() {
             line(text, "horizon", &rendered_horizons(horizons));
@@ -528,8 +654,19 @@ pub fn rendered_reason(row: &Value) -> Value {
 /// a killed mutation's `killer`, and with `killed_by` a full row's `killed_by` (module
 /// documentation).
 fn mutations(text: &mut String, document: &Value, killed_by: bool) {
-    for row in document["mutations"].as_array().into_iter().flatten() {
-        text.push_str("\n[[mutation]]\n");
+    let rows = document["mutations"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    if !rows.is_empty() {
+        text.push('\n');
+        comment(text, MUTATIONS_LEGEND);
+    }
+    for (index, row) in rows.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[mutation]]\n"
+        } else {
+            "\n[[mutation]]\n"
+        });
         line(text, "id", &string(row["id"].as_str().unwrap_or_default()));
         line(
             text,
@@ -563,6 +700,17 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
 
 fn line(text: &mut String, key: &str, value: &str) {
     let _ = writeln!(text, "{key} = {value}");
+}
+
+/// `lines` as TOML comments, each `# <line>` (`#` alone for an empty one).
+fn comment(text: &mut String, lines: &[&str]) {
+    for line in lines {
+        if line.is_empty() {
+            text.push_str("#\n");
+        } else {
+            let _ = writeln!(text, "# {line}");
+        }
+    }
 }
 
 /// A TOML basic string.

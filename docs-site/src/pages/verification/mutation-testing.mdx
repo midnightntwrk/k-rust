@@ -187,7 +187,8 @@ krs kink run --package story-plus --definition main --locked > /dev/null || stat
 #    each change: run without --locked,
 #    review the lock's diff, and commit it;
 # 2: the run could not be asked (a stale definition.k, a refused corpus, list, lock or
-#    mutation): stderr has each refusal's text
+#    mutation, or a lock another kink version wrote, which a run without --locked
+#    rewrites): stderr has each refusal's text
 [ "$status" -eq 0 ] || [ "$status" -eq 3 ] || exit "$status"
 ```
 

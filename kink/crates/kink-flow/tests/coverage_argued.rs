@@ -672,13 +672,19 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{plain:#}");
         let recorded = fs::read_to_string(&lock).unwrap();
         assert_eq!(recorded, verdicts(&plain).unwrap());
-        assert!(recorded.contains("\nversion = 23\n"), "{recorded}");
+        assert!(
+            recorded.contains(&format!(
+                "\nversion = {}\n",
+                kink_flow::verdicts::VERDICTS_VERSION
+            )),
+            "{recorded}"
+        );
         assert!(
             recorded.contains(&format!("\n[rules]\nopen = [\n  \"{WAKE}\",\n")),
             "{recorded}"
         );
         assert!(
-            !recorded.contains(&format!("argued = [\n  \"{WAKE}\",\n")),
+            !recorded.contains(&format!("argued = [\n  {{ id = \"{WAKE}\"")),
             "{recorded}"
         );
 
@@ -711,14 +717,19 @@ mod kink_tier {
         assert!(
             rewritten.contains(&format!(
                 "\n[rules]\nopen = [\n  \"rule:GUARDS.halted\",\n  \"rule:GUARDS.high\",\n]\n\
-                 argued = [\n  \"{WAKE}\",\n]\n"
+                 argued = [\n  {{ id = \"{WAKE}\", standing = \"text\" }},\n]\n"
             )),
             "{rewritten}"
         );
+        // Each argued item once, with its standing: no `[arguments]` repeats the ids.
         assert!(
-            rewritten.contains(&format!("\n[[flip]]\nid = \"{I}\"\nstatus = \"argued\"\n")),
+            rewritten.contains(&format!(
+                "\n[[flip]]\nid = \"{I}\"\nnegates = \"I\"\nrules = [\n  \"{WAKE}\",\n  \
+                 \"rule:GUARDS.halted\",\n]\nstatus = \"argued\"\nstanding = \"text\"\n"
+            )),
             "{rewritten}"
         );
+        assert!(!rewritten.contains("[arguments]"), "{rewritten}");
         // An argument's text is no verdict: rewording it leaves the rendering as it is.
         argue(
             &dir,
@@ -1801,8 +1812,8 @@ mod kink_tier {
     /// under the portable one `unchecked` (no solver decides the connection, exit 3).
     /// The settings list the invariants, the summary counts the argued items by
     /// standing, the text states each standing, and the coverage lock gives each argued item's
-    /// standing under `[arguments]`: a standing that moves makes `--locked` stale, naming the
-    /// item, while the header and the obligations are unchanged.
+    /// standing beside its id in its family's `argued`: a standing that moves makes `--locked`
+    /// stale, naming the item, while the header and the obligations are unchanged.
     #[test]
     #[ignore = "kink"]
     fn each_argued_item_states_its_standing_and_the_lock_records_it() {
@@ -1866,7 +1877,9 @@ mod kink_tier {
         let recorded = fs::read_to_string(&lock).unwrap();
         assert!(
             recorded.contains(&format!(
-                "\n[arguments]\n\"{BUMP}\" = \"text\"\n\"{BUMP_HELD}\" = \"{standing}\"\n"
+                "\nargued = [\n  {{ id = \"{BUMP}\", standing = \"text\" }},\n]\n"
+            )) && recorded.contains(&format!(
+                "\nargued = [\n  {{ id = \"{BUMP_HELD}\", standing = \"{standing}\" }},\n]\n"
             )),
             "{recorded}"
         );
@@ -1904,9 +1917,8 @@ mod kink_tier {
             json!([{"obligation": BUMP_HELD, "recorded": standing, "now": "text"}])
         );
         assert!(
-            stale_lines(&stale).contains(&format!(
-                "{path}: arguments: {BUMP_HELD}: {standing} -> text"
-            )),
+            stale_lines(&stale)
+                .contains(&format!("{path}: {BUMP_HELD}: standing {standing} -> text")),
             "{:?}",
             stale_lines(&stale)
         );
@@ -2054,7 +2066,7 @@ mod kink_tier {
     /// `outside-rom`'s, one per program), and the command exits 3. With both findings assumed,
     /// its evidence is read and holds, its standing is the checks' again,
     /// `argument_check.function` records the premise (`assumed`, each finding marked), and the
-    /// verdicts rendering's `[arguments]` line, a lock's, names it.
+    /// verdicts rendering's `argued` entry, a lock's, names it.
     #[test]
     #[ignore = "kink"]
     fn an_argued_standing_rests_on_its_invariant_being_a_function() {
@@ -2154,13 +2166,15 @@ mod kink_tier {
         let recorded = verdicts(&premised).unwrap();
         assert!(
             recorded.contains(&format!(
-                "\"{READZ_REFUTED}\" = \"{standing}, assuming joined {}\"\n",
+                "  {{ id = \"{READZ_REFUTED}\", standing = \"{standing}, assuming joined {}\" }},\n",
                 names.join(", ")
             )),
             "{recorded}"
         );
         assert!(
-            recorded.contains(&format!("\"{READZ_ROM_HELD}\" = \"checked-on-runs\"\n")),
+            recorded.contains(&format!(
+                "  {{ id = \"{READZ_ROM_HELD}\", standing = \"checked-on-runs\" }},\n"
+            )),
             "{recorded}"
         );
     }

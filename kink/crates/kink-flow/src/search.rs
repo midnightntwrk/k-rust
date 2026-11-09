@@ -2678,8 +2678,16 @@ pub fn run_front(
         document
     };
     // The killer record is an input: read after the manifest and the list decode, before
-    // admission; one that does not decode refuses the run, as a list that does not decode does.
-    let lock = match options.lock.as_deref().map(Lock::read).transpose() {
+    // admission; one that does not decode refuses the run, as a list that does not decode does,
+    // and so, under `--locked`, does one of another version of the rendering.
+    let read = |path: &Path| {
+        let lock = Lock::read(path)?;
+        if options.locked {
+            lock.refuse_other_version(&front.spelling.verb(Verb::Run))?;
+        }
+        Ok::<_, String>(lock)
+    };
+    let lock = match options.lock.as_deref().map(read).transpose() {
         Ok(lock) => lock,
         Err(detail) => {
             let path = options.lock.as_deref().unwrap_or_else(|| Path::new(""));

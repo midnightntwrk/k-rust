@@ -593,12 +593,16 @@ pub fn command(
     options: &CoverageOptions,
     front: &FrontEnd<'_>,
 ) -> (Value, bool) {
-    let lock = match options
-        .lock
-        .as_deref()
-        .map(|path| Lock::read_kind(path, LockKind::Coverage))
-        .transpose()
-    {
+    // Under `--locked`, a lock of another version of the rendering is refused as one that does
+    // not decode is ([`Lock::refuse_other_version`]).
+    let read = |path: &Path| {
+        let lock = Lock::read_kind(path, LockKind::Coverage)?;
+        if options.locked {
+            lock.refuse_other_version(&front.spelling.verb(crate::Verb::Coverage))?;
+        }
+        Ok::<_, String>(lock)
+    };
+    let lock = match options.lock.as_deref().map(read).transpose() {
         Ok(lock) => lock,
         Err(detail) => {
             let path = options.lock.as_deref().unwrap_or_else(|| Path::new(""));

@@ -557,8 +557,8 @@ fn a_refused_run_document_names_its_schedule() {
             let printed = String::from_utf8(output.stdout).unwrap();
             assert!(
                 printed.starts_with(&format!(
-                    "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n\
-                     {solver}\n[{section}]\noutcome = \"refused\"\n"
+                    "{}{solver}\n[{section}]\noutcome = \"refused\"\n",
+                    flow_support::heading("run")
                 )),
                 "{printed}"
             );
@@ -1367,9 +1367,7 @@ mod kink_tier {
         assert_eq!(first_cold, first_warm);
         let solver = flow_support::solver_lines();
         assert!(
-            full_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n{solver}"
-            )),
+            full_cold.starts_with(&format!("{}{solver}", flow_support::heading("run"))),
             "{full_cold}"
         );
         assert!(
@@ -1386,9 +1384,7 @@ mod kink_tier {
             "{full_cold}"
         );
         assert!(
-            first_cold.starts_with(&format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n{solver}"
-            )),
+            first_cold.starts_with(&format!("{}{solver}", flow_support::heading("run"))),
             "{first_cold}"
         );
         assert!(!first_cold.contains("killed_by"), "{first_cold}");

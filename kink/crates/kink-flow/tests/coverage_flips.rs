@@ -310,6 +310,33 @@ fn an_undecodable_coverage_lock_refuses_the_command() {
     }
 }
 
+/// Under `--locked`, a coverage lock of another version of the rendering is refused before
+/// admission, exit 2, naming the command that rewrites it without `--locked`: the check could
+/// only find it stale.
+#[test]
+fn a_coverage_lock_of_another_version_is_refused_under_locked() {
+    let dir = guards("other-version");
+    let lock = dir.join("coverage.lock");
+    let text = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
+                [arguments]\n\"rule:GUARDS.wake\" = \"text\"\n";
+    fs::write(&lock, text).unwrap();
+    let path = lock.to_str().unwrap();
+    let (document, status) = coverage(&dir, &["--lock", path, "--locked"], Derived::default());
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(document["lock"]["outcome"], "refused", "{document:#}");
+    assert_eq!(
+        document["lock"]["detail"],
+        format!(
+            "{path}: it is recorded at version 23 of the verdicts rendering, and this build writes \
+             version {}, so --locked cannot find it current; run `kink-flow coverage` without \
+             --locked once to rewrite it, and review its diff",
+            kink_flow::verdicts::VERDICTS_VERSION
+        )
+    );
+    assert!(document.get("programs").is_none(), "{document:#}");
+    assert_eq!(fs::read_to_string(&lock).unwrap(), text);
+}
+
 mod kink_tier {
     use super::*;
 
@@ -488,24 +515,36 @@ mod kink_tier {
             document["summary"]["per_family"]["flips"],
             json!({"obligations": 4, "covered": 1, "argued": 0, "open": 3})
         );
-        // The verdicts rendering lists each flip's status, a distinguished one's killer and a
-        // refused one's reason.
+        // The verdicts rendering lists each flip with the condition it negates and the rules it
+        // edits, its status, a distinguished one's killer and a refused one's reason.
         let verdicts = kink_flow::verdicts::verdicts(&document).unwrap();
+        let legend = kink_flow::verdicts::FLIPS_LEGEND
+            .iter()
+            .map(|line| format!("# {line}\n"))
+            .collect::<String>();
         assert!(
-            verdicts.ends_with(
-                "\n[flips]\nrun = true\n\
-                 \n[[flip]]\nid = \"flip--dispatch+run+wake+halted--H\"\nstatus = \"distinguished\"\nkiller = \"irq\"\n\
-                 \n[[flip]]\nid = \"flip--halted+wake--I\"\nstatus = \"unreached\"\n\
-                 \n[[flip]]\nid = \"flip--halted+wake--I-unplaced\"\nstatus = \"undistinguished\"\n\
-                 \n[[flip]]\nid = \"flip--high+low--A\"\nstatus = \"undistinguished\"\n\
-                 \n[[flip]]\nid = \"flip--refused\"\nstatus = \"refused\"\nreason = \"not-judged\"\n"
-            ),
+            verdicts.ends_with(&format!(
+                "\n{legend}[flips]\nrun = true\n\
+                 \n[[flip]]\nid = \"flip--dispatch+run+wake+halted--H\"\nnegates = \"H\"\n\
+                 rules = [\n  \"rule:GUARDS.dispatch\",\n  \"rule:GUARDS.run\",\n  \
+                 \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
+                 status = \"distinguished\"\nkiller = \"irq\"\n\
+                 \n[[flip]]\nid = \"flip--halted+wake--I\"\nnegates = \"I\"\n\
+                 rules = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
+                 status = \"unreached\"\n\
+                 \n[[flip]]\nid = \"flip--halted+wake--I-unplaced\"\nnegates = \"I\"\n\
+                 rules = [\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
+                 status = \"undistinguished\"\n\
+                 \n[[flip]]\nid = \"flip--high+low--A\"\nnegates = \"A <Int 32768\"\n\
+                 rules = [\n  \"rule:GUARDS.low\",\n  \"rule:GUARDS.high\",\n]\n\
+                 status = \"undistinguished\"\n\
+                 \n[[flip]]\nid = \"flip--refused\"\nnegates = \"matches!(x)\"\nrules = [\n]\n\
+                 status = \"refused\"\nreason = \"not-judged\"\n"
+            )),
             "{verdicts}"
         );
-        assert!(
-            verdicts.contains("\n[settings]\ntiers = [1, 2]\n"),
-            "{verdicts}"
-        );
+        // A lock is written only where both tiers ran, which `[flips] run` states: no `tiers`.
+        assert!(verdicts.contains("\n[settings]\ndepth = 1\n"), "{verdicts}");
         // A second command decides every flip from the outcome cache, with the same statuses.
         let (again, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{again:#}");
@@ -813,7 +852,9 @@ mod kink_tier {
         assert_eq!(recorded, verdicts(&first).unwrap());
         assert!(
             recorded.contains(&format!(
-                "\n[[flip]]\nid = \"{H}\"\nstatus = \"distinguished\"\nkiller = \"irq\"\n"
+                "\n[[flip]]\nid = \"{H}\"\nnegates = \"H\"\nrules = [\n  \"rule:GUARDS.dispatch\",\n  \
+                 \"rule:GUARDS.run\",\n  \"rule:GUARDS.wake\",\n  \"rule:GUARDS.halted\",\n]\n\
+                 status = \"distinguished\"\nkiller = \"irq\"\n"
             )),
             "{recorded}"
         );

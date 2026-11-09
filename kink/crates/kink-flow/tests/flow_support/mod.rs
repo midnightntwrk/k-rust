@@ -154,6 +154,36 @@ pub fn z3_member() -> Option<Value> {
     })
 }
 
+/// The lines a verdicts rendering of a `document` (`run` or `coverage`) opens with: the comment
+/// naming the command whose verdicts it holds, then `schema`, `version` and `document`, before
+/// [`solver_lines`].
+pub fn heading(document: &str) -> String {
+    let comment = match document {
+        "run" => {
+            "# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation list.\n\
+             # As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries each\n\
+             # `killer` first, a run without --locked rewrites it, and `run --locked` checks it is current.\n"
+        }
+        "coverage" => {
+            "# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`).\n\
+             # As a lock (`coverage --lock FILE`; krs keeps <corpus>/coverage.lock) the next run tries each\n\
+             # flip's `killer` first, a run without --locked rewrites it, and `coverage --locked` checks it\n\
+             # is current.\n"
+        }
+        other => panic!("no rendering of a {other} document"),
+    };
+    format!("{comment}schema = \"kink-flow-verdicts\"\nversion = 24\ndocument = \"{document}\"\n")
+}
+
+/// The comment a run rendering writes before its first `[[mutation]]`.
+pub const MUTATIONS_LEGEND: &str = "\
+# Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a program's
+# result differs on the mutant; `killer` names it), survived (every program agreed; `horizon`,
+# those that agreed only up to an observation horizon), equivalent or unkillable (no program
+# can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation or
+# not-admitted (its author must fix it; `reason` says why).
+";
+
 /// The lines a verdicts rendering of this build writes for its solver, after `document`:
 /// `profile`, and under the Z3 profile the Z3 build, `z3_version` and, when the build names its
 /// library, `z3_library_sha256`, read from k-rust's `z3_build` rather than from kink-flow.

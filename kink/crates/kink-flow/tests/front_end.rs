@@ -862,8 +862,8 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // Version 6 names the solver profile, and no schedule; version 8 the Z3 build under Z3.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n{}\n[spec]\n\
-             outcome = \"admitted\"\n",
+            "{}{}\n[spec]\noutcome = \"admitted\"\n",
+            flow_support::heading("run"),
             flow_support::solver_lines()
         )),
         "{cold}"
@@ -916,7 +916,8 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     let rendered = verdicts(&document).unwrap();
     assert!(
         rendered.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n{}\n",
+            "{}{}\n",
+            flow_support::heading("coverage"),
             flow_support::solver_lines()
         )),
         "{rendered}"
@@ -941,8 +942,10 @@ fn the_header_names_the_z3_build_under_the_z3_profile() {
     });
     assert_eq!(
         verdicts(&unnamed).unwrap(),
-        "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\nprofile = \"z3\"\n\
-         z3_version = \"5.3.3.0\"\n\n[spec]\noutcome = \"admitted\"\n"
+        format!(
+            "{}profile = \"z3\"\nz3_version = \"5.3.3.0\"\n\n[spec]\noutcome = \"admitted\"\n",
+            flow_support::heading("run")
+        )
     );
 }
 
@@ -981,8 +984,8 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n{}\n\
-             [mutation_list]\noutcome = \"refused\"\n",
+            "{}{}\n[mutation_list]\noutcome = \"refused\"\n",
+            flow_support::heading("run"),
             flow_support::solver_lines()
         )
     );

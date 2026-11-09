@@ -21,23 +21,28 @@
 //! `status` and `reason`, when they are strings, are read only to report what changed. A version-5
 //! lock has no `killer` lines, so it records no killer. A file that is not TOML, has another
 //! schema or document, or repeats an id does not decode, and the run is refused ([`Lock::read`]).
+//! Under `--locked` a lock of another version is refused too, naming the command that rewrites it
+//! ([`Lock::refuse_other_version`]): another version writes other bytes for the same verdicts, so
+//! the check could only fail, and a command without `--locked` reads its killers and rewrites it.
 //!
 //! # The coverage lock
 //!
 //! A coverage lock is the same record over a `coverage` document ([`LockKind::Coverage`]): its
 //! text is the coverage verdicts rendering, `document` is `coverage`, and its rows are the flips
-//! (`[[flip]]`), each with its `id`, `status`, a refused flip's `reason` and a distinguished flip's
-//! `killer`. A flip's killer is a mutation's killer under another name: the flip's mutant is run
-//! by the kill search `run` makes ([`crate::search`]), keyed by the flip's id, so the recorded
-//! killer is tried first and kept while it still kills, else the first killing program in the
-//! search's order. The rendering also lists each family's open and argued obligations (`[rules]
-//! open`, `[rules] argued`, ...), and each argued item's standing (`[arguments]`, one
-//! `"<id>" = "<standing>"` line per item), which are read only to report what changed, as a row's
-//! status is: a standing that moves changes the text, so `--locked` finds the lock stale, and the
-//! lock's state names the item (`argument_changes`).
-//! Its header is what comes before the first family: the schema, version, profile and build lines,
-//! the specification and the settings. `[arguments]` is no part of it: its keys are item ids, a
-//! verdict per line, as a family's arrays are.
+//! (`[[flip]]`), each with its `id`, the condition it negates (or the bit it toggles) and the rules
+//! it edits, `status`, a refused flip's `reason`, a distinguished flip's `killer` and an argued
+//! flip's `standing`. A flip's killer is a mutation's killer under another name: the flip's mutant
+//! is run by the kill search `run` makes ([`crate::search`]), keyed by the flip's id, so the
+//! recorded killer is tried first and kept while it still kills, else the first killing program
+//! in the search's order. The rendering also lists each family's open and argued obligations
+//! (`[rules] open`, `[rules] argued`, ...), each argued one with its standing (`{ id, standing }`),
+//! which are read only to report what changed, as a row's status is: a standing that moves
+//! changes the text, so `--locked` finds the lock stale, and the lock's state names the item
+//! (`argument_changes`). A lock written before version 24 gave the standings in `[arguments]`
+//! (one `"<id>" = "<standing>"` line per item) and listed bare ids: both are still read.
+//! Its header is what comes before the first family: the comments that name the command and say
+//! what a family lists, the schema, version, profile and build lines, the specification and the
+//! settings.
 
 use crate::verdicts::{VERDICTS_SCHEMA, lock_text};
 use kink_corpus::Store;
@@ -154,13 +159,14 @@ pub struct Lock {
     /// A coverage lock's open obligations by family (`[rules] open`, ...), read only to report
     /// what changed; empty for a run's.
     pub open: BTreeMap<String, Vec<String>>,
-    /// A coverage lock's argued obligations by family (`[rules] argued`, ...), read only to
-    /// report what changed; empty for a run's and for a lock written before arguments were
-    /// rendered.
+    /// A coverage lock's argued obligations by family (`[rules] argued`, ...: each entry's `id`,
+    /// or the bare id a lock before version 24 writes), read only to report what changed; empty
+    /// for a run's and for a lock written before arguments were rendered.
     pub argued: BTreeMap<String, Vec<String>>,
-    /// A coverage lock's standing of each argued item (`[arguments]`), by id, read only to report
-    /// what changed; empty for a run's and for a lock written before standings were rendered. A
-    /// value that is not a string is left out, as an `open` that is not an array of strings is.
+    /// A coverage lock's standing of each argued item (an `argued` entry's `standing`, an argued
+    /// flip's; `[arguments]` before version 24), by id, read only to report what changed; empty
+    /// for a run's and for a lock written before standings were rendered. A value that is not a
+    /// string is left out, as an `open` that is not an array of ids is.
     pub arguments: BTreeMap<String, String>,
 }
 
@@ -188,8 +194,10 @@ pub struct Settle<'a> {
     pub stopped: bool,
 }
 
-/// The section of a coverage lock that gives each argued item's standing.
-const ARGUMENTS: &str = "arguments";
+/// The section of a coverage lock written before version 24 that gave each argued item's
+/// standing, one `"<id>" = "<standing>"` line per item; read only to report what changed, and
+/// left out of the header.
+const LEGACY_ARGUMENTS: &str = "arguments";
 
 /// The next step of a lock that does not decode.
 const REFUSED_NEXT: &str = "resolve the file, or delete it to start from the search's killers";
@@ -240,14 +248,14 @@ impl Lock {
             }));
         }
         let noun = kind.row();
-        let listed = match table.get(noun) {
+        let listed_rows = match table.get(noun) {
             None => &[][..],
             Some(toml::Value::Array(rows)) => rows.as_slice(),
             Some(_) => return Err(refused(format!("its {noun} is not an array of tables"))),
         };
-        let mut rows = Vec::with_capacity(listed.len());
+        let mut rows = Vec::with_capacity(listed_rows.len());
         let mut seen = BTreeSet::new();
-        for (index, row) in listed.iter().enumerate() {
+        for (index, row) in listed_rows.iter().enumerate() {
             let Some(row) = row.as_table() else {
                 return Err(refused(format!("{noun} {} is not a table", index + 1)));
             };
@@ -275,31 +283,53 @@ impl Lock {
             });
         }
         // A coverage lock's open and argued obligations: each family section's `open` and
-        // `argued`, when it is an array of strings; read only to report what changed.
-        let listed = |key: &str| match kind {
-            LockKind::Run => BTreeMap::new(),
-            LockKind::Coverage => table
+        // `argued`, when it is an array of ids; read only to report what changed. An `argued`
+        // entry is `{ id, standing }`; a lock written before version 24 lists bare ids.
+        let entry_id = |entry: &toml::Value| {
+            entry
+                .as_str()
+                .or_else(|| entry.get("id")?.as_str())
+                .map(str::to_owned)
+        };
+        let sections = || {
+            table
                 .iter()
                 .filter(|(family, _)| crate::coverage::FAMILIES.contains(&family.as_str()))
+        };
+        let listed = |key: &str| match kind {
+            LockKind::Run => BTreeMap::new(),
+            LockKind::Coverage => sections()
                 .filter_map(|(family, section)| {
                     let ids = section.get(key)?.as_array()?;
-                    let ids = ids
-                        .iter()
-                        .map(|id| id.as_str().map(str::to_owned))
-                        .collect::<Option<Vec<_>>>()?;
+                    let ids = ids.iter().map(entry_id).collect::<Option<Vec<_>>>()?;
                     Some((family.clone(), ids))
                 })
                 .collect(),
         };
+        // Each argued item's standing: an `argued` entry's, an argued flip's on its row, and, in a
+        // lock written before version 24, its `[arguments]` line. A standing that is not a string
+        // is left out, as an `open` that is not an array of ids is.
         let arguments = match kind {
             LockKind::Run => BTreeMap::new(),
-            LockKind::Coverage => table
-                .get(ARGUMENTS)
-                .and_then(toml::Value::as_table)
-                .into_iter()
-                .flatten()
-                .filter_map(|(id, standing)| Some((id.clone(), standing.as_str()?.to_owned())))
-                .collect(),
+            LockKind::Coverage => {
+                let standing = |entry: &toml::Value| {
+                    Some((
+                        entry_id(entry)?,
+                        entry.get("standing")?.as_str()?.to_owned(),
+                    ))
+                };
+                let entries = sections()
+                    .filter_map(|(_, section)| section.get("argued")?.as_array())
+                    .flatten()
+                    .chain(listed_rows);
+                let legacy = table
+                    .get(LEGACY_ARGUMENTS)
+                    .and_then(toml::Value::as_table)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(id, standing)| Some((id.clone(), standing.as_str()?.to_owned())));
+                legacy.chain(entries.filter_map(standing)).collect()
+            }
         };
         Ok(Self {
             kind,
@@ -311,6 +341,30 @@ impl Lock {
             argued: listed("argued"),
             arguments,
         })
+    }
+
+    /// Refuse a lock `--locked` cannot find current whatever the command decides: a file whose
+    /// `version` is not the rendering's ([`crate::verdicts::VERDICTS_VERSION`]), or that names
+    /// none. The rendering of another version writes other bytes for the same verdicts, so the
+    /// comparison would only say so after a whole run; the refusal says it before admission, and
+    /// names the command that rewrites the file, `command` (the front end's spelling of the verb)
+    /// without `--locked`. A command without `--locked` reads such a lock for its killers and
+    /// rewrites it. An absent file is no refusal: it is stale.
+    pub fn refuse_other_version(&self, command: &str) -> Result<(), String> {
+        if self.text.is_none() {
+            return Ok(());
+        }
+        let current = crate::verdicts::VERDICTS_VERSION;
+        let recorded = match self.header.get("version") {
+            Some(version) if version.as_u64() == Some(current) => return Ok(()),
+            Some(version) => format!("is recorded at version {version} of the verdicts rendering"),
+            None => "names no version of the verdicts rendering".to_owned(),
+        };
+        Err(format!(
+            "{}: it {recorded}, and this build writes version {current}, so --locked cannot find it \
+             current; run `{command}` without --locked once to rewrite it, and review its diff",
+            self.path.display()
+        ))
     }
 
     /// Each mutation id with its recorded killer.
@@ -675,7 +729,8 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
             _ if key == kind.row() => {}
             toml::Value::Table(_)
                 if kind == LockKind::Coverage
-                    && (crate::coverage::FAMILIES.contains(&key.as_str()) || key == ARGUMENTS) => {}
+                    && (crate::coverage::FAMILIES.contains(&key.as_str())
+                        || key == LEGACY_ARGUMENTS) => {}
             toml::Value::Table(section) => {
                 for (inner, value) in section {
                     header.insert(format!("{key}.{inner}"), json(value));
@@ -691,17 +746,17 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
 
 /// The header keys of a rendering's text, in the order of its lines, as [`header_values`]
 /// names them: a key before any table, or `section.key` in a `[section]`; none in a
-/// `[[mutation]]` row, and none from the continuation lines of a multi-line array (a value, a
-/// string or an inline table, or its closing `]`), which belong to the key that opened it, nor
-/// from a line whose key is quoted (an `[arguments]` line, whose key is an item id): the
-/// rendering quotes no header key, so such a line is no header line, and [`header_values`]
-/// leaves its section out.
+/// `[[mutation]]` row, none from a comment, and none from the continuation lines of a multi-line
+/// array (a value, a string or an inline table, or its closing `]`), which belong to the key that
+/// opened it, nor from a line whose key is quoted (an `[arguments]` line of a lock written before
+/// version 24, whose key is an item id): the rendering quotes no header key, so such a line is no
+/// header line, and [`header_values`] leaves its section out.
 fn header_key_order(text: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut section: Option<&str> = Some("");
     for line in text.split('\n') {
         let trimmed = line.trim();
-        if trimmed.starts_with(['"', '{', ']']) {
+        if trimmed.starts_with(['"', '{', ']', '#']) {
             continue;
         }
         if trimmed.starts_with("[[") {
@@ -777,7 +832,7 @@ pub fn refused_value(path: &Path, detail: &str) -> Value {
 /// (`lock.open_changes`: `coverage.lock: rules: rule:x is open`, `coverage.lock: requirements:
 /// requirement:x:held is no longer open`, `coverage.lock: rules: rule:x is argued (was open)`)
 /// and one per argued item whose standing differs where no such line names it
-/// (`lock.argument_changes`: `coverage.lock: arguments: rule:x: text -> unchecked`) before them;
+/// (`lock.argument_changes`: `coverage.lock: rule:x: standing text -> unchecked`) before them;
 /// when neither the header nor any obligation nor any standing nor any row's verdict differs,
 /// one line naming the first difference
 /// (`lock.difference`: the rows' order, or a line of text); empty otherwise.
@@ -813,8 +868,9 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                     value.to_string()
                 }
             };
+            // `version` differs on no stale lock: under `--locked` a lock of another version is
+            // refused before the command runs ([`Lock::refuse_other_version`]).
             let why = match key {
-                "version" => " (another version of the rendering)",
                 "profile" => " (another solver profile)",
                 "z3_version" | "z3_library_sha256" => " (another Z3 build)",
                 _ => "",
@@ -902,7 +958,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
     for change in arguments {
         let side = |value: &Value| value.as_str().unwrap_or("none").to_owned();
         lines.push(format!(
-            "{path}: arguments: {}: {} -> {}",
+            "{path}: {}: standing {} -> {}",
             change["obligation"].as_str().unwrap_or("?"),
             side(&change["recorded"]),
             side(&change["now"])
@@ -1221,12 +1277,17 @@ mod tests {
         let text = |document: &Value| lock_text(document).unwrap();
         let recorded = document(&[("rule:a", "text"), ("rule:b", "text")], &[]);
         let recorded_text = text(&recorded);
+        let entry =
+            |id: &str, standing: &str| format!("  {{ id = \"{id}\", standing = \"{standing}\" }},");
         assert!(
-            recorded_text.contains(
-                "\n[arguments]\n\"rule:a\" = \"text\"\n\"rule:b\" = \"text\"\n\n[flips]\n"
-            ),
+            recorded_text.contains(&format!(
+                "\n[rules]\nopen = [\n]\nargued = [\n{}\n{}\n]\n",
+                entry("rule:a", "text"),
+                entry("rule:b", "text")
+            )),
             "{recorded_text}"
         );
+        assert!(!recorded_text.contains("[arguments]"), "{recorded_text}");
         let kind = LockKind::Coverage;
         let lock =
             Lock::decode(Path::new(COVERAGE_LOCK_FILE), recorded_text.clone(), kind).unwrap();
@@ -1237,18 +1298,29 @@ mod tests {
                 ("rule:b".to_owned(), "text".to_owned()),
             ])
         );
+        assert_eq!(
+            lock.argued,
+            BTreeMap::from([
+                (
+                    "rules".to_owned(),
+                    vec!["rule:a".to_owned(), "rule:b".to_owned()]
+                ),
+                ("requirements".to_owned(), Vec::new()),
+                ("syntax".to_owned(), Vec::new()),
+            ])
+        );
         assert!(
-            lock.header.keys().all(|key| !key.starts_with("arguments")),
+            lock.header.keys().all(|key| !key.starts_with("rules")),
             "{:?}",
             lock.header
         );
         assert!(
             header_key_order(&recorded_text)
                 .iter()
-                .all(|key| !key.starts_with("arguments")),
+                .all(|key| !key.contains('#') && !key.contains("rule:")),
             "{recorded_text}"
         );
-        assert!(!head(kind, &recorded_text).contains("[arguments]"));
+        assert!(!head(kind, &recorded_text).contains("rule:a"));
 
         let store = Store::new("/nonexistent");
         let locked = Settle {
@@ -1274,19 +1346,19 @@ mod tests {
         );
         let line = recorded_text
             .split('\n')
-            .position(|line| line == "\"rule:b\" = \"text\"")
+            .position(|line| line == entry("rule:b", "text"))
             .unwrap()
             + 1;
         assert_eq!(
             stale["difference"],
-            json!({"kind": "text", "line": line, "recorded": "\"rule:b\" = \"text\"",
-                   "now": "\"rule:b\" = \"unchecked\""})
+            json!({"kind": "text", "line": line, "recorded": entry("rule:b", "text"),
+                   "now": entry("rule:b", "unchecked")})
         );
         let mut with_lock = moved.clone();
         with_lock["lock"] = stale;
         assert_eq!(
             stale_lines(&with_lock),
-            ["coverage.lock: arguments: rule:b: text -> unchecked"]
+            ["coverage.lock: rule:b: standing text -> unchecked"]
         );
 
         // An argument removed: its item's obligation names it, and its standing's line is not
@@ -1304,78 +1376,76 @@ mod tests {
             ["coverage.lock: rules: rule:b is open (was argued)"]
         );
 
-        // A line removed by hand, the item still argued: the standing's change names it.
-        let edited = recorded_text.replace("\"rule:b\" = \"text\"\n", "");
+        // A standing removed by hand, the item still argued: the standing's change names it.
+        let edited = recorded_text.replace(&entry("rule:b", "text"), "  { id = \"rule:b\" },");
         let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), edited, kind).unwrap();
         let (stale, _) = lock.settle(&store, &recorded, locked);
         let mut with_lock = recorded.clone();
         with_lock["lock"] = stale;
         assert_eq!(
             stale_lines(&with_lock),
-            ["coverage.lock: arguments: rule:b: none -> text"]
+            ["coverage.lock: rule:b: standing none -> text"]
         );
     }
 
-    /// A coverage lock recorded at verdicts version 20 has no `[arguments]`: a run that argues
-    /// items finds it stale, the header's `version` and each argued item's standing named, and
-    /// the obligations unchanged.
+    /// A coverage lock written before version 24 (bare `argued` ids, the standings under
+    /// `[arguments]`, `[settings] tiers`) still decodes: its argued ids and standings are read
+    /// and `[arguments]` is no part of its header, so a command without `--locked` reads its
+    /// killers and rewrites it. Under `--locked` it is refused, naming the command that rewrites
+    /// it, as a lock that names no version is; a lock of the current version and an absent one
+    /// are not.
     #[test]
-    fn a_version_20_lock_without_arguments_is_stale_and_names_each_standing() {
-        let document = json!({
-            "schema": crate::coverage::COVERAGE_SCHEMA,
-            "spec": {"outcome": "admitted"},
-            "settings": {"tiers": [1], "depth": 1, "mcdc": []},
-            "families": {
-                "rules": {"items": [
-                    {"id": "rule:a", "status": "argued", "argument_check": {"standing": "text"}},
-                    {"id": "rule:b", "status": "argued",
-                     "argument_check": {"standing": "unchecked", "invariant": "i"}},
-                ]},
-                "requirements": {"items": []},
-                "syntax": {"items": []},
-                "flips": {"run": false},
-            },
-        });
-        let now = lock_text(&document).unwrap();
-        let section = "\n[arguments]\n\"rule:a\" = \"text\"\n\"rule:b\" = \"unchecked\"\n";
-        assert!(now.contains(section), "{now}");
-        let recorded = now.replace(section, "").replace(
-            &format!("\nversion = {}\n", crate::verdicts::VERDICTS_VERSION),
-            "\nversion = 20\n",
-        );
-        assert!(recorded.contains("\nversion = 20\n") && !recorded.contains("[arguments]"));
+    fn a_lock_of_another_version_is_read_and_refused_under_locked() {
+        let old = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"coverage\"\n\n\
+                   [spec]\noutcome = \"admitted\"\n\n[settings]\ntiers = [1, 2]\ndepth = 1\n\
+                   mcdc = [\n]\n\n[rules]\nopen = [\n]\nargued = [\n  \"rule:a\",\n]\n\n\
+                   [arguments]\n\"rule:a\" = \"text\"\n\"flip--a+b--X\" = \"unchecked\"\n\n\
+                   [flips]\nrun = true\n\n[[flip]]\nid = \"flip--a+b--X\"\nstatus = \"argued\"\n\n\
+                   [[flip]]\nid = \"flip--a+b--Y\"\nstatus = \"distinguished\"\nkiller = \"t1\"\n";
         let kind = LockKind::Coverage;
-        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), recorded, kind).unwrap();
-        assert!(lock.arguments.is_empty());
-        let locked = Settle {
-            locked: true,
-            verify: false,
-            only: &[],
-            stopped: false,
-        };
-        let (stale, _) = lock.settle(&Store::new("/nonexistent"), &document, locked);
-        assert_eq!(stale["status"], "stale", "{stale:#}");
-        assert_eq!(stale["open_changes"], json!([]));
+        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), old.to_owned(), kind).unwrap();
         assert_eq!(
-            stale["argument_changes"],
-            json!([
-                {"obligation": "rule:a", "recorded": null, "now": "text"},
-                {"obligation": "rule:b", "recorded": null, "now": "unchecked"},
+            lock.argued,
+            BTreeMap::from([("rules".to_owned(), vec!["rule:a".to_owned()])])
+        );
+        assert_eq!(
+            lock.arguments,
+            BTreeMap::from([
+                ("flip--a+b--X".to_owned(), "unchecked".to_owned()),
+                ("rule:a".to_owned(), "text".to_owned()),
             ])
         );
-        let mut with_lock = document.clone();
-        with_lock["lock"] = stale;
         assert_eq!(
-            stale_lines(&with_lock),
-            [
-                format!(
-                    "coverage.lock: the header's version differs: recorded 20, now {} (another \
-                     version of the rendering)",
-                    crate::verdicts::VERDICTS_VERSION
-                ),
-                "coverage.lock: arguments: rule:a: none -> text".to_owned(),
-                "coverage.lock: arguments: rule:b: none -> unchecked".to_owned(),
-            ]
+            lock.killers(),
+            BTreeMap::from([("flip--a+b--Y".to_owned(), "t1".to_owned())])
         );
+        assert!(
+            lock.header.keys().all(|key| !key.starts_with("arguments")),
+            "{:?}",
+            lock.header
+        );
+        assert!(!head(kind, old).contains("[arguments]"));
+        let command = "krs kink coverage --package p --definition main";
+        assert_eq!(
+            lock.refuse_other_version(command).unwrap_err(),
+            "coverage.lock: it is recorded at version 23 of the verdicts rendering, and this \
+             build writes version 24, so --locked cannot find it current; run `krs kink coverage \
+             --package p --definition main` without --locked once to rewrite it, and review its \
+             diff"
+        );
+        let unversioned = old.replace("version = 23\n", "");
+        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), unversioned, kind).unwrap();
+        assert!(
+            lock.refuse_other_version(command)
+                .unwrap_err()
+                .contains("it names no version of the verdicts rendering"),
+        );
+        let current = old.replace(
+            "version = 23\n",
+            &format!("version = {}\n", crate::verdicts::VERDICTS_VERSION),
+        );
+        let lock = Lock::decode(Path::new(COVERAGE_LOCK_FILE), current, kind).unwrap();
+        assert_eq!(lock.refuse_other_version(command), Ok(()));
+        assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
     }
 }

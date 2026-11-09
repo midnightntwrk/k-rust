@@ -1423,7 +1423,8 @@ fn coverage_names_each_rule_by_its_rust_item_and_position() {
     assert!(
         verdicts.ends_with(
             "\n[rules]\nopen = [\n]\nargued = [\n]\n\n[requirements]\nopen = [\n]\nargued = [\n]\n\n\
-             [syntax]\nopen = [\n]\nargued = [\n]\n\n[arguments]\n\n[flips]\nrun = false\n"
+             [syntax]\nopen = [\n]\nargued = [\n]\n\n# No condition flip ran: the front end derives \
+             none, or `--tier 1` runs none.\n[flips]\nrun = false\n"
         ),
         "{verdicts}"
     );
@@ -6541,18 +6542,34 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\nprofile = \"z3\"\n\
-         z3_version = \"{}\"\n",
+        "# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`) on a mutation \
+         list.\n# As a lock (`run --lock FILE`; krs keeps <corpus>/verdicts.lock) the next run tries \
+         each\n# `killer` first, a run without --locked rewrites it, and `run --locked` checks it is \
+         current.\nschema = \"kink-flow-verdicts\"\nversion = 24\ndocument = \"run\"\nprofile = \
+         \"z3\"\nz3_version = \"{}\"\n",
         build.version
     );
     if let Some(digest) = &build.library_sha256 {
         let _ = writeln!(text, "z3_library_sha256 = \"{digest}\"");
     }
-    text.push_str("\n[spec]\noutcome = \"admitted\"\n");
-    for (id, killer) in ["plus/a", "plus/b", "plus/c"].into_iter().zip(killers) {
+    text.push_str("\n[spec]\noutcome = \"admitted\"\n\n");
+    text.push_str(
+        "# Each [[mutation]] is a mutation of the list, by its id, and its verdict: killed (a \
+         program's\n# result differs on the mutant; `killer` names it), survived (every program \
+         agreed; `horizon`,\n# those that agreed only up to an observation horizon), equivalent \
+         or unkillable (no program\n# can tell the mutant apart), timeout, unknown or error (no \
+         verdict), invalid-mutation or\n# not-admitted (its author must fix it; `reason` says \
+         why).\n",
+    );
+    for (index, (id, killer)) in ["plus/a", "plus/b", "plus/c"]
+        .into_iter()
+        .zip(killers)
+        .enumerate()
+    {
         let _ = write!(
             text,
-            "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
+            "{}[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n",
+            if index == 0 { "" } else { "\n" }
         );
     }
     text

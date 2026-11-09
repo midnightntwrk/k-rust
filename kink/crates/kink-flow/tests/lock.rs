@@ -164,7 +164,10 @@ fn statuses(document: &Value) -> Vec<(String, String)> {
 
 /// A lock that records `killers` (mutation id, program id) and nothing else.
 fn lock_with(killers: &[(&str, &str)]) -> String {
-    let mut text = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n".to_owned();
+    let mut text = format!(
+        "schema = \"kink-flow-verdicts\"\nversion = {}\ndocument = \"run\"\n",
+        kink_flow::verdicts::VERDICTS_VERSION
+    );
     for (id, killer) in killers {
         text.push_str(&format!(
             "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"{killer}\"\n"
@@ -318,6 +321,45 @@ fn an_unreadable_lock_refuses_the_run() {
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), text);
     }
+}
+
+/// Under `--locked`, a lock of another version of the rendering refuses the run before
+/// admission, exit 2, naming the command that rewrites it without `--locked` (as `kink-flow`
+/// spells it); the file is left as it was. Without `--locked` the same lock is read for its
+/// killers, which a run tries first.
+#[test]
+fn a_lock_of_another_version_refuses_a_locked_run() {
+    let manifest = calc("other-version", &CALC);
+    let lock = lock_of(&manifest);
+    let text = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n\n\
+                [[mutation]]\nid = \"add-becomes-sub\"\nstatus = \"killed\"\nkiller = \"add\"\n";
+    fs::write(&lock, text).unwrap();
+    let locked = RunOptions {
+        locked: true,
+        ..options(Some(&lock))
+    };
+    let (document, status) = run_mode(
+        &manifest,
+        &manifest.with_file_name("MUTATIONS.toml"),
+        &locked,
+        RunMode::Search,
+    );
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(document["lock"]["outcome"], "refused", "{document:#}");
+    assert_eq!(
+        document["lock"]["detail"],
+        format!(
+            "{}: it is recorded at version 23 of the verdicts rendering, and this build writes \
+             version {}, so --locked cannot find it current; run `kink-flow run` without \
+             --locked once to rewrite it, and review its diff",
+            lock.display(),
+            kink_flow::verdicts::VERDICTS_VERSION
+        )
+    );
+    assert!(document.get("mutations").is_none(), "{document:#}");
+    assert_eq!(fs::read_to_string(&lock).unwrap(), text);
+    let read = Lock::read(&lock).unwrap();
+    assert_eq!(read.killers()["add-becomes-sub"], "add");
 }
 
 /// `Lock::read`: an absent file is an empty record; a version-5 lock (no `killer` lines) records
