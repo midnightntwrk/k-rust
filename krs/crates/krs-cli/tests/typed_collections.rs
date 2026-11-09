@@ -966,6 +966,225 @@ fn an_untyped_value_keeps_its_verdict_through_a_local() {
     }
 }
 
+/// A local names its value, so a collection the sentence builds keeps, through
+/// a local, the typing it has where it is used: `let b = map::update(map::empty(),
+/// name, s); b` at the cell `env` checks `s` against `env`'s values, as
+/// `map::update(map::empty(), name, s)` written there does, and so for a List
+/// and a Set, through a second local naming the first, and through a carrying
+/// operation the local is an operand of. Each local form gets its direct form's
+/// verdict: the well-typed ones are accepted, with the direct form's K under the
+/// `#let`, and the ill-typed ones are refused with the same diagnostic at the
+/// same term.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of spellings, each with its verdict."
+)]
+fn a_collection_the_sentence_builds_keeps_its_typing_through_a_local() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let forms = [
+        ("map-ok", "env", "map::update(map::empty(), name, 1)"),
+        ("map-bad", "env", "map::update(map::empty(), name, s)"),
+        ("list-ok", "stack", "list::item(1)"),
+        ("list-bad", "stack", "list::item(s)"),
+        ("set-ok", "seen", "set::item(name)"),
+        ("set-bad", "seen", "set::item(s)"),
+        (
+            "keys-bad",
+            "seen",
+            "map::keys(map::update(map::empty(), s, 1))",
+        ),
+    ];
+    let mut outcomes = Vec::new();
+    for (name, cell, value) in forms {
+        let spellings = [
+            ("direct", value.to_owned()),
+            ("local", format!("{{ let b = {value}; b }}")),
+            (
+                "second-local",
+                format!("{{ let b = {value}; let c = b; c }}"),
+            ),
+        ];
+        let mut verdicts = Vec::new();
+        for (spelling, written) in spellings {
+            let library = format!(
+                "{PREAMBLE}{}",
+                rules(&format!(
+                    "probe: {{ k: [Put(name, s), ..], {cell}: _ }} => {{ k: [..], {cell}: {written} }};"
+                ))
+            );
+            let manifest = package(temporary.path(), &format!("{name}-{spelling}"), &library);
+            let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+            let verdict = if success {
+                let output = manifest.with_file_name("emitted");
+                let (success, _, stderr) = krs(
+                    target.path(),
+                    &manifest,
+                    "emit-k",
+                    &["--output", output.to_str().unwrap()],
+                );
+                assert!(success, "{name}-{spelling}: {stderr}");
+                let definition = krs_test_support::without_source_comments(
+                    &fs::read_to_string(output.join("definition.k")).unwrap(),
+                );
+                format!("accepted: {}", rule(&definition, "probe"))
+            } else {
+                let (headline, marked) = diagnostics(&stderr)
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| panic!("{name}-{spelling}: {stderr}"));
+                format!("{headline} at `{marked}`")
+            };
+            verdicts.push((spelling, verdict));
+        }
+        outcomes.push((name, verdicts));
+    }
+    // A built value's carrying operation through a local: the local stands at the operand the
+    // position types, `map::update(b, name, 2)` at `env`.
+    let carried = format!(
+        "{PREAMBLE}{}",
+        rules(
+            "probe: { k: [Put(name, s), ..], env: _ } => { k: [..], env: { let b = map::update(map::empty(), name, s); map::update(b, name, 2) } };"
+        )
+    );
+    let manifest = package(temporary.path(), "carried", &carried);
+    let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success, "{stderr}");
+    let carried = diagnostics(&stderr).into_iter().next();
+    expect_test::expect![[r#"
+        (
+            [
+                (
+                    "map-ok",
+                    [
+                        (
+                            "direct",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <env> _ => .Map [ Name:Id <- 1 ] </env> endmodule",
+                        ),
+                        (
+                            "local",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <env> _ => ( #let B:Map = .Map [ Name:Id <- 1 ] #in B:Map ) </env> endmodule",
+                        ),
+                        (
+                            "second-local",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <env> _ => ( #let B:Map = .Map [ Name:Id <- 1 ] #in ( #let C:Map = B:Map #in C:Map ) ) </env> endmodule",
+                        ),
+                    ],
+                ),
+                (
+                    "map-bad",
+                    [
+                        (
+                            "direct",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value at `s`",
+                        ),
+                        (
+                            "local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value at `s`",
+                        ),
+                        (
+                            "second-local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value at `s`",
+                        ),
+                    ],
+                ),
+                (
+                    "list-ok",
+                    [
+                        (
+                            "direct",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <stack> _ => ListItem(1) </stack> endmodule",
+                        ),
+                        (
+                            "local",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <stack> _ => ( #let B:List = ListItem(1) #in B:List ) </stack> endmodule",
+                        ),
+                        (
+                            "second-local",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <stack> _ => ( #let B:List = ListItem(1) #in ( #let C:List = B:List #in C:List ) ) </stack> endmodule",
+                        ),
+                    ],
+                ),
+                (
+                    "list-bad",
+                    [
+                        (
+                            "direct",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+                        ),
+                        (
+                            "local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+                        ),
+                        (
+                            "second-local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `stack`, declared `List<Value>`, and Stmt is not a Value at `s`",
+                        ),
+                    ],
+                ),
+                (
+                    "set-ok",
+                    [
+                        (
+                            "direct",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <seen> _ => SetItem(Name:Id) </seen> endmodule",
+                        ),
+                        (
+                            "local",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <seen> _ => ( #let B:Set = SetItem(Name:Id) #in B:Set ) </seen> endmodule",
+                        ),
+                        (
+                            "second-local",
+                            "accepted: <k> put Name:Id S:Stmt => .K ... </k> <seen> _ => ( #let B:Set = SetItem(Name:Id) #in ( #let C:Set = B:Set #in C:Set ) ) </seen> endmodule",
+                        ),
+                    ],
+                ),
+                (
+                    "set-bad",
+                    [
+                        (
+                            "direct",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `seen`, declared `Set<Id>`, and Stmt is not an Id at `s`",
+                        ),
+                        (
+                            "local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `seen`, declared `Set<Id>`, and Stmt is not an Id at `s`",
+                        ),
+                        (
+                            "second-local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as an element of the cell `seen`, declared `Set<Id>`, and Stmt is not an Id at `s`",
+                        ),
+                    ],
+                ),
+                (
+                    "keys-bad",
+                    [
+                        (
+                            "direct",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a key of the map whose keys `map::keys(..)` writes to the cell `seen`, declared `Set<Id>`, and Stmt is not an Id at `s`",
+                        ),
+                        (
+                            "local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a key of the map whose keys `map::keys(..)` writes to the cell `seen`, declared `Set<Id>`, and Stmt is not an Id at `s`",
+                        ),
+                        (
+                            "second-local",
+                            "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a key of the map whose keys `map::keys(..)` writes to the cell `seen`, declared `Set<Id>`, and Stmt is not an Id at `s`",
+                        ),
+                    ],
+                ),
+            ],
+            Some(
+                (
+                    "error[krs::analysis::collection-element-sort]: `s` of sort Stmt is stored as a value of the cell `env`, declared `Map<Id, Value>`, and Stmt is not a Value",
+                    "s",
+                ),
+            ),
+        )
+    "#]].assert_debug_eq(&(outcomes, carried));
+}
+
 /// A reading operation whose operand the sentence builds is checked
 /// through: `map::keys(m)` at `Set<K>` checks `m` at `Map<K, KItem>`,
 /// `set::from_list(l)` at `Set<T>` checks `l` at `List<T>`, and so on, the

@@ -517,6 +517,10 @@ enum Local {
     Typed(Box<(SortType, Position)>),
     /// A collection whose elements nothing declares, and why.
     Untyped(String),
+    /// A collection the sentence builds, the value at this key, whose type no
+    /// declaration gives: it has the type of the positions the local stands
+    /// at, as the value written there directly would.
+    Built(ProvenanceKey),
 }
 
 /// What a term at a typed position is known to be.
@@ -640,6 +644,11 @@ pub(super) struct Walker<'a> {
     /// Whether the walk is inside a local pattern, where a local name at a
     /// typed position is bound there rather than read.
     in_local_pattern: bool,
+    /// The typed positions a collection the sentence builds stands at through
+    /// the locals that name it, by the key of the built value: the meet of
+    /// every typed position a use of such a local stands at, found by the
+    /// first pass and read by the second at the local's binding.
+    built_uses: BTreeMap<ProvenanceKey, (SortType, Position)>,
 }
 
 /// A term of a sentence and the position it stands at.
@@ -706,6 +715,7 @@ impl<'a> Walker<'a> {
             binding: true,
             locals: Vec::new(),
             in_local_pattern: false,
+            built_uses: BTreeMap::new(),
         }
     }
 
@@ -1036,7 +1046,7 @@ impl<'a> Walker<'a> {
     fn local_type(&self, name: &str) -> Option<&(SortType, Position)> {
         match self.local(name)? {
             Local::Typed(typed) => Some(typed),
-            Local::Untyped(_) => None,
+            Local::Untyped(_) | Local::Built(_) => None,
         }
     }
 
@@ -1046,6 +1056,26 @@ impl<'a> Walker<'a> {
             .rev()
             .find_map(|scope| scope.get(name))
             .and_then(Option::as_ref)
+    }
+
+    /// Records that the collection the sentence builds at `built`, through a
+    /// local that names it, stands at the typed position `at`: it must fit
+    /// every such position, so it is walked at the meet of their types, as
+    /// a name written twice in one pattern has the meet of both positions'.
+    fn use_built(&mut self, built: ProvenanceKey, at: &(SortType, Position)) {
+        let parents = self.parents;
+        let met = match self.built_uses.remove(&built) {
+            None => at.clone(),
+            Some((left, left_position)) => {
+                let meet = left.clone().meet(at.0.clone(), parents);
+                if meet == left {
+                    (left, left_position)
+                } else {
+                    (meet, at.1.clone())
+                }
+            }
+        };
+        self.built_uses.insert(built, met);
     }
 
     /// Records that the local `name` is matched at a collection position of
@@ -1074,8 +1104,8 @@ impl<'a> Walker<'a> {
             return;
         };
         *slot = Some(match (slot.take(), matched) {
-            (None | Some(Local::Untyped(_)), matched) => matched,
-            (Some(Local::Typed(left)), Local::Untyped(_)) => Local::Typed(left),
+            (None | Some(Local::Untyped(_) | Local::Built(_)), matched) => matched,
+            (Some(Local::Typed(left)), Local::Untyped(_) | Local::Built(_)) => Local::Typed(left),
             (Some(Local::Typed(left)), Local::Typed(right)) => {
                 let (left, left_position) = *left;
                 let (right, right_position) = *right;
@@ -1105,6 +1135,10 @@ impl<'a> Walker<'a> {
             Some(_) => None,
             None => self.untyped_reason(value),
         };
+        let built = match (matched, &untyped) {
+            (None, None) => self.built_value(value),
+            _ => None,
+        };
         self.locals.push(
             pattern_names(pattern)
                 .into_iter()
@@ -1126,8 +1160,37 @@ impl<'a> Walker<'a> {
                     format!("`{name}` is matched in a part of `{value}`, and {reason}")
                 }));
             }
+        } else if let Some(built) = built
+            && let Some(scope) = self.locals.last_mut()
+        {
+            // A name of the whole value names the collection the sentence builds; a name
+            // inside the pattern is a part of it, which the position does not type directly.
+            for name in root_names(pattern) {
+                if let Some(slot @ None) = scope.get_mut(name) {
+                    *slot = Some(Local::Built(built.clone()));
+                }
+            }
         }
         walked
+    }
+
+    /// The key of the collection the sentence builds that `value` is, when no
+    /// declaration types it: the value itself (a collection operation or
+    /// brackets), or a local that names one. A local bound to it is typed by
+    /// the positions it stands at ([`Self::built_uses`]).
+    fn built_value(&self, value: &DescriptorTerm) -> Option<ProvenanceKey> {
+        match value {
+            DescriptorTerm::Variable { name, .. } if self.is_local(name) => {
+                match self.local(name)? {
+                    Local::Built(key) => Some(key.clone()),
+                    Local::Typed(_) | Local::Untyped(_) => None,
+                }
+            }
+            _ if built_domain(value).is_some() && self.typed_source(value).is_none() => {
+                Some(term_key(value).clone())
+            }
+            _ => None,
+        }
     }
 
     /// What a local is known to be at a typed position: the typed collection
@@ -1140,7 +1203,7 @@ impl<'a> Walker<'a> {
                 format!("`{name}`, bound to {},", typed.1.describe()),
             ),
             Some(Local::Untyped(reason)) => Source::Untyped(reason.clone()),
-            None => Source::Unknown,
+            Some(Local::Built(_)) | None => Source::Unknown,
         }
     }
 
@@ -1269,6 +1332,12 @@ impl<'a> Walker<'a> {
                 Some((ty, position)) if self.in_local_pattern && self.is_local(name) => {
                     self.bind_local(name, ty, position);
                 }
+                Some(at) if !subject && self.binding && at.0.is_typed() => {
+                    if let Some(Local::Built(built)) = self.local(name) {
+                        let built = built.clone();
+                        self.use_built(built, at);
+                    }
+                }
                 Some((ty, position)) if subject && self.binding => self.bind(name, ty, position),
                 Some(at) if !subject && !self.binding => {
                     let source = if self.is_local(name) {
@@ -1309,8 +1378,17 @@ impl<'a> Walker<'a> {
                 body,
                 ..
             } => {
-                self.walk(value, None, subject)?;
-                let matched = self.typed_source(value);
+                // A collection the sentence builds, named by the local, stands where the local
+                // is used: at the meet of those positions' types, as it would if written there
+                // (the first pass finds them, [`Self::built_uses`]).
+                let used = if self.binding || subject {
+                    None
+                } else {
+                    self.built_value(value)
+                        .and_then(|key| self.built_uses.get(&key).cloned())
+                };
+                self.walk(value, used.as_ref(), subject)?;
+                let matched = used.or_else(|| self.typed_source(value));
                 self.local_pattern(pattern, value, matched.as_ref())?;
                 self.walk(body, at, subject)?;
                 self.locals.pop();
