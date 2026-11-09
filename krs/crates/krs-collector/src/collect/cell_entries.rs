@@ -470,6 +470,7 @@ pub(super) fn judge_readable(
                 entry,
                 side,
                 Rewrite::Result,
+                authored.form == EntryForm::Claim,
                 &refusal,
                 target.groups(),
             ))
@@ -551,6 +552,7 @@ pub(super) fn judge_initializer(
             &entries[at],
             EntrySide::Initializer,
             Rewrite::Result,
+            false,
             &refusal,
             groups,
         )
@@ -715,7 +717,7 @@ fn judge_entries(
     let Some(descriptor) = index.get(id) else {
         return Ok(Vec::new());
     };
-    let (reference, subject, result, rewrite) = match descriptor.payload() {
+    let (reference, subject, result, rewrite, claim) = match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(rule) => (
             &rule.subject_configuration,
             &rule.subject.cells,
@@ -725,12 +727,14 @@ fn judge_entries(
                 (Some(_), _) => Rewrite::Result,
                 (None, _) => Rewrite::InPlace,
             },
+            matches!(rule.sentence_kind, ConfigurationSentenceKind::Claim),
         ),
         DescriptorPayload::ContextAlias(alias) => (
             &alias.configuration,
             &alias.pattern.cells,
             None,
             Rewrite::Kept { as_rule: false },
+            false,
         ),
         DescriptorPayload::StructuredRule(rule) => {
             let Some(context) = &rule.function_context else {
@@ -741,11 +745,12 @@ fn judge_entries(
                 &context.cells.cells,
                 None,
                 Rewrite::Kept { as_rule: false },
+                false,
             )
         }
         _ => return Ok(Vec::new()),
     };
-    let lints = judge_sentence(index, reference, subject, result, rewrite, authored)?;
+    let lints = judge_sentence(index, reference, subject, result, rewrite, claim, authored)?;
     Ok(lints
         .into_iter()
         .map(|(cell, range, lint)| linted(id, &cell, range, lint))
@@ -781,6 +786,7 @@ fn judge_sentence(
     subject: &DescriptorCells,
     result: Option<&DescriptorCells>,
     rewrite: Rewrite,
+    claim: bool,
     authored: &LocatedCells,
 ) -> Result<Vec<EntryLint>, CollectionError> {
     let configuration = &reference.configuration;
@@ -859,6 +865,7 @@ fn judge_sentence(
                 entry(at),
                 side,
                 rewrite,
+                claim,
                 &refusal,
                 &tree.groups,
             ))
@@ -1386,6 +1393,7 @@ fn advice(
     entry: &RefusedCell<'_>,
     side: EntrySide,
     rewrite: Rewrite,
+    claim: bool,
     refusal: Refusal,
     groups: &[GroupKind],
 ) -> Option<String> {
@@ -1407,7 +1415,7 @@ fn advice(
             Some("write its entry inside `Some(..)`, or as `None` for its absence".to_owned())
         }
         Refusal::BelowOptionalAncestor | Refusal::BelowCollectionAncestor => {
-            below_ancestor(form, entry, entry.ancestor?, side, rewrite, groups)
+            below_ancestor(form, entry, entry.ancestor?, side, rewrite, claim, groups)
         }
         Refusal::RestMismatch => Some(
             "write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"
@@ -1459,6 +1467,7 @@ fn below_ancestor(
     ancestor: &Ancestor,
     side: EntrySide,
     rewrite: Rewrite,
+    claim: bool,
     groups: &[GroupKind],
 ) -> Option<String> {
     let name = entry.name;
@@ -1481,8 +1490,8 @@ fn below_ancestor(
             own_mark || below_another,
         ));
     }
-    if !marked.direct && (own_mark || below_another) {
-        return Some(out_of_records(&of, name, marked, own_mark));
+    if own_mark || (!marked.direct && below_another) {
+        return Some(out_of_records(&of, name, marked, own_mark, claim));
     }
     let key = match &marked.layer {
         Layer::Instances(order) => groups
@@ -1575,12 +1584,21 @@ fn read_fixed_cells_only(
 }
 
 /// The advice of a path refusal of a cell outside every record's reach ([`below_ancestor`]): it
-/// holds presence or instances itself, or lies below a further `?` or `*` cell, inside a group
-/// child of the ancestor's group, and a record names no `?` or `*` child yet. A rule for the
-/// group of an optional cell or a Map collection is a step of the one instance it is about and
-/// names that instance's cells from its own level; a Set's or a List's instance is no rule's
-/// subject, and a Map collection's instance cells are named at the record's level instead.
-fn out_of_records(of: &str, name: &str, marked: &MarkedAncestor, own_mark: bool) -> String {
+/// holds presence or instances itself, a child of the ancestor's group or of a group child of it,
+/// or lies below a further `?` or `*` cell there, and a record names no `?` or `*` child yet. A
+/// rule for the group of an optional cell or a Map collection is a step of the one instance it is
+/// about and names that instance's cells from its own level; a Set's or a List's instance is no
+/// rule's subject, and a Map collection's instance cells are named at the record's level instead.
+/// A claim (`claim`) is typed by the configuration, never by a group: it names a Map
+/// collection's instance cells at the record's level as a rule for the configuration does, and
+/// nothing else reaches the cell.
+fn out_of_records(
+    of: &str,
+    name: &str,
+    marked: &MarkedAncestor,
+    own_mark: bool,
+    claim: bool,
+) -> String {
     let unreached = format!(
         "{of}, {}, and a record names no `?` or `*` cell yet, so no entry inside the record of `{}` reaches `{name}`",
         if own_mark {
@@ -1590,22 +1608,29 @@ fn out_of_records(of: &str, name: &str, marked: &MarkedAncestor, own_mark: bool)
         },
         marked.name
     );
-    match marked.layer {
-        Layer::Instances(order @ (Order::List | Order::Set)) => format!(
-            "{unreached}; a rule for `{}` is refused for a {} collection's instance, so hold the instances in a Map collection keyed by an id, whose instances' cells a rule names at the record's level",
-            marked.group,
+    let group = &marked.group;
+    match (&marked.layer, claim) {
+        (Layer::Instances(Order::List | Order::Set), true) => format!(
+            "{unreached}; a claim is typed by the configuration, never by `{group}`, and names the cells of a Map collection's instance at the record's level, so hold the instances in a Map collection keyed by an id"
+        ),
+        (Layer::Instances(order @ (Order::List | Order::Set)), false) => format!(
+            "{unreached}; a rule for `{group}` is refused for a {} collection's instance, so hold the instances in a Map collection keyed by an id, whose instances' cells a rule names at the record's level",
             match order {
                 Order::List => "List",
                 _ => "Set",
             }
         ),
-        Layer::Optional => format!(
-            "{unreached}; a rule for `{group}` is a step of the present `{group}` and names its cells from that level",
-            group = marked.group
+        (Layer::Optional, true) => format!(
+            "{unreached}; a claim is typed by the configuration, never by `{group}`, so no claim names `{name}` yet"
         ),
-        _ => format!(
-            "{unreached}; a rule for `{group}` is a step of one `{group}` and names its cells from that level",
-            group = marked.group
+        (Layer::Optional, false) => format!(
+            "{unreached}; a rule for `{group}` is a step of the present `{group}` and names its cells from that level"
+        ),
+        (_, true) => format!(
+            "{unreached}; a claim is typed by the configuration, never by `{group}`, and names one `{group}`'s cells at the record's level"
+        ),
+        (_, false) => format!(
+            "{unreached}; a rule for `{group}` is a step of one `{group}` and names its cells from that level"
         ),
     }
 }
@@ -1687,17 +1712,18 @@ struct RefusedCell<'a> {
 }
 
 /// The refusal `located` of the entry `entry`, on the side `side` of a sentence written in
-/// `form`: why ([`Refusal::reason`]), then what to write instead where its class advises it
-/// ([`advice`]). A refusal raised inside the content of a child of a group or instance record
-/// the entry writes names that child, the cell whose content is wrong (P1, P7), but for a form
-/// refusal, which is judged without the declaration and names the entry's cell
-/// ([`Refusal::is_form`]); it stands at the spelling it is raised at, or at the entry's value
+/// `form`, a claim where `claim` says so: why ([`Refusal::reason`]), then what to write instead
+/// where its class advises it ([`advice`]). A refusal raised inside the content of a child of a
+/// group or instance record the entry writes names that child, the cell whose content is wrong
+/// (P1, P7), but for a form refusal, which is judged without the declaration and names the entry's
+/// cell ([`Refusal::is_form`]); it stands at the spelling it is raised at, or at the entry's value
 /// where that spelling has no range.
 fn refused(
     form: EntryForm,
     entry: &Entry<'_>,
     side: EntrySide,
     rewrite: Rewrite,
+    claim: bool,
     located: &cell_entries::Located,
     groups: &[GroupKind],
 ) -> CollectionError {
@@ -1739,7 +1765,7 @@ fn refused(
         ),
     };
     let mut detail = refusal.reason(form, cell.name, kind, sort);
-    if let Some(advice) = advice(form, &cell, side, rewrite, refusal, groups) {
+    if let Some(advice) = advice(form, &cell, side, rewrite, claim, refusal, groups) {
         detail = format!("{detail}; {advice}");
     }
     let error = CollectionError::new(CollectionErrorKind::CellEntry(refusal), detail);

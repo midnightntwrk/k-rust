@@ -623,10 +623,10 @@ pub const UNCHECKED: &[Unchecked] = &[
         forms: &[
             r"`bag: \{ k::fragment![crate::Obj \{ key: v\, ..me \}]\, .. \}`",
             r"`job: [k::fragment![crate::Job \{ payload: v\, ..me \}]\, ..]`",
-            r"`line: [k::fragment![crate::L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: v\, ..me \}]\, ..]`",
+            r"`line: [k::fragment![crate::L \{ {lenv,lframe,lpc,lprog,lseq,lset,lstack}: v\, ..me \}]\, ..]`",
             r"`bag: \{ Obj \{ key: v\, ..me \}\, .. \}`",
             r"`job: [Job \{ payload: v\, ..me \}\, ..]`",
-            r"`line: [L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: v\, ..me \}\, ..]`",
+            r"`line: [L \{ {lenv,lframe,lpc,lprog,lseq,lset,lstack}: v\, ..me \}\, ..]`",
         ],
         shards: &["cells", "readable", "sweep-paths"],
         reason: "the advice is the update of the instance whose child the case's result names by its path (P-R6), at that child, which only a case updating that child of that collection writes (the path sweep's results name each child of the List collection `line`'s instance, and no case updates one); the class's advised case writes the update of another child (`aframe`) of the Map collection `account`'s instance in `cells!`, whose children a rule names at the record's level since IC-5. Readable results reach this advice since a result over a cell the subject leaves out is the overwrite (S5.2 part a, 4), and no readable case updates an instance's child, so the readable spellings are unchecked alike",
@@ -643,11 +643,11 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "collection-without-instances",
         forms: &[
-            r"`line: [L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: ..\, .. \}\, ..]`",
-            r"`line: [k::fragment![crate::L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: ..\, .. \}]\, ..]`",
+            r"`line: [L \{ {lenv,lframe,lpc,lprog,lseq,lset,lstack}: ..\, .. \}\, ..]`",
+            r"`line: [k::fragment![crate::L \{ {lenv,lframe,lpc,lprog,lseq,lset,lstack}: ..\, .. \}]\, ..]`",
         ],
         shards: &["sweep-paths"],
-        reason: "the advice names the cell inside the instance record of its outermost collection ancestor, at that cell (S1 (b), design §2.7), which only a case naming that child of that collection's instance writes; the class's advised cases name `payload` of `job`, `key` of `bag` and `id` of `account`, and no case names a child of the path sweep's `line`. An equation's function context and a context alias, which read fixed cells only, are advised no instance record (`apc` of `account`, SMALLFIX)",
+        reason: "the advice names the cell inside the instance record of its outermost collection ancestor, at that cell (S1 (b), design §2.7), which only a case naming that child of that collection's instance writes; the class's advised cases name `payload` of `job`, `key` of `bag` and `id` of `account`, and no case names a child of the path sweep's `line`. An equation's function context and a context alias, which read fixed cells only, are advised no instance record (`apc` of `account`, SMALLFIX), nor is a `?` or `*` child, which no record names yet (KEYS)",
     },
     Unchecked {
         class: "configuration-variable-sort",
@@ -699,13 +699,13 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "optional-without-presence",
         forms: &[
-            r"`{opt,qopt}: Some({H,Q} \{ {hcounter,hframe,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: ..\, .. \})`",
-            r"`{opt,qopt}: Some(k::fragment![crate::{H,Q} \{ {hcounter,hframe,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: ..\, .. \}])`",
-            r"`{opt,qopt}: Some(k::fragment![crate::{H,Q} \{ {hcounter,hframe,holist,hpc,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: v\, ..me \}])`",
-            r"`{opt,qopt}: Some({H,Q} \{ {hcounter,hframe,hogroup,holist,hpc,hprog,hseq,hset,hstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}: v\, ..me \})`",
+            r"`{opt,qopt}: Some({H,Q} \{ {hframe,hpc,hseq,hset,hstack,qenv,qframe,qpc,qprog,qseq,qset,qstack}: ..\, .. \})`",
+            r"`{opt,qopt}: Some(k::fragment![crate::{H,Q} \{ {hframe,hpc,hseq,hset,hstack,qenv,qframe,qpc,qprog,qseq,qset,qstack}: ..\, .. \}])`",
+            r"`{opt,qopt}: Some(k::fragment![crate::{H,Q} \{ {hframe,hpc,hseq,hset,hstack,qenv,qframe,qpc,qprog,qseq,qset,qstack}: v\, ..me \}])`",
+            r"`{opt,qopt}: Some({H,Q} \{ {hframe,hpc,hprog,hseq,hset,hstack,qenv,qframe,qpc,qprog,qseq,qset,qstack}: v\, ..me \})`",
         ],
         shards: &["cells", "readable", "sweep-paths"],
-        reason: "the advice names the cell inside the record of its optional group ancestor, `Some(G { child: .., .. })` in a subject and the group's update `Some(G { child: v, ..me })` in a result (S1 (b), design §2.7), at that cell, which only a case naming that child of that group writes; the class's advised case writes `Some(..)` on the optional cell `counter`",
+        reason: "the advice names the cell inside the record of its optional group ancestor, `Some(G { child: .., .. })` in a subject and the group's update `Some(G { child: v, ..me })` in a result (S1 (b), design §2.7), at that cell, which only a case naming that child of that group writes; the class's advised case writes `Some(..)` on the optional cell `counter`. A `?` or `*` child, which no record names yet, is advised no record (KEYS)",
     },
     Unchecked {
         class: "record-remainder-in-initializer",
