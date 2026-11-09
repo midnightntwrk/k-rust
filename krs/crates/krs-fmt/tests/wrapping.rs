@@ -59,27 +59,25 @@ quiet: Push(n) | PushZero(n) | PushOne(n) | PushTwo(n) | PushThree(n) | PushFour
         }
         k::equations! {
             for Size;
-            size_bool: (_, Bool()) => 1;
-            size_aggregate:
-                (
-                    _,
-                    EnumType(_, _, layout)
-                    | StructType(_, layout)
-                    | UnionType(_, layout)
-                    | TupleType(layout),
-                ) => Size(layout);
+            size_bool:      (_, Bool()) => 1;
+            size_aggregate: (
+                                _,
+                                EnumType(_, _, layout)
+                                | StructType(_, layout)
+                                | UnionType(_, layout)
+                                | TupleType(layout),
+                            ) => Size(layout);
         }
         k::rules! {
             for Step;
             use Op::*;
-            quiet:
-                Push(n)
-                | PushZero(n)
-                | PushOne(n)
-                | PushTwo(n)
-                | PushThree(n)
-                | PushFour(n)
-                | PushFive(n) => n;
+            quiet: Push(n)
+                   | PushZero(n)
+                   | PushOne(n)
+                   | PushTwo(n)
+                   | PushThree(n)
+                   | PushFour(n)
+                   | PushFive(n) => n;
         }
     "]]
     .assert_eq(&format(source, 80));
@@ -96,14 +94,14 @@ assign: (place, value) => Assign(Place(0, Projections::Empty()), Use(Operand::Co
     expect_test::expect![[r"
         k::equations! {
             for Statement;
-            assign:
-                (place, value) => Assign(
-                    Place(0, Projections::Empty()),
-                    Use(Operand::Copy(Place(
-                        3,
-                        Projections::Cons(Projection::Field(value), Projections::Empty()),
-                    ))),
-                );
+            assign: (place, value)
+                    => Assign(
+                        Place(0, Projections::Empty()),
+                        Use(Operand::Copy(Place(
+                            3,
+                            Projections::Cons(Projection::Field(value), Projections::Empty()),
+                        ))),
+                    );
         }
     "]]
     .assert_eq(&format(source, 100));
@@ -190,9 +188,9 @@ long_row: Resolve(height, place, mutability, metadata) => place where height: In
         }
         k::rules! {
             for Expr;
-            long_row:
-                Resolve(height, place, mutability, metadata) => place
-                where height: Int, place: Place, mutability: Mutability;
+            long_row: Resolve(height, place, mutability, metadata)
+                      => place
+                      where height: Int, place: Place, mutability: Mutability;
         }
     "]]
     .assert_eq(&format(source, 80));
@@ -217,16 +215,22 @@ w_other: _ => 0;
     expect_test::expect![[r"
         k::equations! {
             for Width;
-            w_bool  : Bool()       => 1;
-            w_char  : Char()       => 4;
-            w_signed: Signed(kind) => int::div(IntWidth(kind), 8);
-            w_static_array:
-                ArrayType(element, Some(Constant(Value(Allocation(bytes, _, _, _)), _)))
-                => int::mul(Width(element), ReadInt(bytes, 0, 1, 0));
-            w_wide_pattern_only: Pointer(PointerKind::Thin, Mutability::Mutable) => 8;
-            w_x: X => Pair(Pair(Pair(aaaaaaaa, bbbbbbbb), Pair(cccccccc, dddddddd)), eeeeeeee);
+            w_bool:              Bool()       => 1;
+            w_char:              Char()       => 4;
+            w_signed:            Signed(kind) => int::div(IntWidth(kind), 8);
+            w_static_array:      ArrayType(
+                                     element,
+                                     Some(Constant(Value(Allocation(bytes, _, _, _)), _)),
+                                 ) => int::mul(Width(element), ReadInt(bytes, 0, 1, 0));
+            w_wide_pattern_only: Pointer(PointerKind::Thin, Mutability::Mutable)
+                                 => 8;
+            w_x:                 X
+                                 => Pair(
+                                     Pair(Pair(aaaaaaaa, bbbbbbbb), Pair(cccccccc, dddddddd)),
+                                     eeeeeeee,
+                                 );
             #[k::equation(owise)]
-            w_other : _            => 0;
+            w_other:             _            => 0;
         }
     "]]
     .assert_eq(&format(source, 90));
@@ -288,14 +292,13 @@ Union(a)) => a;
     expect_test::expect![[r"
         k::equations! {
             for Size;
-            size:
-                (
-                    _,
-                    Enum(a) // before the bar
-                    | Struct(a)
-                    | // after the bar
-                    Union(a),
-                ) => a;
+            size: (
+                      _,
+                      Enum(a) // before the bar
+                      | Struct(a)
+                      | // after the bar
+                      Union(a),
+                  ) => a;
         }
     "]]
     .assert_eq(&format(source, 100));
@@ -340,10 +343,9 @@ check: (first, second, third) => first.gt::<Int>(0) && second.lt::<Int>(third) |
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            check:
-                (first, second, third)
-                => first.gt::<Int>(0) && second.lt::<Int>(third)
-                    || first + second * 2 == third - 1 && !third;
+            check: (first, second, third)
+                   => first.gt::<Int>(0) && second.lt::<Int>(third)
+                       || first + second * 2 == third - 1 && !third;
         }
     "]]
     .assert_eq(&format(source, 70));
@@ -420,11 +422,10 @@ loads: { program: k::bytes!(b\"\\x60\\x02\\x60\\x07\\x05\\x60\\x02\\x60\\x07\\x0
         }
         k::equations! {
             for Size;
-            one : (0,)   => 1;
+            one:  (0,)   => 1;
             pair: (0, b) => Wrap(b);
-            long:
-                (first_argument, second_argument)
-                => Combine(first_argument, second_argument, first_argument);
+            long: (first_argument, second_argument)
+                  => Combine(first_argument, second_argument, first_argument);
         }
         k::claims! {
             for Machine;
@@ -522,19 +523,18 @@ operator: Restore(state) => Wrap(Frame { program_counter: caller_frame_value, de
         }
         k::equations! {
             for Restore;
-            alias:
-                Restore(
-                    saved @ CallState {
-                        program_counter: caller_frame_value,
-                        call_depth: depth,
-                        ..
-                    },
-                ) => saved;
-            operator:
-                Restore(state) => Wrap(
-                    Frame { program_counter: caller_frame_value, depth }
-                        != Frame::empty(),
-                );
+            alias:    Restore(
+                          saved @ CallState {
+                              program_counter: caller_frame_value,
+                              call_depth: depth,
+                              ..
+                          },
+                      ) => saved;
+            operator: Restore(state)
+                      => Wrap(
+                          Frame { program_counter: caller_frame_value, depth }
+                              != Frame::empty(),
+                      );
         }
     "]]
     .assert_eq(&format(source, 80));
@@ -593,11 +593,11 @@ wide: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width, signed } 
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            wide:
-                (lhs, rhs) => Boolean(
-                    TruncateInteger { value: lhs + rhs, width, signed }
-                        != lhs.add::<Int>(rhs),
-                );
+            wide: (lhs, rhs)
+                  => Boolean(
+                      TruncateInteger { value: lhs + rhs, width, signed }
+                          != lhs.add::<Int>(rhs),
+                  );
         }
     "]]
     .assert_eq(&format(source, 76));
@@ -617,39 +617,39 @@ call: (lhs, rhs) => Boolean(TruncateInteger { value: lhs + rhs, width: some_long
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            wide:
-                (lhs, rhs) => Boolean(
-                    TruncateInteger {
-                        value: lhs + rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    } != lhs.add::<Int>(rhs),
-                );
-            both:
-                (lhs, rhs) => Boolean(
-                    TruncateInteger {
-                        value: lhs + rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    } == TruncateInteger {
-                        value: rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    },
-                );
-            call:
-                (lhs, rhs) => Boolean(
-                    TruncateInteger {
-                        value: lhs + rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    } != some_function_with_long_name(
-                        lhs,
-                        rhs,
-                        some_long_width_name,
-                        signedness_flag_value,
-                    ),
-                );
+            wide: (lhs, rhs)
+                  => Boolean(
+                      TruncateInteger {
+                          value: lhs + rhs,
+                          width: some_long_width_name,
+                          signed: signedness_flag_value,
+                      } != lhs.add::<Int>(rhs),
+                  );
+            both: (lhs, rhs)
+                  => Boolean(
+                      TruncateInteger {
+                          value: lhs + rhs,
+                          width: some_long_width_name,
+                          signed: signedness_flag_value,
+                      } == TruncateInteger {
+                          value: rhs,
+                          width: some_long_width_name,
+                          signed: signedness_flag_value,
+                      },
+                  );
+            call: (lhs, rhs)
+                  => Boolean(
+                      TruncateInteger {
+                          value: lhs + rhs,
+                          width: some_long_width_name,
+                          signed: signedness_flag_value,
+                      } != some_function_with_long_name(
+                          lhs,
+                          rhs,
+                          some_long_width_name,
+                          signedness_flag_value,
+                      ),
+                  );
         }
     "]]
     .assert_eq(&format(source, 100));
@@ -670,22 +670,21 @@ whole: (left_operand_name, right_operand_name) => TruncateInteger { value: lhs +
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            cmp:
-                (lhs, rhs) => TruncateInteger {
-                    value: lhs + rhs,
-                    width: some_long_width_name,
-                    signed: signedness_flag_value,
-                } != rhs;
-            plain:
-                (lhs, rhs) => TruncateInteger {
-                    value: lhs + rhs,
-                    width: some_long_width_name,
-                    signed: signedness_flag_value,
-                };
-            whole:
-                (left_operand_name, right_operand_name)
-                => TruncateInteger { value: lhs + rhs, width: some_width, signed: flag }
-                    != rhs.add::<Int>(right_operand_name);
+            cmp:   (lhs, rhs)
+                   => TruncateInteger {
+                       value: lhs + rhs,
+                       width: some_long_width_name,
+                       signed: signedness_flag_value,
+                   } != rhs;
+            plain: (lhs, rhs)
+                   => TruncateInteger {
+                       value: lhs + rhs,
+                       width: some_long_width_name,
+                       signed: signedness_flag_value,
+                   };
+            whole: (left_operand_name, right_operand_name)
+                   => TruncateInteger { value: lhs + rhs, width: some_width, signed: flag }
+                       != rhs.add::<Int>(right_operand_name);
         }
     "]]
     .assert_eq(&format(source, 100));
@@ -706,32 +705,32 @@ middle: (lhs, rhs) => Boolean(first_operand_name_that_is_long && TruncateInteger
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            mixed:
-                (lhs, rhs) => TruncateInteger {
-                    value: lhs + rhs,
-                    width: some_long_width_name,
-                    signed: signedness_flag_value,
-                } != rhs
-                    && other_condition;
-            chain:
-                (lhs, rhs) => Boolean(
-                    Holds(TruncateInteger {
+            mixed:  (lhs, rhs)
+                    => TruncateInteger {
                         value: lhs + rhs,
                         width: some_long_width_name,
                         signed: signedness_flag_value,
-                    }) && second_operand_name
-                        && third_operand_name,
-                );
-            middle:
-                (lhs, rhs) => Boolean(
-                    first_operand_name_that_is_long
-                        && TruncateInteger {
+                    } != rhs
+                        && other_condition;
+            chain:  (lhs, rhs)
+                    => Boolean(
+                        Holds(TruncateInteger {
                             value: lhs + rhs,
                             width: some_long_width_name,
                             signed: signedness_flag_value,
-                        }
-                        && third,
-                );
+                        }) && second_operand_name
+                            && third_operand_name,
+                    );
+            middle: (lhs, rhs)
+                    => Boolean(
+                        first_operand_name_that_is_long
+                            && TruncateInteger {
+                                value: lhs + rhs,
+                                width: some_long_width_name,
+                                signed: signedness_flag_value,
+                            }
+                            && third,
+                    );
         }
     "]]
     .assert_eq(&format(source, 100));
@@ -748,14 +747,14 @@ tiny: (lhs, rhs) => Boolean(x != TruncateInteger { value: lhs + rhs, width: some
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            tiny:
-                (lhs, rhs) => Boolean(
-                    x != TruncateInteger {
-                        value: lhs + rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    },
-                );
+            tiny: (lhs, rhs)
+                  => Boolean(
+                      x != TruncateInteger {
+                          value: lhs + rhs,
+                          width: some_long_width_name,
+                          signed: signedness_flag_value,
+                      },
+                  );
         }
     "]]
     .assert_eq(&format(source, 100));
@@ -778,35 +777,34 @@ alternatives: Frame { value: SOME_LONG_VALUE_NAME, width: SOME_LONG_WIDTH_NAME, 
     expect_test::expect![[r"
         k::equations! {
             for Check;
-            before:
-                (lhs, rhs) => Boolean(
-                    TruncateInteger {
-                        value: lhs + rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    } // the truncated sum
-                        != lhs.add::<Int>(rhs),
-                );
-            after:
-                (lhs, rhs) => Boolean(
-                    TruncateInteger {
-                        value: lhs + rhs,
-                        width: some_long_width_name,
-                        signed: signedness_flag_value,
-                    }
-                        != // the plain sum
-                        lhs.add::<Int>(rhs),
-                );
+            before: (lhs, rhs)
+                    => Boolean(
+                        TruncateInteger {
+                            value: lhs + rhs,
+                            width: some_long_width_name,
+                            signed: signedness_flag_value,
+                        } // the truncated sum
+                            != lhs.add::<Int>(rhs),
+                    );
+            after:  (lhs, rhs)
+                    => Boolean(
+                        TruncateInteger {
+                            value: lhs + rhs,
+                            width: some_long_width_name,
+                            signed: signedness_flag_value,
+                        }
+                            != // the plain sum
+                            lhs.add::<Int>(rhs),
+                    );
         }
         k::rules! {
             for Step;
-            alternatives:
-                Frame {
-                    value: SOME_LONG_VALUE_NAME,
-                    width: SOME_LONG_WIDTH_NAME,
-                    signed: SIGNEDNESS_FLAG_VALUE,
-                }
-                | Other => Done;
+            alternatives: Frame {
+                              value: SOME_LONG_VALUE_NAME,
+                              width: SOME_LONG_WIDTH_NAME,
+                              signed: SIGNEDNESS_FLAG_VALUE,
+                          }
+                          | Other => Done;
         }
     "]]
     .assert_eq(&format(source, 100));

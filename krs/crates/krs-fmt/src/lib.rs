@@ -516,7 +516,7 @@ k::rules!(a, b);
     k::rules! {
         for Expr;
 
-        short : A(x)           => x;
+        short:  A(x)           => x;
         medium: Pair(lhs, rhs) => rhs;
     }
 }
@@ -527,7 +527,7 @@ k::rules!(a, b);
         for Expr;
 
         considerably_longer: A(x)           => x;
-        medium             : Pair(lhs, rhs) => rhs;
+        medium:              Pair(lhs, rhs) => rhs;
     }
 }
 "]]
@@ -559,7 +559,7 @@ k::rules!(a, b);
         for Expr;
         use Op::*;
 
-        short              : A(x)           => x;    // first
+        short:               A(x)           => x;    // first
         considerably_longer: Pair(lhs, rhs) => rhs;  // second
     }
 }
@@ -570,7 +570,7 @@ k::rules!(a, b);
         for Expr;
         use Op::*;
 
-        short              : A(x)           => x;  // first
+        short:               A(x)           => x;  // first
         considerably_longer: Pair(lhs, rhs) => rhs;  // second
     }
 }
@@ -618,17 +618,15 @@ k::rules!(a, b);
                     for Expr;
 
                     // before
-                    one:
-                        A(
-                            // interior
-                            value,
-                        ) => value;  // trailing
+                    one:   A(
+                               // interior
+                               value,
+                           ) => value;  // trailing
                     // between
-                    two:
-                        A(
-                            // kept
-                            value,
-                        ) => value;
+                    two:   A(
+                               // kept
+                               value,
+                           ) => value;
                     // interior
                     // after
                     three: A(value) => value;

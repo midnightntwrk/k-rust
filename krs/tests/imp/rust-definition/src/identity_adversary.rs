@@ -47,9 +47,9 @@ mod baseline {
         for Expr;
         use Op::*;
 
-        fold  : Wrap { value } => value        where value: Value;
+        fold:   Wrap { value } => value        where value: Value;
         splice: Pair(lhs, rhs) => k![lhs, rhs];
-        erase : Ready()        => ();
+        erase:  Ready()        => ();
     }
 
     k::rules! {
@@ -144,9 +144,9 @@ mod reordered {
         for Expr;
         use Op::*;
 
-        erase : Ready()        => ();
+        erase:  Ready()        => ();
         splice: Pair(lhs, rhs) => k![lhs, rhs];
-        fold  : Wrap { value } => value        where value: Value;
+        fold:   Wrap { value } => value        where value: Value;
     }
 }
 
@@ -196,9 +196,9 @@ mod renamed {
         for Expression;
         use Operator::*;
 
-        simplify     : Boxed { value }  => value        where value: Evaluated;
+        simplify:      Boxed { value }  => value        where value: Evaluated;
         continue_with: Joined(lhs, rhs) => k![lhs, rhs];
-        finish       : Finished()       => ();
+        finish:        Finished()       => ();
     }
 
     k::rules! {

@@ -46,13 +46,16 @@ struct ClauseSource {
     machine: bool,
 }
 
-/// One table row: its one-line components when it has no comment that
-/// forces a break, and its layout when it does not fit on one line.
+/// One table row: its label, its one-line components when it has no
+/// comment that forces a break, and the documents it is laid out from when
+/// it is not one line in the table's columns.
 #[derive(Clone, Debug)]
 struct TableRow {
     label: String,
     flat: Option<FlatRow>,
-    lines: Doc,
+    pattern: Doc,
+    result: Doc,
+    conditions: Option<Doc>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,15 +66,72 @@ struct FlatRow {
 }
 
 impl TableRow {
-    fn unaligned(&self, flat: &FlatRow) -> String {
-        let mut line = format!("{}: {} => {}", self.label, flat.pattern, flat.result);
-        if let Some(conditions) = &flat.conditions {
-            line.push_str(" where ");
-            line.push_str(conditions);
+    /// The row in the table's label column but outside its pattern and
+    /// result columns: the pattern at the pattern column, then `=> result`
+    /// on a line of its own at that column, and `where` on the next. A
+    /// pattern that breaks over lines keeps `=> result` on its last line
+    /// when it fits there, as a broken record's `} => result`. Each part
+    /// that does not fit breaks inside, its lines nested at the pattern
+    /// column.
+    ///
+    /// A row that this layout would carry past the width, as a deep record
+    /// under a wide label column does, while the row broken after its label
+    /// fits, is broken after its label instead (`broken_out`): a line past
+    /// the width is worse than a row that leaves the table.
+    fn continued(&self, columns: Columns, width: usize) -> Vec<String> {
+        let column = columns.pattern_column();
+        let pattern_fits =
+            layout::flat(&self.pattern).is_some_and(|pattern| column + pattern.width() <= width);
+        let mut body = vec![self.pattern.clone()];
+        if pattern_fits {
+            body.extend([Doc::Hard, Doc::text("=> "), self.result.clone()]);
+        } else {
+            body.push(Doc::Arm(Box::new(self.result.clone())));
         }
-        line.push(';');
-        line
+        if let Some(conditions) = &self.conditions {
+            body.extend([Doc::Hard, conditions.clone()]);
+        }
+        body.push(Doc::text(";"));
+        let doc = Doc::Concat(vec![
+            Doc::text(columns.label_cell(&self.label)),
+            Doc::nest(column, Doc::Concat(body)),
+        ]);
+        let lines = layout::print(&doc, width);
+        if within(&lines, width) {
+            return lines;
+        }
+        let broken_out = self.broken_out(width);
+        if within(&broken_out, width) {
+            broken_out
+        } else {
+            lines
+        }
     }
+
+    /// The row broken after its label: the label on a line of its own,
+    /// then the pattern and result one level in, `where` on a line of its
+    /// own.
+    fn broken_out(&self, width: usize) -> Vec<String> {
+        let mut body = vec![
+            Doc::Hard,
+            self.pattern.clone(),
+            Doc::Arm(Box::new(self.result.clone())),
+        ];
+        if let Some(conditions) = &self.conditions {
+            body.extend([Doc::Hard, conditions.clone()]);
+        }
+        let doc = Doc::Concat(vec![
+            Doc::text(format!("{}:", self.label)),
+            Doc::nest(INDENT, Doc::Concat(body)),
+            Doc::text(";"),
+        ]);
+        layout::print(&doc, width)
+    }
+}
+
+/// Whether every line fits in `width` columns.
+fn within(lines: &[String], width: usize) -> bool {
+    lines.iter().all(|line| line.width() <= width)
 }
 
 #[derive(Clone, Debug)]
@@ -122,8 +182,8 @@ pub(crate) fn format_claim_body(
 }
 
 /// Formats one complete `equations!` body at its Rustfmt-selected
-/// indentation, with the `rules!` table layout: one row per line, labels,
-/// `=>`, and results aligned across the table.
+/// indentation, with the `rules!` table layout (`align_single_clauses`):
+/// labels, patterns, `=>`, and results in columns across the table.
 pub(crate) fn format_equation_body(
     source: &str,
     source_offset: usize,
@@ -537,19 +597,17 @@ fn table_row(parts: &ClauseParts, comments: Comments<'_>) -> TableRow {
             },
         })
     })();
-    // A row too long for the table: the label on its own line, then the
-    // pattern and result indented, `where` on a line of its own.
-    let mut body = vec![Doc::Hard, pattern, Doc::Arm(Box::new(result))];
-    if let Some(conditions) = &parts.conditions {
-        body.push(Doc::Hard);
-        body.push(conditions_doc(conditions, comments));
+    let conditions = parts
+        .conditions
+        .as_ref()
+        .map(|conditions| conditions_doc(conditions, comments));
+    TableRow {
+        label,
+        flat,
+        pattern,
+        result,
+        conditions,
     }
-    let lines = Doc::Concat(vec![
-        Doc::text(format!("{label}:")),
-        Doc::nest(INDENT, Doc::Concat(body)),
-        Doc::text(";"),
-    ]);
-    TableRow { label, flat, lines }
 }
 
 /// A cell-record clause: each record one cell per line, `where` on a line
@@ -581,32 +639,69 @@ fn machine_clause(parts: &ClauseParts, comments: Comments<'_>) -> Result<Doc, Fo
     Ok(Doc::Concat(docs))
 }
 
-/// Lays out a table's rows. A row that fits on one line joins the table's
-/// alignment, unless aligning it would push it, or another row, past the
-/// width: then the row whose removal narrows the columns most is set
-/// unaligned on its own line, until every aligned row fits. A row that does
-/// not fit on one line is laid out on its own and widens no column.
+/// Lays out a table's rows so that the table reads as one table.
+///
+/// Every row writes its label as Rust writes a field, `label:`, and pads
+/// after the colon to the table's pattern column, which the widest label
+/// sets. A row that fits on one line with its pattern and `=>` padded to
+/// the table's pattern and result columns is written so. The pattern and
+/// result columns are the widest of those rows, so a row whose padding
+/// would push it, or another row, past the width is taken out of them: the
+/// row whose removal narrows the columns most, until every row in them
+/// fits. A row out of the columns, because it was taken out or does not
+/// fit on one line at all, keeps its label in the label column and
+/// continues at the pattern column (`TableRow::continued`): its pattern
+/// there, `=> result` on a line of its own under it, `where` on the next.
+/// So every line of a table starts at the label column with a label, or at
+/// the pattern column with a row's continuation, and an `=>` after a
+/// one-line pattern is at the result column or starts a continuation line.
+/// The one exception is a row that its continuation would carry past the
+/// width while it fits broken after its label: it is broken after its
+/// label, since a line past the width is worse than a row that leaves the
+/// table.
+///
+/// A label on a line of its own sets its row outside the table, and an
+/// unpadded `pattern => result` puts an `=>` outside the result column; the
+/// continuation goes to the pattern column rather than the result column
+/// because the result column is the table's rightmost, where a result too
+/// long for its row rarely fits. Columns depend only on the rows' tokens
+/// and widths, so the layout is deterministic and a second pass changes
+/// nothing.
 fn align_single_clauses(clauses: Vec<RenderedClause>, width: usize) -> Vec<AlignedClause> {
+    let label = clauses
+        .iter()
+        .filter_map(|clause| match &clause.body {
+            ClauseBody::Row(row) => Some(row.label.width()),
+            ClauseBody::Lines(_) => None,
+        })
+        .max()
+        .unwrap_or(0);
     let rows = clauses
         .iter()
         .map(|clause| match &clause.body {
-            ClauseBody::Row(row) => row
-                .flat
-                .as_ref()
-                .filter(|flat| row.unaligned(flat).width() <= width)
-                .map(|flat| (row.label.width(), flat.clone())),
+            ClauseBody::Row(row) => row.flat.as_ref().filter(|flat| {
+                Columns {
+                    label,
+                    pattern: flat.pattern.width(),
+                    result: flat.result.width(),
+                }
+                .row_width(flat)
+                    <= width
+            }),
             ClauseBody::Lines(_) => None,
         })
         .collect::<Vec<_>>();
     let mut aligned = rows.iter().map(Option::is_some).collect::<Vec<_>>();
     let columns = |aligned: &[bool], skip: Option<usize>| {
-        let mut widths = Columns::default();
+        let mut widths = Columns {
+            label,
+            ..Columns::default()
+        };
         for (index, row) in rows.iter().enumerate() {
-            if let Some((label, flat)) = row
+            if let Some(flat) = row
                 && aligned[index]
                 && skip != Some(index)
             {
-                widths.label = widths.label.max(*label);
                 widths.pattern = widths.pattern.max(flat.pattern.width());
                 widths.result = widths.result.max(flat.result.width());
             }
@@ -616,10 +711,7 @@ fn align_single_clauses(clauses: Vec<RenderedClause>, width: usize) -> Vec<Align
     loop {
         let widths = columns(&aligned, None);
         let overflows = rows.iter().enumerate().any(|(index, row)| {
-            aligned[index]
-                && row
-                    .as_ref()
-                    .is_some_and(|(_, flat)| widths.row_width(flat) > width)
+            aligned[index] && row.is_some_and(|flat| widths.row_width(flat) > width)
         });
         if !overflows {
             break;
@@ -635,14 +727,12 @@ fn align_single_clauses(clauses: Vec<RenderedClause>, width: usize) -> Vec<Align
     clauses
         .into_iter()
         .zip(aligned)
-        .zip(rows.iter().map(Option::is_some))
-        .map(|((clause, aligned), fits)| {
+        .map(|(clause, aligned)| {
             let mut lines = clause.attributes;
             match clause.body {
                 ClauseBody::Row(row) => match &row.flat {
                     Some(flat) if aligned => lines.push(widths.render(&row.label, flat)),
-                    Some(flat) if fits => lines.push(row.unaligned(flat)),
-                    _ => lines.extend(layout::print(&row.lines, width)),
+                    _ => lines.extend(row.continued(widths, width)),
                 },
                 ClauseBody::Lines(body) => lines.extend(body),
             }
@@ -655,7 +745,8 @@ fn align_single_clauses(clauses: Vec<RenderedClause>, width: usize) -> Vec<Align
         .collect()
 }
 
-/// The column widths of a table's aligned rows.
+/// The column widths of a table: its labels', and its aligned rows'
+/// patterns and results.
 #[derive(Clone, Copy, Debug, Default)]
 struct Columns {
     label: usize,
@@ -668,8 +759,18 @@ impl Columns {
         self.label + self.pattern + self.result
     }
 
+    /// The column where every row's pattern starts, after `label: `.
+    fn pattern_column(self) -> usize {
+        self.label + ": ".len()
+    }
+
+    /// `label:` padded to the pattern column.
+    fn label_cell(self, label: &str) -> String {
+        format!("{label}:{} ", " ".repeat(self.label - label.width()))
+    }
+
     fn row_width(self, flat: &FlatRow) -> usize {
-        let head = self.label + ": ".len() + self.pattern + " => ".len();
+        let head = self.pattern_column() + self.pattern + " => ".len();
         match &flat.conditions {
             Some(conditions) => head + self.result + " where ".len() + conditions.width() + 1,
             None => head + flat.result.width() + 1,
@@ -678,8 +779,8 @@ impl Columns {
 
     fn render(self, label: &str, flat: &FlatRow) -> String {
         let mut rendered = format!(
-            "{label}{}: {}{} => {}",
-            " ".repeat(self.label - label.width()),
+            "{}{}{} => {}",
+            self.label_cell(label),
             flat.pattern,
             " ".repeat(self.pattern - flat.pattern.width()),
             flat.result,
@@ -870,11 +971,150 @@ mod tests {
                 for R8;
                 use Operand::*;
                 use Register::*;
-                r8_b    : 0       => Reg(B);
+                r8_b:     0       => Reg(B);
                 // The pair.
                 #[k::equation(owise)]
                 r8_other: _       => HlIndirect;  // fallback
-                pair    : (0, -1) => Reg(A);"]]
+                pair:     (0, -1) => Reg(A);"]]
+        .assert_eq(&actual);
+    }
+
+    /// A label is written as Rust writes a field, `label:`, and the table
+    /// pads after the colon, never before it.
+    #[test]
+    fn labels_keep_their_colon_and_pad_after_it() {
+        let source = r"
+            for Cc;
+            use Condition::*;
+            cc_nz : 0 => NotZero;
+            cc_z:1 => Zero;
+            cc_carry   :   3 => Carry;
+        ";
+        let output = format_equation_body(source, 0, "    ", LAYOUT).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
+        assert_eq!(output, again, "label padding is idempotent");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Cc;
+                use Condition::*;
+                cc_nz:    0 => NotZero;
+                cc_z:     1 => Zero;
+                cc_carry: 3 => Carry;"]]
+        .assert_eq(&actual);
+    }
+
+    /// A row too long for the table keeps its label in the label column and
+    /// its pattern at the pattern column, and continues with `=> result` at
+    /// that column; a pattern too long for the pattern column breaks there.
+    /// The other rows keep the table's columns, and doc comments and
+    /// attributes stay with their rows.
+    #[test]
+    fn a_row_too_long_for_the_table_continues_at_its_columns() {
+        let source = r#"
+            for Decode;
+            use Instruction::*;
+            decode_nop: 0x00 => Nop;
+            decode_jr_cc: k::bits!("00 1cc 000") => JumpRelative(Cc(c));
+            /// `RLCA`, `RRCA`, `RLA`, `RRA`, `DAA`, `CPL`, `SCF`, `CCF`.
+            decode_accumulator: k::bits!("00 yyy 111") => Update8(AccumulatorTable(y), Operand::Reg(Register::A));
+            #[k::requires(op != 0x76)]
+            decode_ld_r_r: op @ k::bits!("01 yyy zzz") => Ld8(R8(y), R8(z));
+            /// The unused opcodes.
+            decode_illegal: opcode @ (0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC) => Illegal(opcode);
+        "#;
+        let output = format_equation_body(source, 0, "    ", LAYOUT).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
+        assert_eq!(output, again, "a continued row is idempotent");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r#"
+            body:
+                for Decode;
+                use Instruction::*;
+                decode_nop:         0x00                        => Nop;
+                decode_jr_cc:       k::bits!("00 1cc 000")      => JumpRelative(Cc(c));
+                /// `RLCA`, `RRCA`, `RLA`, `RRA`, `DAA`, `CPL`, `SCF`, `CCF`.
+                decode_accumulator: k::bits!("00 yyy 111")
+                                    => Update8(AccumulatorTable(y), Operand::Reg(Register::A));
+                #[k::requires(op != 0x76)]
+                decode_ld_r_r:      op @ k::bits!("01 yyy zzz") => Ld8(R8(y), R8(z));
+                /// The unused opcodes.
+                decode_illegal:     opcode @ (0xD3
+                                    | 0xDB
+                                    | 0xDD
+                                    | 0xE3
+                                    | 0xE4
+                                    | 0xEB
+                                    | 0xEC
+                                    | 0xED
+                                    | 0xF4
+                                    | 0xFC) => Illegal(opcode);"#]]
+        .assert_eq(&actual);
+    }
+
+    /// A row that fits on one line but would push the table's columns past
+    /// the width leaves the columns and continues at the pattern column, so
+    /// no `=>` within a line sits outside the result column.
+    #[test]
+    fn a_row_taken_out_of_the_columns_continues_at_the_pattern_column() {
+        let source = r"
+            for Width;
+            w_bool: Bool() => 1;
+            w_signed: Signed(kind) => int::div(IntWidth(kind), 8);
+            w_wide: Pointer(PointerKind::Thin, Mutability::Mutable) => 8;
+        ";
+        let layout = BodyLayout {
+            max_width: 80,
+            ..LAYOUT
+        };
+        let output = format_equation_body(source, 0, "    ", layout).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", layout).expect("format formatted body");
+        assert_eq!(output, again, "a row out of the columns is idempotent");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Width;
+                w_bool:   Bool()       => 1;
+                w_signed: Signed(kind) => int::div(IntWidth(kind), 8);
+                w_wide:   Pointer(PointerKind::Thin, Mutability::Mutable)
+                          => 8;"]]
+        .assert_eq(&actual);
+    }
+
+    /// A row that the pattern column would carry past the width, a deep
+    /// record under a wide label column, is broken after its label when it
+    /// fits so; the other rows keep the table's columns.
+    #[test]
+    fn a_row_too_deep_for_the_pattern_column_breaks_after_its_label() {
+        let source = r"
+            for Shape;
+            a_label_that_sets_a_wide_column: Small => 1;
+            deep: Wrap { inner: Inner { field_one: value_one, field_two: value_two } } => value_one;
+        ";
+        let layout = BodyLayout {
+            max_width: 60,
+            ..LAYOUT
+        };
+        let output = format_equation_body(source, 0, "    ", layout).expect("format body");
+        let again =
+            format_equation_body(&output, 0, "    ", layout).expect("format formatted body");
+        assert_eq!(output, again, "a broken-out row is idempotent");
+        assert!(output.lines().all(|line| line.width() <= 60), "{output}");
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Shape;
+                a_label_that_sets_a_wide_column: Small => 1;
+                deep:
+                    Wrap {
+                        inner: Inner {
+                            field_one: value_one,
+                            field_two: value_two,
+                        },
+                    } => value_one;"]]
         .assert_eq(&actual);
     }
 
@@ -905,7 +1145,7 @@ mod tests {
                     a.gt::<Int>(2)
                         || a.eq::<Int>(0)
                 )]
-                code_row  : k::bits!("10 aa") => a;
+                code_row:   k::bits!("10 aa") => a;
                 #[k::equation(owise)]
                 code_other: n                 => 100;"#]]
         .assert_eq(&actual);
@@ -928,9 +1168,8 @@ mod tests {
         expect_test::expect![[r#"
             body:
                 for Decode;
-                beq:
-                    k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11])
-                    => Beq(r, s, b);
+                beq:  k::bits!("bbbbbbb sssss rrrrr 000 bbbbb 1100011", b: signed[12 | 10:5 | 4:1 | 11])
+                      => Beq(r, s, b);
                 addi: k::bits!("iiiiiiiiiiii rrrrr 000 ddddd 0010011", i: signed) => Addi(d, r, i);"#]]
         .assert_eq(&actual);
     }
@@ -951,7 +1190,7 @@ mod tests {
                 for Expr;
                 use Op::*;
 
-                tiny  : A(x)           => x;
+                tiny:   A(x)           => x;
                 longer: Pair(lhs, rhs) => k![lhs, rhs] where lhs: Value;"]]
         .assert_eq(&actual);
     }
@@ -974,7 +1213,7 @@ mod tests {
                 for Exp;
                 use ExpSyntax::*;
 
-                swap  : Swap { e }   => { let Pair(x, y) = e; let z: Int = x; Pair(y, z) };
+                swap:   Swap { e }   => { let Pair(x, y) = e; let z: Int = x; Pair(y, z) };
                 shadow: Shadow { e } => Pair({ let e = Pair(e, e); e }, e);"]]
         .assert_eq(&actual);
         let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
@@ -1023,7 +1262,7 @@ mod tests {
                 use Op::*;
 
                 div_by_minus_one: Div { lhs, rhs: -1 } => int::sub(0, lhs);
-                sign            : Sgn(-1)              => -1;"]]
+                sign:             Sgn(-1)              => -1;"]]
         .assert_eq(&actual);
         let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
         assert_eq!(again, output);
@@ -1068,7 +1307,7 @@ mod tests {
                 for Expr;
                 use Op::*;
 
-                load_if : Load(0xFF0F) => 0b1010_0101;
+                load_if:  Load(0xFF0F) => 0b1010_0101;
                 negative: Sgn(-0x10)   => 0o17;"]]
         .assert_eq(&actual);
         let again = format_rule_body(&output, 0, "    ", LAYOUT).expect("format formatted body");
@@ -1118,8 +1357,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         expect_test::expect![[r#"
-            wide : A(x) => "漢字" where x: Value;  // wide
-            café : A(x) => x      where x: Value;  // combining
+            wide:  A(x) => "漢字" where x: Value;  // wide
+            café:  A(x) => x      where x: Value;  // combining
             ascii: A(x) => x;                      // ascii"#]]
         .assert_eq(&output);
     }
@@ -1137,8 +1376,8 @@ mod tests {
         let output = format_rule_body(source, 0, "", LAYOUT).expect("format body");
         expect_test::expect![[r"
             for Expr;
-            漢字 : A(x)       => x          where x: Value;  // wide
-            café : Pair(x, y) => y;                          // combining
+            漢字:  A(x)       => x          where x: Value;  // wide
+            café:  Pair(x, y) => y;                          // combining
             ascii: A(x)       => Pair(x, x) where x: Value;  // ascii"]]
         .assert_eq(&output);
     }

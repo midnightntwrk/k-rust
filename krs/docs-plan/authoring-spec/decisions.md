@@ -768,6 +768,20 @@ bug — report it, don't guess.
   trailing clause comments — aligned comment column or fixed gutter —
   remains for snapshot fixtures to settle. [14 §Verdict; 16 §I; user
   decision 2026-08-23, resolving open-questions §1–2]
+  *F5 amendment (2026-11, Foldiboy feedback FB46).* A label is written
+  as Rust writes a field, `label:`, and the table pads after the colon
+  to its pattern column, as rustfmt's own alignment does. Every row keeps
+  its label in the label column: a row that does not fit on one line in
+  the table's pattern and result columns (too long, or its padding would
+  push the columns past the width) keeps its pattern at the pattern
+  column and continues with `=> result` on a line of its own at that
+  column, `where` on the next; a pattern that breaks keeps `=> result` on
+  its last line when it fits there. So every line of a table starts with
+  a label or with a row's continuation at the pattern column, and an
+  `=>` after a one-line pattern is in the result column or starts a
+  continuation line. Only a row that the continuation would carry past
+  the width (a deep record under a wide label column) while it fits
+  broken after its label is broken after its label, one level in.
 - **F6 — Formatting is provenance-preserving re-anchoring.** After
   `krs fmt`, byte offsets are recomputed; stable identities, the
   provenance-key topology, and the semantic payload (parse equality)

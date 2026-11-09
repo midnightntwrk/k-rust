@@ -17,7 +17,8 @@ what they block.
    item 4 below.
 2. ~~**Column alignment in single-cell tables**~~ — **RESOLVED
    (2026-08-23, decision F5): the formatter emits alignment across the
-   whole `k::rules!` block.** `:`, `=>`, and `where` columns align
+   whole `k::rules!` block.** Pattern (after `label:`, padded after
+   the colon since F5's 2026-11 amendment), `=>`, and `where` columns align
    table-wide, not per blank-line group (whitespace-implicit
    sub-concepts are fragile; separate concepts belong in separate
    blocks). Blank lines are preserved but carry no formatter
