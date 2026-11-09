@@ -1059,8 +1059,10 @@ impl Search<'_, '_> {
     /// `killer_change`, why the row's killer is not the recorded one (README, "The killer
     /// record"): null when they are equal, else `no-record`, `not-in-corpus`, `not-comparable`
     /// (with the row's `unusable_killer`, `source: "record"`, unless it reports a cached kill's),
-    /// `no-longer-kills` (the recorded killer ran, live or cached, and did not distinguish) or
-    /// `not-run` (no program ran it: the status was decided before any run).
+    /// `clock-stopped` (the recorded killer's run was stopped by the clock, so whether it still
+    /// kills is not decided on this host; the lock keeps it, `crate::clock`), `no-longer-kills`
+    /// (the recorded killer ran, live or cached, and did not distinguish) or `not-run` (no program
+    /// ran it: the status was decided before any run).
     fn record_fields(&self, row: &mut Value, mutation: &Mutation) {
         let recorded = self.recorded.get(&mutation.id).cloned();
         let killer = row["killer"].as_str().map(str::to_owned);
@@ -1080,6 +1082,17 @@ impl Search<'_, '_> {
                             });
                         }
                         "not-comparable"
+                    }
+                    Some(_)
+                        if row["executed"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|entry| {
+                                entry["program"] == id.as_str() && entry["outcome"] == "timeout"
+                            }) =>
+                    {
+                        "clock-stopped"
                     }
                     Some(_)
                         if row["executed"]

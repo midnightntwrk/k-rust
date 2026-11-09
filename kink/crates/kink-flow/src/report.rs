@@ -111,7 +111,8 @@
 //! "refused", detail}` and refuses the run. Every row carries `recorded_killer`, the lock's killer
 //! or null, and `killer_change`: null when the killer is the recorded one, else `no-record`,
 //! `not-in-corpus`, `not-comparable` (with `unusable_killer`, `source` `record`),
-//! `no-longer-kills` or `not-run`. The document's `order` leaves: the search order is fixed.
+//! `clock-stopped`, `no-longer-kills` or `not-run`. The document's `order` leaves: the search
+//! order is fixed.
 //!
 //! Version 23: an executed entry of a live run on which kink's own solver questions about
 //! it (its leaf feasibility and observation decider, kink-campaign

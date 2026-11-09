@@ -1294,7 +1294,9 @@ note = "right-hand side"
             vec![strings(&["countdown-one"])]
         );
 
-        // A recorded killer that times out is replaced: the canonical call decides again.
+        // A recorded killer that times out is not replaced: its run says nothing on this host, so
+        // the canonical call decides the verdict (another program kills) and the lock keeps the
+        // recorded killer, unverified (README, "What decides a verdict").
         set_killer(&manifest, "countdown-escapes", "countdown");
         forget_outcomes(&manifest);
         let (fourth, ok) = search(&manifest, &mutations, &[]);
@@ -1312,12 +1314,13 @@ note = "right-hand side"
         );
         assert_eq!(
             mutation(&fourth, "countdown-escapes")["killer_change"],
-            "no-longer-kills"
+            "clock-stopped"
         );
         assert_eq!(
             killer_of(&manifest, &fourth, "countdown-escapes").as_deref(),
-            Some("countdown-one")
+            Some("countdown")
         );
+        assert_eq!(fourth["lock"]["kept"].as_array().map(Vec::len), Some(1));
     }
 
     #[test]
