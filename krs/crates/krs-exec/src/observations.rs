@@ -276,6 +276,8 @@ impl ResolvedClass {
 #[derive(Clone, Debug)]
 struct ElementFunction {
     decl: Decl,
+    /// The function's KORE symbol in the observer.
+    symbol: String,
     parameter: Arc<str>,
     /// The type of each element of its result.
     element: InputType,
@@ -328,6 +330,30 @@ impl ResolvedObservations {
     #[must_use]
     pub const fn needs_observer(&self) -> bool {
         self.functions
+    }
+
+    /// The KORE symbol in the observer of every function the declaration evaluates, without
+    /// repeats: each class's views and function components, its filter, and each log's element
+    /// function.
+    #[must_use]
+    pub fn function_symbols(&self) -> Vec<String> {
+        let mut symbols = BTreeSet::new();
+        for class in &self.classes {
+            for component in &class.components {
+                if let ResolvedComponent::Function { function, .. } = component {
+                    symbols.insert(function.function_symbol().to_owned());
+                }
+            }
+            if let Some(filter) = &class.filter {
+                symbols.insert(filter.function_symbol().to_owned());
+            }
+        }
+        for log in &self.logs {
+            if let Some(element) = &log.element {
+                symbols.insert(element.symbol.clone());
+            }
+        }
+        symbols.into_iter().collect()
     }
 
     /// Every cell the declaration reads, without repeats: each class's cells, the cells of its
@@ -687,6 +713,7 @@ fn element_function(
     }
     match &info.result {
         Some(result) if result.sort == SortRef::Builtin(BuiltinSort::List) => Ok(ElementFunction {
+            symbol: info.symbol().to_owned(),
             element: result.element(0),
             parameter: parameter.clone(),
             decl,

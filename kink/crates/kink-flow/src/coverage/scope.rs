@@ -16,7 +16,45 @@
 //!   edit of it changes no step of any other run; the claims it serves are what tell its
 //!   equations apart, and a proof of the claims checks them. Such a sentence is no obligation
 //!   whatever the programs did: an item that became one because a program applied it would make
-//!   the universe depend on the corpus.
+//!   the universe depend on the corpus;
+//! - [`Excluded::Invariant`]: an equation of a function only the manifest's invariants reach
+//!   (`[[coverage.invariant]]`, "Invariant-only functions" below). The invariant is read off a
+//!   run's states by the argued items' checks, never applied by a step of a run, so its
+//!   equations and those of the functions only it applies are no behaviour of the definition a
+//!   program exercises, and an edit of them changes no step of any run that does not apply them
+//!   through an input. As for a claim helper, such a sentence is no obligation whatever the
+//!   programs did.
+//!
+//! # Invariant-only functions
+//!
+//! The reach is that of the compiled equations (kink-native
+//! [`EquationReach`](kink_native::consistency::EquationReach), the relation the consistency gate
+//! reads backwards): evaluating an application of a symbol can apply every symbol its equations
+//! and lemmas apply in their sides and conditions, transitively, an overload family linked both
+//! ways, and whatever an equation indexed at no symbol applies. A run of a result record can
+//! evaluate everything that reach gives from `R`, the symbols:
+//!
+//! - every rewrite rule of the compiled definition applies in its sides and conditions (the
+//!   authored rules, and the heating, cooling and stream rules the compile generates);
+//! - of the initialization: `initGeneratedTopCell`, which every initial configuration applies, and
+//!   every symbol the `configuration` sentences apply;
+//! - of every production a program text can write: the labelled productions of the syntax module
+//!   the loader parses programs in and of every module it imports;
+//! - of the front end's functions of an observer that a run's record holds the answers of: the
+//!   `[stop] when` function and the `[observe]` views, components, filters and log elements, as
+//!   the front end names them (kink-campaign `StopOracle::functions`,
+//!   `ObservationFunctions::functions`). They are evaluated in an observer, never in the
+//!   definition being run, so taking them in only keeps more sentences obligations; a front end
+//!   that does not name them leaves the reach of a run unknown, and no sentence is then
+//!   invariant-only.
+//!
+//! The invariant-only symbols are those the reach gives from the resolved invariants' functions
+//! and not from `R`, and a sentence is invariant-only when every compiled id it authored is an
+//! equation or lemma indexed at one of them. A function the semantics also applies (one a rule's
+//! condition calls) is in the reach of `R`, so it stays an obligation. An invariant the front end
+//! does not resolve adds nothing (`coverage` refuses it later, `invariant-unresolved`). What a
+//! program's input applies is not read, as for a claim helper: the universe is a function of the
+//! definition, the front end's marks and the manifest's `[[coverage.invariant]]` tables.
 //!
 //! Every family reads this one predicate: the rules family gives the sentence the exclusion's
 //! status; the requirements, syntax, field-value and syntax paths families read those statuses
@@ -27,14 +65,17 @@
 //! `not_generated`, and reads only the occurrences in scope of every other flip
 //! ([`crate::flips::scoped`]).
 
-use super::{CLAIM_HELPER, NO_COVERAGE_SIGNAL, OUT_OF_SCOPE};
+use super::{CLAIM_HELPER, INVARIANT, InvariantResolver, NO_COVERAGE_SIGNAL, OUT_OF_SCOPE};
 use crate::{admit::AdmittedSpec, manifest::FlowManifest, results::no_coverage_signal};
 use k_rust::{
-    definition::{AttributeKey, Sentence},
+    definition::{AttributeKey, Definition, Sentence},
     kast::Term,
+    kompile::encode_kore_label,
 };
+use kink_native::consistency::{EquationReach, mentioned};
+use kink_native::coverage::RuleAuthors;
 use kink_patch::SentenceRef;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Why a sentence is outside the scope of every coverage family.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,6 +86,8 @@ pub(crate) enum Excluded {
     NoCoverageSignal(&'static str),
     /// An equation of a function only claims apply ([`CLAIM_HELPER`]).
     ClaimHelper,
+    /// An equation of a function only the manifest's invariants reach ([`INVARIANT`]).
+    Invariant,
 }
 
 impl Excluded {
@@ -55,6 +98,7 @@ impl Excluded {
             Self::OutOfScope => OUT_OF_SCOPE,
             Self::NoCoverageSignal(_) => NO_COVERAGE_SIGNAL,
             Self::ClaimHelper => CLAIM_HELPER,
+            Self::Invariant => INVARIANT,
         }
     }
 
@@ -71,6 +115,11 @@ impl Excluded {
                  except through an input that applies it, and a proof of the claims it serves \
                  checks it"
             }
+            Self::Invariant => {
+                "an equation of a function only the manifest's invariants reach: no run of the \
+                 definition applies it except through an input that applies it, since an \
+                 invariant is read off a run's states, never applied by a step"
+            }
         }
     }
 }
@@ -79,20 +128,50 @@ impl Excluded {
 pub(crate) struct Scope<'m> {
     no_signal: BTreeMap<SentenceRef, &'static str>,
     manifest: &'m FlowManifest,
+    /// The authored sentences only the manifest's invariants reach (module documentation,
+    /// "Invariant-only functions").
+    invariant_only: BTreeSet<SentenceRef>,
+    /// The reach of the compiled equations, where the input backend's definition was selected.
+    reach: Option<EquationReach>,
 }
 
 impl<'m> Scope<'m> {
-    /// The scope of `spec` with `manifest`'s claim helpers.
-    pub(crate) fn of(spec: &AdmittedSpec, manifest: &'m FlowManifest) -> Self {
+    /// The scope of `spec` with `manifest`'s claim helpers, and its `[[coverage.invariant]]`
+    /// tables as `invariants` resolves them (`None`: the front end resolves none, and no sentence
+    /// is invariant-only).
+    pub(crate) fn of(
+        spec: &AdmittedSpec,
+        manifest: &'m FlowManifest,
+        invariants: Option<&(dyn InvariantResolver + Sync)>,
+    ) -> Self {
+        let reach = spec
+            .definition
+            .as_ref()
+            .ok()
+            .map(|definition| EquationReach::of(definition));
+        let invariant_only = reach
+            .as_ref()
+            .zip(invariants)
+            .map(|(reach, resolver)| invariant_only(spec, manifest, reach, resolver))
+            .unwrap_or_default();
         Self {
             no_signal: no_coverage_signal(spec),
             manifest,
+            invariant_only,
+            reach,
         }
     }
 
+    /// Every symbol evaluating an application of `symbol` can apply (kink-native
+    /// [`EquationReach::closure`]), `symbol` included; `None` where the input backend's
+    /// definition could not be selected.
+    pub(crate) fn closure(&self, symbol: &str) -> Option<BTreeSet<String>> {
+        Some(self.reach.as_ref()?.closure([symbol.to_owned()]))
+    }
+
     /// Why the authored `sentence` at `at` is outside the scope, in the order out-of-scope,
-    /// no-coverage-signal, claim-helper; `None` where it is in scope. Only a rule can be
-    /// excluded.
+    /// no-coverage-signal, claim-helper, invariant; `None` where it is in scope. Only a rule can
+    /// be excluded.
     pub(crate) fn excludes(&self, at: &SentenceRef, sentence: &Sentence) -> Option<Excluded> {
         let Sentence::Rule {
             body, attributes, ..
@@ -112,6 +191,8 @@ impl<'m> Scope<'m> {
             .is_some_and(|label| self.manifest.is_claim_helper(&at.module, label))
         {
             Some(Excluded::ClaimHelper)
+        } else if self.invariant_only.contains(at) {
+            Some(Excluded::Invariant)
         } else {
             None
         }
@@ -122,6 +203,125 @@ impl<'m> Scope<'m> {
     pub(crate) fn excludes_at(&self, spec: &AdmittedSpec, at: &SentenceRef) -> Option<Excluded> {
         self.excludes(at, spec.loaded.baseline.sentence(at)?)
     }
+}
+
+/// The authored sentences of `spec` only `manifest`'s invariants reach, as `resolver` resolves
+/// them, over `reach` (module documentation, "Invariant-only functions"): none where no invariant
+/// resolves, or where a front end's function of an observer is not named.
+fn invariant_only(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    reach: &EquationReach,
+    resolver: &(dyn InvariantResolver + Sync),
+) -> BTreeSet<SentenceRef> {
+    let functions = manifest
+        .coverage
+        .invariants
+        .iter()
+        .filter_map(|invariant| resolver.resolve(spec, invariant).ok())
+        .map(|resolved| resolved.symbol)
+        .collect::<BTreeSet<_>>();
+    if functions.is_empty() {
+        return BTreeSet::new();
+    }
+    let Some(run) = run_seeds(spec, manifest) else {
+        return BTreeSet::new();
+    };
+    let run = reach.closure(run);
+    let only = reach
+        .closure(functions)
+        .difference(&run)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let authors = RuleAuthors::of(&spec.compiled);
+    spec.loaded
+        .baseline
+        .authored_sentences()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .filter(|(at, _)| {
+            let mut ids = authors.ids_of(at).peekable();
+            ids.peek().is_some()
+                && ids.all(|id| {
+                    reach
+                        .head(id)
+                        .flatten()
+                        .is_some_and(|head| only.contains(head))
+                })
+        })
+        .map(|(at, _)| at)
+        .collect()
+}
+
+/// The symbols a run of a result record evaluates directly, `R` of the module documentation
+/// ("Invariant-only functions"), before the reach closes them; `None` where a front end's
+/// function of an observer is not named.
+fn run_seeds(spec: &AdmittedSpec, manifest: &FlowManifest) -> Option<BTreeSet<String>> {
+    let definition = spec.definition.as_ref().ok()?;
+    let mut seeds = BTreeSet::from(["LblinitGeneratedTopCell".to_owned()]);
+    for rule in definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+    {
+        seeds.extend(mentioned(&rule.rule));
+    }
+    let source = spec.loaded.baseline.definition();
+    for module in &source.modules {
+        for sentence in &module.local_sentences {
+            if let Sentence::Configuration { body, ensures, .. } = &**sentence {
+                applied(body, &mut seeds);
+                applied(ensures, &mut seeds);
+            }
+        }
+    }
+    for module in imported(source, spec.loaded.syntax_module()) {
+        for sentence in &module.local_sentences {
+            if let Sentence::Production {
+                label: Some(label), ..
+            } = &**sentence
+            {
+                seeds.insert(encode_kore_label(label).name);
+            }
+        }
+    }
+    if let Some(stop) = &manifest.stop_when.0 {
+        seeds.extend(stop.functions()?);
+    }
+    if let Some(observe) = &manifest.observe_functions.0 {
+        seeds.extend(observe.functions()?);
+    }
+    Some(seeds)
+}
+
+/// Every symbol `term` applies, as KORE symbols.
+fn applied(term: &Term, into: &mut BTreeSet<String>) {
+    term.visit_preorder(&mut |term| {
+        if let Term::Apply { label, .. } | Term::InjectedLabel(label) = term {
+            into.insert(encode_kore_label(label).name);
+        }
+    });
+}
+
+/// The module `name` of `definition` and every module it imports, transitively.
+fn imported<'d>(
+    definition: &'d Definition,
+    name: &str,
+) -> impl Iterator<Item = &'d k_rust::definition::FlatModule> {
+    let mut seen = BTreeSet::new();
+    let mut pending = vec![name.to_owned()];
+    while let Some(name) = pending.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        if let Some(module) = definition.modules.iter().find(|module| module.name == name) {
+            pending.extend(module.imports.iter().map(|import| import.name.clone()));
+        }
+    }
+    definition
+        .modules
+        .iter()
+        .filter(move |module| seen.contains(&module.name))
 }
 
 /// Whether a rule's body rewrites a `#Ceil` application at its top.
@@ -178,5 +378,11 @@ mod tests {
         assert_eq!(silent.reason(), "compiles to no rule");
         assert_eq!(Excluded::ClaimHelper.status(), CLAIM_HELPER);
         assert!(Excluded::ClaimHelper.reason().contains("only claims apply"));
+        assert_eq!(Excluded::Invariant.status(), INVARIANT);
+        assert!(
+            Excluded::Invariant
+                .reason()
+                .contains("only the manifest's invariants reach")
+        );
     }
 }

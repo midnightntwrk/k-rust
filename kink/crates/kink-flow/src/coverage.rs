@@ -13,8 +13,10 @@
 //! # Families
 //!
 //! Every family shares one scope ([`scope`]): a simplification, `symbolic` or ceil equation, a
-//! rule k-rust's coverage cannot name, and a claim helper are no obligation of any family, each
-//! read from the definition and the front end's marks before any program runs.
+//! rule k-rust's coverage cannot name, a claim helper, and an equation of a function only the
+//! manifest's invariants reach ([`INVARIANT`]) are no obligation of any family, each read from
+//! the definition, the front end's marks and the manifest's `[[coverage.invariant]]` tables
+//! before any program runs.
 //!
 //! - `rules`: every authored rewrite rule and function equation (`owise`, `anywhere` and the
 //!   authored equations of an overloaded function included), and every heating rule the compile
@@ -31,10 +33,12 @@
 //!   `symbolic` and ceil equations are [`OUT_OF_SCOPE`]: they state facts of the definition's
 //!   functions that the definition means the same without, so no program's run of one tests
 //!   anything a step computes. A claim helper ([`CLAIM_HELPER`]) serves the claims, which a
-//!   proof checks, and a rule k-rust's coverage cannot name ([`NO_COVERAGE_SIGNAL`]) cannot be
-//!   shown matched; neither is an obligation. These three exclusions are the scope every family
-//!   shares ([`scope`]), read from the definition and the front end's marks alone, so a claim
-//!   helper a typed input applied is still no obligation. The measure is fired / (fired +
+//!   proof checks, an invariant-only equation ([`INVARIANT`]) is read off a run's states by an
+//!   argued item's checks and applied by no step, and a rule k-rust's coverage cannot name
+//!   ([`NO_COVERAGE_SIGNAL`]) cannot be shown matched; none is an obligation. These four
+//!   exclusions are the scope every family shares ([`scope`]), read from the definition, the
+//!   front end's marks and the manifest's invariants alone, so a claim helper or an
+//!   invariant-only function a typed input applied is still no obligation. The measure is fired / (fired +
 //!   matched + unmatched).
 //! - `requirements`: for each guarded rule of the rules universe whose condition has an
 //!   authored conjunct, each distinct (node, truth) pair of the condition's root and of each
@@ -261,7 +265,13 @@
 //! [`STANDING_CHECKED_ON_RUNS`]; where the connection holds and no run reached such a step, the
 //! evidence is vacuous and the standing [`STANDING_CONNECTED`]; otherwise (a connection
 //! undecided, an evidence incomplete) [`STANDING_UNCHECKED`] with the cause, and the command
-//! exits 3, since nothing confirmed the claim it is done by. A connection that fails refutes the
+//! exits 3, since nothing confirmed the claim it is done by. Both checks evaluate the invariant
+//! with the backend's choice of matching, so both presuppose that it is a function
+//! (`invariants`, "The function"): where the baseline's critical-pair check has a finding no
+//! `[spec] assume_joined` name assumes at an equation the invariant reaches, or is incomplete,
+//! every item naming it is [`STANDING_UNCHECKED`] with that reason, and no check refutes it; an
+//! assumed finding keeps the standing, which `argument_check.function` and the coverage lock's
+//! `[arguments]` line record as its premise. A connection that fails refutes the
 //! argument: a state the rule matches satisfies the invariant and has the item's valuation; so
 //! does an evidence that fails, a state of a run where the invariant is false, which is then no
 //! invariant. Either way the argument stands in for nothing: the item goes back to its status,
@@ -345,8 +355,8 @@ mod paths;
 pub(crate) mod scope;
 pub use evidence::{EVIDENCE_FAILS, EVIDENCE_HOLDS, EVIDENCE_INCOMPLETE, EVIDENCE_VACUOUS};
 pub use invariants::{
-    CONNECTION_FAILS, CONNECTION_HOLDS, CONNECTION_UNDECIDED, InvariantRefusal, InvariantResolver,
-    KInvariants, ResolvedInvariant,
+    CONNECTION_FAILS, CONNECTION_HOLDS, CONNECTION_UNDECIDED, FUNCTION_ASSUMED, FUNCTION_NOT_SHOWN,
+    FUNCTION_SHOWN, InvariantRefusal, InvariantResolver, KInvariants, ResolvedInvariant,
 };
 pub use paths::{FIELD_VALUES, PATH};
 mod windows;
@@ -433,8 +443,17 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `holds`, `vacuous`, `fails` or `incomplete`, the standing is `checked-on-runs` where the
 /// connection and the evidence hold and `connected` where the connection holds and the evidence
 /// is vacuous, an item whose evidence fails is not argued (its `argument_failed` check is
-/// `evidence`), and the summary has `invariant_runs` (`{run, cached}`).
-pub const COVERAGE_VERSION: u64 = 18;
+/// `evidence`), and the summary has `invariant_runs` (`{run, cached}`); 19 since an equation of a
+/// function only the manifest's invariants reach is no obligation of any family (status
+/// [`INVARIANT`], with its `reason`; the rules family's `counts.invariant`; a front end's flip
+/// that changes only such sentences listed under the flips family's `not_generated` with reason
+/// `invariant`), so the denominators of the rules, requirements, syntax and flips families can
+/// differ from version 18's on the same corpus; and since an argued item's standing rests on its
+/// invariant being a function: each `argument_checks` entry and each argued item's
+/// `argument_check` under an invariant has `function` (`{status, findings, reason}`, status
+/// `shown`, `assumed` or `not-shown`), and an item whose invariant is not shown to be a function
+/// is `unchecked` with that reason, and is not refuted by a failing check.
+pub const COVERAGE_VERSION: u64 = 19;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -447,6 +466,9 @@ pub const OUT_OF_SCOPE: &str = "out-of-scope";
 /// The status of a claim helper, an equation of a function only claims apply, whatever the
 /// programs did: no obligation of any family ([`scope`]).
 pub const CLAIM_HELPER: &str = "claim-helper";
+/// The status of an equation of a function only the manifest's `[[coverage.invariant]]`
+/// functions reach, whatever the programs did: no obligation of any family ([`scope`]).
+pub const INVARIANT: &str = "invariant";
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: no
 /// obligation.
 pub const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
@@ -687,7 +709,7 @@ pub fn coverage_front(
     };
     // The one scope of every family; a front end's flip that changes a sentence outside it is
     // moved to the list's `not_generated` before anything reads the list.
-    let scope = scope::Scope::of(&spec, manifest);
+    let scope = scope::Scope::of(&spec, manifest, front.invariants);
     let scoped = match front.derived {
         Derived::Flips(list) => Some(crate::flips::scoped(list, &spec, &scope)),
         Derived::None(_) => None,
@@ -867,6 +889,28 @@ pub fn coverage_front(
                 for (id, value) in found.items {
                     checks[id.as_str()]["evidence"] = value;
                 }
+                // Whether each invariant is shown to be a function, which both checks presuppose
+                // (`invariants`, "The function").
+                let functions = resolved
+                    .iter()
+                    .map(|(name, (invariant, _))| {
+                        let closure = scope.closure(&invariant.symbol);
+                        let check = invariants::function_check(
+                            &invariant.symbol,
+                            closure.as_ref(),
+                            &spec.data,
+                        );
+                        (name.clone(), check)
+                    })
+                    .collect::<BTreeMap<_, _>>();
+                for check in checks.as_object_mut().into_iter().flat_map(Map::values_mut) {
+                    if let Some(function) = check["invariant"]
+                        .as_str()
+                        .and_then(|name| functions.get(name))
+                    {
+                        check["function"] = function.clone();
+                    }
+                }
                 document[ARGUMENT_CHECKS] = checks;
                 document[INVARIANT_RUNS] = found.runs;
             }
@@ -922,7 +966,14 @@ pub(crate) fn universe(
     let mut empty = manifest.clone();
     empty.programs = Vec::new();
     empty.coverage = crate::manifest::CoverageSection::default();
-    let items = rule_items(spec, &empty, &scope::Scope::of(spec, &empty), &[]);
+    // The scope is the manifest's: its claim helpers are `empty`'s, and its invariants set aside
+    // the sentences only they reach, as `coverage` does.
+    let items = rule_items(
+        spec,
+        &empty,
+        &scope::Scope::of(spec, manifest, front.invariants),
+        &[],
+    );
     let syntax = syntax_family(spec, &empty, &[], &items);
     let mut document = document(
         record,
@@ -1300,7 +1351,7 @@ fn invariant_refusal(probe: &Value, manifest: &FlowManifest) -> Option<Admission
 /// - a function equation's items (`equation`), whose left-hand side binds the function's
 ///   arguments, not cells;
 /// - a rule that is no obligation of the family (its status: `out-of-scope`, `claim-helper`,
-///   `no-coverage-signal`), and a requirement of one;
+///   `invariant`, `no-coverage-signal`), and a requirement of one;
 /// - a unique-cause requirement (`mcdc`), whose obligation is a pair of runs showing one operand's
 ///   independent effect, not a valuation at one left-hand side;
 /// - a syntax item, a rule window or a syntax path (its family: `syntax`, `rule_windows`,
@@ -1317,6 +1368,7 @@ fn unsupported_kind(probe: &Value, id: &str) -> Option<&'static str> {
     let rule_kind = |rule: &Value| match rule["status"].as_str() {
         Some(OUT_OF_SCOPE) => Some(OUT_OF_SCOPE),
         Some(CLAIM_HELPER) => Some(CLAIM_HELPER),
+        Some(INVARIANT) => Some(INVARIANT),
         Some(NO_COVERAGE_SIGNAL) => Some(NO_COVERAGE_SIGNAL),
         _ if rule["rewrite"] == true => None,
         _ => Some("equation"),
@@ -3414,6 +3466,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             UNMATCHED,
             OUT_OF_SCOPE,
             CLAIM_HELPER,
+            INVARIANT,
             NO_COVERAGE_SIGNAL,
         ] {
             if status == known {
@@ -3617,6 +3670,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "unmatched": count(UNMATCHED),
         "out_of_scope": count(OUT_OF_SCOPE),
         "claim_helper": count(CLAIM_HELPER),
+        "invariant": count(INVARIANT),
         "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
         "heating": {"obligations": heating_obligations, "fired": heating_fired},
     });
@@ -3854,7 +3908,11 @@ fn failed_arguments(document: &Value) -> BTreeMap<String, (&'static str, String)
         .into_iter()
         .flatten()
         .filter_map(|(id, check)| {
-            let failed = if check["connection"]["status"] == CONNECTION_FAILS {
+            // Both checks evaluate the invariant as a function: one not shown to be one refutes
+            // nothing, since another choice of matching could give it another value there.
+            let failed = if check["function"]["status"] == FUNCTION_NOT_SHOWN {
+                return None;
+            } else if check["connection"]["status"] == CONNECTION_FAILS {
                 (
                     CHECK_CONNECTION,
                     check["connection"]["reason"]
@@ -3908,22 +3966,33 @@ fn evidence_failure(check: &Value) -> String {
 
 /// An argued item's `argument_check`, what its argument rests on (module documentation, "Argued
 /// obligations"): the standing [`STANDING_TEXT`] where its entry names no invariant; under the
-/// invariant `invariant`, the connection and the evidence `check` gives for the item
-/// ([`ARGUMENT_CHECKS`], `not-run` where none was asked), no proof, and the standing:
-/// [`STANDING_CHECKED_ON_RUNS`] where the connection holds and the evidence holds,
-/// [`STANDING_CONNECTED`] where the connection holds and the evidence is vacuous, else
-/// [`STANDING_UNCHECKED`] with its `reason`. A refuted argument has no `argument_check`.
+/// invariant `invariant`, whether the invariant is shown to be a function, the connection and the
+/// evidence `check` gives for the item ([`ARGUMENT_CHECKS`], `not-run` where none was asked), no
+/// proof, and the standing: [`STANDING_UNCHECKED`] with the function's `reason` where it is not
+/// shown to be one, else [`STANDING_CHECKED_ON_RUNS`] where the connection holds and the
+/// evidence holds, [`STANDING_CONNECTED`] where the connection holds and the evidence is
+/// vacuous, else [`STANDING_UNCHECKED`] with its `reason`. A refuted argument has no
+/// `argument_check`.
 fn argument_check(invariant: Option<&String>, check: Option<&Value>) -> Value {
     match invariant {
         None => json!({"standing": STANDING_TEXT}),
         Some(name) => {
             let not_run = || json!({"status": CHECK_NOT_RUN});
+            let function = check
+                .map(|check| check["function"].clone())
+                .filter(Value::is_object)
+                .unwrap_or_else(not_run);
             let connection = check.map_or_else(not_run, |check| check["connection"].clone());
             let evidence = check
                 .map(|check| check["evidence"].clone())
                 .filter(Value::is_object)
                 .unwrap_or_else(not_run);
-            let (standing, reason) = if connection["status"] != CONNECTION_HOLDS {
+            let (standing, reason) = if function["status"] == FUNCTION_NOT_SHOWN {
+                (
+                    STANDING_UNCHECKED,
+                    function["reason"].as_str().map(str::to_owned),
+                )
+            } else if connection["status"] != CONNECTION_HOLDS {
                 (
                     STANDING_UNCHECKED,
                     Some(format!(
@@ -3954,6 +4023,7 @@ fn argument_check(invariant: Option<&String>, check: Option<&Value>) -> Value {
                 "invariant": name,
                 "standing": standing,
                 "reason": reason,
+                "function": function,
                 "connection": connection,
                 "evidence": evidence,
                 "proof": null,
@@ -4657,13 +4727,14 @@ pub fn text(document: &Value) -> Result<String, String> {
             let counts = &value["counts"];
             out.push_str(&format!(
                 "; {} matched, {} unmatched; heating {} of {} fired; not obligations: {} out of \
-                 scope, {} claim helper, {} no coverage signal",
+                 scope, {} claim helper, {} invariant, {} no coverage signal",
                 counts["matched"],
                 counts["unmatched"],
                 counts["heating"]["fired"],
                 counts["heating"]["obligations"],
                 counts["out_of_scope"],
                 counts["claim_helper"],
+                counts["invariant"],
                 counts["no_coverage_signal"]
             ));
         }
@@ -4906,8 +4977,11 @@ pub fn argued_ids(document: &Value) -> Vec<(&'static str, Vec<String>)> {
 
 /// Each argued item of a coverage document with the standing of its argument
 /// (`argument_check.standing`), in the order of [`FAMILIES`], then item order: what its verdicts
-/// rendering lists under `[arguments]` ([`crate::verdicts`]). The flips family's argued flips are
-/// listed where it ran.
+/// rendering lists under `[arguments]` ([`crate::verdicts`]). A standing whose invariant is a
+/// function only by findings `[spec] assume_joined` assumes (`argument_check.function`, status
+/// [`FUNCTION_ASSUMED`]) names them (`checked-on-runs, assuming joined <name>, ...`): the
+/// premise is part of what the argument rests on, and the lock records it. The flips family's
+/// argued flips are listed where it ran.
 #[must_use]
 pub fn argument_standings(document: &Value) -> Vec<(String, String)> {
     ARGUABLE
@@ -4921,13 +4995,32 @@ pub fn argument_standings(document: &Value) -> Vec<(String, String)> {
         })
         .filter(|item| item["status"] == ARGUED)
         .filter_map(|item| {
-            Some((
-                item["id"].as_str()?.to_owned(),
-                item["argument_check"]["standing"]
-                    .as_str()
-                    .unwrap_or(STANDING_TEXT)
-                    .to_owned(),
-            ))
+            let check = &item["argument_check"];
+            let standing = check["standing"].as_str().unwrap_or(STANDING_TEXT);
+            // A standing that rests on an assumed finding says so, so that a lock records the
+            // premise and moves when it does.
+            let assumed = (check["function"]["status"] == FUNCTION_ASSUMED)
+                .then(|| {
+                    check["function"]["findings"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|finding| finding["assumed"] == true)
+                        .map(|finding| {
+                            finding["name"]
+                                .as_str()
+                                .or_else(|| finding["description"].as_str())
+                                .unwrap_or("?")
+                                .to_owned()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .filter(|names| !names.is_empty());
+            let standing = match assumed {
+                Some(names) => format!("{standing}, assuming joined {}", names.join(", ")),
+                None => standing.to_owned(),
+            };
+            Some((item["id"].as_str()?.to_owned(), standing))
         })
         .collect()
 }

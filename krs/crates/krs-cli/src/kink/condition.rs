@@ -14,6 +14,10 @@
 //! the read cells reach otherwise than the baseline (`stop-condition-incompatible`), and the
 //! oracle refuses a cell holding a symbol the baseline does not declare.
 //!
+//! The oracle names the function's KORE symbol in the observer ([`StopOracle::functions`]), which
+//! kink-flow's coverage scope takes as one a run of the result records evaluates, so that a
+//! function the condition evaluates is never set aside as one only an invariant reaches.
+//!
 //! The observer is loaded once per thread that runs a program, as a view's observer is
 //! ([`super::render::Observers`]); the baseline as observer is a load of its own, apart from the
 //! compile that reads the corpus's typed inputs. Each evaluation is bounded by the view budget
@@ -58,6 +62,8 @@ pub(crate) struct KrsCondition {
     observer: Arc<Observer>,
     subject: Subject,
     cells: Vec<Vec<String>>,
+    /// The function's KORE symbol in the observer ([`StopOracle::functions`]).
+    symbol: String,
 }
 
 impl KrsCondition {
@@ -99,12 +105,14 @@ impl KrsCondition {
             observer,
             subject,
             cells: Vec::new(),
+            symbol: String::new(),
         };
         let resolved = condition
             .observer
             .with_loaded(|observer| condition.resolve(observer))
             .map_err(unresolved)?;
         condition.cells = resolved.cell_symbols().map(<[String]>::to_vec).collect();
+        resolved.function_symbol().clone_into(&mut condition.symbol);
         let digest = definition_digest(condition.observer.definition()).map_err(unresolved)?;
         let mut identity = json!({
             "observer": {
@@ -144,6 +152,10 @@ impl KrsCondition {
 impl StopOracle for KrsCondition {
     fn cells(&self) -> &[Vec<String>] {
         &self.cells
+    }
+
+    fn functions(&self) -> Option<Vec<String>> {
+        Some(vec![self.symbol.clone()])
     }
 
     fn with_condition(&self, body: &mut dyn FnMut(&mut dyn StopCondition)) -> Result<(), String> {

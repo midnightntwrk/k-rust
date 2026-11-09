@@ -2314,7 +2314,7 @@ pub fn fuzz_front(
             .iter()
             .find(|entry| entry.id == mutation)
             .and_then(|entry| {
-                let scope = crate::coverage::scope::Scope::of(&spec, manifest);
+                let scope = crate::coverage::scope::Scope::of(&spec, manifest, front.invariants);
                 crate::flips::outside_scope(entry, &spec, &scope)
             })
     {

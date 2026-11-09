@@ -405,7 +405,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 18);
+        assert_eq!(after["version"], 19);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),
@@ -672,7 +672,7 @@ mod kink_tier {
         assert_eq!(status, EXIT_YES, "{plain:#}");
         let recorded = fs::read_to_string(&lock).unwrap();
         assert_eq!(recorded, verdicts(&plain).unwrap());
-        assert!(recorded.contains("\nversion = 21\n"), "{recorded}");
+        assert!(recorded.contains("\nversion = 22\n"), "{recorded}");
         assert!(
             recorded.contains(&format!("\n[rules]\nopen = [\n  \"{WAKE}\",\n")),
             "{recorded}"
@@ -745,7 +745,8 @@ mod kink_tier {
     const NEVER_HALTED: (&str, &str, &[&str]) = ("never-halted", "neverHalted", &["k"]);
 
     /// The invariant fixture's invariants: `a` is at most `b`, and no key of `memory` lies in the
-    /// ROM region below `romEnd`, as a walk over the map's bindings and as a fold over its keys.
+    /// ROM region below `romEnd`, as its violation (`false` where some binding is in the region,
+    /// `true` otherwise) and as a fold over its keys.
     const ORDERED: (&str, &str, &[&str]) = ("ordered", "ordered", &["a", "b"]);
     const OUTSIDE_ROM: (&str, &str, &[&str]) = ("outside-rom", "outsideRom", &["memory", "romEnd"]);
     const OUTSIDE_ROM_KEYS: (&str, &str, &[&str]) =
@@ -754,6 +755,8 @@ mod kink_tier {
     const BUMP_HELD: &str = "requirement:INVARIANT.bump:held";
     const READZ_REFUTED: &str = "requirement:INVARIANT.readz:refuted";
     const READZ_ROM_HELD: &str = "requirement:INVARIANT.readzRom:held";
+    /// The equation of `ordered`, which no rule applies.
+    const ORDERED_EQUATION: &str = "rule:invariant.k:63";
 
     /// A private copy of the invariant fixture for one test.
     fn invariant(test: &str) -> PathBuf {
@@ -766,8 +769,8 @@ mod kink_tier {
         dir
     }
 
-    /// The same order with its cells swapped, `b <=Int a`, the walk under another function, and a
-    /// claim false of every state.
+    /// The same order with its cells swapped, `b <=Int a`, the memory invariant under another
+    /// function, and a claim false of every state.
     const REVERSED: (&str, &str, &[&str]) = ("reversed", "ordered", &["b", "a"]);
     const OUTSIDE_ROM_TOO: (&str, &str, &[&str]) =
         ("outside-rom-too", "outsideRomToo", &["memory", "romEnd"]);
@@ -779,12 +782,12 @@ mod kink_tier {
 
     /// An argued item's invariant is checked by its connection, through kink-flow's K front end
     /// (the function by its K label, the cells by their K names, `settings.invariants[].identity`):
-    /// - `readzRom`'s `inRom(E, A)` under the walk over `memory`'s bindings: the walk unfolds at
-    ///   the binding the rule matches and the simplification alone refutes the question, so the
-    ///   connection holds in both profiles. The corpus only idles, so no run steps a rule that can
-    ///   step where `readzRom` matches, and the walk holds at the initial state and the end: the
+    /// - `readzRom`'s `inRom(E, A)` under the violation form over `memory`'s bindings: its `false`
+    ///   equation applies at the binding the rule matches under the item's condition, so the
+    ///   connection holds. The corpus only idles, so no run steps a rule that can step where
+    ///   `readzRom` matches, and the invariant holds at the initial state and the end: the
     ///   evidence is vacuous, and the item is `connected`;
-    /// - the walk as a fold over `keys_list(memory)` does not unfold there, so `readz`'s refuted
+    /// - the invariant as a fold over `keys_list(memory)` does not unfold there, so `readz`'s refuted
     ///   condition is undecided, with the cause;
     /// - a firing of `bump`, the one fact that covers `rule:bump`, needs `A >Int B`: under the Z3
     ///   profile, under `a <=Int b` it has no model at the left-hand side (the connection holds),
@@ -822,7 +825,7 @@ mod kink_tier {
         );
         let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{document:#}");
-        assert_eq!(document["version"], 18);
+        assert_eq!(document["version"], 19);
         let check = |id: &str| &item(&document, "requirements", id)["argument_check"];
         let walk = check(READZ_ROM_HELD);
         assert_eq!(
@@ -1103,7 +1106,7 @@ mod kink_tier {
     /// An argued item's evidence reads its invariant on every comparable program's run: at the
     /// initial state, before each step of a rule that can step where the item's rule matches (for
     /// `readzRom`, `readz` and `readzRom`), and at each end.
-    /// - `read(8)` steps `readz` at a memory with no ROM address, so the walk holds at every state
+    /// - `read(8)` steps `readz` at a memory with no ROM address, so the invariant holds at every state
     ///   read, one of them before a step: `requirement:readzRom:held` is `checked-on-runs` (its
     ///   connection holds in both profiles); no program bumps, so the evidence of `rule:bump` is
     ///   vacuous, and it is `connected` under the Z3 profile, `unchecked` (exit 3) under the
@@ -1185,7 +1188,7 @@ mod kink_tier {
             "{walk:#}"
         );
 
-        // A program that stores a ROM address before a read breaks the walk there.
+        // A program that stores a ROM address before a read breaks the invariant there.
         with_programs(&dir, &[("dirty", "write(2, 1) ; read(8)")]);
         let (broken, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{broken:#}");
@@ -1420,7 +1423,7 @@ mod kink_tier {
     }
 
     /// An invariant whose value is not known at a state of a run leaves that state undecided, and
-    /// the run is still read: `careful` walks the memory as `outsideRom` does, but has no
+    /// the run is still read: `careful` walks the memory's bindings, but has no
     /// equation for a binding at a key from 100 on: it is partial, so after `write(200, 1)` its
     /// evaluation leaves its definedness as a condition, before the step of `readz` and at the
     /// end. The evidence is
@@ -1598,7 +1601,8 @@ mod kink_tier {
         );
         assert_eq!(recorded, verdicts(&document).unwrap());
 
-        // The same items argued on their text alone: only the requirement's standing moves.
+        // The same items argued on their text alone: the requirement's standing moves, and the
+        // equation of `ordered`, which only the dropped invariant reached, is an obligation again.
         argue(
             &dir,
             &[
@@ -1616,20 +1620,272 @@ mod kink_tier {
                 &state["header_changes"],
                 &state["open_changes"]
             ),
-            (&json!(false), &json!([]), &json!([])),
+            (
+                &json!(false),
+                &json!([]),
+                &json!([{"family": "rules", "obligation": ORDERED_EQUATION, "recorded": null,
+                         "now": "open"}])
+            ),
             "{state:#}"
         );
         assert_eq!(
             state["argument_changes"],
             json!([{"obligation": BUMP_HELD, "recorded": standing, "now": "text"}])
         );
-        assert_eq!(
-            stale_lines(&stale),
-            [format!(
+        assert!(
+            stale_lines(&stale).contains(&format!(
                 "{path}: arguments: {BUMP_HELD}: {standing} -> text"
-            )]
+            )),
+            "{:?}",
+            stale_lines(&stale)
         );
         assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+    }
+
+    /// The equations of `outsideRom`, the violation form, which no rule applies.
+    const OUTSIDE_ROM_EQUATIONS: [&str; 2] = ["rule:invariant.k:41", "rule:invariant.k:42"];
+    /// The memory invariant as a recursive walk over the map's bindings.
+    const WALK: (&str, &str, &[&str]) = ("walk", "outsideRomWalk", &["memory", "romEnd"]);
+    /// The equation of `inRom`, which the read rules' conditions apply too.
+    const IN_ROM_EQUATION: &str = "rule:invariant.k:34";
+
+    /// The sentence of the rules item `id` of `document`.
+    fn sentence_of(document: &Value, id: &str) -> SentenceRef {
+        let item = item(document, "rules", id);
+        SentenceRef {
+            module: item["module"].as_str().unwrap().to_owned(),
+            index: u32::try_from(item["index"].as_u64().unwrap()).unwrap(),
+        }
+    }
+
+    /// An equation of a function only the manifest's invariants reach is no obligation of any
+    /// family (status `invariant`, with its reason), whatever the programs did: no rule applies
+    /// `outsideRom`, so under the invariant `outside-rom` its two equations are no rules item to
+    /// cover and the guarded one states no requirement, and a flip that changes only its
+    /// condition is not generated, with the reason `invariant`. `inRom`, which the invariant
+    /// applies too, is applied by the read rules' conditions, so its equation stays an
+    /// obligation, and so does a flip of `readz`. Without the invariant, `outsideRom`'s
+    /// equations are obligations again, its guard's requirements open.
+    #[test]
+    #[ignore = "kink"]
+    fn an_equation_only_invariants_reach_is_no_obligation() {
+        let dir = invariant("scope");
+        with_programs(&dir, &[("clean", "read(8)")]);
+        argue_on(
+            &dir,
+            &[OUTSIDE_ROM],
+            &[(
+                READZ_ROM_HELD,
+                "memory holds no ROM address",
+                Some(OUTSIDE_ROM.0),
+            )],
+        );
+        let (plain, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        let flip = |id: &str, at: SentenceRef, path: &str, edits: Vec<EditSpec>| DerivedEntry {
+            id: id.to_owned(),
+            operator: "flip".to_owned(),
+            text: "inRom(E, A)".to_owned(),
+            atom: json!({"kind": "boolean", "head": "inRom"}),
+            occurrences: vec![Occurrence {
+                sentence: at,
+                reach: Reach::Operand {
+                    path: path.to_owned(),
+                },
+            }],
+            judged: Judged::Admitted { edits },
+        };
+        let list = DerivedList {
+            entries: vec![
+                flip(
+                    "flip--outsideRom--inRom",
+                    sentence_of(&plain, OUTSIDE_ROM_EQUATIONS[0]),
+                    "0",
+                    Vec::new(),
+                ),
+                flip(
+                    "flip--readz--inRom",
+                    sentence(&plain, "readz"),
+                    "0.0",
+                    vec![edit("readz", "notBool inRom(E, A)", "inRom(E, A)")],
+                ),
+            ],
+            ..DerivedList::default()
+        };
+        let (document, _) = coverage(&dir, &[], Derived::Flips(&list));
+        assert_eq!(document["version"], 19);
+        for id in OUTSIDE_ROM_EQUATIONS {
+            let equation = item(&document, "rules", id);
+            assert_eq!(equation["status"], "invariant", "{equation:#}");
+            assert!(
+                equation["reason"]
+                    .as_str()
+                    .is_some_and(|reason| reason.contains("only the manifest's invariants reach")),
+                "{equation:#}"
+            );
+        }
+        assert_eq!(item(&document, "rules", IN_ROM_EQUATION)["status"], "fired");
+        let rules = &document["families"]["rules"];
+        assert_eq!(rules["counts"]["invariant"], 2, "{:#}", rules["counts"]);
+        let requirements = document["families"]["requirements"]["items"]
+            .as_array()
+            .unwrap();
+        assert!(
+            requirements
+                .iter()
+                .all(|item| !item["id"].as_str().unwrap().contains("invariant.k:41")),
+            "{requirements:#?}"
+        );
+        let flips = &document["families"]["flips"];
+        assert_eq!(
+            (
+                &flips["not_generated"][0]["id"],
+                &flips["not_generated"][0]["reason"]
+            ),
+            (&json!("flip--outsideRom--inRom"), &json!("invariant")),
+            "{flips:#}"
+        );
+        assert_eq!(
+            flips["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].clone())
+                .collect::<Vec<_>>(),
+            [json!("flip--readz--inRom")],
+            "{flips:#}"
+        );
+        let rendered = text(&document).unwrap();
+        assert!(rendered.contains(", 2 invariant, "), "{rendered}");
+
+        // Argued on its text alone, no invariant is declared: `outsideRom`'s equations are
+        // obligations, and its guard's requirements open.
+        argue(&dir, &[(READZ_ROM_HELD, "memory holds no ROM address")]);
+        let (unscoped, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        for id in OUTSIDE_ROM_EQUATIONS {
+            assert_eq!(item(&unscoped, "rules", id)["status"], "unmatched");
+        }
+        assert_eq!(unscoped["families"]["rules"]["counts"]["invariant"], 0);
+        for outcome in ["held", "refuted"] {
+            let id = format!("requirement:{}:{outcome}", &OUTSIDE_ROM_EQUATIONS[0][5..]);
+            assert_eq!(item(&unscoped, "requirements", &id)["status"], "open");
+        }
+    }
+
+    /// An argued standing rests on its invariant being a function: both checks evaluate it with
+    /// the backend's choice of matching. `outsideRom`, the violation form, has no finding of the
+    /// baseline's critical-pair check (its `false` equation's result reads no binding the map
+    /// pattern chose), so `requirement:readzRom:held` is `checked-on-runs` with the function
+    /// `shown`. `outsideRomWalk`, the recursive walk, reads the binding it chose, and its two
+    /// self-pairs are findings no `[spec] assume_joined` name assumes: `requirement:readz:refuted`,
+    /// whose connection (by the simplification alone, in both profiles) and evidence hold, is
+    /// `unchecked` with a reason naming the findings and
+    /// the canonical form, and the command exits 3. With both findings assumed, its standing is
+    /// the checks' again, `argument_check.function` records the premise (`assumed`, each finding
+    /// marked), and the verdicts rendering's `[arguments]` line, a lock's, names it.
+    #[test]
+    #[ignore = "kink"]
+    fn an_argued_standing_rests_on_its_invariant_being_a_function() {
+        let dir = invariant("function");
+        with_programs(&dir, &[("clean", "read(8)")]);
+        argue_on(
+            &dir,
+            &[OUTSIDE_ROM, WALK],
+            &[
+                (
+                    READZ_ROM_HELD,
+                    "memory holds no ROM address",
+                    Some(OUTSIDE_ROM.0),
+                ),
+                (READZ_REFUTED, "memory holds no ROM address", Some(WALK.0)),
+            ],
+        );
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let guarded = &item(&document, "requirements", READZ_ROM_HELD)["argument_check"];
+        assert_eq!(
+            (&guarded["standing"], &guarded["function"]),
+            (
+                &json!("checked-on-runs"),
+                &json!({"status": "shown", "findings": [], "reason": null})
+            ),
+            "{guarded:#}"
+        );
+        let walk = &item(&document, "requirements", READZ_REFUTED)["argument_check"];
+        assert_eq!(
+            (
+                &walk["standing"],
+                &walk["function"]["status"],
+                &walk["connection"]["status"],
+                &walk["evidence"]["status"]
+            ),
+            (
+                &json!("unchecked"),
+                &json!("not-shown"),
+                &json!("holds"),
+                &json!("holds")
+            ),
+            "{walk:#}"
+        );
+        let names = document["data"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|finding| finding["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(names.len(), 2, "{:#}", document["data"]);
+        let reason = walk["reason"].as_str().unwrap();
+        assert!(
+            reason.contains("`outsideRomWalk` is not shown to be a function")
+                && names.iter().all(|name| reason.contains(name.as_str()))
+                && reason.contains("Argued obligations"),
+            "{reason}"
+        );
+        assert_eq!(walk["function"]["findings"].as_array().unwrap().len(), 2);
+        assert_eq!(document["summary"]["failed_arguments"], json!([]));
+
+        // The findings assumed: the walk is a function by that premise, which the item records.
+        let path = dir.join("FLOW.toml");
+        let manifest = fs::read_to_string(&path).unwrap();
+        let spec = "syntax_module = \"INVARIANT-SYNTAX\"\n";
+        assert!(manifest.contains(spec), "{manifest}");
+        let assumed = format!(
+            "{spec}assume_joined = [{}]\n",
+            names
+                .iter()
+                .map(|name| format!("\"{name}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        fs::write(&path, manifest.replacen(spec, &assumed, 1)).unwrap();
+        let (premised, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        let walk = &item(&premised, "requirements", READZ_REFUTED)["argument_check"];
+        let standing = "checked-on-runs";
+        assert_eq!(
+            (&walk["standing"], &walk["function"]["status"]),
+            (&json!(standing), &json!("assumed")),
+            "{walk:#}"
+        );
+        assert!(
+            walk["function"]["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|finding| finding["assumed"] == true),
+            "{walk:#}"
+        );
+        // The verdicts rendering, a coverage lock's text.
+        let recorded = verdicts(&premised).unwrap();
+        assert!(
+            recorded.contains(&format!(
+                "\"{READZ_REFUTED}\" = \"{standing}, assuming joined {}\"\n",
+                names.join(", ")
+            )),
+            "{recorded}"
+        );
+        assert!(
+            recorded.contains(&format!("\"{READZ_ROM_HELD}\" = \"checked-on-runs\"\n")),
+            "{recorded}"
+        );
     }
 
     /// An invariant the front end cannot resolve refuses the command before any mutant runs, at

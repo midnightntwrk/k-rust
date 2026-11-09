@@ -317,16 +317,8 @@ impl CompiledEquations {
                         .entry(*priority)
                         .or_default()
                         .push(meaning(rule));
-                    for symbol in mentioned(rule) {
-                        dependents.entry(symbol).or_default().insert(index.clone());
-                    }
-                    if let Some((greater, lesser)) = &rule.attributes.overload {
-                        for (from, to) in [(greater, lesser), (lesser, greater)] {
-                            dependents
-                                .entry(from.to_string())
-                                .or_default()
-                                .insert(TermIndex::Symbol(to.clone()));
-                        }
+                    for (symbol, by) in equation_links(index, rule) {
+                        dependents.entry(symbol).or_default().insert(by);
                     }
                     equations.push(AuthoredEquation {
                         index: index.clone(),
@@ -431,7 +423,7 @@ fn meaning(rule: &RewriteRule) -> RewriteRule {
 
 /// Every symbol an equation applies, in its left-hand side, right-hand side, `requires` and
 /// `ensures` (collections' entries included).
-fn mentioned(rule: &RewriteRule) -> BTreeSet<String> {
+pub fn mentioned(rule: &RewriteRule) -> BTreeSet<String> {
     let mut symbols = BTreeSet::new();
     let mut term = |term: &Term| {
         term.visit_symbols(&mut |symbol| {
@@ -460,6 +452,127 @@ fn mentioned(rule: &RewriteRule) -> BTreeSet<String> {
         predicate.visit_terms(&mut term);
     }
     symbols
+}
+
+/// What one equation of the index `index` links in the reach every kink reading of the compiled
+/// equations follows ([`CompiledEquations`], [`EquationReach`]): each `(symbol, by)` says that
+/// the equations at the index `by` reach `symbol`. An equation reaches every symbol it applies
+/// ([`mentioned`]), and an overload equation `g(inj(x)) = inj(l(x))` links its family both ways:
+/// the greater and the lesser member each reach the other.
+fn equation_links(index: &TermIndex, rule: &RewriteRule) -> Vec<(String, TermIndex)> {
+    let mut links = mentioned(rule)
+        .into_iter()
+        .map(|symbol| (symbol, index.clone()))
+        .collect::<Vec<_>>();
+    if let Some((greater, lesser)) = &rule.attributes.overload {
+        for (from, to) in [(greater, lesser), (lesser, greater)] {
+            links.push((from.to_string(), TermIndex::Symbol(to.clone())));
+        }
+    }
+    links
+}
+
+/// The forward reach of a compiled definition's equations: which symbols evaluating an
+/// application of a symbol can apply, by the links one equation makes ([`equation_links`]: the
+/// symbols it applies in its sides and conditions, and an overload family linked both ways), the
+/// relation the consistency gate reads backwards ([`admit_mutant`]).
+///
+/// The equations read are every executable equation (k-rust's function theory) and the
+/// simplification and ceil lemmas: evaluating an application may use any equation indexed at its
+/// symbol, so the reach over-approximates what it applies. An equation indexed at no symbol (at a
+/// conjunction, a domain value, a collection or a bare variable) and a predicate lemma can be
+/// offered at any term, so what they apply is reached from every symbol (`everywhere`), and so
+/// is what those symbols reach.
+#[derive(Clone, Debug, Default)]
+pub struct EquationReach {
+    /// For each symbol, the symbols its equations reach in one link.
+    links: BTreeMap<String, BTreeSet<String>>,
+    /// The symbols the equations indexed at no symbol and the predicate lemmas apply.
+    everywhere: BTreeSet<String>,
+    /// The symbol each equation (by unique id) is indexed at, `None` where its index is no
+    /// symbol.
+    heads: BTreeMap<String, Option<String>>,
+}
+
+impl EquationReach {
+    /// The reach of `definition`'s equations.
+    #[must_use]
+    pub fn of(definition: &BackendDefinition) -> Self {
+        let mut reach = Self::default();
+        for theory in [
+            definition.function_theory(),
+            definition.simplification_theory(),
+            definition.ceil_theory(),
+        ] {
+            for (index, priorities) in theory {
+                for rule in priorities.values().flatten() {
+                    let head = match index {
+                        TermIndex::Symbol(symbol) => Some(symbol.to_string()),
+                        _ => None,
+                    };
+                    reach
+                        .heads
+                        .insert(rule.attributes.unique_id.clone(), head.clone());
+                    for (symbol, by) in equation_links(index, rule) {
+                        match by {
+                            TermIndex::Symbol(by) => {
+                                reach
+                                    .links
+                                    .entry(by.to_string())
+                                    .or_default()
+                                    .insert(symbol);
+                            }
+                            _ => {
+                                reach.everywhere.insert(symbol);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for rule in definition
+            .predicate_simplification_theory()
+            .values()
+            .flatten()
+        {
+            let mut term = |term: &Term| {
+                term.visit_symbols(&mut |symbol| {
+                    reach.everywhere.insert(symbol.name.to_string());
+                });
+            };
+            rule.lhs.visit_terms(&mut term);
+            for predicate in rule.rhs.iter().chain(rule.requires.iter()) {
+                predicate.visit_terms(&mut term);
+            }
+        }
+        reach
+    }
+
+    /// Every symbol evaluating an application of a symbol of `seeds` can apply: `seeds`, what
+    /// their equations reach, transitively, and what the equations offered at any term reach.
+    #[must_use]
+    pub fn closure(&self, seeds: impl IntoIterator<Item = String>) -> BTreeSet<String> {
+        let mut reached = BTreeSet::new();
+        let mut pending = seeds
+            .into_iter()
+            .chain(self.everywhere.iter().cloned())
+            .collect::<Vec<_>>();
+        while let Some(symbol) = pending.pop() {
+            if let Some(next) = self.links.get(&symbol) {
+                pending.extend(next.iter().filter(|next| !reached.contains(*next)).cloned());
+            }
+            reached.insert(symbol);
+        }
+        reached
+    }
+
+    /// The symbol the equation with the unique id `id` is indexed at: `Some(None)` for an equation
+    /// indexed at no symbol, `None` for an id that is no equation or lemma of the definition (a
+    /// rewrite rule's, for one).
+    #[must_use]
+    pub fn head(&self, id: &str) -> Option<Option<&str>> {
+        self.heads.get(id).map(Option::as_deref)
+    }
 }
 
 /// For each emitted rule id of `side`, the rule sentences behind it: its Compile addresses that

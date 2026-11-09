@@ -130,8 +130,9 @@ impl Default for Derived<'_> {
 ///
 /// The list must be a function of the definition, so the flips that are not obligations are
 /// decided before any run: wherever a list enters ([`scoped`]), kink-flow moves an entry that
-/// changes only sentences outside the scope every coverage family shares (a claim helper, a
-/// simplification, a rule with no coverage signal; [`crate::coverage`], "Families") to
+/// changes only sentences outside the scope every coverage family shares (a claim helper, an
+/// equation only invariants reach, a simplification, a rule with no coverage signal;
+/// [`crate::coverage`], "Families") to
 /// `not_generated`, and keeps of every other entry its occurrences in the scope, so the scope
 /// holds for any front end's list.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -260,8 +261,8 @@ pub(crate) fn scoped(
 /// The `not_generated` value of `entry` where it names occurrences and every one names a
 /// sentence outside the coverage scope: `{reason, id, atom, sentences, pair, detail}`,
 /// `sentences` the labels of the sentences it changes (a sentence with none named
-/// `<module>#<index>`), `reason` the exclusion's status (`claim-helper`, `out-of-scope`,
-/// `no-coverage-signal`) of its first occurrence in occurrence order, so that a flip whose
+/// `<module>#<index>`), `reason` the exclusion's status (`claim-helper`, `invariant`,
+/// `out-of-scope`, `no-coverage-signal`) of its first occurrence in occurrence order, so that a flip whose
 /// sentences are excluded for different reasons has one reason, the same on every run, and
 /// `detail` each sentence's status and each status's reason. `None` where some occurrence is in
 /// scope, or none is named (a flip with no occurrence changes no sentence the scope could set

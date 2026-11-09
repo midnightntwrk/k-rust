@@ -40,6 +40,26 @@
 //! The whole decision runs on the input backend's definition, the one every program runs on, with
 //! the corpus's solver budget. Each `Unknown` the solver answers is counted (`smt_unknown`).
 //!
+//! # The function
+//!
+//! The connection simplifies the invariant's application and the evidence evaluates it, each with
+//! the backend's choice of matching: of a priority group's equations, and of the binding a
+//! collection pattern takes. Both answers are the invariant's only where its equations define a
+//! function, one value at each input whichever choice is made. That is what the baseline's full
+//! critical-pair check shows ([`kink_native::data::DataFacts`]): where every critical pair joins
+//! and the check is complete, the equations have `M+` as a model (under A1+, as a kill reads the
+//! definition), in which the invariant has one value at each input. Only the pairs of equations
+//! the invariant's evaluation can use bear on it, the equations of every symbol its function
+//! reaches ([`super::scope::Scope::closure`], kink-native `consistency::EquationReach`), so
+//! [`function_check`] reads the findings involving those (`DataFacts::findings_at`): none, the
+//! function is `shown`; each assumed by a `[spec] assume_joined` name, `assumed`, the premise
+//! the standing then rests on; one no name assumes, or an incomplete check, `not-shown`, and
+//! every argued item naming the invariant is `unchecked` with the findings named and the
+//! canonical form, the violation (`F((K |-> _) _, E) => false requires P(E, K)` beside
+//! `F(_, _) => true [owise]`), whose `false` reads no binding the pattern chose and so joins by
+//! the check's syntactic rule. A refutation reads the invariant at one choice too, so an
+//! invariant not shown to be a function refutes nothing.
+//!
 //! # The cache
 //!
 //! Each answer is kept in the connection memo ([`crate::memo::connection_key`]) under the
@@ -91,6 +111,88 @@ pub const CONNECTION_HOLDS: &str = "holds";
 pub const CONNECTION_FAILS: &str = "fails";
 /// The status of a connection neither shown to hold nor to fail.
 pub const CONNECTION_UNDECIDED: &str = "undecided";
+
+/// The status of an invariant's function whose equations, and those of every function they
+/// reach, have no finding of the baseline's critical-pair check, a complete one.
+pub const FUNCTION_SHOWN: &str = "shown";
+/// The status of an invariant's function whose reach has findings, each assumed by a
+/// `[spec] assume_joined` name: the function rests on those premises.
+pub const FUNCTION_ASSUMED: &str = "assumed";
+/// The status of an invariant's function not shown to be one: a finding of its reach no name
+/// assumes, an incomplete check, or a definition the backend could not select.
+pub const FUNCTION_NOT_SHOWN: &str = "not-shown";
+
+/// Whether the invariant whose function is `symbol` is shown to be a function (module
+/// documentation, "The function"): `{status, findings, reason}`, `findings` every finding of
+/// the baseline's full critical-pair check `data` that involves an equation of a symbol in
+/// `closure`, the reach of `symbol` (`None` where it could not be read), the assumed ones
+/// marked, and `reason`, for a function not shown to be one, why, with the canonical form
+/// (kink-flow README, "Argued obligations").
+pub(super) fn function_check(
+    symbol: &str,
+    closure: Option<&std::collections::BTreeSet<String>>,
+    data: &kink_native::data::DataFacts,
+) -> Value {
+    let label = kink_native::data::label(symbol);
+    let not_shown = |why: String| {
+        format!(
+            "the invariant's function `{label}` is not shown to be a function: {why}; the \
+             connection and the evidence evaluate it with the backend's choice of matching, \
+             which presupposes that its equations give one value at each input. Write a \
+             for-all invariant as its violation, an equation giving `false` where some binding \
+             breaks it and an `owise` equation giving `true` (kink-flow README, \"Argued \
+             obligations\"), or name the finding in `[spec] assume_joined`, a premise of its own"
+        )
+    };
+    let Some(closure) = closure else {
+        return json!({
+            "status": FUNCTION_NOT_SHOWN,
+            "findings": [],
+            "reason": not_shown(
+                "the equations it reaches cannot be read, since the backend's definition could \
+                 not be selected"
+                    .to_owned()
+            ),
+        });
+    };
+    let findings = data.findings_at(closure);
+    let values = findings
+        .iter()
+        .map(kink_native::data::NamedFinding::value)
+        .collect::<Vec<_>>();
+    let unassumed = findings
+        .iter()
+        .filter(|finding| !finding.assumed)
+        .map(|finding| {
+            finding.name.as_ref().map_or_else(
+                || finding.description.clone(),
+                |name| format!("{} (name `{name}`)", finding.description),
+            )
+        })
+        .collect::<Vec<_>>();
+    let (status, reason) = if !unassumed.is_empty() {
+        (
+            FUNCTION_NOT_SHOWN,
+            Some(not_shown(format!(
+                "the baseline's critical-pair check has a finding no `[spec] assume_joined` name \
+                 assumes at an equation it evaluates: {}",
+                unassumed.join("; ")
+            ))),
+        )
+    } else if let Some(incomplete) = data.incomplete() {
+        (
+            FUNCTION_NOT_SHOWN,
+            Some(not_shown(format!(
+                "the baseline's critical-pair check is incomplete ({incomplete})"
+            ))),
+        )
+    } else if findings.is_empty() {
+        (FUNCTION_SHOWN, None)
+    } else {
+        (FUNCTION_ASSUMED, None)
+    };
+    json!({"status": status, "findings": values, "reason": reason})
+}
 
 /// An invariant resolved to the definition's terms (module documentation, "Resolution").
 #[derive(Clone, Debug, Eq, PartialEq)]

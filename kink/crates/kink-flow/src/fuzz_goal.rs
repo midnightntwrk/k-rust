@@ -99,8 +99,8 @@ pub(crate) fn refuted_item(
         .ok_or_else(|| {
             (
                 "no-obligation",
-                "the rule is no obligation of the rules family (out of scope, a claim helper, or \
-                 a rule k-rust's coverage cannot name)"
+                "the rule is no obligation of the rules family (out of scope, a claim helper, an \
+                 equation only invariants reach, or a rule k-rust's coverage cannot name)"
                     .to_owned(),
             )
         })?;

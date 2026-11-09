@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 21
+//! version = 22
 //! document = "coverage"
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
@@ -89,7 +89,9 @@
 //! and, where it has any, of its undecided ones (`undecided`; [`crate::coverage::undecided_ids`]),
 //! then each argued item, of every family, with the standing of its argument (`[arguments]`,
 //! one `"<id>" = "<standing>"` line per item, in family then item order, the section written
-//! where no item is argued; [`crate::coverage::argument_standings`]), and for the flips family
+//! where no item is argued, a standing that rests on findings of the critical-pair check that
+//! `[spec] assume_joined` assumes followed by `, assuming joined` and their names;
+//! [`crate::coverage::argument_standings`]), and for the flips family
 //! whether it ran and, when it ran, each flip (`[[flip]]`, in item order) with its status
 //! (`argued` for an argued one), a refused flip's reason, a distinguished flip's `killer`, and an
 //! undistinguished flip's `horizon` where it rests on one, as a run rendering gives a survivor's.
@@ -198,8 +200,14 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// documentation), so that a lock whose layout moves shows a new version; its values are
 /// unchanged; 21 since a `coverage` rendering lists each argued item with the standing of its
 /// argument (`[arguments]`, one line per item, an empty section where none is argued), so that a
-/// lock records what each argument rests on and a standing that moves makes it stale.
-pub const VERDICTS_VERSION: u64 = 21;
+/// lock records what each argument rests on and a standing that moves makes it stale; 22 since an
+/// equation of a function only the manifest's invariants reach is no obligation (coverage
+/// document version 19), so that a lock whose open lists and flips move for that reason shows a
+/// new version, not a corpus change, and since an `[arguments]` line states the assumed findings
+/// a standing rests on (`"<id>" = "<standing>, assuming joined <name>, ..."`) and an argued
+/// item whose invariant is not shown to be a function is `unchecked`; a run rendering differs in
+/// its `version` line only.
+pub const VERDICTS_VERSION: u64 = 22;
 
 /// The rendering of a `coverage` or `run` document (module documentation). The error names what
 /// the document is when it is neither: for `report`'s document saying why there is no stored run

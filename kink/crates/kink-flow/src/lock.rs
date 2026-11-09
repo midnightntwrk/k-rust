@@ -1029,7 +1029,7 @@ mod tests {
         };
         let render = |array: &dyn Fn(&[&str]) -> String, first: &str, second: &str| {
             format!(
-                "schema = \"kink-flow-verdicts\"\nversion = 21\ndocument = \"coverage\"\n\n\
+                "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"coverage\"\n\n\
                  [settings]\ntiers = [1, 2]\ndepth = 1\nmcdc = {}\n\n[rules]\nopen = {}\n\
                  argued = {}\n\n[syntax]\nopen = {}\nargued = {}\n\n[flips]\nrun = true\n\n\
                  [[flip]]\nid = \"{first}\"\nstatus = \"undistinguished\"\nhorizon = {}\n\n\

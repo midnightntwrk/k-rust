@@ -61,6 +61,15 @@ pub trait StopOracle: Send + Sync {
     /// documentation, "Reading a mutant's cells").
     fn cells(&self) -> &[Vec<String>];
 
+    /// The KORE symbols of the functions the condition evaluates, as the symbols of the
+    /// definition the corpus runs name them where the observer's are those (the baseline as its
+    /// own observer), or `None` where the front end does not name them. kink-flow's coverage
+    /// scope takes every symbol they reach as one a run of the result records evaluates, and
+    /// `None` as every function of the definition (kink-flow `coverage::scope`).
+    fn functions(&self) -> Option<Vec<String>> {
+        None
+    }
+
     /// Run `body` once with the condition of one request, on the calling thread. The condition
     /// must be a function of the arrival's stop state's configuration, evaluated in the observer
     /// whatever definition the request runs.
@@ -105,6 +114,12 @@ impl StopWhen {
     #[must_use]
     pub fn cells(&self) -> &[Vec<String>] {
         self.oracle.cells()
+    }
+
+    /// The functions the condition evaluates ([`StopOracle::functions`]).
+    #[must_use]
+    pub fn functions(&self) -> Option<Vec<String>> {
+        self.oracle.functions()
     }
 
     /// `body` with the condition of one request, and the reason of the last arrival the

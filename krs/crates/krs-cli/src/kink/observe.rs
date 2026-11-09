@@ -26,6 +26,10 @@
 //! so a kill's evidence shows every element by Rust path and canonical document
 //! (`krs-difference/4`, [`super::render`]).
 //!
+//! The oracle names the KORE symbols in the observer of every view, component, filter and
+//! element function ([`ObservationFunctions::functions`]), which kink-flow's coverage scope takes
+//! as functions a run of the result records evaluates, as a stop condition's.
+//!
 //! The observer is loaded once per thread that runs a program, as a stop condition's is
 //! ([`super::condition`]). Each evaluation is bounded by the view budget `krs run` gives one by
 //! default ([`crate::DEFAULT_VIEW_BUDGET`]).
@@ -326,6 +330,9 @@ struct KrsObservations {
     observer: Arc<Observer>,
     subject: Subject,
     cells: Vec<Vec<String>>,
+    /// The KORE symbols in the observer of the functions the declaration evaluates
+    /// ([`ObservationFunctions::functions`]).
+    symbols: Vec<String>,
 }
 
 impl KrsObservations {
@@ -362,12 +369,14 @@ impl KrsObservations {
             observer,
             subject,
             cells: Vec::new(),
+            symbols: Vec::new(),
         };
         let resolved = functions
             .observer
             .with_loaded(|observer| functions.resolve(observer))
             .map_err(unresolved)?;
         functions.cells = resolved.read_cells();
+        functions.symbols = resolved.function_symbols();
         let digest = definition_digest(functions.observer.definition()).map_err(unresolved)?;
         let mut identity = json!({
             "observer": {
@@ -413,6 +422,10 @@ impl ObservationFunctions for KrsObservations {
             .points
             .get(class)
             .is_some_and(|point| point.when.is_some())
+    }
+
+    fn functions(&self) -> Option<Vec<String>> {
+        Some(self.symbols.clone())
     }
 
     fn with_evaluator(

@@ -3328,7 +3328,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 18);
+    assert_eq!(document["version"], 19);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -4377,7 +4377,8 @@ fn bumper() -> Arc<Project> {
 /// `low <= high`; without a solver it is undecided). The corpus only idles, so no run steps
 /// `bump`, and the invariant holds at the initial state and the end: the evidence is vacuous, so
 /// the item is `connected` where the connection holds (exit 0), and `unchecked` where it is
-/// undecided (exit 3). A function the definition does not hold refuses the corpus with krs-exec's
+/// undecided (exit 3). `Ordered` is shown to be a function, and its equation, which no rule
+/// applies, is no obligation. A function the definition does not hold refuses the corpus with krs-exec's
 /// message (`invariant-unresolved`), which suggests a root package's function of that name by its
 /// `crate::` path.
 #[test]
@@ -4387,6 +4388,16 @@ fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     let document = json(&output);
     let check = &requirement_of(&document, "requirement:crate::bump:held")["argument_check"];
     assert_eq!(check["evidence"]["status"], "vacuous", "{check:#}");
+    // `Ordered` has no finding of the critical-pair check, so it is shown to be a function; and
+    // no rule applies it, so its equation is no obligation (`invariant`).
+    assert_eq!(check["function"]["status"], "shown", "{check:#}");
+    let ordered = document["families"]["rules"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "rule:crate::ordered")
+        .unwrap_or_else(|| panic!("no rule of Ordered: {:#}", document["families"]["rules"]));
+    assert_eq!(ordered["status"], "invariant", "{ordered:#}");
     // The solver decides the connection; a build without one leaves it undecided.
     #[cfg(feature = "z3-inference")]
     {
@@ -6530,7 +6541,7 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "schema = \"kink-flow-verdicts\"\nversion = 21\ndocument = \"run\"\nprofile = \"z3\"\n\
+        "schema = \"kink-flow-verdicts\"\nversion = 22\ndocument = \"run\"\nprofile = \"z3\"\n\
          z3_version = \"{}\"\n",
         build.version
     );

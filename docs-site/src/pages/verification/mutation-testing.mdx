@@ -81,6 +81,7 @@ Each rule's status is in the JSON document, the default output, as `families.rul
 | `matched` | some comparable case matches it and none fires it: its condition was entered but its right-hand side never ran, so no case can tell a change of its result apart | write a case that takes its step |
 | `unmatched` | no comparable case matches it, so a mutation of it cannot be killed | write a case that reaches it |
 | `claim-helper` | is an equation of a function only claims apply, whatever the cases did: a case that matches or fires it is listed as information | nothing: the claims serve it, `krs prove` checks them, and no flip that changes only claim helpers is generated |
+| `invariant` | is an equation of a function only the corpus's `[[coverage.invariant]]` functions reach, whatever the cases did: the invariant is read off a run's states by the argued items' checks, never applied by a step | nothing: no run applies it, and no flip that changes only such equations is generated |
 | `out-of-scope` | is a simplification, a `symbolic` equation or a ceil equation: it states a fact of the definition's functions, which the definition means the same without | nothing: no step computes it, so no case needs to |
 | `no-coverage-signal` | cannot be recorded by k-rust's coverage (a macro, an alias, an `smt-lemma` or a rule that never runs), so no case can be shown to match it | nothing a case can change |
 

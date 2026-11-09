@@ -683,14 +683,24 @@ rewritten by `--verify`; delete a mismatching record (or the cache) to recompute
 
 ### Families
 
-Every family shares one scope, a function of the definition and the front end's marks read before any program runs.
-A sentence is no obligation of any family when it is, in this order, a simplification, `symbolic` or ceil equation (`out-of-scope`), a rule none of whose compiled ids a run's coverage can name (`no-coverage-signal`), or an equation of a function only claims apply (`claim-helper`).
+Every family shares one scope, a function of the definition, the front end's marks and the manifest's `[[coverage.invariant]]` tables, read before any program runs.
+A sentence is no obligation of any family when it is, in this order, a simplification, `symbolic` or ceil equation (`out-of-scope`), a rule none of whose compiled ids a run's coverage can name (`no-coverage-signal`), an equation of a function only claims apply (`claim-helper`), or an equation of a function only the manifest's invariants reach (`invariant`).
 The rules family gives such a sentence that status; the requirements, syntax, field-value and syntax paths families read the rules statuses, so they count none of its conditions, touches or paths; the rule windows family's may-follow graph has no node for it; and a front end's flip that changes only such sentences is listed under the flips family's `not_generated`, never resolved, run or counted, while a flip that also changes a sentence in the scope is that sentence's obligation.
 
 A claim helper is outside the scope whatever the programs did.
 No initializer, program production or sentence a run can take applies it, so a run reaches it only through an input that applies it, and an edit of it changes no step of any run that does not.
 The claims it serves are what tell its equations apart, and a proof of the claims checks that; no case of the corpus can close an obligation on it.
 An item that became an obligation because a typed input applied it would make the universe depend on the corpus: a case that applies a helper would raise the measure without testing any run of the definition, and a corpus would not be done until it did.
+
+An invariant-only function is outside the scope for the same reason.
+An invariant ("Argued obligations") is read off a run's states by the argued items' checks, after the run and outside it, never applied by a step: no run of the semantics applies its function, nor a function only it applies, except through an input that applies one, so their equations are no behaviour a program exercises, and an edit of them changes no step of any other run.
+The reach is that of the compiled equations, the relation kink's consistency gate reads (kink-native `consistency::EquationReach`): evaluating an application of a symbol can apply every symbol its equations and its `simplification` and ceil lemmas apply, in their sides and conditions, transitively, both ways within an `overload` family, and whatever an equation indexed at no symbol or a predicate lemma applies.
+A run of a result record can evaluate everything that reach gives from: every rewrite rule of the compiled definition (heating, cooling and stream rules included), `initGeneratedTopCell` and the `configuration` sentences, every labelled production of the syntax module programs are parsed in and of the modules it imports, and the front end's functions of an observer, `[stop] when` and the `[observe]` views, components, filters and log elements, as the front end names them (taking these in keeps more sentences obligations, since an observer is not the definition being run; a front end that cannot name them leaves no sentence invariant-only).
+A function is invariant-only when the reach from the resolved invariants' functions gives it and the reach from those does not, and a sentence is `invariant` when every compiled id it authored is an equation or lemma of such a function, with its `reason`.
+A function the semantics also applies stays an obligation: `inRom` in `rule outsideRom((K |-> _) _, E) => false requires inRom(E, K)` is an obligation wherever a rule's condition applies `inRom` too.
+Its guard states no requirement, and a front end's flip that changes only its sentences is `not_generated` with reason `invariant`.
+A `[[mutation]]` an author writes on such a sentence runs as written, as one on a claim helper does: it is the author's question, which coverage does not count, and it survives wherever no program's input applies the function.
+Removing an invariant table (with the entries that name it) makes its functions' equations obligations again, which a coverage lock shows as obligations opening.
 
 **Rules.** Every authored rewrite rule and function equation (`owise`, `anywhere` and the authored equations of an overloaded function included), in sentence order, each an item `{id, module, index, label, file, start_line, end_line, status, obligation, covered, matched_by, fired_by, touched_only_by, uncounted, rewrite, guard?, reason?}`.
 Its status is named for the predicate it tests:
@@ -702,9 +712,10 @@ Its status is named for the predicate it tests:
 | `unmatched` | yes, open | no comparable program matched it |
 | `out-of-scope` | no | a simplification, `symbolic` or ceil equation: it states a fact of the definition's functions, which the definition means the same without, so no step computes it and no program needs to run it |
 | `claim-helper` | no | an equation of a function only claims apply (below) |
+| `invariant` | no | an equation of a function only the manifest's `[[coverage.invariant]]` functions reach (above) |
 | `no-coverage-signal` | no | none of its compiled ids can appear in a run's coverage: it compiles to no axiom, or it is a `non-executable`, macro, alias or `smt-lemma` rule; `reason` says which |
 
-The statuses partition the rules with the precedence `out-of-scope`, `no-coverage-signal`, `claim-helper`, `fired`, `matched`, `unmatched` (firing implies matching); the first three are the shared scope above.
+The statuses partition the rules with the precedence `out-of-scope`, `no-coverage-signal`, `claim-helper`, `invariant`, `fired`, `matched`, `unmatched` (firing implies matching); the first four are the shared scope above.
 A program matched a rule where its run began to decide the rule's condition for an instance whose left-hand side matched, or applied it (k-rust `matched`), or entered its condition ("Guard outcomes"): a function equation is matched wherever an application's arguments matched its left-hand side and its priority group decided the application, whether or not the run tried it there, which is a fact of the arguments and the equation and not of the order in which the backend tries a group's equations (of the complementary `f(A) = .. requires A <Int 32768` and `f(A) = .. requires A >=Int 32768`, a corpus that applies `f` below 32768 only matches both, in either order).
 The measure is `fired / (fired + matched + unmatched)`; `counts` gives each status.
 `uncounted` lists the programs that are not comparable and match or fire the rule; `touched_only_by`, on an open rule, those of them that would raise its status.
@@ -789,7 +800,7 @@ A front end that has templates names their binders in its selection (`SyntaxSele
 **Flips.** Tier 2: each condition flip a front end derives from the definition's source is an obligation.
 A flip negates one condition atom, or toggles one bit of an encoding, in a closed set of sentences that the atom keeps apart, so the flipped definition is one the source language admits and the question is whether the corpus notices the swapped outcomes.
 Generating the flips needs the source language's guard families and admitting each needs its judge, so the front end supplies the list: each entry with its id, its operator (`flip` or `bitflip`), the atom's text, its judgement (the K patch, in `MUTATIONS.toml`'s edit format, or the judge's refusal) and the occurrences it changes, each a node of a sentence's condition (by its path in the rule item's `guard.operands`) or a sentence's match.
-A flip every occurrence of which changes a sentence outside the shared scope (a claim helper, above) is no obligation: kink-flow moves it to `not_generated` as `{reason, id, atom, sentences, pair, detail}`, `reason` the status (`claim-helper`) of its first occurrence's sentence, in occurrence order, and `detail` each sentence's status, before any run, whatever the front end gave, so the list stays a function of the definition and no mutant is spent on it.
+A flip every occurrence of which changes a sentence outside the shared scope (a claim helper or an invariant-only equation, above) is no obligation: kink-flow moves it to `not_generated` as `{reason, id, atom, sentences, pair, detail}`, `reason` the status (`claim-helper`, `invariant`) of its first occurrence's sentence, in occurrence order, and `detail` each sentence's status, before any run, whatever the front end gave, so the list stays a function of the definition and no mutant is spent on it.
 A flip that changes some sentence in the scope stays an obligation of those sentences, with all its edits, and keeps only its occurrences in the scope: the scope sets a sentence aside, not a flip, and an edit outside it adds nothing a family counts, so a program that reaches only an occurrence outside the scope meets no obligation.
 Each obligation is an item `{id, operator, text, atom, occurrences, sentences, status, kink_status, judge, reason, next, detail, digest, killer, killer_source, recorded_killer, killer_change, witnesses, horizon, causes, waits_on, live_runs, calls}`:
 
@@ -912,13 +923,13 @@ invariant = "memory-outside-rom"
 - An invariant argues the `rule:` items of rewrite rules and their held, refuted and node requirements: it is a property of states, and an item's argument rests on it through the rule's left-hand side, a whole configuration whose cells the invariant reads, with the valuation that defines the item.
   An entry that names one on any other item is refused at stage `coverage`, reason `argued-invariant-unsupported`, naming each such item with what it is:
   `equation`, whose left-hand side binds a function's arguments, not cells;
-  `out-of-scope`, `claim-helper` or `no-coverage-signal`, a rule that is no obligation, or a requirement of one;
+  `out-of-scope`, `claim-helper`, `invariant` or `no-coverage-signal`, a rule that is no obligation, or a requirement of one;
   `mcdc`, a unique-cause requirement, whose obligation is a pair of runs showing one operand's independent effect, not a valuation at one left-hand side;
   `syntax`, `rule_windows` or `syntax_paths`, none of which is one left-hand side with a valuation;
   `flip`, which changes the definition, of whose runs an invariant of the baseline says nothing.
 - A table no entry names is refused at stage `coverage`, reason `invariant-unused`: it would be resolved and checked on no item's behalf.
   Where both apply, the first refusal also names the tables that only its refused entries name, which removing those entries' `invariant` would leave unused, so that one run names both.
-- Each argued item has `argument_check`, what its argument rests on, and its `standing`: `text` where its entry names no invariant (`{standing: "text"}`); under an invariant, `{invariant, standing, connection, evidence, proof}`.
+- Each argued item has `argument_check`, what its argument rests on, and its `standing`: `text` where its entry names no invariant (`{standing: "text"}`); under an invariant, `{invariant, standing, reason, function, connection, evidence, proof}`.
   The standings are `text`, `connected` (the connection holds and the evidence is vacuous), `checked-on-runs` (both hold), `proved` (also a proof) and `unchecked` (a check did not decide, or did not run).
   An item argued by a part (`argued_by`) has the part's `argument_check`.
 - Once every entry names an item an invariant can argue, the front end resolves each table's `function` and `cells` to the definition's KORE symbol and cell paths, before any mutant runs.
@@ -948,12 +959,42 @@ invariant = "memory-outside-rom"
   `incomplete` otherwise where a state of the item's set is undecided, a program is not comparable or its evidence run gave no sides, a path ends at an undefined step (whose state is no end and no point), a bound cut a prefix program's run, a path of a run of several paths stops being explored, or a rule of `S_R` has no label a run observes it by, with `reason`;
   `holds` where every state read gives `true` and one is before a step of `S_R`;
   `vacuous` where every state read gives `true` and none is: nothing tested the premise at a state the item's rule can match.
-- The standing is `checked-on-runs` where the connection and the evidence hold, `connected` where the connection holds and the evidence is vacuous, and otherwise `unchecked`, with `argument_check.reason` naming the connection's or the evidence's cause (what each standing trusts: kink's `trust.md`, "What an argued item's standing trusts").
+- Both checks evaluate the invariant's function with the backend's choice of matching, which presupposes that its equations define a function: one value at each input, whichever equation and whichever binding of a collection pattern is chosen.
+  `argument_check.function` is `{status, findings, reason}`: `findings` lists every finding of the baseline's full critical-pair check (the document's `data`) that involves an equation of a function the invariant's function reaches (the reach of "Families"), `{name, verdict, assumed, description}`; `status` is `shown` where there is none and the check is complete, `assumed` where each is assumed by a `[spec] assume_joined` name, and `not-shown` where one is not, or the check is incomplete, with `reason` naming the findings and the canonical form below.
+  An invariant not shown to be a function leaves every argued item that names it `unchecked` with that reason (so `coverage` exits 3), and refutes nothing: a failing connection or evidence read the function at one choice, and another could give it another value there.
+  An `assumed` function keeps the standing the checks give, which rests on that premise besides: the verdicts rendering, so the coverage lock, names it (`"<id>" = "checked-on-runs, assuming joined <name>, ..."`), so that a premise added or removed moves the lock.
+- The standing is `checked-on-runs` where the function is not `not-shown` and the connection and the evidence hold, `connected` where the connection holds and the evidence is vacuous, and otherwise `unchecked`, with `argument_check.reason` naming the function's, the connection's or the evidence's cause (what each standing trusts: kink's `trust.md`, "What an argued item's standing trusts").
   An `unchecked` item makes `coverage` exit 3: a corpus whose argument rests on an invariant no check confirmed is done only by its own claim, so the answer is inconclusive.
 - A connection that fails refutes the argument, and so does an evidence that fails: the invariant is false at a state of a run, so it is no invariant of the definition.
   The item is not argued but keeps its status, its target and its argument, and gains `argument_failed`, `{check, detail}` (`check` `connection` or `evidence`); `summary.failed_arguments` lists it, `{family, item, check, detail}`, and `coverage` exits 1, with or without `--locked`. An argument stands in for a program, and a refuted one stands in for nothing.
 - `summary.argued_by_standing` counts the argued items by standing, `{text, connected, checked_on_runs, proved, unchecked}`, adding up to `summary.argued`.
 - The text rendering states each argued item's standing, and its invariant where it names one (`  requirement:x:held [unchecked, invariant ordered]: <argument>`), and lists each refuted argument under `failed arguments:` (`  rule:x [the connection fails]: <detail>; it is open again`).
+
+Write an invariant that holds of every binding of a collection as its violation: one equation that gives `false` where some binding breaks it, under a condition on that binding, and an `owise` equation that gives `true`.
+In K, for a memory whose keys lie outside a ROM region below `E`:
+
+```k
+rule outsideRom((K:Int |-> _) _, E) => false requires inRom(E, K)
+rule outsideRom(_, _) => true [owise]
+```
+
+and in KRS:
+
+```rust
+#[k::requires(InRom(rom_end, addr))]
+#[k::equation]
+fn memory_in_rom(k::term![MemoryOutsideRom(map![addr -> _, ..], rom_end)]: Term<Bool>) -> Term<Bool> { false }
+#[k::equation(owise)]
+fn memory_outside_rom(k::term![MemoryOutsideRom(_, _)]: Term<Bool>) -> Term<Bool> { true }
+```
+
+Why it is a function: the map pattern can match one map at any of its bindings, so the critical-pair check pairs the first equation with itself; its result, `false`, reads no variable the choice binds, so every choice whose condition holds gives the same value, and the check joins the pair by that syntactic rule, with no premise.
+The `owise` equation is a priority group of its own, applied only where no binding satisfies the condition, so it overlaps nothing.
+The connection decides it at a rule's map pattern: the `false` equation applies at the rule's own binding under the obligation's condition.
+A recursive walk, `outsideRom((K |-> _) M, E) => notBool inRom(E, K) andBool outsideRom(M, E)`, reads the binding the pattern chose, and the check's model does not join its two-binding peak: in it a total function's stuck application is a normal form and `andBool`'s executable equations are literal-first, so `g1 andBool (g2 andBool F(R))` and `g2 andBool (g1 andBool F(R))` are distinct normal forms.
+The walk is reported as a finding, which leaves every argued item on it `unchecked`, and makes every mutation `unknown` (`baseline-findings`) unless `[spec] assume_joined` names it.
+The same violation form covers several bound entries, pairwise properties and nested collections; combine two invariants as a function `G(..) andBool H(..)` of two such functions rather than two `false` equations in one function.
+The invariant's function and any function only it applies are no obligation of any family ("Families"); a function the semantics also applies (`inRom`, which a read rule's condition applies) stays one.
 
 The verdicts rendering lists each family's argued ids beside its open ones, an argued flip's status `argued`, and each argued item's standing (`[arguments]`), so adding or removing an argument, or a standing that moves, moves the coverage lock; rewording one does not ("Verdicts").
 
@@ -1028,6 +1069,7 @@ Version 15 (FB-38) matches a function equation, and covers its requirements, at 
 Version 16 (FB-39) reads `[[coverage.invariant]]` and an entry's `invariant` ("Argued obligations"): `settings.invariants`, each `settings.argued` entry's `invariant`, every argued item's `argument_check`, the summary's `argued_by_standing` and `failed_arguments`, the refusals `invariant-unused` and `argued-invariant-unsupported`, `lock.argument_changes`, and each argued item's standing in the text rendering.
 Version 17 (FB-39) checks an argued item's invariant by its connection ("Argued obligations"): `settings.invariants[].identity` as the front end resolved it, the document's `argument_checks` (`{invariant, connection}` by item id), each argued item's `argument_check.connection` and `reason`, a refuted item's `argument_failed` and its entry in `summary.failed_arguments`, the refusals `invariant-unresolved`, `invariant-not-bool` and `invariant-unsupported-front-end`, and the text rendering's `failed arguments`.
 Version 18 (FB-39) also checks an argued item's invariant by its evidence on the corpus's runs ("Argued obligations"): `argument_check.evidence` and each `argument_checks` entry's `evidence`, the standings `checked-on-runs` and `connected`, the check `evidence` of a refuted item's `argument_failed`, and `summary.invariant_runs`.
+Version 19 (FB-39) sets aside the functions only the manifest's invariants reach ("Families"): the rules status `invariant` with its `reason`, the rules family's `counts.invariant`, the text rendering's `invariant` count, and a flip that changes only such sentences under `not_generated` with reason `invariant`, so the rules, requirements, syntax and flips families can have fewer obligations than version 18 gives the same corpus; and it rests an argued standing on its invariant being a function ("Argued obligations"): `argument_check.function` and each `argument_checks` entry's `function`, `{status, findings, reason}`, and an item whose invariant is `not-shown` is `unchecked` with that reason and refuted by nothing.
 `settings` is `{tiers, depth, mcdc, max_obligations, invariants, argued, source}` (`mcdc` the names as written, or `true`; `invariants` the tables as written, `{name, function, cells, identity}`, `identity` what the checks are about once the front end resolved the invariant, null on a document refused before that; `argued` the entries as written, `{item, argument, invariant}`, `invariant` null where the entry names none) (`source` `manifest` when `FLOW.toml` has a `[coverage]` section, else `default`).
 `programs` lists every program `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, decider_smt_unknowns, ends, short_circuit_readings, expectation?, observations?, not_cached?, cache_error?, unable_to_kill?}` (`observations` under `[observe]`, "What a run observes") (`ends` from the result record, null unless comparable; `short_circuit_readings` the readings that excluded the baseline run, empty for every other run; `specification_diagnostics` and `smt_unknowns` absent on a `refused` row; a `comparable` row has `unable_to_kill: "baseline-findings"` while the baseline has a finding `[spec] assume_joined` leaves unnamed, its class and coverage being facts of the run k-rust made).
 `families` holds each family by name: `{tier, obligations, covered, argued, measure, counts, items}` where built.
@@ -1740,7 +1782,7 @@ It is the format of recorded outputs and, without `killed_by`, of the `verdicts.
 
 ```toml
 schema = "kink-flow-verdicts"
-version = 21
+version = 22
 document = "coverage"         # or "run"
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
@@ -1881,6 +1923,7 @@ Version 18 also lists the open and argued syntax paths (`[syntax_paths]`, every 
 Version 19 (FB-38) renders the statuses, guard outcomes and requirements of a function equation that cover every application its left-hand side matches whose deciding priority group is its own, tried or not ("Guard outcomes"): a coverage lock's open rules, `[[guard]]` entries and open requirements of equations can move for that reason alone, which the `version` line then says, rather than reading as a change of the corpus; a run rendering is unchanged but for its `version` line.
 Version 20 writes every array of strings or inline tables with one value per line, an empty one included (above), where version 19 wrote each on one line; the values are unchanged, so a lock recorded at version 19 differs from a version 20 rendering of the same verdicts in its layout and its `version` line only.
 Version 21 (FB-39) gives a coverage rendering `[arguments]`, each argued item's standing ("Argued obligations"), so that a lock records what each argument rests on and a standing that moves makes it stale; a coverage lock recorded at version 20 differs from a version 21 rendering of the same coverage in its `version` line and the new section only, and a run rendering in its `version` line only.
+Version 22 (FB-39) renders coverage document version 19: an invariant-only equation is no obligation ("Families"), so a lock whose open lists and flips move for that reason shows a new version, not a corpus change; an `[arguments]` line names the assumed findings its standing rests on (`"<id>" = "<standing>, assuming joined <name>, ..."`); and an item whose invariant is not shown to be a function is `unchecked`. A run rendering differs from version 21's in its `version` line only.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 

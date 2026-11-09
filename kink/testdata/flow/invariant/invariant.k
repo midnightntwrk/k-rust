@@ -1,7 +1,9 @@
 // Flow fixture (FB-39): argued obligations whose arguments rest on invariants. A memory whose keys
 // an invariant keeps outside a ROM region, read by a pair of rules split on the region and written
 // by a rule that may store anywhere, and two scalar cells an invariant orders; the corpus only
-// idles, so no read, write and bump is matched, and a test adds the programs it needs.
+// idles, so no read, write and bump is matched, and a test adds the programs it needs. `inRom` is
+// applied by the read rules too, so it stays an obligation under any invariant; the invariants'
+// own functions are applied by no rule.
 module INVARIANT-SYNTAX
   imports INT-SYNTAX
   syntax Pgm ::= read(Int)       [symbol(read)]
@@ -31,11 +33,21 @@ module INVARIANT
   syntax Bool ::= inRom(Int, Int) [function, total, symbol(inRom)]
   rule inRom(E, A) => A <Int E
 
-  // No key of the map lies in the ROM region: a walk over the map's bindings.
+  // No key of the map lies in the ROM region, written as its violation: `false` where some
+  // binding breaks it, `true` otherwise. Whichever binding the map pattern takes, the first
+  // equation gives `false`, so its self-pair joins, and the `owise` equation is a priority group
+  // of its own.
   syntax Bool ::= outsideRom(Map, Int) [function, total, symbol(outsideRom)]
-  rule outsideRom(.Map, _) => true
-  rule outsideRom((K:Int |-> _) M, E) => notBool inRom(E, K) andBool outsideRom(M, E)
-  rule outsideRom((_ |-> _) M, E) => outsideRom(M, E) [owise]
+  rule outsideRom((K:Int |-> _) _, E) => false requires inRom(E, K)
+  rule outsideRom(_, _) => true [owise]
+
+  // The same invariant as a recursive walk over the map's bindings: its right-hand side reads the
+  // binding the map pattern took, so the critical-pair check does not show its self-pair to join,
+  // and it is not shown to be a function.
+  syntax Bool ::= outsideRomWalk(Map, Int) [function, total, symbol(outsideRomWalk)]
+  rule outsideRomWalk(.Map, _) => true
+  rule outsideRomWalk((K:Int |-> _) M, E) => notBool inRom(E, K) andBool outsideRomWalk(M, E)
+  rule outsideRomWalk((_ |-> _) M, E) => outsideRomWalk(M, E) [owise]
 
   // The same invariant, as a fold over the list of the map's keys.
   syntax Bool ::= outsideRomKeys(Map, Int) [function, total, symbol(outsideRomKeys)]
@@ -51,8 +63,8 @@ module INVARIANT
   rule ordered(A, B) => A <=Int B
   syntax Int ::= gap(Int, Int) [function, total, symbol(gap)]
   rule gap(A, B) => B -Int A
-  // The walk under another function, and a claim false of every state, which therefore excludes
-  // everything.
+  // The same invariant under another function, and a claim false of every state, which
+  // therefore excludes everything.
   syntax Bool ::= outsideRomToo(Map, Int) [function, total, symbol(outsideRomToo)]
   rule outsideRomToo(M, E) => outsideRom(M, E)
   syntax Bool ::= never(Int) [function, total, symbol(never)]

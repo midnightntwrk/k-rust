@@ -340,6 +340,30 @@ impl DataFacts {
             .collect()
     }
 
+    /// Every finding that involves an equation of one of `heads` (KORE symbol names), the assumed
+    /// ones marked, the unassumed first: those kink's consistency gate reads for those heads
+    /// ([`Self::reads`]: a pair or an equation report with an equation of one of them, an
+    /// equation indexed at no symbol counting as every head's, and every precondition row that
+    /// names one or none). What a function's equations state rests on exactly these: a finding
+    /// outside them is about equations no evaluation of an application of `heads` uses, when
+    /// `heads` is closed under the equations' reach (`consistency::EquationReach`).
+    #[must_use]
+    pub fn findings_at(&self, heads: &BTreeSet<String>) -> Vec<NamedFinding> {
+        let unnamed = self
+            .heads
+            .findings()
+            .iter()
+            .filter(|finding| self.reads(finding, Some(heads)))
+            .map(|finding| NamedFinding::of(finding, false));
+        let assumed = self
+            .heads
+            .assumed()
+            .iter()
+            .filter(|finding| self.reads(finding, Some(heads)))
+            .map(|finding| NamedFinding::of(finding, true));
+        unnamed.chain(assumed).collect()
+    }
+
     /// The names of [`Self::assume_joined`] this definition refuses: a name that matches no
     /// finding, more than one finding (the hook pairs of one equation are one finding), or a
     /// decided finding, which is a fact about the definition as written.
