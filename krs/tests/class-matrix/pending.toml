@@ -708,10 +708,6 @@ deviation = "krs::analysis::invalid-list-notation @ spelling"
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
-["claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
-finding = "S5-B1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
 ["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
 deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
@@ -727,10 +723,6 @@ deviation = "krs::expand::parse @ spelling"
 ["init/kinds/stack/[0, r @ ..]"]
 finding = "S0-9"
 deviation = "krs::expand::parse @ spelling"
-
-["readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
-finding = "S5-B1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
 
 # S5.3 part 2: readable and claim reds the sentence-order rulings move (a readable route is S5.2's):
 # a result case on a cell below a marked ancestor whose subject now matches the cell through the ancestor

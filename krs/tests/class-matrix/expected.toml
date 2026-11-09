@@ -7248,6 +7248,11 @@ class = "instance-update-base-elsewhere"
 at = "spelling"
 
 [[refuse]]
+match = '{claim,readable}/g1-e/kinds/account/\{ Acct \{ aenv: \{ x -> 1 \}\, ..me \}\, .. \}'
+class = "instance-update-base-elsewhere"
+at = "spelling"
+
+[[refuse]]
 match = '{claim,readable}/g4-c/kinds/account/\{ Acct \{ aqueue: Aqueue \{ ajob: [Ajob \{ apay: x\, ..j \}\, ..] \}\, ..me \}\, .. \}'
 class = "nested-anonymous-rest"
 at = "spelling"
@@ -17529,8 +17534,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
-
 [accept."claim/g1-restore/kinds/frame/G { a: x, ..saved }"]
 k = """
 claim [case-TAG]:
@@ -17668,8 +17671,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
-
-[accept."readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 
 [accept."readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
 k = """
