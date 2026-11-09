@@ -313,7 +313,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 41] = [
+pub const OUTSIDE_IDENTITY: [Outside; 43] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -547,6 +547,22 @@ pub const OUTSIDE_IDENTITY: [Outside; 41] = [
                  its reader requires it in the record's key, which also holds `kink_build`, the \
                  whole identity and the solver, and checks the record's digest under that key \
                  (memo.rs read); a record gives one answer of an argued item's connection",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "EVIDENCE_MEMO_VERSION",
+        reason: "the evidence memo record's format and meaning (an argued item's invariant read \
+                 on one program's run): its reader requires it in the record's key, whose result \
+                 key also holds `kink_build` and the whole identity, and checks the record's \
+                 digest under that key (memo.rs read)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "ELEMENT_DOMAIN",
+        reason: "the domain of an invariant evidence element's digest (coverage/evidence.rs): an \
+                 element is `true` or `false`, its digest is decoded by the build that digested it \
+                 within one evidence run, and a record of what a run read is kept only under a \
+                 key that holds `kink_build`, so a change of this domain changes no value read",
     },
     Outside {
         krate: "kink-flow",
