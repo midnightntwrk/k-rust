@@ -9105,9 +9105,10 @@ fn krun_neither_branches_nor_ends_on_a_result_above_the_size_bound() {
 /// result above the bound is read through `^Int`'s interpreted SMT encoding, never as an
 /// unsupported hook, and the state is never a solution of `X <=Int 0`. Whether the linked solver
 /// decides it is the solver's: a decided search makes the state a solution of `X >Int 0` only,
-/// and an undecided one is an incomplete search naming the solver's reason (Z3 5.3.3 answers
-/// "power is too large to compute" where 4.16.0 decides). `i` hides the shift amount and the
-/// exponent from the constant folder.
+/// and an undecided one is an incomplete search naming the solver's reason. Z3 5.3.3 decides
+/// both: it refutes `X <=Int 0`, and builds no model of `X >Int 0` ("power is too large to
+/// compute") but refutes its negation (the in-process test of `execution_semantics.rs` requires
+/// the decision). `i` hides the shift amount and the exponent from the constant folder.
 #[test]
 fn krun_search_matches_no_condition_on_a_result_above_the_size_bound() {
     let (root, definition) = fixture();

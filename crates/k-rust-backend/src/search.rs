@@ -3404,12 +3404,25 @@ fn match_condition(
         Truth::True => {}
         Truth::Unknown => {
             // A stop leaves the match without an answer; it is returned, never read as a match.
+            //
+            // An unknown satisfiability answer is held rather than returned while the
+            // constraints hold an application above a result size bound. A model of `facts ∧ C`
+            // gives that application a value, so the solver can decline to build one for the
+            // reason the backend declined to compute it (Z3 5.3.3 answers "power is too large
+            // to compute" for `2 ^Int 16777217 >Int 0`), although the atom has one truth value
+            // on the subject and that value does not depend on the digits: a power of a
+            // positive base is positive. Whether the match exists is the question below, whether
+            // the refused constraints hold on every instance of the rest or on none, and a
+            // refutation of either side needs no model of the value. The held answer is the
+            // match's error only where that question is not decided either.
+            let mut undecided_satisfiability = None;
             if !retain_unknown {
                 match is_sat_with_facts(solver, facts.as_known(), &constraints, &substitution)? {
                     Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
                     Ok(Satisfiability::Sat) => {}
                     Ok(Satisfiability::Unknown(reason)) => {
-                        return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+                        undecided_satisfiability =
+                            Some(PatternMatchError::Smt(SmtError::Unknown(reason)));
                     }
                     Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
                 }
@@ -3422,24 +3435,47 @@ fn match_condition(
             // hold one on every instance. A refutation above is sound and still gives no match;
             // the substitution may bind such an application, which decides nothing.
             if let Err(error) = refuse_uncomputed_applications(definition, None, &constraints)? {
-                return Ok(
-                    match decide_refused_constraints(
-                        definition,
-                        solver,
-                        facts.as_known(),
-                        constraints,
-                        &substitution,
-                    )? {
-                        RefusedConstraints::Valid(constraints) => Ok(Some(PatternMatch {
-                            substitution,
-                            constraints: reported(constraints),
-                        })),
-                        RefusedConstraints::Refuted => Ok(None),
-                        RefusedConstraints::Undecided => {
-                            Err(PatternMatchError::Simplification(error))
-                        }
-                    },
-                );
+                let rest = match decide_refused_constraints(
+                    definition,
+                    solver,
+                    facts.as_known(),
+                    constraints,
+                    &substitution,
+                )? {
+                    RefusedConstraints::Valid(rest) => rest,
+                    RefusedConstraints::Refuted => return Ok(Ok(None)),
+                    // Where the solver gave a reason it is the one reported: it read the hook
+                    // through an interpreted encoding and did not decide, which is not the
+                    // arbitrary-function reading the unsupported-hook error names.
+                    RefusedConstraints::Undecided => {
+                        return Ok(Err(undecided_satisfiability
+                            .unwrap_or(PatternMatchError::Simplification(error))));
+                    }
+                };
+                // On the subject's instances `C` is now `rest`: every instance of `facts ∧ rest`
+                // satisfies the refused constraints. A held answer left `C` without a model, and
+                // a validity proof need not show its premises satisfiable, so a nonempty `rest`
+                // is asked for one as `C` would have been; it holds no refused application, but
+                // the substitution may bind one, and an unknown answer is then the held error.
+                // An empty `rest` is `⊤`, the condition a match under a condition simplified to
+                // `⊤` reports: the facts alone, stated as they are there.
+                if let Some(held) = undecided_satisfiability
+                    && !rest.is_empty()
+                {
+                    match is_sat_with_facts(solver, facts.as_known(), &rest, &substitution)? {
+                        Ok(Satisfiability::Sat) => {}
+                        Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
+                        Ok(Satisfiability::Unknown(_)) => return Ok(Err(held)),
+                        Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
+                    }
+                }
+                return Ok(Ok(Some(PatternMatch {
+                    substitution,
+                    constraints: reported(rest),
+                })));
+            }
+            if let Some(held) = undecided_satisfiability {
+                return Ok(Err(held));
             }
         }
     }

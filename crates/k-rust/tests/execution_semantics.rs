@@ -589,7 +589,9 @@ fn an_application_without_an_evaluator_halts_a_run_only_where_it_is_needed() {
 
 /// A search target's condition over a `^Int` result above the size bound is decided by the
 /// solver, which reads `^Int` as the interpreted power: the final `f(X)` of `power` is a solution
-/// of `X >Int 0` and not of `X <=Int 0`. One over a `<<Int` result above the bound (no
+/// of `X >Int 0` and not of `X <=Int 0`. Neither decision needs a value of the power: the linked
+/// Z3 5.3.3 refutes `X <=Int 0`, and builds no model of `X >Int 0` ("power is too large to
+/// compute") but refutes its negation. One over a `<<Int` result above the bound (no
 /// interpreted encoding) is not decided either way: the search reports the state as incomplete
 /// with the unsupported-hook reason and finds no solution.
 #[cfg(feature = "z3-inference")]
