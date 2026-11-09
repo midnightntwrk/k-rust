@@ -1055,6 +1055,8 @@ impl<'a> Walker<'a> {
                     self.walk(to, at, false)?;
                 }
             }
+            // A local pattern matches the value it is written over, so its parts are that
+            // value's parts: at a typed collection, its keys, values and elements.
             DescriptorTerm::Let {
                 pattern,
                 value,
@@ -1062,7 +1064,9 @@ impl<'a> Walker<'a> {
                 ..
             } => {
                 self.walk(value, None, subject)?;
+                let matched = self.typed_source(value);
                 self.locals.push(pattern_names(pattern));
+                self.walk(pattern, matched.as_ref(), true)?;
                 self.walk(body, at, subject)?;
                 self.locals.pop();
             }
@@ -1072,8 +1076,9 @@ impl<'a> Walker<'a> {
                 ..
             } => {
                 self.walk(tested, None, subject)?;
+                let matched = self.typed_source(tested);
                 self.locals.push(pattern_names(pattern));
-                self.walk(pattern, None, true)?;
+                self.walk(pattern, matched.as_ref(), true)?;
                 self.locals.pop();
             }
             DescriptorTerm::Closure { name, body, .. } => {

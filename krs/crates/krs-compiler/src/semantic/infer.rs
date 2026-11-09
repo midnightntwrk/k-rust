@@ -1073,9 +1073,15 @@ impl StructuredTermBuilder<'_> {
                 sorts.insert(name.clone(), ascribed.clone());
             }
         } else {
+            // Brackets are the list the value is, as far as it is known before the pattern.
+            let expected = ascribed.clone().or_else(|| {
+                names_its_list_by_position(pattern)
+                    .then(|| self.operand_sort(value))
+                    .flatten()
+            });
             let outer = std::mem::take(&mut self.binding_constraints);
             self.locals.inferring = Some(names.clone());
-            let inferred = self.infer(pattern, ascribed.as_ref(), true);
+            let inferred = self.infer(pattern, expected.as_ref(), true);
             self.locals.inferring = None;
             let constraints = std::mem::replace(&mut self.binding_constraints, outer);
             inferred?;
@@ -1151,8 +1157,10 @@ impl StructuredTermBuilder<'_> {
             binds.push(id.clone());
             scope.insert(name, (id, sort));
         }
-        let pattern_sort =
-            ascribed.or_else(|| is_bare_let_pattern(pattern).then(|| value.sort().clone()));
+        let pattern_sort = ascribed.or_else(|| {
+            (is_bare_let_pattern(pattern) || names_its_list_by_position(pattern))
+                .then(|| value.sort().clone())
+        });
         self.locals.scope = Some(scope.clone());
         let lowered = self.lower(pattern, pattern_sort.as_ref(), true);
         self.locals.scope = None;
@@ -1300,6 +1308,10 @@ impl StructuredTermBuilder<'_> {
             .keys()
             .map(|name| (*name).to_owned())
             .collect::<BTreeSet<_>>();
+        // Brackets are the list the tested term is, as far as it is known before the pattern.
+        let expected = names_its_list_by_position(pattern)
+            .then(|| self.operand_sort(tested))
+            .flatten();
         let outer = std::mem::take(&mut self.binding_constraints);
         self.locals.inferring = Some(names.clone());
         // A whole pattern `_` binds nothing and constrains no sort: it matches the tested term
@@ -1307,7 +1319,7 @@ impl StructuredTermBuilder<'_> {
         let inferred = if matches!(pattern, DescriptorTerm::Wildcard { .. }) {
             Ok(())
         } else {
-            self.infer(pattern, None, true)
+            self.infer(pattern, expected.as_ref(), true)
         };
         self.locals.inferring = None;
         let constraints = std::mem::replace(&mut self.binding_constraints, outer);
@@ -1358,8 +1370,11 @@ impl StructuredTermBuilder<'_> {
             scope.insert(name, (id, sort));
         }
         self.locals.scope = Some(scope);
-        // A whole pattern `_` matches the tested term whatever it is, at the term's sort.
-        let any = matches!(pattern, DescriptorTerm::Wildcard { .. }).then(|| tested.sort().clone());
+        // A whole pattern `_` matches the tested term whatever it is, at the term's sort, and
+        // brackets are the list the tested term is.
+        let any = (matches!(pattern, DescriptorTerm::Wildcard { .. })
+            || names_its_list_by_position(pattern))
+        .then(|| tested.sort().clone());
         let lowered = self.lower(pattern, any.as_ref(), true);
         self.locals.scope = None;
         let lowered = lowered?;
@@ -4239,6 +4254,19 @@ const fn is_bare_let_pattern(pattern: &DescriptorTerm) -> bool {
     matches!(
         pattern,
         DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. }
+    )
+}
+
+/// Whether a local pattern is list brackets, `[x, ..]`: the one pattern that has no sort of its
+/// own, since the brackets denote the list their position is (a cons list's constructors or
+/// the builtin `List`'s items). A `let` or `k::matches!` pattern stands where the value it
+/// matches is, so that value's sort is the list they denote. Every other pattern's sort is its
+/// own, and must only meet the value's.
+fn names_its_list_by_position(pattern: &DescriptorTerm) -> bool {
+    matches!(
+        pattern,
+        DescriptorTerm::Application { reference, .. }
+            if matches!(reference.application, DescriptorApplicationRef::ListNotation(_))
     )
 }
 

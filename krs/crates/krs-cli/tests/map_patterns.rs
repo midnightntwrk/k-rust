@@ -525,3 +525,131 @@ fn a_map_literal_in_a_nested_set_collections_instance_is_the_map_it_builds() {
     "#]]
     .assert_debug_eq(&errors);
 }
+
+/// Local patterns over typed collections: a map of Ints and a list of Ints.
+const TYPED: &str = r#"
+use k::builtin::{Bool, Int, KSequence, List, Map, list, map};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum ExpSyntax {
+    #[k::syntax("second")]
+    Second(),
+    #[k::syntax("front")]
+    Front(),
+    #[k::syntax("same")]
+    Same(),
+    #[k::syntax("twin")]
+    Twin(),
+}
+
+/// The value at 2 of a map of Ints, read by a `let`: an Int.
+#[k::function(partial, internal)]
+pub fn ValueAtTwo(memory: Term<Map<Int, Int>>) -> Term<Int> {
+    let map![2 -> v, ..] = memory;
+    v
+}
+
+/// The first element of a list of Ints, read by a `let`: an Int.
+#[k::function(partial, internal)]
+pub fn First(stack: Term<List<Int>>) -> Term<Int> {
+    let [x, ..] = stack;
+    x
+}
+
+/// Whether the values at 2 and 3 are one value.
+#[k::function(total, internal)]
+pub fn SameAtTwoAndThree(memory: Term<Map<Int, Int>>) -> Term<Bool> {
+    k::matches!(memory, map![2 -> v, 3 -> v, ..])
+}
+
+/// Whether the list starts with one element twice.
+#[k::function(total, internal)]
+pub fn StartsTwice(stack: Term<List<Int>>) -> Term<Bool> {
+    k::matches!(stack, [x, x, ..])
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub mem: Map<Int, Int>,
+    #[k::cell]
+    pub stack: List<Int>,
+    #[k::cell]
+    pub seen: Int,
+    #[k::cell]
+    pub out: Bool,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            mem: map![1 -> 10, 2 -> 20, 3 -> 20],
+            stack: list::concat(list::item(7), list::concat(list::item(7), list::item(8))),
+            seen: 0,
+            out: false,
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use ExpSyntax::*;
+
+    second: { k: [Second(), ..], mem: m } => { k: [..], seen: ValueAtTwo(m) };
+    front: { k: [Front(), ..], stack: s } => { k: [..], seen: First(s) };
+    same: { k: [Same(), ..], mem: m } => { k: [..], out: SameAtTwoAndThree(m) };
+    twin: { k: [Twin(), ..], stack: s } => { k: [..], out: StartsTwice(s) };
+}
+"#;
+
+/// A local pattern matches the value the rule computed, so its binders range over that value's
+/// parts: a `let` or a `k::matches!` pattern over a `Map<Int, Int>` or a `List<Int>` binds its
+/// entries' values and its elements at `Int`, as the same pattern at a parameter of that type
+/// does, and a `let` binder returned at `Int` is accepted.
+#[test]
+fn a_local_pattern_binds_the_parts_of_a_typed_collection_at_their_types() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "mappatterns", TYPED);
+    let k = emitted_k(target.path(), &manifest);
+    expect_test::expect![[r#"
+        [
+            "rule first ( Stack:List ) => ( #let ListItem(X:Int) _ = Stack:List #in X:Int ) [label(org_krs_mappatterns--first)]",
+            "rule valueAtTwo ( Memory:Map ) => ( #let 2 |-> V:Int _ = Memory:Map #in V:Int ) [label(org_krs_mappatterns--value_at_two)]",
+            "rule sameAtTwoAndThree ( Memory:Map ) => ( 2 |-> V:Int 3 |-> V:Int _ :=K Memory:Map ) [label(org_krs_mappatterns--same_at_two_and_three)]",
+            "rule startsTwice ( Stack:List ) => ( ListItem(X:Int) ListItem(X:Int) _ :=K Stack:List ) [label(org_krs_mappatterns--starts_twice)]",
+        ]
+    "#]].assert_debug_eq(
+        &[lines_with(&k, "#let"), lines_with(&k, ":=K")].concat(),
+    );
+    let outcomes = [
+        ("second", "seen"),
+        ("front", "seen"),
+        ("same", "out"),
+        ("twin", "out"),
+    ]
+    .map(|(program, cell)| {
+        format!(
+            "{program} => {cell}: {}",
+            run_cell(target.path(), &manifest, program, cell)
+        )
+    });
+    expect_test::expect![[r#"
+        [
+            "second => seen: 20",
+            "front => seen: 7",
+            "same => out: true",
+            "twin => out: true",
+        ]
+    "#]]
+    .assert_debug_eq(&outcomes);
+}
