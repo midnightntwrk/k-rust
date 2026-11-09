@@ -292,11 +292,13 @@ pub fn keys_on_path<T: CellTree + ?Sized>(tree: &T, index: usize) -> Vec<(usize,
         .collect()
 }
 
-/// Why a rule about one instance of the Map collection cell `holder`, whose instance type is the
-/// group `group`, may not write the cell `cell`, which is the instance's key `key` or lies inside
-/// it: the one text of every route that judges a key a rule for the group writes. An entry of
-/// the collection in a rule about an enclosing cell writes the key with another source, refused
-/// with [`key_update_reason`].
+/// Why a rule whose cells lie in one instance of the Map collection cell `holder`, whose instance
+/// type is the group `group`, may not write the cell `cell`, which is the instance's key `key` or
+/// lies inside it: the one text of every route that judges such a write, whether the rule is for
+/// `group`, for a group inside the instance, or for an enclosing group or the configuration that
+/// names the instance's cells directly. The text names no rule: each of those is a step of the
+/// one instance its cells lie in. An entry of the collection in a rule about an enclosing cell
+/// writes the key with another source, refused with [`key_update_reason`].
 #[must_use]
 pub fn key_write_reason(group: &str, holder: &str, key: &str, cell: &str) -> String {
     let written = if cell == key {
@@ -305,7 +307,7 @@ pub fn key_write_reason(group: &str, holder: &str, key: &str, cell: &str) -> Str
         format!("`{cell}`, a cell inside the key `{key}`,")
     };
     format!(
-        "the rule writes {written} of the instance of the Map collection `{holder}` it is about: a rule for `{group}` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it"
+        "the rule writes {written} of the `{group}` instance of the Map collection `{holder}` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it"
     )
 }
 

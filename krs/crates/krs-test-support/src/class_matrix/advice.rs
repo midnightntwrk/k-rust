@@ -643,12 +643,11 @@ pub const UNCHECKED: &[Unchecked] = &[
     Unchecked {
         class: "collection-without-instances",
         forms: &[
-            r"`account: \{ k::fragment![crate::Acct \{ {aenv,apc}: ..\, .. \}]\, .. \}`",
             r"`line: [L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: ..\, .. \}\, ..]`",
             r"`line: [k::fragment![crate::L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: ..\, .. \}]\, ..]`",
         ],
-        shards: &["cells", "sweep-paths"],
-        reason: "the advice names the cell inside the instance record of its outermost collection ancestor, at that cell (S1 (b), design §2.7), which only a case naming that child of that collection's instance writes; the class's advised cases name `payload` of `job`, `key` of `bag` and `id` of `account`, and no case names `apc` of `account` (which only an equation's function context and a context alias still refuse there, IC-5) or a child of the path sweep's `line`",
+        shards: &["sweep-paths"],
+        reason: "the advice names the cell inside the instance record of its outermost collection ancestor, at that cell (S1 (b), design §2.7), which only a case naming that child of that collection's instance writes; the class's advised cases name `payload` of `job`, `key` of `bag` and `id` of `account`, and no case names a child of the path sweep's `line`. An equation's function context and a context alias, which read fixed cells only, are advised no instance record (`apc` of `account`, SMALLFIX)",
     },
     Unchecked {
         class: "configuration-variable-sort",

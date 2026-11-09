@@ -2803,12 +2803,12 @@ fn a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold() {
             ],
             [
                 "key",
-                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `hart` it is about: a rule for `Hart` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the `Hart` instance of the Map collection `hart` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smp/src/lib.rs: `k::builtin::int:`",
             ],
             [
                 "key-cells",
-                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `hart` it is about: a rule for `Hart` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the `Hart` instance of the Map collection `hart` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smp/src/lib.rs: `k::configuration`",
             ],
             [
@@ -3988,12 +3988,12 @@ fn a_sentence_about_one_instance_is_refused_where_it_writes_the_key() {
         [
             [
                 "inside-key",
-                "error[krs::analysis::map-collection-key]: the rule writes `pc`, a cell inside the key `cpu`, of the instance of the Map collection `node` it is about: a rule for `Node` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `pc`, a cell inside the key `cpu`, of the `Node` instance of the Map collection `node` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> grid/src/lib.rs: `k::builtin::int:`",
             ],
             [
                 "inside-key-cells",
-                "error[krs::analysis::map-collection-key]: the rule writes `pc`, a cell inside the key `cpu`, of the instance of the Map collection `node` it is about: a rule for `Node` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `pc`, a cell inside the key `cpu`, of the `Node` instance of the Map collection `node` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> grid/src/lib.rs: `k::configuration`",
             ],
             [
@@ -4008,12 +4008,12 @@ fn a_sentence_about_one_instance_is_refused_where_it_writes_the_key() {
             ],
             [
                 "key-rewrite-inside-cells",
-                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `unit` it is about: a rule for `Unit` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the `Unit` instance of the Map collection `unit` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> tagged/src/lib.rs: `k::configuration`",
             ],
             [
                 "key-rewrite-whole-cells",
-                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `unit` it is about: a rule for `Unit` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the `Unit` instance of the Map collection `unit` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> tagged/src/lib.rs: `k::configuration`",
             ],
             [
@@ -5203,7 +5203,7 @@ fn a_record_naming_a_cell_of_a_nested_instance_is_inside_it() {
             ],
             [
                 "record-key-written",
-                "error[krs::analysis::map-collection-key]: the rule writes `tid`, the key of the instance of the Map collection `thread` it is about: a rule for `Thread` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `tid`, the key of the `Thread` instance of the Map collection `thread` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smt/src/lib.rs: `3 };`",
             ],
             [
@@ -5548,22 +5548,22 @@ fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
             ],
             [
                 "configuration-key-written",
-                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the `Core` instance of the Map collection `core` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smt/src/lib.rs: `3 };`",
             ],
             [
                 "configuration-key-written-cells",
-                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the `Core` instance of the Map collection `core` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smt/src/lib.rs: `k::configuration`",
             ],
             [
                 "configuration-key-written-beside-spare",
-                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the `Core` instance of the Map collection `core` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smt/src/lib.rs: `3 };`",
             ],
             [
                 "configuration-key-written-beside-spare-cells",
-                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the instance of the Map collection `core` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "error[krs::analysis::map-collection-key]: the rule writes `cid`, the key of the `Core` instance of the Map collection `core` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
                 "--> smt/src/lib.rs: `k::configuration`",
             ],
             [

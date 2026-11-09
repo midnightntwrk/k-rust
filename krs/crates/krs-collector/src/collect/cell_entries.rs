@@ -469,6 +469,7 @@ pub(super) fn judge_readable(
                 authored.form,
                 entry,
                 side,
+                Rewrite::Result,
                 &refusal,
                 target.groups(),
             ))
@@ -548,6 +549,7 @@ pub(super) fn judge_initializer(
             EntryForm::Initializer,
             &entries[at],
             EntrySide::Initializer,
+            Rewrite::Result,
             &refusal,
             groups,
         )
@@ -791,6 +793,7 @@ fn judge_sentence(
                 EntryForm::Cells,
                 entry(at),
                 side,
+                rewrite,
                 &refusal,
                 &tree.groups,
             ))
@@ -1317,10 +1320,10 @@ fn advice(
     form: EntryForm,
     entry: &RefusedCell<'_>,
     side: EntrySide,
+    rewrite: Rewrite,
     refusal: Refusal,
     groups: &[GroupKind],
 ) -> Option<String> {
-    let name = entry.name;
     let own = entry.layers;
     match refusal {
         Refusal::CellWrapper | Refusal::InstanceListShape => {
@@ -1334,7 +1337,7 @@ fn advice(
             Some("write its entry inside `Some(..)`, or as `None` for its absence".to_owned())
         }
         Refusal::BelowOptionalAncestor | Refusal::BelowCollectionAncestor => {
-            below_ancestor(form, name, entry.ancestor?, side, groups)
+            below_ancestor(form, entry, entry.ancestor?, side, rewrite, groups)
         }
         Refusal::RestMismatch => Some(
             "write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"
@@ -1372,21 +1375,45 @@ fn advice(
     }
 }
 
-/// The advice of a path refusal of the entry naming `name`, below its outermost `?` or `*`
-/// ancestor `ancestor` ([`advice`]).
+/// The advice of a path refusal of the entry `entry`, below its outermost `?` or `*` ancestor
+/// `ancestor` ([`advice`]).
+///
+/// The record of the ancestor (its group's inside `Some(..)`, or its instance record) is the
+/// form an entry for the cell takes, except where no record writes it: a record names no `?` or
+/// `*` child yet, so a cell that is one, or that lies below one inside the ancestor's group, is
+/// out of every record's reach; and a context alias or an equation's function context reads
+/// fixed cells only, so no `Some(..)` or instance list is a form there at all.
 fn below_ancestor(
     form: EntryForm,
-    name: &str,
+    entry: &RefusedCell<'_>,
     ancestor: &Ancestor,
     side: EntrySide,
+    rewrite: Rewrite,
     groups: &[GroupKind],
 ) -> Option<String> {
+    let name = entry.name;
     let marked = &ancestor.marked;
     let holder = &marked.name;
     let of = match &marked.layer {
         Layer::Optional => format!("`{name}` is a cell of the optional group `{holder}`"),
         _ => format!("`{name}` is a cell of an instance of the collection `{holder}`"),
     };
+    let own_mark = matches!(
+        entry.layers.first(),
+        Some(Layer::Optional | Layer::Instances(_))
+    );
+    let below_another = entry.path.len() > 1;
+    if rewrite == (Rewrite::Kept { as_rule: false }) {
+        return Some(read_fixed_cells_only(
+            &of,
+            name,
+            marked,
+            own_mark || below_another,
+        ));
+    }
+    if !marked.direct && (own_mark || below_another) {
+        return Some(out_of_records(&of, name, marked, own_mark));
+    }
     let key = match &marked.layer {
         Layer::Instances(order) => groups
             .iter()
@@ -1447,6 +1474,69 @@ fn below_ancestor(
             "{of}; so write the entry inside its record, `{holder}: {}`",
             marked_around(&record(&format!("{name}: .., .."))),
         )),
+    }
+}
+
+/// The advice of a path refusal in a context alias or an equation's function context, which read
+/// fixed cells only ([`cell_entries::fixed_cells_only_reason`]): a sentence of either form reads
+/// one instance's cells only where it is typed by the instance's group, which an optional cell
+/// and a Map collection admit (the instance it is evaluated in, the one present or the one its
+/// key names), and then names a cell of that group at its own level, unless the cell holds
+/// presence or instances itself or lies below a further holder (`marked_below`). A Set's or a
+/// List's instance is no sentence's subject.
+fn read_fixed_cells_only(
+    of: &str,
+    name: &str,
+    marked: &MarkedAncestor,
+    marked_below: bool,
+) -> String {
+    let limit = format!(
+        "{of}; a context alias and an equation's function context read fixed cells only, which a record of `{}` is not",
+        marked.name
+    );
+    let typed = matches!(marked.layer, Layer::Optional | Layer::Instances(Order::Map));
+    if !typed || marked_below {
+        return limit;
+    }
+    format!(
+        "{limit}: such a sentence reads one `{group}`'s cells where it is typed by `{group}`, which names `{name}` at its own level",
+        group = marked.group
+    )
+}
+
+/// The advice of a path refusal of a cell outside every record's reach ([`below_ancestor`]): it
+/// holds presence or instances itself, or lies below a further `?` or `*` cell, inside a group
+/// child of the ancestor's group, and a record names no `?` or `*` child yet. A rule for the
+/// group of an optional cell or a Map collection is a step of the one instance it is about and
+/// names that instance's cells from its own level; a Set's or a List's instance is no rule's
+/// subject, and a Map collection's instance cells are named at the record's level instead.
+fn out_of_records(of: &str, name: &str, marked: &MarkedAncestor, own_mark: bool) -> String {
+    let unreached = format!(
+        "{of}, {}, and a record names no `?` or `*` cell yet, so no entry inside the record of `{}` reaches `{name}`",
+        if own_mark {
+            "and is a `?` or `*` cell itself"
+        } else {
+            "below a further `?` or `*` cell there"
+        },
+        marked.name
+    );
+    match marked.layer {
+        Layer::Instances(order @ (Order::List | Order::Set)) => format!(
+            "{unreached}; a rule for `{}` is refused for a {} collection's instance, so hold the instances in a Map collection keyed by an id, whose instances' cells a rule names at the record's level",
+            marked.group,
+            match order {
+                Order::List => "List",
+                _ => "Set",
+            }
+        ),
+        Layer::Optional => format!(
+            "{unreached}; a rule for `{group}` is a step of the present `{group}` and names its cells from that level",
+            group = marked.group
+        ),
+        _ => format!(
+            "{unreached}; a rule for `{group}` is a step of one `{group}` and names its cells from that level",
+            group = marked.group
+        ),
     }
 }
 
@@ -1514,6 +1604,8 @@ struct RefusedCell<'a> {
     name: &'a str,
     /// The cell's own layers.
     layers: &'a [Layer],
+    /// The layers its `?` and `*` ancestors put above it, outermost first.
+    path: &'a [Layer],
     /// Its outermost `?` or `*` ancestor above the record's level (the refused entry's own).
     ancestor: Option<&'a Ancestor>,
     /// The cell's content as written.
@@ -1531,6 +1623,7 @@ fn refused(
     form: EntryForm,
     entry: &Entry<'_>,
     side: EntrySide,
+    rewrite: Rewrite,
     located: &cell_entries::Located,
     groups: &[GroupKind],
 ) -> CollectionError {
@@ -1550,6 +1643,7 @@ fn refused(
             RefusedCell {
                 name: unraw(nested.name),
                 layers: &nested.kind.layers,
+                path: &[],
                 ancestor: None,
                 spelling: spelling.and_then(|spelling| {
                     cell_entries::spelling_at(spelling, &located.at[..nested.depth])
@@ -1562,6 +1656,7 @@ fn refused(
             RefusedCell {
                 name: unraw(&entry.cell.field),
                 layers: &entry.kind.own.layers,
+                path: &entry.kind.path.layers,
                 ancestor: entry.ancestor.as_ref(),
                 spelling,
             },
@@ -1570,7 +1665,7 @@ fn refused(
         ),
     };
     let mut detail = refusal.reason(form, cell.name, kind, sort);
-    if let Some(advice) = advice(form, &cell, side, refusal, groups) {
+    if let Some(advice) = advice(form, &cell, side, rewrite, refusal, groups) {
         detail = format!("{detail}; {advice}");
     }
     let error = CollectionError::new(CollectionErrorKind::CellEntry(refusal), detail);

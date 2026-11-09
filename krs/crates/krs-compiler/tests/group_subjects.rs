@@ -929,7 +929,7 @@ fn a_rule_about_a_map_instance_that_writes_its_key_is_refused() {
     expect_test::expect![[r#"
         (
             "krs::analysis::map-collection-key",
-            "the rule writes `k`, the key of the instance of the Map collection `cores` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+            "the rule writes `k`, the key of the `Core` instance of the Map collection `cores` it steps: a rule is a local step of one instance of each Map collection its cells lie in, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
         )
     "#]].assert_debug_eq(&(error.to_diagnostics()[0].code.to_string(), error.to_string()));
 }
