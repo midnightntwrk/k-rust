@@ -14,7 +14,7 @@
     "krs-configuration-cells-group-harts-smp": "f6a2063e67982273c4f93318e426e8aa6661ad5e83cf37d8d3b7ebc173950073",
     "krs-configuration-cells-group-harts-nested": "16c1b27b8bb2d498ac69978c96ba390b9baeb74a0c27cea38894f826ef0f589e",
     "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274",
-    "krs-configuration-cells-shared-memory": "c63c226b4baab998d7088ea9a709b95d7356204b450a89a587613761a542c8d7"
+    "krs-configuration-cells-shared-memory": "32d7468470830bbea240c472b719658ac9630a14faa48597baaf1bf2678e020e"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -57,7 +57,7 @@
       "definition.k": "d75b4bb735dcd08e0390838fac55c49bf4c2385e6ac050a137e1a45465c9e555"
     },
     "krs-configuration-cells-shared-memory": {
-      "definition.k": "c5bfa22f4d452b52b6675edba5099677482e1fd85415f372033db335bfd373a1"
+      "definition.k": "d920110cff90e55655c03e9d0bb6e7a3259f037d50b33eeda49f0350c0bf68ac"
     }
   },
   "reference_sha256": {
@@ -74,7 +74,7 @@
     "krs-configuration-cells-group-harts-smp": "2e41e6e5073e5037bc5c91ebcca12ed18e5dec3bbdbcb5337b09495341a60761",
     "krs-configuration-cells-group-harts-nested": "acb0ddd22230d5ef2177183b4daa57381587369f5baf6804574c0ca031138f07",
     "krs-configuration-cells-group-harts-opt": "a8f55a0409fbd50073517b851e7c6607237a051b4710672850b2c3cc39999fa3",
-    "krs-configuration-cells-shared-memory": "c77646b802c24690f7ffe3d86e3d4fa7564194b58ef40ef692665146045be5ed"
+    "krs-configuration-cells-shared-memory": "521b594e2cc583075ec2f1be132cb1e9ba1d54e5f36419873a748cacec517b34"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
