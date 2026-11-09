@@ -98,6 +98,9 @@ pub(super) fn omitted_leaf_cells(
 
 /// Rejects a rule that selects a nested (group) cell together with one of
 /// the cells below it (KF-016): the group clause already names that cell.
+/// A collection's instance list is such a clause too: its instances and its
+/// rest are every instance, so they name each cell inside them, and a cell
+/// of an instance named beside the list is named twice.
 pub(super) fn check_group_descendants(
     descriptor: &Descriptor,
     pattern_key: &ProvenanceKey,

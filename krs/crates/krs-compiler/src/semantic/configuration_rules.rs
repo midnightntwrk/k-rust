@@ -901,23 +901,6 @@ pub(super) fn lower_configuration_rule_descriptor(
         check_stdin_reads(&clauses, &stdin)?;
     }
 
-    super::cell_states::check_implicit_and_explicit_instances(
-        descriptor,
-        &rule.pattern_key,
-        declarations,
-        &clauses,
-        &rule
-            .subject
-            .cells
-            .iter()
-            .map(|cell| {
-                (
-                    cell.field.clone(),
-                    matches!(cell.value, ProtocolRuleStateTerm::Instances(_)),
-                )
-            })
-            .collect::<Vec<_>>(),
-    )?;
     let selected = rule
         .subject
         .cells

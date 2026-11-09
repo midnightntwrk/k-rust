@@ -600,9 +600,6 @@ impl GroupRelations {
     }
 }
 
-/// Every leaf below a collection (`*`) cell, mapped to its nearest
-/// collection: a rule that names such a leaf matches the collection's
-/// implicit single instance.
 /// One leaf configuration cell whose collection content declares its element
 /// sorts (`env: Map<Id, Value>`), which K erases: the cell's name and the K
 /// names of its collection sort and element sorts.

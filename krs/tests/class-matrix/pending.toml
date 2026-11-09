@@ -319,20 +319,6 @@ kind = "diagnostic"
 
 # Exact entries, one per case, in place.
 
-# IC-5a: an instance list and a cell of one of its instances named at the record's level answer
-# the compiler's KF-023 code before the rule-level `group-and-descendant`
-["cells/path-e/kinds/id/k::configuration::Cell(x)"]
-finding = "IC-5a"
-deviation = "krs::analysis::implicit-and-explicit-instances @ entry"
-
-["claim/path-e/kinds/id/x"]
-finding = "IC-5a"
-deviation = "krs::analysis::implicit-and-explicit-instances @ entry"
-
-["readable/path-e/kinds/id/x"]
-finding = "IC-5a"
-deviation = "krs::analysis::implicit-and-explicit-instances @ entry"
-
 # S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
 
 # K-2, S0-14 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
