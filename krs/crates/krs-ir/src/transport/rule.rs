@@ -1289,6 +1289,17 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
             .iter()
             .map(|field| count_here_in_term(&field.value, here))
             .sum(),
+        DescriptorTerm::MapEntries { entries, rest, .. } => {
+            entries
+                .iter()
+                .map(|entry| {
+                    count_here_in_term(&entry.key, here) + count_here_in_term(&entry.value, here)
+                })
+                .sum::<usize>()
+                + rest
+                    .as_deref()
+                    .map_or(0, |rest| count_here_in_term(rest, here))
+        }
         DescriptorTerm::SortTest { operand, .. } => count_here_in_term(operand, here),
         DescriptorTerm::As { name, pattern, .. } => {
             usize::from(name == here) + count_here_in_term(pattern, here)
@@ -3032,6 +3043,26 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             StateTermReason::KeptRestOutsideListCellRoot,
         ))?;
         self.keys.define(key, role)?;
+        Ok(())
+    }
+
+    /// A map pattern, matched where a pattern is: a left-hand side outside the right side of
+    /// its rewrites, or a local pattern.
+    fn map_entries(&mut self, key: &ProvenanceKey, well_formed: bool) -> Result<(), Self::Error> {
+        if !well_formed {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::MalformedMapPattern,
+            ));
+        }
+        let matched = (matches!(self.side, ValidationSide::Left) && !self.walk.in_rewrite_right)
+            || self.walk.in_matches_pattern
+            || self.walk.in_let_pattern;
+        if !matched {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::MapPatternOutsidePattern,
+            ));
+        }
+        self.keys.define(key, ProvenanceRole::PatternMap)?;
         Ok(())
     }
 

@@ -1443,6 +1443,31 @@ stage_shape! {
 /// Descriptor-stage form of [`CellTermField`].
 pub type DescriptorCellTermField = CellTermField<DescriptorStage>;
 
+stage_shape! {
+    /// One `key -> value` entry of a map pattern ([`Term::MapEntries`]).
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorMapTermEntry",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        ),
+        deny_unknown_fields
+    )]
+    pub struct MapTermEntry<S: Stage> {
+        /// The key the entry is found at: looked up, or a selection among the map's keys.
+        pub key: Box<Term<S>> => [box nested],
+        /// The value the entry maps its key to, matched.
+        pub value: Box<Term<S>> => [box nested],
+    }
+}
+
+/// Descriptor-stage form of [`MapTermEntry`].
+pub type DescriptorMapTermEntry = MapTermEntry<DescriptorStage>;
+
+/// Host-stage form of [`MapTermEntry`].
+pub type HostMapTermEntry = MapTermEntry<HostStage>;
+
 fn deserialize_or_bool_arguments<'de, T, D>(
     deserializer: D,
 ) -> Result<crate::AtLeastTwo<T>, D::Error>
@@ -1619,6 +1644,22 @@ stage_shape! {
             name: String => [keep],
             /// The aliased subpattern.
             pattern: Box<Term<S>> => [box nested],
+        },
+        /// `map![k1 -> v1, .., kn -> vn, rest @ ..]`, `map![k1 -> v1, .., ..]` or
+        /// `map![k1 -> v1, .., kn -> vn]` at a pattern position of sort `Map`: K's
+        /// `(K1 |-> V1) .. (Kn |-> Vn) REST`. The map holds an entry at each key, the keys
+        /// are pairwise different, and the rest is the map without those entries; with no
+        /// rest the entries are the whole map. Valid only in a pattern: a term a sentence
+        /// builds writes a map with `map![k -> v, ..m]`, the update `m[k <- v]`.
+        MapEntries {
+            /// Complete literal provenance.
+            key: ProvenanceKey => [keep],
+            /// The entries, at least one, in source order.
+            entries: Vec<MapTermEntry<S>> => [vec nested],
+            /// The rest: a [`Term::Variable`] for `rest @ ..`, a [`Term::Wildcard`] for `..`;
+            /// absent when the entries are the whole map.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            rest: Option<Box<Term<S>>> => [option box nested],
         },
         /// `A | B | ..` in a left-hand side: K's `( A #Or B #Or .. )`.
         Or {
@@ -2344,6 +2385,8 @@ impl From<TermRefusal> for GrammarTransportError {
             TermRefusal::BuiltinToken => GrammarTermReason::InvalidCompilerOwnedBuiltinToken,
             TermRefusal::PatternAs => GrammarTermReason::PatternAsOutsideLeftHandSide,
             TermRefusal::PatternOr => GrammarTermReason::PatternOrOutsideLeftHandSide,
+            TermRefusal::MapPattern => GrammarTermReason::MapPatternOutsidePattern,
+            TermRefusal::MalformedMapPattern => GrammarTermReason::MalformedMapPattern,
             TermRefusal::Matches => GrammarTermReason::MatchesInPattern,
             TermRefusal::Let => GrammarTermReason::LetInPattern,
             TermRefusal::Closure => GrammarTermReason::ClosureInPattern,

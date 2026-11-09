@@ -743,6 +743,11 @@ impl Patterns<'_> {
             DescriptorTerm::Cell { fields, .. } => fields
                 .iter()
                 .try_for_each(|field| self.term(&field.value, None)),
+            // A map pattern's values are matched against the values the map holds; its keys are
+            // what the map is looked up by ([`key_names`]), and its rest is a name or `_`.
+            DescriptorTerm::MapEntries { entries, .. } => entries
+                .iter()
+                .try_for_each(|entry| self.entries().term(&entry.value, None)),
             // The term walker refuses a test, a `let`, a predicate and a
             // claim's values in a pattern; the rest are leaves.
             DescriptorTerm::Variable { .. }

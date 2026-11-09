@@ -129,6 +129,11 @@ impl Adapter<'_> {
                 })?;
                 let native = match native {
                     MapOperands::Items(entries) => native_map_items(entries),
+                    // A pattern's items and its rest, juxtaposed (`_Map_`).
+                    MapOperands::ItemsWithRest { items, rest } => NativeTerm::apply(
+                        MapOperation::CONCATENATION.k_label,
+                        vec![native_map_items(items), rest],
+                    ),
                     native => {
                         NativeTerm::apply(native.operation().spec().k_label, native.into_operands())
                     }

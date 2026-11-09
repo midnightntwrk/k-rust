@@ -1234,6 +1234,7 @@ fn collection_of_parts(term: &SemanticTerm) -> bool {
         IrTermKind::Set(operands) => matches!(**operands, SetOperands::Concat { .. }),
         IrTermKind::Map(operands) => {
             matches!(&**operands, MapOperands::Items(entries) if entries.len() > 1)
+                || matches!(**operands, MapOperands::ItemsWithRest { .. })
         }
         _ => false,
     }

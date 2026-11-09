@@ -2,7 +2,8 @@
 
 use krs_ir::{NonEmpty, testing};
 use krs_ir_levels::{
-    DefinitionSortRef, DefinitionTerm, ListOperands, MapEntry, MapOperands, SetOperands,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, ListOperands, MapEntry, MapOperands,
+    SetOperands,
 };
 use serde_json::{Value, json};
 
@@ -91,6 +92,8 @@ fn wrong_collection_arity_is_rejected_when_decoding() {
         "{error}"
     );
 
+    // An odd count of three or more is items and the rest they are joined with; one operand is
+    // neither an item nor a rest beside one.
     let mut odd_items = serde_json::to_value(DefinitionTerm::map(
         testing::origin("odd"),
         MapOperands::entry(int("odd.key", "1"), int("odd.value", "2")),
@@ -100,6 +103,12 @@ fn wrong_collection_arity_is_rejected_when_decoding() {
         .as_array_mut()
         .unwrap()
         .push(extra.clone());
+    let decoded = serde_json::from_value::<DefinitionTerm>(odd_items.clone()).unwrap();
+    assert!(matches!(
+        decoded.kind(),
+        DefinitionTermKind::Map(operands) if matches!(**operands, MapOperands::ItemsWithRest { .. })
+    ));
+    odd_items["arguments"] = json!([extra]);
     assert!(serde_json::from_value::<DefinitionTerm>(odd_items).is_err());
 
     let mut short_get = serde_json::to_value(DefinitionTerm::list(

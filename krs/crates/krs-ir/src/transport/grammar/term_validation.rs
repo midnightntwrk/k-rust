@@ -263,6 +263,21 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         Ok(())
     }
 
+    fn map_entries(&mut self, key: &ProvenanceKey, well_formed: bool) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        if !well_formed {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::MalformedMapPattern,
+            ));
+        }
+        if !self.in_pattern() {
+            return Err(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::MapPatternOutsidePattern,
+            ));
+        }
+        Ok(())
+    }
+
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         require_key(key, self.provenance)?;
         if self.in_let_pattern || (!self.allow_wildcards && !self.in_matches_pattern) {

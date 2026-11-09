@@ -182,6 +182,7 @@ fn term_key(term: &DescriptorTerm) -> &ProvenanceKey {
         | DescriptorTerm::Literal { key, .. }
         | DescriptorTerm::Wildcard { key }
         | DescriptorTerm::KeptRest { key }
+        | DescriptorTerm::MapEntries { key, .. }
         | DescriptorTerm::BuiltinToken { key, .. }
         | DescriptorTerm::Anonymous { key, .. }
         | DescriptorTerm::OrBool { key, .. }

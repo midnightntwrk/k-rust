@@ -595,6 +595,9 @@ provenance_roles! {
     /// cell's shared rest (`[a, ..]`). The cell's declared type, which the
     /// collector reads, decides which, so one role serves both readings.
     RuleLeftSequenceRest => "rule_left_sequence_rest",
+    /// Complete `map![k -> v, ..]` map pattern (K's `(K |-> V) REST`) in a
+    /// left-hand side: a map's entries and rest matched where a term stands.
+    PatternMap => "pattern_map",
 }
 
 impl Serialize for ProvenanceRole {

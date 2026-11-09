@@ -215,6 +215,12 @@ fn term_reads<S: Stage>(term: &Term<S>, name: &str) -> bool {
             fields.iter().any(|field| term_reads(&field.value, name))
                 || update.as_deref().is_some_and(|base| term_reads(base, name))
         }
+        Term::MapEntries { entries, rest, .. } => {
+            entries
+                .iter()
+                .any(|entry| term_reads(&entry.key, name) || term_reads(&entry.value, name))
+                || rest.as_deref().is_some_and(|rest| term_reads(rest, name))
+        }
         Term::SortTest { operand, .. } => term_reads(operand, name),
         Term::As { pattern, .. } => term_reads(pattern, name),
         // The pattern binds its names, so only the tested term reads.

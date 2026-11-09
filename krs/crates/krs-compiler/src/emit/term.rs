@@ -668,7 +668,10 @@ fn render_builtin_argument(
 fn collection_open_ends(term: &DefinitionTerm) -> Option<(bool, bool)> {
     let spec = match term.kind() {
         DefinitionTermKind::Map(operands) => {
-            if matches!(**operands, MapOperands::Items(_)) {
+            if matches!(
+                **operands,
+                MapOperands::Items(_) | MapOperands::ItemsWithRest { .. }
+            ) {
                 return Some((true, true));
             }
             operands.operation().spec()
@@ -751,15 +754,20 @@ fn render_map(
     names: &SentenceVariables,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
-    let MapOperands::Items(entries) = operands else {
-        return render_collection(
-            result_sort,
-            operands.operation().spec(),
-            operands.operands(),
-            context,
-            names,
-            output,
-        );
+    // Items, and a pattern's rest after them, are juxtaposed: K's associative `_Map_`.
+    let (entries, rest) = match operands {
+        MapOperands::Items(entries) => (entries, None),
+        MapOperands::ItemsWithRest { items, rest } => (items, Some(rest)),
+        _ => {
+            return render_collection(
+                result_sort,
+                operands.operation().spec(),
+                operands.operands(),
+                context,
+                names,
+                output,
+            );
+        }
     };
     for (index, entry) in entries.iter().enumerate() {
         if index != 0 {
@@ -797,6 +805,10 @@ fn render_map(
             names,
             output,
         )?;
+    }
+    if let Some(rest) = rest {
+        output.push(MapOperation::CONCATENATION.separator);
+        output.append(render_term_with_binders(rest, context, false, names)?);
     }
     Ok(())
 }

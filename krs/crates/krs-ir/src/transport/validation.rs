@@ -225,6 +225,12 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     /// cell entry's root brackets holds: every other context refuses it.
     fn kept_rest(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
 
+    /// A map pattern ([`Term::MapEntries`]) of `entries` entries, admitted only where a term is
+    /// matched; `well_formed` says it holds an entry and its rest, if any, is a variable or `_`.
+    /// Its keys are validated next, each as a set's element is ([`Self::set_element`]), then its
+    /// values and its rest.
+    fn map_entries(&mut self, key: &ProvenanceKey, well_formed: bool) -> Result<(), Self::Error>;
+
     fn builtin_token(
         &mut self,
         key: &ProvenanceKey,
@@ -389,6 +395,7 @@ fn term_key<S: ValidationStage>(term: &Term<S>) -> &ProvenanceKey {
         | Term::Literal { key, .. }
         | Term::Wildcard { key }
         | Term::KeptRest { key }
+        | Term::MapEntries { key, .. }
         | Term::BuiltinToken { key, .. }
         | Term::Anonymous { key, .. }
         | Term::OrBool { key, .. }
@@ -447,6 +454,23 @@ fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
         Term::Literal { key, literal } => context.literal(key, literal),
         Term::Wildcard { key } => context.wildcard(key),
         Term::KeptRest { key } => context.kept_rest(key),
+        Term::MapEntries { key, entries, rest } => {
+            let well_formed = !entries.is_empty()
+                && rest.as_deref().is_none_or(|rest| {
+                    matches!(rest, Term::Variable { .. } | Term::Wildcard { .. })
+                });
+            context.map_entries(key, well_formed)?;
+            // A key is what the map is looked up by, read as a set's element is.
+            for entry in entries {
+                context.set_element(true);
+                let validated = validate_term(&entry.key, context);
+                context.set_element(false);
+                validated?;
+                validate_term(&entry.value, context)?;
+            }
+            rest.as_deref()
+                .map_or(Ok(()), |rest| validate_term(rest, context))
+        }
         Term::BuiltinToken { key, sort, value } => context.builtin_token(key, *sort, value),
         Term::Anonymous {
             key,
@@ -621,6 +645,15 @@ pub(crate) fn let_pattern_names<S: Stage>(term: &Term<S>, names: &mut BTreeSet<S
                 let_pattern_names(&field.value, names);
             }
         }
+        Term::MapEntries { entries, rest, .. } => {
+            for entry in entries {
+                let_pattern_names(&entry.key, names);
+                let_pattern_names(&entry.value, names);
+            }
+            if let Some(rest) = rest {
+                let_pattern_names(rest, names);
+            }
+        }
         Term::SortTest { operand, .. } => let_pattern_names(operand, names),
         Term::Rewrite { from, .. } => let_pattern_names(from, names),
         Term::Matches { .. }
@@ -650,6 +683,11 @@ pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
             .collect(),
         Term::OrBool { arguments, .. } => arguments.iter().collect(),
         Term::Or { alternatives, .. } => alternatives.iter().collect(),
+        Term::MapEntries { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|entry| [&*entry.key, &*entry.value])
+            .chain(rest.as_deref())
+            .collect(),
         Term::Cell { fields, update, .. } => fields
             .iter()
             .map(|field| &*field.value)

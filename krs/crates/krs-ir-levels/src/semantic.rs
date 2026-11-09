@@ -2108,6 +2108,9 @@ pub enum SemanticValidationError {
     InvalidPatternAs,
     /// `A | B` (#Or) outside a pre-pattern, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// Map items joined with a rest, `(K |-> V) REST`, outside a pre-pattern or a local
+    /// pattern, or with a rest that is no `Map`.
+    InvalidMapRest,
     /// `alias @ pattern` at a sort its alias or pattern does not have.
     PatternAsSortMismatch,
     /// `A | B` at a sort an alternative does not inject into.
@@ -2358,6 +2361,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::InvalidPatternOr => formatter.write_str(
                 "`A | B` (#Or) occurs only in pre-patterns, and every alternative binds the same variables besides those its match binds outside it",
+            ),
+            Self::InvalidMapRest => formatter.write_str(
+                "map items joined with a rest (`(K |-> V) REST`) occur only in pre-patterns and local patterns, and the rest is a `Map`",
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",

@@ -1079,6 +1079,11 @@ fn first_in<'t>(term: &'t DescriptorTerm, name: &str) -> Option<&'t ProvenanceKe
             .collect(),
         DescriptorTerm::OrBool { arguments, .. } => arguments.iter().collect(),
         DescriptorTerm::Or { alternatives, .. } => alternatives.iter().collect(),
+        DescriptorTerm::MapEntries { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|entry| [&*entry.key, &*entry.value])
+            .chain(rest.as_deref())
+            .collect(),
         DescriptorTerm::SortTest { operand, .. } => vec![operand],
         DescriptorTerm::Matches {
             subject, pattern, ..
@@ -1558,6 +1563,17 @@ impl Closing<'_> {
                     .try_map(|term| Ok::<_, std::convert::Infallible>(self.term(term, pattern)))
                     .unwrap_or_else(|never| match never {}),
             },
+            DescriptorTerm::MapEntries { key, entries, rest } => DescriptorTerm::MapEntries {
+                key,
+                entries: entries
+                    .into_iter()
+                    .map(|entry| krs_ir::MapTermEntry {
+                        key: nested(entry.key, pattern),
+                        value: nested(entry.value, pattern),
+                    })
+                    .collect(),
+                rest: rest.map(|rest| nested(rest, pattern)),
+            },
             DescriptorTerm::Or { key, alternatives } => DescriptorTerm::Or {
                 key,
                 alternatives: alternatives
@@ -1751,6 +1767,10 @@ impl<'a> NodeKeys<'a> {
         *key = fresh;
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per term form, each keying the nodes it holds."
+    )]
     fn term(&mut self, term: &mut DescriptorTerm) {
         match term {
             DescriptorTerm::Variable { key, path_key, .. } => {
@@ -1817,6 +1837,18 @@ impl<'a> NodeKeys<'a> {
             DescriptorTerm::OrBool { arguments, .. } => {
                 for argument in arguments.iter_mut() {
                     self.term(argument);
+                }
+            }
+            DescriptorTerm::MapEntries {
+                key, entries, rest, ..
+            } => {
+                self.key("map-pattern", key);
+                for entry in entries {
+                    self.term(&mut entry.key);
+                    self.term(&mut entry.value);
+                }
+                if let Some(rest) = rest {
+                    self.term(rest);
                 }
             }
             DescriptorTerm::Or { alternatives, .. } => {

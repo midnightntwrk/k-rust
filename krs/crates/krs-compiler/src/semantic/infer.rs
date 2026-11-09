@@ -34,6 +34,9 @@ pub(super) enum HeadPlace {
 const KEPT_REST_UNNAMED: &str =
     "an unnamed list rest stands only as the rest of a `cells!` list cell's root brackets";
 
+/// Why a map pattern reaches term inference before its lowering is written.
+const MAP_PATTERN_NOT_LOWERED: &str = "a map pattern `map![k -> v, ..]` is not lowered yet";
+
 #[expect(
     clippy::struct_excessive_bools,
     reason = "Independent flags of one term's lowering, each read where it applies."
@@ -636,6 +639,9 @@ impl StructuredTermBuilder<'_> {
             // inferred; the transport refuses one anywhere else.
             DescriptorTerm::KeptRest { .. } => {
                 return Err(self.invalid_term(KEPT_REST_UNNAMED));
+            }
+            DescriptorTerm::MapEntries { .. } => {
+                return Err(self.invalid_term(MAP_PATTERN_NOT_LOWERED));
             }
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
@@ -2343,6 +2349,7 @@ impl StructuredTermBuilder<'_> {
                 ))
             }
             DescriptorTerm::KeptRest { .. } => Err(self.invalid_term(KEPT_REST_UNNAMED)),
+            DescriptorTerm::MapEntries { .. } => Err(self.invalid_term(MAP_PATTERN_NOT_LOWERED)),
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
                     return Err(self.refused_position(key, "`_`"));
@@ -4161,6 +4168,15 @@ fn pattern_names(term: &DescriptorTerm, output: &mut Vec<(String, ProvenanceKey)
         DescriptorTerm::OrBool { arguments, .. } => {
             for argument in arguments {
                 pattern_names(argument, output);
+            }
+        }
+        DescriptorTerm::MapEntries { entries, rest, .. } => {
+            for entry in entries {
+                pattern_names(&entry.key, output);
+                pattern_names(&entry.value, output);
+            }
+            if let Some(rest) = rest {
+                pattern_names(rest, output);
             }
         }
         DescriptorTerm::Application { arguments, .. } => {

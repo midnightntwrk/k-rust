@@ -1304,3 +1304,88 @@ fn a_kept_rest_is_not_in_a_k_sequence_or_a_condition() {
         OUTSIDE_LIST_ROOT
     );
 }
+
+/// A map pattern `map![true -> true, ..]` keyed on `side`, its rest `..` a wildcard.
+fn map_pattern(side: ValidationSide, rest: Option<Term<DescriptorStage>>) -> Term<DescriptorStage> {
+    let literal = match side {
+        ValidationSide::Left => ProvenanceRole::RuleLeftLiteral,
+        _ => ProvenanceRole::RuleRightLiteral,
+    };
+    Term::MapEntries {
+        key: key(ProvenanceRole::PatternMap),
+        entries: vec![crate::MapTermEntry {
+            key: Box::new(list_literal(literal, 0)),
+            value: Box::new(list_literal(literal, 1)),
+        }],
+        rest: rest.map(Box::new),
+    }
+}
+
+fn validate_on(
+    term: &Term<DescriptorStage>,
+    side: ValidationSide,
+) -> Result<(), StateTransportError> {
+    validate_rule_term(
+        term,
+        side,
+        &[],
+        &mut Vec::new(),
+        &mut RuleWalk::default(),
+        &mut WireKeys::default(),
+    )
+}
+
+/// A map pattern is matched where a subject is, with or without its rest; a term a sentence
+/// builds holds none, and its rest is a variable or `_`.
+#[test]
+fn a_map_pattern_stands_only_in_a_pattern() {
+    let wildcard = Term::Wildcard {
+        key: key(ProvenanceRole::RuleLeftWildcard),
+    };
+    assert_eq!(
+        validate_on(
+            &map_pattern(ValidationSide::Left, Some(wildcard.clone())),
+            ValidationSide::Left
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validate_on(
+            &map_pattern(ValidationSide::Left, None),
+            ValidationSide::Left
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validate_on(
+            &map_pattern(ValidationSide::Right, None),
+            ValidationSide::Right
+        ),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::MapPatternOutsidePattern
+        ))
+    );
+    assert_eq!(
+        validate_on(
+            &map_pattern(
+                ValidationSide::Left,
+                Some(list_literal(ProvenanceRole::RuleLeftLiteral, 2))
+            ),
+            ValidationSide::Left
+        ),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::MalformedMapPattern
+        ))
+    );
+    let empty = Term::MapEntries {
+        key: key(ProvenanceRole::PatternMap),
+        entries: Vec::new(),
+        rest: Some(Box::new(wildcard)),
+    };
+    assert_eq!(
+        validate_on(&empty, ValidationSide::Left),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::MalformedMapPattern
+        ))
+    );
+}

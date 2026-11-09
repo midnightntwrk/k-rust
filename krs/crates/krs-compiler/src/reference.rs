@@ -3509,6 +3509,28 @@ fn render_term(
             krs_ir::DescriptorLiteral::Float(token) => float_literal(token),
         },
         DescriptorTerm::Wildcard { .. } => Ok(quote!(_)),
+        // A map pattern, written as it is authored: its entries, then its rest.
+        DescriptorTerm::MapEntries { entries, rest, .. } => {
+            let entries = entries
+                .iter()
+                .map(|entry| {
+                    let key = render_term(&entry.key, pattern, package, bundle)?;
+                    let value = render_term(&entry.value, pattern, package, bundle)?;
+                    Ok(quote!(#key -> #value))
+                })
+                .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
+            let rest = match rest.as_deref() {
+                None => None,
+                Some(DescriptorTerm::Wildcard { .. }) => Some(quote!(..)),
+                Some(DescriptorTerm::Variable { name, .. }) => {
+                    let name = rust_ident(name)?;
+                    Some(quote!(#name @ ..))
+                }
+                Some(_) => return Err(ReferenceExpansionError::UnsupportedState),
+            };
+            let parts = entries.into_iter().chain(rest);
+            Ok(quote!(k::map![#(#parts),*]))
+        }
         // A list cell's unnamed rest, written as it is authored, among its brackets.
         DescriptorTerm::KeptRest { .. } => Ok(quote!(..)),
         DescriptorTerm::BuiltinToken { sort, value, .. } => match sort {

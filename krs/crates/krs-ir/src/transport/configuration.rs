@@ -914,6 +914,8 @@ impl From<TermRefusal> for StateTransportError {
             TermRefusal::BuiltinToken => StateTermReason::InvalidCompilerOwnedBuiltinToken,
             TermRefusal::PatternAs => StateTermReason::PatternAsOutsideLeftHandSide,
             TermRefusal::PatternOr => StateTermReason::PatternOrOutsideLeftHandSide,
+            TermRefusal::MapPattern => StateTermReason::MapPatternOutsidePattern,
+            TermRefusal::MalformedMapPattern => StateTermReason::MalformedMapPattern,
             TermRefusal::Matches => StateTermReason::MatchesInPattern,
             TermRefusal::Let => StateTermReason::LetInPattern,
             TermRefusal::Closure => StateTermReason::ClosureInPattern,
@@ -2029,6 +2031,22 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::KeptRestOutsideListCellRoot,
         ))
+    }
+
+    /// An initializer's value is built; only a `let` or `k::matches!` pattern in it matches.
+    fn map_entries(&mut self, key: &ProvenanceKey, well_formed: bool) -> Result<(), Self::Error> {
+        if !well_formed {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::MalformedMapPattern,
+            ));
+        }
+        if !self.in_let_pattern && !self.in_matches_pattern {
+            return Err(StateTransportError::InvalidTerm(
+                StateTermReason::MapPatternOutsidePattern,
+            ));
+        }
+        self.keys.define(key, ProvenanceRole::PatternMap)?;
+        Ok(())
     }
 
     /// A builtin literal is one constant of its sort, an initializer term as any constant is.

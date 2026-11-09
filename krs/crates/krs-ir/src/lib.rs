@@ -147,25 +147,25 @@ pub use transport::grammar::{
     DescriptorCellTermField, DescriptorColorEntry, DescriptorContextAliasReference,
     DescriptorEquationAttributes, DescriptorFieldReference, DescriptorFormatFragment,
     DescriptorGroupReference, DescriptorLayoutRegex, DescriptorLexical,
-    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorMatchRestriction,
-    DescriptorModuleImport, DescriptorNondetGroup, DescriptorPrecedenceChain, DescriptorProduction,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorRestriction, DescriptorRestrictionVariable, DescriptorRuleCondition,
-    DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
-    DescriptorSimplificationPriority, DescriptorSkippedOperand, DescriptorSmtFragment,
-    DescriptorSortRef, DescriptorSortReference, DescriptorSpecModuleName, DescriptorTerm,
-    DescriptorTermArgument, DescriptorUnboundVariable, DescriptorUnboundVariables,
-    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor, GrammarTransportError,
-    HostApplicationIdentity, HostApplicationReference, HostApplicationTarget, HostBuiltinRegistry,
-    HostBuiltinRegistryError, HostCellTermField, HostContextAliasReference,
-    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
-    HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction, HostProductionAttribute,
-    HostProductionItem, HostProductionOwner, HostRuleCondition, HostSortReference,
-    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, HostTypedBinding, NamedTermArgument,
-    Production, ProductionAttribute as TransportProductionAttribute,
-    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition, SortTestKind,
-    StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
-    TermArgumentRef, enum_variant_disambiguator,
+    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorMapTermEntry,
+    DescriptorMatchRestriction, DescriptorModuleImport, DescriptorNondetGroup,
+    DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
+    DescriptorProductionItem, DescriptorProductionOwner, DescriptorRestriction,
+    DescriptorRestrictionVariable, DescriptorRuleCondition, DescriptorRuleLabel,
+    DescriptorRulePriority, DescriptorSimplification, DescriptorSimplificationPriority,
+    DescriptorSkippedOperand, DescriptorSmtFragment, DescriptorSortRef, DescriptorSortReference,
+    DescriptorSpecModuleName, DescriptorTerm, DescriptorTermArgument, DescriptorUnboundVariable,
+    DescriptorUnboundVariables, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
+    GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
+    HostApplicationTarget, HostBuiltinRegistry, HostBuiltinRegistryError, HostCellTermField,
+    HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor,
+    HostMapTermEntry, HostProduction, HostProductionAttribute, HostProductionItem,
+    HostProductionOwner, HostRuleCondition, HostSortReference, HostStructuredRuleDescriptor,
+    HostTerm, HostTermArgument, HostTypedBinding, MapTermEntry, NamedTermArgument, Production,
+    ProductionAttribute as TransportProductionAttribute, ProductionItem as TransportProductionItem,
+    ProductionOwner, RuleCondition, SortTestKind, StageGrammarDescriptor, StructuredRule,
+    StructuredRuleDescriptor, Term, TermArgument, TermArgumentRef, enum_variant_disambiguator,
 };
 pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
@@ -221,7 +221,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(82);
+    pub const CURRENT: Self = Self(83);
 }
 
 impl Default for SchemaVersion {

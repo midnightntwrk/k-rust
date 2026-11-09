@@ -1136,6 +1136,20 @@ impl<'a> Walker<'a> {
                     self.walk(argument, None, subject)?;
                 }
             }
+            // A map pattern's entries are the keys and values of the map the position carries,
+            // and its rest is that map without them.
+            DescriptorTerm::MapEntries { entries, rest, .. } => {
+                let carried =
+                    at.filter(|(ty, _)| ty.sort == SemanticSortRef::Builtin(BuiltinSort::Map));
+                let operated = carried.filter(|(ty, _)| ty.is_typed());
+                for entry in entries {
+                    self.element(&entry.key, operated, Step::Key, subject)?;
+                    self.element(&entry.value, operated, Step::Value, subject)?;
+                }
+                if let Some(rest) = rest {
+                    self.walk(rest, carried, subject)?;
+                }
+            }
             DescriptorTerm::Wildcard { .. }
             | DescriptorTerm::KeptRest { .. }
             | DescriptorTerm::Literal { .. }
@@ -2112,6 +2126,7 @@ pub(super) fn spelling(term: &DescriptorTerm) -> String {
         DescriptorTerm::Anonymous { .. } => "k::anonymous!(..)".to_owned(),
         DescriptorTerm::Lexeme { text, .. } => format!("k::lexeme!(.., {text:?})"),
         DescriptorTerm::OrBool { .. } => "k::or_bool!(..)".to_owned(),
+        DescriptorTerm::MapEntries { .. } => "map![..]".to_owned(),
         DescriptorTerm::SortTest { kind, sort, .. } => format!(
             "{}({}, ..)",
             match kind {

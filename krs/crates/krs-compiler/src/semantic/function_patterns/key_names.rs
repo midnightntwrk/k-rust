@@ -176,6 +176,11 @@ fn children(term: &DescriptorTerm) -> Vec<&DescriptorTerm> {
         DescriptorTerm::As { pattern, .. } => vec![pattern],
         DescriptorTerm::OrBool { arguments, .. } => arguments.iter().collect(),
         DescriptorTerm::Or { alternatives, .. } => alternatives.iter().collect(),
+        DescriptorTerm::MapEntries { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|entry| [&*entry.key, &*entry.value])
+            .chain(rest.as_deref())
+            .collect(),
         DescriptorTerm::SortTest { operand, .. } => vec![operand],
         DescriptorTerm::Matches {
             subject, pattern, ..
@@ -842,6 +847,25 @@ impl<'t> Pattern<'t, '_> {
                     self.term(&field.value);
                 }
             }
+            // A map pattern is one collection, as a cell's map is: its keys are what the map
+            // is looked up by, its values bind once their entries are found, and a named rest
+            // is its remainder.
+            DescriptorTerm::MapEntries { entries, rest, .. } => {
+                let remainder = match rest.as_deref() {
+                    Some(DescriptorTerm::Variable { name, .. }) => Some(name.as_str()),
+                    _ => None,
+                };
+                let collection = self.collection(remainder);
+                for entry in entries {
+                    let values = self.names_of(&entry.value);
+                    self.entries.push(Entry {
+                        key: EntryKey::Term(&entry.key),
+                        lookup: Lookup::MapKey,
+                        values,
+                        collection,
+                    });
+                }
+            }
             DescriptorTerm::Literal { .. }
             | DescriptorTerm::Wildcard { .. }
             | DescriptorTerm::KeptRest { .. }
@@ -1143,6 +1167,21 @@ impl<'t> Key<'_, 't> {
                 self.term(operand, Some("a sort test"));
             }
             DescriptorTerm::Rewrite { from, .. } => self.term(from, computing),
+            // A map pattern matches a map's entries and leaves the others to its rest: a
+            // pattern's construct, which makes the key a selection, and means nothing in a
+            // position the key computes.
+            DescriptorTerm::MapEntries { key, entries, rest } => {
+                self.pattern_only(KeyPattern::MapPattern, key, computing, || {
+                    "a map pattern `map![k -> v, ..]`".to_owned()
+                });
+                for entry in entries {
+                    self.term(&entry.key, computing);
+                    self.term(&entry.value, computing);
+                }
+                if let Some(rest) = rest {
+                    self.term(rest, computing);
+                }
+            }
             // A group's cells are part of the value; `..` leaves some open.
             DescriptorTerm::Cell {
                 key, fields, open, ..

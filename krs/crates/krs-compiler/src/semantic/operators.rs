@@ -346,6 +346,7 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::OrBool { .. } | DescriptorTerm::Matches { .. } => {
                 Some(SemanticSortRef::Builtin(BuiltinSort::Bool))
             }
+            DescriptorTerm::MapEntries { .. } => Some(SemanticSortRef::Builtin(BuiltinSort::Map)),
             DescriptorTerm::SortTest { kind, sort, .. } => Some(match kind {
                 SortTestKind::Predicate => SemanticSortRef::Builtin(BuiltinSort::Bool),
                 SortTestKind::Projection => semantic_sort_ref(&sort.sort),

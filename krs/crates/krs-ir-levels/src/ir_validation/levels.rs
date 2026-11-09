@@ -114,6 +114,7 @@ macro_rules! validation_error {
             ValidationError::RewriteSortMismatch => $public::RewriteSortMismatch,
             ValidationError::InvalidPatternAs => $public::InvalidPatternAs,
             ValidationError::InvalidPatternOr => $public::InvalidPatternOr,
+            ValidationError::InvalidMapRest => $public::InvalidMapRest,
             ValidationError::PatternAsSortMismatch => $public::PatternAsSortMismatch,
             ValidationError::PatternOrSortMismatch => $public::PatternOrSortMismatch,
             ValidationError::InvalidMatches => $public::InvalidMatches,

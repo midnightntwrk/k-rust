@@ -1,5 +1,6 @@
 //! Shared shape validation with level-specific identity and context checks.
 
+use crate::MapOperands;
 use crate::ir_level::{
     IrClaim, IrCondition, IrLevel, IrMlKind, IrMlPredicate, IrPredicateRewrite, IrRulePriority,
     IrSimplification, IrSortRef, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
@@ -244,6 +245,9 @@ pub(crate) enum ValidationError<L: Validation> {
     PatternAsSortMismatch,
     /// `A | B` outside a pre-pattern, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// Map items joined with a rest outside a pre-pattern or a local pattern, or with a rest
+    /// that is no `Map`.
+    InvalidMapRest,
     /// `A | B` at a sort an alternative does not inject into.
     PatternOrSortMismatch,
     /// `k::matches!` outside a post-term or condition, at a sort other than
@@ -2188,6 +2192,11 @@ fn validate_term_node<L: Validation>(
                     operands.operation(),
                 )));
             }
+            if let MapOperands::ItemsWithRest { rest, .. } = &**operands
+                && *rest.sort() != L::builtin_sort(BuiltinSort::Map)
+            {
+                return Err(L::error(ValidationError::InvalidMapRest));
+            }
             for operand in operands.operands() {
                 validate_term::<L>(
                     operand,
@@ -2825,6 +2834,30 @@ pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
     find_pattern_or(term).is_some()
 }
 
+/// The first map whose items are joined with a rest (`(K |-> V) REST`) of `term` in preorder,
+/// outside `k::matches!` and `let` patterns, where it is admitted as it is in a pre-pattern: the
+/// rest is the map without the items' keys, which only a match finds, and juxtaposing maps is
+/// defined only on disjoint ones, so no term a sentence builds holds it.
+pub(crate) fn find_map_rest<L: IrLevel>(term: &IrTerm<L>) -> Option<&IrTerm<L>> {
+    match term.kind() {
+        IrTermKind::Map(operands) if matches!(**operands, MapOperands::ItemsWithRest { .. }) => {
+            Some(term)
+        }
+        IrTermKind::Matches { subject, .. } => find_map_rest(subject),
+        IrTermKind::Let { value, body, .. } => first_of([&**value, &**body], find_map_rest),
+        IrTermKind::As { pattern, .. } => find_map_rest(pattern),
+        IrTermKind::Or { alternatives } => first_of(alternatives.iter(), find_map_rest),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => None,
+        IrTermKind::Application { arguments, .. } => first_of(arguments.iter(), find_map_rest),
+        IrTermKind::KSequence { items, .. } => first_of(items.iter(), find_map_rest),
+        IrTermKind::Cell { children, .. } => first_of(children.iter(), find_map_rest),
+        IrTermKind::Map(operands) => first_of(operands.operands(), find_map_rest),
+        IrTermKind::List(operands) => first_of(operands.operands(), find_map_rest),
+        IrTermKind::Set(operands) => first_of(operands.operands(), find_map_rest),
+        IrTermKind::Rewrite { from, to } => find_map_rest(from).or_else(|| find_map_rest(to)),
+    }
+}
+
 /// Whether the local rewrites of a single-body term are well placed
 /// (KF-011): none inside another rewrite, and a right side `.K` (an empty K
 /// sequence) only on a whole K-sequence item.
@@ -2935,6 +2968,10 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
     if let Some(alternatives) = post.iter().copied().find_map(find_pattern_or) {
         crate::failure_site::report(alternatives.origin());
         return Err(L::error(ValidationError::InvalidPatternOr));
+    }
+    if let Some(map) = post.iter().copied().find_map(find_map_rest) {
+        crate::failure_site::report(map.origin());
+        return Err(L::error(ValidationError::InvalidMapRest));
     }
     if pre.iter().copied().any(contains_matches) {
         return Err(L::error(ValidationError::InvalidMatches));

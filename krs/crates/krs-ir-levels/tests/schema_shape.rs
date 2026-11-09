@@ -153,6 +153,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DefinitionVariable",
     "DescriptorApplicationReference",
     "DescriptorCellTermField",
+    "DescriptorMapTermEntry",
     "DescriptorClaim",
     "DescriptorClaimBinder",
     "DescriptorEvaluationStep",
@@ -224,6 +225,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "SubsortSentence",
     "SyntaxSortSentence",
     "WireCellTermField",
+    "WireMapTermEntry",
     "WireClaim",
     "WireConfigurationRule",
     "WireContextAlias",
@@ -952,6 +954,7 @@ fn registry() -> Registry {
     unsupported!(DescriptorApplicationReference: DescriptorApplicationReference);
     unsupported!(DescriptorBundle: DescriptorBundle);
     unsupported!(DescriptorCellTermField: DescriptorCellTermField);
+    unsupported!(DescriptorMapTermEntry: DescriptorMapTermEntry);
     unsupported!(DescriptorClaim: DescriptorClaim);
     unsupported!(DescriptorConfigurationReference: DescriptorConfigurationReference);
     unsupported!(DescriptorSubject: DescriptorSubject);
@@ -1025,6 +1028,7 @@ fn registry() -> Registry {
     unsupported!(SubsortSentence: SubsortSentence);
     unsupported!(SyntaxSortSentence: SyntaxSortSentence);
     unsupported!(WireCellTermField: WireCellTermField);
+    unsupported!(WireMapTermEntry: WireMapTermEntry);
     unsupported!(WireGrammarDescriptor: WireGrammarDescriptor);
     unsupported!(WireClaim: WireClaim);
     trace!(wire WireClaimBinder: WireClaimBinder);

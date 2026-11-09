@@ -51,6 +51,8 @@ pub enum KeyPattern {
     Alternatives,
     /// `Ctor { f: e, .. }`.
     OpenRecord,
+    /// A map pattern `map![k -> v, rest @ ..]`.
+    MapPattern,
 }
 
 impl KeyPattern {
@@ -62,6 +64,7 @@ impl KeyPattern {
             Self::Alias => codes::syntax::INVALID_PATTERN_AS,
             Self::Alternatives => codes::analysis::AMBIGUOUS_OPERATOR,
             Self::OpenRecord => codes::syntax::INVALID_RECORD_UPDATE,
+            Self::MapPattern => codes::syntax::INVALID_EXPRESSION_NOTATION,
         }
     }
 
@@ -73,6 +76,7 @@ impl KeyPattern {
             Self::Alias => "an alias `name @ pattern`",
             Self::Alternatives => "alternatives `A | B`",
             Self::OpenRecord => "an open record `Ctor { f: e, .. }`",
+            Self::MapPattern => "a map pattern `map![k -> v, ..]`",
         }
     }
 
@@ -89,6 +93,9 @@ impl KeyPattern {
             }
             // The walker's reason, which the compiler gives for a constructor's record too.
             Self::OpenRecord => krs_syntax::positions::Class::OpenRecordOutsidePattern.summary(),
+            Self::MapPattern => {
+                "a map pattern's rest is the map without the entries it names, which only a match finds, and a built map is written with its updates, `map![k -> v, ..m]`"
+            }
         }
     }
 }

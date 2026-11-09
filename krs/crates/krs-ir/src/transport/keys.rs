@@ -151,6 +151,10 @@ pub(crate) enum TermRefusal {
     RecordUpdateBase,
     /// A list cell's unnamed rest outside a rule's subject and result.
     KeptRest,
+    /// A map pattern outside a pattern.
+    MapPattern,
+    /// A map pattern with no entry, or whose rest is no variable or `_`.
+    MalformedMapPattern,
 }
 
 /// How a rule term's nodes carry their keys, and what the walk checks of
@@ -338,6 +342,14 @@ where
             }
         };
         self.node(key, role)
+    }
+
+    fn map_entries(&mut self, key: &ProvenanceKey, well_formed: bool) -> Result<(), E> {
+        if !well_formed {
+            return Err(TermRefusal::MalformedMapPattern.into());
+        }
+        self.place(!self.in_pattern(), TermRefusal::MapPattern)?;
+        self.node(key, ProvenanceRole::PatternMap)
     }
 
     fn builtin_token(

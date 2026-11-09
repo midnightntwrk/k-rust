@@ -751,6 +751,10 @@ impl<'a> Scan<'a> {
     /// Walks a term; `alternative` is whether it lies inside `|`. The
     /// patterns of `k::matches!` and `let` bind local names, which are no
     /// rule binders, so they hold no base alias.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per term form, each recording what it holds."
+    )]
     fn walk(&mut self, term: &'a DescriptorTerm, alternative: bool) {
         match term {
             DescriptorTerm::Variable { name, .. } => {
@@ -811,6 +815,15 @@ impl<'a> Scan<'a> {
             DescriptorTerm::OrBool { arguments, .. } => {
                 for argument in arguments.iter() {
                     self.walk(argument, alternative);
+                }
+            }
+            DescriptorTerm::MapEntries { entries, rest, .. } => {
+                for entry in entries {
+                    self.walk(&entry.key, alternative);
+                    self.walk(&entry.value, alternative);
+                }
+                if let Some(rest) = rest {
+                    self.walk(rest, alternative);
                 }
             }
             DescriptorTerm::SortTest { operand, .. } => self.walk(operand, alternative),
@@ -1262,6 +1275,15 @@ impl LongForm<'_, '_> {
             },
             DescriptorTerm::OrBool { arguments, .. } => {
                 *arguments = arguments.try_map_ref(|argument| self.term(argument, None))?;
+            }
+            DescriptorTerm::MapEntries { entries, rest, .. } => {
+                for entry in entries {
+                    replace(&mut entry.key)?;
+                    replace(&mut entry.value)?;
+                }
+                if let Some(rest) = rest {
+                    replace(rest)?;
+                }
             }
             DescriptorTerm::Or { alternatives, .. } => {
                 *alternatives =

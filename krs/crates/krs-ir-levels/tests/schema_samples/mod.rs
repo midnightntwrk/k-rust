@@ -1302,6 +1302,16 @@ impl Sample for DefinitionTermKind {
                     },
                     Vec::new(),
                 )))),
+                Self::Map(Box::new(MapOperands::ItemsWithRest {
+                    items: NonEmpty::new(
+                        MapEntry {
+                            key: sample::<DefinitionTerm>(),
+                            value: sample::<DefinitionTerm>(),
+                        },
+                        Vec::new(),
+                    ),
+                    rest: sample::<DefinitionTerm>(),
+                })),
                 Self::List(Box::new(ListOperands::Item {
                     element: sample::<DefinitionTerm>(),
                 })),
@@ -1835,8 +1845,13 @@ impl Sample for DescriptorTerm {
                 Self::KeptRest {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::MapEntries {
+                    key: sample::<ProvenanceKey>(),
+                    entries: sample::<Vec<DescriptorMapTermEntry>>(),
+                    rest: Some(Box::new(sample::<DescriptorTerm>())),
+                },
             ],
-            17,
+            18,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1856,6 +1871,7 @@ impl Sample for DescriptorTerm {
                 Self::Closure { .. } => 14,
                 Self::Rewrite { .. } => 15,
                 Self::KeptRest { .. } => 16,
+                Self::MapEntries { .. } => 17,
             },
         )
     }
@@ -2793,6 +2809,16 @@ impl Sample for SemanticTermKind {
                     },
                     Vec::new(),
                 )))),
+                Self::Map(Box::new(MapOperands::ItemsWithRest {
+                    items: NonEmpty::new(
+                        MapEntry {
+                            key: sample::<SemanticTerm>(),
+                            value: sample::<SemanticTerm>(),
+                        },
+                        Vec::new(),
+                    ),
+                    rest: sample::<SemanticTerm>(),
+                })),
                 Self::List(Box::new(ListOperands::Item {
                     element: sample::<SemanticTerm>(),
                 })),
@@ -3243,8 +3269,13 @@ impl Sample for WireTerm {
                 Self::KeptRest {
                     key: sample::<ProvenanceKey>(),
                 },
+                Self::MapEntries {
+                    key: sample::<ProvenanceKey>(),
+                    entries: sample::<Vec<WireMapTermEntry>>(),
+                    rest: Some(Box::new(sample::<WireTerm>())),
+                },
             ],
-            17,
+            18,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -3264,6 +3295,7 @@ impl Sample for WireTerm {
                 Self::Closure { .. } => 14,
                 Self::Rewrite { .. } => 15,
                 Self::KeptRest { .. } => 16,
+                Self::MapEntries { .. } => 17,
             },
         )
     }
@@ -3523,6 +3555,14 @@ impl Sample for DescriptorCellTermField {
         vec![Self {
             key: sample::<ProvenanceKey>(),
             field: sample::<ProductionFieldId>(),
+            value: sample::<Box<DescriptorTerm>>(),
+        }]
+    }
+}
+impl Sample for DescriptorMapTermEntry {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<Box<DescriptorTerm>>(),
             value: sample::<Box<DescriptorTerm>>(),
         }]
     }
@@ -4281,6 +4321,14 @@ impl Sample for WireCellTermField {
         }]
     }
 }
+impl Sample for WireMapTermEntry {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<Box<WireTerm>>(),
+            value: sample::<Box<WireTerm>>(),
+        }]
+    }
+}
 impl Sample for WireHeadRule {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -4729,6 +4777,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DefinitionVariable>(corpus, "DefinitionVariable");
     insert::<DescriptorApplicationReference>(corpus, "DescriptorApplicationReference");
     insert::<DescriptorCellTermField>(corpus, "DescriptorCellTermField");
+    insert::<DescriptorMapTermEntry>(corpus, "DescriptorMapTermEntry");
     insert::<DescriptorClaim>(corpus, "DescriptorClaim");
     insert::<DescriptorClaimBinder>(corpus, "DescriptorClaimBinder");
     insert::<DescriptorEvaluationStep>(corpus, "DescriptorEvaluationStep");
@@ -4840,6 +4889,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<SubsortSentence>(corpus, "SubsortSentence");
     insert::<SyntaxSortSentence>(corpus, "SyntaxSortSentence");
     insert_wire::<WireCellTermField>(corpus, "WireCellTermField");
+    insert_wire::<WireMapTermEntry>(corpus, "WireMapTermEntry");
     insert_wire::<WireFixedConfiguration>(corpus, "WireFixedConfiguration");
     insert_wire::<WireClaim>(corpus, "WireClaim");
     insert_wire::<WireConfigurationRule>(corpus, "WireConfigurationRule");

@@ -386,6 +386,12 @@ pub fn rewrites_keep(term: &DescriptorTerm) -> bool {
                 && update.as_deref().is_none_or(rewrites_keep)
         }
         DescriptorTerm::OrBool { arguments, .. } => arguments.iter().all(rewrites_keep),
+        DescriptorTerm::MapEntries { entries, rest, .. } => {
+            entries
+                .iter()
+                .all(|entry| rewrites_keep(&entry.key) && rewrites_keep(&entry.value))
+                && rest.as_deref().is_none_or(rewrites_keep)
+        }
         DescriptorTerm::Or { alternatives, .. } => alternatives.iter().all(rewrites_keep),
         DescriptorTerm::SortTest { operand, .. } => rewrites_keep(operand),
         DescriptorTerm::As { pattern, .. } => rewrites_keep(pattern),

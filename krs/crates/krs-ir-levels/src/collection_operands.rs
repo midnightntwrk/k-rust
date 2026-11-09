@@ -70,16 +70,25 @@ fn exact<const N: usize, T>(operands: Vec<T>) -> Option<[T; N]> {
     operands.try_into().ok()
 }
 
-fn entries<T>(operands: Vec<T>) -> Option<NonEmpty<MapEntry<T>>> {
+/// The items of a Map term, from its operands in wire order: each key, then its value, and,
+/// for an odd count of at least three, the rest the items are joined with, last.
+fn entries<T>(operands: Vec<T>) -> Option<MapOperands<T>> {
     let mut operands = operands.into_iter();
     let mut entries = Vec::new();
+    let mut rest = None;
     while let Some(key) = operands.next() {
-        let value = operands.next()?;
-        entries.push(MapEntry { key, value });
+        match operands.next() {
+            Some(value) => entries.push(MapEntry { key, value }),
+            None => rest = Some(key),
+        }
     }
     let mut entries = entries.into_iter();
     let first = entries.next()?;
-    Some(NonEmpty::new(first, entries.collect()))
+    let items = NonEmpty::new(first, entries.collect());
+    Some(match rest {
+        None => MapOperands::Items(items),
+        Some(rest) => MapOperands::ItemsWithRest { items, rest },
+    })
 }
 
 /// One key/value item of a Map term.
@@ -98,6 +107,18 @@ pub enum MapOperands<T> {
     Empty,
     /// One or more key/value items, juxtaposed.
     Items(NonEmpty<MapEntry<T>>),
+    /// One or more key/value items juxtaposed with the rest of the map, `(K |-> V) REST`: a
+    /// pattern's map whose entries it names and whose other entries `rest` matches. The rest is
+    /// a map that holds none of the items' keys, and K's juxtaposition `_Map_` is defined only on
+    /// such disjoint maps, so the term is a pattern's: a pre-pattern holds it, and nothing builds
+    /// it. On the wire it is [`MapOperation::Item`] with the rest after the items, an odd count
+    /// of operands; [`Self::Items`] stays the one form of items without a rest.
+    ItemsWithRest {
+        /// The items, in pattern order.
+        items: NonEmpty<MapEntry<T>>,
+        /// The rest: a variable of sort `Map` or a wildcard.
+        rest: T,
+    },
     /// `map [ key <- value ]`.
     Update {
         /// The updated map.
@@ -179,8 +200,9 @@ impl<T> MapOperands<T> {
     /// # Errors
     ///
     /// Returns [`CollectionArityError::Map`] when the count does not fit the
-    /// operation: `Item` takes a nonzero even count, every other operation its
-    /// catalog arity.
+    /// operation: `Item` takes two or more (each key, then its value, and an
+    /// odd count's last operand the rest), every other operation its catalog
+    /// arity.
     pub fn from_operands(
         operation: MapOperation,
         operands: Vec<T>,
@@ -188,7 +210,7 @@ impl<T> MapOperands<T> {
         let count = operands.len();
         match operation {
             MapOperation::Empty => exact(operands).map(|[]| Self::Empty),
-            MapOperation::Item => entries(operands).map(Self::Items),
+            MapOperation::Item => entries(operands),
             MapOperation::Update => {
                 exact(operands).map(|[map, key, value]| Self::Update { map, key, value })
             }
@@ -240,7 +262,7 @@ impl<T> MapOperands<T> {
     pub const fn operation(&self) -> MapOperation {
         match self {
             Self::Empty => MapOperation::Empty,
-            Self::Items(_) => MapOperation::Item,
+            Self::Items(_) | Self::ItemsWithRest { .. } => MapOperation::Item,
             Self::Update { .. } => MapOperation::Update,
             Self::Get { .. } => MapOperation::Get,
             Self::InKeys { .. } => MapOperation::InKeys,
@@ -255,31 +277,37 @@ impl<T> MapOperands<T> {
         }
     }
 
-    /// Traverses operands in wire order; items yield each key, then its value.
+    /// Traverses operands in wire order; items yield each key, then its value, and then the
+    /// rest they are joined with.
     pub fn operands(&self) -> impl Iterator<Item = &T> {
-        let (fixed, entries) = match self {
-            Self::Empty => ([None, None, None], None),
-            Self::Items(entries) => ([None, None, None], Some(entries)),
-            Self::Update { map, key, value } => ([Some(map), Some(key), Some(value)], None),
+        let (fixed, entries, rest) = match self {
+            Self::Empty => ([None, None, None], None, None),
+            Self::Items(entries) => ([None, None, None], Some(entries), None),
+            Self::ItemsWithRest { items, rest } => ([None, None, None], Some(items), Some(rest)),
+            Self::Update { map, key, value } => ([Some(map), Some(key), Some(value)], None, None),
             Self::Get { map, key } | Self::Remove { map, key } => {
-                ([Some(map), Some(key), None], None)
+                ([Some(map), Some(key), None], None, None)
             }
-            Self::InKeys { key, map } => ([Some(key), Some(map), None], None),
-            Self::RemoveAll { map, keys } => ([Some(map), Some(keys), None], None),
+            Self::InKeys { key, map } => ([Some(key), Some(map), None], None, None),
+            Self::RemoveAll { map, keys } => ([Some(map), Some(keys), None], None, None),
             Self::Keys { map }
             | Self::KeysList { map }
             | Self::Values { map }
-            | Self::Size { map } => ([Some(map), None, None], None),
-            Self::UpdateAll { map, update } => ([Some(map), Some(update), None], None),
+            | Self::Size { map } => ([Some(map), None, None], None, None),
+            Self::UpdateAll { map, update } => ([Some(map), Some(update), None], None, None),
             Self::GetOrDefault { map, key, default } => {
-                ([Some(map), Some(key), Some(default)], None)
+                ([Some(map), Some(key), Some(default)], None, None)
             }
         };
-        fixed.into_iter().flatten().chain(
-            entries
-                .into_iter()
-                .flat_map(|entries| entries.iter().flat_map(|entry| [&entry.key, &entry.value])),
-        )
+        fixed
+            .into_iter()
+            .flatten()
+            .chain(
+                entries.into_iter().flat_map(|entries| {
+                    entries.iter().flat_map(|entry| [&entry.key, &entry.value])
+                }),
+            )
+            .chain(rest)
     }
 
     /// Consumes the operands in wire order.
@@ -290,6 +318,11 @@ impl<T> MapOperands<T> {
             Self::Items(entries) => entries
                 .into_iter()
                 .flat_map(|entry| [entry.key, entry.value])
+                .collect(),
+            Self::ItemsWithRest { items, rest } => items
+                .into_iter()
+                .flat_map(|entry| [entry.key, entry.value])
+                .chain([rest])
                 .collect(),
             Self::Update { map, key, value } => vec![map, key, value],
             Self::Get { map, key } | Self::Remove { map, key } => vec![map, key],
@@ -321,6 +354,15 @@ impl<T> MapOperands<T> {
                     value: map(&entry.value)?,
                 })
             })?),
+            Self::ItemsWithRest { items, rest } => MapOperands::ItemsWithRest {
+                items: items.try_map_ref(|entry| {
+                    Ok(MapEntry {
+                        key: map(&entry.key)?,
+                        value: map(&entry.value)?,
+                    })
+                })?,
+                rest: map(rest)?,
+            },
             Self::Update {
                 map: base,
                 key,
@@ -878,6 +920,31 @@ mod tests {
     }
 
     #[test]
+    fn an_odd_item_count_is_items_and_the_rest_they_are_joined_with() {
+        let operands = MapOperands::from_operands(MapOperation::Item, vec![0, 1, 2, 3, 4]).unwrap();
+        assert_eq!(
+            operands,
+            MapOperands::ItemsWithRest {
+                items: NonEmpty::new(
+                    MapEntry { key: 0, value: 1 },
+                    vec![MapEntry { key: 2, value: 3 }]
+                ),
+                rest: 4,
+            }
+        );
+        assert_eq!(operands.operation(), MapOperation::Item);
+        assert_eq!(
+            operands.operands().copied().collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4]
+        );
+        assert_eq!(operands.into_operands(), [0, 1, 2, 3, 4]);
+        assert!(matches!(
+            MapOperands::from_operands(MapOperation::Item, vec![0, 1]).unwrap(),
+            MapOperands::Items(_)
+        ));
+    }
+
+    #[test]
     fn wrong_operand_counts_are_rejected() {
         assert_eq!(
             MapOperands::from_operands(MapOperation::Empty, vec![1]),
@@ -886,7 +953,7 @@ mod tests {
                 operands: 1
             })
         );
-        for count in [0, 1, 3] {
+        for count in [0, 1] {
             assert!(MapOperands::from_operands(MapOperation::Item, vec![0; count]).is_err());
         }
         assert!(MapOperands::<u8>::items(Vec::new()).is_err());

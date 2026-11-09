@@ -9,8 +9,8 @@ use crate::transport::configuration::{
     StageConfigurationInitializer,
 };
 use crate::transport::grammar::{
-    CellTermField, Production, ProductionAttribute, ProductionItem, ProductionOwner, RuleCondition,
-    StageGrammarDescriptor, StructuredRule, Term, TermArgument,
+    CellTermField, MapTermEntry, Production, ProductionAttribute, ProductionItem, ProductionOwner,
+    RuleCondition, StageGrammarDescriptor, StructuredRule, Term, TermArgument,
 };
 use crate::transport::head_rule::HeadRule;
 use crate::transport::rule::{
@@ -158,6 +158,9 @@ pub type WireTermArgument = TermArgument<WireStage>;
 
 /// Static wire-stage form of [`CellTermField`].
 pub type WireCellTermField = CellTermField<WireStage>;
+
+/// Static wire-stage form of [`MapTermEntry`].
+pub type WireMapTermEntry = MapTermEntry<WireStage>;
 
 /// Static wire-stage form of [`Term`].
 pub type WireTerm = Term<WireStage>;
