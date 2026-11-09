@@ -339,7 +339,9 @@ impl Lock {
     /// would write with the file, and write it after a run that judged every mutation of its list
     /// in search mode without `--locked`. The value is the document's `lock`: `{path, status,
     /// reason, header, header_changes, changes, difference}` (README, "The killer record"), with
-    /// `detail` when a write failed; the flag is false when it did.
+    /// `detail` when a write failed; the flag is false when it did. An entry a run the clock
+    /// stopped could change keeps its recorded value ([`crate::clock`]: `clock_stopped`, `kept`),
+    /// and under `--locked` a lock that differs in nothing else is `undecided`.
     ///
     /// Under `--locked` a lock that differs from the rendering only in its header is `stale`,
     /// like one whose rows differ. In particular a lock recorded on another Z3 build (its
@@ -360,6 +362,10 @@ impl Lock {
             let reason = if refused { "refused" } else { "stopped" };
             return (self.not_written(reason), true);
         }
+        // An entry a run the clock stopped decided keeps its recorded value: the lock compared
+        // and written is the rendering of the document with those values ([`crate::clock`]).
+        let clock = crate::clock::keep(self, document);
+        let document = &clock.document;
         let text = match lock_text(document) {
             Ok(text) if LockKind::of(document) == self.kind => text,
             _ => return (self.not_written("refused"), true),
@@ -389,6 +395,8 @@ impl Lock {
                 "header_changes": header_changes,
                 "changes": changes,
                 "difference": difference,
+                "clock_stopped": clock.stopped,
+                "kept": clock.kept,
             });
             if let Some(open) = &open {
                 value["open_changes"] = json!(open);
@@ -404,7 +412,15 @@ impl Lock {
             } else {
                 header || !changes.is_empty()
             };
-            let status = if differs { "stale" } else { "unchanged" };
+            // Not a difference, and not confirmed either: some entry rests on a run the clock
+            // stopped, so this host cannot decide it.
+            let status = if differs {
+                "stale"
+            } else if clock.stopped.is_empty() {
+                "unchanged"
+            } else {
+                "undecided"
+            };
             return (value(status, Some("locked"), header, changes), true);
         }
         if run.verify {
@@ -654,6 +670,8 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
         "header_changes": [],
         "changes": [],
         "difference": null,
+        "clock_stopped": [],
+        "kept": [],
     })
 }
 

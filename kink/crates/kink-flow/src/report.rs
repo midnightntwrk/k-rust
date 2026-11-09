@@ -263,7 +263,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
 /// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
 /// refused `name-refused` (KINK-FINDING-NAMES).
-pub const RUN_VERSION: u64 = 38;
+/// 39 keeps a lock entry a run the clock (`budget.time_ms`) stopped could change, rather than
+/// rewriting it or reporting it as a difference ([`crate::clock`]): the lock has `kept` and
+/// `clock_stopped`, and `--locked` gives the status `undecided` where nothing else differs
+/// (FB45-LOCKED-TIMEOUT).
+pub const RUN_VERSION: u64 = 39;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.

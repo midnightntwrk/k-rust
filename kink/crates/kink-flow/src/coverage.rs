@@ -460,7 +460,11 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// `malformed`, `position-name`, `unnamed-sentence`, `no-digest`, `changed`, `no-finding`,
 /// `decided` or `ambiguous` where it refused `name-refused` (KINK-FINDING-NAMES), and an argued
 /// item's standing names the findings it assumes by these names.
-pub const COVERAGE_VERSION: u64 = 20;
+/// Version 21 keeps a coverage lock entry a run the clock (`budget.time_ms`) stopped could
+/// change ([`crate::clock`]): the lock has `kept` and `clock_stopped`, `--locked` gives the
+/// status `undecided` where nothing else differs, and each flip names the programs whose run on
+/// its mutant the clock stopped (`timed_out`; FB45-LOCKED-TIMEOUT).
+pub const COVERAGE_VERSION: u64 = 21;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -3873,7 +3877,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
 }
 
 /// The families whose items an argued entry can name, in target order.
-const ARGUABLE: [&str; 6] = [
+pub(crate) const ARGUABLE: [&str; 6] = [
     "rules",
     "requirements",
     "syntax",

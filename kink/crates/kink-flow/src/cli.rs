@@ -219,6 +219,10 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     for line in crate::lock::stale_lines(&document) {
         eprintln!("kink-flow: {line}");
     }
+    // What of the lock rests on a run the clock stopped, and each entry it kept unverified.
+    for line in crate::clock::clock_lines(&document) {
+        eprintln!("kink-flow: {line}");
+    }
     // A mutation's expectation the run does not meet, or cannot confirm: one line each.
     for line in crate::report::expectation_lines(&document) {
         eprintln!("kink-flow: {line}");
@@ -1474,10 +1478,13 @@ pub fn coverage_status(document: &Value) -> u8 {
 
 /// The status of a document's lock: [`EXIT_NO`] when `--locked` found the command would change
 /// it (`stale`: a stored record that differs from the live value, as `--verify` reports one),
-/// [`EXIT_UNASKED`] when it could not be written, else [`EXIT_YES`].
+/// [`EXIT_UNANSWERED`] when `--locked` found no difference but some entry rests on a run the
+/// clock stopped (`undecided`: not decided on this host, [`crate::clock`]), [`EXIT_UNASKED`] when
+/// it could not be written, else [`EXIT_YES`].
 fn lock_status(document: &Value) -> u8 {
     match document["lock"]["status"].as_str() {
         Some("stale") => EXIT_NO,
+        Some("undecided") => EXIT_UNANSWERED,
         Some("not-written") if document["lock"]["reason"] == "write-failed" => EXIT_UNASKED,
         _ => EXIT_YES,
     }

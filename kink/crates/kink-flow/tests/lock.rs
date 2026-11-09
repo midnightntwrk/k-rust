@@ -253,6 +253,8 @@ fn a_run_refused_before_its_lock_names_the_lock_it_left_unwritten() {
         "header_changes": [],
         "changes": [],
         "difference": null,
+        "clock_stopped": [],
+        "kept": [],
     });
     for (flow, mutations) in [
         (&manifest, &list),
@@ -754,7 +756,7 @@ mod kink_tier {
         let output = binary(&manifest, &["--lock", "verdicts.lock", "--locked"]);
         assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["version"], 38);
+        assert_eq!(document["version"], 39);
         assert_eq!(
             (&document["lock"]["status"], &document["lock"]["header"]),
             (&json!("stale"), &json!(true))
@@ -822,5 +824,412 @@ mod kink_tier {
             .filter(|name| name != CACHE_DIRECTORY)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(after, before);
+    }
+}
+
+/// FB45-LOCKED-TIMEOUT: a run `budget.time_ms` cancelled changes no recorded status, killer or
+/// lock entry. On the loop fixture under `time_ms = 500`, `countdown-escapes` makes
+/// `countdown(3)` loop for ever and `countdown(1)` end at `countdown(-1)`, and `spin(0)` never
+/// ends on the baseline: the clock stops those runs on every host, so the outcome of each test is
+/// deterministic, while the lock entries these tests record by hand stand for what a host that
+/// finished the runs would have recorded.
+mod clock {
+    use super::*;
+    use kink_flow::{
+        CommandFiles, EditAction, EditSpec, FlowCommand, FrontEnd,
+        cli::{EXIT_UNANSWERED, dispatch},
+        flips::{Derived, DerivedEntry, DerivedList, Judged, Occurrence, Reach},
+    };
+    use kink_patch::SentenceRef;
+
+    /// A private copy of the loop fixture whose manifest lists `programs` (`(id, text)`) under a
+    /// 500 ms clock; its `FLOW.toml`.
+    fn looping(test: &str, programs: &[(&str, &str)]) -> PathBuf {
+        let dir = scratch(test).join("loop");
+        copy_dir(&flow("loop"), &dir);
+        let mut text = "[spec]\nentry = \"loop.k\"\nmain_module = \"LOOP\"\nsyntax_module = \
+                        \"LOOP-SYNTAX\"\n\n[budget]\ntime_ms = 500\nmax_depth = 1000000000\n"
+            .to_owned();
+        for (id, program) in programs {
+            text.push_str(&format!(
+                "\n[[program]]\nid = \"{id}\"\ntext = \"{program}\"\n"
+            ));
+        }
+        let manifest = dir.join("FLOW.toml");
+        fs::write(&manifest, text).unwrap();
+        manifest
+    }
+
+    fn run_status(manifest: &Path, locked: bool) -> (Value, u8) {
+        let lock = lock_of(manifest);
+        let options = RunOptions {
+            locked,
+            ..options(Some(&lock))
+        };
+        run_mode(
+            manifest,
+            &manifest.with_file_name("MUTATIONS.toml"),
+            &options,
+            RunMode::Search,
+        )
+    }
+
+    /// The lock's text with `countdown-escapes`'s row replaced by `row` (its lines after `id`).
+    fn with_row(text: &str, row: &str) -> String {
+        let start = text
+            .find("id = \"countdown-escapes\"\n")
+            .expect("the lock has the row");
+        let start = start + "id = \"countdown-escapes\"\n".len();
+        let end = text[start..]
+            .find("\n[")
+            .map_or(text.len(), |at| start + at + 1);
+        format!("{}{row}{}", &text[..start], &text[end..])
+    }
+
+    fn stopped(document: &Value) -> Vec<(String, String)> {
+        document["lock"]["clock_stopped"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no clock_stopped: {:#}", document["lock"]))
+            .iter()
+            .map(|stop| {
+                (
+                    stop["program"].as_str().unwrap().to_owned(),
+                    stop["run"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    /// A recorded killer whose run on the mutant the clock stopped is kept, unverified: under
+    /// `--locked` the entry is not decided on this host (exit 3), not a difference (exit 1), and
+    /// without it the lock keeps the killer. A recorded survivor that a program which finished
+    /// kills is a difference: a kill is a function of the inputs, whichever earlier run timed
+    /// out.
+    #[test]
+    #[ignore = "kink"]
+    fn a_killer_the_clock_stopped_is_kept_unverified() {
+        let manifest = looping(
+            "killer-stopped",
+            &[("countdown", "countdown(3)"), ("one", "countdown(1)")],
+        );
+        let lock = lock_of(&manifest);
+        let (cold, _) = run_status(&manifest, false);
+        let row = row(&cold, "countdown-escapes");
+        assert_eq!(
+            (&row["status"], &row["killer"]),
+            (&json!("killed"), &json!("one"))
+        );
+        let written = fs::read_to_string(&lock).unwrap();
+        assert!(written.contains("killer = \"one\""), "{written}");
+
+        // A host that finished countdown's run recorded it as the killer.
+        let recorded = with_row(&written, "status = \"killed\"\nkiller = \"countdown\"\n");
+        fs::write(&lock, &recorded).unwrap();
+        let (locked, status) = run_status(&manifest, true);
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED, "{:#}", locked["lock"]);
+        assert_eq!(locked["lock"]["changes"], json!([]), "{:#}", locked["lock"]);
+        assert_eq!(
+            locked["lock"]["kept"],
+            json!([{
+                "mutation": "countdown-escapes",
+                "recorded": {"status": "killed", "killer": "countdown", "reason": null},
+                "now": {"status": "killed", "killer": "one", "reason": null},
+            }])
+        );
+        assert_eq!(
+            stopped(&locked),
+            [("countdown".to_owned(), "mutant".to_owned())]
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+        // Without `--locked` the killer is kept, and the lock does not move.
+        let (kept, status) = run_status(&manifest, false);
+        assert_eq!(status, EXIT_YES, "{:#}", kept["lock"]);
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(kept["lock"]["kept"], locked["lock"]["kept"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+        let output = binary(&manifest, &["--lock", "verdicts.lock", "--locked"]);
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_UNANSWERED)));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(
+                "verdicts.lock: countdown-escapes: the clock (budget.time_ms) stopped the run \
+                 of countdown on its mutant"
+            ) && stderr.contains(
+                "verdicts.lock: countdown-escapes: kept killed (killer countdown) unverified: \
+                 this host gives killed (killer one)"
+            ),
+            "{stderr}"
+        );
+
+        // A recorded survivor: `one` finished and kills, so the status moved, whatever
+        // countdown's stopped run would have given.
+        let survived = with_row(&written, "status = \"survived\"\n");
+        fs::write(&lock, &survived).unwrap();
+        let (stale, status) = run_status(&manifest, true);
+        assert_eq!(status, EXIT_NO, "{:#}", stale["lock"]);
+        assert_eq!(stale["lock"]["status"], "stale");
+        assert_eq!(stale["lock"]["kept"], json!([]));
+        let (rewritten, _) = run_status(&manifest, false);
+        assert_eq!(rewritten["lock"]["status"], "written");
+        assert_eq!(fs::read_to_string(&lock).unwrap(), written);
+    }
+
+    /// A recorded survivor whose live status is `timeout` keeps its status; and a recorded killer
+    /// whose baseline the clock stopped (so it is not comparable on this host) is kept too.
+    #[test]
+    #[ignore = "kink"]
+    fn a_status_or_killer_a_stopped_run_decides_is_kept() {
+        let manifest = looping(
+            "status-stopped",
+            &[("countdown", "countdown(3)"), ("twice", "twice(4)")],
+        );
+        let lock = lock_of(&manifest);
+        let (cold, _) = run_status(&manifest, false);
+        assert_eq!(row(&cold, "countdown-escapes")["status"], "timeout");
+        let written = fs::read_to_string(&lock).unwrap();
+        assert!(written.contains("status = \"timeout\""), "{written}");
+        let survived = with_row(&written, "status = \"survived\"\n");
+        fs::write(&lock, &survived).unwrap();
+        let (locked, status) = run_status(&manifest, true);
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED);
+        assert_eq!(
+            locked["lock"]["kept"][0]["now"]["status"], "timeout",
+            "{:#}",
+            locked["lock"]
+        );
+        let (kept, _) = run_status(&manifest, false);
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), survived);
+
+        // spin's baseline never ends: on this host it is not comparable, so it cannot be tried.
+        let manifest = looping(
+            "baseline-stopped",
+            &[("spin", "spin(0)"), ("one", "countdown(1)")],
+        );
+        let lock = lock_of(&manifest);
+        let (cold, _) = run_status(&manifest, false);
+        assert_eq!(row(&cold, "countdown-escapes")["killer"], "one");
+        let written = fs::read_to_string(&lock).unwrap();
+        let recorded = with_row(&written, "status = \"killed\"\nkiller = \"spin\"\n");
+        fs::write(&lock, &recorded).unwrap();
+        let (locked, status) = run_status(&manifest, true);
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED);
+        assert_eq!(
+            stopped(&locked),
+            [("spin".to_owned(), "baseline".to_owned())]
+        );
+        let (kept, _) = run_status(&manifest, false);
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+    }
+
+    fn coverage(manifest: &Path, locked: bool) -> (Value, u8) {
+        coverage_of(manifest, locked, Derived::default())
+    }
+
+    /// `coverage --lock coverage.lock [--locked]` for a front end that derives `derived`.
+    fn coverage_of(manifest: &Path, locked: bool, derived: Derived<'_>) -> (Value, u8) {
+        let mut options = vec![
+            "--lock".to_owned(),
+            manifest
+                .with_file_name("coverage.lock")
+                .to_str()
+                .unwrap()
+                .to_owned(),
+        ];
+        if locked {
+            options.push("--locked".to_owned());
+        }
+        let command = FlowCommand::parse("coverage", CommandFiles::default(), &options).unwrap();
+        let flow = FlowManifest::read(manifest).unwrap();
+        let front = FrontEnd {
+            derived,
+            ..FrontEnd::default()
+        };
+        dispatch(flow, command, front).expect("the command does not panic")
+    }
+
+    /// The rules item whose label is `label`.
+    fn rule_id(document: &Value, label: &str) -> String {
+        document["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| {
+                item["label"]
+                    .as_str()
+                    .is_some_and(|l| l == label || l.ends_with(&format!(".{label}")))
+            })
+            .and_then(|item| item["id"].as_str())
+            .unwrap_or_else(|| panic!("no rule {label}"))
+            .to_owned()
+    }
+
+    /// A coverage lock records an obligation as covered (unlisted); the program that covered it
+    /// is stopped by the clock on this host, so the obligation shows open: the lock keeps it
+    /// unlisted, unverified, and `--locked` says the lock is not decided here (exit 3), while an
+    /// obligation a program that finished covers is a difference (exit 1) and is written.
+    #[test]
+    #[ignore = "kink"]
+    fn a_coverage_obligation_a_stopped_program_could_cover_is_kept() {
+        let manifest = looping(
+            "coverage-stopped",
+            &[("countdown", "countdown(3)"), ("twice", "twice(4)")],
+        );
+        let lock = manifest.with_file_name("coverage.lock");
+        let (first, _) = coverage(&manifest, false);
+        assert_eq!(first["lock"]["status"], "created", "{:#}", first["lock"]);
+        let spin = rule_id(&first, "spin");
+        let done = rule_id(&first, "done");
+        let written = fs::read_to_string(&lock).unwrap();
+        let listed = format!("  \"{spin}\",\n");
+        assert!(written.contains(&listed), "{written}");
+        // A host on which a program covering spin finished recorded it covered.
+        let recorded = written.replacen(&listed, "", 1);
+        fs::write(&lock, &recorded).unwrap();
+        let mut text = fs::read_to_string(&manifest).unwrap();
+        text.push_str("\n[[program]]\nid = \"spin\"\ntext = \"spin(0)\"\n");
+        fs::write(&manifest, text).unwrap();
+        let (locked, status) = coverage(&manifest, true);
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED, "{:#}", locked["lock"]);
+        assert_eq!(
+            locked["lock"]["open_changes"],
+            json!([]),
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(
+            locked["lock"]["kept"],
+            json!([{"family": "rules", "obligation": spin, "recorded": null, "now": "open"}])
+        );
+        assert_eq!(
+            stopped(&locked),
+            [("spin".to_owned(), "baseline".to_owned())]
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+
+        // An obligation recorded open that a program which finished covers moved.
+        let open_done = recorded.replacen("open = [\n", &format!("open = [\n  \"{done}\",\n"), 1);
+        fs::write(&lock, &open_done).unwrap();
+        let (stale, status) = coverage(&manifest, true);
+        assert_eq!(status, EXIT_NO, "{:#}", stale["lock"]);
+        assert_eq!(
+            stale["lock"]["open_changes"],
+            json!([{"family": "rules", "obligation": done, "recorded": "open", "now": null}])
+        );
+        let (rewritten, _) = coverage(&manifest, false);
+        assert_eq!(
+            rewritten["lock"]["status"], "written",
+            "{:#}",
+            rewritten["lock"]
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
+    }
+
+    /// The flip of the countdown rule's condition: `countdown(0)` then both ends at 0 and steps
+    /// to `countdown(-1)`, `countdown(-2)`, ... for ever, so the clock stops its run on the
+    /// mutant, and `countdown(3)` no longer steps, which distinguishes it. A recorded killer whose
+    /// run the clock stopped is kept, as a mutation's is.
+    #[test]
+    #[ignore = "kink"]
+    fn a_flips_killer_the_clock_stopped_is_kept() {
+        let manifest = looping(
+            "flip-stopped",
+            &[("zero", "countdown(0)"), ("three", "countdown(3)")],
+        );
+        let lock = manifest.with_file_name("coverage.lock");
+        let (rules, _) = coverage(&manifest, false);
+        let item = rules["families"]["rules"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == rule_id(&rules, "countdown").as_str())
+            .unwrap()
+            .clone();
+        let id = "flip--countdown--positive";
+        let list = DerivedList {
+            entries: vec![DerivedEntry {
+                id: id.to_owned(),
+                operator: "flip".to_owned(),
+                text: "I >Int 0".to_owned(),
+                atom: json!({"kind": "boolean", "head": "I >Int 0"}),
+                occurrences: vec![Occurrence {
+                    sentence: SentenceRef {
+                        module: item["module"].as_str().unwrap().to_owned(),
+                        index: u32::try_from(item["index"].as_u64().unwrap()).unwrap(),
+                    },
+                    reach: Reach::Operand {
+                        path: "0".to_owned(),
+                    },
+                }],
+                judged: Judged::Admitted {
+                    edits: vec![EditSpec {
+                        file: None,
+                        rule: Some("countdown".to_owned()),
+                        line: None,
+                        action: EditAction::Replace {
+                            find: "requires I >Int 0".to_owned(),
+                            replace: "requires I <=Int 0".to_owned(),
+                        },
+                    }],
+                },
+            }],
+            ..DerivedList::default()
+        };
+        fs::remove_file(&lock).unwrap();
+        let (first, _) = coverage_of(&manifest, false, Derived::Flips(&list));
+        let flip = first["families"]["flips"]["items"][0].clone();
+        assert_eq!(
+            (&flip["status"], &flip["killer"], &flip["timed_out"][0]),
+            (&json!("distinguished"), &json!("three"), &json!("zero")),
+            "{flip:#}"
+        );
+        let written = fs::read_to_string(&lock).unwrap();
+        let recorded = written.replacen("killer = \"three\"", "killer = \"zero\"", 1);
+        assert_ne!(recorded, written);
+        fs::write(&lock, &recorded).unwrap();
+        let (locked, status) = coverage_of(&manifest, true, Derived::Flips(&list));
+        assert_eq!(
+            locked["lock"]["status"], "undecided",
+            "{:#}",
+            locked["lock"]
+        );
+        assert_eq!(status, EXIT_UNANSWERED, "{:#}", locked["lock"]);
+        assert_eq!(
+            locked["lock"]["kept"],
+            json!([{
+                "flip": id,
+                "recorded": {"status": "distinguished", "killer": "zero", "reason": null},
+                "now": {"status": "distinguished", "killer": "three", "reason": null},
+            }])
+        );
+        assert!(
+            stopped(&locked).contains(&("zero".to_owned(), "mutant".to_owned())),
+            "{:#}",
+            locked["lock"]
+        );
+        let (kept, _) = coverage_of(&manifest, false, Derived::Flips(&list));
+        assert_eq!(kept["lock"]["status"], "unchanged", "{:#}", kept["lock"]);
+        assert_eq!(fs::read_to_string(&lock).unwrap(), recorded);
     }
 }

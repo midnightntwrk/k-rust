@@ -457,7 +457,10 @@ pub fn unreached(occurrences: &[Value]) -> bool {
 /// document): `killed` is `distinguished`, `survived` `undistinguished`, `equivalent` and
 /// `unkillable` `equivalent`, `invalid-mutation` and `not-admitted` `refused` (kink-flow's
 /// admission), and every other status `unknown`. `kink_status` keeps kink's status, and
-/// `horizon` the row's (a survivor's agreements up to a horizon, null where it has none). An
+/// `horizon` the row's (a survivor's agreements up to a horizon, null where it has none), and
+/// `timed_out` the programs whose run on the mutant the clock stopped (`budget.time_ms`;
+/// [`crate::clock`], which reads them to tell an entry of the coverage lock decided on this host
+/// from one a stopped run decided). An
 /// `unknown` flip's `causes` are the search's own record of what stopped each comparison: one
 /// `{program, cause}` per executed program with a cause, in the search's order (empty for every
 /// other status), since the row's `reason` names a cause only where one holds for the whole
@@ -485,6 +488,7 @@ pub fn fill_from_row(item: &mut Value, row: &Value) {
     item["killer_change"] = row["killer_change"].clone();
     item["witnesses"] = row["witnesses"].clone();
     item["horizon"] = row.get("horizon").cloned().unwrap_or(Value::Null);
+    item["timed_out"] = json!(crate::clock::mutant_timeouts(row));
     let executed = row["executed"].as_array().map_or(&[][..], Vec::as_slice);
     item["causes"] = json!(if status == UNKNOWN {
         executed
@@ -528,6 +532,7 @@ pub fn item_value(entry: &DerivedEntry, occurrences: Vec<Value>) -> Value {
         "killer_change": null,
         "witnesses": null,
         "horizon": null,
+        "timed_out": [],
         "causes": [],
         "waits_on": [],
         "live_runs": 0,

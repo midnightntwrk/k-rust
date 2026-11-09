@@ -321,10 +321,9 @@ impl HostDependence {
     /// The row's `not_cached`: the class, why it depends on the host, and what follows.
     fn reason(self, class: ResultClass, time_ms: u128) -> String {
         let why = match self {
-            Self::Time => format!(
-                "the watchdog stopped the run at time_ms = {time_ms}; a timeout depends on the \
-                 host's load"
-            ),
+            Self::Time => {
+                format!("{WATCHDOG_STOPPED} = {time_ms}; a timeout depends on the host's load")
+            }
             Self::Failure => "a run or runner failure can come from the host (a refused stack \
                               segment, a solver that could not be created), and kink cannot tell \
                               when"
@@ -345,6 +344,10 @@ impl HostDependence {
         )
     }
 }
+
+/// How a program row's `not_cached` begins, after its class, where the watchdog stopped the run
+/// ([`HostDependence::Time`]); [`crate::clock::baseline_stopped`] reads it.
+pub const WATCHDOG_STOPPED: &str = "the watchdog stopped the run at time_ms";
 
 /// Whether an exclusion is a fact of the host rather than of the definition and the program: a
 /// stop for lack of native stack (the host's threads) and a refusal for the process's memory
