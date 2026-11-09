@@ -62,7 +62,8 @@
 //! canonical form, the violation (`F((K |-> _) _, E) => false requires P(E, K)` beside
 //! `F(_, _) => true [owise]`), whose `false` reads no binding the pattern chose and so joins by
 //! the check's syntactic rule. A refutation reads the functions at one choice too, so an item
-//! whose functions are not shown to be functions refutes nothing.
+//! whose functions are not shown to be functions refutes nothing, and its evidence is not read:
+//! no state's value could refute or credit it.
 //!
 //! # The cache
 //!

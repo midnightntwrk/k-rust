@@ -1423,12 +1423,13 @@ mod kink_tier {
     }
 
     /// An invariant whose value is not known at a state of a run leaves that state undecided, and
-    /// the run is still read: `careful` walks the memory's bindings, but has no
-    /// equation for a binding at a key from 100 on: it is partial, so after `write(200, 1)` its
-    /// evaluation leaves its definedness as a condition, before the step of `readz` and at the
-    /// end. The evidence is
-    /// `incomplete`, its reason names the state and why its value is not known, and the run is
-    /// neither refused nor failed: the initial state, where the walk is decided, is read too.
+    /// the run is still read: `careful` is the violation form over a memory of one binding, and
+    /// has no equation for a larger one: it is partial, so after `write(200, 1)` its evaluation
+    /// ends at no `Bool` value, before the step of `readz` and at the end. Its one
+    /// equation overlaps no other, so it is shown to be a function and its evidence is read. The
+    /// evidence is `incomplete`, its reason names the state and why its value is not known, and
+    /// the run is neither refused nor failed: the initial state, where the invariant is decided,
+    /// is read too.
     #[test]
     #[ignore = "kink"]
     fn an_invariant_undecided_at_a_state_leaves_its_evidence_incomplete() {
@@ -1437,9 +1438,8 @@ mod kink_tier {
         edit_k(
             &dir,
             "  syntax Bool ::= never(Int)",
-            "  syntax Bool ::= careful(Map, Int) [function, symbol(careful)]\n  rule careful(.Map, \
-             _) => true\n  rule careful((K:Int |-> _) M, E) => notBool inRom(E, K) andBool \
-             careful(M, E)\n    requires K <Int 100\n  syntax Bool ::= never(Int)",
+            "  syntax Bool ::= careful(Map, Int) [function, symbol(careful)]\n  rule careful(M, E) \
+             => outsideRom(M, E) requires size(M) <Int 2\n  syntax Bool ::= never(Int)",
         );
         with_programs(&dir, &[("high", "write(200, 1) ; read(8)")]);
         argue_on(
@@ -1468,7 +1468,7 @@ mod kink_tier {
         assert!(
             reason.contains(
                 "in the program `high`, before the steps of `INVARIANT.readz`: the invariant's \
-                 value is not known at a state: the evaluation leaves a condition"
+                 value is not known at a state: the invariant's evaluation ends at no Bool value"
             ) && reason.contains("in the program `high`, at the end 0: ")
                 && !reason.contains("refused")
                 && !reason.contains("failed"),
@@ -1560,7 +1560,8 @@ mod kink_tier {
     /// function is `shown`. `bigBump` steps where `big(a)` holds, and `big`'s two equations
     /// overlap and disagree for `a` from 6 to 10, a finding of the baseline's critical-pair
     /// check that no name assumes: under the same invariant, `rule:bigBump` is `unchecked`, its
-    /// reason names `big`, and the command exits 3.
+    /// reason names `big`, its evidence is not read (`not-run`), and the command exits 3. The
+    /// one evidence run of `ordered` is `rule:bump`'s.
     #[test]
     #[ignore = "kink"]
     fn an_argued_standing_rests_on_every_function_its_connection_evaluates() {
@@ -1591,8 +1592,16 @@ mod kink_tier {
         );
         let big = &item(&document, "rules", BIG_BUMP)["argument_check"];
         assert_eq!(
-            (&big["standing"], &big["function"]["status"]),
-            (&json!("unchecked"), &json!("not-shown")),
+            (
+                &big["standing"],
+                &big["function"]["status"],
+                &big["evidence"]
+            ),
+            (
+                &json!("unchecked"),
+                &json!("not-shown"),
+                &json!({"status": "not-run"})
+            ),
             "{big:#}"
         );
         assert!(
@@ -1609,6 +1618,10 @@ mod kink_tier {
             "{reason}"
         );
         assert_eq!(document["summary"]["failed_arguments"], json!([]));
+        assert_eq!(
+            document["summary"]["invariant_runs"],
+            json!({"run": 1, "cached": 0})
+        );
     }
 
     /// One program's evidence of an invariant is read from the memo only under the same
@@ -1908,11 +1921,13 @@ mod kink_tier {
     /// pattern chose), so `requirement:readzRom:held` is `checked-on-runs` with the function
     /// `shown`. `outsideRomWalk`, the recursive walk, reads the binding it chose, and its two
     /// self-pairs are findings no `[spec] assume_joined` name assumes: `requirement:readz:refuted`,
-    /// whose connection (by the simplification alone, in both profiles) and evidence hold, is
-    /// `unchecked` with a reason naming the findings and
-    /// the canonical form, and the command exits 3. With both findings assumed, its standing is
-    /// the checks' again, `argument_check.function` records the premise (`assumed`, each finding
-    /// marked), and the verdicts rendering's `[arguments]` line, a lock's, names it.
+    /// whose connection holds (by the simplification alone, in both profiles), is `unchecked`
+    /// with a reason naming the findings and the canonical form, its evidence is not read
+    /// (`not-run`: no state's value could refute or credit it, so the only evidence runs are
+    /// `outside-rom`'s, one per program), and the command exits 3. With both findings assumed,
+    /// its evidence is read and holds, its standing is the checks' again,
+    /// `argument_check.function` records the premise (`assumed`, each finding marked), and the
+    /// verdicts rendering's `[arguments]` line, a lock's, names it.
     #[test]
     #[ignore = "kink"]
     fn an_argued_standing_rests_on_its_invariant_being_a_function() {
@@ -1953,7 +1968,7 @@ mod kink_tier {
                 &json!("unchecked"),
                 &json!("not-shown"),
                 &json!("holds"),
-                &json!("holds")
+                &json!("not-run")
             ),
             "{walk:#}"
         );
@@ -1973,6 +1988,10 @@ mod kink_tier {
         );
         assert_eq!(walk["function"]["findings"].as_array().unwrap().len(), 2);
         assert_eq!(document["summary"]["failed_arguments"], json!([]));
+        assert_eq!(
+            document["summary"]["invariant_runs"],
+            json!({"run": 2, "cached": 0})
+        );
 
         // The findings assumed: the walk is a function by that premise, which the item records.
         let path = dir.join("FLOW.toml");
@@ -2144,8 +2163,8 @@ mod kink_tier {
     /// evidence holds on the one program, which steps every rule its condition refutes, so it is
     /// `checked-on-runs`. The baseline's only findings are the two self-pairs of the recursive
     /// walk, whose right-hand side reads the binding it chose: `rule:readRom`, argued on it, is
-    /// `unchecked` with its function `not-shown`, while its connection and evidence hold, and the
-    /// command exits 3.
+    /// `unchecked` with its function `not-shown`, while its connection holds, its evidence is not
+    /// read (`not-run`), and the command exits 3.
     #[test]
     #[ignore = "kink"]
     fn each_violation_shape_is_shown_to_be_a_function_with_no_premise() {
@@ -2167,16 +2186,20 @@ mod kink_tier {
                 "{id}: {check:#}"
             );
             let evidence = &check["evidence"];
-            assert_eq!(
-                (
-                    &evidence["status"],
-                    &evidence["rules"],
-                    &evidence["steps"],
-                    &evidence["programs"]
-                ),
-                (&json!("holds"), &json!(rules), &json!(1), &json!(["safe"])),
-                "{id}: {check:#}"
-            );
+            if invariant == SHAPES_WALK.0 {
+                assert_eq!(evidence, &json!({"status": "not-run"}), "{id}: {check:#}");
+            } else {
+                assert_eq!(
+                    (
+                        &evidence["status"],
+                        &evidence["rules"],
+                        &evidence["steps"],
+                        &evidence["programs"]
+                    ),
+                    (&json!("holds"), &json!(rules), &json!(1), &json!(["safe"])),
+                    "{id}: {check:#}"
+                );
+            }
             if invariant == SHAPES_WALK.0 {
                 assert_eq!(
                     (&check["standing"], &check["function"]["status"]),

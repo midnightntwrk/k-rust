@@ -28,8 +28,10 @@
 //!
 //! Each invariant is read on one evidence run per comparable or `comparable-prefix` program: the
 //! program's baseline run with the corpus's `[stop]` and budget, observing only one point class
-//! per label of the union of its entries' `S_R` (each on its before side, every event an
-//! element), whose content is `F` evaluated in the baseline definition (kink-native
+//! per label of the union of the `S_R` of its entries whose checks rest on functions (each on its
+//! before side, every event an element; an entry whose function check is `not-shown` is credited
+//! and refuted by nothing, so it is not read, and with no other entry the invariant has no run),
+//! whose content is `F` evaluated in the baseline definition (kink-native
 //! `invariant::evaluate`; an element is decided only at a ground `true` or `false`). `F` is read at
 //! the initial configuration and at each end of the run, its terminal values, in the same way.
 //! The corpus's own `[observe]` plays no part, and no invariant channel takes part in a
@@ -117,7 +119,7 @@ use kink_patch::payload_digest;
 use serde_json::{Value, json};
 
 use super::ARGUED;
-use super::invariants::{CONNECTION_FAILS, ResolvedInvariant};
+use super::invariants::{CONNECTION_FAILS, FUNCTION_NOT_SHOWN, ResolvedInvariant};
 use crate::admit::{AdmittedSpec, InputSession};
 use crate::digest::ExecutionDigest;
 use crate::manifest::{FlowManifest, ObserveFunctionsSlot, ObserveSection, PointSection};
@@ -393,10 +395,10 @@ pub(super) struct Context<'c, 'i> {
 }
 
 /// The evidence of each argued item of the derived document `probe` whose entry names an
-/// invariant of `resolved` and whose connection (`checks`, by item id) does not fail (module
-/// documentation): `{status, rules, states, steps, programs, failure, reason, cached}` by item
-/// id, and `invariant_runs`, `{run, cached}`, the evidence runs this command ran and read from
-/// the memo.
+/// invariant of `resolved`, whose connection (`checks`, by item id) does not fail and whose
+/// function check is not `not-shown` (module documentation): `{status, rules, states, steps,
+/// programs, failure, reason, cached}` by item id, and `invariant_runs`, `{run, cached}`, the
+/// evidence runs this command ran and read from the memo.
 pub(super) fn evidence(
     probe: &Value,
     resolved: &BTreeMap<String, (ResolvedInvariant, Value)>,
@@ -421,8 +423,15 @@ pub(super) fn evidence(
                 .flatten()
                 .any(|item| item["id"] == entry.item.as_str() && item["status"] == ARGUED)
         });
-        let connection = &checks[entry.item.as_str()]["connection"];
-        if !argued || connection.is_null() || connection["status"] == CONNECTION_FAILS {
+        let check = &checks[entry.item.as_str()];
+        let connection = &check["connection"];
+        // An item whose checks do not rest on functions is credited and refuted by nothing, so
+        // no state's value bears on it (`super::invariants`, "The function").
+        if !argued
+            || connection.is_null()
+            || connection["status"] == CONNECTION_FAILS
+            || check["function"]["status"] == FUNCTION_NOT_SHOWN
+        {
             continue;
         }
         let axioms = connection["axioms"]

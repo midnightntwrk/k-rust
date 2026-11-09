@@ -871,27 +871,9 @@ pub fn coverage_front(
         match checked {
             Ok((resolved, connections)) => {
                 let mut checks = connections.checks;
-                // The evidence of each invariant on the corpus's runs (`evidence`).
-                let found = evidence::evidence(
-                    probe,
-                    &resolved,
-                    &checks,
-                    &mut evidence::Context {
-                        spec: &spec,
-                        manifest,
-                        update: &update,
-                        inputs: &mut inputs,
-                        depth,
-                        execution: &execution,
-                        cache: &cache,
-                        verify: options.verify,
-                    },
-                );
-                for (id, value) in found.items {
-                    checks[id.as_str()]["evidence"] = value;
-                }
                 // Whether each item's checks rest on functions, which both checks presuppose
-                // (`invariants`, "The function").
+                // (`invariants`, "The function"), before the evidence: an item they do not is
+                // credited and refuted by nothing, so its evidence is not read.
                 for (id, check) in checks
                     .as_object_mut()
                     .into_iter()
@@ -914,6 +896,25 @@ pub fn coverage_front(
                         |seeds| scope.closure_of(seeds),
                         &spec.data,
                     );
+                }
+                // The evidence of each invariant on the corpus's runs (`evidence`).
+                let found = evidence::evidence(
+                    probe,
+                    &resolved,
+                    &checks,
+                    &mut evidence::Context {
+                        spec: &spec,
+                        manifest,
+                        update: &update,
+                        inputs: &mut inputs,
+                        depth,
+                        execution: &execution,
+                        cache: &cache,
+                        verify: options.verify,
+                    },
+                );
+                for (id, value) in found.items {
+                    checks[id.as_str()]["evidence"] = value;
                 }
                 document[ARGUMENT_CHECKS] = checks;
                 document[INVARIANT_RUNS] = found.runs;
