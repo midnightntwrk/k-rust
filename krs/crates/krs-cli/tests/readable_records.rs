@@ -957,3 +957,122 @@ fn a_list_collection_rest_may_be_named() {
         "{errors:#?}"
     );
 }
+
+const NESTED_GROUP: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult};
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Go, Put))]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("put({x},{y})")]
+    Put { x: Int, y: Int },
+}
+
+#[k::cell]
+pub struct Gw {
+    #[k::cell]
+    pub wa: Int,
+    #[k::cell]
+    pub wb: Int,
+}
+
+#[k::cell]
+pub struct W {
+    #[k::cell(nested)]
+    pub wg: Gw,
+    #[k::cell]
+    pub wn: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub wcell: W,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            wcell: W { wg: Gw { wa: 0, wb: 0 }, wn: 0 },
+        }
+    }
+}
+"#;
+
+/// A group record nested in a `cells!` pattern may leave its other children open with `..`, as
+/// a fragment's root may (ruling R4, C30): K frames the children it leaves out, exactly as the
+/// readable twin's does. A constructor's record in a `cells!` pattern is still written whole.
+#[test]
+fn a_nested_group_record_left_open_in_a_cells_pattern_frames_its_other_children() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = r"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    go: { k: [Go(), ..], wcell: W { wg: Gw { wa: x, .. }, .. } } => { k: [x, ..] };
+}
+";
+    let cells = r#"
+#[k::rule(label = "go")]
+pub fn go(
+    x: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Go(), tail @ ..),
+        wcell: k::fragment![crate::W { wg: Gw { wa: x, .. }, .. }],
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(x, ..tail), ..state }
+}
+"#;
+    let constructor = r#"
+#[k::rule(label = "go")]
+pub fn go(
+    x: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Put { x, .. }, tail @ ..),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(x, ..tail), ..state }
+}
+"#;
+    let framed = "<wcell> <wg> <wa> X:Int </wa> <wb> _ </wb> </wg> <wn> _ </wn> </wcell>";
+    for (name, source) in [
+        ("nested-open-readable", readable),
+        ("nested-open-cells", cells),
+    ] {
+        let manifest = package_over(temporary.path(), name, NESTED_GROUP, source);
+        let k = emitted_k(target.path(), &manifest);
+        let words = k.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(words.contains(framed), "{name}:\n{k}");
+    }
+    let manifest = package_over(
+        temporary.path(),
+        "nested-open-constructor",
+        NESTED_GROUP,
+        constructor,
+    );
+    let errors = check_errors(target.path(), &manifest);
+    assert!(
+        errors.iter().any(|error| error.starts_with(
+            "error[krs::analysis::invalid-record-update]: a `cells!` term, the reference notation, names every field of a record"
+        ) && error.ends_with("here it stands in the subject of a `cells!` rule")),
+        "{errors:#?}"
+    );
+}
