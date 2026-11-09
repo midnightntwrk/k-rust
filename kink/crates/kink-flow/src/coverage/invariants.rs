@@ -768,7 +768,10 @@ pub(super) fn connections(
 /// connected or not connected one, a function of the key's inputs, and an `Unknown` the solver
 /// answered within the key's bounds. An answer the build's profile, a solver failure, a failed
 /// simplification, a stop, an approximate model or an instance not shown gave is not kept: it is
-/// asked again. A fact's answer is kept only where each rule's answer is.
+/// asked again. So is a decision the work bound cut (kink-native `invariant`, "The work bound"):
+/// the decision asks the solver, and the polls its questions make depend on what the solver
+/// serves from questions a backend asked before, so where the bound cuts the decision is not
+/// shown to be a function of the key. A fact's answer is kept only where each rule's answer is.
 fn kept(connection: &Connection) -> bool {
     matches!(
         connection,

@@ -1480,6 +1480,79 @@ mod kink_tier {
         );
     }
 
+    /// An invariant whose evaluation does not end leaves its state undecided, and the command
+    /// ends: `settled` reads `<k>`, and where it holds `idle`, the corpus's initial state, it
+    /// becomes `spin(a)`, whose equation `spin(N) => spin(N +Int 1)` rewrites a ground
+    /// application without end and never to a term it reached before, so the simplifier's
+    /// iteration budget, which no determined step spends, and its recurrence watch both let it
+    /// run. The evaluation at the initial state spends its work bound (kink-native
+    /// `invariant::EVALUATION_POLLS`) and is undecided, with a reason naming the bound; at the
+    /// end, where `<k>` is empty, `settled` is the order and holds. The evidence of `rule:bump` is
+    /// `incomplete`, never `fails`, the item `unchecked`, and the command exits 3. The bound is
+    /// spent by the evaluation's own work, so the record is kept: a second run reads it from the
+    /// memo.
+    #[test]
+    #[ignore = "kink"]
+    fn an_invariant_whose_evaluation_does_not_end_is_undecided_within_its_work_bound() {
+        const SETTLED: (&str, &str, &[&str]) = ("settled", "settled", &["k", "a", "b"]);
+        let dir = invariant("work-bound");
+        edit_k(
+            &dir,
+            "  syntax Bool ::= never(Int)",
+            "  syntax Bool ::= settled(K, Int, Int) [function, symbol(settled)]\n                  \
+             | spin(Int) [function, symbol(spin)]\n  rule settled(.K, A, B) => A <=Int B\n  rule \
+             settled(idle, A, _) => spin(A)\n  rule settled(_, A, B) => A <=Int B [owise]\n  rule \
+             spin(N) => spin(N +Int 1)\n  syntax Bool ::= never(Int)",
+        );
+        argue_on(
+            &dir,
+            &[SETTLED],
+            &[(BUMP, "no state has a above b", Some(SETTLED.0))],
+        );
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let check = &item(&document, "rules", BUMP)["argument_check"];
+        assert_eq!(check["standing"], "unchecked", "{check:#}");
+        assert_eq!(check["function"]["status"], "shown", "{check:#}");
+        let evidence = &check["evidence"];
+        assert_eq!(
+            (
+                &evidence["status"],
+                &evidence["failure"],
+                &evidence["programs"]
+            ),
+            (&json!("incomplete"), &Value::Null, &json!(["idle"])),
+            "{evidence:#}"
+        );
+        assert_eq!(
+            evidence["reason"],
+            format!(
+                "in the program `idle`, at the initial state: the evaluation spent its work bound \
+                 of {} polls before it reached a value",
+                kink_native::invariant::EVALUATION_POLLS
+            ),
+            "{evidence:#}"
+        );
+        assert_eq!(document["summary"]["failed_arguments"], json!([]));
+        assert_eq!(
+            document["summary"]["invariant_runs"],
+            json!({"run": 1, "cached": 0})
+        );
+
+        let (again, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{again:#}");
+        assert_eq!(
+            again["summary"]["invariant_runs"],
+            json!({"run": 0, "cached": 1})
+        );
+        let cached = evidence_of(&again, BUMP);
+        assert_eq!(
+            (&cached["reason"], &cached["cached"]),
+            (&evidence["reason"], &json!(true)),
+            "{cached:#}"
+        );
+    }
+
     /// One program's evidence of an invariant is read from the memo only under the same
     /// invariant and the same rules: the same invariant observed at more rules (another entry
     /// names it), and another invariant (another function of the same cell), each run again. The

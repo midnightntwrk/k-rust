@@ -69,6 +69,22 @@
 //! whatever evaluation mode the caller is in: an answer never rests on a value the definition
 //! leaves to the implementation.
 //!
+//! # The work bound
+//!
+//! The simplifier's iteration budget does not count a determined step of a ground function
+//! application, which is the definition's own computation (k-rust-backend `simplify`, "one term
+//! lineage"): such steps end only where the definition's computation ends, or where the caller
+//! interrupts them. An invariant whose equations rewrite a ground application without end and
+//! without repeating a term (`F(N) => F(N +Int 1)`) would then never give an answer. So every
+//! decision of this module, and every evaluation at a state ([`evaluate`],
+//! [`evaluate_configuration`]), runs under a budget of polls of the backend's one interruption
+//! point (k-rust-backend `stop::with_poll_budget`), [`EVALUATION_POLLS`] by default. Every
+//! simplification round polls, a determined one included, so the budget bounds the work, and it
+//! is spent by the work's own polls, so where it ends the work is a function of the question,
+//! not of the host's speed or load. Work that spends the budget gives no answer:
+//! [`Undecided::Spent`] for a decision, and for an evaluation an [`Unvalued`] that names the
+//! bound.
+//!
 //! # The rules that step where a rule matches
 //!
 //! A step at a state is taken by a rule whose left-hand side matches the state, so at a state
@@ -88,7 +104,9 @@
 //! from). The value is decided only where the evaluation ends at a ground `true` or `false` with
 //! no condition left: simplification preserves the term's meaning, so the function then has that
 //! value at every instance of the state. Every other outcome, a residual, a condition left open,
-//! a spent budget or a stop, leaves the value unknown.
+//! a spent budget (the simplifier's iterations, or the work bound) or a stop, leaves the value
+//! unknown ([`Unvalued`]). Each such outcome is a function of the cells, the definition and the
+//! bound, except one the host's native stack decided, which [`Unvalued::host_bound`] marks.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -106,11 +124,60 @@ use k_rust_backend::simplify::{
     self, ConditionIndeterminacy, SimplificationOptions, simplify_and_decide_predicate_with_solver,
 };
 use k_rust_backend::smt::{Satisfiability, SmtError, SmtSolver};
+use k_rust_backend::stop::{PollBudgetRecord, with_poll_budget};
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::term::{Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
+use k_rust_backend::timeout::StepTimeoutMode;
 
 use crate::coverage::unifies;
 use crate::feasibility::{Inhabitation, constructor_term, translates_exactly};
+
+/// The polls of the backend's interruption point one decision of a rule's connection, or one
+/// evaluation of an invariant at a state, may make by default (module documentation, "The work
+/// bound"). A simplification polls about a million times a second on a desktop core in a release
+/// build (k-rust's `krs` measured this for its own bound on a view, `DEFAULT_VIEW_BUDGET`), so
+/// this is about ten seconds of such work: far more than an invariant over a large memory takes
+/// at one state (its violation form polls a few times per binding), so that in practice only work
+/// that does not end spends it.
+pub const EVALUATION_POLLS: u64 = 10_000_000;
+
+/// Runs `work` under a budget of `polls` polls (module documentation, "The work bound"), and
+/// gives its value with what the budget's scope met. The cause a spent budget raises is a step
+/// deadline's, which every site it crosses reads as work that ended before its answer; the mode
+/// is not read.
+fn bounded<T>(polls: u64, work: impl FnOnce() -> T) -> (T, PollBudgetRecord) {
+    with_poll_budget(
+        polls,
+        StepTimeoutMode::Manual(std::time::Duration::ZERO),
+        work,
+    )
+}
+
+/// Why an invariant's value at a state is not known ([`evaluate`], [`evaluate_configuration`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Unvalued {
+    /// Why, in words: what the evaluation ended at, or the bound it spent.
+    pub reason: String,
+    /// Whether the host decided it: the simplifier ran out of native stack, or the system refused
+    /// the stack the state needs. Such an outcome is no function of the state, the definition and
+    /// the bound, so a caller that keeps answers must not keep it. Every other outcome is one.
+    pub host_bound: bool,
+}
+
+impl Unvalued {
+    fn of(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            host_bound: false,
+        }
+    }
+}
+
+impl fmt::Display for Unvalued {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.reason)
+    }
+}
 
 /// An invariant over configuration cells: a `Bool` function of the definition, applied to the
 /// cells it reads, in parameter order.
@@ -178,7 +245,10 @@ pub enum Undecided {
     InstancesUnshown,
     /// The simplification failed; the payload is why.
     Simplification(String),
-    /// A stop ended the simplification or the solver's work.
+    /// The decision spent its work bound, the payload's polls (module documentation, "The work
+    /// bound"): a function of the question and the bound.
+    Spent(u64),
+    /// A stop other than the work bound ended the simplification or the solver's work.
     Stopped,
 }
 
@@ -200,6 +270,10 @@ impl fmt::Display for Undecided {
             Self::Simplification(reason) => {
                 write!(formatter, "the simplification failed: {reason}")
             }
+            Self::Spent(polls) => write!(
+                formatter,
+                "the decision spent its work bound of {polls} polls before it reached an answer"
+            ),
             Self::Stopped => formatter.write_str("a stop ended the decision"),
         }
     }
@@ -706,6 +780,9 @@ fn dealiased(term: &Term, alias: &impl Fn(&Term, &Term) -> bool) -> Option<Term>
 /// asked in, so a question asked in an execution's scope could rest on k-rust's chosen value,
 /// which is no consequence of the definition. Whatever scope the caller is in, the answer is the
 /// definition's.
+///
+/// It runs under the work bound of [`EVALUATION_POLLS`] polls (module documentation, "The work
+/// bound"): a decision that spends it is [`Undecided::Spent`].
 fn decide(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
@@ -714,9 +791,17 @@ fn decide(
     question: &Predicate,
     undecided: &Cell<usize>,
 ) -> Connection {
-    with_evaluation(EvaluationMode::Proof, || {
-        decide_on_the_proof_route(definition, solver, inhabitation, lhs, question, undecided)
-    })
+    let (answer, record) = bounded(EVALUATION_POLLS, || {
+        with_evaluation(EvaluationMode::Proof, || {
+            decide_on_the_proof_route(definition, solver, inhabitation, lhs, question, undecided)
+        })
+    });
+    match answer {
+        Connection::Undecided(Undecided::Stopped) if record.budget_exhausted => {
+            Connection::Undecided(Undecided::Spent(EVALUATION_POLLS))
+        }
+        answer => answer,
+    }
 }
 
 /// The work of [`decide`], which runs it on the proof route.
@@ -847,45 +932,50 @@ pub fn stepping_rules(
 
 /// The value of `invariant`'s function at a state whose cells are `cells`, the KORE of each cell
 /// the invariant reads, in order (the cell's own application, as k-rust's probe states read it at
-/// the cell's path), evaluated in `definition` (module documentation, "Evaluation at a state").
+/// the cell's path), evaluated in `definition` within `polls` polls (module documentation,
+/// "Evaluation at a state" and "The work bound"; [`EVALUATION_POLLS`] by default).
 ///
 /// # Errors
 ///
 /// Why the value is not known there: a cell that is no term of the definition, a stack the host
-/// does not give or a pattern too deep for the largest one, or an evaluation that does not end at
-/// a ground `true` or `false` with no condition left.
+/// does not give or a pattern too deep for the largest one, an evaluation that spends `polls`, or
+/// one that does not end at a ground `true` or `false` with no condition left.
 pub fn evaluate(
     definition: &BackendDefinition,
     cells: &[&KorePattern],
     invariant: Invariant<'_>,
-) -> Result<bool, String> {
+    polls: u64,
+) -> Result<bool, Unvalued> {
     if cells.len() != invariant.cells.len() {
-        return Err(format!(
+        return Err(Unvalued::of(format!(
             "{} cells are read, and the invariant reads {}",
             cells.len(),
             invariant.cells.len()
-        ));
+        )));
     }
-    on_stack(definition, cells, |associated| {
-        let terms = associated
-            .iter()
-            .map(|cell| internalized(definition, cell))
-            .collect::<Result<Vec<_>, _>>()?;
-        let application = applied_to(definition, invariant, |path| {
-            invariant
-                .cells
+    within(polls, || {
+        on_stack(definition, cells, |associated| {
+            let terms = associated
                 .iter()
-                .position(|cell| cell.as_slice() == path)
-                .map(|index| &terms[index])
+                .map(|cell| internalized(definition, cell))
+                .collect::<Result<Vec<_>, _>>()?;
+            let application = applied_to(definition, invariant, |path| {
+                invariant
+                    .cells
+                    .iter()
+                    .position(|cell| cell.as_slice() == path)
+                    .map(|index| &terms[index])
+            })
+            .map_err(|refusal| refusal.to_string())?;
+            value(definition, &application)
         })
-        .map_err(|refusal| refusal.to_string())?;
-        value(definition, &application)
     })
 }
 
 /// The value of `invariant`'s function at the configuration `configuration` (KORE), which is first
 /// evaluated in `definition` to the term its cells are read from, then as [`evaluate`] does; with
-/// the cells read, in the invariant's order, as KORE.
+/// the cells read, in the invariant's order, as KORE. The configuration's evaluation and the
+/// function's share the one bound of `polls` polls.
 ///
 /// # Errors
 ///
@@ -895,19 +985,49 @@ pub fn evaluate_configuration(
     definition: &BackendDefinition,
     configuration: &KorePattern,
     invariant: Invariant<'_>,
-) -> Result<(bool, Vec<KorePattern>), String> {
-    on_stack(definition, &[configuration], |associated| {
-        let term = internalized(definition, associated[0])?;
-        let state = with_evaluation(EvaluationMode::Proof, || simplified(definition, &term))?;
-        let application = applied_to(definition, invariant, |path| cell_term(&state, path))
-            .map_err(|refusal| refusal.to_string())?;
-        let cells = invariant
-            .cells
-            .iter()
-            .filter_map(|path| cell_term(&state, path))
-            .map(k_rust_backend::externalize::term)
-            .collect();
-        Ok((value(definition, &application)?, cells))
+    polls: u64,
+) -> Result<(bool, Vec<KorePattern>), Unvalued> {
+    within(polls, || {
+        on_stack(definition, &[configuration], |associated| {
+            let term = internalized(definition, associated[0])?;
+            let state = with_evaluation(EvaluationMode::Proof, || simplified(definition, &term))?;
+            let application = applied_to(definition, invariant, |path| cell_term(&state, path))
+                .map_err(|refusal| refusal.to_string())?;
+            let cells = invariant
+                .cells
+                .iter()
+                .filter_map(|path| cell_term(&state, path))
+                .map(k_rust_backend::externalize::term)
+                .collect();
+            Ok((value(definition, &application)?, cells))
+        })
+    })
+}
+
+/// `evaluation` under the work bound of `polls` polls (module documentation, "The work bound"). A
+/// value it reaches is the definition's whatever the bound did on the way. An evaluation that
+/// gives none after spending the bound is unvalued for that reason, named with the bound; one
+/// that met a stop for lack of native stack, dismissed or not, is the host's, since a host with
+/// more stack could have gone on.
+fn within<R>(polls: u64, evaluation: impl FnOnce() -> Result<R, Unvalued>) -> Result<R, Unvalued> {
+    let (result, record) = bounded(polls, evaluation);
+    result.map_err(|unvalued| {
+        let reason = if record.budget_exhausted {
+            format!(
+                "the evaluation spent its work bound of {polls} polls before it reached a value"
+            )
+        } else if record.stack_exhausted {
+            format!(
+                "{} (the simplifier ran out of native stack on the way)",
+                unvalued.reason
+            )
+        } else {
+            unvalued.reason
+        };
+        Unvalued {
+            reason,
+            host_bound: unvalued.host_bound || record.stack_exhausted,
+        }
     })
 }
 
@@ -916,11 +1036,18 @@ fn on_stack<R>(
     definition: &BackendDefinition,
     patterns: &[&KorePattern],
     work: impl FnOnce(&[&KorePattern]) -> Result<R, String>,
-) -> Result<R, String> {
+) -> Result<R, Unvalued> {
     match crate::feasibility::on_stack_for(definition, patterns, work) {
-        Ok(Some(result)) => result,
-        Ok(None) => Err("the state is too deep for the largest stack k-rust gives".to_owned()),
-        Err(refused) => Err(refused.to_string()),
+        Ok(Some(result)) => result.map_err(Unvalued::of),
+        // A function of the patterns and the build.
+        Ok(None) => Err(Unvalued::of(
+            "the state is too deep for the largest stack k-rust gives",
+        )),
+        // A fact about the host, never about the state.
+        Err(refused) => Err(Unvalued {
+            reason: refused.to_string(),
+            host_bound: true,
+        }),
     }
 }
 
@@ -985,7 +1112,8 @@ mod tests {
     use k_rust_backend::substitution::Substitution;
 
     use super::{
-        Connection, Invariant, Refusal, Undecided, Valuation, connection, evaluate, stepping_rules,
+        Connection, EVALUATION_POLLS, Invariant, Refusal, Undecided, Unvalued, Valuation,
+        connection, evaluate, evaluate_configuration, stepping_rules,
     };
     use crate::{NativeValidator, support};
 
@@ -1142,18 +1270,111 @@ mod tests {
                 symbol: "LbloutsideRom",
                 cells: &paths,
             };
-            assert_eq!(evaluate(definition, &[&clean, &rom], walk), Ok(true));
-            assert_eq!(evaluate(definition, &[&dirty, &rom], walk), Ok(false));
+            assert_eq!(
+                evaluate(definition, &[&clean, &rom], walk, EVALUATION_POLLS),
+                Ok(true)
+            );
+            assert_eq!(
+                evaluate(definition, &[&dirty, &rom], walk, EVALUATION_POLLS),
+                Ok(false)
+            );
             let paths = scalars();
             let order = Invariant {
                 symbol: "Lblordered",
                 cells: &paths,
             };
             let (zero, one, two) = (cell("a", &int(0)), cell("b", &int(1)), cell("a", &int(2)));
-            assert_eq!(evaluate(definition, &[&zero, &one], order), Ok(true));
-            assert_eq!(evaluate(definition, &[&two, &one], order), Ok(false));
+            assert_eq!(
+                evaluate(definition, &[&zero, &one], order, EVALUATION_POLLS),
+                Ok(true)
+            );
+            assert_eq!(
+                evaluate(definition, &[&two, &one], order, EVALUATION_POLLS),
+                Ok(false)
+            );
             let symbolic = cell("a", "VarA : SortInt{}");
-            assert!(evaluate(definition, &[&symbolic, &one], order).is_err());
+            assert!(evaluate(definition, &[&symbolic, &one], order, EVALUATION_POLLS).is_err());
+        });
+    }
+
+    /// An evaluation that does not end is cut by the work bound: `spin(N) => spin(N +Int 1)`
+    /// rewrites a ground application without end and never to a term it reached before, so the
+    /// simplifier's iteration budget, which no determined step spends, and its recurrence watch
+    /// both let it run. At a state and at a whole configuration it ends unvalued, with a reason
+    /// that names the bound, and not as the host's; under the same bound the order is decided.
+    #[test]
+    fn an_evaluation_that_does_not_end_spends_its_work_bound() {
+        use k_rust::kore::parser::parse_pattern;
+        let polls = 20_000;
+        with_fixture(|definition, _| {
+            let a = [cell("a")];
+            let spin = Invariant {
+                symbol: "Lblspin",
+                cells: &a,
+            };
+            let zero = parse_pattern("Lbl'-LT-'a'-GT-'{}(\\dv{SortInt{}}(\"0\"))").expect("a cell");
+            let spent = Unvalued {
+                reason: format!(
+                    "the evaluation spent its work bound of {polls} polls before it reached a value"
+                ),
+                host_bound: false,
+            };
+            assert_eq!(
+                evaluate(definition, &[&zero], spin, polls),
+                Err(spent.clone())
+            );
+            let int = "\\dv{SortInt{}}(\"0\")";
+            let configuration = parse_pattern(&format!(
+                "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'t'-GT-'{{}}(\
+                 Lbl'-LT-'k'-GT-'{{}}(dotk{{}}()), \
+                 Lbl'-LT-'memory'-GT-'{{}}(Lbl'Stop'Map{{}}()), \
+                 Lbl'-LT-'romEnd'-GT-'{{}}({int}), \
+                 Lbl'-LT-'a'-GT-'{{}}({int}), \
+                 Lbl'-LT-'b'-GT-'{{}}({int})), \
+                 Lbl'-LT-'generatedCounter'-GT-'{{}}({int}))"
+            ))
+            .expect("a configuration");
+            assert_eq!(
+                evaluate_configuration(definition, &configuration, spin, polls),
+                Err(spent)
+            );
+            let b = scalars();
+            let order = Invariant {
+                symbol: "Lblordered",
+                cells: &b,
+            };
+            assert_eq!(
+                evaluate_configuration(definition, &configuration, order, polls)
+                    .map(|(holds, _)| holds),
+                Ok(true)
+            );
+        });
+    }
+
+    /// A connection question that does not end is cut by the same bound: `either`'s left-hand
+    /// side holds the ground `<a>` alternatives `0` and `1`, so its question applies `spin` to a
+    /// ground value, and the decision spends [`EVALUATION_POLLS`] and is undecided for that.
+    #[test]
+    fn a_decision_that_does_not_end_spends_its_work_bound() {
+        with_fixture(|definition, solver| {
+            let a = [cell("a")];
+            let spin = Invariant {
+                symbol: "Lblspin",
+                cells: &a,
+            };
+            let either = axiom(definition, "either");
+            let undecided = Cell::new(0);
+            assert_eq!(
+                connection(
+                    definition,
+                    solver,
+                    &either,
+                    Valuation::Matches,
+                    Some(spin),
+                    &undecided
+                ),
+                Ok(Connection::Undecided(Undecided::Spent(EVALUATION_POLLS)))
+            );
         });
     }
 

@@ -37,12 +37,22 @@
 //! record.
 //!
 //! The budget's `time_ms` bounds the program's run, not the evidence's reading of it: each
-//! evaluation of `F` is off the run's clock (kink-native `execution::off_the_clock`). It is
-//! bounded by its own simplification budget, and the run's states by its depth, so the run ends
-//! without the watchdog's help, and its states are those of the run the baseline admitted within
-//! `time_ms`. Charging the evaluations to the run would make the evidence of a program the
-//! baseline ran within its bound depend on `F`'s cost on the host. A run the watchdog stops all
-//! the same gives no evidence, and the reason says so, with the evaluations' count and time.
+//! evaluation of `F` is off the run's clock (kink-native `execution::off_the_clock`). Charging
+//! the evaluations to the run would make the evidence of a program the baseline ran within its
+//! bound depend on `F`'s cost on the host. Each evaluation, at a point, at the initial state and
+//! at an end, is bounded by its own work bound instead, kink-native
+//! `invariant::EVALUATION_POLLS` polls of the backend's interruption point (kink-native
+//! `invariant`, "The work bound"). The simplifier's iteration budget alone bounds nothing here:
+//! it does not count a determined step of a ground function application (k-rust-backend
+//! `simplify`), and an evaluation is of ground cells. The bound is spent by the evaluation's own
+//! polls, so an evaluation that spends it is undecided as a function of the cells, the
+//! definition and the bound, and the reason names the bound; such a state leaves the evidence
+//! `incomplete`, never `fails`. The bound is per evaluation, not a total of the run: the value at
+//! a state is then a function of that state's cells alone, whatever the evaluations before it
+//! cost, and the run reads at most one evaluation per point, its initial state and its ends,
+//! which its own depth bounds, so the run's reading ends without the watchdog's help, and its
+//! states are those of the run the baseline admitted within `time_ms`. A run the watchdog stops
+//! all the same gives no evidence, and the reason says so, with the evaluations' count and time.
 //! Where every cell holds the term node the previous decided evaluation read, the value is that
 //! evaluation's (the `Evaluator`).
 //!
@@ -81,7 +91,10 @@
 //! What one program's evidence run reads of an invariant is kept in the evidence memo
 //! ([`crate::memo::evidence_key`]) under the program's result key, the invariant's identity and
 //! the labels observed, where the result store is on (`crate::results::result_store`) and the
-//! run's campaign gave it sides; `--verify` reads and writes no record.
+//! run's campaign gave it sides; `--verify` reads and writes no record. The record is a function
+//! of those and of kink's build, which fixes the work bound, except where an evaluation's outcome
+//! was the host's (kink-native `invariant::Unvalued::host_bound`: the native stack ran out, or the
+//! system refused one): such a record is not kept.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -97,7 +110,9 @@ use kink_campaign::{
     BaselineRecord, ChannelEnd, Evaluated, Observation, ObservationEvaluator, ObservationFunctions,
     ObserveFunctions, Opening, PathRecord, PrefixChain, Stutter, TestEvidence,
 };
-use kink_native::invariant::{Invariant, evaluate, evaluate_configuration, stepping_rules};
+use kink_native::invariant::{
+    EVALUATION_POLLS, Invariant, Unvalued, evaluate, evaluate_configuration, stepping_rules,
+};
 use kink_patch::payload_digest;
 use serde_json::{Value, json};
 
@@ -154,6 +169,10 @@ enum Value3 {
     Undecided(String),
 }
 
+/// The value of an evaluation at an initial state or an end: with its cells, or why it is not
+/// known, and whether the host decided that.
+type Valued = Result<(bool, Vec<Pattern>), Unvalued>;
+
 #[derive(Default)]
 struct Log {
     requests: usize,
@@ -162,6 +181,8 @@ struct Log {
     /// element whose cells are the previous evaluation's is not evaluated again ([`Evaluator`]).
     evaluations: usize,
     evaluating: Duration,
+    /// Whether an evaluation's outcome was the host's (module documentation, "The cache").
+    host_bound: bool,
 }
 
 /// The invariant as the functions of an evidence run's declaration (module documentation, "The
@@ -239,8 +260,8 @@ impl ObservationEvaluator for Evaluator<'_> {
     }
 
     /// The invariant's value at `state`, read off the run's clock: the run's time bound bounds
-    /// the program's run, and each evaluation is bounded by its own simplification budget
-    /// (module documentation, "The runs").
+    /// the program's run, and each evaluation is bounded by its own work bound (module
+    /// documentation, "The runs").
     fn content(
         &mut self,
         class: usize,
@@ -303,7 +324,18 @@ impl Evaluator<'_> {
                     symbol: &functions.symbol,
                     cells: &functions.cells,
                 },
-            ),
+                EVALUATION_POLLS,
+            )
+            .map_err(|unvalued| {
+                if unvalued.host_bound {
+                    functions
+                        .log
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .host_bound = true;
+                }
+                unvalued.reason
+            }),
         };
         let took = started.elapsed();
         match answer {
@@ -575,7 +607,8 @@ fn program_evidence(
                 }
             },
         };
-        let initial = evaluate_configuration(definition, &test.initial_state, asked);
+        let initial =
+            evaluate_configuration(definition, &test.initial_state, asked, EVALUATION_POLLS);
         let observed = match &runner {
             None => Ok(None),
             Some(Err(reason)) => Err(reason.clone()),
@@ -612,7 +645,7 @@ fn program_evidence(
             }
         };
         let logged = std::mem::take(&mut *log.lock().unwrap_or_else(PoisonError::into_inner));
-        let record = record(
+        let (record, host_bound) = record(
             definition,
             asked,
             labels,
@@ -621,7 +654,11 @@ fn program_evidence(
             ResultClass::ComparablePrefix.as_str() == class,
             &logged,
         );
-        if let (Some(key), Some(path)) = (&key, &path) {
+        // A record an outcome of the host's decided is no function of its key (module
+        // documentation, "The cache").
+        if let (Some(key), Some(path)) = (&key, &path)
+            && !host_bound
+        {
             memo::write_evidence(&store, path, key, &record);
         }
         programs.push((program.id.clone(), Ok(record), false));
@@ -636,30 +673,38 @@ fn program_evidence(
 /// bound's cut, its paths), and the first state that gives `false` ([`failure`]). `initial` is
 /// the value at the initial state with its cells; `evidence` the run's (`None`: no rule was
 /// observed, so no run was made, and no end is read); `prefix` whether the program is a prefix
-/// program; `logged` the evaluations the run's functions logged.
+/// program; `logged` the evaluations the run's functions logged. Also whether an evaluation's
+/// outcome was the host's (module documentation, "The cache").
 fn record(
     definition: &BackendDefinition,
     invariant: Invariant<'_>,
     labels: &[String],
-    initial: Result<(bool, Vec<Pattern>), String>,
+    initial: Valued,
     evidence: Option<&TestEvidence>,
     prefix: bool,
     logged: &Log,
-) -> Value {
+) -> (Value, bool) {
     let mut undecided = None;
     let mut failure = Value::Null;
+    let mut host_bound = logged.host_bound;
     match initial {
         Ok((true, _)) => {}
         Ok((false, cells)) => failure = failure_value("initial", None, None, Ok(texts(&cells))),
-        Err(reason) => undecided = Some(format!("at the initial state: {reason}")),
+        Err(unvalued) => {
+            host_bound |= unvalued.host_bound;
+            undecided = Some(format!("at the initial state: {unvalued}"));
+        }
     }
     let mut channels = labels
         .iter()
         .map(|label| json!({"rule": label, "steps": 0, "undecided": null}))
         .collect::<Vec<_>>();
     let Some(evidence) = evidence else {
-        return json!({"channels": channels, "ends": 0, "undecided": undecided,
-                      "failure": failure});
+        return (
+            json!({"channels": channels, "ends": 0, "undecided": undecided,
+                   "failure": failure}),
+            host_bound,
+        );
     };
     if prefix {
         // The state a bound cut the path at is reached, and the item's rule may match it; the
@@ -688,19 +733,23 @@ fn record(
         }
     }
     for (index, end) in evidence.ends.iter().enumerate() {
-        match evaluate_configuration(definition, end, invariant) {
+        match evaluate_configuration(definition, end, invariant, EVALUATION_POLLS) {
             Ok((true, _)) => {}
             Ok((false, cells)) if failure.is_null() => {
                 failure = failure_value("end", None, Some(index), Ok(texts(&cells)));
             }
             Ok((false, _)) => {}
-            Err(reason) => {
-                undecided.get_or_insert_with(|| format!("at the end {index}: {reason}"));
+            Err(unvalued) => {
+                host_bound |= unvalued.host_bound;
+                undecided.get_or_insert_with(|| format!("at the end {index}: {unvalued}"));
             }
         }
     }
-    json!({"channels": channels, "ends": evidence.ends.len(), "undecided": undecided,
-           "failure": failure})
+    (
+        json!({"channels": channels, "ends": evidence.ends.len(), "undecided": undecided,
+               "failure": failure}),
+        host_bound,
+    )
 }
 
 /// Each cell as KORE text.

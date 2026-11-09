@@ -2418,9 +2418,10 @@ thread_local! {
 /// `work`, with the time it takes not counted against the time bound of the run this thread
 /// executes, whose watchdog does not fire while it runs: work a reader of the run does at its
 /// points (an invariant's evaluation, kink-flow's evidence) that is not the run's own. Outside a
-/// watched run, or on a thread other than the run's, it is `work`. Work off the clock is bounded
-/// by its own bounds, never by the run's watchdog; a cancellation that came before it began
-/// still stops it.
+/// watched run, or on a thread other than the run's, it is `work`. Work off the clock must be
+/// bounded by its own bounds, never by the run's watchdog, which waits while it runs (an
+/// invariant's evaluation by its work bound, [`crate::invariant`], "The work bound"); a
+/// cancellation that came before it began still stops it.
 pub fn off_the_clock<R>(work: impl FnOnce() -> R) -> R {
     struct Resume(Arc<Clock>);
     impl Drop for Resume {

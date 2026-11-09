@@ -77,4 +77,9 @@ module INVMEM
     requires A >Int B orBool B >Int A
   rule [implied]: <k> implied => .K ... </k> <a> A </a> <b> B </b>
     requires A >Int B impliesBool B >Int A
+
+  // A function whose equation rewrites a ground application without end, never to a term it
+  // reached before.
+  syntax Bool ::= spin(Int) [function, symbol(spin)]
+  rule spin(N) => spin(N +Int 1)
 endmodule
