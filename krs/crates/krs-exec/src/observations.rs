@@ -190,14 +190,16 @@ pub struct Component {
     pub name: String,
     /// The leaf cells it reads, by Rust field path, in the order of its parameters.
     pub cells: Vec<String>,
-    /// The function, by its KRS path or a `::`-aligned suffix of it.
+    /// The function, by a KRS path as [`crate::ValueIndex::decl`] reads one (`crate::` and its
+    /// path for the root package's, its full path, or a `::`-aligned suffix of it).
     pub function: String,
 }
 
 /// A class's filter: a function of named cells of result sort `Bool`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Filter {
-    /// The function, by its KRS path or a `::`-aligned suffix of it.
+    /// The function, by a KRS path as [`crate::ValueIndex::decl`] reads one (`crate::` and its
+    /// path for the root package's, its full path, or a `::`-aligned suffix of it).
     pub function: String,
     /// The leaf cells it reads, by Rust field path, in the order of its parameters.
     pub cells: Vec<String>,

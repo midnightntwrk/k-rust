@@ -324,7 +324,8 @@
 //!   `element`, an optional element function, `Item -> List<_>`;
 //!   and `at`, the names of the point classes at whose points the log is read, besides the path's end.
 //!
-//! A function is named as a view names one: by its KRS path or a `::`-aligned suffix of it.
+//! A function is named as a view names one, by a KRS path as [`ValueIndex::decl`] reads one:
+//! `crate::` and its path for the root package's, its full path, or a `::`-aligned suffix of it.
 //! Which rules, cells and functions a declaration may name is the run's to judge
 //! ([`crate::Semantics::observations`]); a case document refuses only what is no declaration,
 //! naming the key.
@@ -1363,7 +1364,7 @@ fn function_path(value: &Json, position: &str) -> Result<String, InputError> {
     non_empty(value).ok_or_else(|| {
         at(
             position,
-            "`function` is a function's KRS path, or a `::`-aligned suffix of it".to_owned(),
+            "`function` is a function's KRS path (`crate::` and its path for the root package's), or a `::`-aligned suffix of it".to_owned(),
         )
     })
 }
@@ -3299,12 +3300,14 @@ impl<'a> Decoder<'a> {
                 .map(|info| &info.decl)
         };
         let kind = if function { "function" } else { "constructor" };
-        match crate::values::resolve(kind, name, of_kind(function)) {
+        match self.values.resolve(kind, name, of_kind(function)) {
             Err(ValueError::UnknownName { .. })
-                if crate::values::resolve(kind, name, of_kind(!function)).is_ok() =>
+                if self.values.resolve(kind, name, of_kind(!function)).is_ok() =>
             {
                 Err(ValueError::WrongKind {
-                    decl: crate::values::resolve(kind, name, of_kind(!function))
+                    decl: self
+                        .values
+                        .resolve(kind, name, of_kind(!function))
                         .map(|decl| decl.to_string())
                         .unwrap_or_default(),
                     function: !function,

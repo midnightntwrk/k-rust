@@ -4342,14 +4342,20 @@ pub fn Ordered(low: Term<Int>, high: Term<Int>) -> Term<Bool> {
 }
 "#;
 
-/// [`BUMPER`] with a corpus (`kink`) that argues `bump`'s condition on the invariant `Ordered`
-/// of the cells `low` and `high`, and one (`corpora/nothing`) whose invariant names a function
-/// the definition does not hold.
+/// [`BUMPER`] with a corpus (`kink`) that argues `bump`'s condition on the invariant
+/// `crate::Ordered` of the cells `low` and `high`, named as its argued item names `bump`, and two
+/// whose invariant names a function the definition does not hold: one no declaration ends with
+/// (`corpora/nothing`), and one at a path of the root package that holds no `Ordered`
+/// (`corpora/misplaced`).
 fn bumper() -> Arc<Project> {
     static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
     Project::shared(&PROJECT, || {
         let mut files = vec![("src/lib.rs".to_owned(), BUMPER.as_bytes().to_vec())];
-        for (corpus, function) in [("kink", "Ordered"), ("corpora/nothing", "Nothing")] {
+        for (corpus, function) in [
+            ("kink", "crate::Ordered"),
+            ("corpora/nothing", "Nothing"),
+            ("corpora/misplaced", "crate::machine::Ordered"),
+        ] {
             files.push((
                 format!("{corpus}/FLOW.toml"),
                 format!(
@@ -4363,7 +4369,8 @@ fn bumper() -> Arc<Project> {
     })
 }
 
-/// An argued item's invariant named with KRS's spellings, the function by its KRS path and the
+/// An argued item's invariant named with KRS's spellings, the function by its KRS path
+/// (`crate::Ordered`, the root package's item as the manifest names `crate::bump`) and the
 /// cells by Rust field path: the front end resolves it through krs-exec's resolver to the K
 /// symbol and the KORE cell paths, its identity names the function's full path and the
 /// definition's Definition IR digest, and the connection holds (`low > high` has no model where
@@ -4371,7 +4378,8 @@ fn bumper() -> Arc<Project> {
 /// `bump`, and the invariant holds at the initial state and the end: the evidence is vacuous, so
 /// the item is `connected` where the connection holds (exit 0), and `unchecked` where it is
 /// undecided (exit 3). A function the definition does not hold refuses the corpus with krs-exec's
-/// message (`invariant-unresolved`).
+/// message (`invariant-unresolved`), which suggests a root package's function of that name by its
+/// `crate::` path.
 #[test]
 fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     let project = bumper();
@@ -4435,6 +4443,21 @@ fn an_argued_items_krs_invariant_is_resolved_and_its_connection_holds() {
     let detail = spec["detail"].as_str().unwrap();
     assert!(
         detail.contains("`ordered`: ") && detail.contains("Nothing"),
+        "{detail}"
+    );
+
+    let output = project.kink("coverage", &["--corpus", "corpora/misplaced"]);
+    assert_status(&output, 2);
+    let refused = json(&output);
+    assert_eq!(
+        refused["spec"]["reason"], "invariant-unresolved",
+        "{refused:#}"
+    );
+    let detail = refused["spec"]["detail"].as_str().unwrap();
+    assert!(
+        detail.contains(
+            "no function is named `crate::machine::Ordered`; did you mean crate::Ordered?"
+        ),
         "{detail}"
     );
 }

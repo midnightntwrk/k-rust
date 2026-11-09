@@ -57,13 +57,39 @@ impl Decl {
         &self.0
     }
 
-    /// Whether `name` is the path or a `::`-aligned suffix of it (`Register::A`).
-    fn is_named(&self, name: &str) -> bool {
+    /// Whether `name` names the declaration in a definition whose root package's crate name is
+    /// `root` ([`ValueIndex::decl`]): `crate::` and its path below the root crate's root, for a
+    /// declaration of the root package, exactly; or else its full path or a `::`-aligned suffix
+    /// of it (`Register::A`).
+    ///
+    /// `crate::P` is a whole path, as Rust reads it: it names the root package's item at `P`
+    /// and nothing else, never a dependency's item whose path ends with `P`; where no root crate
+    /// is known it names nothing. No declaration's path has a segment `crate`, a keyword no item
+    /// is named by, so no other name is read as a `crate::` path.
+    fn is_named(&self, name: &str, root: Option<&str>) -> bool {
+        if let Some(path) = name.strip_prefix("crate::") {
+            return self.root_path(root) == Some(path);
+        }
         self.0.as_ref() == name
             || self
                 .0
                 .strip_suffix(name)
                 .is_some_and(|prefix| prefix.ends_with("::"))
+    }
+
+    /// The path below the root crate's root of a declaration of the root package, whose crate
+    /// name is `root`; `None` for any other declaration.
+    fn root_path(&self, root: Option<&str>) -> Option<&str> {
+        self.0.strip_prefix(root?)?.strip_prefix("::")
+    }
+
+    /// The name a document gives the declaration, which [`Self::is_named`] reads as it in a
+    /// definition whose root package's crate name is `root`: `crate::` and its path for a
+    /// declaration of the root package, as a stop names the root package's items
+    /// ([`crate::origin::item_spelling`]), and its full path otherwise.
+    fn spelling(&self, root: Option<&str>) -> String {
+        self.root_path(root)
+            .map_or_else(|| self.0.to_string(), |path| format!("crate::{path}"))
     }
 }
 
@@ -473,7 +499,8 @@ pub enum ValueError {
         kind: &'static str,
         /// The name as written.
         name: String,
-        /// Declarations whose last segment matches, to suggest.
+        /// Declarations whose last segment matches, to suggest, each by the name a document
+        /// gives it (`crate::` and its path for the root package's).
         candidates: Vec<String>,
     },
     /// The name names a production of the other kind: a function where a constructor was
@@ -789,6 +816,10 @@ pub struct ValueIndex {
     ctors_by_symbol: HashMap<String, Arc<CtorInfo>>,
     /// Every production a KRS declaration names, constructors and functions alike.
     ctors_by_decl: HashMap<Decl, Arc<CtorInfo>>,
+    /// The crate name of the root package, whose declarations a document names `crate::` and
+    /// their path ([`Decl::is_named`]): the one a stop reads `crate::` by
+    /// ([`crate::rules::Rules::root_crate`]); `None` where the definition records none.
+    root_crate: Option<String>,
     sorts_by_kore: HashMap<String, SortRef>,
     kore_by_sort: HashMap<SortRef, String>,
     /// The KRS sorts by the IR's symbol identity.
@@ -897,7 +928,8 @@ impl crate::valueless::Heads for ValueIndex {
 }
 
 impl ValueIndex {
-    /// Index the KRS declarations of `definition` against the backend's view of its compiled KORE.
+    /// Index the KRS declarations of `definition` against the backend's view of its compiled KORE,
+    /// in a definition whose root package's crate name is `root_crate`.
     #[expect(
         clippy::too_many_lines,
         reason = "one pass over the declarations fills every table of the index"
@@ -906,6 +938,7 @@ impl ValueIndex {
         definition: &DefinitionIr,
         backend: &Arc<BackendDefinition>,
         kast_sort_hooks: &HashMap<String, String>,
+        root_crate: Option<String>,
     ) -> Self {
         let mut ctors_by_symbol = HashMap::new();
         let mut ctors_by_decl = HashMap::new();
@@ -1012,6 +1045,7 @@ impl ValueIndex {
             overloads: crate::overloads::Overloads::new(backend.axioms()),
             ctors_by_symbol,
             ctors_by_decl,
+            root_crate,
             sorts_by_kore,
             kore_by_sort,
             sorts_by_symbol,
@@ -1039,8 +1073,15 @@ impl ValueIndex {
         &self.overloads
     }
 
-    /// The constructor named by `name`: its full path or a `::`-aligned suffix of it
-    /// (`Register::A`), among the constructor productions; a function is no constructor.
+    /// The constructor named by `name`, among the constructor productions; a function is no
+    /// constructor.
+    ///
+    /// A declaration is named by `crate::` and its path below the root crate's root where it is
+    /// the root package's (`crate::machine::Register::A`), as a stop names the root package's
+    /// items ([`crate::StopRules`]): a whole path, which names it alone and never a dependency's
+    /// declaration at a path that ends alike. It is also named by its full path, the crate name of
+    /// its package first (`sm83::machine::Register::A`, [`Decl::path`]), and by a `::`-aligned
+    /// suffix of that path (`Register::A`) that only it ends with.
     ///
     /// # Errors
     ///
@@ -1069,18 +1110,59 @@ impl ValueIndex {
                 .map(|(decl, _)| decl)
         };
         let kind = if function { "function" } else { "constructor" };
-        resolve(kind, name, of_kind(function)).map_err(|error| {
-            if matches!(error, ValueError::UnknownName { .. })
-                && let Ok(other) = resolve(kind, name, of_kind(!function))
-            {
-                ValueError::WrongKind {
-                    decl: other.to_string(),
-                    function: !function,
+        self.resolve(kind, name, of_kind(function))
+            .map_err(|error| {
+                if matches!(error, ValueError::UnknownName { .. })
+                    && let Ok(other) = self.resolve(kind, name, of_kind(!function))
+                {
+                    ValueError::WrongKind {
+                        decl: other.to_string(),
+                        function: !function,
+                    }
+                } else {
+                    error
                 }
-            } else {
-                error
+            })
+    }
+
+    /// The one declaration of `decls` that `name` names ([`Self::decl`]), a `kind` (`function`,
+    /// `constructor` or `sort`); a miss suggests the declarations whose last segment is
+    /// `name`'s, by the names a document gives them ([`Decl::spelling`]).
+    pub(crate) fn resolve<'d>(
+        &self,
+        kind: &'static str,
+        name: &str,
+        decls: impl Iterator<Item = &'d Decl>,
+    ) -> Result<Decl, ValueError> {
+        let root = self.root_crate.as_deref();
+        let decls = decls.collect::<Vec<_>>();
+        let mut matches = decls
+            .iter()
+            .filter(|decl| decl.is_named(name, root))
+            .map(|decl| (*decl).clone())
+            .collect::<Vec<_>>();
+        matches.sort();
+        match matches.len() {
+            1 => Ok(matches.remove(0)),
+            0 => {
+                let last = name.rsplit("::").next().unwrap_or(name);
+                let mut candidates = decls
+                    .iter()
+                    .filter(|decl| decl.path().rsplit("::").next() == Some(last))
+                    .map(|decl| decl.spelling(root))
+                    .collect::<Vec<_>>();
+                candidates.sort();
+                Err(ValueError::UnknownName {
+                    kind,
+                    name: name.to_owned(),
+                    candidates,
+                })
             }
-        })
+            _ => Err(ValueError::AmbiguousName {
+                name: name.to_owned(),
+                candidates: matches.iter().map(ToString::to_string).collect(),
+            }),
+        }
     }
 
     /// Whether the loaded definition holds the production `decl` names: a declaration of a
@@ -1156,7 +1238,8 @@ impl ValueIndex {
         }
     }
 
-    /// The sort named by `name`: a KRS sort's path or suffix, or a builtin sort's K name.
+    /// The sort named by `name`: a KRS sort as [`Self::decl`] names a constructor, or a builtin
+    /// sort's K name.
     ///
     /// # Errors
     ///
@@ -1172,7 +1255,7 @@ impl ValueIndex {
             SortRef::Declared(decl) => Some(decl),
             SortRef::Builtin(_) => None,
         });
-        resolve("sort", name, declared).map(SortRef::Declared)
+        self.resolve("sort", name, declared).map(SortRef::Declared)
     }
 
     /// The application of the constructor named `name` (as [`Self::decl`] resolves it) to
@@ -1995,41 +2078,6 @@ fn application(name: &str, arguments: Vec<Pattern>) -> Pattern {
     }
 }
 
-pub(crate) fn resolve<'d>(
-    kind: &'static str,
-    name: &str,
-    decls: impl Iterator<Item = &'d Decl>,
-) -> Result<Decl, ValueError> {
-    let decls = decls.collect::<Vec<_>>();
-    let mut matches = decls
-        .iter()
-        .filter(|decl| decl.is_named(name))
-        .map(|decl| (*decl).clone())
-        .collect::<Vec<_>>();
-    matches.sort();
-    match matches.len() {
-        1 => Ok(matches.remove(0)),
-        0 => {
-            let last = name.rsplit("::").next().unwrap_or(name);
-            let mut candidates = decls
-                .iter()
-                .filter(|decl| decl.path().rsplit("::").next() == Some(last))
-                .map(ToString::to_string)
-                .collect::<Vec<_>>();
-            candidates.sort();
-            Err(ValueError::UnknownName {
-                kind,
-                name: name.to_owned(),
-                candidates,
-            })
-        }
-        _ => Err(ValueError::AmbiguousName {
-            name: name.to_owned(),
-            candidates: matches.iter().map(ToString::to_string).collect(),
-        }),
-    }
-}
-
 fn cell_nodes(
     cells: &[krs_ir::FixedCell<krs_ir_levels::DefinitionSortRef, krs_ir_levels::SymbolId>],
 ) -> Vec<CellNode> {
@@ -2056,7 +2104,7 @@ fn cell_nodes(
 }
 
 /// The index of the KORE definition `text` (main module `MAIN`), whose KRS declarations are the
-/// constructors `ctors` (symbol, `t::S::` name, fields), and no sort or cell.
+/// constructors `ctors` (symbol, `t::S::` name, fields) of the root crate `t`, and no sort or cell.
 #[cfg(test)]
 pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueIndex {
     index_at(text, ctors, None)
@@ -2119,6 +2167,7 @@ fn index_at(text: &str, ctors: &[(&str, &str, &[&str])], result: Option<&SortRef
     ValueIndex {
         ctors_by_symbol,
         ctors_by_decl,
+        root_crate: Some("t".to_owned()),
         sorts_by_kore: HashMap::new(),
         kore_by_sort: HashMap::new(),
         sorts_by_symbol: HashMap::new(),
@@ -2147,7 +2196,7 @@ mod tests {
     use k_rust::kore::ast::{Pattern, Symbol};
     use k_rust::kore::parser::parse_pattern;
 
-    use super::{Decl, Float, Value, ValueIndex, WellKnownSymbol, index_of};
+    use super::{Decl, Float, SortRef, Value, ValueError, ValueIndex, WellKnownSymbol, index_of};
 
     /// `c` is a constructor an `anywhere` rule rewrites, `c(a) => c(b)`: `c(b)`, which no
     /// equation reduces, is a value of `c`; `c(a)`, which the rule still reduces, is none.
@@ -2339,17 +2388,185 @@ mod tests {
 
     #[test]
     fn a_name_is_a_path_or_a_suffix_of_whole_segments() {
+        let root = Some("sm83");
         let decl = Decl("sm83::machine::Register::A".into());
         for name in [
             "A",
             "Register::A",
             "machine::Register::A",
             "sm83::machine::Register::A",
+            "crate::machine::Register::A",
         ] {
-            assert!(decl.is_named(name), "{name}");
+            assert!(decl.is_named(name, root), "{name}");
         }
-        for name in ["r::A", "ster::A", "Register", "B"] {
-            assert!(!decl.is_named(name), "{name}");
+        for name in [
+            "r::A",
+            "ster::A",
+            "Register",
+            "B",
+            "crate::Register::A",
+            "crate::A",
+            "crate::sm83::machine::Register::A",
+        ] {
+            assert!(!decl.is_named(name, root), "{name}");
         }
+        // `crate::` names the root package's declarations alone, and nothing where no root
+        // crate is known.
+        let dependency = Decl("dep::machine::Register::A".into());
+        assert!(!dependency.is_named("crate::machine::Register::A", root));
+        assert!(dependency.is_named("dep::machine::Register::A", root));
+        assert!(!decl.is_named("crate::machine::Register::A", None));
+        assert_eq!(decl.spelling(root), "crate::machine::Register::A");
+        assert_eq!(dependency.spelling(root), "dep::machine::Register::A");
+        assert_eq!(decl.spelling(None), "sm83::machine::Register::A");
+    }
+
+    /// The index of a definition whose root package's crate is `sm83`, with the functions
+    /// `functions` and the constructors `constructors` by declaration path, and the sorts
+    /// `sorts`.
+    fn named_index(functions: &[&str], constructors: &[&str], sorts: &[&str]) -> ValueIndex {
+        let mut index = index_of(ANYWHERE, &[]);
+        index.root_crate = Some("sm83".to_owned());
+        index.ctors_by_decl = functions
+            .iter()
+            .map(|path| (path, true))
+            .chain(constructors.iter().map(|path| (path, false)))
+            .map(|(path, function)| {
+                let decl = Decl((*path).into());
+                let info = super::CtorInfo {
+                    decl: decl.clone(),
+                    symbol: String::new(),
+                    fields: Vec::new(),
+                    field_types: Vec::new(),
+                    result: None,
+                    function,
+                    parameters: 0,
+                };
+                (decl, std::sync::Arc::new(info))
+            })
+            .collect();
+        for (index_of_sort, path) in sorts.iter().enumerate() {
+            index.kore_by_sort.insert(
+                SortRef::Declared(Decl((*path).into())),
+                format!("Sort{index_of_sort}"),
+            );
+        }
+        index
+    }
+
+    const ROOT_INVARIANT: &str = "sm83::machine::MemoryOutsideRom";
+    const DEPENDENCY_INVARIANT: &str = "dep::machine::MemoryOutsideRom";
+
+    /// `crate::P` names the root package's function at `P` exactly: not a dependency's at a path
+    /// that ends alike, and not the root package's at a longer path ending with `P`.
+    #[test]
+    fn a_crate_path_names_the_root_packages_item_at_that_path_alone() {
+        let index = named_index(
+            &[
+                ROOT_INVARIANT,
+                DEPENDENCY_INVARIANT,
+                "dep::machine::Elsewhere",
+            ],
+            &["sm83::machine::Register::A"],
+            &["sm83::machine::Register", "dep::machine::Register"],
+        );
+        let root = Decl(ROOT_INVARIANT.into());
+        assert_eq!(
+            index.function_decl("crate::machine::MemoryOutsideRom"),
+            Ok(root.clone())
+        );
+        assert_eq!(
+            index.decl("crate::machine::Register::A"),
+            Ok(Decl("sm83::machine::Register::A".into()))
+        );
+        assert_eq!(
+            index.sort("crate::machine::Register"),
+            Ok(SortRef::Declared(Decl("sm83::machine::Register".into())))
+        );
+        // A dependency's function is no root item, whatever its path ends with.
+        assert!(matches!(
+            index.function_decl("crate::machine::Elsewhere"),
+            Err(ValueError::UnknownName { .. })
+        ));
+        // The name is a whole path, never a suffix of one.
+        assert!(matches!(
+            index.function_decl("crate::MemoryOutsideRom"),
+            Err(ValueError::UnknownName { .. })
+        ));
+        // A constructor's name names no function.
+        assert_eq!(
+            index.function_decl("crate::machine::Register::A"),
+            Err(ValueError::WrongKind {
+                decl: "sm83::machine::Register::A".to_owned(),
+                function: false,
+            })
+        );
+    }
+
+    /// The forms that name a declaration besides `crate::` still do: its full path, the crate
+    /// name of its package first, and a `::`-aligned suffix that only it ends with.
+    #[test]
+    fn a_full_path_and_a_unique_suffix_still_name_a_declaration() {
+        let index = named_index(
+            &[ROOT_INVARIANT, DEPENDENCY_INVARIANT],
+            &["sm83::machine::Register::A"],
+            &["sm83::machine::Register"],
+        );
+        assert_eq!(
+            index.function_decl(ROOT_INVARIANT),
+            Ok(Decl(ROOT_INVARIANT.into()))
+        );
+        assert_eq!(
+            index.function_decl(DEPENDENCY_INVARIANT),
+            Ok(Decl(DEPENDENCY_INVARIANT.into()))
+        );
+        for name in ["Register::A", "A", "machine::Register::A"] {
+            assert_eq!(
+                index.decl(name),
+                Ok(Decl("sm83::machine::Register::A".into())),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            index.sort("Register"),
+            Ok(SortRef::Declared(Decl("sm83::machine::Register".into())))
+        );
+        // A suffix both packages' functions end with names neither.
+        assert_eq!(
+            index.function_decl("machine::MemoryOutsideRom"),
+            Err(ValueError::AmbiguousName {
+                name: "machine::MemoryOutsideRom".to_owned(),
+                candidates: vec![DEPENDENCY_INVARIANT.to_owned(), ROOT_INVARIANT.to_owned()],
+            })
+        );
+    }
+
+    /// A name that names no declaration suggests those whose last segment is its own, a root
+    /// package's by `crate::` and its path and a dependency's by its full path.
+    #[test]
+    fn a_miss_suggests_the_crate_path_of_a_root_packages_item() {
+        let index = named_index(&[ROOT_INVARIANT, DEPENDENCY_INVARIANT], &[], &[]);
+        let refused = index.function_decl("crate::MemoryOutsideRom").unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "no function is named `crate::MemoryOutsideRom`; did you mean crate::machine::MemoryOutsideRom, dep::machine::MemoryOutsideRom?"
+        );
+        let refused = index.function_decl("micro::MemoryOutsideRom").unwrap_err();
+        assert_eq!(
+            refused,
+            ValueError::UnknownName {
+                kind: "function",
+                name: "micro::MemoryOutsideRom".to_owned(),
+                candidates: vec![
+                    "crate::machine::MemoryOutsideRom".to_owned(),
+                    DEPENDENCY_INVARIANT.to_owned(),
+                ],
+            }
+        );
+        // Each suggestion names what it suggests.
+        assert_eq!(
+            index.function_decl("crate::machine::MemoryOutsideRom"),
+            Ok(Decl(ROOT_INVARIANT.into()))
+        );
     }
 }

@@ -257,7 +257,8 @@ impl StopCriterion {
 /// rule's step, the successor of a stop-after rule's. The condition is asked only at arrivals.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StopWhen {
-    /// The function, by its KRS path or a `::`-aligned suffix of it, as a view names one
+    /// The function, by a KRS path (`crate::` and its path for the root package's, its full
+    /// path, or a `::`-aligned suffix of it), as a view names one
     /// ([`ValueIndex::function_decl`]).
     pub function: String,
     /// The leaf cells it reads, by Rust field path, in the order of its parameters.
@@ -1375,11 +1376,21 @@ impl Semantics {
             backend_in_item_order(&definition_kore, &main_module, &sentence_provenance, solver)
         })?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
+        // The rules first: their root package's crate name is the one the values read a
+        // `crate::` path by, so that a stop and a function name the root package's items alike.
+        let rules = rules::Rules::new(&backend, &main_module, definition, |id| {
+            sentence_provenance.get(id)
+        })?;
         let (values, cell_types) = timings.try_span("exec.values", |_| {
             let backend_definition = backend
                 .select_definition(None)
                 .map_err(|error| ExecError::Backend(error.to_string()))?;
-            let values = ValueIndex::new(definition, &backend_definition, &sort_hooks);
+            let values = ValueIndex::new(
+                definition,
+                &backend_definition,
+                &sort_hooks,
+                rules.root_crate().map(str::to_owned),
+            );
             let cell_types = cell_types::CellTypes::new(definition, &backend_definition, &values);
             Ok::<_, ExecError>((Arc::new(values), cell_types))
         })?;
@@ -1416,9 +1427,6 @@ impl Semantics {
             .collect::<Vec<_>>();
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         let main_cell = main_cell_name(definition);
-        let rules = rules::Rules::new(&backend, &main_module, definition, |id| {
-            sentence_provenance.get(id)
-        })?;
         Ok(Self {
             backend,
             sort_hooks,

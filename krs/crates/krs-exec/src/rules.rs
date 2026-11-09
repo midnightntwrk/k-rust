@@ -111,6 +111,16 @@ impl Rules {
         })
     }
 
+    /// The crate name of the root package ([`PackageNames::krate`]), whose items a stop names
+    /// `crate::` and their path: the one name every reader of the definition's KRS paths reads
+    /// `crate::` by ([`crate::values::ValueIndex::decl`] too). `None` where no origin of the
+    /// definition is in the root package.
+    pub(crate) fn root_crate(&self) -> Option<&str> {
+        self.packages
+            .get(&self.root)
+            .map(|names| names.krate.as_str())
+    }
+
     /// The crate names the definition records ([`krs_ir_levels::DefinitionIr::crate_names`]).
     pub(crate) fn crate_names(&self) -> &[PackageCrateName] {
         &self.crate_names
