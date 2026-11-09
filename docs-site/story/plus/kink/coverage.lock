@@ -1,10 +1,10 @@
 schema = "kink-flow-verdicts"
-version = 22
+version = 23
 document = "coverage"
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-krs_annotation = 9
+krs_annotation = 10
 
 [spec]
 outcome = "admitted"
