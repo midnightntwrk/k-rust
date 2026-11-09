@@ -88,6 +88,102 @@ pub(super) fn collection_error(
     }
 }
 
+/// Why a record of the group `group`, whose declared children are `children`, cannot name the
+/// cell `name`, which is none of them: the reason a record's refusal of the field gives after
+/// "`group` has no child `name`".
+///
+/// A record at a configuration position, a group's or an instance's, is the record of its
+/// struct, as `k::fragment![crate::G { .. }]` writes it: each field is one of the struct's own
+/// children, written as that child's entry and read by the child's kind (R4). A cell deeper in
+/// the group is no field of it, so the record cannot name it, whatever its depth: a cell inside a
+/// group child is written in that child's record, and one inside a `?` or `*` cell below
+/// through that cell's entry, which a record does not name yet. Only a sentence's own record
+/// names a cell at any depth by its name, because it is no struct's record but the sentence's set
+/// of cells (the `k::cells!` entries, each named through its group struct, `crate::Thread::tenv:`),
+/// placed by the instances its cells lie in; so that is where the advice sends the author.
+///
+/// Empty where no cell of the group's tree has that name.
+pub(super) fn descendant_reason(
+    group: &str,
+    children: &[DescriptorCellField],
+    name: &str,
+    declarations: &DescriptorIndex<'_>,
+) -> String {
+    /// The fields from one of `children` down to the cell named `name`, outermost first.
+    fn path<'d>(
+        children: &'d [DescriptorCellField],
+        name: &str,
+        declarations: &DescriptorIndex<'d>,
+    ) -> Option<Vec<&'d DescriptorCellField>> {
+        children.iter().find_map(|child| {
+            let ProtocolCellContent::Nested { declaration } = &child.content else {
+                return None;
+            };
+            let grandchildren = &declarations.cell(&declaration.declaration).ok()?.fields;
+            let below = match grandchildren.iter().find(|cell| cell.rust_field == name) {
+                Some(found) => vec![found],
+                None => path(grandchildren, name, declarations)?,
+            };
+            Some(std::iter::once(child).chain(below).collect())
+        })
+    }
+    let Some(found) = path(children, name, declarations) else {
+        return String::new();
+    };
+    let head = format!(
+        ": a record names its struct's own children, each as that child's entry, and `{name}`"
+    );
+    let marked = found.iter().find_map(|cell| {
+        let (kind, inside) = match declared_multiplicity(cell, declarations) {
+            Multiplicity::One => return None,
+            Multiplicity::Optional => ("optional cell".to_owned(), "the"),
+            Multiplicity::Many(order) => (
+                format!(
+                    "{} collection",
+                    match order {
+                        krs_ir::cell_kind::Order::Map => "Map",
+                        krs_ir::cell_kind::Order::Set => "Set",
+                        krs_ir::cell_kind::Order::List => "List",
+                    }
+                ),
+                "an instance of the",
+            ),
+        };
+        Some((cell.rust_field.as_str(), kind, inside))
+    });
+    if let Some((holder, kind, inside)) = marked {
+        let (place, named) = if holder == name {
+            (format!("is the {kind} `{name}`"), format!("`{name}`"))
+        } else {
+            (
+                format!("lies in {inside} {kind} `{holder}`"),
+                format!("`{name}`, or `{holder}`, which holds it,"),
+            )
+        };
+        return format!(
+            "{head} {place} inside `{group}`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name {named} there, beside `{group}`'s other cells, as a rule for `{group}` does"
+        );
+    }
+    // Every cell on the way is a group child at a fixed position: the record of each names the
+    // next, down to the cell.
+    let (cell, groups) = found.split_last().expect("the path ends at the cell");
+    let mut written = format!("{}: ..", cell.rust_field);
+    for child in groups.iter().rev() {
+        let ProtocolCellContent::Nested { declaration } = &child.content else {
+            unreachable!("each cell on the way holds the next");
+        };
+        written = format!(
+            "{}: {} {{ {written}, .. }}",
+            child.rust_field,
+            declaration.declaration.item_name()
+        );
+    }
+    format!(
+        "{head} is a cell of its child `{}`, so write it inside that child's record, `{written}`",
+        groups[0].rust_field
+    )
+}
+
 /// A result's `..` over a subject with no unnamed rest of the computation for it to keep (P6):
 /// an exact subject has none, and a named one (`rest @ ..`, `named`) that the result does not
 /// put back with `..rest` is dropped (D2). The entry table answers it as `rest-mismatch` at the
@@ -878,8 +974,15 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 codes::analysis::COLLECTION_ENTRY,
                 &field.key,
                 format!(
-                    "the instance cell `{}` has no child `{}`",
-                    self.declaration.name, field.field
+                    "the instance cell `{}` has no child `{}`{}",
+                    self.declaration.name,
+                    field.field,
+                    descendant_reason(
+                        &self.declaration.name,
+                        self.declaration.fields,
+                        &field.field,
+                        self.declarations,
+                    )
                 ),
             ));
         };

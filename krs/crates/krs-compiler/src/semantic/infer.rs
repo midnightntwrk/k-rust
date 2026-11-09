@@ -15,6 +15,7 @@ use krs_ir_levels::{
 use super::catalog::{
     ProductionSignature, semantic_is_subsort, semantic_sort_closure, semantic_sort_ref,
 };
+use super::cell_states::descendant_reason;
 use super::collection_types::{CollectionTyping, share_a_sort};
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
@@ -3009,18 +3010,14 @@ impl StructuredTermBuilder<'_> {
                 owner.item_name()
             )));
         }
-        for field in supplied.keys() {
-            if !declaration
-                .fields
-                .iter()
-                .any(|declared| declared.rust_field == field.as_str())
-            {
-                return Err(self.invalid_term(format!(
-                    "fragment! for {:?} has no child field {:?}",
-                    owner.item_name(),
-                    field.as_str()
-                )));
-            }
+        if let Some(field) = supplied.keys().find(|field| {
+            (declaration.fields.iter()).all(|declared| declared.rust_field != field.as_str())
+        }) {
+            let (group, field) = (owner.item_name(), field.as_str());
+            let reason = descendant_reason(group, &declaration.fields, field, self.declarations);
+            return Err(self.invalid_term(format!(
+                "the group `{group}` has no child `{field}`{reason}"
+            )));
         }
         for declared in &declaration.fields {
             let Some(field) = supplied.get(&ProductionFieldId::new(&declared.rust_field)?) else {

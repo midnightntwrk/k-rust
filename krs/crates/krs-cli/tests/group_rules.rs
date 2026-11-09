@@ -4770,13 +4770,147 @@ fn a_rule_no_one_nesting_of_instances_holds_is_not_supported_yet() {
         [
             [
                 "sibling, contexts",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `dev` through its instance list instead, `dev: { .. }`, beside `k`",
                 "--> smt/src/lib.rs: `denv[0 -> let v]`",
             ],
             [
                 "sibling, no contexts",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `dev` through its instance list instead, `dev: { .. }`, beside `k`",
                 "--> smt/src/lib.rs: `denv[0 -> let v]`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// The refusal of cells in instances of two holders neither of which holds the other names the
+/// sentence as written, a rule, a claim or a context, and advises a spelling each of them can
+/// write: the device named through its instance list beside the core's `k`, a clause outside
+/// every instance, which the rule, the claim and the context then accept (the context keeps its
+/// hole in the core's computation cell, where heating moves it).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The cases and their reports read as one verdict table."
+)]
+fn the_sibling_instances_refusal_names_the_sentence_and_advice_it_can_follow() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rule =
+        |body: &str| format!("k::rules! {{\n    for Smt;\n    use Step::*;\n\n    {body}\n}}\n");
+    let claim = |body: &str| {
+        format!(
+            "k::claims! {{\n    for Smt;\n    use Step::*;\n\n    #[k::claim(all_paths)]\n    {body}\n}}\n"
+        )
+    };
+    let context = |device: &str| {
+        format!(
+            "
+#[k::context(hole = h)]
+fn done_arg(
+    h: Int,
+    k::cells! {{
+        crate::Core::k: k::configuration::KCell(crate::Step::Done(h), ..),
+        {device}
+        state @ ..
+    }}: crate::Smt,
+) {{}}
+"
+        )
+    };
+    let flat = "{ k: [Go(), ..], denv: { 0 -> v, .. } } => { k: [Done { n: v }, ..] };";
+    let listed = "{ k: [Go(), ..], dev: { Dev { denv: { 0 -> v, .. }, .. }, .. } } => { k: [Done { n: v }, ..] };";
+    let cases = [
+        ("rule", rule(&format!("go: {flat}")), "rule [go]:"),
+        (
+            "claim",
+            claim(&format!("go_claim: {flat}")),
+            "claim [go-claim]:",
+        ),
+        (
+            "context",
+            context("crate::Dev::denv: k::configuration::Cell(k::map![0 -> 13, ..]),"),
+            "context [done-arg]:",
+        ),
+        ("rule-listed", rule(&format!("go: {listed}")), "rule [go]:"),
+        (
+            "claim-listed",
+            claim(&format!("go_claim: {listed}")),
+            "claim [go-claim]:",
+        ),
+        (
+            "context-listed",
+            context(
+                "Devs::dev: { k::fragment![crate::Dev { denv: k::map![0 -> 13, ..], .. }], .. },",
+            ),
+            "context [done-arg]:",
+        ),
+    ];
+    let outcomes = cases
+        .iter()
+        .map(|(name, sentences, start)| {
+            let manifest = instance_definitions(
+                &temporary.path().join(name),
+                "",
+                &[("smt", &format!("{SMT}{sentences}"))],
+            )
+            .remove(0);
+            let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
+            let mut report = vec![(*name).to_owned()];
+            if success {
+                let output = manifest.with_file_name("emitted");
+                let (success, _, stderr) = krs_on(
+                    target.path(),
+                    &manifest,
+                    "smt",
+                    "emit-k",
+                    &["--output", output.to_str().unwrap()],
+                );
+                assert!(success, "{name}: {stderr}");
+                let file = if start.starts_with("claim") {
+                    "spec.k"
+                } else {
+                    "definition.k"
+                };
+                let flat = fs::read_to_string(output.join(file))
+                    .unwrap()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                report.push(sentence(&flat, start).to_owned());
+            } else {
+                report.extend(check_report(target.path(), &manifest, "smt"));
+            }
+            report
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            [
+                "rule",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `dev` through its instance list instead, `dev: { .. }`, beside `k`",
+                "--> smt/src/lib.rs: `denv: { 0 -> v,`",
+            ],
+            [
+                "claim",
+                "error[krs::analysis::collection-entry]: the claim matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the claim would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `dev` through its instance list instead, `dev: { .. }`, beside `k`",
+                "--> smt/src/lib.rs: `denv: { 0 -> v,`",
+            ],
+            [
+                "context",
+                "error[krs::analysis::collection-entry]: the context matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the context would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `dev` through its instance list instead, `dev: { .. }`, beside `k`",
+                "--> smt/src/lib.rs: `denv: k::configu`",
+            ],
+            [
+                "rule-listed",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> ... </core> <dev> <denv> 0 |-> V:Int ... </denv> ... </dev>",
+            ],
+            [
+                "claim-listed",
+                "claim [go-claim]: <core> <k> go => done ( V:Int ) ... </k> ... </core> <dev> <denv> 0 |-> V:Int ... </denv> ... </dev>",
+            ],
+            [
+                "context-listed",
+                "context [done-arg]: <core> <k> done ( HOLE:Int ) ... </k> ... </core> <dev> <denv> 0 |-> 13 ... </denv> ... </dev>",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
@@ -5897,8 +6031,287 @@ fn a_rule_for_the_configuration_names_a_cell_of_a_map_instance_flat() {
             ],
             [
                 "configuration-k-device",
-                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration",
+                "error[krs::analysis::collection-entry]: the rule matches `k`, a cell of an instance of the Map collection cell `core`, and `denv`, a cell of an instance of the Map collection cell `dev`: neither instance holds the other, so the rule would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `dev` through its instance list instead, `dev: { .. }`, beside `k`",
                 "--> smt/src/lib.rs: `denv: { 0 -> v,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// [`SMT`] with `replacements` applied, each of which must change it.
+fn smt_with(replacements: &[(&str, &str)]) -> String {
+    replacements
+        .iter()
+        .fold(SMT.to_owned(), |source, (from, to)| {
+            assert!(source.contains(from), "{from}");
+            source.replace(from, to)
+        })
+}
+
+/// A record at a configuration position, an instance record in an instance list or a group
+/// record, is the record of its struct, as `k::fragment![crate::Core { .. }]` writes it: each
+/// field is one of the struct's own children, written as that child's entry. A cell deeper in
+/// the struct is no field of it, so each record refuses it, in a readable rule, a `cells!` rule
+/// and a claim alike, naming the record that reaches it: a group child's own record
+/// (`regs: Regs { r0: .., .. }`, accepted, as the group rule's), or, below a `?` or `*` cell,
+/// the sentence's own record, which names a cell at any depth by its name because it is the
+/// sentence's set of cells, as its `cells!` entries are (`crate::Thread::tenv:`): accepted, the
+/// same step whether the sentence is for `Core` or for the configuration (IC-3). A name that
+/// is no cell of the struct's tree keeps the bare refusal.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The cases and their reports read as one verdict table."
+)]
+fn a_record_at_a_configuration_position_names_its_struct_s_own_children() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rules = |subject: &str, body: &str| {
+        format!("k::rules! {{\n    for {subject};\n    use Step::*;\n\n    {body}\n}}\n")
+    };
+    let instance = |fields: &str| {
+        rules(
+            "Smt",
+            &format!(
+                "go: {{ core: {{ me @ Core {{ k: [Go(), ..], {fields}, .. }}, .. }} }} => {{ core: {{ Core {{ k: [Done {{ n: v }}, ..], ..me }}, .. }} }};"
+            ),
+        )
+    };
+    let flat = |subject: &str, fields: &str| {
+        rules(
+            subject,
+            &format!("go: {{ k: [Go(), ..], {fields} }} => {{ k: [Done {{ n: v }}, ..] }};"),
+        )
+    };
+    let threads = "pub struct Threads {\n    #[k::cell(multiplicity = \"*\", cell_type = \"Map\"";
+    let regs = smt_with(&[
+        (
+            "#[k::cell]\npub struct Core {",
+            "#[k::cell]\npub struct Regs {\n    #[k::cell]\n    pub r0: Int,\n}\n\n#[k::cell]\npub struct Core {",
+        ),
+        (
+            "    pub cid: Int,\n",
+            "    pub cid: Int,\n    #[k::cell(nested)]\n    pub regs: Regs,\n",
+        ),
+        (
+            "core: Core { cid: 0,",
+            "core: Core { cid: 0, regs: Regs { r0: 4 },",
+        ),
+    ]);
+    let fpu = smt_with(&[
+        (
+            "    pub threads: Threads,\n}",
+            "    pub threads: Threads,\n    #[k::cell(multiplicity = \"?\", nested)]\n    pub fpu: Option<lib::Fpu>,\n}",
+        ),
+        (
+            "tmem: k::map![1 -> 20] } } } },",
+            "tmem: k::map![1 -> 20] } }, fpu: k::absent!(lib::Fpu { busy: 0, fa: 0 }) } },",
+        ),
+    ]);
+    let listed = smt_with(&[(threads, &threads.replace("\"Map\"", "\"List\""))]);
+    let slots = smt_with(&[
+        (
+            "#[k::cell]\npub struct Thread {",
+            "#[k::cell]\npub struct Slot {\n    #[k::cell]\n    pub sid: Int,\n    #[k::cell]\n    pub sv: Int,\n}\n\n#[k::cell]\npub struct Slots {\n    #[k::cell(multiplicity = \"*\", cell_type = \"Map\", initial, nested)]\n    pub slot: Slot,\n}\n\n#[k::cell]\npub struct Thread {",
+        ),
+        (
+            "    pub tmem: k::builtin::Map<Int, Int>,\n}",
+            "    pub tmem: k::builtin::Map<Int, Int>,\n    #[k::cell(nested)]\n    pub slots: Slots,\n}",
+        ),
+        (
+            "tmem: k::map![1 -> 20] }",
+            "tmem: k::map![1 -> 20], slots: Slots { slot: Slot { sid: 0, sv: 9 } } }",
+        ),
+    ]);
+    let fixed = smt_fixed_core();
+    let fixed_regs = regs
+        .replace(
+            "    #[k::cell(nested)]\n    pub cores: Cores,",
+            "    #[k::cell(nested)]\n    pub core: Core,",
+        )
+        .replace(
+            "cores: Cores { core: Core { cid: 0,",
+            "core: Core { cid: 0,",
+        )
+        .replace(
+            "tmem: k::map![1 -> 20] } } } },",
+            "tmem: k::map![1 -> 20] } } },",
+        );
+    let cells_instance = r#"
+#[k::rule(label = "go")]
+pub fn go(
+    v: k::Term<k::builtin::Int>,
+    k::cells! {
+        Cores::core: {
+            me @ k::fragment![crate::Core { k: k::k![Step::Go(), tail @ ..], tenv: k::map![0 -> v, ..], .. }],
+            others @ ..
+        },
+        state @ ..
+    }: Smt,
+) -> Smt {
+    k::cells! {
+        Cores::core: { k::fragment![crate::Core { k: k::k![Step::Done { n: v }, ..tail], ..me }], ..others },
+        ..state
+    }
+}
+"#;
+    let claim = "k::claims! {\n    for Smt;\n    use Step::*;\n\n    #[k::claim(all_paths)]\n    go_claim: { core: { me @ Core { k: [Go(), ..], tenv: { 0 -> v, .. }, .. }, .. } } => { core: { Core { k: [Done { n: v }, ..], ..me }, .. } };\n}\n";
+    let tenv = "tenv: { 0 -> v, .. }";
+    let list_holder = "thread: [Thread { tenv: { 0 -> v, .. }, .. }, ..]";
+    let cases: Vec<(&str, &str, String)> = vec![
+        ("group-flat", SMT, flat("Core", tenv)),
+        ("configuration-flat", SMT, flat("Smt", tenv)),
+        ("instance-record", SMT, instance(tenv)),
+        ("instance-record-cells", SMT, cells_instance.to_owned()),
+        ("instance-record-claim", SMT, claim.to_owned()),
+        ("instance-record-list", &listed, instance(tenv)),
+        (
+            "instance-record-list-holder",
+            &listed,
+            instance(list_holder),
+        ),
+        (
+            "configuration-list-holder",
+            &listed,
+            flat("Smt", list_holder),
+        ),
+        ("instance-record-two-levels", &slots, instance("sv: v")),
+        ("configuration-two-levels", &slots, flat("Smt", "sv: v")),
+        ("instance-record-optional", &fpu, instance("busy: v")),
+        (
+            "configuration-optional-holder",
+            &fpu,
+            flat("Smt", "fpu: Some(lib::Fpu { busy: v, .. })"),
+        ),
+        ("instance-record-group-child", &regs, instance("r0: v")),
+        (
+            "instance-record-group-record",
+            &regs,
+            instance("regs: Regs { r0: v }"),
+        ),
+        ("group-flat-group-child", &regs, flat("Core", "r0: v")),
+        (
+            "group-record-tenv",
+            &fixed,
+            rules(
+                "Smt",
+                "go: { core: Core { tenv: { 0 -> v, .. }, .. }, k: [Go(), ..] } => { k: [Done { n: v }, ..] };",
+            ),
+        ),
+        (
+            "group-record-group-child",
+            &fixed_regs,
+            rules(
+                "Smt",
+                "go: { core: Core { r0: v, .. }, k: [Go(), ..] } => { k: [Done { n: v }, ..] };",
+            ),
+        ),
+        ("instance-record-no-such-cell", SMT, instance("nope: v")),
+    ];
+    let outcomes = cases
+        .iter()
+        .map(|(name, configuration, sentences)| {
+            let manifest = instance_definitions(
+                &temporary.path().join(name),
+                "",
+                &[("smt", &format!("{configuration}{sentences}"))],
+            )
+            .remove(0);
+            let (success, _, _) = krs_on(target.path(), &manifest, "smt", "check", &[]);
+            let mut report = vec![(*name).to_owned()];
+            if success {
+                let flat = emitted(target.path(), &manifest, "smt");
+                report.push(sentence(&flat, "rule [go]:").to_owned());
+            } else {
+                report.extend(check_report(target.path(), &manifest, "smt"));
+            }
+            report
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            [
+                "group-flat",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <thread> <tenv> 0 |-> V:Int ... </tenv> ... </thread> ... </core>",
+            ],
+            [
+                "configuration-flat",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <thread> <tenv> 0 |-> V:Int ... </tenv> ... </thread> ... </core>",
+            ],
+            [
+                "instance-record",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
+            ],
+            [
+                "instance-record-cells",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `tenv: k::map![0`",
+            ],
+            [
+                "instance-record-claim",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
+            ],
+            [
+                "instance-record-list",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the List collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
+            ],
+            [
+                "instance-record-list-holder",
+                "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
+                "--> smt/src/lib.rs: `{ 0 -> v, .. },`",
+            ],
+            [
+                "configuration-list-holder",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <threads> <thread> <tenv> 0 |-> V:Int ... </tenv> ... </thread> ... </threads> ... </core>",
+            ],
+            [
+                "instance-record-two-levels",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `sv`: a record names its struct's own children, each as that child's entry, and `sv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `sv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `sv: v, .. }, ..`",
+            ],
+            [
+                "configuration-two-levels",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <thread> <slot> <sv> V:Int </sv> ... </slot> ... </thread> ... </core>",
+            ],
+            [
+                "instance-record-optional",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `busy`: a record names its struct's own children, each as that child's entry, and `busy` lies in the optional cell `fpu` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `busy`, or `fpu`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `busy: v, .. }, .`",
+            ],
+            [
+                "configuration-optional-holder",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <fpu> <busy> V:Int </busy> <fa> _ </fa> </fpu> ... </core>",
+            ],
+            [
+                "instance-record-group-child",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `r0`: a record names its struct's own children, each as that child's entry, and `r0` is a cell of its child `regs`, so write it inside that child's record, `regs: Regs { r0: .., .. }`",
+                "--> smt/src/lib.rs: `r0: v, .. }, ..`",
+            ],
+            [
+                "instance-record-group-record",
+                "rule [go]: <core> <k> go ~> Tail0:K => done ( V:Int ) ~> Tail0:K </k> <regs> <r0> V:Int </r0> </regs> ... </core>",
+            ],
+            [
+                "group-flat-group-child",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <r0> V:Int </r0> ... </core>",
+            ],
+            [
+                "group-record-tenv",
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-GROUPS-SMT::go (rule): the group `Core` has no child `tenv`: a record names its struct's own children, each as that child's entry, and `tenv` lies in an instance of the Map collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `tenv`, or `thread`, which holds it, there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `tenv: { 0 -> v,`",
+            ],
+            [
+                "group-record-group-child",
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-GROUPS-SMT::go (rule): the group `Core` has no child `r0`: a record names its struct's own children, each as that child's entry, and `r0` is a cell of its child `regs`, so write it inside that child's record, `regs: Regs { r0: .., .. }`",
+                "--> smt/src/lib.rs: `Core { r0: v, ..`",
+            ],
+            [
+                "instance-record-no-such-cell",
+                "error[krs::analysis::collection-entry]: the instance cell `Core` has no child `nope`",
+                "--> smt/src/lib.rs: `nope: v, .. }, .`",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);

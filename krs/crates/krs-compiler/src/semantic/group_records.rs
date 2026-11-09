@@ -520,9 +520,15 @@ fn children(
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
                     format!(
-                        "the group `{}` has no child `{}`",
+                        "the group `{}` has no child `{}`{}",
                         group.item_name(),
-                        field.field
+                        field.field,
+                        super::cell_states::descendant_reason(
+                            group.item_name(),
+                            &declaration.fields,
+                            &field.field,
+                            declarations,
+                        )
                     ),
                 )
                 .within(descriptor.id(), at().as_ref()));

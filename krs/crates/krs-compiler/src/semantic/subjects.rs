@@ -910,12 +910,33 @@ fn check_rule_instances(
                 format!("a cell of an instance of {}", holder_text(tree, *holder))
             })
         };
-        let shape = "neither instance holds the other, so the rule would match one instance of each, and a rule whose cells lie in instances of two holders neither of which holds the other is not supported yet; match the instances through their holders' instance lists in a rule for the configuration";
+        // The sentence as written: a claim or a context lays out its cells as a rule does.
+        let sentence_noun = match sentence.sentence_kind {
+            krs_ir::ConfigurationSentenceKind::Transition => "rule",
+            krs_ir::ConfigurationSentenceKind::Claim => "claim",
+            krs_ir::ConfigurationSentenceKind::Context => "context",
+            krs_ir::ConfigurationSentenceKind::Equation => "function context",
+        };
+        // The holder where the refused cell's path leaves the deepest one's: naming that
+        // instance through its instance list makes the list a clause beside the other cells,
+        // which a rule, a claim and a context all write (a context's hole stays in the
+        // computation cell, which the other instance holds).
+        let apart = path
+            .iter()
+            .zip(deepest.iter().map(Some).chain(std::iter::repeat(None)))
+            .find(|(holder, other)| Some(*holder) != *other)
+            .map(|(holder, _)| *holder)
+            .expect("a path off the deepest one's chain leaves it at a holder");
+        let list = match tree.cells[apart].multiplicity {
+            Multiplicity::Many(Order::List) => "[..]",
+            _ => "{ .. }",
+        };
+        let apart = &tree.fields[apart].1.rust_field;
+        let deep_name = unraw(&deep.field.cell.field);
         return Err(DescriptorLoweringError::GroupInstance {
             code: krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
             reason: format!(
-                "the rule matches `{}`, {}, and `{}`, {}: {shape}",
-                unraw(&deep.field.cell.field),
+                "the {sentence_noun} matches `{deep_name}`, {}, and `{}`, {}: neither instance holds the other, so the {sentence_noun} would match one instance of each, and a sentence whose cells lie in instances of two holders neither of which holds the other is not supported yet; name the instance of `{apart}` through its instance list instead, `{apart}: {list}`, beside `{deep_name}`",
                 instance(deepest),
                 unraw(&cell.field.cell.field),
                 instance(path),
