@@ -47,14 +47,12 @@
 //! `invariant`, "The work bound"). The simplifier's iteration budget alone bounds nothing here:
 //! it does not count a determined step of a ground function application (k-rust-backend
 //! `simplify`), and an evaluation is of ground cells. The bound is spent by the evaluation's own
-//! polls, so an evaluation that spends it is undecided as a function of the cells, the
-//! definition and the bound, and the reason names the bound; such a state leaves the evidence
-//! `incomplete`, never `fails`. The bound is per evaluation, not a total of the run: the value at
-//! a state is then a function of that state's cells alone, whatever the evaluations before it
-//! cost, and the run reads at most one evaluation per point, its initial state and its ends,
-//! which its own depth bounds, so the run's reading ends without the watchdog's help, and its
-//! states are those of the run the baseline admitted within `time_ms`. A run the watchdog stops
-//! all the same gives no evidence, and the reason says so, with the evaluations' count and time.
+//! polls, not by the host's time, and an evaluation that spends it is undecided, with a reason
+//! that names the bound; such a state leaves the evidence `incomplete`, never `fails`. The bound
+//! is per evaluation, not a total of the run: a total would make whether a state is read depend
+//! on what every evaluation before it cost, the dependence on the invariant's cumulative cost
+//! the clock was taken off for. A run the watchdog stops all the same gives no evidence, and the
+//! reason says so, with the evaluations' count and time.
 //! Where every cell holds the term node the previous decided evaluation read, the value is that
 //! evaluation's (the `Evaluator`).
 //!
@@ -76,6 +74,23 @@
 //! rule in label order that has one, and the failure says why its cells are not given
 //! (`cells_missing`).
 //!
+//! # After a cut
+//!
+//! A state the work bound cuts leaves every item it serves `incomplete` (the items whose `S_R`
+//! holds the rule it is before; every item, for the initial state and an end), so none of them
+//! can be `holds` or `vacuous` any more; only a `false` could still change their answer, by
+//! refuting it. Reading on at the same cost would spend the bound again at every later state
+//! (an invariant that does not end, over a run of thousands of states, would take hours). So
+//! after a cut a state is not evaluated where every item it serves is unchecked already, and its
+//! element is undecided, with a reason that says it is not read: at a later point whose items
+//! are all unchecked, at an end once every item is, and the run is not made at all where the
+//! initial state is cut. A state some item still checked is served by is read as before, so an
+//! item untouched by the cut keeps its answer, and a `false` found before the cut, or at a state
+//! still read, refutes as before. Each cut leaves at least one more item unchecked, so a
+//! program's evidence run makes at most one cut per item, besides one at the initial state or an
+//! end, however many states it has. Which states are read is a function of the run and of the
+//! states the bound cut.
+//!
 //! # Answers
 //!
 //! For an argued item, over every program:
@@ -93,10 +108,22 @@
 //! What one program's evidence run reads of an invariant is kept in the evidence memo
 //! ([`crate::memo::evidence_key`]) under the program's result key, the invariant's identity and
 //! the labels observed, where the result store is on (`crate::results::result_store`) and the
-//! run's campaign gave it sides; `--verify` reads and writes no record. The record is a function
-//! of those and of kink's build, which fixes the work bound, except where an evaluation's outcome
-//! was the host's (kink-native `invariant::Unvalued::host_bound`: the native stack ran out, or the
-//! system refused one): such a record is not kept.
+//! run's campaign gave it sides; `--verify` reads and writes no record. A record is kept only
+//! where every evaluation it holds gave a value, or ended without one as the definition's
+//! simplification of the state's cells (kink-native `invariant::UnvaluedCause::Definition`):
+//! such an outcome is the simplification's result, a function of the cells and the definition.
+//! A record with an evaluation the work bound cut, or one the host decided (its native stack ran
+//! out, or the system refused one), is not kept. Where the bound cuts is the count of the
+//! evaluation's polls, a fact about the work, not about the value, and it is not shown to depend
+//! on the cells, the definition and the bound alone: the evaluation runs without a solver
+//! (kink-native `evaluate` simplifies with none), and the backend's memos (equation-condition
+//! verdicts, `Unspecified` records, pure hook values) clear when their outermost scope closes
+//! and are set aside around a point's evaluation (k-rust-backend `coverage::isolated`), but a
+//! point's evaluation continues the run's counter of renamed-apart names, and nothing in the
+//! backend promises that each path through the simplifier polls alike whatever names or work
+//! came before. The `Evaluator`'s reuse never serves an undecided value, so it moves no cut, but
+//! it does not make one reproducible either. A cut record is computed again by the next command,
+//! whose cost after the cut is bounded ("After a cut").
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -113,7 +140,8 @@ use kink_campaign::{
     ObserveFunctions, Opening, PathRecord, PrefixChain, Stutter, TestEvidence,
 };
 use kink_native::invariant::{
-    EVALUATION_POLLS, Invariant, Unvalued, evaluate, evaluate_configuration, stepping_rules,
+    EVALUATION_POLLS, Invariant, Unvalued, UnvaluedCause, evaluate, evaluate_configuration,
+    stepping_rules,
 };
 use kink_patch::payload_digest;
 use serde_json::{Value, json};
@@ -135,6 +163,10 @@ pub const EVIDENCE_VACUOUS: &str = "vacuous";
 pub const EVIDENCE_FAILS: &str = "fails";
 /// The evidence of an item neither shown to fail nor read at every state of its set.
 pub const EVIDENCE_INCOMPLETE: &str = "incomplete";
+
+/// Why a state after a cut is not read (module documentation, "After a cut").
+const SKIPPED: &str = "not read: an earlier evaluation of the invariant spent its work bound, \
+                       which leaves every item this state serves unchecked";
 
 /// The domain of an element's digest: `true` and `false`, the only values an element has.
 const ELEMENT_DOMAIN: &str = "kink-flow/invariant-evidence/element/v1";
@@ -169,6 +201,9 @@ enum Value3 {
     True,
     False(Vec<String>),
     Undecided(String),
+    /// Not evaluated: an earlier cut of the work bound leaves every item the state serves
+    /// unchecked (module documentation, "After a cut").
+    Skipped,
 }
 
 /// The value of an evaluation at an initial state or an end: with its cells, or why it is not
@@ -183,8 +218,29 @@ struct Log {
     /// element whose cells are the previous evaluation's is not evaluated again ([`Evaluator`]).
     evaluations: usize,
     evaluating: Duration,
-    /// Whether an evaluation's outcome was the host's (module documentation, "The cache").
-    host_bound: bool,
+    /// Whether an evaluation's outcome is one the memo does not keep (module documentation, "The
+    /// cache").
+    not_kept: bool,
+    /// The items a cut of the work bound left unchecked so far (module documentation, "After a
+    /// cut").
+    unchecked: BTreeSet<String>,
+}
+
+/// Which items of one invariant an evidence run reads for: by point class, the items whose `S_R`
+/// holds the class's rule, and all of them, whom the initial state and the ends serve.
+#[derive(Clone, Debug, Default)]
+struct Serves {
+    classes: Vec<BTreeSet<String>>,
+    items: BTreeSet<String>,
+}
+
+impl Serves {
+    /// Whether every item a state of `class` serves (`None`: an end) is unchecked already; a
+    /// state that serves none is read.
+    fn spent(&self, class: Option<usize>, unchecked: &BTreeSet<String>) -> bool {
+        let served = class.map_or(&self.items, |class| &self.classes[class]);
+        !served.is_empty() && served.is_subset(unchecked)
+    }
 }
 
 /// The invariant as the functions of an evidence run's declaration (module documentation, "The
@@ -193,6 +249,7 @@ struct Functions {
     definition: Arc<BackendDefinition>,
     symbol: String,
     cells: Vec<Vec<String>>,
+    serves: Serves,
     log: Arc<Mutex<Log>>,
 }
 
@@ -295,6 +352,19 @@ impl Evaluator<'_> {
         value: bool,
     ) -> Result<Evaluated, String> {
         let functions = self.functions;
+        // After a cut, a state whose items are all unchecked is not evaluated: nothing it gives
+        // but a `false` could change their standing, and the cost of reading the rest of the run
+        // would be the bound again at every state (module documentation, "After a cut").
+        {
+            let mut log = functions.log.lock().unwrap_or_else(PoisonError::into_inner);
+            if functions.serves.spent(Some(class), &log.unchecked) {
+                log.entries.push(Logged {
+                    class,
+                    value: Value3::Skipped,
+                });
+                return Err(SKIPPED.to_owned());
+            }
+        }
         let paths = functions
             .cells
             .iter()
@@ -329,12 +399,11 @@ impl Evaluator<'_> {
                 EVALUATION_POLLS,
             )
             .map_err(|unvalued| {
-                if unvalued.host_bound {
-                    functions
-                        .log
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .host_bound = true;
+                let mut log = functions.log.lock().unwrap_or_else(PoisonError::into_inner);
+                log.not_kept |= !unvalued.kept();
+                if unvalued.cause == UnvaluedCause::WorkBound {
+                    log.unchecked
+                        .extend(functions.serves.classes[class].iter().cloned());
                 }
                 unvalued.reason
             }),
@@ -469,17 +538,35 @@ pub(super) fn evidence(
         else {
             continue;
         };
-        let labels = items
-            .values()
-            .filter(|(of, _)| of == name)
-            .filter_map(|(_, steps)| steps.as_ref().ok())
-            .flat_map(|steps| steps.labels.iter().cloned())
+        let read_items = items
+            .iter()
+            .filter(|(_, (of, _))| of == name)
+            .filter_map(|(id, (_, steps))| Some((id, steps.as_ref().ok()?)))
+            .collect::<Vec<_>>();
+        let labels = read_items
+            .iter()
+            .flat_map(|(_, steps)| steps.labels.iter().cloned())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
+        let serves = Serves {
+            classes: labels
+                .iter()
+                .map(|label| {
+                    read_items
+                        .iter()
+                        .filter(|(_, steps)| steps.labels.contains(label))
+                        .map(|(id, _)| (*id).clone())
+                        .collect()
+                })
+                .collect(),
+            items: read_items.iter().map(|(id, _)| (*id).clone()).collect(),
+        };
         read.insert(
             name.clone(),
-            program_evidence(context, definition, invariant, identity, &labels, &mut runs),
+            program_evidence(
+                context, definition, invariant, identity, &labels, &serves, &mut runs,
+            ),
         );
     }
     let items = items
@@ -499,14 +586,15 @@ pub(super) fn evidence(
 /// program gives none, and whether the record was read from the memo.
 type Read = (String, Result<Value, String>, bool);
 
-/// What each program's evidence run read of `invariant` at the points of `labels`, each run
-/// counted in `runs` (run, cached).
+/// What each program's evidence run read of `invariant` at the points of `labels`, for the items
+/// `serves` gives by label, each run counted in `runs` (run, cached).
 fn program_evidence(
     context: &mut Context<'_, '_>,
     definition: &Arc<BackendDefinition>,
     invariant: &ResolvedInvariant,
     identity: &Value,
     labels: &[String],
+    serves: &Serves,
     runs: &mut (usize, usize),
 ) -> Vec<Read> {
     let manifest = context.manifest;
@@ -516,6 +604,7 @@ fn program_evidence(
             definition: Arc::clone(definition),
             symbol: invariant.symbol.clone(),
             cells: invariant.cells.clone(),
+            serves: serves.clone(),
             log: Arc::clone(&log),
         };
         let functions = ObserveFunctions::new(
@@ -618,7 +707,12 @@ fn program_evidence(
         };
         let initial =
             evaluate_configuration(definition, &test.initial_state, asked, EVALUATION_POLLS);
+        // A cut at the initial state, which every item reads, leaves every item unchecked: the
+        // run is not made (module documentation, "After a cut").
+        let initial_cut =
+            matches!(&initial, Err(unvalued) if unvalued.cause == UnvaluedCause::WorkBound);
         let observed = match &runner {
+            _ if initial_cut => Ok(None),
             None => Ok(None),
             Some(Err(reason)) => Err(reason.clone()),
             Some(Ok(runner)) => {
@@ -654,19 +748,20 @@ fn program_evidence(
             }
         };
         let logged = std::mem::take(&mut *log.lock().unwrap_or_else(PoisonError::into_inner));
-        let (record, host_bound) = record(
+        let (record, not_kept) = record(
             definition,
             asked,
             labels,
+            serves,
             initial,
             evidence.as_ref(),
             ResultClass::ComparablePrefix.as_str() == class,
             &logged,
         );
-        // A record an outcome of the host's decided is no function of its key (module
-        // documentation, "The cache").
+        // A record an outcome of the work bound or of the host decided is not shown to be a
+        // function of its key (module documentation, "The cache").
         if let (Some(key), Some(path)) = (&key, &path)
-            && !host_bound
+            && !not_kept
         {
             memo::write_evidence(&store, path, key, &record);
         }
@@ -684,10 +779,15 @@ fn program_evidence(
 /// observed, so no run was made, and no end is read); `prefix` whether the program is a prefix
 /// program; `logged` the evaluations the run's functions logged. Also whether an evaluation's
 /// outcome was the host's (module documentation, "The cache").
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the inputs of one record: the invariant, what the run observed and for whom"
+)]
 fn record(
     definition: &BackendDefinition,
     invariant: Invariant<'_>,
     labels: &[String],
+    serves: &Serves,
     initial: Valued,
     evidence: Option<&TestEvidence>,
     prefix: bool,
@@ -695,13 +795,20 @@ fn record(
 ) -> (Value, bool) {
     let mut undecided = None;
     let mut failure = Value::Null;
-    let mut host_bound = logged.host_bound;
+    let mut not_kept = logged.not_kept;
     match initial {
         Ok((true, _)) => {}
         Ok((false, cells)) => failure = failure_value("initial", None, None, Ok(texts(&cells))),
         Err(unvalued) => {
-            host_bound |= unvalued.host_bound;
-            undecided = Some(format!("at the initial state: {unvalued}"));
+            not_kept |= !unvalued.kept();
+            undecided = Some(if unvalued.cause == UnvaluedCause::WorkBound {
+                format!(
+                    "at the initial state: {unvalued}; the run is not read, since that leaves \
+                     every item unchecked"
+                )
+            } else {
+                format!("at the initial state: {unvalued}")
+            });
         }
     }
     let mut channels = labels
@@ -712,7 +819,7 @@ fn record(
         return (
             json!({"channels": channels, "ends": 0, "undecided": undecided,
                    "failure": failure}),
-            host_bound,
+            not_kept,
         );
     };
     if prefix {
@@ -741,7 +848,14 @@ fn record(
             undecided.get_or_insert_with(|| "the run recorded no observation".to_owned());
         }
     }
+    // An end serves every item, so after a cut that leaves them all unchecked no end is read.
+    let mut unchecked = logged.unchecked.clone();
+    let mut skipped = 0_usize;
     for (index, end) in evidence.ends.iter().enumerate() {
+        if serves.spent(None, &unchecked) {
+            skipped += 1;
+            continue;
+        }
         match evaluate_configuration(definition, end, invariant, EVALUATION_POLLS) {
             Ok((true, _)) => {}
             Ok((false, cells)) if failure.is_null() => {
@@ -749,15 +863,28 @@ fn record(
             }
             Ok((false, _)) => {}
             Err(unvalued) => {
-                host_bound |= unvalued.host_bound;
+                not_kept |= !unvalued.kept();
+                if unvalued.cause == UnvaluedCause::WorkBound {
+                    unchecked.extend(serves.items.iter().cloned());
+                }
                 undecided.get_or_insert_with(|| format!("at the end {index}: {unvalued}"));
             }
         }
     }
+    if skipped > 0 {
+        let not_read = format!(
+            "{skipped} end{} not read, since a cut of the work bound leaves every item unchecked",
+            if skipped == 1 { " is" } else { "s are" }
+        );
+        undecided = Some(match undecided {
+            Some(why) => format!("{why}; {not_read}"),
+            None => not_read,
+        });
+    }
     (
         json!({"channels": channels, "ends": evidence.ends.len(), "undecided": undecided,
                "failure": failure}),
-        host_bound,
+        not_kept,
     )
 }
 
@@ -808,15 +935,35 @@ fn one_path(
     {
         channel["steps"] = json!(recorded.elements.len());
         if recorded.elements.iter().any(Option::is_none) {
-            // Why: the first evaluation of the class the run's functions left undecided.
+            // Why: the first evaluation of the class the run's functions left undecided, and how
+            // many of its states a cut left unread after it.
             let why = logged.entries.iter().find_map(|entry| match &entry.value {
                 Value3::Undecided(why) if entry.class == class => Some(why.as_str()),
                 _ => None,
             });
-            channel["undecided"] = json!(why.map_or_else(
-                || "the invariant's value is not known at a state".to_owned(),
-                |why| format!("the invariant's value is not known at a state: {why}")
-            ));
+            let skipped = logged
+                .entries
+                .iter()
+                .filter(|entry| entry.class == class && matches!(entry.value, Value3::Skipped))
+                .count();
+            let not_read = format!(
+                "{skipped} state{} not read, since a cut of the work bound leaves every item \
+                 {} unchecked",
+                if skipped == 1 { " is" } else { "s are" },
+                if skipped == 1 {
+                    "it serves"
+                } else {
+                    "they serve"
+                }
+            );
+            channel["undecided"] = json!(match (why, skipped) {
+                (Some(why), 0) => format!("the invariant's value is not known at a state: {why}"),
+                (Some(why), _) => {
+                    format!("the invariant's value is not known at a state: {why}; {not_read}")
+                }
+                (None, 1..) => not_read,
+                (None, 0) => "the invariant's value is not known at a state".to_owned(),
+            });
         } else if let ChannelEnd::Open(opened) = &recorded.end
             && !(prefix && opened.opening == Opening::Bound)
         {
@@ -832,7 +979,7 @@ fn one_path(
                 .map(|entry| match entry.value {
                     Value3::True => Some(short(true)),
                     Value3::False(_) => Some(no),
-                    Value3::Undecided(_) => None,
+                    Value3::Undecided(_) | Value3::Skipped => None,
                 });
             log.eq(recorded.elements.iter().copied())
         });

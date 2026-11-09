@@ -1486,11 +1486,12 @@ mod kink_tier {
     /// application without end and never to a term it reached before, so the simplifier's
     /// iteration budget, which no determined step spends, and its recurrence watch both let it
     /// run. The evaluation at the initial state spends its work bound (kink-native
-    /// `invariant::EVALUATION_POLLS`) and is undecided, with a reason naming the bound; at the
-    /// end, where `<k>` is empty, `settled` is the order and holds. The evidence of `rule:bump` is
-    /// `incomplete`, never `fails`, the item `unchecked`, and the command exits 3. The bound is
-    /// spent by the evaluation's own work, so the record is kept: a second run reads it from the
-    /// memo.
+    /// `invariant::EVALUATION_POLLS`) and is undecided, with a reason naming the bound. The
+    /// initial state serves every item, so the cut leaves them all unchecked and the evidence run
+    /// is not made. The evidence of `rule:bump` is `incomplete`, never `fails`, the item
+    /// `unchecked`, and the command exits 3. Where the bound cuts is not shown to be a function
+    /// of the cells alone, so the record is not kept: a second run evaluates the initial state
+    /// again, and reads nothing from the memo.
     #[test]
     #[ignore = "kink"]
     fn an_invariant_whose_evaluation_does_not_end_is_undecided_within_its_work_bound() {
@@ -1528,28 +1529,107 @@ mod kink_tier {
             evidence["reason"],
             format!(
                 "in the program `idle`, at the initial state: the evaluation spent its work bound \
-                 of {} polls before it reached a value",
+                 of {} polls before it reached a value; the run is not read, since that leaves \
+                 every item unchecked",
                 kink_native::invariant::EVALUATION_POLLS
             ),
             "{evidence:#}"
         );
+        assert_eq!(evidence["states"], 1, "{evidence:#}");
         assert_eq!(document["summary"]["failed_arguments"], json!([]));
         assert_eq!(
             document["summary"]["invariant_runs"],
-            json!({"run": 1, "cached": 0})
+            json!({"run": 0, "cached": 0})
         );
 
         let (again, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_UNANSWERED, "{again:#}");
         assert_eq!(
             again["summary"]["invariant_runs"],
-            json!({"run": 0, "cached": 1})
+            json!({"run": 0, "cached": 0})
         );
-        let cached = evidence_of(&again, BUMP);
+        let computed = evidence_of(&again, BUMP);
         assert_eq!(
-            (&cached["reason"], &cached["cached"]),
-            (&evidence["reason"], &json!(true)),
-            "{cached:#}"
+            (&computed["reason"], &computed["cached"]),
+            (&evidence["reason"], &json!(false)),
+            "{computed:#}"
+        );
+    }
+
+    /// After a cut of the work bound, a state whose items are all unchecked is not evaluated,
+    /// so a divergent invariant costs one bound per run, not one per state. `smallMemory` holds
+    /// of a memory of one binding and becomes the divergent `spin` on a larger one. The program
+    /// `many` writes a second binding and then reads it three times, so `readz` steps three
+    /// times on a memory of two bindings: the first state before its step is cut, which leaves
+    /// `requirement:readzRom:held`, the one item its rules serve, unchecked; the two later
+    /// states and the end are not read, and the reason says so. The evidence is `incomplete`,
+    /// the item `unchecked` (exit 3). `idle`'s record, which no cut touched, is kept and read
+    /// from the memo on a second run; `many`'s is computed again.
+    #[test]
+    #[ignore = "kink"]
+    fn after_a_cut_the_states_whose_items_are_unchecked_are_not_read() {
+        const SMALL: (&str, &str, &[&str]) = ("small-memory", "smallMemory", &["memory"]);
+        let dir = invariant("after-a-cut");
+        edit_k(
+            &dir,
+            "  syntax Bool ::= never(Int)",
+            "  syntax Bool ::= smallMemory(Map) [function, symbol(smallMemory)]\n                  \
+             | spin(Int) [function, symbol(spin)]\n  rule smallMemory(M) => true requires size(M) \
+             <Int 2\n  rule smallMemory(M) => spin(size(M)) [owise]\n  rule spin(N) => spin(N \
+             +Int 1)\n  syntax Bool ::= never(Int)",
+        );
+        with_programs(
+            &dir,
+            &[("many", "write(2, 1) ; read(8) ; read(8) ; read(8)")],
+        );
+        argue_on(
+            &dir,
+            &[SMALL],
+            &[(READZ_ROM_HELD, "memory stays small", Some(SMALL.0))],
+        );
+        let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+        let check = &item(&document, "requirements", READZ_ROM_HELD)["argument_check"];
+        assert_eq!(
+            (&check["standing"], &check["function"]["status"]),
+            (&json!("unchecked"), &json!("shown")),
+            "{check:#}"
+        );
+        let evidence = &check["evidence"];
+        assert_eq!(
+            (
+                &evidence["status"],
+                &evidence["failure"],
+                &evidence["programs"]
+            ),
+            (&json!("incomplete"), &Value::Null, &json!(["idle", "many"])),
+            "{evidence:#}"
+        );
+        assert_eq!(
+            evidence["reason"],
+            format!(
+                "in the program `many`, 1 end is not read, since a cut of the work bound leaves \
+                 every item unchecked; in the program `many`, before the steps of \
+                 `INVARIANT.readz`: the invariant's value is not known at a state: the \
+                 evaluation spent its work bound of {} polls before it reached a value; 2 states \
+                 are not read, since a cut of the work bound leaves every item they serve \
+                 unchecked",
+                kink_native::invariant::EVALUATION_POLLS
+            ),
+            "{evidence:#}"
+        );
+        assert_eq!(
+            document["summary"]["invariant_runs"],
+            json!({"run": 2, "cached": 0})
+        );
+        let (again, _) = coverage(&dir, &["--tier", "1"], Derived::default());
+        assert_eq!(
+            again["summary"]["invariant_runs"],
+            json!({"run": 1, "cached": 1})
+        );
+        assert_eq!(
+            evidence_of(&again, READZ_ROM_HELD)["reason"],
+            evidence["reason"]
         );
     }
 

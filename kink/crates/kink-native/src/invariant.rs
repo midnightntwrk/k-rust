@@ -80,10 +80,11 @@
 //! [`evaluate_configuration`]), runs under a budget of polls of the backend's one interruption
 //! point (k-rust-backend `stop::with_poll_budget`), [`EVALUATION_POLLS`] by default. Every
 //! simplification round polls, a determined one included, so the budget bounds the work, and it
-//! is spent by the work's own polls, so where it ends the work is a function of the question,
-//! not of the host's speed or load. Work that spends the budget gives no answer:
-//! [`Undecided::Spent`] for a decision, and for an evaluation an [`Unvalued`] that names the
-//! bound.
+//! is spent by the work's own polls, so where it ends the work does not depend on the host's
+//! speed or load. Work that spends the budget gives no answer: [`Undecided::Spent`] for a
+//! decision, and for an evaluation an [`Unvalued`] that names the bound
+//! ([`UnvaluedCause::WorkBound`]). Neither is shown to be a function of the question alone, so
+//! neither is kept by a caller that keeps answers ([`UnvaluedCause::WorkBound`] says why).
 //!
 //! # The rules that step where a rule matches
 //!
@@ -105,8 +106,8 @@
 //! no condition left: simplification preserves the term's meaning, so the function then has that
 //! value at every instance of the state. Every other outcome, a residual, a condition left open,
 //! a spent budget (the simplifier's iterations, or the work bound) or a stop, leaves the value
-//! unknown ([`Unvalued`]). Each such outcome is a function of the cells, the definition and the
-//! bound, except one the host's native stack decided, which [`Unvalued::host_bound`] marks.
+//! unknown ([`Unvalued`]). [`UnvaluedCause`] says which outcome is the simplification's result at
+//! the cells, which a caller may keep, and which the work bound or the host decided.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -158,18 +159,43 @@ fn bounded<T>(polls: u64, work: impl FnOnce() -> T) -> (T, PollBudgetRecord) {
 pub struct Unvalued {
     /// Why, in words: what the evaluation ended at, or the bound it spent.
     pub reason: String,
-    /// Whether the host decided it: the simplifier ran out of native stack, or the system refused
-    /// the stack the state needs. Such an outcome is no function of the state, the definition and
-    /// the bound, so a caller that keeps answers must not keep it. Every other outcome is one.
-    pub host_bound: bool,
+    /// What ended it.
+    pub cause: UnvaluedCause,
+}
+
+/// What ended an evaluation that gave no value ([`Unvalued`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnvaluedCause {
+    /// The evaluation ended without a value of its own: a residual, a condition left, the
+    /// simplifier's iteration budget, a cell the state does not hold. Its outcome is the
+    /// simplification's result at the state's cells, as every decided value is.
+    Definition,
+    /// The work bound cut it (module documentation, "The work bound"). Where the cut lands is
+    /// the count of the evaluation's polls, a fact about the work rather than about the value,
+    /// and that count is not shown to depend on the cells, the definition and the bound alone:
+    /// the backend serves work from memos while their scope is open, a point's evaluation runs
+    /// inside a run, whose name counters it continues (`rule::ApartScope`), and nothing promises
+    /// that every path through the simplifier polls alike whatever ran before. So a caller that
+    /// keeps answers must not keep this one.
+    WorkBound,
+    /// The host decided it: the simplifier ran out of native stack, or the system refused the
+    /// stack the state needs. No function of the state either, so not kept.
+    Host,
 }
 
 impl Unvalued {
     fn of(reason: impl Into<String>) -> Self {
         Self {
             reason: reason.into(),
-            host_bound: false,
+            cause: UnvaluedCause::Definition,
         }
+    }
+
+    /// Whether a caller that keeps answers may keep this one: only an outcome of the definition
+    /// ([`UnvaluedCause`]).
+    #[must_use]
+    pub fn kept(&self) -> bool {
+        self.cause == UnvaluedCause::Definition
     }
 }
 
@@ -1046,25 +1072,32 @@ pub fn evaluate_configuration(
 /// value it reaches is the definition's whatever the bound did on the way. An evaluation that
 /// gives none after spending the bound is unvalued for that reason, named with the bound; one
 /// that met a stop for lack of native stack, dismissed or not, is the host's, since a host with
-/// more stack could have gone on.
+/// more stack could have gone on, whether or not the bound was spent too.
 fn within<R>(polls: u64, evaluation: impl FnOnce() -> Result<R, Unvalued>) -> Result<R, Unvalued> {
     let (result, record) = bounded(polls, evaluation);
     result.map_err(|unvalued| {
-        let reason = if record.budget_exhausted {
-            format!(
-                "the evaluation spent its work bound of {polls} polls before it reached a value"
-            )
-        } else if record.stack_exhausted {
-            format!(
-                "{} (the simplifier ran out of native stack on the way)",
+        if record.stack_exhausted || unvalued.cause == UnvaluedCause::Host {
+            let reason = if record.stack_exhausted {
+                format!(
+                    "{} (the simplifier ran out of native stack on the way)",
+                    unvalued.reason
+                )
+            } else {
                 unvalued.reason
-            )
+            };
+            Unvalued {
+                reason,
+                cause: UnvaluedCause::Host,
+            }
+        } else if record.budget_exhausted {
+            Unvalued {
+                reason: format!(
+                    "the evaluation spent its work bound of {polls} polls before it reached a value"
+                ),
+                cause: UnvaluedCause::WorkBound,
+            }
         } else {
-            unvalued.reason
-        };
-        Unvalued {
-            reason,
-            host_bound: unvalued.host_bound || record.stack_exhausted,
+            unvalued
         }
     })
 }
@@ -1084,7 +1117,7 @@ fn on_stack<R>(
         // A fact about the host, never about the state.
         Err(refused) => Err(Unvalued {
             reason: refused.to_string(),
-            host_bound: true,
+            cause: UnvaluedCause::Host,
         }),
     }
 }
@@ -1150,8 +1183,8 @@ mod tests {
     use k_rust_backend::substitution::Substitution;
 
     use super::{
-        Connection, EVALUATION_POLLS, Invariant, Refusal, Undecided, Unvalued, Valuation,
-        connection, evaluate, evaluate_configuration, stepping_rules,
+        Connection, EVALUATION_POLLS, Invariant, Refusal, Undecided, Unvalued, UnvaluedCause,
+        Valuation, connection, evaluate, evaluate_configuration, stepping_rules,
     };
     use crate::{NativeValidator, support};
 
@@ -1355,7 +1388,7 @@ mod tests {
                 reason: format!(
                     "the evaluation spent its work bound of {polls} polls before it reached a value"
                 ),
-                host_bound: false,
+                cause: UnvaluedCause::WorkBound,
             };
             assert_eq!(
                 evaluate(definition, &[&zero], spin, polls),
