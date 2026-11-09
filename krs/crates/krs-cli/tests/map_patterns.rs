@@ -25,6 +25,12 @@ pub enum ExpSyntax {
     Load { m: Map },
     #[k::syntax("fetch({a})")]
     Fetch { a: Int },
+    #[k::syntax("holds")]
+    Holds(),
+    #[k::syntax("exactly")]
+    Exactly(),
+    #[k::syntax("second")]
+    Second(),
 }
 
 /// Whether `address` lies below `rom_end`, in ROM.
@@ -61,6 +67,25 @@ pub fn Only(memory: Term<Map>) -> Term<Int> {
     }
 }
 
+/// Whether the memory holds 20 at 2, beside any other entries.
+#[k::function(total, internal)]
+pub fn HoldsTwenty(memory: Term<Map>) -> Term<Bool> {
+    k::matches!(memory, map![2 -> 20, ..])
+}
+
+/// Whether the memory is the one entry 20 at 2 and nothing else.
+#[k::function(total, internal)]
+pub fn IsTwenty(memory: Term<Map>) -> Term<Bool> {
+    k::matches!(memory, map![2 -> 20])
+}
+
+/// The value at 2, read by a `let`.
+#[k::function(partial, internal)]
+pub fn AtTwo(memory: Term<Map>) -> Term<KItem> {
+    let map![2 -> v, ..] = memory;
+    v
+}
+
 #[k::configuration]
 pub struct Machine {
     #[k::cell]
@@ -93,6 +118,9 @@ k::rules! {
     // A constructor's field matched by its entries: the value at key 1, the others left open.
     load: { k: [Load(map![1 -> v, ..]), ..] } => { k: [..], seen: v };
     fetch: { k: [Fetch(a), ..], mem: m } => { k: [..], seen: At(m, a) };
+    holds: { k: [Holds(), ..], mem: m } => { k: [..], out: HoldsTwenty(m) };
+    exactly: { k: [Exactly(), ..], mem: m } => { k: [..], out: IsTwenty(m) };
+    second: { k: [Second(), ..], mem: m } => { k: [AtTwo(m), ..] };
 }
 "#;
 
@@ -206,7 +234,10 @@ fn run_cell(target: &Path, manifest: &Path, program: &str, name: &str) -> String
 /// and its rest, the map without it, and `.Map` ends the walk. On `1 |-> 10 2 |-> 20`, no
 /// address lies below 0, and address 1 lies below 2. `At`'s key is the variable its other
 /// argument binds, `A:Int |-> V:Int _` beside `A:Int`: the map is looked up at the key the
-/// address gives, so `fetch(1)` reads 10 and `fetch(2)` reads 20.
+/// address gives, so `fetch(1)` reads 10 and `fetch(2)` reads 20. A local pattern matches a
+/// value the rule computed, so `k::matches!` and `let` read a map pattern by its entries, with a
+/// rest or without (K's `#let` and `:=K`): the memory holds 20 at 2 among others (`holds`), it
+/// is not that one entry alone (`exactly`), and the `let` reads 20 at 2 (`second`).
 #[test]
 fn an_equation_walks_a_map_parameter_entry_by_entry() {
     let target = shared_fixture_target();
@@ -218,6 +249,9 @@ fn an_equation_walks_a_map_parameter_entry_by_entry() {
             "<mem> 1 |-> 10 2 |-> 20 </mem>",
             "<k> load ( 1 |-> V:Int _ ) => .K ... </k>",
             "rule at ( A:Int |-> V:Int _ , A:Int ) => V:Int [label(org_krs_mappatterns--at)]",
+            "rule atTwo ( Memory:Map ) => ( #let 2 |-> V:KItem _ = Memory:Map #in V:KItem ) [label(org_krs_mappatterns--at_two)]",
+            "rule holdsTwenty ( Memory:Map ) => ( 2 |-> 20 _ :=K Memory:Map ) [label(org_krs_mappatterns--holds_twenty)]",
+            "rule isTwenty ( Memory:Map ) => ( 2 |-> 20 :=K Memory:Map ) [label(org_krs_mappatterns--is_twenty)]",
             "rule only ( _ |-> V:Int ) => V:Int [label(org_krs_mappatterns--only_1)]",
             "rule memoryOutsideRom ( K:Int |-> _ Rest:Map , E:Int ) => (notBool inRom ( E:Int , K:Int )) andThenBool memoryOutsideRom ( Rest:Map , E:Int ) [label(org_krs_mappatterns--walk)]",
         ]
@@ -228,6 +262,9 @@ fn an_equation_walks_a_map_parameter_entry_by_entry() {
         ("check(2)", "out"),
         ("fetch(1)", "seen"),
         ("fetch(2)", "seen"),
+        ("holds", "out"),
+        ("exactly", "out"),
+        ("second", "k"),
     ]
     .map(|(program, cell)| {
         format!(
@@ -241,6 +278,9 @@ fn an_equation_walks_a_map_parameter_entry_by_entry() {
             "check(2) => out: false",
             "fetch(1) => seen: 10",
             "fetch(2) => seen: 20",
+            "holds => out: true",
+            "exactly => out: false",
+            "second => k: 20 ~> .K",
         ]
     "#]]
     .assert_debug_eq(&outcomes);
