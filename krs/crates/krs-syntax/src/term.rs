@@ -2648,13 +2648,35 @@ pub(crate) fn read_pattern(
         // A collection literal is the calls it denotes, a pattern holds it
         // as it holds them, and the root reads it as it reads them; a map's
         // entries with a rest, or with none, are the entries a pattern matches.
+        // Without a rest, the entries and the map they build are one map, and
+        // the compiler tells by position which reading matches it; a literal
+        // whose key or value is no pattern (`k -> n + 1`), or that names a key
+        // twice, has no entries reading, and is only the map it builds.
         Pat::Macro(value)
             if crate::collection_literal::literal_collection(&value.mac.path).is_some() =>
         {
             signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
             reject_attributes(&value.attrs, value.span())?;
-            if let Some(parts) = crate::collection_literal::pattern_parts(&value.mac)? {
-                return read_map_pattern(value, parts, symbols, nodes);
+            let entries = crate::collection_literal::pattern_parts(&value.mac).and_then(|parts| {
+                parts
+                    .map(|parts| {
+                        let (mut entry_symbols, mut entry_nodes) = (Vec::new(), Vec::new());
+                        let tree =
+                            read_map_pattern(value, parts, &mut entry_symbols, &mut entry_nodes)?;
+                        Ok((tree, entry_symbols, entry_nodes))
+                    })
+                    .transpose()
+            });
+            match entries {
+                Ok(Some((tree, entry_symbols, entry_nodes))) => {
+                    symbols.extend(entry_symbols);
+                    nodes.extend(entry_nodes);
+                    return Ok(tree);
+                }
+                Err(error) if crate::collection_literal::writes_rest(&value.mac) => {
+                    return Err(error);
+                }
+                Ok(None) | Err(_) => {}
             }
             validate_expression(
                 &Expr::Macro(value.clone()),

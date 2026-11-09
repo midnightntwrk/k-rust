@@ -184,6 +184,31 @@ pub(crate) fn pattern_parts(literal: &Macro) -> Result<Option<PatternParts>, Syn
     parser.parse2(literal.tokens.clone())?
 }
 
+/// Whether `literal` writes a map pattern's rest, `..` or `name @ ..`, as one of its items. A
+/// base `..m` is no rest: it makes the literal the update it is.
+pub(crate) fn writes_rest(literal: &Macro) -> bool {
+    let mut item = Vec::new();
+    let mut found = false;
+    let mut close = |item: &mut Vec<proc_macro2::TokenTree>| {
+        let text = item
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .concat();
+        found |=
+            text == ".." || (item.len() == 4 && text.ends_with("@..") && !text.starts_with('@'));
+        item.clear();
+    };
+    for tree in literal.tokens.clone() {
+        match &tree {
+            proc_macro2::TokenTree::Punct(comma) if comma.as_char() == ',' => close(&mut item),
+            _ => item.push(tree),
+        }
+    }
+    close(&mut item);
+    found
+}
+
 fn read_pattern_parts(input: ParseStream<'_>) -> Result<Option<PatternParts>, SyntaxError> {
     let mut entries = Vec::new();
     let mut keys: Vec<String> = Vec::new();

@@ -310,7 +310,10 @@ fn check_error_in(target: &Path, source: &str, item: &str) -> String {
 
 /// A map pattern names an entry: one that names none is the whole map, `_` or its name; its
 /// rest comes last; two keys written as the same term never both match; and a literal written
-/// over a base is the update, a function, which never matches an evaluated map.
+/// over a base is the update, a function, which never matches an evaluated map. A literal
+/// without a rest whose value computes (`a + 1`) is no map pattern but the map it builds, the
+/// update, which a matched parameter refuses as before map patterns; with a rest it is a map
+/// pattern, whose value is a pattern.
 #[test]
 fn malformed_map_patterns_and_an_update_in_a_pattern_are_errors() {
     let target = shared_fixture_target();
@@ -325,6 +328,8 @@ fn malformed_map_patterns_and_an_update_in_a_pattern_are_errors() {
         "map![.., a -> 1]",
         "map![a -> 1, a -> 2, ..]",
         "map![a -> 1, ..memory]",
+        "map![a -> a + 1]",
+        "map![a -> a + 1, ..]",
     ]
     .map(|pattern| check_error(target.path(), &row(pattern)));
     expect_test::expect![[r#"
@@ -334,6 +339,8 @@ fn malformed_map_patterns_and_an_update_in_a_pattern_are_errors() {
             "error[krs::syntax::invalid-expression-notation]: the rest `rest @ ..` of a map pattern comes last: it is the map without the entries written before it",
             "error[krs::syntax::invalid-expression-notation]: a map pattern names one key twice; its entries are distinct entries of the map, so no map matches it",
             "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries with `map![k -> v, ..]` (`{ k -> v, .. }` in a readable record), the map holding an entry at `k` and others, or match a variable here and relate it to the map in a guard (`requires`)",
+            "error[krs::analysis::function-in-pattern]: the builtin function `k::builtin::map::update` stands where the pattern matches a term; a function application denotes the value evaluation produces, and every term a rule, an equation or a context is applied to has its functions evaluated, so this pattern describes a term that never occurs and the sentence never applies: a pattern reads a map's entries with `map![k -> v, ..]` (`{ k -> v, .. }` in a readable record), the map holding an entry at `k` and others, or match a variable here and relate it to the map in a guard (`requires`)",
+            "error[krs::syntax::invalid-expression-notation]: `+` is not a pattern: a pattern writes a builtin operation as its call, `int::add(..)`, `string::concat(..)`, or `float::add(..)`, where a pattern holds an application at all: in a simplification's or a claim's subject, or in a map's key or a set's element, which are looked up",
         ]
     "#]].assert_debug_eq(&errors);
 }
