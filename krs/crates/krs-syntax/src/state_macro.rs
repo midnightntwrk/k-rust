@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
@@ -1453,8 +1454,9 @@ pub struct CellsExpression {
     remainder_key: Option<ProvenanceKey>,
     /// The anchors of the cells' standalone keying.
     anchors: Vec<ProvenanceAnchor>,
-    /// The refusal of the first result entry left out because a `k::fragment!` child writes a
-    /// `?` cell's presence ([`fragment_child_presence`]).
+    /// The refusal of the first result entry part left out: a `k::fragment!` child that writes a
+    /// `?` cell's presence ([`fragment_child_presence`]), or an instance record's child whose value
+    /// the term reader refuses ([`ChildFaults`]).
     carried: Option<SyntaxError>,
 }
 
@@ -1462,8 +1464,9 @@ impl CellsExpression {
     /// The refusal of the first entry, in source order, that the parser keeps for the judgement
     /// of the entries against their cells: a `KCell(..)` sequence that writes an item after its
     /// tail ([`KSequence::misplaced_tail`]), or a result fragment whose child writes a `?` cell's
-    /// presence, left out of the payload ([`fragment_child_presence`]); `None` where no entry
-    /// does.
+    /// presence, left out of the payload ([`fragment_child_presence`]), or a result instance
+    /// record's child the term reader refuses, also left out ([`ChildFaults`]); `None` where no
+    /// entry does.
     #[must_use]
     pub fn misplaced_tail(&self) -> Option<&SyntaxError> {
         fn within(state: &StateTerm) -> Option<&SyntaxError> {
@@ -2320,25 +2323,79 @@ fn parse_unkeyed_cells(
 }
 
 /// [`parse_entry_value`], where a result fragment whose child writes a `?` cell's presence is read
-/// without that child and its refusal kept in `carried` ([`fragment_child_presence`]).
+/// without that child and its refusal kept in `carried` ([`fragment_child_presence`]), and so is
+/// a result instance record's child whose value the term reader refuses ([`ChildFaults`]).
 fn parse_carried_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
     looks_up: bool,
     carried: &mut Option<SyntaxError>,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
+    let faults = ChildFaults::new(context);
     let Some((refusal, without)) = fragment_child_presence(input, context) else {
-        return parse_entry_value(input, context, looks_up);
+        let parsed = parse_entry_value(input, context, looks_up, &faults)?;
+        if let Some(fault) = faults.first() {
+            carried.get_or_insert(fault);
+        }
+        return Ok(parsed);
     };
     while !input.is_empty() && !input.peek(Token![,]) {
         input.parse::<TokenTree>().map_err(SyntaxError::from)?;
     }
     carried.get_or_insert(refusal);
-    structured_with(
+    let parsed = structured_with(
         without,
-        move |input| parse_entry_value(input, context, looks_up),
+        |input| parse_entry_value(input, context, looks_up, &faults),
         |error| state_error("cells", "malformed fragment", error.span()),
-    )
+    )?;
+    if let Some(fault) = faults.first() {
+        carried.get_or_insert(fault);
+    }
+    Ok(parsed)
+}
+
+/// Where a result entry's instance records keep the first child whose value the term reader
+/// refuses (`tk: [x, ..]`, a list rest no built term has). An instance record is the outer
+/// construct: whether it denotes an instance at all (its update `..label` names one the subject
+/// matched, its key keeps the instance's) is judged from the authored spelling against the
+/// collection's kind, after which its child's own fault is the next mistake. So the record is
+/// read without that child and the child's refusal is carried until the entries are admitted
+/// ([`CellsExpression::misplaced_tail`]), as a fragment child's presence is
+/// ([`fragment_child_presence`]). A pattern's child is read as written, since leaving it out would
+/// change what the rule matches.
+struct ChildFaults {
+    carries: bool,
+    first: RefCell<Option<SyntaxError>>,
+}
+
+impl ChildFaults {
+    fn new(context: StateMacroContext) -> Self {
+        Self {
+            carries: context == StateMacroContext::Expression,
+            first: RefCell::new(None),
+        }
+    }
+
+    /// Faults nowhere: every child's refusal is the record's.
+    const fn none() -> Self {
+        Self {
+            carries: false,
+            first: RefCell::new(None),
+        }
+    }
+
+    /// Keeps `fault` where faults are carried (`Ok(())`), or hands it back.
+    fn carry(&self, fault: SyntaxError) -> Result<(), SyntaxError> {
+        if !self.carries {
+            return Err(fault);
+        }
+        self.first.borrow_mut().get_or_insert(fault);
+        Ok(())
+    }
+
+    fn first(&self) -> Option<SyntaxError> {
+        self.first.borrow_mut().take()
+    }
 }
 
 /// The refusal of a result entry `k::fragment![Group { .. }]` one of whose children is written
@@ -2457,6 +2514,7 @@ fn parse_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
     looks_up: bool,
+    faults: &ChildFaults,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
     if let Some(range) = parse_option_none(input)? {
         return Ok((None, StateTerm::Absent(range)));
@@ -2468,7 +2526,7 @@ fn parse_entry_value(
         let (wrapper, value) = structured_with(
             inner,
             move |inner| {
-                let parsed = parse_entry_value(inner, context, looks_up)?;
+                let parsed = parse_entry_value(inner, context, looks_up, faults)?;
                 if !inner.is_empty() {
                     return Err(state_error(
                         "cells",
@@ -2496,7 +2554,7 @@ fn parse_entry_value(
         let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
         return Ok((
             None,
-            StateTerm::Instances(parse_instance_list(&group, context, looks_up)?),
+            StateTerm::Instances(parse_instance_list(&group, context, looks_up, faults)?),
         ));
     }
     if !starts_wrapped_entry(input) {
@@ -2661,6 +2719,7 @@ fn parse_instance_list(
     group: &proc_macro2::Group,
     context: StateMacroContext,
     looks_up: bool,
+    faults: &ChildFaults,
 ) -> Result<InstanceList, SyntaxError> {
     let delimiter = match group.delimiter() {
         Delimiter::Brace => InstanceListDelimiter::Brace,
@@ -2705,9 +2764,9 @@ fn parse_instance_list(
                             input.span(),
                         ));
                     }
-                    back.push(parse_instance_list_item(input, context, keys)?);
+                    back.push(parse_instance_list_item(input, context, keys, faults)?);
                 } else {
-                    front.push(parse_instance_list_item(input, context, keys)?);
+                    front.push(parse_instance_list_item(input, context, keys, faults)?);
                 }
                 if input.is_empty() {
                     break;
@@ -2754,6 +2813,7 @@ fn parse_instance_list_item(
     input: ParseStream<'_>,
     context: StateMacroContext,
     keys: bool,
+    faults: &ChildFaults,
 ) -> Result<InstanceItem, SyntaxError> {
     let fork = input.fork();
     if let Ok(name) = fork.parse::<TokenTree>()
@@ -2764,7 +2824,7 @@ fn parse_instance_list_item(
         input.parse::<TokenTree>().map_err(SyntaxError::from)?;
         return Ok(item);
     }
-    parse_instance_item(input, context, keys)
+    parse_instance_item(input, context, keys, faults)
 }
 
 /// Parses one instance record: `[label @] Decl { .. }` or
@@ -2774,6 +2834,7 @@ fn parse_instance_item(
     input: ParseStream<'_>,
     context: StateMacroContext,
     keys: bool,
+    faults: &ChildFaults,
 ) -> Result<InstanceItem, SyntaxError> {
     let start = input.cursor();
     let label = if input.peek(Ident) && input.peek2(Token![@]) {
@@ -2837,7 +2898,7 @@ fn parse_instance_item(
             owner.span(),
         ));
     }
-    let (fields, rest) = parse_instance_record(&body, context, keys)?;
+    let (fields, rest) = parse_instance_record(&body, context, keys, faults)?;
     let mut tokens = TokenStream::new();
     let mut cursor = start;
     while cursor != input.cursor() {
@@ -2860,11 +2921,13 @@ fn parse_instance_item(
 }
 
 /// Parses the braced body of an instance record: `child: value` entries, or
-/// the shorthand `child` for `child: child`, and a final rest.
+/// the shorthand `child` for `child: child`, and a final rest. A child whose value the term
+/// reader refuses is left out where `faults` carries it.
 fn parse_instance_record(
     body: &proc_macro2::Group,
     context: StateMacroContext,
     keys: bool,
+    faults: &ChildFaults,
 ) -> Result<(Vec<InstanceField>, InstanceRest), SyntaxError> {
     structured_with(
         body.stream(),
@@ -2926,11 +2989,16 @@ fn parse_instance_record(
                         name.span(),
                     ));
                 }
-                let field = InstanceField::new(name, parse_instance_child(tokens, context, keys)?);
-                if let Some(limit) = field.record_multiplicity_limit() {
-                    return Err(limit);
+                match parse_instance_child(tokens, context, keys) {
+                    Ok(value) => {
+                        let field = InstanceField::new(name, value);
+                        if let Some(limit) = field.record_multiplicity_limit() {
+                            return Err(limit);
+                        }
+                        fields.push(field);
+                    }
+                    Err(fault) => faults.carry(fault)?,
                 }
-                fields.push(field);
                 if input.is_empty() {
                     break;
                 }
@@ -3141,7 +3209,7 @@ fn fragment_record(
     if !maps || !crate::path::is_plain_path(&owner) {
         return Ok(None);
     }
-    let (fields, rest) = parse_instance_record(body, context, false)?;
+    let (fields, rest) = parse_instance_record(body, context, false, &ChildFaults::none())?;
     let open = match rest {
         InstanceRest::Exact => None,
         InstanceRest::Open(range) => Some(range),

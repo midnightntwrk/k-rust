@@ -51,19 +51,7 @@ match = 'terms/constant/value-root/y @ Cmd::Hold(_)'
 finding = "NT-2-26"
 kind = "diagnostic"
 
-# S0-9, diagnostic: 173 reds
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/u01-tjob/[k::fragment![crate::T \{ tk: [x\, ..]\, ..me \}]\, ..]'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
-finding = "S0-9"
-kind = "diagnostic"
+# S0-9, diagnostic: 108 reds
 
 # sweep: 56
 [[family]]

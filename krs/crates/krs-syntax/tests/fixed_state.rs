@@ -1512,6 +1512,31 @@ fn an_anonymous_rest_in_a_built_collection_is_the_literal_s_mistake() {
 /// with an anonymous `..` the literal's, and a pattern child's map read is said as not supported
 /// yet. A fragment whose own record is no term keeps the whole entry's message.
 #[test]
+fn a_result_instance_child_the_term_reader_refuses_waits_for_its_record() {
+    // The instance record is the outer construct: whether `..me` updates an instance the subject
+    // matched is judged first, so its child's list rest is read out and carried.
+    let result = "tjob: [k::fragment![crate::T { tk: [x, ..], ..me }], ..]";
+    let source = format!(
+        "fn step(x: Term<Id>, cells! {{ k: KCell(x, ..), tjob: [..] }}: Machine) -> Machine {{ cells! {{ {result} }} }}"
+    );
+    let rule = krs_syntax::StateRuleItem::parse_source(&source).unwrap();
+    let refusal = rule.misplaced_tail().expect("the child's fault is carried");
+    assert_eq!(
+        refusal.kind().code().as_str(),
+        "krs::syntax::invalid-list-notation"
+    );
+    let StateTerm::Instances(list) = rule.result().unwrap().entries()[0].value() else {
+        panic!("an instance list");
+    };
+    let record = list.instances().next().expect("one instance");
+    assert!(record.fields().is_empty(), "the faulty child is read out");
+    // Read alone, where no entry is judged, the payload is refused as written.
+    let tokens = krs_syntax::parse::tokens_from_source(result).unwrap();
+    let alone = krs_syntax::parse_cells_expression(tokens).unwrap_err();
+    assert_eq!(alone.kind(), refusal.kind());
+}
+
+#[test]
 fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
     let group_entry = SyntaxErrorKind::InvalidStateMacro {
         macro_name: "cells",

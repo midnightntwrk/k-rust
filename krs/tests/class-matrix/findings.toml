@@ -14,8 +14,8 @@
 #   does not do yet), `diagnostic` (the refusal is right, its code, site or advice is not) or
 #   `generator` (the test's own data or harness is wrong).
 # - `by_test`: the owners of the finding's entries of one test (`k2`, `k3`, `k7`, `k8`, ..), where
-#   another than `owner` owns them, or where an owner of one test's entries is stated explicitly
-#   (S0-9's K8 entries, whose advice is on S5's cell-entry messages).
+#   another than `owner` owns them, or where an owner of one test's entries is stated explicitly;
+#   a finding all of whose entries one `by_test` owner holds names that owner as its `owner`.
 # - `risk`: required on a finding that holds an under-refusal (the table refuses, KRS accepts), and
 #   only there: what the K KRS writes means, and how it differs from what the spelling says.
 #
@@ -35,5 +35,4 @@ what = "a constant's whole value that rustc cannot parse gets no KRS answer, and
 ["S0-9"]
 owner = "S5"
 kind = "diagnostic"
-what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`). The computation result's fit, a list rest's place, `[..]` naming no element, an item after a k result's `..`, a map read in a collection's result and a subject map read of a written non-Map cell wait for the kind too; on a Map leaf that map read is the M3 limit, which answers only once every entry, the result's too, is admitted (a limit never hides a principle). Left: a `Some(..)`/`None` on a `?` child inside a group record term (`unmatched-optional-result`), a map read in a group record's Map child (`M { mm: { y -> x, .. }, .. }`, beside S5-B1), the `cells!` fragment-child and `KCell` messages, and K8 advice that follows a subject's `Some([..])`. Since INITDIAG an initializer value is judged by its cell's kind, and since INITREC its group record update `G { a: 0, ..base }` too: read as the children it names, its refusal waits for the kind and the shape, so it is the R6 limit only on a group of `G` or a `*` template of one"
-by_test = { k8 = "S5" }
+what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`); since INITDIAG an initializer value is judged by its cell's kind, and since INITREC its group record update `G { a: 0, ..base }` too (the R6 limit only on a group of `G` or a `*` template of one), an alias in it answers `invalid-pattern-as` beside rustc's parse error, and a `cells!` result instance record's child the term reader refuses (`T { tk: [x, ..], ..me }`) waits for the record's own judgement. Left: K8 advice that follows a subject's `Some([..])`"
