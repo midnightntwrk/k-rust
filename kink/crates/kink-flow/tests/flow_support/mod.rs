@@ -175,10 +175,10 @@ pub fn heading(document: &str) -> String {
     };
     format!(
         "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),\n\
-         # [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps\n\
-         # <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,\n\
-         # and keeps the others as they are.\n\
-         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 26\n"
+         # [coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). As a\n\
+         # lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and\n\
+         # rewrites only its own section, and keeps the others as they are.\n\
+         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 27\n"
     )
 }
 

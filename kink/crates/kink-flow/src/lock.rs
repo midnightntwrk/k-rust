@@ -1,9 +1,11 @@
 //! The corpus record, `kink.lock` (`run --lock FILE`, `coverage --lock FILE`, `compare --lock
-//! FILE`): one file, one section per command. `[run]` holds the killer record, one recorded
-//! killer per killed mutation, kept while it still kills; `[coverage]` holds the coverage lock,
-//! one recorded killer per distinguished flip by the same rule, with each family's open and
-//! argued obligations; `[compare]` holds one verdict per (implementation, program, view) of the
-//! corpus's other implementations ([`crate::compare`], [`LockKind`]).
+//! FILE`, `query --lock FILE`): one file, one section per command. `[run]` holds the killer
+//! record, one recorded killer per killed mutation, kept while it still kills; `[coverage]` holds
+//! the coverage lock, one recorded killer per distinguished flip by the same rule, with each
+//! family's open and argued obligations; `[compare]` holds one verdict per (implementation,
+//! program, view) of the corpus's other implementations ([`crate::compare`]); `[query]` holds one
+//! obligation per pattern of the pattern list, its status and, for a hit, its one recorded
+//! witness, kept while it still hits ([`crate::query`], [`LockKind`]).
 //!
 //! Each command owns its section. It reads only its own, compares only its own under `--locked`,
 //! and rewrites only its own, keeping the other sections' text byte for byte, so that
@@ -18,7 +20,7 @@
 //! wrong for the section the last command did not write, and a `run` on another Z3 build would
 //! make `coverage --locked` stale for a change `coverage` did not make.
 //!
-//! A section is the lines from its `[run]`, `[coverage]` or `[compare]` line to the next such line
+//! A section is the lines from its `[run]`, `[coverage]`, `[compare]` or `[query]` line to the next such line
 //! (or the end of the file), trailing blank lines aside: it is the command's verdicts rendering
 //! after the record's header ([`crate::verdicts::lock_section`]), so a file only one command has
 //! written is that command's `--output verdicts` (for `run`, without `killed_by`).
@@ -33,7 +35,9 @@
 //! names as killer, which the search tries first ([`crate::search`], tier 2). Every status still
 //! comes from runs or from tier-1 records; no status, cell or key is read from the record, so a
 //! hand-edited or stale record can change which program is tried first, and so the cost and the
-//! reported killer, but never a status.
+//! reported killer, but never a status. A query reads the same kind of fact from its section: for
+//! each pattern id, the program id it names as witness, which the query asks first
+//! ([`crate::query`]); a status is never read, and the witness is asked again on every query.
 //!
 //! The record is also an output: after a run that judged every mutation of its list its section
 //! is rewritten ([`Lock::settle`]), so it states the verdicts of the current inputs. Its text is
@@ -44,10 +48,10 @@
 //! fires) or the order work was done in.
 //!
 //! Reading tolerates any version: `schema` must be `kink-flow-verdicts`, the command's section,
-//! where there is one, must be a table and begin with its own `[run]`, `[coverage]` or `[compare]`
-//! line, and each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may
-//! have a string `killer`, and each `[[compare.verdict]]` a string `implementation`, `program` and
-//! `view`; its `status` (`verdict`), `reason` and `difference`, when they are strings, are read
+//! where there is one, must be a table and begin with its own `[run]`, `[coverage]`, `[compare]` or
+//! `[query]` line, and each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id`
+//! and may have a string `killer`, each `[[query.pattern]]` a string `id` and may have a string
+//! `witness`, and each `[[compare.verdict]]` a string `implementation`, `program` and `view`; its `status` (`verdict`), `reason` and `difference`, when they are strings, are read
 //! only to report what changed. A file that is not TOML, has another schema, or repeats an id does
 //! not decode, and the command is refused ([`Lock::read`]).
 //!
@@ -88,8 +92,9 @@ pub const LEGACY_RUN_LOCK_FILE: &str = "verdicts.lock";
 pub const LEGACY_COVERAGE_LOCK_FILE: &str = "coverage.lock";
 
 /// Which command's section of the record a lock is: a run's verdicts (`[run]`), one row per
-/// mutation, a coverage command's (`[coverage]`), one row per flip, or a compare command's
-/// (`[compare]`), one row per (implementation, program, view) (module documentation).
+/// mutation, a coverage command's (`[coverage]`), one row per flip, a compare command's
+/// (`[compare]`), one row per (implementation, program, view), or a query command's (`[query]`),
+/// one row per pattern (module documentation).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LockKind {
     /// `run --lock`: `[run]`, `[[run.mutation]]` rows.
@@ -100,10 +105,18 @@ pub enum LockKind {
     /// `compare --lock`: `[compare]`, `[[compare.verdict]]` rows, each keyed by its
     /// `implementation`, `program` and `view` rather than an `id` ([`row_id`]).
     Compare,
+    /// `query --lock`: `[query]`, `[[query.pattern]]` rows, each a pattern's obligation, with its
+    /// recorded `witness` where it is a hit.
+    Query,
 }
 
 /// The sections of a record, in the order a record writes them.
-const SECTIONS: [LockKind; 3] = [LockKind::Run, LockKind::Coverage, LockKind::Compare];
+const SECTIONS: [LockKind; 4] = [
+    LockKind::Run,
+    LockKind::Coverage,
+    LockKind::Compare,
+    LockKind::Query,
+];
 
 impl LockKind {
     /// The command, and the name of its section (`run`, `coverage`); a lock before version 24
@@ -114,36 +127,39 @@ impl LockKind {
             Self::Run => "run",
             Self::Coverage => "coverage",
             Self::Compare => "compare",
+            Self::Query => "query",
         }
     }
 
-    /// The name of a row's table inside the section (`mutation`, `flip`, `verdict`).
+    /// The name of a row's table inside the section (`mutation`, `flip`, `verdict`, `pattern`).
     #[must_use]
     pub const fn row(self) -> &'static str {
         match self {
             Self::Run => "mutation",
             Self::Coverage => "flip",
             Self::Compare => "verdict",
+            Self::Query => "pattern",
         }
     }
 
     /// The old file a corpus directory kept this command's lock in before version 24; none for
-    /// `compare`, whose section is newer than the record.
+    /// `compare` and `query`, whose sections are newer than the record.
     #[must_use]
     pub const fn legacy_file(self) -> Option<&'static str> {
         match self {
             Self::Run => Some(LEGACY_RUN_LOCK_FILE),
             Self::Coverage => Some(LEGACY_COVERAGE_LOCK_FILE),
-            Self::Compare => None,
+            Self::Compare | Self::Query => None,
         }
     }
 
-    /// The section's first line (`[run]`, `[coverage]`, `[compare]`).
+    /// The section's first line (`[run]`, `[coverage]`, `[compare]`, `[query]`).
     fn heading(self) -> &'static str {
         match self {
             Self::Run => "[run]",
             Self::Coverage => "[coverage]",
             Self::Compare => "[compare]",
+            Self::Query => "[query]",
         }
     }
 
@@ -151,18 +167,20 @@ impl LockKind {
     /// `implementation`, the first of its three keys.
     const fn key_line(self) -> &'static str {
         match self {
-            Self::Run | Self::Coverage => "id",
+            Self::Run | Self::Coverage | Self::Query => "id",
             Self::Compare => "implementation",
         }
     }
 
     /// The kind of the lock `document`'s rendering is: a coverage document's is a coverage lock,
-    /// a compare document's a compare lock, every other a run's.
+    /// a compare document's a compare lock, a query document's a query lock, every other a run's.
     pub(crate) fn of(document: &Value) -> Self {
         if document["schema"] == crate::coverage::COVERAGE_SCHEMA {
             Self::Coverage
         } else if document["schema"] == crate::compare::COMPARE_SCHEMA {
             Self::Compare
+        } else if document["schema"] == crate::query::QUERY_SCHEMA {
+            Self::Query
         } else {
             Self::Run
         }
@@ -170,12 +188,14 @@ impl LockKind {
 
     /// The rows of `document` a lock of this kind records: a run's mutations, a coverage
     /// document's flips, a compare document's verdict rows as the lock holds them
-    /// (`verdicts`, which [`crate::compare::keep`] sets on the document a lock settles).
+    /// (`verdicts`, which [`crate::compare::keep`] sets on the document a lock settles), a query
+    /// document's obligations.
     fn rows(self, document: &Value) -> &[Value] {
         let rows = match self {
             Self::Run => &document["mutations"],
             Self::Coverage => &document["families"]["flips"]["items"],
             Self::Compare => &document["verdicts"],
+            Self::Query => &document["obligations"],
         };
         rows.as_array().map_or(&[][..], Vec::as_slice)
     }
@@ -183,7 +203,7 @@ impl LockKind {
     /// What the rendering writes of a row of `document` that a lock compares: `{status, killer,
     /// reason}` (a horizon is rendered, and compared only as the rendering's text); for a
     /// compare row `{verdict, reason, difference}` (its digests are compared as the rendering's
-    /// text).
+    /// text); for a query row `{status, witness}`.
     fn now(self, row: &Value) -> Value {
         match self {
             Self::Run => json!({
@@ -204,15 +224,16 @@ impl LockKind {
                 "reason": row["reason"],
                 "difference": row["difference"],
             }),
+            Self::Query => json!({"status": row["status"], "witness": row["witness"]}),
         }
     }
 
     /// The members that name the row `id` in a change or a kept entry: `{mutation: id}`,
-    /// `{flip: id}`, and for a compare row `{implementation, program, view}`.
+    /// `{flip: id}`, `{pattern: id}`, and for a compare row `{implementation, program, view}`.
     pub(crate) fn keyed(self, id: &str) -> Map<String, Value> {
         let mut keyed = Map::new();
         match self {
-            Self::Run | Self::Coverage => {
+            Self::Run | Self::Coverage | Self::Query => {
                 keyed.insert(self.row().into(), json!(id));
             }
             Self::Compare => {
@@ -229,7 +250,9 @@ impl LockKind {
     /// for a compare row `IMPLEMENTATION PROGRAM VIEW`, as `compare --output text` does.
     pub(crate) fn named(self, entry: &Value) -> String {
         match self {
-            Self::Run | Self::Coverage => entry[self.row()].as_str().unwrap_or("?").to_owned(),
+            Self::Run | Self::Coverage | Self::Query => {
+                entry[self.row()].as_str().unwrap_or("?").to_owned()
+            }
             Self::Compare => ["implementation", "program", "view"]
                 .iter()
                 .map(|key| entry[*key].as_str().unwrap_or("?"))
@@ -251,7 +274,7 @@ pub fn compare_row_id(implementation: &str, program: &str, view: &str) -> String
 fn row_id(kind: LockKind, row: &toml::Table) -> Option<String> {
     let string = |key: &str| row.get(key).and_then(toml::Value::as_str);
     match kind {
-        LockKind::Run | LockKind::Coverage => string("id").map(str::to_owned),
+        LockKind::Run | LockKind::Coverage | LockKind::Query => string("id").map(str::to_owned),
         LockKind::Compare => Some(compare_row_id(
             string("implementation")?,
             string("program")?,
@@ -308,12 +331,14 @@ pub struct Legacy {
     pub migrated: bool,
 }
 
-/// One row of a lock's section (`[[run.mutation]]`, `[[coverage.flip]]`, `[[compare.verdict]]`).
+/// One row of a lock's section (`[[run.mutation]]`, `[[coverage.flip]]`, `[[compare.verdict]]`,
+/// `[[query.pattern]]`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LockRow {
     /// The row's `id`; a compare row's [`compare_row_id`].
     pub id: String,
-    /// The recorded killer, the one fact a run reads; none in a compare row.
+    /// The recorded killer, the one fact a run reads; for a query row its recorded `witness`, the
+    /// one fact a query reads; none in a compare row.
     pub killer: Option<String>,
     /// The recorded status (a compare row's `verdict`) and reason, read only to report what
     /// changed.
@@ -331,6 +356,7 @@ impl LockRow {
             LockKind::Run | LockKind::Coverage => {
                 json!({"status": self.status, "killer": self.killer, "reason": self.reason})
             }
+            LockKind::Query => json!({"status": self.status, "witness": self.killer}),
             LockKind::Compare => {
                 json!({"verdict": self.status, "reason": self.reason,
                        "difference": self.difference})
@@ -489,10 +515,16 @@ impl Lock {
                 };
                 return Err(refused(format!("the {noun} {shown} is listed twice")));
             }
-            let killer = match row.get("killer") {
+            // A query row's recorded fact is its witness, a run's and a flip's its killer.
+            let fact = if kind == LockKind::Query {
+                "witness"
+            } else {
+                "killer"
+            };
+            let killer = match row.get(fact) {
                 None => None,
                 Some(toml::Value::String(killer)) => Some(killer.clone()),
-                Some(_) => return Err(refused(format!("the killer of {id:?} is not a string"))),
+                Some(_) => return Err(refused(format!("the {fact} of {id:?} is not a string"))),
             };
             let string = |key: &str| {
                 row.get(key)
@@ -526,7 +558,7 @@ impl Lock {
                 .filter(|(family, _)| crate::coverage::FAMILIES.contains(&family.as_str()))
         };
         let listed = |key: &str| match kind {
-            LockKind::Run | LockKind::Compare => BTreeMap::new(),
+            LockKind::Run | LockKind::Compare | LockKind::Query => BTreeMap::new(),
             LockKind::Coverage => families()
                 .filter_map(|(family, section)| {
                     let ids = section.get(key)?.as_array()?;
@@ -539,7 +571,7 @@ impl Lock {
         // lock written before version 24, its `[arguments]` line. A standing that is not a string
         // is left out, as an `open` that is not an array of ids is.
         let arguments = match kind {
-            LockKind::Run | LockKind::Compare => BTreeMap::new(),
+            LockKind::Run | LockKind::Compare | LockKind::Query => BTreeMap::new(),
             LockKind::Coverage => {
                 let standing = |entry: &toml::Value| {
                     Some((
@@ -686,7 +718,8 @@ impl Lock {
         ))
     }
 
-    /// Each mutation id with its recorded killer.
+    /// Each mutation id with its recorded killer (a flip's, and a pattern id with its recorded
+    /// witness for a query section).
     #[must_use]
     pub fn killers(&self) -> BTreeMap<String, String> {
         self.rows
@@ -1148,7 +1181,7 @@ impl Lock {
 fn selected(kind: LockKind, only: &[String], id: &str) -> bool {
     only.is_empty()
         || match kind {
-            LockKind::Run | LockKind::Coverage => only.iter().any(|o| o == id),
+            LockKind::Run | LockKind::Coverage | LockKind::Query => only.iter().any(|o| o == id),
             LockKind::Compare => {
                 let keyed = kind.keyed(id);
                 only.iter().any(|o| keyed["implementation"] == o.as_str())
@@ -1275,10 +1308,12 @@ fn id_lines(text: &str, kind: LockKind) -> Vec<(u64, &str)> {
 /// coverage section's before its first family table or `[[coverage.flip]]` (the version, profile,
 /// build and `krs_annotation` lines, `[coverage.spec]` and `[coverage.settings]`), a compare
 /// section's before its first `[[compare.verdict]]` (the version, profile, build and `protocol`
-/// lines and `[compare.spec]`).
+/// lines and `[compare.spec]`), a query section's before its first `[[query.pattern]]` (the
+/// version, profile and build lines and `[query.spec]`).
 fn head(kind: LockKind, text: &str) -> &str {
     let end = match kind {
         LockKind::Run => text.find("\n[[run.mutation]]"),
+        LockKind::Query => text.find("\n[[query.pattern]]"),
         LockKind::Compare => text.find("\n[[compare.verdict]]"),
         LockKind::Coverage => text.match_indices("\n[").map(|(at, _)| at).find(|&at| {
             let line = text[at + 1..].lines().next().unwrap_or_default();
@@ -1377,6 +1412,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 LockKind::Run => "its first mutation",
                 LockKind::Coverage => "its first family",
                 LockKind::Compare => "its first verdict",
+                LockKind::Query => "its first pattern",
             };
             lines.push(format!(
                 "{path}: the {section} section's header differs (the file has no {section} \
@@ -1459,6 +1495,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 "the declarations'",
                 "implementation, program and view order",
             ),
+            LockKind::Query => ("the pattern list's", "the list's order"),
         };
         lines.push(if difference["kind"] == "order" {
             format!(
@@ -1513,18 +1550,24 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
                 format!("{} -> {}", with(recorded), with(now))
             }
             _ => {
+                // A query row's fact is its witness, which moves for its `witness_change`.
+                let (fact, change) = if kind == LockKind::Query {
+                    ("witness", "witness_change")
+                } else {
+                    ("killer", "killer_change")
+                };
                 let why = rows
                     .iter()
                     .find(|row| row["id"] == id)
-                    .and_then(|row| row["killer_change"].as_str());
-                let because = match (recorded["killer"].as_str(), why) {
+                    .and_then(|row| row[change].as_str());
+                let because = match (recorded[fact].as_str(), why) {
                     (Some(killer), Some(why)) => format!(" ({killer}: {why})"),
                     _ => String::new(),
                 };
                 format!(
-                    "killer {} -> {}{because}",
-                    text(&recorded["killer"]),
-                    text(&now["killer"])
+                    "{fact} {} -> {}{because}",
+                    text(&recorded[fact]),
+                    text(&now[fact])
                 )
             }
         };
@@ -1743,7 +1786,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "[compare]\n{preamble}version = 26\nprofile = \"no-z3\"\n\
+            "[compare]\n{preamble}version = 27\nprofile = \"no-z3\"\n\
              protocol = \"kink-implementation/1\"\n\n[compare.spec]\noutcome = \"admitted\"\n\n\
              {legend}{rows}"
         )
@@ -1784,7 +1827,7 @@ mod tests {
             )
         );
         assert_eq!(lock.header["protocol"], "kink-implementation/1");
-        assert_eq!(lock.header["version"], 26);
+        assert_eq!(lock.header["version"], 27);
         // A row with no implementation, program or view does not decode.
         let broken = text.replacen("view = \"whole\"\n", "", 1);
         assert!(
@@ -2057,7 +2100,7 @@ mod tests {
         assert!(!header.contains("version"), "{header}");
         assert!(
             run.contains(
-                "\nversion = 26\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
+                "\nversion = 27\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
             ),
             "{run}"
         );
@@ -2075,7 +2118,7 @@ mod tests {
             lock.killers(),
             BTreeMap::from([("a".to_owned(), "t1".to_owned())])
         );
-        assert_eq!(lock.header["version"], 26);
+        assert_eq!(lock.header["version"], 27);
         // The other command finds no section of its own: it records nothing, and is no error.
         let coverage = decoded(&run, LockKind::Coverage);
         assert_eq!(
@@ -2497,7 +2540,7 @@ mod tests {
         assert_eq!(
             lock.refuse_other_version(command).unwrap_err(),
             "kink.lock: it is recorded at version 23 of the verdicts rendering, and this build \
-             writes version 26, so --locked cannot find it current; run `krs kink coverage \
+             writes version 27, so --locked cannot find it current; run `krs kink coverage \
              --package p --definition main` without --locked once to rewrite it, and review its \
              diff"
         );
@@ -2513,12 +2556,12 @@ mod tests {
             decoded(&current, kind).refuse_other_version(command),
             Ok(())
         );
-        let other_version = current.replace("\nversion = 26\n", "\nversion = 27\n");
+        let other_version = current.replace("\nversion = 27\n", "\nversion = 28\n");
         assert!(
             decoded(&other_version, kind)
                 .refuse_other_version(command)
                 .unwrap_err()
-                .starts_with("kink.lock: its [coverage] section is recorded at version 27"),
+                .starts_with("kink.lock: its [coverage] section is recorded at version 28"),
         );
         assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
         let refused = Lock::decode(Path::new(LOCK_FILE), old.to_owned(), LockKind::Run);

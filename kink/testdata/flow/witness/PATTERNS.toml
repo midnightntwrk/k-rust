@@ -1,0 +1,26 @@
+# Pattern obligations of the witness fixture (FB54-WITNESS; crates/kink-flow/README.md,
+# "Checking a pattern"): every pattern is an obligation of the corpus, that some program's run
+# reaches a state that matches it, discharged by one recorded witness.
+
+# Hit by B (7) and C (8), not by A (3): the first query records B, the first hitter in corpus
+# order.
+[[pattern]]
+id = "above-five"
+pattern = "<k> I:Int </k> requires I >Int 5"
+
+# Hit by no program: every program answers a final no, so the obligation is open.
+[[pattern]]
+id = "result-hundred"
+pattern = "<k> 100 </k>"
+
+# Hit by no program, and the list claims so.
+[[pattern]]
+id = "result-ninety-nine"
+pattern = "<k> 99 </k>"
+expect = "no"
+
+# A per-input claim of A, which also discharges the obligation.
+[[pattern]]
+id = "result-three"
+pattern = "<k> 3 </k>"
+programs = ["A"]

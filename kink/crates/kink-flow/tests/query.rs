@@ -116,6 +116,19 @@ fn plain(manifest: &Path, patterns: &Path) -> (Value, u8) {
     query(manifest, patterns, QueryOptions::default())
 }
 
+/// `kink-flow query --full`: every (pattern, program) pair is asked, where a query without it
+/// stops each pattern's obligation at its first hit.
+fn full(manifest: &Path, patterns: &Path) -> (Value, u8) {
+    query(
+        manifest,
+        patterns,
+        QueryOptions {
+            full: true,
+            ..QueryOptions::default()
+        },
+    )
+}
+
 fn verify(manifest: &Path, patterns: &Path) -> (Value, u8) {
     query(
         manifest,
@@ -322,7 +335,7 @@ file = "programs/countdown.loop"
 #[test]
 fn the_initial_and_the_final_states_count() {
     let dir = fixture("loop", "initial-final");
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    let (document, status) = full(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, UNREACHED_STATUS, "{document:#}");
     let start = row(&document, "countdown-starts", "countdown");
     assert_eq!(start["answer"], "hit");
@@ -656,7 +669,7 @@ endmodule
         "[[pattern]]\nid = \"true\"\npattern = \"<k> res(true) </k>\"\n\n\
          [[pattern]]\nid = \"start\"\npattern = \"<k> at(_) </k>\"\n",
     );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    let (document, status) = full(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
     assert_eq!(row(&document, "true", "one")["answer"], NO, "{document:#}");
     let zero = row(&document, "true", "zero");
@@ -812,7 +825,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 6, "{document:#}");
+    assert_eq!(document["version"], 7, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1058,12 +1071,14 @@ fn the_readme_example_answers() {
         expect(&[
             ("result-three", "add", "hit"),
             ("result-three", "sub", "hit"),
+            // The obligation stops at its first hit in corpus order, its witness.
             ("result-above-five", "add", NO),
             ("result-above-five", "nested", "hit"),
-            ("result-above-five", "sub", NO),
-            ("result-above-five", "inline", "hit"),
         ])
     );
+    let obligations = document["obligations"].as_array().unwrap();
+    assert_eq!(obligations[0]["witness"], "add", "{document:#}");
+    assert_eq!(obligations[1]["witness"], "nested", "{document:#}");
 }
 
 const CELLS_SPEC: &str = r#"
@@ -1197,6 +1212,309 @@ fn forge(path: &Path, field: &str, value: Value) {
     let mut record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     record[field] = value;
     fs::write(path, serde_json::to_string(&record).unwrap()).unwrap();
+}
+
+/// The obligation of `pattern` in a query document.
+#[track_caller]
+fn obligation<'a>(document: &'a Value, pattern: &str) -> &'a Value {
+    document["obligations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|obligation| obligation["id"] == pattern)
+        .unwrap_or_else(|| panic!("no obligation {pattern} in {document:#}"))
+}
+
+/// Each obligation's `(id, status, witness)`, in the document's order.
+fn obligations(document: &Value) -> Vec<(String, String, Option<String>)> {
+    document["obligations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| {
+            (
+                o["id"].as_str().unwrap().to_owned(),
+                o["status"].as_str().unwrap().to_owned(),
+                o["witness"].as_str().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// `(id, status, witness)` as [`obligations`] gives it.
+fn owed(rows: &[(&str, &str, Option<&str>)]) -> Vec<(String, String, Option<String>)> {
+    rows.iter()
+        .map(|(id, status, witness)| {
+            (
+                (*id).to_owned(),
+                (*status).to_owned(),
+                witness.map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// A query of the witness fixture at `dir` with its lock `kink.lock`, under `--locked` when
+/// `locked`, under `--full` when `full`.
+fn locked_query(dir: &Path, locked: bool, full: bool) -> (Value, u8) {
+    query(
+        &dir.join("FLOW.toml"),
+        &dir.join("PATTERNS.toml"),
+        QueryOptions {
+            lock: Some(dir.join("kink.lock")),
+            locked,
+            full,
+            ..QueryOptions::default()
+        },
+    )
+}
+
+/// The `[query]` rows of the record at `dir/kink.lock`: `(id, status, witness)`.
+fn locked_rows(dir: &Path) -> Vec<(String, String, Option<String>)> {
+    let lock =
+        kink_flow::lock::Lock::read_kind(&dir.join("kink.lock"), kink_flow::lock::LockKind::Query)
+            .unwrap();
+    lock.rows
+        .iter()
+        .map(|row| {
+            (
+                row.id.clone(),
+                row.status.clone().unwrap(),
+                row.killer.clone(),
+            )
+        })
+        .collect()
+}
+
+/// The witness fixture's FLOW.toml with `programs` (`(id, text)`) as its corpus, in order.
+fn witness_corpus(dir: &Path, programs: &[(&str, &str)]) {
+    let mut text = "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \
+                    \"CALC-SYNTAX\"\n"
+        .to_owned();
+    for (id, program) in programs {
+        text.push_str(&format!(
+            "\n[[program]]\nid = \"{id}\"\ntext = \"{program}\"\n"
+        ));
+    }
+    write(&dir.join("FLOW.toml"), &text);
+}
+
+/// FB54-WITNESS acceptance 1 and 4: every pattern is an obligation, discharged by one witness.
+/// The first query records the first hitter in corpus order (above-five: B of B and C), states an
+/// obligation no program hits `open` (result-hundred), meets result-ninety-nine's `expect = "no"`,
+/// and a claimed pattern's obligation reuses the claim's answer (result-three: A). Without
+/// `--full` a pattern is asked until its first hit, so C is never asked of above-five; `--full`
+/// asks every pair and lists both hitters, with the same witness and the same lock.
+#[test]
+fn the_first_query_records_one_witness_per_pattern() {
+    let dir = fixture("witness", "witness-first");
+    let (document, status) = locked_query(&dir, false, false);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["version"], 7);
+    let first = owed(&[
+        ("above-five", "hit", Some("B")),
+        ("result-hundred", "open", None),
+        ("result-ninety-nine", "open", None),
+        ("result-three", "hit", Some("A")),
+    ]);
+    assert_eq!(obligations(&document), first, "{document:#}");
+    assert_eq!(
+        obligation(&document, "result-ninety-nine")["expectation"]["verdict"],
+        "met"
+    );
+    assert_eq!(
+        obligation(&document, "above-five")["witness_change"],
+        "no-record"
+    );
+    assert!(obligation(&document, "above-five")["hitters"].is_null());
+    // The walk stops at its first hit: above-five asks A and B, result-three only its claim.
+    assert_eq!(
+        answers(&document),
+        expect(&[
+            ("above-five", "A", NO),
+            ("above-five", "B", "hit"),
+            ("result-hundred", "A", NO),
+            ("result-hundred", "B", NO),
+            ("result-hundred", "C", NO),
+            ("result-ninety-nine", "A", NO),
+            ("result-ninety-nine", "B", NO),
+            ("result-ninety-nine", "C", NO),
+            ("result-three", "A", "hit"),
+        ])
+    );
+    assert_eq!(row(&document, "result-three", "A")["claim"], "confirmed");
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    assert_eq!(locked_rows(&dir), first);
+    let text = fs::read_to_string(dir.join("kink.lock")).unwrap();
+    assert!(
+        text.contains(
+            "[[query.pattern]]\nid = \"above-five\"\nstatus = \"hit\"\nwitness = \"B\"\n\n\
+             [[query.pattern]]\nid = \"result-hundred\"\nstatus = \"open\"\n"
+        ),
+        "{text}"
+    );
+    // The expectation enters no lock.
+    assert!(!text.contains("expect"), "{text}");
+
+    // --full asks every pair and lists every hitter; the witness, and so the lock, are the same.
+    let (full, status) = locked_query(&dir, true, true);
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(obligations(&full), first);
+    assert_eq!(
+        obligation(&full, "above-five")["hitters"],
+        json!(["B", "C"])
+    );
+    assert_eq!(obligation(&full, "result-hundred")["hitters"], json!([]));
+    assert_eq!(obligation(&full, "result-three")["hitters"], json!(["A"]));
+    assert_eq!(full["lock"]["status"], "unchanged", "{full:#}");
+    assert_eq!(full["rows"].as_array().unwrap().len(), 12, "{full:#}");
+}
+
+/// FB54-WITNESS acceptance 2 and 3: the record is a function of the corpus. A program added
+/// before the witness in corpus order that also hits moves no witness, since the recorded witness
+/// is asked first and still hits, so `--locked` passes. Deleting the witness re-opens the
+/// obligation: the next hitter in corpus order (C) is the witness, `witness_change` says why,
+/// `--locked` finds the lock stale (exit 1) and names the move, and a query without `--locked`
+/// rewrites it.
+#[test]
+fn a_witness_is_kept_while_it_hits_and_moves_when_it_is_gone() {
+    let dir = fixture("witness", "witness-moves");
+    let (document, status) = locked_query(&dir, false, false);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let recorded = fs::read_to_string(dir.join("kink.lock")).unwrap();
+
+    // Z (10) comes first in corpus order and hits above-five; B is asked first and still hits.
+    witness_corpus(
+        &dir,
+        &[
+            ("Z", "5 + 5"),
+            ("A", "1 + 2"),
+            ("B", "2 * 3 + 1"),
+            ("C", "4 * 2"),
+        ],
+    );
+    let (added, status) = locked_query(&dir, true, false);
+    assert_eq!(status, EXIT_YES, "{added:#}");
+    assert_eq!(added["lock"]["status"], "unchanged", "{added:#}");
+    assert_eq!(obligation(&added, "above-five")["witness"], "B");
+    assert!(obligation(&added, "above-five")["witness_change"].is_null());
+    // Only the recorded witness is asked of above-five.
+    assert_eq!(
+        answers(&added)
+            .into_iter()
+            .filter(|(pattern, _, _)| pattern == "above-five")
+            .collect::<Vec<_>>(),
+        expect(&[("above-five", "B", "hit")])
+    );
+    // The open obligations ask the new program too, and stay open.
+    assert_eq!(obligation(&added, "result-hundred")["status"], "open");
+    assert_eq!(fs::read_to_string(dir.join("kink.lock")).unwrap(), recorded);
+
+    // B is deleted: above-five's witness moves to C, the first hitter in corpus order.
+    witness_corpus(&dir, &[("A", "1 + 2"), ("C", "4 * 2")]);
+    let (stale, status) = locked_query(&dir, true, false);
+    assert_eq!(status, EXIT_NO, "{stale:#}");
+    assert_eq!(stale["lock"]["status"], "stale", "{stale:#}");
+    let moved = obligation(&stale, "above-five");
+    assert_eq!(
+        (
+            &moved["witness"],
+            &moved["recorded_witness"],
+            &moved["witness_change"]
+        ),
+        (&json!("C"), &json!("B"), &json!("not-in-corpus")),
+        "{moved:#}"
+    );
+    assert_eq!(
+        kink_flow::lock::stale_lines(&stale),
+        vec![format!(
+            "{}: above-five: witness B -> C (B: not-in-corpus)",
+            dir.join("kink.lock").display()
+        )]
+    );
+    assert_eq!(fs::read_to_string(dir.join("kink.lock")).unwrap(), recorded);
+
+    let (rewritten, status) = locked_query(&dir, false, false);
+    assert_eq!(status, EXIT_YES, "{rewritten:#}");
+    assert_eq!(rewritten["lock"]["status"], "written", "{rewritten:#}");
+    assert_eq!(
+        locked_rows(&dir),
+        owed(&[
+            ("above-five", "hit", Some("C")),
+            ("result-hundred", "open", None),
+            ("result-ninety-nine", "open", None),
+            ("result-three", "hit", Some("A")),
+        ])
+    );
+    let (again, status) = locked_query(&dir, true, false);
+    assert_eq!(status, EXIT_YES, "{again:#}");
+    assert_eq!(again["lock"]["status"], "unchanged");
+}
+
+/// FB54-WITNESS: `expect = "no"` is a claim about the corpus, checked as a mutation's `expect`
+/// is: unmet on a hit (exit 1), whatever the lock says; and it may not stand beside `programs`.
+/// `--only` and `--verify` leave the lock unwritten.
+#[test]
+fn an_expected_no_is_unmet_on_a_hit_and_only_leaves_the_lock_unwritten() {
+    let dir = fixture("witness", "witness-expect");
+    write(
+        &dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"seven\"\npattern = \"<k> 7 </k>\"\nexpect = \"no\"\n",
+    );
+    let (document, status) = locked_query(&dir, false, false);
+    assert_eq!(status, EXIT_NO, "{document:#}");
+    let seven = obligation(&document, "seven");
+    assert_eq!(seven["status"], "hit");
+    assert_eq!(seven["witness"], "B");
+    assert_eq!(seven["expectation"]["verdict"], "unmet", "{seven:#}");
+    assert_eq!(
+        kink_flow::report::expectation_lines(&document),
+        vec!["pattern seven: expected no, but B's run reaches a state that matches the pattern"]
+    );
+    // The fact is recorded; the claim is not.
+    assert_eq!(locked_rows(&dir), owed(&[("seven", "hit", Some("B"))]));
+
+    let error = PatternList::decode(
+        "[[pattern]]\nid = \"a\"\npattern = \"<k> 7 </k>\"\nexpect = \"no\"\nprograms = [\"B\"]\n",
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().starts_with("pattern \"a\".expect: "),
+        "{error}"
+    );
+    let error = PatternList::decode(
+        "[[pattern]]\nid = \"a\"\npattern = \"<k> 7 </k>\"\nexpect = \"yes\"\n",
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("expected \"no\""), "{error}");
+
+    fs::remove_file(dir.join("kink.lock")).unwrap();
+    for options in [
+        QueryOptions {
+            only: vec!["seven".into()],
+            ..QueryOptions::default()
+        },
+        QueryOptions {
+            verify: true,
+            ..QueryOptions::default()
+        },
+    ] {
+        let reason = if options.verify { "verify" } else { "only" };
+        let (document, _) = query(
+            &dir.join("FLOW.toml"),
+            &dir.join("PATTERNS.toml"),
+            QueryOptions {
+                lock: Some(dir.join("kink.lock")),
+                ..options
+            },
+        );
+        assert_eq!(
+            (&document["lock"]["status"], &document["lock"]["reason"]),
+            (&json!("not-written"), &json!(reason)),
+            "{document:#}"
+        );
+        assert!(!dir.join("kink.lock").exists());
+    }
 }
 
 mod kink_tier {
@@ -1452,9 +1770,11 @@ programs = ["add"]
                 .unwrap()["class"],
             "comparable"
         );
+        // above-two: its claim, a hit by add, the first program, which is also its witness; four:
+        // its claim and the walk of every other program, each a no; three: add, its witness.
         assert_eq!(
             document["counts"],
-            json!({"hit": 3, "no": 3, "unknown": 0, "invalid-pattern": 0, "error": 0})
+            json!({"hit": 2, "no": 4, "unknown": 0, "invalid-pattern": 0, "error": 0})
         );
     }
 
@@ -1470,7 +1790,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 6);
+        assert_eq!(document["version"], 7);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1508,19 +1828,15 @@ programs = ["add"]
                 .unwrap()
                 .contains("\\equals{SortBool{}")
         );
-        // The corpus form asks every program; only those that reach 3 hit.
+        // A pattern without claims is asked until its first hit in corpus order, its witness.
         assert_eq!(
             answers(&document)
                 .into_iter()
                 .filter(|(p, _, _)| p == "three")
                 .collect::<Vec<_>>(),
-            expect(&[
-                ("three", "add", "hit"),
-                ("three", "nested", NO),
-                ("three", "sub", "hit"),
-                ("three", "inline", NO),
-            ])
+            expect(&[("three", "add", "hit")])
         );
+        assert_eq!(document["obligations"][2]["witness"], "add", "{document:#}");
         assert_eq!(row(&document, "three", "add")["claim"], Value::Null);
         assert_eq!(
             row(&document, "three", "add")["witness"]["bindings"],
@@ -1648,7 +1964,17 @@ programs = ["add"]
         assert_eq!(output.status.code(), Some(i32::from(REFUTED_STATUS)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(answers(&document), expect(&[("result-four", "add", NO)]));
+        // The claim, then the obligation's walk, which no program ends with a hit.
+        assert_eq!(
+            answers(&document),
+            expect(&[
+                ("result-four", "add", NO),
+                ("result-four", "nested", NO),
+                ("result-four", "sub", NO),
+                ("result-four", "inline", NO),
+            ])
+        );
+        assert_eq!(document["obligations"][0]["status"], "open", "{document:#}");
         assert_eq!(
             document["refuted_claims"],
             json!([{"pattern": "result-four", "program": "add"}])
@@ -1864,7 +2190,7 @@ programs = ["add"]
         let bounded = dir.join("FLOW-bounded.toml");
         write(&bounded, &loop_bounded());
         let patterns = dir.join("PATTERNS.toml");
-        let (document, status) = plain(&bounded, &patterns);
+        let (document, status) = full(&bounded, &patterns);
         assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let cut = row(&document, "zero", "spin");
         assert_eq!(cut["answer"], "unknown");
@@ -1880,10 +2206,25 @@ programs = ["add"]
         assert_eq!(row(&document, "spin-five", "countdown")["answer"], NO);
 
         // The clock: a depth the run cannot reach and a small time bound.
-        let (document, status) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
+        let (document, status) = full(&dir.join("FLOW-timeout.toml"), &patterns);
         assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
         let timed = row(&document, "zero", "spin");
         assert_eq!(timed["answer"], "unknown");
+        // FB54-WITNESS: the clock stopped spin's search, which comes before zero's witness,
+        // countdown, in corpus order: the obligation's witness rests on that run.
+        assert_eq!(timed["clock_stopped"], "search", "{timed:#}");
+        let zero = document["obligations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["id"] == "zero")
+            .unwrap();
+        assert_eq!(zero["witness"], "countdown", "{zero:#}");
+        assert_eq!(
+            zero["clock_stopped"],
+            json!([{"program": "spin", "run": "search"}]),
+            "{zero:#}"
+        );
         assert!(
             timed["cause"]
                 .as_str()
@@ -1897,7 +2238,7 @@ programs = ["add"]
         // A complete exploration of a comparable program is a no.
         assert_eq!(row(&document, "spin-five", "countdown")["answer"], NO);
 
-        let (again, _) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
+        let (again, _) = full(&dir.join("FLOW-timeout.toml"), &patterns);
         assert_eq!(row(&again, "zero", "spin")["cached"], false);
         assert_eq!(row(&again, "zero", "spin")["answer"], "unknown");
         // The hit is cached.
@@ -2001,16 +2342,18 @@ programs = ["add"]
     #[ignore = "kink"]
     fn the_cache_is_reused_and_invalidated_by_key() {
         let dir = fixture("calc", "cache");
+        // Every pair is asked (`--full`), so the same pairs are asked after each edit, whatever
+        // the edit does to the obligations' walks.
         let manifest = dir.join("FLOW.toml");
         let patterns = dir.join("PATTERNS.toml");
-        let (first, status) = plain(&manifest, &patterns);
+        let (first, status) = full(&manifest, &patterns);
         assert_eq!(status, REFUTED_STATUS, "{first:#}");
         assert!(cached(&first).iter().all(|c| !c));
         let written = first["pattern_cache"]["records_written"].as_u64().unwrap();
         assert!(written > 0);
         assert_eq!(first["pattern_cache"]["enabled"], true);
 
-        let (second, _) = plain(&manifest, &patterns);
+        let (second, _) = full(&manifest, &patterns);
         assert!(cached(&second).iter().all(|c| *c), "{second:#}");
         assert_eq!(answers(&second), answers(&first));
         assert_eq!(second["pattern_cache"]["records_written"], 0);
@@ -2033,7 +2376,7 @@ programs = ["add"]
 
         // A program edit: only add's rows are recomputed.
         fs::write(dir.join("programs/add.calc"), "1 + 3\n").unwrap();
-        let (edited, _) = plain(&manifest, &patterns);
+        let (edited, _) = full(&manifest, &patterns);
         for row in edited["rows"].as_array().unwrap() {
             assert_eq!(
                 row["cached"],
@@ -2051,7 +2394,7 @@ programs = ["add"]
             format!("// a comment at the top\n\n{spec}// and one at the end\n"),
         )
         .unwrap();
-        let (commented, _) = plain(&manifest, &patterns);
+        let (commented, _) = full(&manifest, &patterns);
         assert_ne!(commented["spec"]["digest"], edited["spec"]["digest"]);
         assert_eq!(
             commented["spec"]["execution_digest"],
@@ -2063,20 +2406,20 @@ programs = ["add"]
         // A rule edit: every row is recomputed.
         let spec = fs::read_to_string(dir.join("calc.k")).unwrap();
         fs::write(dir.join("calc.k"), spec.replace("I1 -Int I2", "I2 -Int I1")).unwrap();
-        let (respec, _) = plain(&manifest, &patterns);
+        let (respec, _) = full(&manifest, &patterns);
         assert!(cached(&respec).iter().all(|c| !c));
 
         // A time bound: every cached answer stands.
         let mut text = fs::read_to_string(&manifest).unwrap();
         text.push_str("\n[budget]\ntime_ms = 20000\n");
         fs::write(&manifest, &text).unwrap();
-        let (retimed, _) = plain(&manifest, &patterns);
+        let (retimed, _) = full(&manifest, &patterns);
         assert!(cached(&retimed).iter().all(|c| *c), "{retimed:#}");
 
         // A depth bound: every row is recomputed.
         text.push_str("max_depth = 1000\n");
         fs::write(&manifest, text).unwrap();
-        let (rebudget, _) = plain(&manifest, &patterns);
+        let (rebudget, _) = full(&manifest, &patterns);
         assert!(cached(&rebudget).iter().all(|c| !c));
         assert_eq!(answers(&rebudget), answers(&respec));
     }
@@ -2188,7 +2531,8 @@ programs = ["add"]
         ];
         let mut compared = 0;
         for (manifest, patterns) in cases {
-            let (document, status) = plain(&manifest, &patterns);
+            // Every pair, so that every answer is compared with stepping.
+            let (document, status) = full(&manifest, &patterns);
             // Answered, with the refuted claims of the claims fixture as findings.
             assert_ne!(status, EXIT_UNASKED, "{document:#}");
             assert_eq!(
@@ -2215,6 +2559,7 @@ programs = ["add"]
                 compared += 1;
             }
         }
-        assert_eq!(compared, 11 + 6 + 3 + 5);
+        // Under `--full` every pattern asks every program, a claimed one included.
+        assert_eq!(compared, 16 + 12 + 3 + 6);
     }
 }

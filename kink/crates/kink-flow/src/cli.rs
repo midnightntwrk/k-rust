@@ -74,7 +74,7 @@ macro_rules! usage_line {
          [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
          FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
-         [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
+         [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--cache DIR] | kink-flow fuzz FLOW.toml \
          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
          | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | --pattern ID \
          --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
@@ -451,6 +451,19 @@ const QUERY_OPTIONS: &[VerbOption] = &[
         "answer only this pattern of the list (repeatable)",
     ),
     VERIFY,
+    option(
+        "--full",
+        "ask every program of every pattern, and list each obligation's hitters",
+    ),
+    option(
+        "--lock FILE",
+        "the corpus record: try each pattern's recorded witness first, and rewrite FILE's \
+         [query] section after a query of the whole list",
+    ),
+    option(
+        "--locked",
+        "with --lock: leave FILE unwritten, and exit 1 when the query would change it",
+    ),
     CACHE,
 ];
 
@@ -679,7 +692,10 @@ impl Verb {
                  json|verdicts]"
             }
             Self::Report => "report FLOW.toml [--cache DIR] [--output json|verdicts]",
-            Self::Query => "query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]",
+            Self::Query => {
+                "query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE \
+                 [--locked]] [--cache DIR]"
+            }
             Self::Fuzz => {
                 "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
                  MUTATIONS | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | \
@@ -719,10 +735,15 @@ impl Verb {
                 "Whether each program reaches a state that matches each pattern of the list. \
                  PATTERNS.toml holds [[pattern]] tables, each an `id`, a `pattern` written as a \
                  rule's left-hand side (pattern = \"<k> s ( s ( zero ) ) ~> _ </k>\") and \
-                 optionally `programs`, the programs claimed to hit it. Each row of a pattern and \
-                 a program is `hit` (a run reaches a matching state, shown), `no` (no run does: \
-                 the program's whole state space was explored within the budget, so a claim of it \
-                 is refuted) or `unknown` with its cause (a bounded or open run is never `no`)."
+                 optionally `programs`, the programs claimed to hit it, or `expect = \"no\"`, \
+                 the claim that none does. Each row of a pattern and a program is `hit` (a run \
+                 reaches a matching state, shown), `no` (no run does: the program's whole state \
+                 space was explored within the budget, so a claim of it is refuted) or `unknown` \
+                 with its cause (a bounded or open run is never `no`). Every pattern is also an \
+                 obligation of the corpus, discharged by a witness: the recorded one while it \
+                 still hits, else the first program in corpus order that hits; the query stops \
+                 at it unless --full. With --lock, kink.lock's [query] section records each \
+                 obligation and its witness."
             }
             Self::Fuzz => {
                 "Hole values of a template whose program is a witness of the job: it kills a \
@@ -1359,12 +1380,20 @@ pub fn run_command(
             (document, status)
         }
         FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
-            Err(error) => (
-                crate::query::named(manifest, pattern_list_refused(&error)),
-                EXIT_UNASKED,
-            ),
+            Err(error) => {
+                let mut document = crate::query::named(manifest, pattern_list_refused(&error));
+                if let Some(path) = &options.lock {
+                    document["lock"] = crate::lock::not_written(path, "refused");
+                }
+                (document, EXIT_UNASKED)
+            }
             Ok(list) => {
-                let (document, ok) = crate::query::query(manifest, &list, options);
+                let (document, ok) = crate::query::query_spelled(
+                    manifest,
+                    &list,
+                    options,
+                    &front.spelling.verb(Verb::Query),
+                );
                 let status = completed(query_status(&document), ok);
                 (document, status)
             }
@@ -1691,12 +1720,16 @@ fn answer_status(row: &Value) -> u8 {
     exit_join(answer, record_status(row))
 }
 
-/// The exit status of a query document: the join of every row's ([`answer_status`]), [`EXIT_NO`]
-/// and each program's baseline row's ([`baseline_status`]), [`EXIT_NO`] for a `--verify`
-/// mismatch, and [`EXIT_UNASKED`] for a refused specification.
+/// The exit status of a query document: the join of every row's ([`answer_status`]), each
+/// program's baseline row's ([`baseline_status`]) and each obligation's expectation's
+/// ([`expectation_status`]: a pattern's `expect = "no"` unmet on a hit [`EXIT_NO`], inconclusive
+/// [`EXIT_UNANSWERED`]), [`EXIT_NO`] for a `--verify` mismatch, the lock's ([`lock_status`]:
+/// `stale` [`EXIT_NO`], `undecided` [`EXIT_UNANSWERED`]), and [`EXIT_UNASKED`] for a refused
+/// specification or lock. An obligation that is open or undecided is no finding in itself: the
+/// query states it, and the corpus's author decides what to write.
 #[must_use]
 pub fn query_status(document: &Value) -> u8 {
-    if spec_refused(document) {
+    if spec_refused(document) || document["lock"]["outcome"] == "refused" {
         return EXIT_UNASKED;
     }
     let programs = document["programs"]
@@ -1711,7 +1744,19 @@ pub fn query_status(document: &Value) -> u8 {
         .flatten()
         .map(answer_status)
         .fold(EXIT_YES, exit_join);
-    exit_join(exit_join(programs, rows), mismatch_status(document))
+    let expectations = document["obligations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(expectation_status)
+        .fold(EXIT_YES, exit_join);
+    [
+        mismatch_status(document),
+        lock_status(document),
+        expectations,
+    ]
+    .into_iter()
+    .fold(exit_join(programs, rows), exit_join)
 }
 
 /// The exit status of a fuzz document by its `stopped` ([`crate::fuzz`]): `fuzz` asks whether
@@ -2047,6 +2092,7 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
         listed(Verb::Query, arg)?;
         match arg.as_str() {
             "--verify" if !options.verify => options.verify = true,
+            "--full" if !options.full => options.full = true,
             "--only" => {
                 let id = args.next().ok_or("--only needs a pattern id")?;
                 if !options.only.contains(id) {
@@ -2057,8 +2103,16 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
+            "--lock" if options.lock.is_none() => {
+                let file = args.next().ok_or("--lock needs a file")?;
+                options.lock = Some(PathBuf::from(file));
+            }
+            "--locked" if !options.locked => options.locked = true,
             _ => return Err(repeated(arg)),
         }
+    }
+    if options.locked && options.lock.is_none() {
+        return Err("--locked compares the query with its lock: give --lock FILE".to_owned());
     }
     Ok(options)
 }
@@ -2446,12 +2500,14 @@ pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value,
     )
 }
 
-/// `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`: the query
-/// document (flow F-18, [`crate::query`]) and the exit status ([`query_status`]): the join of
-/// every selected (pattern, program)'s answer, `hit` or `no` [`EXIT_YES`], a refuted claim and a
-/// `--verify` mismatch [`EXIT_NO`], `unknown` [`EXIT_UNANSWERED`], and `invalid-pattern` or a
-/// failed search [`EXIT_UNASKED`]; [`EXIT_UNASKED`] also when the manifest, the pattern list, the
-/// specification or a program is refused or an answer's record could not be written.
+/// `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE
+/// [--locked]] [--cache DIR]`: the query document (flow F-18, [`crate::query`]) and the exit
+/// status ([`query_status`]): the join of every asked (pattern, program)'s answer, `hit` or `no`
+/// [`EXIT_YES`], a refuted claim, an unmet `expect`, a stale lock and a `--verify` mismatch
+/// [`EXIT_NO`], `unknown`, an inconclusive `expect` and an undecided lock [`EXIT_UNANSWERED`],
+/// and `invalid-pattern` or a failed search [`EXIT_UNASKED`]; [`EXIT_UNASKED`] also when the
+/// manifest, the pattern list, the lock, the specification or a program is refused or an
+/// answer's record or the lock could not be written.
 pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value, u8) {
     on_manifest(
         manifest,

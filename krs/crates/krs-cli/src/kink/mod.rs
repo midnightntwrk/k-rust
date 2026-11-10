@@ -66,8 +66,13 @@
 //! `compare` keeps the `[compare]` section (one verdict per implementation, case and view),
 //! unless the command names a lock: a run of every implementation rewrites it, `--only` leaves it
 //! unwritten, and under krs's `--locked` kink-flow's `--locked` compares it. So a corpus with
-//! `[[implementation]]`s also runs `krs kink compare --locked` in CI. Each command keeps the
-//! others' sections as they are.
+//! `[[implementation]]`s also runs `krs kink compare --locked` in CI.
+//!
+//! `query` keeps the `[query]` section (each pattern's obligation and its one recorded witness,
+//! kept while it still hits) when it reads the corpus's own pattern list, unless the command
+//! names a lock or another list (`--patterns`): a query of the whole list rewrites it, `--only`
+//! and `--verify` leave it unwritten, and under krs's `--locked` kink-flow's `--locked` compares
+//! it. Each command keeps the others' sections as they are.
 //!
 //! Before version 24 the two locks were `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
 //! Where the command keeps the record by default and its old file is there, the front end names
@@ -1232,11 +1237,12 @@ fn command_files(
     Ok((files, rest))
 }
 
-/// [`command_files`], with the corpus record. A `run` of the corpus's own mutation list and a
-/// `coverage` command get `--lock <corpus>/kink.lock`, unless the command names a lock, or, for a
-/// run, another list (`--mutations`): `run` reads and rewrites its `[run]` section, and
-/// `coverage` its `[coverage]` section, each flip's recorded killer, only after a run with the
-/// manifest's own settings. kink-flow's
+/// [`command_files`], with the corpus record. A `run` of the corpus's own mutation list, a `query`
+/// of its own pattern list, a `coverage` and a `compare` command get `--lock <corpus>/kink.lock`,
+/// unless the command names a lock, or, for a run or a query, another list (`--mutations`,
+/// `--patterns`): `run` reads and rewrites its `[run]` section, `query` its `[query]` section,
+/// each pattern's recorded witness, and `coverage` its `[coverage]` section, each flip's recorded
+/// killer, only after a run with the manifest's own settings. kink-flow's
 /// `--locked` is added when krs's `--locked` is given and a lock is in use, so that the command
 /// leaves the lock unwritten and one that would change it is a finding; for `coverage`, only
 /// when the command runs the manifest's own settings (neither `--tier 1` nor `--depth`), since
@@ -1253,7 +1259,8 @@ fn flow_arguments(
     // The lock a verb keeps by default: none for a run of another list.
     let default = match verb {
         Verb::Run if named("--mutations") => None,
-        Verb::Run | Verb::Coverage | Verb::Compare => Some(LOCK_FILE),
+        Verb::Query if named("--patterns") => None,
+        Verb::Run | Verb::Coverage | Verb::Compare | Verb::Query => Some(LOCK_FILE),
         _ => return Ok((files, rest)),
     };
     if let Some(lock) = default.filter(|_| !named("--lock")) {

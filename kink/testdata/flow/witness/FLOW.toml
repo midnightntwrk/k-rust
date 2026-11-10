@@ -1,0 +1,18 @@
+# kink-flow corpus manifest for the witness fixture (FB54-WITNESS): calc's language, three
+# programs in corpus order A, B, C, whose results are 3, 7 and 8.
+[spec]
+entry = "calc.k"
+main_module = "CALC"
+syntax_module = "CALC-SYNTAX"
+
+[[program]]
+id = "A"
+text = "1 + 2"
+
+[[program]]
+id = "B"
+text = "2 * 3 + 1"
+
+[[program]]
+id = "C"
+text = "4 * 2"

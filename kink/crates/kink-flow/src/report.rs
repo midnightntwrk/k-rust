@@ -1590,28 +1590,34 @@ pub fn check_expectations(mutations: &mut [Value], list: &[Mutation]) -> Value {
 }
 
 /// One line per mutation row of a run document whose expectation is unmet or inconclusive
-/// (`mutation ID: DETAIL`), in row order, which both front ends print on stderr whatever the
-/// output format: a run that fails on an expectation says which.
+/// (`mutation ID: DETAIL`), in row order, and one per obligation of a query document whose
+/// pattern's expectation is (`pattern ID: DETAIL`), which both front ends print on stderr whatever
+/// the output format: a command that fails on an expectation says which.
 #[must_use]
 pub fn expectation_lines(document: &Value) -> Vec<String> {
-    document["mutations"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|row| {
-            matches!(
-                row["expectation"]["verdict"].as_str(),
-                Some("unmet" | "inconclusive")
-            )
-        })
-        .map(|row| {
-            format!(
-                "mutation {}: {}",
-                row["id"].as_str().unwrap_or("?"),
-                row["expectation"]["detail"].as_str().unwrap_or("no detail")
-            )
-        })
-        .collect()
+    let lines = |key: &str, noun: &str| {
+        document[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|row| {
+                matches!(
+                    row["expectation"]["verdict"].as_str(),
+                    Some("unmet" | "inconclusive")
+                )
+            })
+            .map(|row| {
+                format!(
+                    "{noun} {}: {}",
+                    row["id"].as_str().unwrap_or("?"),
+                    row["expectation"]["detail"].as_str().unwrap_or("no detail")
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut all = lines("mutations", "mutation");
+    all.extend(lines("obligations", "pattern"));
+    all
 }
 
 /// The ids of the survivors among the document's mutation rows, in run order.

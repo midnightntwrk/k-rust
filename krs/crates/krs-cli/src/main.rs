@@ -253,7 +253,7 @@ Usage:
   krs kink report  --package P --definition D [--corpus DIR] [--cache DIR]
                    [--output json|verdicts]
   krs kink query   --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]...
-                   [--verify] [--cache DIR] [--locked]
+                   [--verify] [--full] [--lock FILE] [--cache DIR] [--locked]
   krs kink fuzz    --package P --definition D [--corpus DIR] [--templates PATH] --template ID
                    (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE
                    | --cover ITEM | --pattern ID) [kink-flow's fuzz options] [--locked]
@@ -281,7 +281,9 @@ The corpus is <package>/kink (or --corpus DIR):
                     each family's open obligations, each condition flip's status and its
                     one recorded killer, kept by the same rule, written by krs kink coverage;
                     [compare], each implementation's verdict on each case under each view,
-                    written by krs kink compare
+                    written by krs kink compare; [query], each pattern's obligation and its
+                    one recorded witness, which query asks first and keeps while it still
+                    hits, written by krs kink query
   .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
                     holding /.kink-flow/ keeps them out)
 
@@ -303,7 +305,8 @@ The loop:
      it); run again (cached outcomes are not re-run)
   4. commit definition.k and kink.lock with the corpus; CI runs krs kink
      emit --check, krs kink run --locked and krs kink coverage --locked (and krs kink
-     compare --locked where FLOW.toml declares an [[implementation]])
+     compare --locked where FLOW.toml declares an [[implementation]], and krs kink query
+     --locked where the corpus has a PATTERNS.toml)
 
 A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
   [[mutation]]
@@ -339,7 +342,12 @@ implementation (not under --only); under --locked it is left unwritten, a verdic
 from its row exits 1, and a run of an implementation that gave no answer (it failed, or its
 time_ms cancelled it) leaves its rows as recorded, not decided on this host (3). An
 implementation that declares identity has its answers cached in .kink-flow/: the same binary,
-given the same request, gives the same answer. Each keeps the others' sections as they are.
+given the same request, gives the same answer. query of the corpus's own pattern list (no
+--patterns) keeps the [query] section (--lock FILE names another): each pattern's obligation,
+open, undecided or hit with its one recorded witness, which the next query asks first and keeps
+while it still hits; it is rewritten after a query of the whole list (not under --only or
+--verify), and under --locked it is left unwritten and a query that would change it exits 1.
+Each keeps the others' sections as they are.
 A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
 command that kept it, which moves them into kink.lock and says to delete the old file; under
 --locked the command is refused while it is there. report builds nothing: it

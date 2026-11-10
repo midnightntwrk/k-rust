@@ -118,6 +118,9 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     if lock.kind == LockKind::Compare {
         return crate::compare::keep(lock, document);
     }
+    if lock.kind == LockKind::Query {
+        return crate::query::keep(lock, document);
+    }
     let mut kept = Kept {
         document: document.clone(),
         stopped: Vec::new(),
@@ -143,8 +146,8 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     let rows = match kind {
         LockKind::Run => items_mut(&mut kept.document, "/mutations"),
         LockKind::Coverage => items_mut(&mut kept.document, "/families/flips/items"),
-        // Kept by `crate::compare::keep`, above.
-        LockKind::Compare => None,
+        // Kept by `crate::compare::keep` and `crate::query::keep`, above.
+        LockKind::Compare | LockKind::Query => None,
     };
     for row in rows.into_iter().flatten() {
         let Some(id) = row["id"].as_str().map(str::to_owned) else {
@@ -217,7 +220,7 @@ const fn kill_status(kind: LockKind) -> &'static str {
     match kind {
         LockKind::Run => "killed",
         LockKind::Coverage => flips::DISTINGUISHED,
-        LockKind::Compare => "",
+        LockKind::Compare | LockKind::Query => "",
     }
 }
 
@@ -233,7 +236,7 @@ const fn dependent_statuses(kind: LockKind) -> &'static [&'static str] {
             ARGUED,
             flips::UNKNOWN,
         ],
-        LockKind::Compare => &[],
+        LockKind::Compare | LockKind::Query => &[],
     }
 }
 
@@ -258,7 +261,7 @@ fn row_stops(
             (status != flips::UNKNOWN && dependent_statuses(kind).contains(&status))
                 || matches!(row["kink_status"].as_str(), Some("unknown" | "timeout"))
         }
-        LockKind::Compare => false,
+        LockKind::Compare | LockKind::Query => false,
     };
     if !(killed || dependent) {
         return None;
@@ -267,7 +270,7 @@ fn row_stops(
         return None;
     }
     let timeouts = match kind {
-        LockKind::Run | LockKind::Compare => mutant_timeouts(row),
+        LockKind::Run | LockKind::Compare | LockKind::Query => mutant_timeouts(row),
         LockKind::Coverage => row["timed_out"]
             .as_array()
             .into_iter()
@@ -309,7 +312,7 @@ fn now_value(kind: LockKind, row: &Value) -> Value {
             json!({"status": rendered["status"], "killer": rendered["killer"],
                    "reason": rendered["reason"]})
         }
-        LockKind::Compare => Value::Null,
+        LockKind::Compare | LockKind::Query => Value::Null,
     }
 }
 
@@ -489,6 +492,9 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
     let kind = LockKind::of(document);
     if kind == LockKind::Compare {
         return crate::compare::clock_lines(document);
+    }
+    if kind == LockKind::Query {
+        return crate::query::clock_lines(document);
     }
     let path = lock["path"].as_str().unwrap_or(crate::lock::LOCK_FILE);
     let text = |value: &Value| value.as_str().unwrap_or("?").to_owned();

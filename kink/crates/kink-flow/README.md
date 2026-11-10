@@ -371,7 +371,7 @@ A command that answers for several parts (programs, mutations, pairs of a patter
 A usage error exits 2 with its message on stderr, then the usage line of the verb the command line names (every command line's shape when it names none) and the command that lists the verb's options: the whole help would bury the message, and the verb's usage line is what a misspelt option, a missing operand or a bad value is corrected against.
 Every refusal exits 2 too, and the document names it with its stage and reason: a manifest that does not decode, a refused specification, program, mutation list, lock, mutation, pattern list or template, a failed run, and a cache file or lock that cannot be written.
 A `--verify` mismatch (a stored record that differs from the live value) is a finding, 1, in every command that takes `--verify`.
-So is a lock `run --locked` or `coverage --locked` would change: the lock is a stored record too. A lock whose only differences rest on runs the clock stopped is no answer, 3 ("What decides a verdict").
+So is a lock a command's `--locked` (`run`, `coverage`, `compare`, `query`) would change: the lock is a stored record too. A lock whose only differences rest on runs the clock stopped is no answer, 3 ("What decides a verdict").
 
 What else is a finding, or no answer, follows from what each command asks:
 
@@ -381,7 +381,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | `coverage` | what the corpus covers, whether each program's baseline run can count, and whether it meets its expectation | an `unmet` expectation; a needless argument (an argued item a program covers, or that is no obligation); a refuted argument (an invariant whose connection or evidence fails, "Argued obligations"); under `--locked`, a coverage lock the command would change (an open obligation is no finding) | a program that is `timeout` or `unknown` (a `comparable-prefix` program is an answer); an `inconclusive` expectation; an argued item whose standing is `unchecked` ("Argued obligations") |
 | `run` | each selected mutation's verdict, and whether it is the verdict the mutation expects | an `unmet` expectation (`expect`, "`MUTATIONS.toml`"), with or without `--locked`; under `--locked`, a lock the run would change (a stored record that differs from the live value, as a `--verify` mismatch is); a verdict alone is no finding: `killed`, `survived`, `equivalent` and `unkillable` are answers | a mutation that is `timeout` or `unknown`; an `inconclusive` expectation |
 | `report` | what the last `run` answered | as that run | as that run |
-| `query` | whether each program reaches a state matching each pattern | a refuted claim (`no` for a program the pattern claims) | an `unknown` answer |
+| `query` | whether each asked program reaches a state matching each pattern, and whether each pattern's obligation is discharged ("Checking a pattern") | a refuted claim (`no` for a program the pattern claims); an `unmet` expectation (`expect = "no"` on a hit); under `--locked`, a `[query]` section the query would change (an `open` or `undecided` obligation is no finding) | an `unknown` answer; an `inconclusive` expectation; under `--locked`, a section whose only differences rest on runs the clock stopped |
 | `compare` | whether each implementation ends as the definition does on every program, under each required view ("Comparing implementations") | a `different` verdict of a required view | a required view `not-compared` with no answer (`several-ends`, `undecided`, a baseline `timeout` or `unknown`); a `timeout` of an implementation with a required view |
 | `fuzz` | which hole values of the template are a witness of the job | a witness of a kill job whose mutation expects to survive (it refutes the expectation); otherwise none: a witness and `equivalent` are answers | a search that ended without a witness kink accepts (table under "The document") |
 
@@ -1710,24 +1710,24 @@ the end, in pre-order, that fails its own test there, as a refused baseline's ca
 
 ## The corpus record: `--lock FILE`
 
-`run --lock FILE`, `coverage --lock FILE` and `compare --lock FILE` name the corpus record, conventionally `kink.lock`: one file, one section per command.
-`[run]` is the killer record, one recorded killer per killed mutation, kept while it still kills; `[coverage]` is the coverage lock, one recorded killer per distinguished flip by the same rule, with each family's open and argued obligations; `[compare]` holds the verdicts of the corpus's other implementations, one per implementation, program and view ("Comparing implementations").
-kink-flow has no default path, since one corpus is routinely run with several mutation lists, whose rows would overwrite each other in one section; the krs front end gives `<corpus>/kink.lock` to a run of the corpus's own mutation list, to `coverage` and to `compare`, unless the command names a lock.
+`run --lock FILE`, `coverage --lock FILE`, `compare --lock FILE` and `query --lock FILE` name the corpus record, conventionally `kink.lock`: one file, one section per command.
+`[run]` is the killer record, one recorded killer per killed mutation, kept while it still kills; `[coverage]` is the coverage lock, one recorded killer per distinguished flip by the same rule, with each family's open and argued obligations; `[compare]` holds the verdicts of the corpus's other implementations, one per implementation, program and view ("Comparing implementations"); `[query]` holds each pattern's obligation, with one recorded witness per hit, kept while it still hits ("Checking a pattern").
+kink-flow has no default path, since one corpus is routinely run with several mutation lists, whose rows would overwrite each other in one section; the krs front end gives `<corpus>/kink.lock` to a run of the corpus's own mutation list, to a query of its own pattern list, to `coverage` and to `compare`, unless the command names a lock.
 The name is the tool's, as `Cargo.lock` is Cargo's: the file holds every command's section, so it is named for none of them, and a new name lets a front end tell the two files an earlier kink kept apart ("Old files" below).
 A library run (`RunOptions::default()`, `fuzz`'s confirmation) has no lock and writes nothing outside the cache.
 
 ```toml
 # kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),
-# [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps
-# <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,
-# and keeps the others as they are.
+# [coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). As a
+# lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and
+# rewrites only its own section, and keeps the others as they are.
 schema = "kink-flow-verdicts"
 
 [run]
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 26
+version = 27
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1750,7 +1750,7 @@ status = "survived"
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...
-version = 26
+version = 27
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1792,7 +1792,7 @@ killer = "irq"
 [compare]
 # The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run
 # ...
-version = 26
+version = 27
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1821,12 +1821,34 @@ verdict = "different"
 difference = '{"at":"cell","cell":"bus","format":"krs-difference/3",…}'
 request_sha256 = "039fbda42c342c04bea68bb18bca5a85541bbac54f92c7310939a7c9d4430314"
 identity_sha256 = "5d1e…"
+
+[query]
+# The obligations of kink's `query` command (`krs kink query`, `kink-flow query`): the next
+# ...
+version = 27
+profile = "z3"
+z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
+z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
+
+[query.spec]
+outcome = "admitted"
+
+# Each [[query.pattern]] is a pattern of the list, by its id, and its obligation, that some
+# ...
+[[query.pattern]]
+id = "result-above-five"
+status = "hit"
+witness = "nested"
+
+[[query.pattern]]
+id = "result-hundred"
+status = "open"
 ```
 
 The comments say what the file is to a reader who has not read this README: the first what the record is and who writes each section, the one after each section's line which command keeps it and what it does with it, and the one before a section's rows and families what each entry, list and status word is.
 Each is a constant of the rendering's version, so it moves no line between runs.
 
-**What a section is.** A section is the lines from its `[run]`, `[coverage]` or `[compare]` line to the next such line or the end of the file, trailing blank lines aside: the command's verdicts rendering after the record's header ("Verdicts"; `kink_flow::verdicts::lock_section`), its tables under the command's (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, `[[compare.verdict]]`).
+**What a section is.** A section is the lines from its `[run]`, `[coverage]`, `[compare]` or `[query]` line to the next such line or the end of the file, trailing blank lines aside: the command's verdicts rendering after the record's header ("Verdicts"; `kink_flow::verdicts::lock_section`), its tables under the command's (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, `[[compare.verdict]]`, `[[query.pattern]]`).
 The record writes them in that order.
 So a record only one command has written is that command's `--output verdicts` (for `run`, without `killed_by`), and the record is the format of recorded outputs too.
 
@@ -1893,7 +1915,15 @@ Every row of that (implementation, program) is kept, as recorded; where the lock
 `lock.clock_stopped` names each stopped run (`{program, run: "baseline"}`, `{implementation, program, run: "start" | "implementation"}`), `lock.failed` each failed run of an implementation (`{implementation, program, failure}`), and `lock.kept` each kept row the host gave another verdict (`{implementation, program, view, recorded, now}`, each side `{verdict, reason, difference}`).
 Under `--locked` a section that differs in nothing else is `undecided`, exit 3, and never a difference.
 
-**Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]` or `[coverage]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`; and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
+**The `[query]` section.** It has one `[[query.pattern]]` per pattern of the list, in the list's order: its `id`, its `status` (`hit`, `open` or `undecided`) and, for a hit, its `witness`, the program the next query asks first ("The obligation and its witness").
+It states a fact of the corpus and carries no pattern digest and no claim: a pattern's `programs` and `expect` are checked on every query and enter no lock, and the witness is asked again on every query, as a recorded killer is run again.
+`query` writes it after a query of the whole list whose specification was admitted, without `--locked`; under `--only` or `--verify`, or when the pattern list or the specification is refused, it is left as it was (`not-written`, with `reason` `only`, `verify` or `refused`; `write-failed` as for the other sections).
+An obligation whose value rests on a search or a baseline run the clock stopped keeps its recorded value, by the clock's rule for kills: a hit by the recorded witness rests on nothing else; another hit rests on each search the clock stopped of the recorded witness or of a program before the witness in corpus order (it could have hit); `undecided` rests on each run the clock stopped (a search could have hit, a baseline could have licensed a `no`); `open` rests on none.
+The recorded value is not kept where the query decided a fact it contradicts: a hit where the lock records none, a recorded witness that is no program of the corpus, a status no query gives.
+`lock.clock_stopped` names each such run (`{pattern, program, run: "search" | "baseline"}`) and `lock.kept` each kept entry this host gave another value (`{pattern, recorded, now}`, each side `{status, witness}`); under `--locked` a section that differs in nothing else is `undecided`, exit 3.
+`--locked` prints one line per change: `kink.lock: above-five: witness B -> C (B: not-in-corpus)`, `kink.lock: result-hundred: open -> hit`, `kink.lock: p: added, open`.
+
+**Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]`, `[coverage]`, `[compare]` or `[query]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`, and each `[[query.pattern]]` a string `id` and may have a string `witness`; and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
 A version-5 lock has no `killer` lines, so it records no killer.
 
 **`--locked`.** With `--locked` the command leaves the file unwritten (the cache is written as in any run) and compares the section it would write with the file's (under `run --only`, the selected rows and the section's header), and the record's header with the one a write gives; a file with no section for the command counts as different, as Cargo's `--locked` counts an absent file.
@@ -1935,7 +1965,7 @@ A run on another build cannot confirm that, since rows that agree on the current
 Passing it would leave the repository's record naming a build no check ran on, and a row that later moves would be blamed on the corpus while the header misnamed the solver.
 When every row agrees the fix is a header-only rewrite, a run without `--locked`, which review sees as exactly that; a project whose CI links another Z3 build than its developers do records the sections on the CI's build.
 
-A corpus commits `kink.lock`, and a CI runs `run --locked` and `coverage --locked` (`krs kink run --locked`, `krs kink coverage --locked`), and `compare --locked` where it declares an `[[implementation]]` (`krs kink compare --locked`).
+A corpus commits `kink.lock`, and a CI runs `run --locked` and `coverage --locked` (`krs kink run --locked`, `krs kink coverage --locked`), `compare --locked` where it declares an `[[implementation]]` (`krs kink compare --locked`), and `query --locked` where it has a pattern list (`krs kink query --locked`).
 
 ## Verdicts: `--output verdicts`
 
@@ -1952,7 +1982,7 @@ schema = "kink-flow-verdicts"
 [coverage]                    # or [run]: the command's section
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...                         (the comment naming the command, and what it does with its section as a lock)
-version = 26
+version = 27
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
@@ -2137,7 +2167,7 @@ Under `--output json` that reason is the `kink-flow-report` document on stdout, 
 
 Exit status: the status the printed run document gives, as `run` exits on it ("Exit status"); 2 when there is none, it is unreadable, the manifest does not decode, or on a usage error.
 
-## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`
+## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--cache DIR]`
 
 A pattern check asks, for one program of the corpus: does some run of this program, from its input, reach a configuration that matches this pattern?
 The initial configuration, every configuration a run reaches and the final ones all count.
@@ -2157,22 +2187,36 @@ note = "the result 3 is reached"     # optional, free text
 [[pattern]]
 id = "result-above-five"
 pattern = "<k> I:Int </k> requires I >Int 5"
+# expect = "no"                      # optional, not beside `programs`: no program hits it
 ```
 
 - `pattern` is parsed by the specification's own grammar, as the content of a rule in the main module: write a configuration fragment, with `...` and omitted cells completed as in a rule (`<k> 1 / 0 ~> _ </k>`, `<state> ... X |-> 3 ... </state>`), variables (`I:Int`, `_`) and an optional `requires` condition over them. A rewrite (`=>`) in a pattern denotes its left side. An `ensures` is refused, and so is a variable that occurs only on a rewrite's right side.
 - A `requires` that is undefined at a state (`10 /Int (I -Int 3) >Int 0` where `I` is 3) does not hold there, as for a rule's condition: that state does not match. So a pattern whose only matches make its condition undefined gets a `no`, and a claim of it is refuted, although the program does reach the configuration you meant; write the condition so that it is defined at every state it is matched against. A condition whose definedness k-rust cannot decide (a partial function with no equation for its argument) gives `unknown`.
-- `programs` lists the corpus programs you claim hit the pattern (the per-input claims). Without it, every program of the corpus is asked ("which programs already hit it?").
-- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
+- `programs` lists the corpus programs you claim hit the pattern (the per-input claims): each is asked, and its row says whether the claim is confirmed. Whether or not it has claims, every pattern is an obligation of the corpus (below).
+- `expect = "no"` claims that no program of the corpus hits the pattern, as a mutation's `expect = "survive"` claims no program kills it: the obligation's `expectation` is `met` when every program answers a final `no`, `unmet` on a hit (exit 1) and `inconclusive` otherwise (exit 3), and the query prints `pattern ID: ...` on stderr for each that is not met. It changes no answer and enters no key, digest or lock: the lock records the fact (`open` or `hit`). A pattern with both `expect` and `programs` claims two contradicting things, and is an error of the pattern list.
+- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, `expect` beside `programs`, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
 
-`testdata/flow/calc/PATTERNS.toml` and `testdata/flow/loop/PATTERNS.toml` are complete examples.
+`testdata/flow/calc/PATTERNS.toml`, `testdata/flow/loop/PATTERNS.toml` and `testdata/flow/witness/PATTERNS.toml` are complete examples.
+
+### The obligation and its witness
+
+A pattern states "some program's run reaches a state that matches P": an existential over the corpus, of the shape of a mutant's "some program tells it apart".
+A witness discharges it as a killer discharges a mutant: one program that hits it.
+- **The witness rule.** Let w be the pattern's recorded witness (`[query]`, `--lock`). If w names a program of the corpus and w hits, the witness is w; otherwise it is the first program in `FLOW.toml`'s order that hits; otherwise there is none. So the witness is a function of the record and the corpus: adding a program moves no witness while w still hits, and deleting w re-opens the obligation, whose next witness is the first hitter in corpus order.
+- **The status.** `hit` with a witness; `open` when every program of the corpus answered a final `no` (no program's run reaches such a state); `undecided` otherwise (no hit, and some program's answer is `unknown`, an `error` or `invalid-pattern`). An open or undecided obligation is no finding: the query states it, and you decide whether to write the program that hits it, or to state `expect = "no"`.
+- **What is asked.** The pattern's claims first, then the obligation's walk: w first, then the other programs in corpus order, until the first hit, reusing every answer a claim gave rather than asking a pair twice. An obligation with no hit asks every program. `--full` asks every pair and lists each obligation's `hitters`, every program that hit in corpus order; the witness, the status and the lock are the same as without it.
+- **`witness_change`** says why the witness is not the recorded one, as `killer_change` does for a killer: null when it is, `no-record`, `not-in-corpus`, `clock-stopped` (the clock stopped w's search, so whether it still hits is not decided on this host; the lock keeps it, "The `[query]` section"), `no-longer-hits` (w was asked, live or cached, and did not hit) or `not-run` (the pattern is invalid, so w's search never ran).
 
 ### Answers
 
-The command prints one document, `{schema: "kink-flow-query", version: 6, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data}`:
+The command prints one document, `{schema: "kink-flow-query", version: 7, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data, lock?}`.
+Version 7 (FB54-WITNESS) adds `obligations`, `full`, `lock` and each row's `clock_stopped`, and asks a pattern without `programs` until its first hit where version 6 asked every program, so `rows` holds only the pairs asked:
 `programs` are the `coverage` rows (the result cache is brought up to date first),
 `data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). Version 6 (KINK-FINDING-NAMES) names its findings by kind, sentences and digest, where version 5 named them by generated-K positions. `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. Version 2 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"). Version 3 answers `no` under the Z3 profile where the search received no undecided solver answer, with a `cause` naming that count, and names the count in the `cause` of an `unknown` it withholds a `no` for (below). Version 4 adds `z3` under the Z3 profile, the Z3 build the answers were decided on, as the run document names it: whether the search's solver queries are decided within their units is a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too; the portable document has no such member. Version 5 answers a corpus with `[stop]` through each program's stopped run ("A corpus with `[stop]`", below) and admits one with `[observe]`, which it ignores ("What a run observes"): the refusals at stages `stop` and `observe` are gone, the document carries `stop` as `check`, `coverage` and `run` do and `observe` (`{declaration, ignored}`, the declaration and why the query ignores it) when the manifest has them, a refused one's too, and each row names its route (`route`: `search` or `stopped-run`). A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, z3?, pattern_list}`.
-`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus}` (`kore` is the compiled target),
-and `rows` one row per (pattern, program asked) `{pattern, program, claimed, route, answer, cause, witness, cached, wall_ms, claim}`.
+`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus, expect}` (`kore` is the compiled target; `asked` says whether the pattern has `programs`),
+`rows` one row per (pattern, program asked) `{pattern, program, claimed, route, answer, cause, witness, cached, wall_ms, claim, clock_stopped}` (`clock_stopped`: `search` where the clock stopped the search the answer rests on, `baseline` where a completed exploration's `no` failed only for the baseline run the clock stopped, else null),
+`obligations` one per selected pattern `{id, status, witness, recorded_witness, witness_change, hitters, unanswered, expect, expectation, clock_stopped}` ("The obligation and its witness"; `hitters` null without `--full`; `unanswered` the programs whose answer is neither a hit nor a final `no`; `clock_stopped` the stopped runs the obligation's value rests on, `{program, run}`),
+and, with `--lock`, `lock` as for the other sections ("The corpus record").
 
 | `answer` | Meaning | What to do |
 | --- | --- | --- |
@@ -2245,7 +2289,7 @@ The answer's key also holds the program's stop (`stop`, as its result key holds 
 ### How it runs, and what it costs
 
 Each pattern is compiled once, by k-rust's own compiler of search patterns (`kompile::compile_search_pattern`, the one `krun --pattern` uses), against the compiled definition the programs run on.
-Each (pattern, program) is one k-rust `search_pattern_kore` from the program's initial configuration: search type all (every reachable configuration, the initial one included), state set (each distinct configuration of a depth once), at most one result, the manifest's `max_depth`, under a watchdog of `time_ms`.
+Each asked (pattern, program) is one k-rust `search_pattern_kore` from the program's initial configuration: search type all (every reachable configuration, the initial one included), state set (each distinct configuration of a depth once), at most one result, the manifest's `max_depth`, under a watchdog of `time_ms`.
 k-rust's search has no work budget yet (a k-rust request, KINK-24, would make a bounded answer reproducible), so `time_ms` is what stops a program that does not end.
 A check costs about one plain run of the program (release build, shared host at load 9-24; flow F-18 handoff): where the search explores every configuration it took 1.0-2.3 times the program's baseline run (`examples/imp` sum 6 ms against 3, primes 12 against 8, collatz 20 against 10; IMP++ primes 98 against 43, collatz 93 against 48, spawn 2.5-2.9 s against 2.5 s), and much less when the hit comes early (an interleaving of IMP++ spawn found at depth 39 in 0.32 s, against 2.5 s for the run).
 The search keeps every configuration it reached with the trace of one run to it, which added at most 45 MiB to the process's peak (IMP++ primes 153 MiB against 109 MiB).
@@ -2276,12 +2320,12 @@ What every answer trusts, besides the cache:
 - k-rust's `ground_defined` decides that a matched configuration's term is defined: its definedness walk, which skips a subterm whose stored `ceil_free` attribute holds (k-rust checks that shortcut against the walk without it on generated terms, and in debug builds at every subterm it skips) and discharges an irreducible `value-production` application through k-rust's instance-normality scan, a partial application through an unconditional ceil equation, and a sort projection on its exact image or a one-constructor field through its observation catalog; the definition's `total` and `value-production` declarations and its ceil lemmas are among the trusted claims above, and so is a lemma that states a product field's equation;
 - a search does not count the stops for lack of native stack it dismisses while it only refines a result (k-rust `docs/compatibility.md`, "Execute"). k-rust states at every such site a search reaches that the kept result is sound (a definedness condition left unsimplified, a fold forgone), so such a stop can leave a step or a match undecided (an unknown) but cannot make a decided match or a completed exploration false: whether an answer is definitive can depend on the host's stack, its truth cannot. A `no` also requires the baseline run's own count to be zero.
 
-**Answers never decide a mutation.** No answer enters a result record, an outcome record, a lock or a run document, and `run` does not read the pattern cache: a kill needs the final configurations to differ, and a pattern-only difference stays unknown by design.
+**Answers never decide a mutation.** No answer enters a result record, an outcome record, the `[run]` or `[coverage]` section of a lock or a run document (the `[query]` section records each obligation, which no other command reads), and `run` does not read the pattern cache: a kill needs the final configurations to differ, and a pattern-only difference stays unknown by design.
 
-Exit status ("Exit status"): 0 when every selected (pattern, program) got its answer, `hit` or `no`;
-1 when a claim is refuted or `--verify` found a difference;
-3 when an answer is `unknown`;
-2 when an answer is `invalid-pattern` or `error`, the manifest, the pattern list, the specification or a program is refused, a record could not be written, or on a usage error (an `--only` id that names no pattern, an option given twice).
+Exit status ("Exit status"): 0 when every asked (pattern, program) got its answer, `hit` or `no`, and every `expect` is met (an `open` or `undecided` obligation is no finding);
+1 when a claim is refuted, an `expect = "no"` is unmet, `--verify` found a difference, or `--locked` found that the query would change the `[query]` section (a witness whose program is gone, a status that moved);
+3 when an answer is `unknown`, an `expect` is inconclusive, or under `--locked` the only differences rest on runs the clock stopped;
+2 when an answer is `invalid-pattern` or `error`, the manifest, the pattern list, the lock, the specification or a program is refused, a record or the lock could not be written, or on a usage error (an `--only` id that names no pattern, an option given twice, `--locked` without `--lock`).
 
 ## Killing a survivor with `fuzz`
 

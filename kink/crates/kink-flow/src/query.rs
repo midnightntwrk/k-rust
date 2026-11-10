@@ -3,8 +3,9 @@
 //!
 //! The command admits the specification, brings the result cache up to date (`coverage` without
 //! `--verify`, or with it under `query --verify`), lowers every selected pattern once, and asks
-//! each pattern of each program it names (its claimed programs, or the whole corpus), unless a
-//! cached answer stands, by one of two routes ([`crate::pattern::Route`]):
+//! each pattern of each program it names (its claimed programs, then its obligation's walk:
+//! "The obligation", below), unless a cached answer stands, by one of two routes
+//! ([`crate::pattern::Route`]):
 //! - a corpus without `[stop]`: one `search_pattern_kore` per (pattern, program), which explores
 //!   the definition's own reachable states;
 //! - a corpus with `[stop]`: the program's run as every campaign of the command makes it (the
@@ -60,16 +61,36 @@
 //! Under the Z3 profile with kink's resource-bounded solver an answer is a function of its key,
 //! which names the solver's units and Z3 build (the budget's `smt`).
 //!
-//! No answer enters a result record, an outcome record, a lock or a run document: pattern answers
-//! feed no kill and no mutation verdict.
+//! **The obligation** (FB54-WITNESS). A pattern also states "some program's run reaches a state
+//! that matches it", an existential over the corpus of the shape of a mutant's "some program
+//! tells it apart", and a witness discharges it as a killer discharges a mutant. Let w be the
+//! pattern's recorded witness (the `[query]` section of the lock, [`crate::lock`]). The witness
+//! is w when w names a program of the corpus and w hits, else the first program in corpus order
+//! that hits, else none ([`obligation`]): a function of the record and the corpus, not of what
+//! was asked or in which order, so adding a program moves no witness while w still hits, and
+//! deleting w re-opens the obligation. Its status is `hit`, `open` (every program answered a final
+//! `no`) or `undecided`. The pattern's claims (`programs`) are asked first, then the obligation's
+//! walk: w first, then corpus order, until the first hit ([`walk_order`]), reusing every answer a
+//! claim gave; `--full` asks every pair and lists every hitter, with the same witness. A
+//! pattern's `expect = "no"` is checked against its obligation ([`pattern_expectation`]) and
+//! enters no lock. With `--lock` the section is read before anything runs and settled after
+//! ([`Lock::settle`]); an obligation whose value rests on a run the clock stopped keeps its
+//! recorded value ([`keep`]).
+//!
+//! No answer enters a result record, an outcome record, a run document or the `[run]` and
+//! `[coverage]` sections of a lock: pattern answers feed no kill and no mutation verdict. The
+//! `[query]` section records each obligation, which only `query` reads.
 
 use crate::{
     admit::admit_spec,
+    clock::Kept,
     digest::ExecutionDigest,
+    lock::{Lock, LockKind, Settle},
     manifest::{FlowManifest, ManifestError},
     pattern::{
-        Answer, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredPattern, Lowering, PatternList,
-        Route, SearchOutcome, Searcher, judge, search_modality, stopped_modality,
+        Answer, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredPattern, Lowering, PatternEntry,
+        PatternExpect, PatternList, Route, SearchOutcome, Searcher, judge, search_modality,
+        stopped_modality,
     },
     results::{
         BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
@@ -82,6 +103,7 @@ use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use kink_patch::{Sha256Digest, canonical_json, parse_json, payload_digest};
 use serde_json::{Map, Value, json};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -109,7 +131,14 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
 /// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
 /// refused `name-refused` (KINK-FINDING-NAMES).
-pub const QUERY_VERSION: u64 = 6;
+/// Version 7 (FB54-WITNESS) makes every pattern an obligation of the corpus: `obligations`, one
+/// per selected pattern (`{id, status, witness, recorded_witness, witness_change, hitters,
+/// unanswered, expect, expectation, clock_stopped}`, module docs), each row's `clock_stopped`,
+/// `full` and, with `--lock`, `lock`. A pattern without `programs` is asked until its first hit
+/// (its recorded witness first, then corpus order) unless `--full`, where version 6 asked every
+/// program, so `rows` holds only the pairs asked; a pattern with `programs` is also asked for
+/// its obligation.
+pub const QUERY_VERSION: u64 = 7;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -150,6 +179,15 @@ pub struct QueryOptions {
     pub verify: bool,
     /// The cache directory; default `<directory of FLOW.toml>/.kink-flow`.
     pub cache: Option<PathBuf>,
+    /// `--full`: ask every (pattern, program) pair, and list each obligation's `hitters`, where
+    /// a query without it stops each obligation at its first hit (module docs). The witness, the
+    /// status and the lock are the same either way.
+    pub full: bool,
+    /// `--lock FILE`: the corpus record whose `[query]` section the command reads (each
+    /// pattern's recorded witness, asked first) and rewrites after a query of the whole list.
+    pub lock: Option<PathBuf>,
+    /// `--locked`: compare the section the query would write with the file's, and write nothing.
+    pub locked: bool,
 }
 
 /// The key of a cached answer (module docs); `stop` is the program's stop on the stopped route
@@ -280,19 +318,65 @@ fn cache_refusal(
 /// infrastructure error; the exit status joins it with the status the document gives
 /// (`crate::cli::query_status`).
 pub fn query(manifest: &FlowManifest, list: &PatternList, options: &QueryOptions) -> (Value, bool) {
-    query_with(manifest, list, options, &|_| {})
+    query_spelled(manifest, list, options, "kink-flow query")
 }
 
-/// [`query`], with `adjust` applied to the definition exclusions of the searcher's load before
-/// any answer is judged: the unit tests' seam for a load fact a test cannot provoke (a load
+/// [`query`], with `command`, the front end's spelling of the verb, which a refusal of the lock
+/// under `--locked` names as the command that rewrites it.
+pub fn query_spelled(
+    manifest: &FlowManifest,
+    list: &PatternList,
+    options: &QueryOptions,
+    command: &str,
+) -> (Value, bool) {
+    query_with(manifest, list, options, command, &|_| {})
+}
+
+/// [`query_spelled`], with `adjust` applied to the definition exclusions of the searcher's load
+/// before any answer is judged: the unit tests' seam for a load fact a test cannot provoke (a load
 /// stack stop depends on the host's stack).
+///
+/// With `options.lock` the record's `[query]` section is read before anything runs (a record
+/// that does not decode, or under `--locked` one of another version, refuses the command) and
+/// settled after ([`Lock::settle`]): the document's `lock`. A query of the whole list (no
+/// `--only`, no `--verify`, not refused) without `--locked` rewrites the section.
 pub(crate) fn query_with(
     manifest: &FlowManifest,
     list: &PatternList,
     options: &QueryOptions,
+    command: &str,
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
 ) -> (Value, bool) {
-    let (document, ok) = query_unnamed(manifest, list, options, adjust);
+    let lock = match options.lock.as_deref() {
+        None => None,
+        Some(path) => match Lock::read_for(path, LockKind::Query, None, options.locked, command) {
+            Ok(lock) => Some(lock),
+            Err(detail) => {
+                let mut document = refused_document(&AdmissionRecord::new(&manifest.spec.entry));
+                document["spec"] = Value::Null;
+                document["lock"] = crate::lock::refused_value(path, &detail);
+                return (named(manifest, document), false);
+            }
+        },
+    };
+    let recorded = lock.as_ref().map(Lock::killers).unwrap_or_default();
+    let (mut document, mut ok) = query_unnamed(manifest, list, options, &recorded, adjust);
+    if let Some(lock) = &lock {
+        document["lock"] = if document["spec"]["outcome"] == "admitted" {
+            let store = Store::new(cache_directory(manifest, options.cache.as_deref()));
+            let settle = Settle {
+                locked: options.locked,
+                verify: options.verify,
+                only: &options.only,
+                stopped: false,
+            };
+            let (value, written) = lock.settle(&store, &document, settle);
+            ok &= written;
+            value
+        } else {
+            lock.not_written("refused")
+        };
+    }
     (named(manifest, document), ok)
 }
 
@@ -318,6 +402,7 @@ fn query_unnamed(
     manifest: &FlowManifest,
     list: &PatternList,
     options: &QueryOptions,
+    recorded: &BTreeMap<String, String>,
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
 ) -> (Value, bool) {
     if let Err(error) = list.check_programs(manifest) {
@@ -378,16 +463,24 @@ fn query_unnamed(
     let mut accounting = json!({"from_cache": 0, "records_written": 0});
     let mut patterns = Vec::new();
     let mut rows = Vec::new();
+    let mut obligations = Vec::new();
+    let context = Context {
+        manifest,
+        update: &update,
+        cache: &cache,
+        store: &store,
+        build: cache_build,
+        execution,
+        verify: options.verify,
+        exclusions: &exclusions,
+        route,
+    };
     for entry in list
         .patterns
         .iter()
         .filter(|entry| options.only.is_empty() || options.only.contains(&entry.id))
     {
         let lowered = lowering.lower(&entry.pattern, searcher.definition());
-        let asked: Vec<&str> = match &entry.programs {
-            Some(claimed) => claimed.iter().map(String::as_str).collect(),
-            None => manifest.programs.iter().map(|p| p.id.as_str()).collect(),
-        };
         let claimed = entry.programs.is_some();
         patterns.push(json!({
             "id": entry.id,
@@ -398,57 +491,89 @@ fn query_unnamed(
             "digest": lowered.as_ref().ok().map(|l| l.digest.to_string()),
             "kore": lowered.as_ref().ok().map(LoweredPattern::kore),
             "asked": if claimed { "claimed" } else { "corpus" },
+            "expect": entry.expect.map(PatternExpect::as_str),
         }));
-        for program_id in asked {
-            let index = manifest
-                .programs
-                .iter()
-                .position(|p| p.id == program_id)
-                .expect("check_programs: every claimed program exists");
-            let mut row = Map::new();
-            row.insert("pattern".into(), json!(entry.id));
-            row.insert("program".into(), json!(program_id));
-            row.insert("claimed".into(), json!(claimed));
-            row.insert("route".into(), json!(route.name()));
-            let lowered = match &lowered {
-                Ok(lowered) => lowered,
-                Err(detail) => {
-                    let answer = Answer {
-                        answer: INVALID_PATTERN,
-                        cause: Some(detail.clone()),
-                        witness: None,
+        // Each program's row of this pattern, by corpus index, in the order they were asked: the
+        // claims first, then the obligation's walk, which reuses every answer a claim gave and,
+        // without `--full`, stops at its first hit.
+        let mut answered: Vec<(usize, Value)> = Vec::new();
+        let claims = entry
+            .programs
+            .iter()
+            .flatten()
+            .map(|program_id| {
+                manifest
+                    .programs
+                    .iter()
+                    .position(|p| &p.id == program_id)
+                    .expect("check_programs: every claimed program exists")
+            })
+            .collect::<Vec<_>>();
+        let recorded_witness = recorded.get(&entry.id).map(String::as_str);
+        // An invalid pattern never runs: it is answered for its claims, or, without claims, for
+        // every program, and its obligation is undecided either way.
+        let walk = if lowered.is_err() && entry.programs.is_some() {
+            Vec::new()
+        } else {
+            walk_order(manifest, recorded_witness, options.full)
+        };
+        for (index, claim) in claims
+            .into_iter()
+            .map(|index| (index, true))
+            .chain(walk.into_iter().map(|index| (index, false)))
+        {
+            let answer = match answered.iter().find(|(at, _)| *at == index) {
+                Some((_, row)) => row["answer"].clone(),
+                None => {
+                    let program_id = manifest.programs[index].id.as_str();
+                    let mut row = Map::new();
+                    row.insert("pattern".into(), json!(entry.id));
+                    row.insert("program".into(), json!(program_id));
+                    row.insert("claimed".into(), json!(claim));
+                    row.insert("route".into(), json!(route.name()));
+                    let (row, row_ok) = match &lowered {
+                        Ok(lowered) => ask(
+                            &context,
+                            &mut inputs,
+                            &spec,
+                            &mut searcher,
+                            index,
+                            &entry.id,
+                            lowered,
+                            row,
+                            claim,
+                            &mut mismatches,
+                            &mut accounting,
+                        ),
+                        Err(detail) => {
+                            let answer = Answer {
+                                answer: INVALID_PATTERN,
+                                cause: Some(detail.clone()),
+                                witness: None,
+                            };
+                            let mut row = finish_row(row, &answer, false, None, claim);
+                            row["clock_stopped"] = Value::Null;
+                            (row, true)
+                        }
                     };
-                    rows.push(finish_row(row, &answer, false, None, claimed));
-                    continue;
+                    ok &= row_ok;
+                    let answer = row["answer"].clone();
+                    answered.push((index, row.clone()));
+                    rows.push(row);
+                    answer
                 }
             };
-            let context = Context {
-                manifest,
-                update: &update,
-                cache: &cache,
-                store: &store,
-                build: cache_build,
-                execution,
-                verify: options.verify,
-                exclusions: &exclusions,
-                route,
-            };
-            let (row, row_ok) = ask(
-                &context,
-                &mut inputs,
-                &spec,
-                &mut searcher,
-                index,
-                &entry.id,
-                lowered,
-                row,
-                claimed,
-                &mut mismatches,
-                &mut accounting,
-            );
-            ok &= row_ok;
-            rows.push(row);
+            if !claim && !options.full && answer == "hit" {
+                break;
+            }
         }
+        obligations.push(obligation(
+            manifest,
+            entry,
+            recorded_witness,
+            &answered,
+            options.full,
+        ));
     }
     ok &= mismatches.is_empty();
     let pattern_cache = json!({
@@ -474,7 +599,280 @@ fn query_unnamed(
     );
     document["spec"]["execution_digest"] = execution.value();
     document["data"] = spec.data.value();
+    document["obligations"] = json!(obligations);
+    document["full"] = json!(options.full);
     (document, ok)
+}
+
+/// The order a pattern's obligation asks the corpus in: its recorded witness first, where it
+/// names a program of the corpus, then every other program in corpus order. Under `--full`
+/// every program is asked, in corpus order. The order decides only what is asked, not the
+/// witness ([`obligation`]).
+fn walk_order(manifest: &FlowManifest, recorded: Option<&str>, full: bool) -> Vec<usize> {
+    let first = recorded
+        .filter(|_| !full)
+        .and_then(|id| manifest.programs.iter().position(|p| p.id == id));
+    first
+        .into_iter()
+        .chain((0..manifest.programs.len()).filter(|index| Some(*index) != first))
+        .collect()
+}
+
+/// The obligation of the pattern `entry` (module docs, "The obligation"), from the rows of its
+/// programs it asked (`answered`, by corpus index) and its recorded witness `recorded`:
+/// `{id, status, witness, recorded_witness, witness_change, hitters, unanswered, expect,
+/// expectation, clock_stopped}`.
+///
+/// - The witness is the recorded witness where it hit, else the first program in corpus order
+///   that hit: a function of the corpus and the record, not of what else was asked or in which
+///   order, so a query and a `--full` one give the same.
+/// - `status`: `hit` with a witness, `open` when every program of the corpus answered a final
+///   `no`, else `undecided` (no hit, and some program's answer is `unknown`, an error or
+///   `invalid-pattern`).
+/// - `hitters`: under `--full`, every program that hit, in corpus order; else null.
+/// - `unanswered`: the programs whose answer is neither a hit nor a final `no`, in corpus order.
+/// - `witness_change`: null when the witness is the recorded one, else `no-record`,
+///   `not-in-corpus`, `clock-stopped` (the clock stopped the recorded witness's search, so
+///   whether it still hits is not decided on this host), `no-longer-hits` (it was asked, live or
+///   cached, and did not hit) or `not-run` (its search never ran: the pattern is invalid).
+/// - `clock_stopped`: the runs the clock stopped that the status and witness depend on
+///   (`{program, run}`, `run` `search` or `baseline`, in corpus order): for a hit by the recorded
+///   witness none; for another hit each search it stopped of the recorded witness or of a
+///   program before the witness in corpus order (it could have hit); for `undecided` each run it
+///   stopped (a search could have hit, a baseline could have licensed a `no`); for `open` none.
+fn obligation(
+    manifest: &FlowManifest,
+    entry: &PatternEntry,
+    recorded: Option<&str>,
+    answered: &[(usize, Value)],
+    full: bool,
+) -> Value {
+    let mut by_index = answered.iter().collect::<Vec<_>>();
+    by_index.sort_by_key(|(index, _)| *index);
+    let id_of = |index: usize| manifest.programs[index].id.clone();
+    let hit = |row: &Value| row["answer"] == "hit";
+    let recorded_index = recorded.and_then(|id| manifest.programs.iter().position(|p| p.id == id));
+    let recorded_row = recorded_index.and_then(|at| {
+        answered
+            .iter()
+            .find(|(index, _)| *index == at)
+            .map(|(_, row)| row)
+    });
+    let witness_index = recorded_index
+        .filter(|_| recorded_row.is_some_and(hit))
+        .or_else(|| {
+            by_index
+                .iter()
+                .find(|(_, row)| hit(row))
+                .map(|(index, _)| *index)
+        });
+    let witness = witness_index.map(id_of);
+    let every_no = by_index.len() == manifest.programs.len()
+        && by_index.iter().all(|(_, row)| row["answer"] == "no");
+    let status = if witness.is_some() {
+        "hit"
+    } else if every_no {
+        "open"
+    } else {
+        "undecided"
+    };
+    let change = match recorded {
+        _ if witness.as_deref() == recorded => None,
+        None => Some("no-record"),
+        Some(_) => Some(match recorded_row {
+            None if recorded_index.is_none() => "not-in-corpus",
+            None => "not-run",
+            Some(row) if row["clock_stopped"] == "search" => "clock-stopped",
+            Some(row) if row["answer"] == INVALID_PATTERN => "not-run",
+            Some(_) => "no-longer-hits",
+        }),
+    };
+    let stop = |(index, row): &&(usize, Value)| {
+        row["clock_stopped"]
+            .as_str()
+            .map(|run| json!({"program": id_of(*index), "run": run}))
+    };
+    let clock_stopped: Vec<Value> = match (status, witness_index) {
+        ("hit", Some(at)) if Some(at) == recorded_index => Vec::new(),
+        ("hit", Some(at)) => by_index
+            .iter()
+            .filter(|(index, row)| {
+                row["clock_stopped"] == "search" && (*index < at || Some(*index) == recorded_index)
+            })
+            .filter_map(stop)
+            .collect(),
+        ("undecided", _) => by_index.iter().filter_map(stop).collect(),
+        _ => Vec::new(),
+    };
+    let unanswered = by_index
+        .iter()
+        .filter(|(_, row)| !hit(row) && row["answer"] != "no")
+        .map(|(index, _)| id_of(*index))
+        .collect::<Vec<_>>();
+    let hitters = full.then(|| {
+        by_index
+            .iter()
+            .filter(|(_, row)| hit(row))
+            .map(|(index, _)| id_of(*index))
+            .collect::<Vec<_>>()
+    });
+    let mut obligation = json!({
+        "id": entry.id,
+        "status": status,
+        "witness": witness,
+        "recorded_witness": recorded,
+        "witness_change": change,
+        "hitters": hitters,
+        "unanswered": unanswered,
+        "expect": entry.expect.map(PatternExpect::as_str),
+        "expectation": null,
+        "clock_stopped": clock_stopped,
+    });
+    obligation["expectation"] = pattern_expectation(&obligation);
+    obligation
+}
+
+/// The `expectation` of an obligation whose pattern states `expect` (the obligation's own
+/// `expect`): `{verdict, detail}`, null for a pattern without one. `expect = "no"` claims that
+/// no program of the corpus reaches a state matching the pattern: it is `met` when every program
+/// answered a final `no` (`open`), `unmet` on a hit, a finding, and `inconclusive` otherwise
+/// (`undecided`: some program's answer is not final).
+#[must_use]
+pub fn pattern_expectation(obligation: &Value) -> Value {
+    if obligation["expect"] != PatternExpect::No.as_str() {
+        return Value::Null;
+    }
+    let names = |key: &str| {
+        obligation[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match obligation["status"].as_str() {
+        Some("open") => json!({
+            "verdict": "met",
+            "detail": "expected no: every program of the corpus answered a final no",
+        }),
+        Some("hit") => json!({
+            "verdict": "unmet",
+            "detail": format!(
+                "expected no, but {}'s run reaches a state that matches the pattern",
+                obligation["witness"].as_str().unwrap_or("a program")
+            ),
+        }),
+        _ => json!({
+            "verdict": "inconclusive",
+            "detail": format!(
+                "expected no: no program hits, but {} answered no final no",
+                names("unanswered")
+            ),
+        }),
+    }
+}
+
+/// `document` with each obligation the clock leaves undecided given its recorded value from
+/// `lock` (`crate::clock`'s rule, applied to `query`), with the stopped runs and the kept
+/// entries. An obligation whose `clock_stopped` is not empty keeps its recorded `{status,
+/// witness}`, unless the lock records nothing for it, the recorded status is not one a query
+/// gives, the recorded witness is no program of the corpus, or the query found a hit where the
+/// lock records none: each is a fact the run decided that the recorded entry contradicts, and
+/// the query's own value is written.
+#[must_use]
+pub fn keep(lock: &Lock, document: &Value) -> Kept {
+    let mut kept = Kept {
+        document: document.clone(),
+        stopped: Vec::new(),
+        kept: Vec::new(),
+        failed: Vec::new(),
+    };
+    let programs = document["programs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row["id"].as_str())
+        .collect::<Vec<_>>();
+    let Some(obligations) = kept
+        .document
+        .pointer_mut("/obligations")
+        .and_then(Value::as_array_mut)
+    else {
+        return kept;
+    };
+    for obligation in obligations {
+        let id = obligation["id"].as_str().unwrap_or_default().to_owned();
+        let stops = obligation["clock_stopped"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if stops.is_empty() {
+            continue;
+        }
+        for stop in &stops {
+            kept.stopped
+                .push(json!({"pattern": id, "program": stop["program"], "run": stop["run"]}));
+        }
+        let Some(record) = lock.rows.iter().find(|row| row.id == id) else {
+            continue;
+        };
+        let status = record.status.as_deref().unwrap_or_default();
+        let keepable = matches!(status, "hit" | "open" | "undecided")
+            && (status == "hit")
+                == record
+                    .killer
+                    .as_deref()
+                    .is_some_and(|witness| programs.contains(&witness));
+        if !keepable || (obligation["status"] == "hit" && status != "hit") {
+            continue;
+        }
+        let before = json!({"status": record.status, "witness": record.killer});
+        let now = json!({"status": obligation["status"], "witness": obligation["witness"]});
+        if now != before {
+            kept.kept
+                .push(json!({"pattern": id, "recorded": before, "now": now}));
+        }
+        obligation["status"] = json!(record.status);
+        obligation["witness"] = json!(record.killer);
+    }
+    kept
+}
+
+/// One line per run the clock stopped that a query's lock entry depends on, and per entry the
+/// lock kept unverified ([`keep`]), as `kink-flow` prints them on stderr.
+#[must_use]
+pub fn clock_lines(document: &Value) -> Vec<String> {
+    let lock = &document["lock"];
+    let path = lock["path"].as_str().unwrap_or(crate::lock::LOCK_FILE);
+    let text = |value: &Value| value.as_str().unwrap_or("?").to_owned();
+    let mut lines = Vec::new();
+    for stop in lock["clock_stopped"].as_array().into_iter().flatten() {
+        let run = if stop["run"] == "baseline" {
+            "baseline run"
+        } else {
+            "search"
+        };
+        lines.push(format!(
+            "{path}: {}: the clock (budget.time_ms) stopped the {run} of {}: its entry is not \
+             decided on this host",
+            text(&stop["pattern"]),
+            text(&stop["program"])
+        ));
+    }
+    let side = |value: &Value| match value["witness"].as_str() {
+        Some(witness) => format!("{} (witness {witness})", text(&value["status"])),
+        None => text(&value["status"]),
+    };
+    for entry in lock["kept"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "{path}: {}: kept {} unverified: this host gives {}",
+            text(&entry["pattern"]),
+            side(&entry["recorded"]),
+            side(&entry["now"])
+        ));
+    }
+    lines
 }
 
 struct Context<'a> {
@@ -517,7 +915,10 @@ fn ask(
                 .as_str()
                 .unwrap_or("its inputs cannot be read")
         ));
-        return (finish_row(row, &answer, false, None, claimed), false);
+        return (
+            unstopped(finish_row(row, &answer, false, None, claimed)),
+            false,
+        );
     };
     let test = match &result.test {
         Some(test) => test.clone(),
@@ -528,7 +929,10 @@ fn ask(
                     "the program is not admitted: {}/{}: {}",
                     refusal.stage, refusal.reason, refusal.detail
                 ));
-                return (finish_row(row, &answer, false, None, claimed), false);
+                return (
+                    unstopped(finish_row(row, &answer, false, None, claimed)),
+                    false,
+                );
             }
         },
     };
@@ -589,7 +993,10 @@ fn ask(
     {
         let answer = judge(&stored.outcome(), &facts);
         accounting["from_cache"] = json!(accounting["from_cache"].as_u64().unwrap_or(0) + 1);
-        return (finish_row(row, &answer, true, None, claimed), true);
+        return (
+            unstopped(finish_row(row, &answer, true, None, claimed)),
+            true,
+        );
     }
     let (outcome, wall_ms) = match context.route {
         Route::Search => searcher.search(&test.initial_state, lowered),
@@ -609,7 +1016,34 @@ fn ask(
     };
     let answer = judge(&outcome, &facts);
     let mut ok = answer.answer != "error";
+    // Which run the clock stopped that this answer rests on: the search itself, when its own
+    // cause is the answer's (it could have hit, or completed, on a faster host), or the baseline
+    // run, when the exploration completed with no match and the baseline's class is the one
+    // premise of a `no` that failed (a faster host could have given the `no`).
+    let clock = if answer.answer != "unknown" {
+        None
+    } else if crate::pattern::clock_stopped(&outcome)
+        && matches!(&outcome, SearchOutcome::Incomplete(cause) if answer.cause.as_ref() == Some(cause))
+    {
+        Some("search")
+    } else if matches!(outcome, SearchOutcome::Complete { .. })
+        && crate::clock::baseline_stopped(&result.row)
+        && judge(
+            &outcome,
+            &Facts {
+                baseline_class: Some("comparable"),
+                ..facts.clone()
+            },
+        )
+        .answer
+            == "no"
+    {
+        Some("baseline")
+    } else {
+        None
+    };
     let mut row = finish_row(row, &answer, false, Some(wall_ms), claimed);
+    row["clock_stopped"] = json!(clock);
     if context.verify {
         if let (Some(stored), Some((_, path))) = (&stored, &keyed)
             && (stored.answer != answer.answer
@@ -665,6 +1099,13 @@ fn ask(
         }
     }
     (row, ok)
+}
+
+/// `row` with `clock_stopped` null: an answer no run the clock stopped decided (a cached one, a
+/// program that is not admitted).
+fn unstopped(mut row: Value) -> Value {
+    row["clock_stopped"] = Value::Null;
+    row
 }
 
 /// Whether a live hit's witness (`live`) and a stored one agree on what is a fact of the answer:
@@ -833,7 +1274,7 @@ mod tests {
                     cache: Some(cache),
                     ..QueryOptions::default()
                 };
-                query_with(&manifest, &list, &options, &adjust)
+                query_with(&manifest, &list, &options, "kink-flow query", &adjust)
             })
             .unwrap()
             .join()
@@ -847,6 +1288,169 @@ mod tests {
             .iter()
             .find(|row| row["pattern"] == pattern && row["program"] == program)
             .unwrap_or_else(|| panic!("no row ({pattern}, {program}) in {document:#}"))
+    }
+
+    /// The witness fixture's manifest: programs A, B and C, in that order.
+    fn witness_manifest() -> FlowManifest {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/witness");
+        FlowManifest::read(&dir.join("FLOW.toml")).unwrap()
+    }
+
+    /// A row of `program` answering `answer`, which the clock stopped (`clock`) or not.
+    fn answered(index: usize, program: &str, answer: &str, clock: Option<&str>) -> (usize, Value) {
+        (
+            index,
+            json!({"pattern": "p", "program": program, "answer": answer, "clock_stopped": clock}),
+        )
+    }
+
+    fn entry(expect: Option<PatternExpect>) -> PatternEntry {
+        PatternEntry {
+            id: "p".into(),
+            pattern: "<k> 7 </k>".into(),
+            programs: None,
+            expect,
+            note: None,
+        }
+    }
+
+    /// An admitted query document whose one obligation is `obligation`.
+    fn obliged(obligation: Value) -> Value {
+        json!({
+            "schema": QUERY_SCHEMA,
+            "profile": "no-z3",
+            "spec": {"outcome": "admitted"},
+            "programs": [{"id": "A"}, {"id": "B"}, {"id": "C"}],
+            "obligations": [obligation],
+        })
+    }
+
+    /// FB54-WITNESS: the witness is the recorded one while it hits, else the first hitter in
+    /// corpus order, whatever was asked first; a recorded witness the clock stopped is
+    /// `clock-stopped`, and the lock keeps it unverified (`undecided` under `--locked`, exit 3)
+    /// rather than moving it to the program that hit on this host. A program that answered no
+    /// final `no` makes a pattern without a hit `undecided`, and its `expect = "no"`
+    /// inconclusive.
+    #[test]
+    fn the_witness_rule_and_the_clock() {
+        let manifest = witness_manifest();
+        // The recorded witness C hits: it stays, though B, earlier in corpus order, hits too.
+        let rows = [
+            answered(2, "C", "hit", None),
+            answered(0, "A", "no", None),
+            answered(1, "B", "hit", None),
+        ];
+        let kept = obligation(&manifest, &entry(None), Some("C"), &rows, true);
+        assert_eq!(kept["witness"], "C");
+        assert!(kept["witness_change"].is_null());
+        assert_eq!(kept["hitters"], json!(["B", "C"]));
+        assert_eq!(kept["clock_stopped"], json!([]));
+        // Without a record the first hitter in corpus order is the witness.
+        let first = obligation(&manifest, &entry(None), None, &rows, false);
+        assert_eq!(
+            (&first["witness"], &first["witness_change"]),
+            (&json!("B"), &json!("no-record"))
+        );
+        // The recorded witness's search was stopped by the clock: C hits on this host, but the
+        // entry depends on B's run.
+        let rows = [
+            answered(1, "B", "unknown", Some("search")),
+            answered(0, "A", "no", None),
+            answered(2, "C", "hit", None),
+        ];
+        let stopped = obligation(&manifest, &entry(None), Some("B"), &rows, false);
+        assert_eq!(stopped["status"], "hit");
+        assert_eq!(stopped["witness"], "C");
+        assert_eq!(stopped["witness_change"], "clock-stopped");
+        assert_eq!(
+            stopped["clock_stopped"],
+            json!([{"program": "B", "run": "search"}])
+        );
+        let document = obliged(stopped);
+        let text = "schema = \"kink-flow-verdicts\"\n\n[query]\nversion = 27\n\
+                    profile = \"no-z3\"\n\n[[query.pattern]]\nid = \"p\"\nstatus = \"hit\"\n\
+                    witness = \"B\"\n";
+        let dir = std::env::temp_dir().join(format!("kink-flow-query-keep-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("kink.lock");
+        fs::write(&path, text).unwrap();
+        let lock = Lock::read_kind(&path, LockKind::Query).unwrap();
+        let kept = keep(&lock, &document);
+        assert_eq!(kept.document["obligations"][0]["witness"], "B");
+        assert_eq!(
+            kept.kept,
+            vec![
+                json!({"pattern": "p", "recorded": {"status": "hit", "witness": "B"},
+                        "now": {"status": "hit", "witness": "C"}})
+            ]
+        );
+        let store = Store::new(&dir);
+        let settle = Settle {
+            locked: true,
+            verify: false,
+            only: &[],
+            stopped: false,
+        };
+        let (value, _) = lock.settle(&store, &document, settle);
+        // The record's header and comments differ from the rendering, so it is stale; a record
+        // the query wrote is undecided.
+        assert_eq!(value["status"], "stale", "{value:#}");
+        let write = Settle {
+            locked: false,
+            ..settle
+        };
+        let (written, _) = lock.settle(&store, &document, write);
+        assert_eq!(written["status"], "written", "{written:#}");
+        let lock = Lock::read_kind(&path, LockKind::Query).unwrap();
+        assert_eq!(lock.killers()["p"], "B");
+        let (value, _) = lock.settle(&store, &document, settle);
+        assert_eq!(value["status"], "undecided", "{value:#}");
+        assert_eq!(
+            crate::cli::query_status(&json!({"lock": value})),
+            crate::cli::EXIT_UNANSWERED
+        );
+        assert_eq!(
+            clock_lines(&json!({"lock": value})),
+            vec![
+                format!(
+                    "{}: p: the clock (budget.time_ms) stopped the search of B: its entry is not \
+                     decided on this host",
+                    path.display()
+                ),
+                format!(
+                    "{}: p: kept hit (witness B) unverified: this host gives hit (witness C)",
+                    path.display()
+                ),
+            ]
+        );
+        // A recorded witness gone from the corpus is not kept, whatever the clock stopped.
+        let mut gone = document.clone();
+        gone["programs"] = json!([{"id": "A"}, {"id": "C"}]);
+        fs::write(&path, text).unwrap();
+        let lock = Lock::read_kind(&path, LockKind::Query).unwrap();
+        assert_eq!(
+            keep(&lock, &gone).document["obligations"][0]["witness"],
+            "C"
+        );
+        // A pattern no program hits, one of whose answers is no final no, is undecided.
+        let rows = [
+            answered(0, "A", "no", None),
+            answered(1, "B", "unknown", None),
+            answered(2, "C", "no", None),
+        ];
+        let undecided = obligation(
+            &manifest,
+            &entry(Some(PatternExpect::No)),
+            None,
+            &rows,
+            false,
+        );
+        assert_eq!(undecided["status"], "undecided");
+        assert_eq!(undecided["unanswered"], json!(["B"]));
+        assert_eq!(undecided["expectation"]["verdict"], "inconclusive");
+        assert_eq!(undecided["clock_stopped"], json!([]));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     mod kink_tier {

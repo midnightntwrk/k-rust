@@ -14,7 +14,7 @@
 //! [coverage]
 //! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 //! # ...
-//! version = 26
+//! version = 27
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -267,16 +267,20 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// and a run the bound cuts is `unknown`), and so does a `[coverage.settings]` table, for its
 /// flips: a lock says which budget its verdicts are complete to, and one written under another
 /// budget is stale. A program whose mutant run never ends is `unknown` where it was a `timeout`.
-pub const VERDICTS_VERSION: u64 = 26;
+/// 27 since a record has a fourth section, `[query]` (FB54-WITNESS), `query`'s obligations, one
+/// `[[query.pattern]]` per pattern of the list with its status and, for a hit, its recorded
+/// `witness`, and the record's comment names it: a `[run]`, `[coverage]` or `[compare]` section
+/// differs in its `version` line only, and the record in its comment.
+pub const VERDICTS_VERSION: u64 = 27;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
 /// command keeps, and that a command touches only its own, so that a reader of `kink.lock` needs
 /// no README to tell what wrote it.
 pub const RECORD_PREAMBLE: &[&str] = &[
     "kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),",
-    "[coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps",
-    "<corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,",
-    "and keeps the others as they are.",
+    "[coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). As a",
+    "lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and",
+    "rewrites only its own section, and keeps the others as they are.",
 ];
 
 /// The comment after `[run]`: the command whose verdicts the section holds, and what the command
@@ -298,6 +302,22 @@ pub const COVERAGE_PREAMBLE: &[&str] = &[
 pub const COMPARE_PREAMBLE: &[&str] = &[
     "The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run",
     "without --locked rewrites this section, and `compare --locked` checks that it is current.",
+];
+
+/// The comment after `[query]` ([`RUN_PREAMBLE`]'s, for `query`).
+pub const QUERY_PREAMBLE: &[&str] = &[
+    "The obligations of kink's `query` command (`krs kink query`, `kink-flow query`): the next",
+    "query tries each pattern's `witness` first, a query of the whole pattern list without",
+    "--locked rewrites this section, and `query --locked` checks that it is current.",
+];
+
+/// The comment before a query section's first `[[query.pattern]]`: what a row is and what each
+/// status says.
+pub const QUERY_LEGEND: &[&str] = &[
+    "Each [[query.pattern]] is a pattern of the list, by its id, and its obligation, that some",
+    "program's run reaches a state that matches it: hit (`witness` names one such program, kept",
+    "while it still hits), open (every program's run reaches none: each answered a final no) or",
+    "undecided (no program hits, and some program's answer is not a final no).",
 ];
 
 /// The comment before a compare section's first `[[compare.verdict]]`: what a row is, what each
@@ -371,8 +391,11 @@ pub fn lock_section(document: &Value) -> Result<String, String> {
     if schema != crate::report::RUN_SCHEMA
         && schema != crate::coverage::COVERAGE_SCHEMA
         && schema != crate::compare::COMPARE_SCHEMA
+        && schema != crate::query::QUERY_SCHEMA
     {
-        return Err("a lock is the rendering of a run, coverage or compare document".to_owned());
+        return Err(
+            "a lock is the rendering of a run, coverage, compare or query document".to_owned(),
+        );
     }
     let kind = section_name(document)?;
     Ok(section(document, kind, false))
@@ -405,6 +428,7 @@ fn section_name(document: &Value) -> Result<&'static str, String> {
         Some(crate::coverage::COVERAGE_SCHEMA) => Ok("coverage"),
         Some(crate::report::RUN_SCHEMA) => Ok("run"),
         Some(crate::compare::COMPARE_SCHEMA) => Ok("compare"),
+        Some(crate::query::QUERY_SCHEMA) => Ok("query"),
         Some(crate::report::MISSING_SCHEMA) => Err(match document["outcome"].as_str() {
             Some(outcome) => format!(
                 "{outcome} run report {}: {}",
@@ -432,6 +456,7 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
         match kind {
             "coverage" => COVERAGE_PREAMBLE,
             "compare" => COMPARE_PREAMBLE,
+            "query" => QUERY_PREAMBLE,
             _ => RUN_PREAMBLE,
         },
     );
@@ -466,10 +491,10 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
         line(&mut text, "protocol", &string(protocol));
     }
     // A compare document refused before any run says so under `[compare.refusal]`.
-    let tables: &[&str] = if kind == "compare" {
-        &["spec", "refusal", "lock"]
-    } else {
-        &["spec", "mutation_list", "lock"]
+    let tables: &[&str] = match kind {
+        "compare" => &["spec", "refusal", "lock"],
+        "query" => &["spec", "lock"],
+        _ => &["spec", "mutation_list", "lock"],
     };
     for &table in tables {
         let Some(object) = document[table].as_object() else {
@@ -490,6 +515,7 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
     match kind {
         "coverage" => coverage(&mut text, document),
         "compare" => compare(&mut text, document),
+        "query" => obligations(&mut text, document),
         _ => mutations(&mut text, document, killed_by),
     }
     if let Some(stopped) = document["stopped"].as_object() {
@@ -836,6 +862,30 @@ fn compare(text: &mut String, document: &Value) {
         for key in ["request_sha256", "identity_sha256"] {
             if let Some(digest) = row[key].as_str() {
                 line(text, key, &string(digest));
+            }
+        }
+    }
+}
+
+/// A query section's rows (`[[query.pattern]]`), one per obligation of `document`, in the pattern
+/// list's order: each row's `id` and `status`, and its `witness` where it has one.
+fn obligations(text: &mut String, document: &Value) {
+    let rows = document["obligations"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    if !rows.is_empty() {
+        text.push('\n');
+        comment(text, QUERY_LEGEND);
+    }
+    for (index, row) in rows.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[query.pattern]]\n"
+        } else {
+            "\n[[query.pattern]]\n"
+        });
+        for key in ["id", "status", "witness"] {
+            if let Some(value) = row[key].as_str() {
+                line(text, key, &string(value));
             }
         }
     }

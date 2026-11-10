@@ -6,9 +6,12 @@
 //!
 //! **`PATTERNS.toml`** ([`PatternList`]): `[[pattern]]` entries with a unique non-empty `id`, a
 //! `pattern` and optional `programs` (the corpus programs the author claims hit it: the per-input
-//! claims; absent, every program of the corpus is asked) and `note`. Decoding is strict, as for
-//! `FLOW.toml` and `MUTATIONS.toml`: an unknown key, a value of the wrong type, a duplicate or empty
-//! id or program id, and a claimed program the manifest does not have are errors naming the key.
+//! claims), `expect` (`"no"`: the author claims no program hits it) and `note`. Every pattern is
+//! also an obligation of the corpus, "some program's run reaches a state matching it", which
+//! `query` discharges by a witness ([`crate::query`]). Decoding is strict, as for `FLOW.toml` and
+//! `MUTATIONS.toml`: an unknown key, a value of the wrong type, a duplicate or empty id or program
+//! id, `expect` beside `programs`, and a claimed program the manifest does not have are errors
+//! naming the key.
 //!
 //! **Lowering** ([`Lowering`]). A pattern is K text, parsed by the specification's own grammar: it
 //! is compiled by k-rust's public `kompile::compile_search_pattern` (the compiler `krun --pattern`
@@ -328,11 +331,45 @@ pub struct PatternEntry {
     /// K text: a configuration fragment as a rule's left-hand side is written, cells completed
     /// by k-rust as for rules, optionally followed by `requires` and a condition.
     pub pattern: String,
-    /// The corpus programs the author claims hit the pattern (per-input claims); `None` asks
-    /// every program of the corpus.
+    /// The corpus programs the author claims hit the pattern (per-input claims), each asked and
+    /// checked; `None` when the pattern states none. Whether or not it has claims, every pattern
+    /// is an obligation of the corpus ([`crate::query`]).
     pub programs: Option<Vec<String>>,
+    /// The answer the author claims the corpus gives the pattern's obligation (key `expect`),
+    /// when the list states one: [`PatternExpect::No`], no program of the corpus reaches a state
+    /// that matches the pattern. `query` checks it against the obligation
+    /// ([`crate::query::pattern_expectation`]); it changes no answer and enters no digest, key or
+    /// lock. A pattern with `expect` has no `programs`: the two claims contradict each other.
+    pub expect: Option<PatternExpect>,
     /// Free text for the reader; it enters no digest.
     pub note: Option<String>,
+}
+
+/// The answer a pattern states it expects of the corpus ([`PatternEntry::expect`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PatternExpect {
+    /// `expect = "no"`: every program of the corpus gives a final `no`, so no program's run
+    /// reaches a state that matches the pattern.
+    No,
+}
+
+impl PatternExpect {
+    /// The value as the list and the query document write it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::No => "no",
+        }
+    }
+
+    /// The value the list writes as `text`, if it is one.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "no" => Some(Self::No),
+            _ => None,
+        }
+    }
 }
 
 fn pattern_key(id: &str) -> String {
@@ -429,7 +466,11 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
         &join(&position, "id"),
     )?;
     let key = pattern_key(&id);
-    known_keys(table, &key, &["id", "pattern", "programs", "note"])?;
+    known_keys(
+        table,
+        &key,
+        &["id", "pattern", "programs", "expect", "note"],
+    )?;
     let pattern = non_empty(
         table
             .get("pattern")
@@ -475,10 +516,30 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
             ));
         }
     };
+    let expect =
+        match table.get("expect") {
+            None => None,
+            Some(value) => Some(value.as_str().and_then(PatternExpect::parse).ok_or_else(
+                || {
+                    ManifestError::new(
+                        join(&key, "expect"),
+                        "expected \"no\": the answer the corpus gives the pattern",
+                    )
+                },
+            )?),
+        };
+    if expect.is_some() && programs.is_some() {
+        return Err(ManifestError::new(
+            join(&key, "expect"),
+            "a pattern with `programs` claims those programs hit it, which contradicts `expect = \
+             \"no\"`: keep one of the two",
+        ));
+    }
     Ok(PatternEntry {
         id,
         pattern,
         programs,
+        expect,
         note,
     })
 }
@@ -623,6 +684,19 @@ pub enum SearchOutcome {
     Incomplete(String),
     /// k-rust refused the search: its message.
     Failed(String),
+}
+
+/// The words of every cause the clock (`budget.time_ms`) gives a search, on either route: a
+/// search or a stopped run the watchdog cancelled, or an exploration with a cancelled entry
+/// ([`clock_stopped`]).
+pub const CLOCK_STOPPED: &str = "did not finish within time_ms";
+
+/// Whether the clock stopped the search whose outcome is `outcome`: it is incomplete, and its
+/// cause names the clock ([`CLOCK_STOPPED`]). Such a search has no answer on this host: on a
+/// faster one it could have ended with a hit or a completed exploration.
+#[must_use]
+pub fn clock_stopped(outcome: &SearchOutcome) -> bool {
+    matches!(outcome, SearchOutcome::Incomplete(cause) if cause.contains(CLOCK_STOPPED))
 }
 
 /// What the answer rules read besides the search ([`judge`]).
@@ -1107,8 +1181,8 @@ fn stopped_cause(
     let would = "the stopped run reached no state that matches, but a no is not given";
     match unknown {
         MatchUnknown::Clock => format!(
-            "the stopped run did not finish within time_ms = {}, so its states are not read \
-             ({name}: the clock is no answer)",
+            "the stopped run {CLOCK_STOPPED} = {}, so its states are not read ({name}: the clock \
+             is no answer)",
             budget.time_ms
         ),
         MatchUnknown::StopConditionRefused(reason) => format!(
@@ -1420,8 +1494,8 @@ fn outcome(
 ) -> SearchOutcome {
     let clock = || {
         SearchOutcome::Incomplete(format!(
-            "the search did not finish within time_ms = {} (a search has no work budget at this \
-             k-rust pin, so the clock bounds it)",
+            "the search {CLOCK_STOPPED} = {} (a search has no work budget at this k-rust pin, so \
+             the clock bounds it)",
             budget.time_ms
         ))
     };
@@ -1706,10 +1780,7 @@ fn incomplete_cause(incomplete: &[IncompleteSearchOutput<Pattern>], budget: Budg
         kinds.insert(match entry {
             I::DepthBound { .. } => format!("a path reached max_depth = {}", budget.max_depth),
             I::BreadthBound { .. } => "the frontier exceeded the breadth bound".to_owned(),
-            I::Cancelled { .. } => format!(
-                "the search did not finish within time_ms = {}",
-                budget.time_ms
-            ),
+            I::Cancelled { .. } => format!("the search {CLOCK_STOPPED} = {}", budget.time_ms),
             I::Indeterminate { .. } => "a step k-rust could not decide (indeterminate)".to_owned(),
             I::Simplification {
                 error: SearchFailureOutput::StackExhausted,

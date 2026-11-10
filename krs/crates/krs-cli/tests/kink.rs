@@ -2361,6 +2361,18 @@ fn query_and_fuzz_name_rules_by_their_items() {
     assert_status(&output, 0);
     let document = json(&output);
     assert_eq!(document["schema"], "kink-flow-query", "{document:#}");
+    // FB54-WITNESS: a query of the corpus's own pattern list keeps kink.lock's [query] section,
+    // each pattern's obligation and its witness, and `--locked` checks it.
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    assert_eq!(document["obligations"][0]["witness"], "c3", "{document:#}");
+    let lock = project.read("kink/kink.lock");
+    assert!(
+        lock.contains("[[query.pattern]]\nid = \"done\"\nstatus = \"hit\"\nwitness = \"c3\"\n"),
+        "{lock}"
+    );
+    let locked = project.kink("query", &["--locked"]);
+    assert_status(&locked, 0);
+    assert_eq!(json(&locked)["lock"]["status"], "unchanged");
     let row = &document["rows"][0];
     assert_eq!(row["answer"], "hit", "{document:#}");
     let steps = row["witness"]["krs_rules"]
@@ -2385,6 +2397,9 @@ fn query_and_fuzz_name_rules_by_their_items() {
     let rows = document["rows"].as_array().unwrap();
     assert_eq!(rows.len(), 1, "{document:#}");
     assert_eq!(rows[0]["pattern"], "elsewhere", "{document:#}");
+    // Another list keeps no lock: the section describes the corpus with its own list.
+    assert_eq!(document.get("lock"), None, "{document:#}");
+    assert_eq!(project.read("kink/kink.lock"), lock);
 
     project.write(
         "kink/TEMPLATES.toml",
@@ -3601,10 +3616,13 @@ programs = ["roms/b.bin"]
 
     let output = project.kink("query", &[]);
     let document = json(&output);
+    // The claims' rows; each pattern's obligation also asks the programs before its witness in
+    // corpus order.
     let rows = document["rows"]
         .as_array()
         .unwrap_or_else(|| panic!("the query has rows: {document:#}"))
         .iter()
+        .filter(|row| row["claimed"] == true)
         .map(|row| {
             (
                 row["pattern"].as_str().unwrap(),
@@ -3619,6 +3637,14 @@ programs = ["roms/b.bin"]
             ("text-rom", "roms/u.bin", "hit"),
             ("binary-rom", "roms/b.bin", "hit")
         ],
+        "{document:#}"
+    );
+    assert_eq!(
+        (
+            &document["obligations"][0]["witness"],
+            &document["obligations"][1]["witness"]
+        ),
+        (&json!("roms/u.bin"), &json!("roms/b.bin")),
         "{document:#}"
     );
 
@@ -6666,12 +6692,13 @@ fn story_lock(killers: [&str; 3]) -> String {
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
         "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),\n\
-         # [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps\n\
-         # <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own \
-         section,\n# and keeps the others as they are.\nschema = \"kink-flow-verdicts\"\n\n[run]\n\
+         # [coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). \
+         As a\n# lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks \
+         (--locked) and\n# rewrites only its own section, and keeps the others as they are.\n\
+         schema = \"kink-flow-verdicts\"\n\n[run]\n\
          # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run \
          tries\n# each `killer` first, a run without --locked rewrites this section, and `run \
-         --locked` checks\n# that it is current.\nversion = 26\nprofile = \"z3\"\nz3_version = \
+         --locked` checks\n# that it is current.\nversion = 27\nprofile = \"z3\"\nz3_version = \
          \"{}\"\n",
         build.version
     );

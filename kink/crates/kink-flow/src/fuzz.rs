@@ -4287,6 +4287,8 @@ fn confirm(
                     .filter(|p| p.id == pattern)
                     .map(|p| crate::pattern::PatternEntry {
                         programs: Some(vec![id.to_owned()]),
+                        // The job asks the claim of the fuzz case alone.
+                        expect: None,
                         ..p.clone()
                     })
                     .collect(),
@@ -4297,7 +4299,7 @@ fn confirm(
                 &crate::query::QueryOptions {
                     only: vec![pattern.to_owned()],
                     cache,
-                    verify: false,
+                    ..crate::query::QueryOptions::default()
                 },
             );
             let row = document["rows"]
