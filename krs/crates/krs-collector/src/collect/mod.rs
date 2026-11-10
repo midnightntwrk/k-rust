@@ -1131,7 +1131,10 @@ fn stable_item_id(
             "host `module_path!()` was unexpectedly empty",
         )
     })?;
-    if root != &context.crate_root {
+    // `module_path!()` writes a crate whose name is a Rust keyword as a raw identifier (`r#let`
+    // for the crate `let`), and a raw identifier is the identifier itself, so the root names the
+    // selected target when its identifier does.
+    if root.strip_prefix("r#").unwrap_or(root) != context.crate_root {
         return Err(CollectionError::new(
             CollectionErrorKind::CrateRootMismatch,
             format!(

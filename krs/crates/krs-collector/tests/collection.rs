@@ -575,6 +575,24 @@ fn symbol_diagnostics_use_the_resolved_facade_name() {
     );
 }
 
+/// `module_path!()` writes the crate `let` as the raw identifier `r#let`, which is the
+/// identifier `let`: its items belong to the selected target `let`.
+#[test]
+fn a_raw_crate_root_names_its_identifier() {
+    let package = TestPackage::new("let", "#[k::sort(alias = Expr)]\npub trait ExprSort {}\n");
+    let mut sort = package.sort("Expr", expr_type, vec![]);
+    sort.id = HostItemId::new(
+        HostPackageKey::new("let", "0.1.0", package.root()).unwrap(),
+        ["r#let"],
+        "Expr",
+        ItemKind::Sort,
+        "",
+    )
+    .unwrap();
+    let bundle = collect_descriptors([package.context("ORG-RAW-ROOT")], [sort]).unwrap();
+    assert!(bundle.descriptors()[0].id().module_path().is_empty());
+}
+
 #[test]
 fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
     let package = TestPackage::new(
