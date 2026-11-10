@@ -530,6 +530,11 @@ code = "krs::analysis::invalid-term"
 doc = "a result that creates a `?` group with a record that leaves its other children to template defaults (`ogroup: Some(Gp { pa: x, .. })` over `None`, and its `cells!` fragment): not supported yet; a rule writes a `?` group as a whole group term, which names every child or takes them from a matched group"
 advice = "none"
 
+[class.instance-group-defaults]
+code = "krs::analysis::invalid-term"
+doc = "a result that creates an instance whose group child is a record leaving the group's other children to template defaults (`acct: { Acct { id: x, aframe: Ag { .. }, .. }, .. }`, and its `k::fragment!` and `cells!` spellings): not supported yet; a created instance's group child is a whole group term, which names every child"
+advice = "none"
+
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
 doc = "an optional (`?`) cell written without its presence (`Some(..)`/`None`; in an initializer, `Some(..)`/`k::absent!(..)`), the spellings of its examples, where the entry's inside passes form and kind against the underlying kind (P3c, with P3's reason at every depth: otherwise the inside's own refusal is named, S5.0g pattern review P-R5); or a rule's or claim's entry naming a cell below a `?` ancestor (S1 b, the rule forms'; an initializer names no cell by a path), which would silently require it present: write it inside `Some(G { child: .., .. })` (S1 b)"
@@ -7537,6 +7542,11 @@ at = "spelling"
 [[refuse]]
 match = 'sweep/{claim,readable}/overwrite/job/[x]'
 class = "collection-overwrite"
+at = "spelling"
+
+[[refuse]]
+match = '{cells,readable,claim}/bd-{a,b}/kinds/account/*'
+class = "instance-group-defaults"
 at = "spelling"
 
 [[refuse]]
@@ -17975,10 +17985,6 @@ syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."cells/bd-a/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: Ag { .. }, .. }], ..instances0 }"]
-
-[accept."cells/bd-b/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }], ..instances0 }"]
-
 [accept."cells/op-inst-0n/kinds/account/{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::add(x, 1), .. }], ..instances0 }"]
 k = """
 rule [case-TAG]:
@@ -18128,10 +18134,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."claim/bd-a/kinds/account/{ Acct { id: x, aframe: Ag { .. }, .. }, .. }"]
-
-[accept."claim/bd-b/kinds/account/{ Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }, .. }"]
-
 [accept."claim/op-inst-0n/kinds/account/{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }"]
 k = """
 claim [case-TAG]:
@@ -18271,10 +18273,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
-
-[accept."readable/bd-a/kinds/account/{ Acct { id: x, aframe: Ag { .. }, .. }, .. }"]
-
-[accept."readable/bd-b/kinds/account/{ Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }, .. }"]
 
 [accept."readable/op-inst-0n/kinds/account/{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }"]
 k = """
@@ -19092,6 +19090,11 @@ findings = ["S5-G1"]
 code = "krs::syntax::invalid-list-notation"
 docs = "An anonymous `..` keeps a rest this way only in a cell of the record itself"
 findings = ["S5-F2"]
+
+[limit.instance-group-defaults]
+code = "krs::analysis::invalid-term"
+docs = "A group child of an instance the result creates"
+findings = ["GEN2-R3"]
 
 [limit.optional-group-defaults]
 code = "krs::analysis::invalid-term"
