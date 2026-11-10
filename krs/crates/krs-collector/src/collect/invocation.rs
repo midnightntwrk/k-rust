@@ -1140,9 +1140,11 @@ fn collect_macro_invocations(
                     .map(|binding| binding.unraw().to_string())
                     .collect();
                 let descriptor = row.descriptor().map_err(source_syntax)?;
+                // A row is named by its label's identifier without `r#`, as the macro names
+                // the equation, so `r#match: ..` is the row `match`.
                 output.push(parsed_invocation(
                     ProvenanceRole::RuleDeclaration,
-                    row.label().to_string(),
+                    row.label().unraw().to_string(),
                     descriptor.anchors().to_vec(),
                     ParsedInvocationPayload::Rule { bindings },
                 )?);

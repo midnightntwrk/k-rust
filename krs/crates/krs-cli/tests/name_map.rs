@@ -152,3 +152,54 @@ fn a_package_named_by_a_keyword_is_its_crate() {
         ),
     );
 }
+
+/// A raw identifier is the identifier itself, so a table row written `r#table` is the row `table`
+/// (its K is the plain row's), and one written `r#match` is the row `match`, labelled by it.
+#[test]
+fn a_raw_row_name_is_its_identifier() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let plain = package(temporary.path(), "plain", "name_map_rows", LIBRARY);
+    let raw = package(
+        temporary.path(),
+        "raw",
+        "name_map_rows",
+        &LIBRARY.replace("table: (b)", "r#table: (b)"),
+    );
+    let keyword = package(
+        temporary.path(),
+        "keyword",
+        "name_map_rows",
+        &LIBRARY.replace("table: (b)", "r#match: (b)"),
+    );
+    let plain_k = emitted_k(
+        target.path(),
+        &plain,
+        "name_map_rows",
+        &temporary.path().join("plain-out"),
+    );
+    assert_eq!(
+        emitted_k(
+            target.path(),
+            &raw,
+            "name_map_rows",
+            &temporary.path().join("raw-out")
+        ),
+        plain_k
+    );
+    let (success, _, stderr) = krs(target.path(), &keyword, "name_map_rows", "check", &[]);
+    assert!(success, "{stderr}");
+    let keyword_k = emitted_k(
+        target.path(),
+        &keyword,
+        "name_map_rows",
+        &temporary.path().join("keyword-out"),
+    );
+    assert_eq!(
+        keyword_k,
+        plain_k.replace(
+            "[label(org_krs_name_map--table)]",
+            "[label(org_krs_name_map--match)]"
+        )
+    );
+}
