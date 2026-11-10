@@ -155,6 +155,8 @@ struct Tally {
     unconfirmed: Vec<String>,
     /// Bounded runs made.
     bounded_runs: usize,
+    /// Bounded runs the bound did not cut (each the unbounded run, compared as such).
+    uncut: usize,
     /// Every one-sided kill: (mutation, program, budget, work, slot).
     one_sided_kills: Vec<String>,
     /// The distinguished pairs some bounded run killed one-sidedly.
@@ -437,10 +439,22 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
                     let cut = census
                         .as_ref()
                         .is_some_and(|census| census.leaves.get(&HaltClass::PollBound) == Some(&1));
-                    if !cut && bounded.mutants[0].plan.tests[0].run != plan.run {
-                        tally
-                            .failed
-                            .push(format!("{at}: not poll-bound: {census:?}"));
+                    // A run with no `poll-bound` leaf is not cut: k-rust's bound below a run's
+                    // count leaves it whole where the count passed the bound only by a walk
+                    // charged after the run's last poll (`docs/compatibility.md`, "Poll budget"),
+                    // which a run's last polls, past its last state, often are. Such a run is the
+                    // unbounded run: its outcomes and sides must be the unbounded run's, and a
+                    // `Distinguish` of it is two-sided, no one-sided kill.
+                    if !cut {
+                        if bounded.mutants[0].plan.tests[0].run != plan.run
+                            || mutant_sides(&bounded, &test.id)
+                                != mutant_sides(&reference, &test.id)
+                        {
+                            tally.failed.push(format!(
+                                "{at}: not poll-bound, and not the unbounded run: {census:?}"
+                            ));
+                        }
+                        tally.uncut += 1;
                         continue;
                     }
                     let TestRun::Compared(outcomes) = &bounded.mutants[0].plan.tests[0].run else {
