@@ -1,5 +1,6 @@
 //! The comments that make emitted K readable without its sidecars: the header of each
-//! artifact and the `// KRS` line above each sentence written from a KRS item.
+//! artifact and the `// KRS` line above each sentence written from a KRS item, a production as
+//! much as a rule.
 //!
 //! A `// KRS <package>/<file>: <item>` line names the Rust item an agent greps for, never a
 //! line, a column or a byte offset: an edit that only moves Rust lines leaves the emitted K
@@ -13,7 +14,10 @@ use std::{
     fmt,
 };
 
-use krs_ir::{ApplicationRef, OriginFrame, RangedOriginKind, SentenceKind, StableItemId};
+use krs_ir::{
+    ApplicationRef, GrammarProductionItemKind, ItemKind, OriginFrame, ProductionAttribute,
+    RangedOriginKind, SentenceKind, StableItemId,
+};
 use krs_ir_levels::{
     DefinitionIr, DefinitionSentence, DefinitionTerm, DefinitionTermKind, ModuleRole,
     ProductionSentence, RuleBodyRef, RuleSentence, SymbolId,
@@ -63,6 +67,7 @@ pub struct SentenceSource {
     package: String,
     file: String,
     item: String,
+    fields: Vec<String>,
     branch: Option<String>,
     local_function: bool,
     claim_helper: bool,
@@ -83,10 +88,19 @@ impl SentenceSource {
 
     /// The Rust item the sentence comes from, spelled as the source writes it: a rule,
     /// equation, simplification, context or claim fn, a table row's label, the configuration
-    /// struct, or the function of a shorthand equation or of a lifted local function.
+    /// struct, the function of a shorthand equation or of a lifted local function, or a
+    /// production's constructor (`Enum::Variant`, `Struct`) or function.
     #[must_use]
     pub fn item(&self) -> &str {
         &self.item
+    }
+
+    /// The named fields of a constructor production, in production order, as its struct or
+    /// enum variant declares them; empty for any other sentence and for a constructor without
+    /// fields.
+    #[must_use]
+    pub fn fields(&self) -> &[String] {
+        &self.fields
     }
 
     /// The branch of a function-shorthand equation: its position (`3`, `2.1` for the first
@@ -112,13 +126,18 @@ impl SentenceSource {
         self.claim_helper
     }
 
-    /// The item as the `// KRS` line names it after the file: `<item>[, branch <b>][, local
-    /// function]`, the claim helper's mark left out ([`Self::is_claim_helper`] tells it). A
-    /// report that names the sentence uses this spelling, so it names the sentence as the K
-    /// does.
+    /// The item as the `// KRS` line names it after the file: `<item>[ { <field>, .. }][,
+    /// branch <b>][, local function]`, the claim helper's mark left out
+    /// ([`Self::is_claim_helper`] tells it). A report that names the sentence uses this
+    /// spelling, so it names the sentence as the K does.
     #[must_use]
     pub fn item_spelling(&self) -> String {
         let mut spelling = self.item.clone();
+        if !self.fields.is_empty() {
+            spelling.push_str(" { ");
+            spelling.push_str(&self.fields.join(", "));
+            spelling.push_str(" }");
+        }
         if let Some(branch) = &self.branch {
             spelling.push_str(", branch ");
             spelling.push_str(branch);
@@ -130,8 +149,8 @@ impl SentenceSource {
     }
 }
 
-/// `// KRS <package>/<file>: <item>[, branch <b>][, local function][ (claim helper: only
-/// claims apply it)]`.
+/// `// KRS <package>/<file>: <item>[ { <field>, .. }][, branch <b>][, local function][ (claim
+/// helper: only claims apply it)]`.
 impl fmt::Display for SentenceSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -178,13 +197,17 @@ impl<'a> SentenceSources<'a> {
     }
 
     /// The Rust source of `sentence` when it is a rule-like sentence (a rule, equation,
-    /// simplification, alias, desugar, context or claim) or the configuration, and its
-    /// origin names both its authored file and the item it was lowered from: the item of its
-    /// Definition-IR frame, or, for the configuration, whose Definition-IR frame names none,
-    /// of the latest earlier frame that does, the configuration struct. `None` otherwise,
-    /// which leaves the line out rather than naming an item the sentence was not written at.
+    /// simplification, alias, desugar, context or claim), the configuration or a production,
+    /// and its origin names both its authored file and the item it was lowered from: the item
+    /// of its Definition-IR frame, or, for the configuration, whose Definition-IR frame names
+    /// none, of the latest earlier frame that does, the configuration struct. `None`
+    /// otherwise, which leaves the line out rather than naming an item the sentence was not
+    /// written at; [`production_source`] says which productions name one.
     #[must_use]
     pub fn source(&self, sentence: &DefinitionSentence) -> Option<SentenceSource> {
+        if let DefinitionSentence::Production(production) = sentence {
+            return production_source(sentence, production);
+        }
         if !matches!(
             sentence,
             DefinitionSentence::Rule(_) | DefinitionSentence::Configuration(_)
@@ -208,6 +231,7 @@ impl<'a> SentenceSources<'a> {
             package,
             file,
             item: id.item_name().to_owned(),
+            fields: Vec::new(),
             branch: None,
             local_function: false,
             claim_helper,
@@ -246,6 +270,66 @@ impl<'a> SentenceSources<'a> {
             .declaration()
             .and_then(|declaration| declaration.segments().last().cloned())
     }
+}
+
+/// The Rust source of a production: the constructor or function its Definition-IR frame names,
+/// as the author declared it (`Enum::Variant`, `Struct`, `Function`), with a constructor's
+/// named fields in production order, so that `flags(_, _, _, _)` reads as `Flags { z, n, h, c }`.
+///
+/// A derived production names no item the author wrote, so it has no line: one whose frame
+/// names no constructor or a generated one (a token or bracket production KRS generates for a
+/// sort, the production of a lifted local function, a `__krs_` helper), and a syntactic list's
+/// cons and terminator, which stand for the `List{..}` family K generates from the list's whole
+/// enum rather than for the variant whose name they carry. A function's fields are its
+/// parameters, which the Definition IR records alike for a `fn` and for a struct, so a function
+/// is named without them.
+fn production_source(
+    sentence: &DefinitionSentence,
+    production: &ProductionSentence,
+) -> Option<SentenceSource> {
+    let id = sentence.item()?;
+    if id.item_kind() != ItemKind::Constructor
+        || id.is_generated_production()
+        || id.item_name().starts_with("__krs")
+    {
+        return None;
+    }
+    let attributes = production.attributes();
+    if attributes.iter().any(|attribute| {
+        matches!(
+            attribute,
+            ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. }
+        )
+    }) {
+        return None;
+    }
+    let (package, file) = authored_file(sentence)?;
+    let function = attributes
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::Function { .. }));
+    let fields = if function {
+        Vec::new()
+    } else {
+        production
+            .items()
+            .iter()
+            .filter_map(|item| match item.kind() {
+                GrammarProductionItemKind::NonTerminal { field, .. } => {
+                    Some(field.as_str().to_owned())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    Some(SentenceSource {
+        package,
+        file,
+        item: crate::partition::production_display_name(id),
+        fields,
+        branch: None,
+        local_function: false,
+        claim_helper: false,
+    })
 }
 
 /// The branch a shorthand equation named `item_name` is of the function `function`: none when
