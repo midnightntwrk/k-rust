@@ -782,6 +782,29 @@ pub fn match_disjunction_existential_with_solver(
     )
 }
 
+/// Match a constrained pattern against each alternative using the supplied SMT solver, for a
+/// question about the values the pattern's variables take: every way the matching decides, each
+/// with its own condition, and the first cause of a way it left undecided, which does not stop
+/// the matching of the other ways. The matches are every way exactly when `undecided` is `None`.
+/// The conditions are relative to the subjects' instances, as for [`match_disjunction`].
+pub(crate) fn match_disjunction_decided_with_solver(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subjects: &[Pattern],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<PatternMatches> {
+    match_disjunction_ways(
+        definition,
+        target,
+        subjects,
+        options,
+        solver,
+        false,
+        Ways::Decided,
+    )
+}
+
 fn match_disjunction_ways(
     definition: &BackendDefinition,
     target: &Pattern,

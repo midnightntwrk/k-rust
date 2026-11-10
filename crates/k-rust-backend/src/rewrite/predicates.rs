@@ -429,7 +429,7 @@ pub(super) fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term:
         .collect()
 }
 
-fn pattern_free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
+pub(super) fn pattern_free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
     pattern
         .term
         .attributes()

@@ -56,6 +56,10 @@
 //! query may refuse one with such a conjunction); a clean reach with one is kept as the first
 //! clean reach until such a later one replaces it. The run goes on unchanged.
 //!
+//! A chain of patterns, each step at or after the previous one's state on a path, is matched by
+//! the chain matcher (`chain`), which reads every state, step and unless through the same
+//! machinery ([`StateReader`]).
+//!
 //! The summary keeps at most five matched states (the first clean reach, the first dirty
 //! reach, and the first undecided state of each of the four reasons), each with a copy of its
 //! path's diagnostics up to it; nothing else grows with the run.
@@ -76,18 +80,37 @@
 //! cache is a fact about the query, so it answers the run as the solver would; a run with
 //! undecided answers is outside the contract anyway.
 
+use std::collections::BTreeMap;
+
 use crate::{
     definition::BackendDefinition,
     diagnostic::{BackendDiagnostic, PathDiagnostics},
     evaluation::{EvaluationMode, with_evaluation},
-    search::{PatternMatchError, PatternMatches, match_disjunction_existential_with_solver},
+    search::{
+        PatternMatchError, PatternMatches, match_disjunction_decided_with_solver,
+        match_disjunction_existential_with_solver,
+    },
     simplify::SimplificationOptions,
     smt::{SmtSolver, UndecidedCounting},
     stop::Stoppable,
-    term::{Term, TermKind, immediate_children},
+    substitution::Substitution,
+    term::{Term, TermKind, Variable, immediate_children},
 };
 
 use super::{Pattern, Truth, predicates_truth};
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the chain matcher is driven by its unit tests until the run asks for it"
+    )
+)]
+mod chain;
+pub use chain::{
+    ChainCompletion, ChainMatches, ChainOptions, ChainPart, ChainStep, ChainUndecided,
+    InvalidChain, PartialKey, Payload, Progress, StepHit, UnlessPart,
+};
 
 /// What a run matches its states against ([`super::ExecutionOptions::match_states`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -192,24 +215,107 @@ enum Verdict {
     Undecided(UndecidedMatchReason),
 }
 
-/// One mode's answer.
+/// Why the ways a target matches a state are not known to be every way.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ModeVerdict {
-    Matched,
-    NotMatched,
+enum Incomplete {
+    /// The matcher left a way undecided, matched one only under constraints, a required mode
+    /// disagreed, or a stop interrupted the match.
     Undecided,
-    /// Undecided because a list scan stopped at its placement bound.
+    /// A list scan stopped at its placement bound.
     Bounded,
 }
 
-/// The matcher of one run: the target, the solver without the run's count, and the summary so
-/// far.
-pub(super) struct StateMatcher<'a> {
-    target: Pattern,
+/// The ways a target matches a decided state, in the modes a request requires: each
+/// unconditional way, keyed by the values it gives the variables carried
+/// ([`StateReader::ways`]), the first way of each key in the matcher's order; and why some way
+/// may be missing, if one may. With no variable carried every way has the one empty key, so a
+/// way found is the whole answer and `incomplete` is then `None`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StateWays {
+    found: BTreeMap<Vec<Term>, Substitution>,
+    incomplete: Option<Incomplete>,
+}
+
+impl StateWays {
+    fn undecided() -> Self {
+        Self {
+            found: BTreeMap::new(),
+            incomplete: Some(Incomplete::Undecided),
+        }
+    }
+
+    /// The unconditional ways of `matches`, keyed by their values of `carried`. A way with a
+    /// condition, or without a value for a carried variable, leaves the answer incomplete; a
+    /// list scan's placement bound is named before any other cause.
+    fn of(matches: PatternMatches, carried: &[Variable]) -> Self {
+        let mut found = BTreeMap::new();
+        let mut open = false;
+        for way in matches.matches {
+            if !way.constraints.is_empty() {
+                open = true;
+                continue;
+            }
+            match carried
+                .iter()
+                .map(|variable| way.substitution.get(variable).cloned())
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(values) => {
+                    found.entry(values).or_insert(way.substitution);
+                }
+                None => open = true,
+            }
+        }
+        let incomplete = if carried.is_empty() && !found.is_empty() {
+            None
+        } else if matches!(
+            matches.undecided,
+            Some(PatternMatchError::PlacementBound { .. })
+        ) {
+            Some(Incomplete::Bounded)
+        } else if matches.undecided.is_some() || open {
+            Some(Incomplete::Undecided)
+        } else {
+            None
+        };
+        Self { found, incomplete }
+    }
+
+    /// The answer both modes give, from this execution-mode answer and the proof-mode one: the
+    /// ways both found; complete when both are complete and found the same keys. A disagreement
+    /// is incomplete, for the placement bound when the proof mode stopped at it and this answer
+    /// names no cause of its own.
+    fn agreeing(mut self, proof: StateWays) -> Self {
+        if self.incomplete.is_none()
+            && proof.incomplete.is_none()
+            && self.found.keys().eq(proof.found.keys())
+        {
+            return self;
+        }
+        self.incomplete = self.incomplete.or(Some(match proof.incomplete {
+            Some(Incomplete::Bounded) => Incomplete::Bounded,
+            Some(Incomplete::Undecided) | None => Incomplete::Undecided,
+        }));
+        self.found
+            .retain(|values, _| proof.found.contains_key(values));
+        self
+    }
+}
+
+/// What the state matcher and the chain matcher share to read one state: the solver without
+/// the run's count, the simplification bounds, and whether proof agreement is required. Every
+/// call runs isolated from the run (module documentation).
+struct StateReader<'a> {
     proof_agreement: bool,
     solver: UndecidedCounting<'a>,
     options: SimplificationOptions,
     max_iterations: usize,
+}
+
+/// The matcher of one run: the target, the reader, and the summary so far.
+pub(super) struct StateMatcher<'a> {
+    target: Pattern,
+    reader: StateReader<'a>,
     found: StateMatches,
 }
 
@@ -226,13 +332,7 @@ impl<'a> StateMatcher<'a> {
     ) -> Self {
         Self {
             target: options.target,
-            proof_agreement: options.proof_agreement,
-            solver: UndecidedCounting::new(solver),
-            options: SimplificationOptions {
-                max_iterations,
-                ..SimplificationOptions::default()
-            },
-            max_iterations,
+            reader: StateReader::new(options.proof_agreement, solver, max_iterations),
             found: StateMatches::default(),
         }
     }
@@ -265,20 +365,8 @@ impl<'a> StateMatcher<'a> {
         if self.done() {
             return MatchMark::Other;
         }
-        // A normal form that a value the definition leaves open decided is one model's: the
-        // state is matched as the run left it.
-        let ((normalized, normalizing_stops), read_chosen) =
-            crate::coverage::isolated_on_the_clock(|| {
-                crate::stop::counting_stack_stops(|| self.normal_form(definition, pattern))
-            });
-        let normalized = if read_chosen {
-            pattern.clone()
-        } else {
-            normalized
-        };
-        let ((verdict, matching_stops), _) = crate::coverage::isolated_on_the_clock(|| {
-            crate::stop::counting_stack_stops(|| self.verdict(definition, &normalized))
-        });
+        let (normalized, normalizing_stops) = self.reader.normalized(definition, pattern);
+        let (verdict, matching_stops) = isolated(|| self.verdict(definition, &normalized));
         self.found.stack_stops += normalizing_stops + matching_stops;
         self.found.matched += 1;
         let state = |term_conjunction| StateMatch {
@@ -353,8 +441,67 @@ impl<'a> StateMatcher<'a> {
 
     /// The summary, with the matcher's undecided solver answers.
     pub(super) fn finish(mut self) -> StateMatches {
-        self.found.smt_unknowns = self.solver.undecided();
+        self.found.smt_unknowns = self.reader.solver.undecided();
         self.found
+    }
+
+    /// The verdict on `pattern` (module documentation).
+    fn verdict(&self, definition: &BackendDefinition, pattern: &Pattern) -> Verdict {
+        let attributes = pattern.term.attributes();
+        if !pattern.constraints.is_empty() || !attributes.variables.is_empty() {
+            return Verdict::Undecided(UndecidedMatchReason::UndecidedState);
+        }
+        let ways = self.reader.ways(definition, &self.target, pattern, &[]);
+        if !ways.found.is_empty() {
+            return if definition.ground_defined(&pattern.term) {
+                Verdict::Reach {
+                    term_conjunction: holds_term_conjunction(&pattern.term),
+                }
+            } else {
+                Verdict::Undecided(UndecidedMatchReason::NotCeilFree)
+            };
+        }
+        match ways.incomplete {
+            None => Verdict::Refuted,
+            Some(Incomplete::Undecided) => Verdict::Undecided(UndecidedMatchReason::UndecidedMatch),
+            Some(Incomplete::Bounded) => Verdict::Undecided(UndecidedMatchReason::PlacementBound),
+        }
+    }
+}
+
+/// Run `action` isolated from the run (module documentation), with the matcher's stops for lack
+/// of native stack it met.
+fn isolated<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    let (counted, _) =
+        crate::coverage::isolated_on_the_clock(|| crate::stop::counting_stack_stops(action));
+    counted
+}
+
+impl<'a> StateReader<'a> {
+    fn new(proof_agreement: bool, solver: &'a dyn SmtSolver, max_iterations: usize) -> Self {
+        Self {
+            proof_agreement,
+            solver: UndecidedCounting::new(solver),
+            options: SimplificationOptions {
+                max_iterations,
+                ..SimplificationOptions::default()
+            },
+            max_iterations,
+        }
+    }
+
+    /// The state `pattern` as it is matched, isolated from the run, with the stops for lack of
+    /// native stack its normalization met. A normal form that a value the definition leaves
+    /// open decided is one model's: the state is then matched as the run left it.
+    fn normalized(&self, definition: &BackendDefinition, pattern: &Pattern) -> (Pattern, usize) {
+        let ((normalized, stops), read_chosen) = crate::coverage::isolated_on_the_clock(|| {
+            crate::stop::counting_stack_stops(|| self.normal_form(definition, pattern))
+        });
+        if read_chosen {
+            (pattern.clone(), stops)
+        } else {
+            (normalized, stops)
+        }
     }
 
     /// The state as a leaf would report it: a state with constraints is simplified once more
@@ -390,79 +537,71 @@ impl<'a> StateMatcher<'a> {
         }
     }
 
-    /// The verdict on `pattern` (module documentation).
-    fn verdict(&self, definition: &BackendDefinition, pattern: &Pattern) -> Verdict {
-        let attributes = pattern.term.attributes();
-        if !pattern.constraints.is_empty() || !attributes.variables.is_empty() {
-            return Verdict::Undecided(UndecidedMatchReason::UndecidedState);
-        }
-        let execution = self.match_in(definition, pattern, EvaluationMode::Execution);
-        // A second mode is asked only when it can change the verdict: agreement is required
-        // and the first mode decided. A disagreement whose second mode stopped at the placement
-        // bound is undecided for that reason.
-        let answer = if !self.proof_agreement
-            || matches!(execution, ModeVerdict::Undecided | ModeVerdict::Bounded)
-        {
-            execution
-        } else {
-            match self.match_in(definition, pattern, EvaluationMode::Proof) {
-                proof if proof == execution => execution,
-                ModeVerdict::Bounded => ModeVerdict::Bounded,
-                _ => ModeVerdict::Undecided,
-            }
-        };
-        match answer {
-            ModeVerdict::Matched if definition.ground_defined(&pattern.term) => Verdict::Reach {
-                term_conjunction: holds_term_conjunction(&pattern.term),
-            },
-            ModeVerdict::Matched => Verdict::Undecided(UndecidedMatchReason::NotCeilFree),
-            ModeVerdict::NotMatched => Verdict::Refuted,
-            ModeVerdict::Undecided => Verdict::Undecided(UndecidedMatchReason::UndecidedMatch),
-            ModeVerdict::Bounded => Verdict::Undecided(UndecidedMatchReason::PlacementBound),
-        }
-    }
-
-    /// The pattern's verdict on `pattern` in `mode`: matched when some way the matcher decided
-    /// has empty constraints, whatever the undecided ways are (the question is existential);
-    /// refuted when there is no match and no undecided way; undecided otherwise.
-    fn match_in(
+    /// The ways `target` matches the decided state `pattern` (no constraint, no variable), keyed
+    /// by the values of `carried` (module documentation). In execution mode, and, when proof
+    /// agreement is required, in proof mode too, which is asked only when it can change the
+    /// answer: the first mode decided some way or decided that there is none. The two answers
+    /// are then combined by [`StateWays::agreeing`]. With nothing carried the matcher stops at
+    /// the first unconditional way, which answers the existential question by itself; otherwise
+    /// it decides every way it can.
+    fn ways(
         &self,
         definition: &BackendDefinition,
+        target: &Pattern,
         pattern: &Pattern,
+        carried: &[Variable],
+    ) -> StateWays {
+        let execution = self.ways_in(
+            definition,
+            target,
+            pattern,
+            carried,
+            EvaluationMode::Execution,
+        );
+        if !self.proof_agreement || (execution.found.is_empty() && execution.incomplete.is_some()) {
+            return execution;
+        }
+        let proof = self.ways_in(definition, target, pattern, carried, EvaluationMode::Proof);
+        execution.agreeing(proof)
+    }
+
+    /// The ways `target` matches `pattern` in `mode` ([`StateWays::of`]); a stop leaves the
+    /// answer undecided, which claims nothing.
+    fn ways_in(
+        &self,
+        definition: &BackendDefinition,
+        target: &Pattern,
+        pattern: &Pattern,
+        carried: &[Variable],
         mode: EvaluationMode,
-    ) -> ModeVerdict {
+    ) -> StateWays {
         let outcome: Stoppable<PatternMatches> = with_evaluation(mode, || {
-            match_disjunction_existential_with_solver(
-                definition,
-                &self.target,
-                std::slice::from_ref(pattern),
-                self.options,
-                &self.solver,
-            )
+            let subjects = std::slice::from_ref(pattern);
+            if carried.is_empty() {
+                match_disjunction_existential_with_solver(
+                    definition,
+                    target,
+                    subjects,
+                    self.options,
+                    &self.solver,
+                )
+            } else {
+                match_disjunction_decided_with_solver(
+                    definition,
+                    target,
+                    subjects,
+                    self.options,
+                    &self.solver,
+                )
+            }
         });
         match outcome {
-            Ok(found)
-                if found
-                    .matches
-                    .iter()
-                    .any(|found| found.constraints.is_empty()) =>
-            {
-                ModeVerdict::Matched
-            }
-            Ok(found) if found.matches.is_empty() && found.undecided.is_none() => {
-                ModeVerdict::NotMatched
-            }
-            Ok(PatternMatches {
-                undecided: Some(PatternMatchError::PlacementBound { .. }),
-                ..
-            }) => ModeVerdict::Bounded,
-            // Matched only under constraints, or left undecided (a solver `unknown` among them).
-            Ok(_) => ModeVerdict::Undecided,
+            Ok(found) => StateWays::of(found, carried),
             Err(stop) => {
                 // Kept outcome: undecided, which claims nothing; a stop of the request stays
                 // raised, and the run's next poll publishes it.
                 stop.forgo_refinement();
-                ModeVerdict::Undecided
+                StateWays::undecided()
             }
         }
     }

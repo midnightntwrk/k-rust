@@ -58,7 +58,9 @@ pub(crate) use recover::{
 };
 use roles::{Applicability, Remainder};
 pub use state_match::{
-    StateMatch, StateMatchOptions, StateMatches, UndecidedMatchReason, UndecidedStateMatches,
+    ChainCompletion, ChainMatches, ChainOptions, ChainPart, ChainStep, ChainUndecided,
+    InvalidChain, PartialKey, Payload, Progress, StateMatch, StateMatchOptions, StateMatches,
+    StepHit, UndecidedMatchReason, UndecidedStateMatches, UnlessPart,
 };
 #[cfg(test)]
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
