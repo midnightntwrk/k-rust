@@ -155,7 +155,6 @@ fn a_record_s_anonymous_rest_is_the_cells_it_does_not_name() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "one row per refused clause")]
 fn a_pattern_refuses_what_it_cannot_mean() {
     for (clause, expected) in [
         (
@@ -231,18 +230,7 @@ fn a_pattern_refuses_what_it_cannot_mean() {
             "p: { k: [Go, ..] } => unless({ k: [Go, ..] }, ensures(true)) { k: [Go, ..] };",
             "an `unless` is `unless(record)` or `unless(record, requires(condition))`",
         ),
-        (
-            "p: { bus: [.., Write(1, v), .., Read(1, v), ..] };",
-            "krs::syntax::invalid-pattern several rests in one list of a pattern",
-        ),
-        (
-            "p: { k: [Go, ..], stack: [Pair { items: [.., x, ..] }, ..] };",
-            "several rests in one list of a pattern",
-        ),
-        (
-            "p: { k: [.., Go, ..] };",
-            "several rests in one list of a pattern",
-        ),
+        ("p: { bus: [.., ..] };", "`[.., ..]` names no element"),
         ("p: Go();", "a pattern's step is a cell record"),
         (
             "p: { k: [Go, ..] }; p: { k: [Go, ..] };",
@@ -284,4 +272,38 @@ fn an_unless_binder_shared_with_an_earlier_step_is_that_step_s_value() {
         panic!("one pattern");
     };
     assert_eq!(pattern.parts()[1].binders(), ["x".to_owned()]);
+}
+
+#[test]
+fn a_step_s_list_holds_several_rests_and_every_other_sentence_one() {
+    // A step's list with several rests reads, at the cell and nested in a value.
+    let block = parse(
+        "for Machine;
+        p: { bus: [.., Write(1, v), l @ .., Read(1, v), ..] } => unless({ bus: [.., x, ..] }) { stack: [Pair { items: [.., v, ..] }, ..] };",
+    );
+    let [pattern] = block.patterns() else {
+        panic!("one pattern");
+    };
+    assert_eq!(
+        pattern.parts()[0].binders(),
+        ["v".to_owned(), "l".to_owned()]
+    );
+    // An equation table keeps one rest, before and after a patterns block (a rule and a claim
+    // carry the refusal to the collector, which the krs-cli witnesses show).
+    for _ in 0..2 {
+        let equation = krs_syntax::EquationTable::parse_source("for Last; last: [.., x, ..] => x;")
+            .unwrap_err();
+        assert_eq!(
+            equation.kind().code().as_str(),
+            "krs::syntax::invalid-list-notation",
+            "{equation}"
+        );
+        assert!(
+            equation
+                .to_string()
+                .contains("a list holds at most one rest"),
+            "{equation}"
+        );
+        let _ = parse("for Machine; p: { bus: [.., x, ..] };");
+    }
 }

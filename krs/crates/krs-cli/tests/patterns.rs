@@ -18,6 +18,17 @@ use k::builtin::{Bool, Int, KSequence, List, Map};
 k::sorts! {
     Step: k::KItem;
     Ev: KResult;
+    WordStack;
+}
+
+#[k::constructors(sort = WordStack, result = KResult)]
+#[k::cons_list]
+#[k::precedence((StackEmpty, StackCons))]
+pub enum Stack {
+    #[k::syntax(".WordStack")]
+    StackEmpty(),
+    #[k::syntax("{head} : {tail}")]
+    StackCons { head: Int, tail: WordStack },
 }
 
 #[k::constructors(sort = Step, result = KResult)]
@@ -73,6 +84,8 @@ pub struct Machine {
     pub frame: Frame,
     #[k::cell(name = "stash")]
     pub stash: k::KItem,
+    #[k::cell(name = "stack")]
+    pub stack: WordStack,
 }
 
 impl Machine {
@@ -86,6 +99,7 @@ impl Machine {
             bus: [],
             frame: Frame { fpc: 0, fgas: 0 },
             stash: 0,
+            stack: Stack::StackEmpty(),
         }
     }
 }
@@ -568,6 +582,39 @@ fn no_reader_of_claims_sees_a_part() {
         .map(Vec::len)
         .sum::<usize>();
     assert_eq!(parts, 8, "every part is kept apart");
+    // An IR whose parts stand among a module's sentences or rules is refused when it is read:
+    // the readers' own constructors partition, and validation checks a deserialized one.
+    for (file, among) in [
+        ("definition-ir.json", "sentences"),
+        ("semantic-ir.json", "rules"),
+    ] {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(directory.join(file)).unwrap()).unwrap();
+        for module in value["modules"].as_array_mut().unwrap() {
+            if let Some(parts) = module.as_object_mut().unwrap().remove("patterns") {
+                module[among]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend(parts.as_array().unwrap().iter().cloned());
+            }
+        }
+        let text = serde_json::to_string(&value).unwrap();
+        let error = if file == "definition-ir.json" {
+            serde_json::from_str::<krs_ir_levels::DefinitionIr>(&text)
+                .err()
+                .map(|error| error.to_string())
+        } else {
+            serde_json::from_str::<krs_ir_levels::SemanticTheory>(&text)
+                .err()
+                .map(|error| error.to_string())
+        };
+        assert!(
+            error
+                .as_deref()
+                .is_some_and(|error| error.contains("holds a pattern part")),
+            "{file}: {error:?}"
+        );
+    }
     let (success, _, stderr) = krs(target.path(), &patterns, "prove", &[]);
     assert!(!success);
     assert!(
@@ -583,5 +630,116 @@ fn no_reader_of_claims_sees_a_part() {
         "dispatch-request",
     ] {
         assert!(!stderr.contains(name), "{stderr}");
+    }
+}
+
+/// Several rests in a step's list (R-2): the items occur in this order, with any list between
+/// and around them. A step holds when some split of the list matches, so the one-rest rule's
+/// reason, a result that uses one binding, does not apply.
+#[test]
+fn several_rests_in_a_step_s_list_are_items_in_order() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let (_, patterns) = workspace(
+        temporary.path(),
+        SPEC,
+        Some(
+            "k::patterns! {
+                for spec::Machine;
+                use spec::Event::*;
+                use spec::StepOp::*;
+
+                written_then_read: { bus: [.., Write(0xC110, v), .., Read(0xC110, v), ..] };
+
+                shared: { bus: [.., Write(1, v), ..] } => unless({ bus: [.., Read(1, v), ..] }) { bus: [.., Read(2, v), ..] };
+
+                #[k::requires(k::builtin::list::contains(Read(3, v), l))]
+                member: { bus: [.., Write(3, v), l @ .., Write(4, v), ..] };
+            }",
+        ),
+    );
+    let emitted = emitted_patterns(target.path(), &patterns.unwrap()).unwrap();
+    let steps = |id: &str| {
+        emitted
+            .iter()
+            .find(|pattern| pattern.id == id)
+            .unwrap()
+            .steps
+            .iter()
+            .map(|step| (step.pattern.clone(), step.unless.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        steps("written-then-read"),
+        [(
+            "<bus> _ ListItem(write ( 49424 , V:Int )) _ ListItem(read ( 49424 , V:Int )) _ </bus>"
+                .to_owned(),
+            None
+        )]
+    );
+    assert_eq!(
+        steps("shared"),
+        [
+            (
+                "<bus> _ ListItem(write ( 1 , V:Int )) _ </bus>".to_owned(),
+                None
+            ),
+            (
+                "<bus> _ ListItem(read ( 2 , V:Int )) _ </bus>".to_owned(),
+                Some("<bus> _ ListItem(read ( 1 , V:Int )) _ </bus>".to_owned())
+            ),
+        ]
+    );
+    let member = steps("member");
+    assert_eq!(member.len(), 1);
+    assert_eq!(
+        member[0].0,
+        "<bus> _ ListItem(write ( 3 , V:Int )) L:List ListItem(write ( 4 , V:Int )) _ </bus> requires read ( 3 , V:Int ) in L:List",
+    );
+}
+
+/// Several rests where a list is no builtin `List`, and every other sentence keeps one rest.
+#[test]
+fn several_rests_are_refused_where_they_mean_nothing() {
+    let target = shared_fixture_target();
+    for (block, expected) in [
+        (
+            "k::patterns! { for spec::Machine; p: { stack: [.., 1, .., 2, ..] }; }",
+            "error[krs::analysis::invalid-list-notation]:",
+        ),
+        (
+            "k::patterns! { for spec::Machine; p: { memory: [.., 1, ..] }; }",
+            "error[krs::analysis::invalid-list-notation]: the cell `memory` holds a `Map` leaf, which brackets do not denote",
+        ),
+        (
+            "k::patterns! { for spec::Machine; use spec::StepOp::*; p: { k: [.., Fetch(), ..] }; }",
+            "error[krs::collect::invalid-configuration]: the entry of the computation cell `k` has an item after its rest: a computation is read from its front",
+        ),
+    ] {
+        let temporary = temp_dir();
+        let (_, manifest) = workspace(temporary.path(), SPEC, Some(block));
+        let error = check_error(target.path(), &manifest.unwrap());
+        assert!(error.starts_with(expected), "{block}: {error}");
+    }
+}
+
+/// A rule, an equation and a claim keep the one-rest rule: their results use one binding.
+#[test]
+fn every_other_sentence_keeps_one_rest() {
+    let target = shared_fixture_target();
+    for sentences in [
+        "k::rules! { for Machine; use StepOp::*; r: { k: [Fetch(), ..], bus: [.., x, ..] } => { k: [..] }; }",
+        "k::claims! { for Machine; use StepOp::*; #[k::claim(one_path)] c: { k: [Fetch(), ..], bus: [.., x, ..] } => { k: [..] }; }",
+        "#[k::function(total, internal)]\npub fn Second(list: k::Term<List>) -> k::Term<k::KItem>;\nk::equations! { for Second; second: [.., x, ..] => x; }",
+    ] {
+        let temporary = temp_dir();
+        let (spec, _) = workspace(temporary.path(), &format!("{SPEC}\n{sentences}\n"), None);
+        let error = check_error(target.path(), &spec);
+        assert!(
+            error.starts_with(
+                "error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`"
+            ),
+            "{sentences}: {error}"
+        );
     }
 }
