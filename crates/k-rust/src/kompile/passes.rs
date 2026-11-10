@@ -54,7 +54,8 @@ pub(crate) use add_implicit_computation_cell::{
 pub(crate) use check_simplification::check_simplification_rules_pass;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
 pub(crate) use concretize_cells::{
-    CellCompletion, FragmentVariable, cell_model_module, concretize_cells_pass,
+    CellCompletion, FragmentVariable, cell_model_module, concretize_cells_in_sentence_splitting,
+    concretize_cells_pass,
 };
 pub use concretize_cells::{ConcretizeCellsError, concretize_cells, concretize_cells_in_sentence};
 pub(crate) use constant_folding::constant_fold_pass;

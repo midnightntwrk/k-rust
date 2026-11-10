@@ -72,7 +72,8 @@ pub(crate) use passes::{DefinedBody, DefinedInitializer, Injectable, SoleGenerat
 #[cfg(feature = "cli")]
 pub(crate) use passes::{Placement, PlacementKind};
 pub use search_pattern::{
-    CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
+    CellFragmentSplits, CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity,
+    compile_search_pattern, compile_search_pattern_with_splits,
 };
 pub use sort_injections::{
     AmbiguousInstance, BranchTyping, GroundCause, GroundInput, InstanceAtFixedSort, PathMap,

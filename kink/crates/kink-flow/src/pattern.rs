@@ -262,7 +262,7 @@ use k_rust::{
         definition::{BackendDefinition, DefinitionError},
         stop::{CancellationToken, StopCause, with_operation_record},
     },
-    kompile::{CompileSearchPatternError, ProgramGrammar, compile_search_pattern},
+    kompile::{CompileSearchPatternError, ProgramGrammar, compile_search_pattern_with_splits},
     kore::{
         ast::{Associativity, Pattern},
         json as kore_json,
@@ -599,9 +599,20 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
 pub struct LoweredPattern {
     /// The compiled target (`\and(body, ...)`).
     pub target: Pattern,
-    /// The KORE names of the variables the compiler generated (anonymous variables, cell
-    /// completion): their bindings name nothing the author wrote and are not reported.
+    /// The KORE names of the variables k-rust's compiler lists as generated
+    /// (`generated_anonymous_variables`: anonymous variables, the frame `...`, an omitted sibling
+    /// cell that stands for one cell, the sort tests of casts), as the digest takes them.
     pub generated: BTreeSet<String>,
+    /// The KORE names of every variable the compiler minted: `generated`, and the variables it
+    /// minted for the cells a cell fragment stands for when it stands for several (k-rust
+    /// `CellFragmentSplits::parts`), which its list leaves out. Their bindings name nothing the
+    /// author wrote: a witness leaves them out, and a chain never shares them ([`generated`]).
+    /// Derived with the target, so not digested.
+    pub minted: BTreeSet<String>,
+    /// The KORE names of the variables the text writes that stand for several cells, which the
+    /// compiler replaced by one minted variable per cell (k-rust `CellFragmentSplits::written`),
+    /// so the target does not name them; not digested.
+    pub split: BTreeSet<String>,
     /// [`PATTERN_DOMAIN`] digest of the canonical KORE JSON of the target and the generated
     /// variables.
     pub digest: Sha256Digest,
@@ -645,8 +656,8 @@ impl LoweredPattern {
 }
 
 /// The variables the `requires` of the lowered target `\and(body, P...)` names (free in some
-/// `P`) that `body` does not, by KORE name, leaving out those the compiler generated.
-fn requires_only_variables(target: &Pattern, generated: &BTreeSet<String>) -> BTreeSet<String> {
+/// `P`) that `body` does not, by KORE name, leaving out those the compiler minted (`minted`).
+fn requires_only_variables(target: &Pattern, minted: &BTreeSet<String>) -> BTreeSet<String> {
     let Pattern::And { arguments, .. } = target else {
         return BTreeSet::new();
     };
@@ -662,7 +673,7 @@ fn requires_only_variables(target: &Pattern, generated: &BTreeSet<String>) -> BT
         .iter()
         .flat_map(Pattern::free_variables)
         .map(|variable| variable.name)
-        .filter(|name| !bound.contains(name) && !generated.contains(name))
+        .filter(|name| !bound.contains(name) && !minted.contains(name))
         .collect()
 }
 
@@ -737,8 +748,8 @@ impl Lowering {
         definition: &BackendDefinition,
     ) -> Result<LoweredPattern, String> {
         let contents = text.trim();
-        let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            compile_search_pattern(
+        let (compiled, splits) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compile_search_pattern_with_splits(
                 self.grammar.resolved(),
                 &self.execution,
                 &self.module,
@@ -783,10 +794,22 @@ impl Lowering {
             PATTERN_DOMAIN,
             canonical_json(&json!({"target": target_json, "generated": generated})).as_bytes(),
         );
-        let requires_only = requires_only_variables(&compiled.pattern, &generated);
+        let minted = generated
+            .iter()
+            .cloned()
+            .chain(splits.parts.into_iter().map(|identity| identity.name))
+            .collect::<BTreeSet<_>>();
+        let split = splits
+            .written
+            .into_iter()
+            .map(|identity| identity.name)
+            .collect();
+        let requires_only = requires_only_variables(&compiled.pattern, &minted);
         Ok(LoweredPattern {
             target: compiled.pattern,
             generated,
+            minted,
+            split,
             digest,
             requires_only,
         })
@@ -1918,27 +1941,12 @@ fn decided(found: &SearchMatchOutput<Pattern>) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether the KORE variable `name` is one k-rust's pattern compiler generated: one it lists
-/// (`generated_anonymous_variables`), or one spelled as its fresh-name passes spell an anonymous
-/// variable (`_Gen<n>`, `?_Gen<n>`, `!_Gen<n>`, `@_Gen<n>`, `_DotVar<n>`: k-rust
-/// `kompile::fresh_names`). At k-rust 501f18b9 the list omits the variables that complete the
-/// omitted sibling cells of a pattern, so both are read. A witness's bindings leave such a
-/// variable out, and a chain does not share it between its parts ([`chain`]): each part's
-/// generated variables are its own.
+/// Whether the KORE variable `name` is one k-rust's pattern compiler minted, by the compiler's
+/// own record ([`LoweredPattern::minted`]), never by its spelling: a variable the author wrote is
+/// the author's whatever its name. A witness's bindings leave such a variable out, and a chain
+/// does not share it between its parts ([`chain`]): each part's minted variables are its own.
 fn generated(lowered: &LoweredPattern, name: &str) -> bool {
-    if lowered.generated.contains(name) {
-        return true;
-    }
-    let (_, decoded) = k_rust::kast::identifier::decode_variable(name);
-    decoded.is_ok_and(|decoded| {
-        ["_Gen", "?_Gen", "!_Gen", "@_Gen", "_DotVar"]
-            .iter()
-            .any(|prefix| {
-                decoded.strip_prefix(prefix).is_some_and(|suffix| {
-                    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
-                })
-            })
-    })
+    lowered.minted.contains(name)
 }
 
 /// A hit's witness as facts (module docs): `{depth, state, bindings, rules}`, the state and each
@@ -2118,6 +2126,8 @@ mod tests {
         LoweredPattern {
             target: kore(r"\top{SortInt{}}()"),
             generated: BTreeSet::new(),
+            minted: BTreeSet::new(),
+            split: BTreeSet::new(),
             digest: payload_digest(PATTERN_DOMAIN, b"test"),
             requires_only: BTreeSet::new(),
         }
@@ -2246,6 +2256,7 @@ mod tests {
         let names = BTreeMap::from([("b".to_owned(), "lib.rs:7".to_owned())]);
         let mut lowered = lowered();
         lowered.generated.insert("VarHidden".to_owned());
+        lowered.minted.insert("VarHidden".to_owned());
         let outcome = outcome(
             Ok(response(vec![found], vec![])),
             0,
@@ -2930,6 +2941,139 @@ mod tests {
             });
             incomplete(&outcome, UNDEFINED_STATE);
         });
+    }
+
+    /// The KORE names of `target`'s variables, free or bound, that are spelled as k-rust's
+    /// fresh-name passes spell a variable they mint (`_Gen<n>`, `?_Gen<n>`, `!_Gen<n>`,
+    /// `@_Gen<n>`, `_DotVar<n>`: k-rust `kompile::fresh_names`).
+    fn fresh_spelled(target: &Pattern) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        let mut pending = vec![target];
+        while let Some(pattern) = pending.pop() {
+            let variable = match pattern {
+                Pattern::Variable(variable) => Some(variable),
+                Pattern::Exists { variable, .. } | Pattern::Forall { variable, .. } => {
+                    Some(&**variable)
+                }
+                _ => None,
+            };
+            if let Some(variable) = variable {
+                let (_, decoded) = k_rust::kast::identifier::decode_variable(&variable.name);
+                let fresh = decoded.is_ok_and(|decoded| {
+                    ["_Gen", "?_Gen", "!_Gen", "@_Gen", "_DotVar"]
+                        .iter()
+                        .any(|prefix| {
+                            decoded.strip_prefix(prefix).is_some_and(|suffix| {
+                                !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+                            })
+                        })
+                });
+                if fresh {
+                    names.insert(variable.name.clone());
+                }
+            }
+            pending.extend(k_rust::kore::walk::children(pattern));
+        }
+        names
+    }
+
+    /// The compiler's record of what it minted ([`LoweredPattern::minted`]) names every variable
+    /// it mints: anonymous variables, a `...` rest, the cells a pattern omits beside the cells it
+    /// names (also inside a nested cell, where one omitted fragment stands for several cells),
+    /// and the sort tests of casts. A chain's parts share variables by that record alone
+    /// ([`chain`]), so a variable an author writes is never taken for a minted one by its
+    /// spelling. A variable the text writes for several cells is recorded as split.
+    #[test]
+    fn the_generated_list_names_every_minted_variable() {
+        let dir = std::env::temp_dir().join(format!("kink-flow-generated-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("cells.k"),
+            "module CELLS-SYNTAX\n  imports INT-SYNTAX\n  syntax Exp ::= Int | \"tick\" \"(\" Int \
+             \")\" [symbol(tick)]\nendmodule\nmodule CELLS\n  imports CELLS-SYNTAX\n  imports \
+             INT\n  imports LIST\n  configuration <T> <k> $PGM:Exp </k> <out> .List </out> \
+             <count> 0 </count> </T> <log> .List </log>\n  rule <k> tick(I) => tick(I -Int 1) \
+             </k> <out> ... .List => ListItem(I) </out> <count> C => C +Int 1 </count> requires \
+             I >Int 0\n  rule <k> tick(0) => 0 </k>\nendmodule\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("FLOW.toml"),
+            "[spec]\nentry = \"cells.k\"\nmain_module = \"CELLS\"\nsyntax_module = \
+             \"CELLS-SYNTAX\"\n\n[[program]]\nid = \"three\"\ntext = \"tick(3)\"\n",
+        )
+        .unwrap();
+        let cells = [
+            "<count> N:Int </count> requires N >Int 1",
+            "<out> _ ListItem(I) </out>",
+            "<k> tick(_) ... </k> <log> L </log>",
+            "<T> <k> _ </k> ... </T>",
+            "<log> _:List </log> <count> C </count> requires C >Int 0",
+            "<T> X <count> C </count> </T>",
+        ];
+        let dirs = [
+            (
+                "calc",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/calc"),
+            ),
+            (
+                "loop",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/loop"),
+            ),
+            ("cells", dir.clone()),
+        ];
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || {
+                let mut minted = 0;
+                for (fixture, dir) in dirs {
+                    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+                    let texts = if fixture == "cells" {
+                        cells
+                            .iter()
+                            .map(|text| (*text).to_owned())
+                            .collect::<Vec<_>>()
+                    } else {
+                        PatternList::read(&dir.join("PATTERNS.toml"))
+                            .unwrap()
+                            .patterns
+                            .iter()
+                            .map(|entry| entry.single().unwrap().to_owned())
+                            .collect()
+                    };
+                    let (_, admitted) = crate::admit::admit_spec(&manifest);
+                    let (spec, _) = admitted.expect("the fixture is admitted");
+                    let main = &manifest.spec.main_module;
+                    let searcher = Searcher::new(&spec, main, manifest.budget).unwrap();
+                    let lowering = Lowering::new(&spec, main).unwrap();
+                    for text in texts {
+                        let lowered = lowering.lower(&text, searcher.definition()).unwrap();
+                        let spelled = fresh_spelled(&lowered.target);
+                        minted += spelled.difference(&lowered.generated).count();
+                        let missing = spelled.difference(&lowered.minted).collect::<Vec<_>>();
+                        assert!(
+                            missing.is_empty(),
+                            "{fixture} {text}: {missing:?} not in {:?}: {}",
+                            lowered.minted,
+                            lowered.kore()
+                        );
+                        assert!(lowered.generated.is_subset(&lowered.minted), "{text}");
+                        let split = if text.contains(" X ") {
+                            BTreeSet::from(["VarX".to_owned()])
+                        } else {
+                            BTreeSet::new()
+                        };
+                        assert_eq!(lowered.split, split, "{fixture} {text}");
+                    }
+                }
+                // The cells that complete a nested cell's omitted siblings are minted beside the
+                // compiler's list, which leaves them out.
+                assert!(minted > 0, "the list leaves out the split cells' variables");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The digests of the calc and loop fixtures' patterns, as every cached answer's key names

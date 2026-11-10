@@ -4407,6 +4407,38 @@ mod streak_tests {
         );
     }
 
+    /// A chain pattern (`steps`) is no fuzz goal: the job is refused naming it, before the
+    /// specification is admitted.
+    #[test]
+    fn a_chain_pattern_job_is_refused() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/calc");
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+        let templates =
+            TemplateList::decode("[[template]]\nid = \"t\"\ntext = \"1 + 2\"\n", &dir).unwrap();
+        let list = PatternList::decode(
+            "[[pattern]]\nid = \"c\"\nsteps = [{ pattern = \"<k> 1 + 2 ~> _ </k>\" }, { pattern \
+             = \"<k> 3 </k>\" }]\n",
+        )
+        .unwrap();
+        let (document, ok) = fuzz_job(
+            &manifest,
+            &templates,
+            "t",
+            FuzzJob::Pattern {
+                list: &list,
+                id: "c",
+            },
+            &FuzzOptions::default(),
+        );
+        assert!(!ok);
+        assert_eq!(document["stopped"], "refused", "{document:#}");
+        assert_eq!(
+            document["job"]["refusal"]["reason"], "chain-pattern",
+            "{document:#}"
+        );
+        assert_eq!(document["spec"], Value::Null, "{document:#}");
+    }
+
     /// A kill job's next steps run its own list and cache: kink-flow names the list as `run`'s
     /// operand, a front end with `--mutations`.
     #[test]

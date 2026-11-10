@@ -13,6 +13,7 @@ use k_rust::kompile::{
     CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
     GroundCause, GroundInput, KoreVariableIdentity, SortInjectionError, UndeterminedCause,
     UndeterminedSite, compile_loaded_definition, compile_search_pattern,
+    compile_search_pattern_with_splits,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust::kore::parser::{parse_definition, parse_pattern};
@@ -934,4 +935,86 @@ fn search_pattern_sort_tests_follow_first_occurrence_so_a_renaming_compiles_alik
         condition.find("VarX:").unwrap() < condition.find("VarY:").unwrap(),
         "{original}"
     );
+}
+
+/// A configuration with a nested cell, so a pattern naming one child of `<T>` omits siblings on
+/// two levels.
+const NESTED: &str = r#"requires "domains.md"
+module MAIN
+  imports INT
+  imports LIST
+  configuration <T> <k> $PGM:Int </k> <out> .List </out> <count> 0 </count> </T> <log> .List </log>
+endmodule
+"#;
+
+/// The context of `NESTED`, shared as [`context`] is.
+fn nested_context() -> Arc<Context> {
+    static CONTEXT: shared::Shared<Context> = shared::Shared::new();
+    CONTEXT.get(|| load_context("search-pattern/nested.k", NESTED, "MAIN"))
+}
+
+/// A cell fragment that stands for several cells is replaced by one minted variable per cell,
+/// which the generated list does not name and the splits report as parts: with the list, they
+/// are every variable the pattern names that its text does not write. A written fragment so
+/// replaced is reported as written.
+#[test]
+fn search_pattern_splits_report_every_minted_cell_variable() {
+    let context = nested_context();
+    let parsing = ResolvedDefinition::resolve(&context.parsing).unwrap();
+    let execution = ResolvedDefinition::resolve(&context.execution).unwrap();
+    let compile = |contents: &str| {
+        compile_search_pattern_with_splits(
+            &parsing,
+            &execution,
+            "MAIN",
+            contents,
+            Attributes::default(),
+        )
+        .unwrap()
+    };
+    for (contents, authored, written) in [
+        ("<count> N:Int </count>", &["VarN"][..], &[][..]),
+        ("<out> _ ListItem(I) </out>", &["VarI"], &[]),
+        ("<T> <k> _ </k> ... </T>", &[], &[]),
+        (
+            "<log> L:List </log> <count> C </count>",
+            &["VarL", "VarC"],
+            &[],
+        ),
+        ("<T> X <count> C </count> </T>", &["VarC"], &["VarX"]),
+    ] {
+        let (compiled, splits) = compile(contents);
+        let names = variable_names(&compiled.pattern);
+        let generated = compiled
+            .generated_anonymous_variables
+            .iter()
+            .map(|identity| identity.name.clone())
+            .collect::<BTreeSet<_>>();
+        let parts = splits
+            .parts
+            .iter()
+            .map(|identity| identity.name.clone())
+            .collect::<BTreeSet<_>>();
+        assert!(generated.is_disjoint(&parts), "{contents}");
+        assert!(parts.is_subset(&names), "{contents}");
+        let minted = names
+            .difference(&authored.iter().map(|name| (*name).to_owned()).collect())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            generated.union(&parts).cloned().collect::<BTreeSet<_>>(),
+            minted,
+            "{contents}: {}",
+            compiled.pattern
+        );
+        assert_eq!(
+            splits
+                .written
+                .iter()
+                .map(|identity| identity.name.as_str())
+                .collect::<Vec<_>>(),
+            written,
+            "{contents}"
+        );
+    }
 }

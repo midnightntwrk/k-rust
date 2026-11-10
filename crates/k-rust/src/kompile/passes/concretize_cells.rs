@@ -70,6 +70,28 @@ pub fn concretize_cells_in_sentence(
     module: &str,
     sentence: Sentence,
 ) -> Result<(Sentence, BTreeSet<GeneratedVariableIdentity>), ConcretizeCellsError> {
+    concretize_cells_in_sentence_splitting(definition, module, sentence)
+        .map(|(sentence, generated, _)| (sentence, generated))
+}
+
+/// The variables minted for the children of each cell fragment that stands for several children
+/// of its cell, by the fragment's name: the fragment occurs nowhere in the result, and each of
+/// these stands for one child in its place.
+pub(crate) type FragmentSplits = BTreeMap<String, BTreeSet<GeneratedVariableIdentity>>;
+
+/// [`concretize_cells_in_sentence`], with the [`FragmentSplits`] of the sentence.
+pub(crate) fn concretize_cells_in_sentence_splitting(
+    definition: &ResolvedDefinition,
+    module: &str,
+    sentence: Sentence,
+) -> Result<
+    (
+        Sentence,
+        BTreeSet<GeneratedVariableIdentity>,
+        FragmentSplits,
+    ),
+    ConcretizeCellsError,
+> {
     let original = sentence.clone();
     let Some(module_id) = definition.module_id(module) else {
         return Err(sentence_error(
@@ -102,7 +124,11 @@ pub fn concretize_cells_in_sentence(
         };
         sentence_error(message, &original)
     })?;
-    Ok((transformed, concretizer.generated))
+    Ok((
+        transformed,
+        concretizer.generated,
+        concretizer.split_fragments,
+    ))
 }
 
 /// The module whose cell model completes the cells of a sentence of `module`: the main module
@@ -965,6 +991,8 @@ struct Concretizer<'use_, 'definition> {
     values: &'use_ ValueFacts<'use_>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
+    /// The [`FragmentSplits`] of the last sentence.
+    split_fragments: FragmentSplits,
     fragments: BTreeMap<String, FragmentInfo>,
     /// Whether a fragment test of the last sentence became a conjunction (`_andBool_`) of the
     /// sort predicates of two or more cells.
@@ -1069,6 +1097,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             values,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
+            split_fragments: BTreeMap::new(),
             fragments: BTreeMap::new(),
             conjoins_fragment: false,
             moved_cells: RefCell::new(Vec::new()),
@@ -1132,6 +1161,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     fn start(&mut self, sentence: &Sentence) {
         self.fresh = FreshNames::for_sentence(sentence);
         self.generated.clear();
+        self.split_fragments.clear();
         self.fragments.clear();
         self.rest_sides.clear();
         self.under_right_side = false;
@@ -1312,7 +1342,14 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         sort: Some(child.value_sort.clone()),
                     }
                 } else {
-                    self.fresh_variable(Some(child.value_sort.clone()), "_Gen")
+                    let part = self.fresh_variable(Some(child.value_sort.clone()), "_Gen");
+                    if let Term::Variable { name: part, .. } = &part {
+                        self.split_fragments
+                            .entry(name.clone())
+                            .or_default()
+                            .insert(GeneratedVariableIdentity::element(part.clone()));
+                    }
+                    part
                 };
                 split.insert(sort, term);
             }

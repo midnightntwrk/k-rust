@@ -27,7 +27,9 @@ use crate::kast::{Sort, Term, TermParts, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
 use crate::names::BuiltinSort;
 
+use super::ConcretizeCellsError;
 use super::fresh_names::GeneratedVariableIdentity;
+use super::passes::concretize_cells_in_sentence_splitting;
 use super::passes::{
     ResolveSemanticCastsError, expand_macros_in_terms_from_resolved,
     rename_bound_apart_in_sentence, resolve_anon_vars_in_sentence,
@@ -35,7 +37,6 @@ use super::passes::{
 };
 use super::sort_injections::{GroundInput, SortInjectionError, SortInjector, rewrite_projection};
 use super::term_to_kore::{TermConversionError, TermConverter};
-use super::{ConcretizeCellsError, concretize_cells_in_sentence};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct KoreVariableIdentity {
@@ -63,6 +64,22 @@ impl KoreVariableIdentity {
 pub struct CompiledSearchPattern {
     pub pattern: Pattern,
     pub generated_anonymous_variables: BTreeSet<KoreVariableIdentity>,
+}
+
+/// What cell completion did to the cell fragments of a compiled search pattern
+/// ([`compile_search_pattern_with_splits`]). A fragment is a variable that stands for children of
+/// one cell (the frame `...`, an anonymous or a named variable among a cell's children, or the
+/// omitted siblings of the cells a pattern names); one that stands for several children is
+/// replaced by one variable minted per child, and occurs nowhere in the target.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CellFragmentSplits {
+    /// The variables minted for those children that occur in the target. They are generated as
+    /// the anonymous variables are, and
+    /// [`CompiledSearchPattern::generated_anonymous_variables`] does not list them.
+    pub parts: BTreeSet<KoreVariableIdentity>,
+    /// The variables the pattern's text names that were so replaced: what such a variable
+    /// stands for is the tuple of its parts, which no single variable of the target binds.
+    pub written: BTreeSet<KoreVariableIdentity>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -173,6 +190,24 @@ pub fn compile_search_pattern(
     contents: &str,
     attributes: Attributes,
 ) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
+    compile_search_pattern_with_splits(
+        parsing_definition,
+        execution_definition,
+        module,
+        contents,
+        attributes,
+    )
+    .map(|(compiled, _)| compiled)
+}
+
+/// [`compile_search_pattern`], with the [`CellFragmentSplits`] of the compiled pattern.
+pub fn compile_search_pattern_with_splits(
+    parsing_definition: &ResolvedDefinition,
+    execution_definition: &ResolvedDefinition,
+    module: &str,
+    contents: &str,
+    attributes: Attributes,
+) -> Result<(CompiledSearchPattern, CellFragmentSplits), CompileSearchPatternError> {
     let sentence = parse_rule_content(parsing_definition, module, contents, attributes)?;
     reject_undenoted_text(&sentence)?;
     let module_id = execution_definition
@@ -196,9 +231,20 @@ pub fn compile_search_pattern(
     rename_bound_apart_in_sentence(&mut sentence);
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
     let sentence = resolve_semantic_casts_with_pending_predicates_in_sentence(subsorts, sentence)?;
-    let (sentence, cell_generated) =
-        concretize_cells_in_sentence(execution_definition, module, sentence)?;
+    let (sentence, cell_generated, fragment_splits) =
+        concretize_cells_in_sentence_splitting(execution_definition, module, sentence)?;
     generated.extend(cell_generated);
+    // A fragment the passes so far minted (an anonymous variable, the frame `...`, an omitted
+    // sibling) is generated; any other was written.
+    let written_fragments = fragment_splits
+        .keys()
+        .filter(|name| !generated.contains(&GeneratedVariableIdentity::element((*name).clone())))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let fragment_parts = fragment_splits
+        .into_values()
+        .flatten()
+        .collect::<BTreeSet<_>>();
 
     let Sentence::Rule {
         body,
@@ -351,10 +397,24 @@ pub fn compile_search_pattern(
         .map(encode_generated_identity)
         .filter(|identity| occurring.contains(identity))
         .collect();
-    Ok(CompiledSearchPattern {
-        pattern,
-        generated_anonymous_variables,
-    })
+    let splits = CellFragmentSplits {
+        parts: fragment_parts
+            .into_iter()
+            .map(encode_generated_identity)
+            .filter(|identity| occurring.contains(identity))
+            .collect(),
+        written: written_fragments
+            .into_iter()
+            .map(|name| encode_generated_identity(GeneratedVariableIdentity::element(name)))
+            .collect(),
+    };
+    Ok((
+        CompiledSearchPattern {
+            pattern,
+            generated_anonymous_variables,
+        },
+        splits,
+    ))
 }
 
 /// Reject a pattern that writes text taking no part in what it denotes.

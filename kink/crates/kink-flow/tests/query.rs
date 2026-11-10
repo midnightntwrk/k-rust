@@ -1917,8 +1917,8 @@ programs = ["add"]
 
     /// Flow F-18 deliverable 3: a witness reports the bindings of the variables the author wrote
     /// only. k-rust's compiler completes the omitted sibling cells of `<count>` with variables
-    /// (`_Gen<n>`) its list of generated variables does not name at 501f18b9, so kink also leaves
-    /// out every variable spelled as k-rust's fresh-name passes spell one.
+    /// (`_Gen<n>`) its list of generated variables does not name; it reports them as the parts of
+    /// a split cell fragment, and kink leaves out every variable the compiler minted.
     #[test]
     #[ignore = "kink"]
     fn a_witness_binds_only_the_authors_variables() {

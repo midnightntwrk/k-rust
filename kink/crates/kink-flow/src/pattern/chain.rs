@@ -12,7 +12,9 @@
 //! written, `requires` included, lowered alone by [`Lowering::lower`] to `\and(body, P...)` and
 //! its generated variables. A `=>` inside a part keeps the meaning K gives it in a pattern: the
 //! part denotes the configurations its left side matches. A part's variables are the free
-//! variables of its target that the compiler did not generate, each a KORE name and sort; a
+//! variables of its target that the compiler did not mint, by the compiler's own record of what
+//! it minted ([`LoweredPattern::minted`]) and never by a name's spelling, each a KORE name and
+//! sort; a
 //! step's variables are those of its body and those of its `requires`, and an `unless`'s are those
 //! of its own body and `requires`. The rules on them ([`chain_variables`]):
 //! - A variable named in exactly one part is local to it. A step's body-only local is bound by
@@ -27,7 +29,9 @@
 //!   matched on the states before its own step, names no variable its own or a later step binds.
 //!   A variable named only in `requires` or only in `unless` parts is never bound, so no one
 //!   value of it can be carried, and a set variable binds a set of values, which is not carried
-//!   either: both are refused when shared.
+//!   either: both are refused when shared. So is a written variable that stands for several
+//!   cells of one cell in some part ([`LoweredPattern::split`]): the compiler replaces it there
+//!   by one variable per cell, so no variable of the target is it.
 //! - Every occurrence of a shared variable has one sort. A KORE variable carries its sort, so a
 //!   name written `P:Int` in one part and inferred as `P:K` in another names two variables, which
 //!   is refused rather than read as two unrelated values.
@@ -386,8 +390,52 @@ fn chain_variables(
     let mut imports = vec![BTreeSet::new(); parts.len()];
     let mut exports = vec![BTreeSet::new(); parts.len()];
     let mut unless_imports = vec![BTreeSet::new(); parts.len()];
-    let mut violations = Vec::new();
+    // Each violation with the KORE name of its variable, sorted by it at the end.
+    let mut violations: Vec<(&str, String)> = Vec::new();
+    // A written variable that stands for several cells is replaced by one minted variable per
+    // cell, so no variable of the target is it: it is shared when another part names it.
+    let mut split: BTreeMap<&str, Vec<Part>> = BTreeMap::new();
+    for (step, (pattern, unless)) in parts.iter().enumerate() {
+        for name in &pattern.split {
+            split.entry(name).or_default().push(Part::Body(step));
+        }
+        for name in unless.iter().flat_map(|unless| &unless.split) {
+            split.entry(name).or_default().push(Part::Unless(step));
+        }
+    }
+    for (name, written) in &split {
+        let mut named = written.clone();
+        named.extend(
+            occurrences
+                .get(name)
+                .into_iter()
+                .flatten()
+                .map(|(part, _)| *part),
+        );
+        named.sort_by_key(|part| part.position());
+        let mut units = named.iter().map(|part| part.unit()).collect::<Vec<_>>();
+        units.dedup();
+        if units.len() < 2 {
+            continue;
+        }
+        let mut cells = written.iter().map(|part| part.unit()).collect::<Vec<_>>();
+        cells.dedup();
+        violations.push((
+            name,
+            format!(
+                "the variable {} is named in {} and stands for several cells in {}, where the \
+                 compiler replaces it by one variable per cell, so no one value of it is carried \
+                 between the parts; name the cells it stands for instead",
+                variable_label(name),
+                listed(&units),
+                listed(&cells),
+            ),
+        ));
+    }
     for (name, occurring) in &occurrences {
+        if split.contains_key(name) {
+            continue;
+        }
         // A step's body and `requires` are one part, its `unless` another.
         let units = occurring
             .iter()
@@ -418,11 +466,14 @@ fn chain_variables(
             .iter()
             .any(|(_, variable)| variable.kind == VariableKind::Set)
         {
-            violations.push(format!(
-                "the set variable {label} is named in {}: a set variable is matched against a \
+            violations.push((
+                name,
+                format!(
+                    "the set variable {label} is named in {}: a set variable is matched against a \
                  set of values, which is not carried from one part to another, so give it a \
                  different name in each part",
-                units_named,
+                    units_named,
+                ),
             ));
         }
         if sorts.len() > 1 {
@@ -436,11 +487,14 @@ fn chain_variables(
                     )
                 })
                 .collect::<Vec<_>>();
-            violations.push(format!(
-                "the variable {label} has {}: a variable the parts share has one sort, so \
+            violations.push((
+                name,
+                format!(
+                    "the variable {label} has {}: a variable the parts share has one sort, so \
                  write the same sort in every part that names it (`{label}:{}`)",
-                listed(&each),
-                sort_label(sorts.keys().next().expect("two sorts")),
+                    listed(&each),
+                    sort_label(sorts.keys().next().expect("two sorts")),
+                ),
             ));
         }
         let binding = occurring
@@ -451,13 +505,13 @@ fn chain_variables(
             })
             .min();
         let Some(binding) = binding else {
-            violations.push(format!(
+            violations.push((name, format!(
                 "the variable {label} is named in {} and in no step's body: a variable the parts \
                  share is bound by the body of the first step that names it, which carries one \
                  value of it to the later parts, so name it in a step's body or give it a \
                  different name in each part",
                 in_order(&mut occurring.iter().map(|(part, _)| *part), Part::describe),
-            ));
+            )));
             continue;
         };
         let bound_at = Part::Body(binding);
@@ -477,12 +531,12 @@ fn chain_variables(
                      step's body binds"
                 }
             };
-            violations.push(format!(
+            violations.push((name, format!(
                 "the variable {label} is named in {} but bound by {}, the first step's body that \
                  names it: {rule}",
                 early.describe(),
                 bound_at.describe(),
-            ));
+            )));
         }
         if violations.len() > before {
             continue;
@@ -502,7 +556,12 @@ fn chain_variables(
         }
     }
     if !violations.is_empty() {
-        return Err(violations.join("; "));
+        violations.sort_by_key(|(name, _)| *name);
+        let messages = violations
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect::<Vec<_>>();
+        return Err(messages.join("; "));
     }
     for (step, variables) in variables.iter_mut().enumerate() {
         variables.imports = std::mem::take(&mut imports[step]).into_iter().collect();
@@ -565,6 +624,8 @@ mod tests {
         LoweredPattern {
             target: parse_pattern(&target).unwrap(),
             generated: BTreeSet::new(),
+            minted: BTreeSet::new(),
+            split: BTreeSet::new(),
             digest: payload_digest(PATTERN_DOMAIN, b"test"),
             requires_only: BTreeSet::new(),
         }
@@ -789,22 +850,53 @@ mod tests {
     }
 
     #[test]
-    fn generated_variables_are_never_shared() {
-        // `_Gen0` and `_DotVar0` are spelled as the compiler spells what it generates, and `X`
-        // is listed as generated: each part's are its own, whatever their sorts.
-        let generated = |sort: &str| {
-            let mut lowered = part(&[], &[]);
-            lowered.target = parse_pattern(&format!(
-                r"\and{{SortGeneratedTopCell{{}}}}(Lblbody{{}}(Var'Unds'Gen0:Sort{sort}{{}}, Var'Unds'DotVar0:Sort{sort}{{}}, VarX:Sort{sort}{{}}), \top{{SortGeneratedTopCell{{}}}}())"
-            ))
-            .unwrap();
-            lowered.generated.insert("VarX".to_owned());
+    fn minted_variables_are_never_shared() {
+        // `G` and `D` are recorded as minted in each part: each part's are its own, whatever
+        // their sorts.
+        let minted = |sort: &str| {
+            let mut lowered = part(&[&format!("G:{sort}"), &format!("D:{sort}")], &[]);
+            lowered.minted = BTreeSet::from(["VarG".to_owned(), "VarD".to_owned()]);
             (lowered, None)
         };
-        assert_eq!(
-            carried(&[generated("Int"), generated("K")]),
-            vec![NONE, NONE]
+        assert_eq!(carried(&[minted("Int"), minted("K")]), vec![NONE, NONE]);
+    }
+
+    #[test]
+    fn a_written_variable_is_shared_whatever_its_spelling() {
+        // Spelled as the compiler spells what it mints, but not recorded as minted: the
+        // author's, so shared, and its two sorts are refused.
+        let written = |sort: &str| {
+            let mut lowered = part(&[], &[]);
+            lowered.target = parse_pattern(&format!(
+                r"\and{{SortGeneratedTopCell{{}}}}(Lblbody{{}}(Var'Unds'Gen0:Sort{sort}{{}}), \top{{SortGeneratedTopCell{{}}}}())"
+            ))
+            .unwrap();
+            (lowered, None)
+        };
+        refused(
+            &[written("Int"), written("K")],
+            &["the variable _Gen0 has sort Int (in step 1) and sort K (in step 2)"],
         );
+    }
+
+    #[test]
+    fn a_variable_split_into_cells_is_not_shared() {
+        // X stands for several cells in step 1, so the target names its cells, not X.
+        let mut first = part(&[], &[]);
+        first.split = BTreeSet::from(["VarX".to_owned()]);
+        refused(
+            &[(first.clone(), None), step(&["X"], &[])],
+            &[
+                "the variable X is named in step 1 and step 2 and stands for several cells in \
+                 step 1",
+            ],
+        );
+        refused(
+            &[(first.clone(), None), (first.clone(), None)],
+            &["stands for several cells in step 1 and step 2"],
+        );
+        // Split in one part and named nowhere else: local.
+        assert_eq!(carried(&[(first, None), step(&[], &[])]), vec![NONE, NONE]);
     }
 
     fn decoded(steps: &str) -> Result<PatternList, ManifestError> {
