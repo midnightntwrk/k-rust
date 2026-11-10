@@ -1345,6 +1345,13 @@ fn parsed_invocation(
 ) -> Result<ParsedInvocation, CollectionError> {
     let primary = primary_role.key(0);
     let parsed = parsed_anchor_map(anchors)?;
+    // An item is named by its identifier, as the macro names it: a raw identifier's `r#` is no
+    // part of the name (`r#Wrap` is `Wrap`).
+    let item_name = if let Some(identifier) = item_name.strip_prefix("r#") {
+        identifier.to_owned()
+    } else {
+        item_name
+    };
     Ok(ParsedInvocation {
         primary,
         item_name,

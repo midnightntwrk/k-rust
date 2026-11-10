@@ -171,11 +171,14 @@ impl Decoder<'_> {
                 )
             }
         };
+        // The paths are compared by identifier: a raw segment is its identifier, so a
+        // variant declared `r#Wrap` is the variant a rule writes `Wrap`.
+        let declared = identifier_path(target.authored_path());
+        let written = identifier_path(&wire.authored_path);
         assert!(
-            target.authored_path() == wire.authored_path
-                || target
-                    .authored_path()
-                    .strip_suffix(&wire.authored_path)
+            declared == written
+                || declared
+                    .strip_suffix(&written)
                     .is_some_and(|prefix| prefix.ends_with("::")),
             "KRS generated rule wire has a mismatched authored application path"
         );
@@ -184,6 +187,17 @@ impl Decoder<'_> {
             target,
         }
     }
+}
+
+/// `path` with each segment written as its identifier: trimmed, and without a raw `r#`.
+fn identifier_path(path: &str) -> String {
+    path.split("::")
+        .map(|segment| {
+            let segment = segment.trim();
+            segment.strip_prefix("r#").unwrap_or(segment)
+        })
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 impl RefMap<WireStage, HostStage> for Decoder<'_> {

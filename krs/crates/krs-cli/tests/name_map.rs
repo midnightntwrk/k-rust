@@ -411,6 +411,140 @@ fn a_clause_name_no_k_label_spells_takes_the_hash_label() {
     assert!(plain_k.contains("rule [unwrap]:"), "{plain_k}");
 }
 
+/// A raw identifier is the identifier itself, so an item declared raw is the item of its
+/// identifier: a variant `r#Wrap` the rule writes `Wrap`, a function `r#PickF`, a sort `r#Stmt`,
+/// a configuration `r#Machine` and a struct constructor `r#Inc` give the K of their plain twins
+/// (the configuration's `// KRS` line names `Machine`).
+#[test]
+fn a_raw_item_is_the_item_of_its_identifier() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let inc = "\n#[k::constructor(sort = Stmt, syntax = \"inc({n})\")]\npub struct {name} {\n    pub n: Term<Int>,\n}\n";
+    let twins = [
+        (
+            "variant",
+            library(&[("Wrap { s: Stmt },", "r#Wrap { s: Stmt },")], ""),
+            library(&[], ""),
+        ),
+        (
+            "function",
+            library(&[("pub fn PickF(", "pub fn r#PickF(")], ""),
+            library(&[], ""),
+        ),
+        (
+            "sort",
+            library(
+                &[("k::sorts! {\n    Stmt;", "k::sorts! {\n    r#Stmt;")],
+                "",
+            ),
+            library(&[], ""),
+        ),
+        (
+            "configuration",
+            library(
+                &[
+                    ("pub struct Machine", "pub struct r#Machine"),
+                    ("impl Machine", "impl r#Machine"),
+                ],
+                "",
+            ),
+            library(&[], ""),
+        ),
+        (
+            "struct",
+            library(&[], &inc.replace("{name}", "r#Inc")),
+            library(&[], &inc.replace("{name}", "Inc")),
+        ),
+    ];
+    for (directory, raw, plain) in twins {
+        let raw_name = format!("name_map_raw_{directory}");
+        let plain_name = format!("name_map_plain_{directory}");
+        let raw_manifest = package(
+            temporary.path(),
+            &format!("raw-{directory}"),
+            &raw_name,
+            &raw,
+        );
+        let plain_manifest = package(
+            temporary.path(),
+            &format!("plain-{directory}"),
+            &plain_name,
+            &plain,
+        );
+        let (success, _, stderr) = krs(target.path(), &raw_manifest, &raw_name, "check", &[]);
+        assert!(success, "{directory}: {stderr}");
+        assert_eq!(
+            emitted_k(
+                target.path(),
+                &raw_manifest,
+                &raw_name,
+                &temporary.path().join(format!("raw-{directory}-out"))
+            ),
+            emitted_k(
+                target.path(),
+                &plain_manifest,
+                &plain_name,
+                &temporary.path().join(format!("plain-{directory}-out"))
+            ),
+            "{directory}"
+        );
+    }
+    let configuration =
+        fs::read_to_string(temporary.path().join("raw-configuration-out/definition.k")).unwrap();
+    assert!(
+        configuration.contains("src/lib.rs: Machine\n"),
+        "{configuration}"
+    );
+}
+
+/// A raw keyword is named by its identifier, which has no plain spelling: a variant `r#match` has
+/// the symbol `stmtSyntaxmatch`, and a field `r#type` is the cell `<type>`.
+#[test]
+fn a_raw_keyword_item_is_named_by_its_identifier() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (directory, source, spelled) in [
+        (
+            "variant-keyword",
+            library(
+                &[
+                    ("Wrap { s: Stmt },", "r#match { s: Stmt },"),
+                    ("Wrap { s }, ..", "r#match { s }, .."),
+                ],
+                "",
+            ),
+            "symbol(stmtSyntaxmatch)",
+        ),
+        (
+            "cell-keyword",
+            library(
+                &[
+                    ("pub acc: Int,", "pub r#type: Int,"),
+                    ("acc: 0 }", "r#type: 0 }"),
+                    (
+                        "acc: v } => { k: [s, ..], acc: PickF(v) }",
+                        "r#type: v } => { k: [s, ..], r#type: PickF(v) }",
+                    ),
+                ],
+                "",
+            ),
+            "<type> V:Int => pickF ( V:Int ) </type>",
+        ),
+    ] {
+        let name = format!("name_map_raw_{}", directory.replace('-', "_"));
+        let manifest = package(temporary.path(), directory, &name, &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, &name, "check", &[]);
+        assert!(success, "{directory}: {stderr}");
+        let emitted = emitted_k(
+            target.path(),
+            &manifest,
+            &name,
+            &temporary.path().join(format!("{directory}-out")),
+        );
+        assert!(emitted.contains(spelled), "{directory}: {emitted}");
+    }
+}
+
 /// One prelude module: its imports, the sorts it declares and the symbols of its productions.
 #[derive(Default)]
 struct PreludeModule {

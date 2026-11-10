@@ -16,6 +16,7 @@ use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{ProvenanceAnchor, SyntaxTemplateItem, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, ItemTrait, Path, parse_quote};
 
@@ -172,7 +173,7 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         .iter()
         .filter_map(|entry| match entry {
             krs_syntax::SortsEntry::Sort(sort) => {
-                Some((sort.name().to_string(), sort.parents().to_vec()))
+                Some((sort.name().unraw().to_string(), sort.parents().to_vec()))
             }
             krs_syntax::SortsEntry::Membership(_) => None,
         })
@@ -309,9 +310,10 @@ fn push_local_sort_ancestors(
     }
 }
 
+/// The local sort a one-segment path names, by its identifier (`r#Stmt` is `Stmt`).
 fn local_sort_name(path: &Path) -> Option<String> {
     (path.leading_colon.is_none() && path.segments.len() == 1)
-        .then(|| path.segments[0].ident.to_string())
+        .then(|| path.segments[0].ident.unraw().to_string())
 }
 
 fn is_framework_sort_path(path: &Path) -> bool {
@@ -343,7 +345,8 @@ fn expand_readable_sort(
     let nonce = expansion_nonce(env, "readable_sort", declaration.name(), fallback);
     let factory = format_ident!("__krs_sort_descriptor_{nonce:016x}");
     let declared_key = format_ident!("__krs_sort_type_{nonce:016x}");
-    let name = declaration.name().to_string();
+    // The sort's identifier: a raw `r#Stmt` is the sort `Stmt`.
+    let name = declaration.name().unraw().to_string();
     // Preserve the declaration token so references resolved through the
     // generated alias navigate back to the readable `Sort;` declaration.
     let alias = declaration.name();

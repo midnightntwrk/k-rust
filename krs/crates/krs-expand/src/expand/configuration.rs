@@ -15,6 +15,7 @@ use krs_syntax::KrsSyntax;
 use krs_syntax::{ConfigurationCellContent, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
@@ -479,7 +480,8 @@ fn configuration_fields(
                     field: slots.type_slot(quote!(#facade::HostTypeKey(#identity))),
                 },
             },
-            rust_field: field.name().to_string(),
+            // The field's identifier: a raw `r#type` is the field `type`.
+            rust_field: field.name().unraw().to_string(),
             emitted_name,
             color,
             multiplicity,

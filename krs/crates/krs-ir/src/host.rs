@@ -183,6 +183,15 @@ impl HostItemId {
         disambiguator: impl Into<String>,
     ) -> Result<Self, HostIdentityError> {
         let package = HostPackageKey::new(cargo_name, cargo_version, manifest_dir)?;
+        // A macro names an item by its token's text, which keeps a raw identifier's `r#`; a raw
+        // identifier is the identifier itself (`r#Wrap` is `Wrap`), so the identity is the
+        // identifier. `module_path!()` keeps its own spelling.
+        let item_name = item_name.into();
+        let item_name = if let Some(identifier) = item_name.strip_prefix("r#") {
+            identifier.to_owned()
+        } else {
+            item_name
+        };
         Self::new(
             package,
             module_path.split("::"),
