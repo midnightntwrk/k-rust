@@ -288,6 +288,7 @@ fn configuration_claim(
             existentials: existential_metadata,
             ensures,
             or_bool_keys,
+            pattern: None,
         }),
         pattern_key: ledger.define(rule.pattern_key())?,
         subject_configuration: WireConfigurationReference {

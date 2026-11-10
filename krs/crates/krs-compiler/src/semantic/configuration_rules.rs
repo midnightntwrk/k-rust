@@ -1582,7 +1582,8 @@ fn lower_rule_claim(
             .as_ref()
             .map(|key| semantic_origin(descriptor, key.clone(), "claim-trusted"))
             .transpose()?,
-    ))
+    )
+    .with_pattern(claim.pattern.clone()))
 }
 
 fn lower_claim_binder(

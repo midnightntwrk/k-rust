@@ -317,7 +317,37 @@ impl Sample for HeadRuleClaim {
             modality: sample::<ClaimModality>(),
             circularity_key: Some(sample::<ProvenanceKey>()),
             trusted_key: Some(sample::<ProvenanceKey>()),
+            pattern: Some(sample::<PatternDecl>()),
         }]
+    }
+}
+impl Sample for PatternDecl {
+    fn samples() -> Vec<Self> {
+        vec![
+            Self {
+                id: "dispatch-request".to_owned(),
+                name: "dispatch_request".to_owned(),
+                step: 2,
+                unless: true,
+                note: Some("a note".to_owned()),
+                programs: Some(vec!["scheduled/dispatch-request".to_owned()]),
+                expect: None,
+            },
+            Self {
+                id: "never".to_owned(),
+                name: "never".to_owned(),
+                step: 1,
+                unless: false,
+                note: None,
+                programs: None,
+                expect: Some(sample::<PatternExpect>()),
+            },
+        ]
+    }
+}
+impl Sample for PatternExpect {
+    fn samples() -> Vec<Self> {
+        vec![Self::No]
     }
 }
 impl Sample for CollectorMeasureDocument {
@@ -3458,12 +3488,15 @@ impl Sample for ContextAliasSentence {
 }
 impl Sample for DefinitionClaim {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<crate::ClaimModality>(),
-            sample::<Option<NodeOrigin>>(),
-            sample::<Vec<DefinitionScopedBinder>>(),
-        )]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<crate::ClaimModality>(),
+                sample::<Option<NodeOrigin>>(),
+                sample::<Vec<DefinitionScopedBinder>>(),
+            )
+            .with_pattern(Some(sample::<PatternDecl>())),
+        ]
     }
 }
 impl Sample for DefinitionEvaluationStep {
@@ -3604,6 +3637,7 @@ impl Sample for DescriptorClaim {
             existentials: sample::<Vec<DescriptorClaimBinder>>(),
             ensures: sample::<Option<DescriptorRuleCondition>>(),
             or_bool_keys: sample::<Vec<ProvenanceKey>>(),
+            pattern: Some(sample::<PatternDecl>()),
         }]
     }
 }
@@ -4218,12 +4252,15 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleMa
 }
 impl Sample for SemanticClaim {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<crate::ClaimModality>(),
-            sample::<Option<NodeOrigin>>(),
-            sample::<Vec<SemanticScopedBinder>>(),
-        )]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<crate::ClaimModality>(),
+                sample::<Option<NodeOrigin>>(),
+                sample::<Vec<SemanticScopedBinder>>(),
+            )
+            .with_pattern(Some(sample::<PatternDecl>())),
+        ]
     }
 }
 impl Sample for SemanticScopedBinder {
@@ -4440,6 +4477,7 @@ impl Sample for WireClaim {
             existentials: sample::<Vec<WireClaimBinder>>(),
             ensures: sample::<Option<WireRuleCondition>>(),
             or_bool_keys: sample::<Vec<ProvenanceKey>>(),
+            pattern: None,
         }]
     }
 }

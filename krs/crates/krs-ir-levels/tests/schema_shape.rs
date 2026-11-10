@@ -851,6 +851,8 @@ fn registry() -> Registry {
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
     trace!(HeadRuleClaim: HeadRuleClaim);
+    trace!(PatternDecl: PatternDecl);
+    trace!(PatternExpect: PatternExpect);
     trace!(HeadRuleComputationCell: HeadRuleComputationCell);
     trace!(DescriptorComputationCell: DescriptorComputationCell);
     trace!(ProtocolHeadRuleMapEntry: ProtocolHeadRuleMapEntry<String>);

@@ -501,6 +501,7 @@ fn claim() -> DescriptorClaim {
             term: term(6),
         }),
         or_bool_keys: vec![key(7)],
+        pattern: None,
     }
 }
 

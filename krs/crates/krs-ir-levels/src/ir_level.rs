@@ -349,6 +349,10 @@ pub struct IrClaim<L: IrLevel> {
     pub(crate) universals: Vec<IrScopedBinder<L>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) trusted_origin: Option<NodeOrigin>,
+    /// The part of a `k::patterns!` chain the claim stands for; such a claim is never emitted
+    /// to `definition.k` or `spec.k`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pattern: Option<krs_ir::PatternDecl>,
 }
 
 impl<L: IrLevel> IrScopedBinder<L> {
@@ -411,6 +415,7 @@ impl<L: IrLevel> IrClaim<L> {
             circularity_origin,
             universals,
             trusted_origin: None,
+            pattern: None,
         }
     }
     /// Marks the claim trusted: it is assumed without proof.
@@ -418,6 +423,17 @@ impl<L: IrLevel> IrClaim<L> {
     pub fn with_trusted_origin(mut self, trusted_origin: Option<NodeOrigin>) -> Self {
         self.trusted_origin = trusted_origin;
         self
+    }
+    /// Marks the claim as a part of a `k::patterns!` chain.
+    #[must_use]
+    pub fn with_pattern(mut self, pattern: Option<krs_ir::PatternDecl>) -> Self {
+        self.pattern = pattern;
+        self
+    }
+    /// The part of a `k::patterns!` chain the claim stands for, if any.
+    #[must_use]
+    pub const fn pattern(&self) -> Option<&krs_ir::PatternDecl> {
+        self.pattern.as_ref()
     }
     /// Modality provenance.
     #[must_use]

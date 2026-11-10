@@ -831,6 +831,7 @@ fn group_subjects_match_name_group_cells_and_refuse_claims() {
         existentials: Vec::new(),
         ensures: None,
         or_bool_keys: Vec::new(),
+        pattern: None,
     });
     assert_eq!(
         claim.validate(ItemKind::Claim),

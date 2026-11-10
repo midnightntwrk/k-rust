@@ -1160,6 +1160,7 @@ mod tests {
                 existentials: vec![],
                 ensures: None,
                 or_bool_keys: vec![],
+                pattern: None,
             });
             let host_claim = (sentence_kind == SentenceKind::Claim).then(|| krs_ir::HostClaim {
                 declaration_key: key(ProvenanceRole::ClaimDeclaration),
@@ -1176,6 +1177,7 @@ mod tests {
                 existentials: vec![],
                 ensures: None,
                 or_bool_keys: vec![],
+                pattern: None,
             });
             let actual = decode(
                 &WirePayload::ConfigurationRule(Box::new(krs_ir::wire::WireConfigurationRule {

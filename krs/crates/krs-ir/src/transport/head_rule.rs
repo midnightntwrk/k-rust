@@ -463,6 +463,10 @@ pub struct HeadRuleClaim {
     /// Optional trusted marker provenance: the claim is assumed without proof.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_key: Option<ProvenanceKey>,
+    /// The part of a `k::patterns!` chain the claim stands for, its subject being that part's
+    /// set of states; a claim that carries one is no sentence of the definition or its spec.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<crate::PatternDecl>,
 }
 
 stage_shape! {
@@ -608,6 +612,12 @@ fn validate_claim(
                 && !(claim.modality == crate::ClaimModality::OnePath
                     && claim.circularity_key.is_some())
                 && !(claim.circularity_key.is_some() && claim.trusted_key.is_some())
+                // A pattern's part is a set of states, never proved or trusted.
+                && claim.pattern.as_ref().is_none_or(|pattern| {
+                    pattern.validate().is_ok()
+                        && claim.circularity_key.is_none()
+                        && claim.trusted_key.is_none()
+                })
         }
         _ => false,
     };
@@ -1962,6 +1972,7 @@ mod tests {
             modality: crate::ClaimModality::OnePath,
             circularity_key: None,
             trusted_key: None,
+            pattern: None,
         });
         let mut claim_anchors = anchors;
         claim_anchors[0] = ProvenanceKey::new(ProvenanceRole::ClaimDeclaration, 0);
@@ -2233,6 +2244,7 @@ mod tests {
             modality: crate::ClaimModality::OnePath,
             circularity_key: None,
             trusted_key: None,
+            pattern: None,
         });
         assert_eq!(
             claim.validate(ItemKind::Claim),

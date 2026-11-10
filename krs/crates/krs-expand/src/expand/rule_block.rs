@@ -656,6 +656,7 @@ fn expand_head_rule(
                     .trusted()
                     .then(|| ledger.define(claim.trusted_key()))
                     .transpose()?,
+                pattern: None,
             }),
         ),
         None => (

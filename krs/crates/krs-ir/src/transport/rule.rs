@@ -199,6 +199,10 @@ stage_shape! {
         pub ensures: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
         /// Complete `or_bool!` shell provenance occurrences.
         pub or_bool_keys: Vec<ProvenanceKey> => [keep],
+        /// The part of a `k::patterns!` chain the claim stands for (a readable pattern's step or
+        /// `unless`, elaborated), absent for every authored claim.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub pattern: Option<crate::PatternDecl> => [keep],
     }
 }
 

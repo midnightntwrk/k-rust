@@ -2854,7 +2854,8 @@ fn lower_claim(
             .trusted_origin()
             .map(|origin| origins.lower(origin, "claim-trusted", Some(item), None))
             .transpose()?,
-    ))
+    )
+    .with_pattern(claim.pattern().cloned()))
 }
 
 fn lower_claim_binders(

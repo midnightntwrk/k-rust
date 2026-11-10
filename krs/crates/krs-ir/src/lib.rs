@@ -36,6 +36,7 @@ pub mod json;
 mod list_notation;
 pub mod measure;
 mod operator;
+pub mod pattern;
 pub mod provenance;
 pub mod provenance_role;
 pub mod provenance_table;
@@ -105,6 +106,7 @@ pub use identity::{
 pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
 pub use list_notation::ListNotation;
 pub use operator::{BuiltinOperator, OperatorDomain, OperatorReading};
+pub use pattern::{PatternDecl, PatternDeclError, PatternExpect};
 pub use provenance::{
     InsertedNode, OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange,
     SourceRangeError, SourceRangeOverflow, TransformationOriginKind,
@@ -221,7 +223,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(85);
+    pub const CURRENT: Self = Self(86);
 }
 
 impl Default for SchemaVersion {

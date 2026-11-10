@@ -496,6 +496,7 @@ impl Elaborator<'_> {
             existentials: rule.existentials.clone(),
             ensures: rule.ensures.clone(),
             or_bool_keys: Vec::new(),
+            pattern: claim.pattern.clone(),
         });
         let transition = |value| if claim.is_some() { None } else { value };
         Ok(DescriptorConfigurationRule {
