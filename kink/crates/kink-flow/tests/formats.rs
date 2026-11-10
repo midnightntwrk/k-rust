@@ -72,8 +72,10 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// premises, refuses a genuine finding's name, and embeds report version 12; the digest is
 /// version 15's, since the keys are unchanged and the names are computed. Version 17 embeds
 /// report version 13 (CF-33, the solver budget); the document's own keys are unchanged.
+/// Version 18 adds the refusal reason `chain-pattern` of a pattern job whose pattern is a chain;
+/// the digest is version 17's, since a refusal's reason is an argument of `Refusal::new`.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    17,
+    18,
     13,
     2,
     "b57e997d75141191c20919677e86edae752f77be881dc9e018086e922f2ee4f2",

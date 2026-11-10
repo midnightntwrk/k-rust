@@ -265,7 +265,9 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// `findings`, `--assume-joined`) are those names, and it embeds k-rust-fuzz reports of version 12.
 /// 17 embeds k-rust-fuzz reports of version 13, whose identity bounds the solver by Z3 resource
 /// units unless the campaign asks for the clock and names the Z3 build (CF-33).
-pub const FUZZ_VERSION: u32 = 17;
+/// 18 refuses a pattern job whose pattern is a chain (`steps`), with the refusal stage `pattern`
+/// and reason `chain-pattern`: a fuzz goal is one state to reach.
+pub const FUZZ_VERSION: u32 = 18;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -4420,14 +4422,12 @@ mod streak_tests {
              = \"<k> 3 </k>\" }]\n",
         )
         .unwrap();
+        let id = "c";
         let (document, ok) = fuzz_job(
             &manifest,
             &templates,
             "t",
-            FuzzJob::Pattern {
-                list: &list,
-                id: "c",
-            },
+            FuzzJob::Pattern { list: &list, id },
             &FuzzOptions::default(),
         );
         assert!(!ok);

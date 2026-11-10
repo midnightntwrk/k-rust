@@ -317,7 +317,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 45] = [
+pub const OUTSIDE_IDENTITY: [Outside; 46] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -611,6 +611,13 @@ pub const OUTSIDE_IDENTITY: [Outside; 45] = [
         reason: "the domain of a pattern's digest (flow F-18): every query recomputes it from the \
                  compiled target (pattern.rs Lowering::lower), and it enters the pattern answer's \
                  key, which also holds `kink_build`",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "CHAIN_DOMAIN",
+        reason: "the domain of a chain pattern's digest: every query recomputes it from the \
+                 compiled targets of the chain's parts (pattern.rs Lowering::lower_chain), and it \
+                 enters the pattern answer's key, which also holds `kink_build`",
     },
     Outside {
         krate: "kink-flow",
