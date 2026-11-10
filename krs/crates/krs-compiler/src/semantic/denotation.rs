@@ -9,6 +9,7 @@
 //! the verdict the term it denotes gets written at the use.
 
 use krs_ir::DescriptorTerm;
+use krs_ir_levels::{IrTermKind, SemanticTerm};
 
 /// The term a value denotes where it is used, and the `let` statements in
 /// whose scope that term is read.
@@ -83,4 +84,41 @@ pub(super) fn denotation(value: &DescriptorTerm) -> Denotation<'_> {
         }
     }
     Denotation { statements, term }
+}
+
+/// What the lowered `term` denotes where it stands, by [`denotation`]'s rule: a block denotes its
+/// result, and a local its pattern binds whole at its value's sort (no sort test) denotes that
+/// value. A check that judges a lowered term after inference (a static clause's result sort)
+/// reports its mistake where the term it denotes is written.
+pub(super) fn lowered_denotation(term: &SemanticTerm) -> &SemanticTerm {
+    let mut statements = Vec::new();
+    let mut term = term;
+    loop {
+        match term.kind() {
+            IrTermKind::Let { body, .. } => {
+                statements.push(term);
+                term = body;
+            }
+            IrTermKind::Variable { variable } => {
+                let Some(index) = statements.iter().rposition(|statement| {
+                    matches!(statement.kind(), IrTermKind::Let { binds, .. }
+                        if binds.contains(variable))
+                }) else {
+                    break;
+                };
+                let IrTermKind::Let { pattern, value, .. } = statements[index].kind() else {
+                    break;
+                };
+                let whole = matches!(pattern.kind(), IrTermKind::Variable { .. })
+                    && pattern.sort() == value.sort();
+                if !whole {
+                    break;
+                }
+                statements.truncate(index);
+                term = value;
+            }
+            _ => break,
+        }
+    }
+    term
 }

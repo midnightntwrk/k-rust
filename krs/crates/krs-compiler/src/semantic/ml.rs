@@ -20,6 +20,7 @@ use krs_ir_levels::{
 };
 
 use super::catalog::semantic_sort_ref;
+use super::denotation::denotation;
 use super::error::DescriptorLoweringError;
 use super::infer::{StructuredTermBuilder, least_instance};
 use super::origin::semantic_origin;
@@ -262,9 +263,25 @@ impl StructuredTermBuilder<'_> {
 
     /// The error for an object term where a predicate is expected
     /// (diagnostic 2), with the fix-it `ml::equals(true, <term>)`.
+    ///
+    /// It is reported at the object term `term` denotes ([`denotation`]): a
+    /// block `{ let y = t; y }` denotes `t`, so the object term is `t`, which
+    /// is the mistake there as where it is written alone. A block whose
+    /// result denotes a predicate is the object term itself: a block is the
+    /// application of the function K's `#let` is, an object term, which a
+    /// predicate is no value of.
     fn bool_where_predicate(&self, term: &DescriptorTerm) -> DescriptorLoweringError {
         let reason = "a predicate is expected here, but this is an object term; an object Bool enters matching logic only as `ml::equals(true, <term>)` (K's `{ true #Equals B }`)".to_owned();
-        self.invalid_ml(Self::term_key(term), reason)
+        let denoted = denotation(term).term;
+        let object = match denoted {
+            DescriptorTerm::Application { reference, .. }
+                if matches!(reference.application, DescriptorApplicationRef::Ml(_)) =>
+            {
+                term
+            }
+            _ => denoted,
+        };
+        self.invalid_ml(Self::term_key(object), reason)
     }
 
     /// Infers the object operands of a predicate. `subject` is set on the

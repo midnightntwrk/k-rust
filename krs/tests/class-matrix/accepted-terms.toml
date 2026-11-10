@@ -7442,6 +7442,14 @@ requires V1:Bool orElseBool true
 syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
 """
 
+[accept."terms/context/guard/{ let y = x; y }"]
+k = """
+context [case-TAG]: cTAG ( V0:KItem , V1:Bool , _ )
+requires ( #let V2:Bool = V1:Bool #in V2:Bool )
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6 %7%8)]
+"""
+
 [accept."terms/context/subject-root/Cmd::Hold(x)"]
 k = """
 context [case-TAG]: hold ( V0:KItem )
@@ -8766,6 +8774,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule probe ( cTAG , V0:Bool ) => 0
 requires V0:Bool orElseBool true [label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/equation/guard/{ let y = x; y }"]
+k = """
+rule probe ( cTAG , V0:Bool ) => 0
+requires ( #let V1:Bool = V0:Bool #in V1:Bool ) [label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -11380,6 +11396,15 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Bool , _ ) => .K ... </k>
 requires V0:Bool orElseBool true
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/readable/guard/{ let y = x; y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Bool , _ ) => .K ... </k>
+requires ( #let V1:Bool = V0:Bool #in V1:Bool )
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -14553,6 +14578,14 @@ requires ( #let V1:Bool = V0:Bool #in V0:Bool orElseBool true ) [label(case-TAG)
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."terms/rule/guard/let-body/{ let y = x; y }"]
+k = """
+rule cTAG ( V0:Bool , _ ) => hold ( V0:Bool )
+requires ( #let V1:Bool = V0:Bool #in ( #let V2:Bool = V0:Bool #in V2:Bool ) ) [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept.'terms/rule/guard/let-pattern/"s"']
 k = '''
 rule cTAG ( V0:KItem , _ ) => hold ( V0:KItem )
@@ -14861,6 +14894,14 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule cTAG ( V0:Bool , _ ) => hold ( V0:Bool )
 requires V0:Bool orElseBool true [label(case-TAG)]
+
+syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."terms/rule/guard/{ let y = x; y }"]
+k = """
+rule cTAG ( V0:Bool , _ ) => hold ( V0:Bool )
+requires ( #let V1:Bool = V0:Bool #in V1:Bool ) [label(case-TAG)]
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -17109,6 +17150,14 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule zero ( cTAG , V0:Bool ) => 0
 requires V0:Bool orElseBool true [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."terms/simplification/guard/{ let y = x; y }"]
+k = """
+rule zero ( cTAG , V0:Bool ) => 0
+requires ( #let V1:Bool = V0:Bool #in V1:Bool ) [simplification, label(krsRule_DIGEST)]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

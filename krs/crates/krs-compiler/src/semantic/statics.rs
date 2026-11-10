@@ -49,6 +49,7 @@ use krs_ir_levels::{
 };
 
 use super::catalog::semantic_is_subsort;
+use super::denotation::lowered_denotation;
 use super::error::DescriptorLoweringError;
 use super::origin::rendered_copy;
 use super::overload::sort_name;
@@ -352,6 +353,9 @@ fn check_result_sort(
     if productions.is_subsort(result_sort, sort) {
         return Ok(());
     }
+    // A block denotes the term its result names, which is the result's mistake where it is
+    // written, as it is written alone.
+    let result = lowered_denotation(result);
     let production = clause_head(rule).map_or_else(String::new, |head| {
         format!(" `{}`", production_display_name(head))
     });

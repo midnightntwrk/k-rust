@@ -1018,11 +1018,9 @@ match = '{claim,readable}/{result,subject}/{counter,env,frame,k,pc,stack}/\{ .. 
 class = "instances-on-plain-cell"
 at = "entry"
 
-# let-sort
-[[refuse]]
-match = 'terms/{equation,rule}/guard/\{ let y = x; y \}'
-class = "let-sort"
-at = "spelling"
+# `{ let y = x; y }` at an equation's or a rule's condition is no let-sort mistake: a local names
+# its value, so the value is read at the sort its use stands at, here the condition's `Bool`, as `x`
+# written there is (LOCALSORT): the block is accepted as `x` is.
 
 # map-notation-at-non-map
 [[refuse]]
@@ -2025,8 +2023,10 @@ class = "binder-bound-twice"
 at = "spelling"
 
 # binder-sort (NT-2): a `cells!` binder declared `KItem` that a notation form's operand sorts more narrowly
+# (and `{ let y = x; y }`, whose local names `x`, so `x` is read at the condition's `Bool` as
+# written there: LOCALSORT)
 [[refuse]]
-match = 'terms/cells-claim/guard/{!(x < 1),x,x && true,x < 1,x == 1,x || true}'
+match = 'terms/cells-claim/guard/{!(x < 1),x,x && true,x < 1,x == 1,x || true,\{ let y = x; y \}}'
 class = "binder-sort"
 at = "spelling"
 
@@ -2081,11 +2081,10 @@ match = 'terms/{desugar/result,desugar/result-root}/{Cmd::Go() | Cmd::Hold(_),_}
 class = "desugar-wildcard-undeclared"
 at = "spelling"
 
-# let-sort (NT-2): a `let` block whose result is no Bool in a condition
-[[refuse]]
-match = 'terms/{context/guard,readable/guard,rule/guard/let-body}/\{ let y = x; y \}'
-class = "let-sort"
-at = "spelling"
+# `{ let y = x; y }` at a context's or a readable rule's condition, or a block's result there, is
+# no let-sort mistake (NT-2's rule withdrawn): a local names its value, so the value is read at the
+# sort its use stands at, here the condition's `Bool`, as `x` written there is (LOCALSORT): the
+# block is accepted as `x` is.
 
 # list-notation-sort (NT-2): list brackets at a `KItem` position
 [[refuse]]
@@ -2324,18 +2323,14 @@ match = 'terms/simplification/guard/{"s",-(x + 1),-1,1,1.5,Cmd::Go,Cmd::Go(),Cmd
 class = "condition-sort"
 at = "spelling"
 
-# let-sort (NT-2 review): a `let` block whose result is no Bool in a condition, at a sibling whose product refuses it for another reason first, and at the review's new positions
-[[refuse]]
-match = 'terms/simplification/guard/\{ let y = x; y \}'
-class = "let-sort"
-at = "spelling"
+# `{ let y = x; y }` at a simplification's condition is no let-sort mistake (the NT-2 review's rule
+# withdrawn): a local names its value, so the value is read at the sort its use stands at, here the
+# condition's `Bool`, as `x` written there is (LOCALSORT): the block is accepted as `x` is.
 
-# let-sort (NT-7): a `let` block whose result is no Bool in a claim's condition, which holds one as
-# a rule's does
-[[refuse]]
-match = 'terms/cells-claim/guard/\{ let y = x; y \}'
-class = "let-sort"
-at = "spelling"
+# `{ let y = x; y }` at a `cells!` claim's condition, which holds one as a rule's does, is no
+# let-sort mistake (NT-7's rule withdrawn): a local names its value, so `x` is read at the
+# condition's `Bool`, as written there, and the binder is declared `KItem`: binder-sort, as `x`'s
+# (LOCALSORT).
 
 # list-notation-sort (NT-2 review): list brackets at a `KItem` position, at a sibling whose product refuses it for another reason first, and at the review's new positions
 [[refuse]]
