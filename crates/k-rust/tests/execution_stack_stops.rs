@@ -131,6 +131,7 @@ fn a_state_matcher_stack_stop_is_counted_on_its_summary() {
                     )
                     .expect("the pattern parses"),
                     proof_agreement: true,
+                    chain: None,
                 }),
                 ..ExecuteRequest::new(
                     parse_pattern(r#"done{}(\dv{SortInt{}}("0"))"#).expect("the state parses"),
@@ -175,6 +176,7 @@ fn a_state_match_is_bounded_by_the_step_deadline() {
                     )
                     .expect("the pattern parses"),
                     proof_agreement: false,
+                    chain: None,
                 }),
                 ..ExecuteRequest::new(
                     parse_pattern(r#"done{}(\dv{SortInt{}}("0"))"#).expect("the state parses"),

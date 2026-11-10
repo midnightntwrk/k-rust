@@ -59,6 +59,19 @@
 //! process every later state alike. It reads no address, no hash-map order and no clock. Once the
 //! matching is over every state gets one constant progress, whose digest is that of no other.
 //!
+//! Merging. A state-set run merges a state into a recorded state of its depth whose subtree
+//! would give the same leaves (`exploration_merge`). Under a chain it also requires the two
+//! states' merge keys to be equal ([`ChainMatcher::merge_key`]): the digest of the progress each
+//! path reached the state with, and whether each path is clean up to and including the state.
+//! Equal keys give equal processing: every state of the two subtrees is processed from equal
+//! keys, so a completion, an undecided match or an eviction in one is one in the other, with the
+//! same cleanness, since a completion's cleanness is that of the path up to the state merged
+//! followed by the subtree's own steps. Only the payloads differ, so the recorded subtree's
+//! completions are real chains, and the merged arrival would add none that the summary does not
+//! already hold. A merge refused for unequal keys explores the arrival's subtree again, which a
+//! counted work budget bounds. Once matching is over the summary is final, and a state carries
+//! no key.
+//!
 //! The chain matcher is isolated from the run as the state matcher is; its solver answers and
 //! stops for lack of native stack are counted in its summary ([`ChainMatches`]). Every bound it
 //! adds is a count: the partial cap.
@@ -130,7 +143,23 @@ impl fmt::Display for InvalidChain {
 
 impl std::error::Error for InvalidChain {}
 
+/// Chain options that passed [`ChainOptions::check`]: the only form a run accepts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedChain(ChainOptions);
+
+impl CheckedChain {
+    pub fn options(&self) -> &ChainOptions {
+        &self.0
+    }
+}
+
 impl ChainOptions {
+    /// The options, once [`Self::check`] accepts them.
+    pub fn checked(self) -> Result<CheckedChain, InvalidChain> {
+        self.check()?;
+        Ok(CheckedChain(self))
+    }
+
     /// Check that the chain's variables are classified consistently: there is a step; the first
     /// step imports nothing and has no unless; each part imports exactly the variables of its
     /// target an earlier step exports; each step exports variables of its target's term that no
@@ -333,6 +362,13 @@ impl Progress {
     }
 }
 
+/// What the merge table compares of a state's chain progress ([`ChainMatcher::merge_key`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::rewrite) struct ChainMergeKey {
+    progress: Option<[u8; 32]>,
+    clean: bool,
+}
+
 fn count(value: usize) -> [u8; 8] {
     u64::try_from(value)
         .expect("a count fits in 64 bits")
@@ -504,13 +540,12 @@ enum UnlessVerdict {
 
 impl<'a> ChainMatcher<'a> {
     pub(in crate::rewrite) fn new(
-        options: ChainOptions,
+        chain: CheckedChain,
         proof_agreement: bool,
         solver: &'a dyn SmtSolver,
         max_iterations: usize,
-    ) -> Result<Self, InvalidChain> {
-        options.check()?;
-        let ChainOptions { steps, partial_cap } = options;
+    ) -> Self {
+        let ChainOptions { steps, partial_cap } = chain.0;
         // The variables the parts from each step on import.
         let mut imported_from = vec![Vec::<Variable>::new(); steps.len() + 1];
         for (index, step) in steps.iter().enumerate().rev() {
@@ -553,13 +588,13 @@ impl<'a> ChainMatcher<'a> {
                 }
             })
             .collect();
-        Ok(Self {
+        Self {
             steps,
             partial_cap,
             reader: StateReader::new(proof_agreement, solver, max_iterations),
             found: ChainMatches::default(),
             frozen: Rc::new(Progress::new(BTreeMap::new(), false, true, true)),
-        })
+        }
     }
 
     /// Whether matching is over: a clean completion with no term-level `\and` was found.
@@ -609,33 +644,20 @@ impl<'a> ChainMatcher<'a> {
         (self.progress(parent, outcome.partials, clean), mark)
     }
 
-    /// A state reached at `depth` on a path with `diagnostics`, whose parent's progress is
-    /// `parent`, was merged into a recorded state of its depth whose mark is `mark` and whose
-    /// parent's progress has the same digest. A chain completed at the recorded state, so one
-    /// completes at this one too, with this path's own steps; when this path is clean it is
-    /// processed for its completion, which is reported as the first clean completion unless one
-    /// is kept already and this one holds a term-level `\and` too. Nothing else is counted.
-    pub(in crate::rewrite) fn absorbed(
-        &mut self,
-        definition: &BackendDefinition,
-        mark: MatchMark,
-        parent: Option<&Rc<Progress>>,
-        depth: u64,
-        pattern: &Pattern,
+    /// What the merge table compares of a state about to be expanded, reached on a path with
+    /// `diagnostics` whose progress so far is `progress` (its parent's; `None` before any state
+    /// was processed on it): the progress's digest and whether the path up to the state is
+    /// clean. `None` once matching is over, when the chain reads nothing more and a state merges
+    /// as it would without the chain (module documentation, "Merging").
+    pub(in crate::rewrite) fn merge_key(
+        &self,
+        progress: Option<&Rc<Progress>>,
         diagnostics: &PathDiagnostics,
-    ) {
-        if self.done() || !matches!(mark, MatchMark::Reach { .. }) || !clean(diagnostics) {
-            return;
-        }
-        let (normalized, normalizing_stops) = self.reader.normalized(definition, pattern);
-        let empty = BTreeMap::new();
-        let partials = parent.map_or(&empty, |parent| &parent.partials);
-        let (outcome, matching_stops) =
-            isolated(|| self.process(definition, partials, depth, &normalized));
-        self.found.stack_stops += normalizing_stops + matching_stops;
-        if let Some(best) = best(outcome.completions) {
-            self.keep_clean(best.completion(diagnostics));
-        }
+    ) -> Option<ChainMergeKey> {
+        (!self.done()).then(|| ChainMergeKey {
+            progress: progress.map(|progress| progress.digest),
+            clean: clean(diagnostics),
+        })
     }
 
     /// The summary, with the matcher's undecided solver answers.
@@ -1066,8 +1088,10 @@ mod tests {
     }
 
     fn matcher(steps: Vec<ChainStep>, partial_cap: usize, proof: bool) -> ChainMatcher<'static> {
-        ChainMatcher::new(ChainOptions { steps, partial_cap }, proof, &NoSolver, 100)
-            .expect("the chain is well formed")
+        let chain = ChainOptions { steps, partial_cap }
+            .checked()
+            .expect("the chain is well formed");
+        ChainMatcher::new(chain, proof, &NoSolver, 100)
     }
 
     /// Process `states` as one path, at depths 0, 1, …, returning each state's progress and mark.
@@ -1606,6 +1630,7 @@ mod tests {
                 StateMatchOptions {
                     target: target.clone(),
                     proof_agreement: proof,
+                    chain: None,
                 },
                 &solver,
                 100,
@@ -1666,10 +1691,10 @@ mod tests {
         }
     }
 
-    /// A clean arrival merged into a recorded state at which a chain completed on a dirty prefix
-    /// (the parents' progresses having one digest) is processed for its own completion, reported as the first clean one with its own steps.
+    /// The merge key holds the progress's digest and whether the path is clean up to the state
+    /// itself; once matching is over there is none.
     #[test]
-    fn an_absorbed_clean_arrival_reports_its_own_completion() {
+    fn the_merge_key_holds_the_progress_and_the_path_s_cleanness() {
         let definition = load();
         let mut chain = matcher(
             vec![
@@ -1693,26 +1718,39 @@ mod tests {
             hook: "MAP.choice".to_owned(),
             class: ChosenClass::Item,
         }]);
-        let first = pattern(&definition, &st(&int(5), true));
-        let last = pattern(&definition, &st(&int(5), false));
-        // The recorded lineage turned dirty on its step into the last state only, so both
-        // parents' progresses are clean and have one digest.
-        let (recorded, _) = chain.observe(&definition, None, 0, &first, &clean);
-        let (_, mark) = chain.observe(&definition, Some(&recorded), 2, &last, &dirty);
+        let (empty, _) = chain.observe(
+            &definition,
+            None,
+            0,
+            &pattern(&definition, &st(&int(4), false)),
+            &clean,
+        );
+        let (started, _) = chain.observe(
+            &definition,
+            None,
+            0,
+            &pattern(&definition, &st(&int(5), true)),
+            &clean,
+        );
+        let key = |progress, diagnostics| chain.merge_key(Some(progress), diagnostics);
+        assert_eq!(key(&started, &clean), key(&started, &clean));
+        assert_ne!(key(&started, &clean), key(&empty, &clean));
+        assert_ne!(key(&started, &clean), key(&started, &dirty));
+        let (_, mark) = chain.observe(
+            &definition,
+            Some(&started),
+            1,
+            &pattern(&definition, &st(&int(5), false)),
+            &clean,
+        );
         assert_eq!(
             mark,
             MatchMark::Reach {
                 term_conjunction: false
             }
         );
-        assert_eq!(chain.found.dirty_completions, 1);
-        assert_eq!(witness(&chain), None);
-        let (arrival, _) = chain.observe(&definition, None, 1, &first, &clean);
-        assert_eq!(arrival.digest(), recorded.digest());
-        chain.absorbed(&definition, mark, Some(&arrival), 2, &last, &clean);
-        assert_eq!(witness(&chain), Some(vec![1, 2]));
-        assert_eq!(chain.found.dirty_completions, 1);
         assert!(chain.done());
+        assert_eq!(chain.merge_key(Some(&started), &clean), None);
     }
 
     /// Under proof agreement a way extends only when both modes found its key; the answer is

@@ -91,6 +91,7 @@ fn run_agreed(
     let target = target.map(|target| StateMatchRequest {
         pattern: target.clone(),
         proof_agreement,
+        chain: None,
     });
     ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute_result_probed(

@@ -188,8 +188,9 @@ use k_rust_backend::{
     implication::{ImplicationFailure, ImplicationStatus},
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
-        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, StateMatchOptions,
-        TraceKind, execute_in_process, execute_observed_with_solver, execute_with_solver,
+        ChainOptions, ChainStep, CheckedChain, ExecutionBranchMode, ExecutionMode,
+        ExecutionOptions, HaltReason, StateMatchOptions, TraceKind, UnlessPart, execute_in_process,
+        execute_observed_with_solver, execute_with_solver,
     },
     rule::ClassifiedAxiom,
     search::{
@@ -212,6 +213,7 @@ use k_rust_backend::rule::Predicate;
 
 use crate::kore::{
     ast::Pattern as KorePattern,
+    ast::Variable as KoreVariable,
     codec as kore_codec,
     parser::{parse_definition, parse_module},
 };
@@ -902,8 +904,11 @@ pub struct ExecuteRequest {
     /// contract, with these exceptions (docs/compatibility.md, "State matches"): a solver prelude
     /// a match's query finds inconsistent ends the run, since it makes every solver answer of the
     /// run meaningless; the pattern's depth enters the operation's stack measurement, which can
-    /// change `stackStops` or refuse a request for lack of stack; and matching runs on the step
-    /// clock, so under a step timeout its time counts against the step's deadline.
+    /// change `stackStops` or refuse a request for lack of stack; matching runs on the step
+    /// clock, so under a step timeout its time counts against the step's deadline; and under a
+    /// [`StateMatchRequest::chain`] a `state-set` run merges two states only when their chain
+    /// progresses agree, so it may expand states, and spend work, that it would merge without the
+    /// chain, and a work budget may then end it sooner (docs/compatibility.md, "Chains").
     #[serde(default)]
     pub match_states: Option<StateMatchRequest>,
     /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::committed`] (wire
@@ -942,6 +947,11 @@ pub struct StateMatchRequest {
     /// the same verdict in every mode and needs no agreement.
     #[serde(default)]
     pub proof_agreement: bool,
+    /// A chain of patterns the run also matches its states against (wire `chain`; absent by
+    /// default), reported as [`StateMatchesOutput::chain`]; `pattern` is matched and reported as
+    /// without it (docs/compatibility.md, "Chains"). Proof agreement applies to every part.
+    #[serde(default)]
+    pub chain: Option<ChainRequest>,
 }
 
 impl StateMatchRequest {
@@ -950,8 +960,76 @@ impl StateMatchRequest {
         Self {
             pattern,
             proof_agreement: false,
+            chain: None,
         }
     }
+
+    /// The patterns of the request: `pattern`, then each chain step's and its unless's.
+    fn patterns_mut(&mut self) -> impl Iterator<Item = &mut KorePattern> {
+        std::iter::once(&mut self.pattern).chain(self.chain.iter_mut().flat_map(|chain| {
+            chain.steps.iter_mut().flat_map(|step| {
+                std::iter::once(&mut step.pattern)
+                    .chain(step.unless.iter_mut().map(|unless| &mut unless.pattern))
+            })
+        }))
+    }
+
+    fn patterns(&self) -> impl Iterator<Item = &KorePattern> {
+        std::iter::once(&self.pattern).chain(self.chain.iter().flat_map(|chain| {
+            chain.steps.iter().flat_map(|step| {
+                std::iter::once(&step.pattern)
+                    .chain(step.unless.iter().map(|unless| &unless.pattern))
+            })
+        }))
+    }
+}
+
+/// A chain of patterns ([`StateMatchRequest::chain`], wire `chain`): steps `P1, [U2] P2, …,
+/// [Un] Pn`. It holds on a path of the run when the path has states `s1`, …, `sn`, each at or
+/// after the previous one, that match the steps under one assignment of the variables the steps
+/// share, with no state strictly between `s(i-1)` and `si` matching `Ui`
+/// (docs/compatibility.md, "Chains").
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ChainRequest {
+    /// The steps, in order; step 1 has no `unless` and no import. A request whose imports and
+    /// exports do not classify the steps' variables consistently is refused.
+    pub steps: Vec<ChainStepRequest>,
+    /// The most partial occurrences one path keeps (wire `partialCap`): beyond it the largest are
+    /// evicted, and the path is reported overflowed (`overflowedPaths`). A count, never a clock.
+    pub partial_cap: usize,
+}
+
+/// One step of a chain.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ChainStepRequest {
+    /// The step's target, internalized as [`StateMatchRequest::pattern`] is; it may carry a
+    /// `requires`, which may name an imported variable. A KORE JSON envelope on the wire.
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub pattern: KorePattern,
+    /// The element variables of `pattern` an earlier step binds, whose values are substituted
+    /// into it before it is matched, each a KORE JSON envelope of the variable (absent: none).
+    #[serde(default, deserialize_with = "deserialize_kore_variables")]
+    pub imports: Vec<KoreVariable>,
+    /// The element variables `pattern`'s term binds that a later step or unless names, each a
+    /// KORE JSON envelope of the variable (absent: none).
+    #[serde(default, deserialize_with = "deserialize_kore_variables")]
+    pub exports: Vec<KoreVariable>,
+    /// What no state strictly between the previous step's state and this step's may match.
+    #[serde(default)]
+    pub unless: Option<UnlessRequest>,
+}
+
+/// The `unless` of a chain step: a pattern whose variables other than its imports are
+/// existential.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct UnlessRequest {
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub pattern: KorePattern,
+    #[serde(default, deserialize_with = "deserialize_kore_variables")]
+    pub imports: Vec<KoreVariable>,
 }
 
 impl ExecuteRequest {
@@ -1201,6 +1279,111 @@ pub struct StateMatchesOutput<K = Value> {
     /// is outside the determinism contract, as a run with nonzero `stackStops` is.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub stack_stops: usize,
+    /// The summary of the chain's matching, present exactly when the request asked for a chain
+    /// ([`StateMatchRequest::chain`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain: Option<ChainMatchesOutput<K>>,
+}
+
+/// The summary of a run's chain matching ([`StateMatchesOutput::chain`]), in the run's
+/// depth-first order (docs/compatibility.md, "Chains").
+///
+/// A step matches a state as [`StateMatchesOutput`] says a state reaches its pattern (decided,
+/// shown to exist, matched with empty constraints in every required mode), with the step's
+/// imports substituted; an `unless` matches without the existence check. A *completion* is a
+/// chain on one path; it is *clean* when the path up to its last step's state is clean.
+/// Matching stops after the first clean completion no step state of which holds a term-level
+/// `\and`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ChainMatchesOutput<K = Value> {
+    /// The first clean completion with no term-level `\and` in a step state, where one exists,
+    /// and otherwise the first clean completion; absent when none. Among completions at one
+    /// state, the least step depths win, then the least values of the variables later steps
+    /// import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_clean_completion: Option<ChainCompletionOutput<K>>,
+    /// The first completion on a path that is not clean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_dirty_completion: Option<ChainCompletionOutput<K>>,
+    /// How many completions were on paths that are not clean.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub dirty_completions: u64,
+    /// For each part and reason, in order (steps before unlesses, then by step, then by
+    /// reason), the undecided matches. An undecided step extends its partial by the ways it
+    /// decided only; an undecided unless drops its partial.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub undecided: Vec<ChainUndecidedOutput<K>>,
+    /// The paths on which a partial occurrence was evicted beyond `partialCap`, counted where
+    /// the first eviction happened. A completion may have been missed on them.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub overflowed_paths: u64,
+    /// The most partial occurrences one path kept.
+    pub peak_partials: u64,
+    /// The states processed.
+    pub states: u64,
+    /// The step and unless matches made.
+    pub evaluations: u64,
+    /// The undecided answers the solver gave the chain matcher; the run's and `stateMatches`'
+    /// `smtUnknowns` leave them out. Absent when zero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub smt_unknowns: usize,
+    /// The chain matcher's stops for lack of native stack; the run's and `stateMatches`'
+    /// `stackStops` leave them out. Absent when zero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub stack_stops: usize,
+}
+
+/// A completed chain: each step's match in step order, and the diagnostics of the path up to
+/// the last step's state.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ChainCompletionOutput<K = Value> {
+    pub steps: Vec<ChainStepMatchOutput<K>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
+    /// A step state's term holds a term-level `\and` (present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub term_conjunction: bool,
+}
+
+/// One step of a completion: the step (from 1), its state's depth, the state, and the values
+/// the step's own variables took (its imports are the earlier steps' values).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ChainStepMatchOutput<K = Value> {
+    pub step: usize,
+    pub depth: u64,
+    pub state: K,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<BindingOutput<K>>,
+}
+
+/// The undecided matches of one part of a chain for one reason: how many, and the first, with
+/// the values of the imported variables it was matched with.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ChainUndecidedOutput<K = Value> {
+    pub part: ChainPartOutput,
+    /// The step (from 1) the part is, or whose `unless` it is.
+    pub step: usize,
+    pub reason: UndecidedMatchReasonOutput,
+    pub count: u64,
+    pub first: StateMatchOutput<K>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<BindingOutput<K>>,
+}
+
+/// A part of a chain: a step, or a step's `unless`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChainPartOutput {
+    Step,
+    Unless,
 }
 
 /// One matched state: the committed rewrite steps from the initial configuration to it, the
@@ -3135,8 +3318,11 @@ impl Backend {
         // internalizes them and names the state's variables, and echoes neither.
         let definition = self.associate_request(
             module,
-            std::iter::once(&mut syntax)
-                .chain(match_request.as_mut().map(|matching| &mut matching.pattern)),
+            std::iter::once(&mut syntax).chain(
+                match_request
+                    .iter_mut()
+                    .flat_map(StateMatchRequest::patterns_mut),
+            ),
         )?;
         // A binder is a variable of one axiom, which a selection names by its `UNIQUE_ID` or
         // its label: two selections of one binder under its two names are one selected twice.
@@ -3150,7 +3336,7 @@ impl Backend {
             )));
         }
         let mut patterns = vec![&syntax];
-        patterns.extend(match_request.as_ref().map(|matching| &matching.pattern));
+        patterns.extend(match_request.iter().flat_map(StateMatchRequest::patterns));
         self.with_solver_on(definition, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
@@ -3173,19 +3359,31 @@ impl Backend {
             // not added to the run's request names: the matcher matches only states without
             // variables, so no name of the run can meet one of the target's, and the run mints
             // the names it would mint without the option.
+            let match_target = |pattern: &KorePattern, context: &'static str| {
+                definition
+                    .admit_unverified(pattern, &[])
+                    .for_execution(&literals)
+                    .as_match_target()
+                    .internalize_pattern()
+                    .map_err(error(context))
+            };
             let match_states = match_request
                 .as_ref()
                 .map(|matching| {
-                    definition
-                        .admit_unverified(&matching.pattern, &[])
-                        .for_execution(&literals)
-                        .as_match_target()
-                        .internalize_pattern()
-                        .map(|target| StateMatchOptions {
-                            target,
-                            proof_agreement: matching.proof_agreement,
-                        })
-                        .map_err(error("could not internalize the state-match pattern"))
+                    let target = match_target(
+                        &matching.pattern,
+                        "could not internalize the state-match pattern",
+                    )?;
+                    let chain = matching
+                        .chain
+                        .as_ref()
+                        .map(|chain| chain_options(chain, &match_target))
+                        .transpose()?;
+                    Ok::<_, BackendError>(StateMatchOptions {
+                        target,
+                        proof_agreement: matching.proof_agreement,
+                        chain,
+                    })
                 })
                 .transpose()?;
             let options = ExecutionOptions {
@@ -4473,6 +4671,74 @@ fn admit<'a>(
     }
 }
 
+/// The backend's chain of a request's `matchStates.chain`: each part's pattern internalized by
+/// `match_target`, as the state-match pattern is, and each named variable as the term of its
+/// own pattern, so that it is the variable of the parts it names. The chain is refused unless
+/// [`ChainOptions::check`] accepts it.
+fn chain_options(
+    chain: &ChainRequest,
+    match_target: &dyn Fn(
+        &KorePattern,
+        &'static str,
+    ) -> Result<k_rust_backend::rewrite::Pattern, BackendError>,
+) -> Result<CheckedChain, BackendError> {
+    let variables = |variables: &[KoreVariable]| {
+        variables
+            .iter()
+            .map(|variable| {
+                let internalized = match_target(
+                    &KorePattern::Variable(variable.clone()),
+                    "could not internalize a chain variable",
+                )?;
+                match internalized.term.kind() {
+                    k_rust_backend::term::TermKind::Variable(internal)
+                        if internalized.constraints.is_empty() =>
+                    {
+                        Ok(internal.clone())
+                    }
+                    _ => Err(BackendError::new(format!(
+                        "invalid matchStates.chain: the variable {} does not internalize as an element variable",
+                        variable.name
+                    ))),
+                }
+            })
+            .collect::<Result<Vec<_>, BackendError>>()
+    };
+    let steps = chain
+        .steps
+        .iter()
+        .map(|step| {
+            Ok(ChainStep {
+                target: match_target(
+                    &step.pattern,
+                    "could not internalize a chain step's pattern",
+                )?,
+                imports: variables(&step.imports)?,
+                exports: variables(&step.exports)?,
+                unless: step
+                    .unless
+                    .as_ref()
+                    .map(|unless| {
+                        Ok::<_, BackendError>(UnlessPart {
+                            target: match_target(
+                                &unless.pattern,
+                                "could not internalize a chain unless's pattern",
+                            )?,
+                            imports: variables(&unless.imports)?,
+                        })
+                    })
+                    .transpose()?,
+            })
+        })
+        .collect::<Result<Vec<_>, BackendError>>()?;
+    ChainOptions {
+        steps,
+        partial_cap: chain.partial_cap,
+    }
+    .checked()
+    .map_err(|invalid| BackendError::new(format!("invalid matchStates.chain: {invalid}")))
+}
+
 fn error<E: fmt::Display>(context: &'static str) -> impl FnOnce(E) -> BackendError {
     move |cause| BackendError::new(format!("{context}: {cause}"))
 }
@@ -4901,6 +5167,39 @@ mod tests {
         assert_typescript_member("UndecidedStateMatches", "reason: UndecidedMatchReason");
         assert_typescript_member("UndecidedStateMatches", "count: number");
         assert_typescript_member("UndecidedStateMatches", "first: StateMatch");
+        assert_typescript_member("StateMatchRequest", "chain?: ChainRequest");
+        assert_typescript_member("ChainRequest", "steps: ChainStepRequest[]");
+        assert_typescript_member("ChainRequest", "partialCap: number");
+        assert_typescript_member("ChainStepRequest", "pattern: Kore");
+        assert_typescript_member("ChainStepRequest", "imports?: Kore[]");
+        assert_typescript_member("ChainStepRequest", "exports?: Kore[]");
+        assert_typescript_member("ChainStepRequest", "unless?: UnlessRequest");
+        assert_typescript_member("UnlessRequest", "pattern: Kore");
+        assert_typescript_member("UnlessRequest", "imports?: Kore[]");
+        assert_typescript_member("StateMatches", "chain?: ChainMatches");
+        assert_typescript_member("ChainMatches", "firstCleanCompletion?: ChainCompletion");
+        assert_typescript_member("ChainMatches", "firstDirtyCompletion?: ChainCompletion");
+        assert_typescript_member("ChainMatches", "dirtyCompletions?: number");
+        assert_typescript_member("ChainMatches", "undecided?: ChainUndecided[]");
+        assert_typescript_member("ChainMatches", "overflowedPaths?: number");
+        assert_typescript_member("ChainMatches", "peakPartials: number");
+        assert_typescript_member("ChainMatches", "states: number");
+        assert_typescript_member("ChainMatches", "evaluations: number");
+        assert_typescript_member("ChainMatches", "smtUnknowns?: number");
+        assert_typescript_member("ChainMatches", "stackStops?: number");
+        assert_typescript_member("ChainCompletion", "steps: ChainStepMatch[]");
+        assert_typescript_member("ChainCompletion", "diagnostics?: BackendDiagnostic[]");
+        assert_typescript_member("ChainCompletion", "termConjunction?: boolean");
+        assert_typescript_member("ChainStepMatch", "step: number");
+        assert_typescript_member("ChainStepMatch", "depth: number");
+        assert_typescript_member("ChainStepMatch", "state: Kore");
+        assert_typescript_member("ChainStepMatch", "bindings?: BackendBinding[]");
+        assert_typescript_member("ChainUndecided", "part: ChainPart");
+        assert_typescript_member("ChainUndecided", "step: number");
+        assert_typescript_member("ChainUndecided", "reason: UndecidedMatchReason");
+        assert_typescript_member("ChainUndecided", "count: number");
+        assert_typescript_member("ChainUndecided", "first: StateMatch");
+        assert_typescript_member("ChainUndecided", "bindings?: BackendBinding[]");
         assert_typescript_member("BackendCapabilities", "coverageCommitted: boolean");
         assert_typescript_member("BackendCapabilities", "stateMatches: boolean");
         for package in ["k-rust-napi", "k-rust-wasm"] {

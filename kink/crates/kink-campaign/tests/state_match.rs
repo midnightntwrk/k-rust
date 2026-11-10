@@ -101,6 +101,7 @@ impl Clock {
             &StateMatchRequest {
                 pattern: target.clone(),
                 proof_agreement,
+                chain: None,
             },
             &self.exclusions,
         )

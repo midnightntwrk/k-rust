@@ -1032,6 +1032,8 @@ impl StateMatches {
             refuted,
             smt_unknowns,
             stack_stops,
+            // kink sends no chain yet, so k-rust reports none.
+            chain: _,
         } = output;
         Self {
             first_clean_reach: first_clean_reach.map(MatchedState::of),

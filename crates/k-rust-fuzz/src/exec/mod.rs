@@ -802,6 +802,7 @@ impl CaseRequestShape {
             match_states: needs.match_states.as_ref().map(|need| StateMatchRequest {
                 pattern: need.pattern.clone(),
                 proof_agreement: need.proof_agreement,
+                chain: None,
             }),
             collect_committed: needs.collect_committed,
             collect_guards: needs.collect_guards.clone(),

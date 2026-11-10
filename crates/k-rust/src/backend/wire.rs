@@ -404,6 +404,33 @@ pub fn deserialize_kore_pattern<'de, D: serde::Deserializer<'de>>(
         .map_err(|error| serde::de::Error::custom(format!("invalid KORE JSON: {error}")))
 }
 
+/// Deserializes a list of element variables, each a KORE JSON envelope of the variable
+/// ([`deserialize_kore_pattern`]).
+pub fn deserialize_kore_variables<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<crate::kore::ast::Variable>, D::Error> {
+    let raw = Vec::<Box<RawValue>>::deserialize(deserializer)?;
+    raw.iter()
+        .map(|raw| {
+            let pattern = kore_json::from_str(raw.get())
+                .map_err(|error| serde::de::Error::custom(format!("invalid KORE JSON: {error}")))?;
+            if let KorePattern::Variable(
+                variable @ crate::kore::ast::Variable {
+                    kind: crate::kore::ast::VariableKind::Element,
+                    ..
+                },
+            ) = &pattern
+            {
+                Ok(variable.clone())
+            } else {
+                Err(serde::de::Error::custom(
+                    "a chain variable is a KORE element variable",
+                ))
+            }
+        })
+        .collect()
+}
+
 /// Deserializes a host request from JSON text.
 ///
 /// Every KORE field of the facade's requests is decoded by [`deserialize_kore_pattern`], so
@@ -2280,20 +2307,7 @@ fn state_matches_output<K: WireKore>(
             .into_iter()
             .map(|entry| {
                 Ok(super::UndecidedStateMatchesOutput {
-                    reason: match entry.reason {
-                        k_rust_backend::rewrite::UndecidedMatchReason::UndecidedState => {
-                            super::UndecidedMatchReasonOutput::UndecidedState
-                        }
-                        k_rust_backend::rewrite::UndecidedMatchReason::NotCeilFree => {
-                            super::UndecidedMatchReasonOutput::NotCeilFree
-                        }
-                        k_rust_backend::rewrite::UndecidedMatchReason::UndecidedMatch => {
-                            super::UndecidedMatchReasonOutput::UndecidedMatch
-                        }
-                        k_rust_backend::rewrite::UndecidedMatchReason::PlacementBound => {
-                            super::UndecidedMatchReasonOutput::PlacementBound
-                        }
-                    },
+                    reason: undecided_match_reason_output(entry.reason),
                     count: entry.count,
                     first: state_match_output(entry.first)?,
                 })
@@ -2303,6 +2317,104 @@ fn state_matches_output<K: WireKore>(
         refuted: found.refuted,
         smt_unknowns: found.smt_unknowns,
         stack_stops: found.stack_stops,
+        chain: found.chain.map(chain_matches_output).transpose()?,
+    })
+}
+
+fn undecided_match_reason_output(
+    reason: k_rust_backend::rewrite::UndecidedMatchReason,
+) -> super::UndecidedMatchReasonOutput {
+    match reason {
+        k_rust_backend::rewrite::UndecidedMatchReason::UndecidedState => {
+            super::UndecidedMatchReasonOutput::UndecidedState
+        }
+        k_rust_backend::rewrite::UndecidedMatchReason::NotCeilFree => {
+            super::UndecidedMatchReasonOutput::NotCeilFree
+        }
+        k_rust_backend::rewrite::UndecidedMatchReason::UndecidedMatch => {
+            super::UndecidedMatchReasonOutput::UndecidedMatch
+        }
+        k_rust_backend::rewrite::UndecidedMatchReason::PlacementBound => {
+            super::UndecidedMatchReasonOutput::PlacementBound
+        }
+    }
+}
+
+/// The wire form of a run's chain matching ([`super::ChainMatchesOutput`]); steps are numbered
+/// from 1.
+fn chain_matches_output<K: WireKore>(
+    found: k_rust_backend::rewrite::ChainMatches,
+) -> Result<super::ChainMatchesOutput<K>, BackendError> {
+    let key_bindings = |bindings: Vec<(k_rust_backend::term::Variable, Term)>| {
+        bindings_output::<K>(bindings.into_iter().collect())
+    };
+    Ok(super::ChainMatchesOutput {
+        first_clean_completion: found
+            .first_clean_completion
+            .map(chain_completion_output)
+            .transpose()?,
+        first_dirty_completion: found
+            .first_dirty_completion
+            .map(chain_completion_output)
+            .transpose()?,
+        dirty_completions: found.dirty_completions,
+        undecided: found
+            .undecided
+            .into_iter()
+            .map(|entry| {
+                let (part, index) = match entry.part {
+                    k_rust_backend::rewrite::ChainPart::Step(index) => {
+                        (super::ChainPartOutput::Step, index)
+                    }
+                    k_rust_backend::rewrite::ChainPart::Unless(index) => {
+                        (super::ChainPartOutput::Unless, index)
+                    }
+                };
+                Ok(super::ChainUndecidedOutput {
+                    part,
+                    step: index + 1,
+                    reason: undecided_match_reason_output(entry.reason),
+                    count: entry.count,
+                    first: state_match_output(entry.first)?,
+                    bindings: key_bindings(entry.bindings)?,
+                })
+            })
+            .collect::<Result<_, BackendError>>()?,
+        overflowed_paths: found.overflowed_paths,
+        peak_partials: found.peak_partials,
+        states: found.states,
+        evaluations: found.evaluations,
+        smt_unknowns: found.smt_unknowns,
+        stack_stops: found.stack_stops,
+    })
+}
+
+fn chain_completion_output<K: WireKore>(
+    found: k_rust_backend::rewrite::ChainCompletion,
+) -> Result<super::ChainCompletionOutput<K>, BackendError> {
+    let result_sort = found
+        .steps
+        .last()
+        .expect("a completion has a step")
+        .pattern
+        .term
+        .sort();
+    Ok(super::ChainCompletionOutput {
+        steps: found
+            .steps
+            .into_iter()
+            .enumerate()
+            .map(|(index, hit)| {
+                Ok(super::ChainStepMatchOutput {
+                    step: index + 1,
+                    depth: hit.depth,
+                    state: encode_constrained(&hit.pattern)?,
+                    bindings: bindings_output(hit.bindings)?,
+                })
+            })
+            .collect::<Result<_, BackendError>>()?,
+        diagnostics: diagnostics_output(found.diagnostics, &result_sort)?,
+        term_conjunction: found.term_conjunction,
     })
 }
 

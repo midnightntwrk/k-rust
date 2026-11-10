@@ -443,6 +443,7 @@ mod tests {
                 refuted: 3,
                 smt_unknowns: 0,
                 stack_stops: 0,
+                chain: None,
             }),
         }
     }
@@ -465,6 +466,7 @@ mod tests {
             &StateMatchRequest {
                 pattern: int(7),
                 proof_agreement,
+                chain: None,
             },
         )
         .expect("the result is adapted");
@@ -675,6 +677,7 @@ mod tests {
             &StateMatchRequest {
                 pattern: int(7),
                 proof_agreement: true,
+                chain: None,
             },
         )
         .expect("the result is adapted");

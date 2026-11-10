@@ -366,7 +366,8 @@ export interface ExecuteOptions {
   /**
    * Match every state the run reaches against `pattern` and report a summary of the verdicts as
    * `ExecutionResult.stateMatches`. The run is never stopped by a match: every other field is the
-   * field of the same request without it (docs/compatibility.md, "State matches").
+   * field of the same request without it, except under a `chain`, where a `state-set` run may
+   * expand states it would otherwise merge (docs/compatibility.md, "State matches", "Chains").
    */
   matchStates?: StateMatchRequest
   /**
@@ -392,9 +393,43 @@ export interface StateMatchRequest {
   /**
    * Whether a verdict must also hold in proof mode, where a value the definition leaves to the
    * implementation stays unevaluated (default false): a state then reaches only when both modes
-   * match it, and is refuted only when both refute it.
+   * match it, and is refuted only when both refute it. It applies to every part of `chain` too.
    */
   proofAgreement?: boolean
+  /**
+   * A chain of patterns the run also matches its states against, reported as
+   * `StateMatches.chain`; `pattern` is matched and reported as without it.
+   */
+  chain?: ChainRequest
+}
+
+/**
+ * Steps `P1, [U2] P2, ..., [Un] Pn`. The chain holds on a path when the path has states
+ * `s1`, ..., `sn`, each at or after the previous one, matching the steps under one assignment of
+ * the variables they share, with no state strictly between `s(i-1)` and `si` matching `Ui`
+ * (docs/compatibility.md, "Chains").
+ */
+export interface ChainRequest {
+  /** The steps, in order; the first has no `unless` and no import. */
+  steps: ChainStepRequest[]
+  /** The most partial occurrences one path keeps; beyond it the largest are evicted and the path is reported overflowed. */
+  partialCap: number
+}
+
+export interface ChainStepRequest {
+  /** The step's target, internalized as `StateMatchRequest.pattern` is; its `requires` may name an import. */
+  pattern: Kore
+  /** The element variables an earlier step binds, substituted into `pattern` before it is matched. */
+  imports?: Kore[]
+  /** The element variables `pattern` binds that a later step or `unless` names. */
+  exports?: Kore[]
+  /** What no state strictly between the previous step's state and this step's may match. */
+  unless?: UnlessRequest
+}
+
+export interface UnlessRequest {
+  pattern: Kore
+  imports?: Kore[]
 }
 
 /**
@@ -423,7 +458,66 @@ export interface StateMatches {
   smtUnknowns?: number
   /** The matcher's stops for lack of native stack, which the run's `stackStops` leaves out; absent when none. */
   stackStops?: number
+  /** The chain's matching, present exactly when the request asked for a `chain`. */
+  chain?: ChainMatches
 }
+
+/**
+ * The summary of a run's chain matching, in the run's depth-first order. A step matches a state as
+ * a state reaches `pattern`, with the step's imports substituted; an `unless` matches without the
+ * existence check. Matching stops after the first clean completion no step state of which holds a
+ * term-level `\and`.
+ */
+export interface ChainMatches {
+  /** The first completion on a clean path, preferring one with no term-level `\and`. */
+  firstCleanCompletion?: ChainCompletion
+  /** The first completion on a path that is not clean. */
+  firstDirtyCompletion?: ChainCompletion
+  /** How many completions were on paths that are not clean; absent when none. */
+  dirtyCompletions?: number
+  /** For each part and reason, the first undecided match and the count; absent when none. */
+  undecided?: ChainUndecided[]
+  /** The paths on which a partial occurrence was evicted beyond `partialCap`; absent when none. */
+  overflowedPaths?: number
+  /** The most partial occurrences one path kept. */
+  peakPartials: number
+  /** The states processed. */
+  states: number
+  /** The step and unless matches made. */
+  evaluations: number
+  /** The chain matcher's undecided solver answers; absent when none. */
+  smtUnknowns?: number
+  /** The chain matcher's stops for lack of native stack; absent when none. */
+  stackStops?: number
+}
+
+export interface ChainCompletion {
+  steps: ChainStepMatch[]
+  diagnostics?: BackendDiagnostic[]
+  /** Present (true) when a step state's term holds a term-level `\and`. */
+  termConjunction?: boolean
+}
+
+/** One step of a completion: the step (from 1), its state's depth, the state, and the step's own bindings. */
+export interface ChainStepMatch {
+  step: number
+  depth: number
+  state: Kore
+  bindings?: BackendBinding[]
+}
+
+export interface ChainUndecided {
+  part: ChainPart
+  /** The step (from 1) the part is, or whose `unless` it is. */
+  step: number
+  reason: UndecidedMatchReason
+  count: number
+  first: StateMatch
+  /** The values of the imported variables the part was matched with. */
+  bindings?: BackendBinding[]
+}
+
+export type ChainPart = 'step' | 'unless'
 
 /** One matched state: its depth (committed steps from the initial configuration), the state, and its path's diagnostics up to it. */
 export interface StateMatch {

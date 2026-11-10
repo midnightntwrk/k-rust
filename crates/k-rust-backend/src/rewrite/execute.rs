@@ -67,6 +67,7 @@
 // boxed: one leaf per state, moved once into `leaves`.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
@@ -117,7 +118,7 @@ use super::{
     path_trace::PathTrace,
     predicate_truth, predicates_truth, retain_substitution_predicates,
     rewrite_step_with_optional_execution,
-    state_match::{MatchMark, StateMatcher},
+    state_match::{ChainMatcher, MatchMark, Progress, StateMatcher, StateMatches},
     stuck, trivial_halt, vacuous_halt,
 };
 
@@ -408,6 +409,8 @@ struct Execution<'a> {
     merged_arrival: bool,
     /// The state matcher of a run that asks for state matches ([`ExecutionOptions::match_states`]).
     matcher: Option<StateMatcher<'a>>,
+    /// The chain matcher of a run that asks for a chain ([`super::StateMatchOptions::chain`]).
+    chain: Option<ChainMatcher<'a>>,
     /// The stop condition of an in-process run that has one (`stop_condition`).
     condition: Option<&'a mut dyn StopCondition>,
     /// The caller's reading of a stop rule's step's candidates, where it gives one
@@ -497,6 +500,7 @@ impl<'a> Execution<'a> {
                     probing: None,
                     probe_path: ProbePath::ROOT,
                     windows: windows.as_ref().map(|_| Box::default()),
+                    chain: None,
                 }
             })
             .collect::<VecDeque<_>>();
@@ -545,13 +549,25 @@ impl<'a> Execution<'a> {
             }
         }
         let work = Work::new(options.max_work);
-        let matcher = options.match_states.take().map(|match_states| {
-            StateMatcher::new(
-                match_states,
-                match_solver,
-                options.max_simplification_iterations,
-            )
-        });
+        let (matcher, chain) = match options.match_states.take() {
+            Some(mut match_states) => {
+                let chain = match_states.chain.take().map(|chain| {
+                    ChainMatcher::new(
+                        chain,
+                        match_states.proof_agreement,
+                        match_solver,
+                        options.max_simplification_iterations,
+                    )
+                });
+                let matcher = StateMatcher::new(
+                    match_states,
+                    match_solver,
+                    options.max_simplification_iterations,
+                );
+                (Some(matcher), chain)
+            }
+            None => (None, None),
+        };
         let merge = merging.then(ExplorationMerge::default);
         // Under strategy `any` a state the path leaves by one successor may have others in the
         // definition, so no return is recognized there (`probe`, "Cycles").
@@ -585,6 +601,7 @@ impl<'a> Execution<'a> {
             windows,
             merged_arrival: false,
             matcher,
+            chain,
             condition,
             reading,
             refusal: None,
@@ -633,7 +650,7 @@ impl<'a> Execution<'a> {
                 unsupported_hooks: Vec::new(),
                 short_circuit_readings: Vec::new(),
                 passed_stops: passed_stops_in_order(self.passed_stops),
-                state_matches: self.matcher.map(StateMatcher::finish),
+                state_matches: finish_matches(self.matcher, self.chain),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -790,6 +807,11 @@ impl<'a> Execution<'a> {
         {
             arrival.history = Some(probe::isolated(|| probe.history(state.probe_path)));
         }
+        // Under a chain the subtree's completions rest on the path's progress and cleanness
+        // too (`state_match::chain`, "Merging").
+        if let Some(chain) = &self.chain {
+            arrival.chain = chain.merge_key(state.chain.as_ref(), &state.diagnostics);
+        }
         if let Some((mark, forward)) = merge.absorbs(&mut arrival, self.fresh_counter.request()) {
             measure::bump(Counter::ExecutionStatesMerged);
             self.merged_arrival = true;
@@ -816,7 +838,17 @@ impl<'a> Execution<'a> {
     /// Match a reached, normalized state against the target of
     /// [`ExecutionOptions::match_states`] (`state_match`), when the run asks for it; returns what
     /// the merge table keeps of the verdict.
-    fn match_state(&mut self, state: &ExecutionState) -> MatchMark {
+    fn match_state(&mut self, state: &mut ExecutionState) -> MatchMark {
+        if let Some(chain) = &mut self.chain {
+            let (progress, _) = chain.observe(
+                self.definition,
+                state.chain.as_ref(),
+                state.depth,
+                &state.pattern,
+                &state.diagnostics,
+            );
+            state.chain = Some(progress);
+        }
         match &mut self.matcher {
             Some(matcher) => matcher.observe(
                 self.definition,
@@ -945,7 +977,7 @@ impl<'a> Execution<'a> {
             );
         }
         if let ExecutionStateKind::Rewritable = state.kind {
-            let mark = self.match_state(&state);
+            let mark = self.match_state(&mut state);
             if let Some(arrival) = &mut self.arrival {
                 arrival.mark = mark;
             }
@@ -1509,7 +1541,7 @@ impl<'a> Execution<'a> {
         if state.depth >= self.options.max_depth {
             // A state the depth bound stops is reached; it takes no part in merging.
             if let ExecutionStateKind::Rewritable = state.kind {
-                self.match_state(&state);
+                self.match_state(&mut state);
             }
             let pattern = state.pattern.clone();
             return Err(Box::new(externalise_leaf(
@@ -1913,7 +1945,7 @@ impl<'a> Execution<'a> {
         if let Some(decision) = deferred {
             return self.deferred_answer(next, rule, StopSide::After, decision);
         }
-        self.match_state(&next);
+        self.match_state(&mut next);
         next.stops += 1;
         next.arrivals += 1;
         Err(Box::new(next.leaf(
@@ -1967,7 +1999,7 @@ impl<'a> Execution<'a> {
     /// successor is reached either way, so it is matched (`state_match`) before the path ends.
     fn probe_step(
         &mut self,
-        successor: ExecutionState,
+        mut successor: ExecutionState,
         probing: Probing,
     ) -> Result<ExecutionState, Box<ExecutionLeaf>> {
         if !self.probing {
@@ -1983,7 +2015,7 @@ impl<'a> Execution<'a> {
                 &before.pattern.term,
             );
             if let Some(halt) = self.probe_end(rule, StopSide::Before, decision) {
-                self.match_reached(&successor);
+                self.match_reached(&mut successor);
                 let before = ExecutionState {
                     diagnostics: successor.diagnostics,
                     ..before
@@ -2000,7 +2032,7 @@ impl<'a> Execution<'a> {
                 &successor.pattern.term,
             );
             if let Some(halt) = self.probe_end(rule, StopSide::After, decision) {
-                self.match_reached(&successor);
+                self.match_reached(&mut successor);
                 return Err(Box::new(successor.leaf(halt, &self.observation_log)));
             }
         }
@@ -2009,7 +2041,7 @@ impl<'a> Execution<'a> {
 
     /// Match `successor`, a step's normalized and defined successor at which a probe's answer
     /// ends the path, which takes part in no merging (`state_match`).
-    fn match_reached(&mut self, successor: &ExecutionState) {
+    fn match_reached(&mut self, successor: &mut ExecutionState) {
         if let ExecutionStateKind::Rewritable = successor.kind {
             self.match_state(successor);
         }
@@ -3724,7 +3756,7 @@ impl<'a> Execution<'a> {
                 unsupported_hooks: Vec::new(),
                 short_circuit_readings: Vec::new(),
                 passed_stops: passed_stops_in_order(self.passed_stops),
-                state_matches: self.matcher.map(StateMatcher::finish),
+                state_matches: finish_matches(self.matcher, self.chain),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -4825,6 +4857,17 @@ fn remainder_observation(
     head
 }
 
+/// The run's state-match summary, with the chain's when the run matched one.
+fn finish_matches(
+    matcher: Option<StateMatcher<'_>>,
+    chain: Option<ChainMatcher<'_>>,
+) -> Option<StateMatches> {
+    matcher.map(|matcher| StateMatches {
+        chain: chain.map(ChainMatcher::finish),
+        ..matcher.finish()
+    })
+}
+
 fn next_state(
     definition: &BackendDefinition,
     state: ExecutionState,
@@ -4988,6 +5031,11 @@ struct ExecutionState {
     /// The path's last committed steps, under a run that collects rule windows
     /// ([`ExecutionOptions::collect_windows`]); `None` on every state of another run.
     windows: Option<Box<WindowPath>>,
+    /// The path's chain progress after the last state the chain matcher processed on it (this
+    /// state once it is matched, its parent's before), under a run that matches a chain
+    /// ([`super::StateMatchOptions::chain`]); `None` on every state of another run and before the
+    /// path's first state is matched. Successors share it.
+    chain: Option<Rc<Progress>>,
 }
 
 /// The points of a step a probe observes ([`ExecutionState::probing`]): the rule of its before
@@ -5905,6 +5953,7 @@ mod tests {
         let mut matched = run(Some(crate::rewrite::StateMatchOptions {
             target,
             proof_agreement: false,
+            chain: None,
         }));
         let found = matched
             .state_matches
@@ -6332,6 +6381,7 @@ mod tests {
             probing: None,
             probe_path: ProbePath::ROOT,
             windows: None,
+            chain: None,
             pattern: subject(definition, "state"),
             depth: 500,
             trace,
@@ -7225,6 +7275,7 @@ mod tests {
                         probing: None,
                         probe_path: ProbePath::ROOT,
                         windows: None,
+                        chain: None,
                         pattern: pattern.clone(),
                         depth: 0,
                         trace: PathTrace::default(),
@@ -9072,6 +9123,7 @@ mod tests {
                         match_states: Some(StateMatchOptions {
                             target: target.clone(),
                             proof_agreement: false,
+                            chain: None,
                         }),
                         ..probing(&["tick-b"], &["tick-b"])
                     };
@@ -9296,6 +9348,7 @@ mod tests {
                             match_states: Some(StateMatchOptions {
                                 target: counter_state(&definition, &target),
                                 proof_agreement: true,
+                                chain: None,
                             }),
                             ..probing(&rules, &rules)
                         };

@@ -8,7 +8,8 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, KoreExecutionResult, ResultModalityOutput,
+        Backend, BackendOptions, ChainCompletionOutput, ChainMatchesOutput, ChainRequest,
+        ChainStepRequest, ExecuteRequest, KoreExecutionResult, ResultModalityOutput,
         SearchPatternRequest, SearchTypeArg, StateMatchOutput, StateMatchRequest,
         StateMatchesOutput, UndecidedMatchReasonOutput,
     },
@@ -133,6 +134,7 @@ fn matching(
         match_states: Some(StateMatchRequest {
             pattern: parse_pattern(pattern).unwrap(),
             proof_agreement,
+            chain: None,
         }),
         ..request(program, modality)
     }
@@ -347,6 +349,7 @@ fn matching_and_committed_change_no_other_field() {
                         match_states: Some(StateMatchRequest {
                             pattern: parse_pattern(&pattern).unwrap(),
                             proof_agreement: true,
+                            chain: None,
                         }),
                         ..plain.clone()
                     };
@@ -871,6 +874,7 @@ fn state_matches_decide_list_items_between_list_parts() {
                     match_states: Some(StateMatchRequest {
                         pattern: parse_pattern(&pattern).unwrap(),
                         proof_agreement: true,
+                        chain: None,
                     }),
                     ..ExecuteRequest::new(parse_pattern(&bus_initial(7)).unwrap())
                 })
@@ -890,4 +894,416 @@ fn state_matches_decide_list_items_between_list_parts() {
             }
         }
     }
+}
+
+const CHAIN_SOURCE: &str = include_str!("fixtures/state-matches/chain.k");
+
+/// The KORE of `CHAIN_SOURCE`, compiled once per process.
+fn chain_definition_kore() -> std::sync::Arc<String> {
+    static KORE: shared::Shared<String> = shared::Shared::new();
+    KORE.get(|| {
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("chain.k", CHAIN_SOURCE),
+            "CHAIN",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(&loaded, CompileOptions::default())
+            .unwrap()
+            .definition_kore
+    })
+}
+
+fn chain_backend() -> Backend {
+    Backend::new(&chain_definition_kore(), "CHAIN", BackendOptions::DEFAULT).unwrap()
+}
+
+/// `<k> head(VarP) ~> _ </k>` with any `<out>`.
+fn head_p(head: &str, pgm: bool) -> String {
+    let item = format!("Lbl{head}{{}}(VarP:SortInt{{}})");
+    let item = if pgm {
+        format!("inj{{SortPgm{{}}, SortKItem{{}}}}({item})")
+    } else {
+        item
+    };
+    top(
+        &format!("kseq{{}}({item}, VarREST:SortK{{}})"),
+        "VarO:SortInt{}",
+    )
+}
+
+/// `<k> .K </k> <out> P </out>`.
+fn done_p() -> String {
+    top("dotk{}()", "VarP:SortInt{}")
+}
+
+fn variable_p() -> k_rust::kore::ast::Variable {
+    match &parse_pattern("VarP:SortInt{}").unwrap() {
+        Pattern::Variable(variable) => variable.clone(),
+        _ => unreachable!("a variable parses as one"),
+    }
+}
+
+/// A step `pattern` that imports `P` when `imports` and exports it when `exports`.
+fn chain_step(pattern: &str, imports: bool, exports: bool) -> ChainStepRequest {
+    ChainStepRequest {
+        pattern: parse_pattern(pattern).unwrap(),
+        imports: if imports {
+            vec![variable_p()]
+        } else {
+            Vec::new()
+        },
+        exports: if exports {
+            vec![variable_p()]
+        } else {
+            Vec::new()
+        },
+        unless: None,
+    }
+}
+
+/// A request matching the chain `steps` on `program`, with the first step as the state-match
+/// pattern.
+fn chained(
+    program: (&str, i64),
+    modality: ResultModalityOutput,
+    steps: Vec<ChainStepRequest>,
+) -> ExecuteRequest {
+    ExecuteRequest {
+        match_states: Some(StateMatchRequest {
+            pattern: steps[0].pattern.clone(),
+            proof_agreement: false,
+            chain: Some(ChainRequest {
+                steps,
+                partial_cap: 256,
+            }),
+        }),
+        ..request(program, modality)
+    }
+}
+
+fn chain_matches(result: &KoreExecutionResult) -> &ChainMatchesOutput<Pattern> {
+    matches(result)
+        .chain
+        .as_ref()
+        .expect("the request matched a chain")
+}
+
+fn depths(completion: Option<&ChainCompletionOutput<Pattern>>) -> Option<Vec<u64>> {
+    completion.map(|completion| completion.steps.iter().map(|step| step.depth).collect())
+}
+
+/// A chain holds along one path: on `go(5)` the `b` and `c` states are on different branches,
+/// so `b(P)` then `c(P)` never completes, and the decided "no" leaves nothing undecided or
+/// evicted; `b(P)` then the end with `<out> P </out>` completes on the `b` branch, with the
+/// step's bindings.
+#[test]
+fn a_chain_holds_only_along_one_path() {
+    let mut backend = chain_backend();
+    for modality in MODALITIES {
+        let result = backend
+            .execute_kore(chained(
+                ("go", 5),
+                modality,
+                vec![
+                    chain_step(&head_p("b", false), false, true),
+                    chain_step(&head_p("c", false), true, false),
+                ],
+            ))
+            .unwrap();
+        let found = chain_matches(&result);
+        assert!(
+            found.first_clean_completion.is_none(),
+            "{modality:?}: {found:?}"
+        );
+        assert!(
+            found.first_dirty_completion.is_none(),
+            "{modality:?}: {found:?}"
+        );
+        assert!(found.undecided.is_empty(), "{modality:?}: {found:?}");
+        assert_eq!(found.overflowed_paths, 0);
+        assert_eq!(found.peak_partials, 1);
+
+        let result = backend
+            .execute_kore(chained(
+                ("go", 5),
+                modality,
+                vec![
+                    chain_step(&head_p("b", false), false, true),
+                    chain_step(&done_p(), true, false),
+                ],
+            ))
+            .unwrap();
+        let found = chain_matches(&result);
+        let completion = found.first_clean_completion.as_ref();
+        assert_eq!(
+            depths(completion),
+            Some(vec![1, 5]),
+            "{modality:?}: {found:?}"
+        );
+        let completion = completion.unwrap();
+        assert_eq!(
+            completion
+                .steps
+                .iter()
+                .map(|step| step.step)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        let bound = |step: usize| {
+            completion.steps[step]
+                .bindings
+                .iter()
+                .map(|binding| binding.variable.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            bound(0).iter().any(|name| name.contains("VarP")),
+            "{completion:?}"
+        );
+        assert!(
+            !bound(1).iter().any(|name| name.contains("VarP")),
+            "{completion:?}"
+        );
+    }
+}
+
+/// Under `state-set` an arrival is merged only into a recorded state its chain progress agrees
+/// with. On `go(5)` the `c` branch reaches `t(2)` equal to the `b` branch's: a chain that needs
+/// the `c` state completes only because that merge is refused, and the run expands the `c`
+/// branch's tail, so its `work` exceeds the run's without the chain; a chain whose progress is
+/// the same on both branches keeps the merge and the run's `work`.
+#[test]
+fn a_merge_is_refused_for_unequal_progress() {
+    let mut backend = chain_backend();
+    let plain = backend
+        .execute_kore(request(("go", 5), ResultModalityOutput::StateSet))
+        .unwrap();
+    let single = backend
+        .execute_kore(matching(
+            ("go", 5),
+            ResultModalityOutput::StateSet,
+            &head_p("c", false),
+            false,
+        ))
+        .unwrap();
+    assert_eq!(single.work, plain.work);
+
+    let refused = backend
+        .execute_kore(chained(
+            ("go", 5),
+            ResultModalityOutput::StateSet,
+            vec![
+                chain_step(&head_p("c", false), false, true),
+                chain_step(&done_p(), true, false),
+            ],
+        ))
+        .unwrap();
+    let found = chain_matches(&refused);
+    assert_eq!(
+        depths(found.first_clean_completion.as_ref()),
+        Some(vec![1, 5]),
+        "{found:?}"
+    );
+    assert!(refused.work > plain.work, "{} {}", refused.work, plain.work);
+    assert_eq!(refused.leaves.len(), plain.leaves.len());
+
+    let kept = backend
+        .execute_kore(chained(
+            ("go", 5),
+            ResultModalityOutput::StateSet,
+            vec![
+                chain_step(&head_p("go", true), false, true),
+                chain_step(&done_p(), true, false),
+            ],
+        ))
+        .unwrap();
+    assert_eq!(
+        depths(chain_matches(&kept).first_clean_completion.as_ref()),
+        Some(vec![0, 5])
+    );
+    assert_eq!(kept.work, plain.work);
+}
+
+/// An arrival on a clean path is not merged into a recorded state on a path that is not clean,
+/// even with equal progress: on `mark(5)` the step from `e(5)`, met first, reads an
+/// implementation-chosen value, and the `f(5)` branch reaches the same end cleanly, so the chain
+/// from `mark(P)` to the end has a dirty completion and a clean one in both modalities.
+#[test]
+fn a_clean_arrival_is_not_merged_into_a_dirty_one() {
+    let mut backend = chain_backend();
+    for modality in MODALITIES {
+        let result = backend
+            .execute_kore(chained(
+                ("mark", 5),
+                modality,
+                vec![
+                    chain_step(&head_p("mark", true), false, true),
+                    chain_step(&done_p(), true, false),
+                ],
+            ))
+            .unwrap();
+        let found = chain_matches(&result);
+        let dirty = found
+            .first_dirty_completion
+            .as_ref()
+            .expect("a dirty completion");
+        assert_eq!(depths(Some(dirty)), Some(vec![0, 2]));
+        assert_eq!(
+            depths(found.first_clean_completion.as_ref()),
+            Some(vec![0, 2]),
+            "{modality:?}: {found:?}"
+        );
+        assert!(
+            found
+                .first_clean_completion
+                .as_ref()
+                .unwrap()
+                .diagnostics
+                .is_empty()
+        );
+        assert_eq!(found.dirty_completions, 1);
+    }
+}
+
+/// A stop ends the paths a chain is matched on: with the terminal rule `down`, the path of
+/// `loop(3)` ends at `loop(2)`, which is matched, so `loop(3)` then `loop(2)` completes and
+/// `loop(3)` then `loop(1)` does not; without the stop both complete.
+#[test]
+fn a_stop_ends_the_paths_a_chain_is_matched_on() {
+    let mut backend = chain_backend();
+    for (stopped, last, completes) in [(true, 2, true), (true, 1, false), (false, 1, true)] {
+        for modality in MODALITIES {
+            let mut request = chained(
+                ("loop", 3),
+                modality,
+                vec![
+                    chain_step(&head("loop", 3, true), false, false),
+                    chain_step(&head("loop", last, true), false, false),
+                ],
+            );
+            if stopped {
+                request.terminal_rules = vec!["CHAIN.down".to_owned()];
+            }
+            let result = backend.execute_kore(request).unwrap();
+            let found = chain_matches(&result);
+            assert_eq!(
+                depths(found.first_clean_completion.as_ref()),
+                completes.then(|| vec![0, u64::try_from(3 - last).unwrap()]),
+                "stopped {stopped} last {last} {modality:?}: {found:?}"
+            );
+        }
+    }
+}
+
+/// Refusing a merge for unequal progress spends work the counted budget bounds: a budget the
+/// run without a chain completes within cuts the run that refuses the merge, with a `work-bound`
+/// leaf, before the chain completes.
+#[test]
+fn a_refused_merge_spends_work_the_budget_counts() {
+    let mut backend = chain_backend();
+    let plain = backend
+        .execute_kore(request(("go", 5), ResultModalityOutput::StateSet))
+        .unwrap();
+    let bounded = |request: ExecuteRequest| ExecuteRequest {
+        max_work: Some(plain.work),
+        ..request
+    };
+    let within: serde_json::Value = serde_json::from_str(
+        &backend
+            .execute_json(bounded(request(("go", 5), ResultModalityOutput::StateSet)))
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!within.to_string().contains("work-bound"), "{within}");
+    let cut = bounded(chained(
+        ("go", 5),
+        ResultModalityOutput::StateSet,
+        vec![
+            chain_step(&head_p("c", false), false, true),
+            chain_step(&done_p(), true, false),
+        ],
+    ));
+    let cut: serde_json::Value = serde_json::from_str(&backend.execute_json(cut).unwrap()).unwrap();
+    assert!(cut.to_string().contains("work-bound"), "{cut}");
+    assert!(
+        cut["stateMatches"]["chain"]
+            .get("firstCleanCompletion")
+            .is_none(),
+        "{cut}"
+    );
+}
+
+/// The wire spells a chain in camel case, with each variable a KORE JSON envelope, and the
+/// result reports it under `stateMatches.chain` with steps numbered from 1; a request without a
+/// chain reports none. A chain whose imports are not exported by an earlier step is refused.
+#[test]
+fn the_wire_spells_a_chain_in_camel_case() {
+    let kore = |source: &str| json::to_string(&parse_pattern(source).unwrap()).unwrap();
+    let state = kore(&initial(("go", 5)));
+    let first = kore(&head_p("b", false));
+    let second = kore(&done_p());
+    let p = kore("VarP:SortInt{}");
+    let text = |imports: &str| {
+        format!(
+            r#"{{"state":{state},"matchStates":{{"pattern":{first},"chain":{{"partialCap":4,"steps":[{{"pattern":{first},"exports":[{p}]}},{{"pattern":{second},"imports":{imports}}}]}}}}}}"#
+        )
+    };
+    let request: ExecuteRequest = serde_json::from_str(&text(&format!("[{p}]"))).unwrap();
+    let chain = request
+        .match_states
+        .as_ref()
+        .unwrap()
+        .chain
+        .as_ref()
+        .unwrap();
+    assert_eq!(chain.partial_cap, 4);
+    assert_eq!(chain.steps[1].imports, [variable_p()]);
+    let mut backend = chain_backend();
+    let output: serde_json::Value =
+        serde_json::from_str(&backend.execute_json(request).unwrap()).unwrap();
+    let chain = &output["stateMatches"]["chain"];
+    assert_eq!(
+        chain["firstCleanCompletion"]["steps"][1]["step"], 2,
+        "{chain}"
+    );
+    assert_eq!(
+        chain["firstCleanCompletion"]["steps"][1]["depth"], 5,
+        "{chain}"
+    );
+    assert_eq!(chain["peakPartials"], 1, "{chain}");
+    assert!(chain["states"].as_u64().unwrap() > 0);
+
+    let refused: ExecuteRequest = serde_json::from_str(&text("[]")).unwrap();
+    let error = backend.execute_json(refused).unwrap_err();
+    assert!(
+        error.to_string().contains("invalid matchStates.chain"),
+        "{error}"
+    );
+    let not_a_variable = text(&format!("[{}]", kore(&int(1))));
+    assert!(serde_json::from_str::<ExecuteRequest>(&not_a_variable).is_err());
+
+    let single: serde_json::Value = serde_json::from_str(
+        &backend
+            .execute_json(matching(
+                ("go", 5),
+                ResultModalityOutput::StateSet,
+                &done(5),
+                false,
+            ))
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(single["stateMatches"].is_object());
+    assert!(single["stateMatches"].get("chain").is_none(), "{single}");
 }

@@ -1357,6 +1357,7 @@ fn clean_reach() -> crate::exec::AnyStateRun {
             refuted: 1,
             smt_unknowns: 0,
             stack_stops: 0,
+            chain: None,
         },
         run_reasons: Vec::new(),
     }

@@ -99,18 +99,12 @@ use crate::{
 
 use super::{Pattern, Truth, predicates_truth};
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the chain matcher is driven by its unit tests until the run asks for it"
-    )
-)]
 mod chain;
 pub use chain::{
     ChainCompletion, ChainMatches, ChainOptions, ChainPart, ChainStep, ChainUndecided,
-    InvalidChain, PartialKey, Payload, Progress, StepHit, UnlessPart,
+    CheckedChain, InvalidChain, PartialKey, Payload, Progress, StepHit, UnlessPart,
 };
+pub(super) use chain::{ChainMatcher, ChainMergeKey};
 
 /// What a run matches its states against ([`super::ExecutionOptions::match_states`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,8 +115,14 @@ pub struct StateMatchOptions {
     /// leaves to the implementation stays unevaluated: a reach then needs both modes to match,
     /// and a refutation both modes to refute; a disagreement is undecided. A target with no
     /// constraints whose every application has a free-constructor head evaluates nothing, so
-    /// its verdict is the same in every mode and the second match can be left out.
+    /// its verdict is the same in every mode and the second match can be left out. It applies
+    /// to every part of `chain` too.
     pub proof_agreement: bool,
+    /// A chain of patterns the run also matches its states against (`chain`), reported in
+    /// [`StateMatches::chain`]; `target` is matched and reported as without it. Under a chain a
+    /// state-set run merges two states only when their chain progresses agree, so it may expand
+    /// states it would merge without one.
+    pub chain: Option<CheckedChain>,
 }
 
 /// Why a matched state's verdict is undecided ([`StateMatches::undecided`]), in the order the
@@ -194,6 +194,9 @@ pub struct StateMatches {
     /// match a stop interrupted is undecided; whether the stop happens depends on the host, so a
     /// summary with a nonzero count is outside the determinism contract, as a run's is.
     pub stack_stops: usize,
+    /// The summary of the chain's matching, exactly when the request asked for a chain
+    /// ([`StateMatchOptions::chain`]).
+    pub chain: Option<ChainMatches>,
 }
 
 /// What the merge table keeps of a recorded state's verdict: whether it reaches, so that an
@@ -667,6 +670,7 @@ mod tests {
             StateMatchOptions {
                 target: pattern("T"),
                 proof_agreement: false,
+                chain: None,
             },
             &solver,
             10,

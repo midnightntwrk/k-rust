@@ -16,6 +16,13 @@
 //! answers, which rest on the probe's history of the state's path as well: an arriving state is
 //! merged only into a recorded state with an equal history, read when each arrived.
 //!
+//! Under a chain of patterns (`state_match::chain`, "Merging") a state's subtree also gives the
+//! chain's completions, which rest on the path's chain progress and on whether the path is clean
+//! up to the state: an arriving state is merged only into a recorded state with an equal chain
+//! key. An arrival with no key (no chain, or the chain's matching is over) compares none: once
+//! the chain's summary is final, nothing in a subtree is read for it. Every state of a run
+//! without a chain has none, so its merges are unchanged.
+//!
 //! Path facts (`BackendDiagnostic::ImplementationChosenValue`) are left out of the comparison of
 //! diagnostics: they record which paths read a value the definition leaves open, not what a
 //! leaf means, so a mark never causes or prevents a merge and the run explores what an unmarked
@@ -43,7 +50,10 @@ use crate::{
     transition::{EffectJournal, ExecutionIoState},
 };
 
-use super::{Pattern, state_match::MatchMark};
+use super::{
+    Pattern,
+    state_match::{ChainMergeKey, MatchMark},
+};
 
 /// A state that arrives at a depth, as the table compares and records it.
 pub(super) struct Arrival {
@@ -62,6 +72,9 @@ pub(super) struct Arrival {
     /// The probe's history of the state's path, under a probe that follows paths
     /// (`probe::Probe::history`); `None` otherwise.
     pub(super) history: Option<[u8; 32]>,
+    /// The chain's merge key of the state's path, under a run that matches a chain whose
+    /// matching is not over (`state_match::chain`, "Merging"); `None` otherwise.
+    pub(super) chain: Option<ChainMergeKey>,
     /// The state's forward set, under a run that collects rule windows and keeps them
     /// (`coverage::windows`): the table owns it, so it lives as long as the state's record;
     /// `None` otherwise.
@@ -92,6 +105,7 @@ impl Arrival {
             diagnostics,
             mark: MatchMark::Other,
             history: None,
+            chain: None,
             forward: None,
             shape: None,
             key: OnceCell::new(),
@@ -110,6 +124,7 @@ impl Arrival {
         recorded.io_enabled == self.io_enabled
             && recorded.stops == self.stops
             && recorded.history == self.history
+            && (self.chain.is_none() || recorded.chain == self.chain)
             && recorded.effects.fingerprint() == self.effects.fingerprint()
             && self
                 .diagnostics
