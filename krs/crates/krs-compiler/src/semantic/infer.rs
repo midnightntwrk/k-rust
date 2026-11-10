@@ -765,8 +765,10 @@ impl StructuredTermBuilder<'_> {
                     ));
                 }
                 // A `..` pattern leaves children unconstrained, and an update
-                // takes them from its base (F5).
-                let partial = *open || update.is_some();
+                // takes them from its base (F5). A built term's `..` names no
+                // value for a child it leaves out: no group was matched there
+                // to keep it from (a `?` group a result creates with `Some(..)`).
+                let partial = (*open && subject) || update.is_some();
                 self.infer_cell_fields(declaration, fields, subject, partial)?;
             }
             DescriptorTerm::SortTest {
@@ -3330,8 +3332,13 @@ impl StructuredTermBuilder<'_> {
             let field_id = ProductionFieldId::new(&declared.rust_field)?;
             let field = supplied.get(&field_id);
             // A child the term leaves out is unconstrained in a `..` pattern
-            // and its base's in an update (F5); a complete term names it.
-            if field.is_none() && !open && record.update.is_none() && record.alias.is_none() {
+            // and its base's in an update (F5); a complete term names it, and
+            // so does a built one ending in `..`, which has no value for it.
+            if field.is_none()
+                && !(open && record.subject)
+                && record.update.is_none()
+                && record.alias.is_none()
+            {
                 return Err(self.invalid_term(format!(
                     "fragment! is missing child field {:?}",
                     declared.rust_field

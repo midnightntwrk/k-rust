@@ -1623,3 +1623,232 @@ fn a_group_records_presence_child_waits_for_its_entry_on_every_route() {
     "#]]
     .assert_debug_eq(&outcomes);
 }
+
+/// Groups a result may create with every child unmatched: an optional group `ogroup` of two
+/// children, an optional group `ohcell` holding the group `hg`, and the group child `aframe` of
+/// the Map collection `acct`'s instances.
+const CREATED: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("make({x})")]
+    Make { x: Int },
+}
+
+#[k::cell]
+pub struct Gp {
+    #[k::cell]
+    pub pa: Int,
+    #[k::cell]
+    pub pb: Int,
+}
+
+#[k::cell]
+pub struct G {
+    #[k::cell]
+    pub a: Int,
+    #[k::cell]
+    pub b: Int,
+}
+
+#[k::cell]
+pub struct Hp {
+    #[k::cell(nested)]
+    pub hg: G,
+    #[k::cell]
+    pub hn: Int,
+}
+
+#[k::cell]
+pub struct Ag {
+    #[k::cell]
+    pub aa: Int,
+    #[k::cell]
+    pub ab: Int,
+}
+
+#[k::cell]
+pub struct Acct {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell(nested)]
+    pub aframe: Ag,
+}
+
+#[k::cell]
+pub struct Bank {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub acct: Acct,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(multiplicity = "?", nested)]
+    pub ogroup: Option<Gp>,
+    #[k::cell(multiplicity = "?", nested)]
+    pub ohcell: Option<Hp>,
+    #[k::cell(nested)]
+    pub bank: Bank,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            ogroup: k::absent!(Gp { pa: 0, pb: 0 }),
+            ohcell: k::absent!(Hp { hg: G { a: 0, b: 0 }, hn: 0 }),
+            bank: Bank { acct: Acct { id: 0, aframe: Ag { aa: 0, ab: 0 } } },
+        }
+    }
+}
+"#;
+
+/// A result's `..` keeps the children of a group its subject matched; where no group was
+/// matched, it names no value for them. A `?` group a result creates with `Some(..)` over
+/// `None`, a group child inside one, and a group child of an instance the result creates have no
+/// matched group, so a record there that leaves a child out is refused, bare or in
+/// `k::fragment!`, readable or `cells!`, with one text (RDRA fix of BUILT-DOTS: once the
+/// fragment's `..` was read, `Some(k::fragment![crate::Gp { pa: x, .. }])` emitted
+/// `<pb> _ </pb>` on the rule's right side, as the bare group children below already did). The
+/// same record naming every child is admitted.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of places and spellings, each with its refusal."
+)]
+fn a_record_of_a_group_no_subject_matched_names_every_child() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |subject: &str, result: &str| {
+        format!(
+            "{CREATED}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    make: {{ k: [Make {{ x }}, ..], {subject} }} => {{ k: [..], {result} }};\n}}\n"
+        )
+    };
+    let cells = |subject: &str, result: &str| {
+        format!(
+            "{CREATED}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, tail @ ..), {subject}, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
+        )
+    };
+    let exact = library_package(
+        temporary.path(),
+        "created-exact",
+        &cells(
+            "ogroup: None",
+            "ogroup: Some(k::fragment![crate::Gp { pa: x, pb: 0, .. }])",
+        ),
+    );
+    expect_test::expect![[r"
+        rule [make]:
+            <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k>
+            (.Bag => <ogroup> <pa> X:Int </pa> <pb> 0 </pb> </ogroup>)"]]
+    .assert_eq(rule(&emitted_k(target.path(), &exact), "make"));
+    let refused = [
+        (
+            "optional",
+            "Gp",
+            readable("ogroup: None", "ogroup: Some(Gp { pa: x, .. })"),
+        ),
+        (
+            "optional",
+            "Gp",
+            readable(
+                "ogroup: None",
+                "ogroup: Some(k::fragment![Gp { pa: x, .. }])",
+            ),
+        ),
+        (
+            "optional",
+            "Gp",
+            cells(
+                "ogroup: None",
+                "ogroup: Some(k::fragment![crate::Gp { pa: x, .. }])",
+            ),
+        ),
+        (
+            "optional-child",
+            "G",
+            readable(
+                "ohcell: None",
+                "ohcell: Some(Hp { hg: G { a: x, .. }, hn: 0 })",
+            ),
+        ),
+        (
+            "optional-child",
+            "G",
+            readable(
+                "ohcell: None",
+                "ohcell: Some(Hp { hg: k::fragment![G { a: x, .. }], hn: 0 })",
+            ),
+        ),
+        (
+            "optional-child",
+            "G",
+            cells(
+                "ohcell: None",
+                "ohcell: Some(k::fragment![crate::Hp { hg: crate::G { a: x, .. }, hn: 0 }])",
+            ),
+        ),
+        (
+            "optional-child",
+            "G",
+            cells(
+                "ohcell: None",
+                "ohcell: Some(k::fragment![crate::Hp { hg: k::fragment![crate::G { a: x, .. }], hn: 0 }])",
+            ),
+        ),
+        (
+            "instance-child",
+            "Ag",
+            readable(
+                "acct: { .. }",
+                "acct: { Acct { id: x, aframe: Ag { aa: x, .. } }, .. }",
+            ),
+        ),
+        (
+            "instance-child",
+            "Ag",
+            readable(
+                "acct: { .. }",
+                "acct: { Acct { id: x, aframe: k::fragment![Ag { aa: x, .. }] }, .. }",
+            ),
+        ),
+        (
+            "instance-child",
+            "Ag",
+            cells(
+                "Bank::acct: { instances0 @ .. }",
+                "Bank::acct: { k::fragment![crate::Acct { id: x, aframe: crate::Ag { aa: x, .. } }], ..instances0 }",
+            ),
+        ),
+        (
+            "instance-child",
+            "Ag",
+            cells(
+                "Bank::acct: { instances0 @ .. }",
+                "Bank::acct: { k::fragment![crate::Acct { id: x, aframe: k::fragment![crate::Ag { aa: x, .. }] }], ..instances0 }",
+            ),
+        ),
+    ];
+    for (index, (place, group, source)) in refused.into_iter().enumerate() {
+        let manifest = library_package(temporary.path(), &format!("created-{index}"), &source);
+        let errors = check_errors(target.path(), &manifest);
+        assert_eq!(
+            errors,
+            format!(
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): the cell term for \"{group}\" (a `k::fragment!` or a group record) must name every child field exactly once; a pattern ends in `..` to leave the others unconstrained, and a result takes them from a matched group with `..base`"
+            ),
+            "{place} {index}"
+        );
+    }
+}
