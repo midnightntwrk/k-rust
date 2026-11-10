@@ -527,6 +527,131 @@ fn an_application_whose_equation_s_condition_is_open_may_have_a_value() {
         open 2 (false): error[krs::exec::undecided]: the run reaches 2 states, under conditions over `unsure ( 2 )`, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition"]].assert_eq(&ends.join("\n"));
 }
 
+/// Partial functions whose conditions hold a `let`, which K writes `#let Y = V #in B` and k-rust
+/// lowers to a generated `total` function `λ(Y) = B` applied to `V`. `Direct`'s two equations
+/// are complementary under `isInt(a)`, and `Bound`'s are the same with the `let` `{ let y = 1; y }`
+/// as `:=K`'s operand in place of `a`, so at a `Bool` neither applies to either. `Through`'s one
+/// equation matches `{ let y = a; y }`, which is `a`, against `1`, with no short-circuit before
+/// it. `Hidden`'s matches `{ let y = a; Opaque(y) }`, whose body reads the total `Opaque`, which
+/// no equation defines.
+const LET_CONDITION: &str = r#"
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("direct {a}")]
+    Direct { a: Arg },
+    #[k::syntax("bound {a}")]
+    Bound { a: Arg },
+    #[k::syntax("through {a}")]
+    Through { a: Arg },
+    #[k::syntax("hidden {a}")]
+    Hidden { a: Int },
+}
+
+#[k::function(total, internal)]
+pub fn Opaque(a: Term<Int>) -> Term<Int>;
+
+#[k::function(partial, internal)]
+pub fn DirectF(a: Term<Arg>) -> Term<Bool>;
+
+#[k::function(partial, internal)]
+pub fn BoundF(a: Term<Arg>) -> Term<Bool>;
+
+#[k::function(partial, internal)]
+pub fn ThroughF(a: Term<Arg>) -> Term<Bool>;
+
+#[k::function(partial, internal)]
+pub fn HiddenF(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(k::is!(Int, a) && k::matches!(a, _))]
+fn direct_true(DirectF(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::equation]
+#[k::requires(k::is!(Int, a) && !k::matches!(a, _))]
+fn direct_false(DirectF(a): Term<Bool>) -> Term<Bool> {
+    false
+}
+
+#[k::equation]
+#[k::requires(k::is!(Int, a) && k::matches!({ let y = 1; y }, _))]
+fn bound_true(BoundF(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::equation]
+#[k::requires(k::is!(Int, a) && !k::matches!({ let y = 1; y }, _))]
+fn bound_false(BoundF(a): Term<Bool>) -> Term<Bool> {
+    false
+}
+
+#[k::equation]
+#[k::requires(k::matches!({ let y = a; y }, 1))]
+fn through_one(ThroughF(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::equation]
+#[k::requires(k::matches!({ let y = a; Opaque(y) }, 1))]
+fn hidden_one(HiddenF(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    #[k::requires(k::matches!(DirectF(a), true))]
+    direct: { k: [Direct(a), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(k::matches!(BoundF(a), true))]
+    bound: { k: [Bound(a), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(k::matches!(ThroughF(a), true))]
+    through: { k: [Through(a), ..], acc: _ } => { k: [..], acc: 1 };
+    #[k::requires(k::matches!(HiddenF(a), true))]
+    hidden: { k: [Hidden(a), ..], acc: _ } => { k: [..], acc: 1 };
+}
+"#;
+
+/// A `let` in an equation's condition leaves the condition decided where its value and its body
+/// are: the function it is lowered to has one equation, with no condition and a variable for
+/// its argument, so it applies at every argument. `direct true` and `bound true` refute both
+/// equations at `isInt(true)`, `through true` refutes its one equation at `1 :=K true`, so each
+/// application has no value and the rule does not apply; at `1` each rule applies. `hidden 2`'s
+/// `let` body reads `opaque(2)`, which may have a value, so its condition is open, and the run
+/// splits on `hidden(2)` and names it.
+#[test]
+fn a_let_in_an_equation_s_condition_is_decided_where_its_value_and_body_are() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "projection-let", LET_CONDITION);
+    let mut ends = Vec::new();
+    for program in [
+        "direct true",
+        "direct 1",
+        "bound true",
+        "bound 1",
+        "through true",
+        "through 1",
+        "hidden 2",
+    ] {
+        let (success, _, stderr) =
+            command(target.path(), &manifest, temporary.path(), "run", program);
+        ends.push(format!("{program} ({success}): {}", status(&stderr).trim()));
+    }
+    expect_test::expect![[r"
+        direct true (true): krs run: stuck after 0 steps; <k> starts with `direct true`
+        note: a rule's condition reads `directF ( true )`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply
+        direct 1 (true): krs run: stuck after 1 step; <k> is empty
+        bound true (true): krs run: stuck after 0 steps; <k> starts with `bound true`
+        note: a rule's condition reads `boundF ( true )`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply
+        bound 1 (true): krs run: stuck after 1 step; <k> is empty
+        through true (true): krs run: stuck after 0 steps; <k> starts with `through true`
+        note: a rule's condition reads `throughF ( true )`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply
+        through 1 (true): krs run: stuck after 1 step; <k> is empty
+        hidden 2 (false): error[krs::exec::undecided]: the run reaches 2 states, under conditions over `#lambda__3 ( hiddenF ( 2 ) )`, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition and `hiddenF ( 2 )`, which may have a value the definition leaves open: no equation evaluated it, and its function is not one whose equations, each decided at values, are its whole definition; the run cannot decide which holds, so it has no one path; `krs search` prints each state with its condition"]].assert_eq(&ends.join("\n"));
+}
+
 /// A split over a term that may have a value is the definition's: an existential's value, which
 /// the run has not fixed, and a `total` function's application, which has a value no equation
 /// names. `krs run` names the term as an error rather than choosing a state, and `krs search`
