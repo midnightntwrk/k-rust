@@ -40,7 +40,10 @@
 //! which composes with its stop rules, count and condition within the one request: the execution
 //! then carries k-rust's summary of the verdicts ([`StateMatches`]), and its count of undecided
 //! solver answers sums the run's, the leaves' feasibility questions' and the matcher's
-//! ([`AdaptedExecution::undecided_answers`]).
+//! ([`AdaptedExecution::undecided_answers`]). A match request may also carry a chain of patterns
+//! (k-rust `StateMatchRequest::chain`), which k-rust matches along each path beside the request's
+//! own pattern and summarizes apart ([`StateMatches::chain`], [`ChainMatches`]), with its own
+//! counts of undecided solver answers and stack stops.
 
 use std::{
     cell::{Cell, RefCell},
@@ -57,18 +60,21 @@ use std::{
 use k_rust::backend::BackendErrorKind;
 use k_rust::backend::{
     AxiomGuardOutput, BACKEND_SCHEMA_VERSION, Backend, BackendCapabilities,
-    BackendDiagnosticOutput, BackendError, CancelledResultOutput, ChosenValueOutput,
-    ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput, ExecuteRequest,
-    ExecutionStrategy, GuardCollection, HaltReasonOutput, InProcess, KoreExecutionLeaf,
-    KoreExecutionResult, ObservationEventOutput, ObservedInOutput, ObservedRequest,
-    PassedStopOutput, ResultModalityOutput, RunCoverageOutput, SearchFailureOutput,
-    ShortCircuitReadingOutput, StateMatchOutput, StateMatchesOutput, TraceEntry,
-    TransitionClassOutput, TransitionIdOutput, UndecidedStateMatchesOutput, UnevaluatedHookOutput,
+    BackendDiagnosticOutput, BackendError, BindingOutput, CancelledResultOutput,
+    ChainCompletionOutput, ChainMatchesOutput, ChainStepMatchOutput, ChainUndecidedOutput,
+    ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput,
+    ExecuteRequest, ExecutionStrategy, GuardCollection, HaltReasonOutput, InProcess,
+    KoreExecutionLeaf, KoreExecutionResult, ObservationEventOutput, ObservedInOutput,
+    ObservedRequest, PassedStopOutput, ResultModalityOutput, RunCoverageOutput,
+    SearchFailureOutput, ShortCircuitReadingOutput, StateMatchOutput, StateMatchesOutput,
+    TraceEntry, TransitionClassOutput, TransitionIdOutput, UndecidedStateMatchesOutput,
+    UnevaluatedHookOutput,
 };
 pub use k_rust::backend::{
-    BinderSelection, BindingCollection, BindingsOutput, CellHandle, Probe, ProbeArrival,
-    ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath, ProbeRules, ProbeState, StateMatchRequest,
-    StopArrival, StopCondition, StopDecision, StopSide, UndecidedMatchReasonOutput,
+    BinderSelection, BindingCollection, BindingsOutput, CellHandle, ChainPartOutput, ChainRequest,
+    ChainStepRequest, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath,
+    ProbeRules, ProbeState, StateMatchRequest, StopArrival, StopCondition, StopDecision, StopSide,
+    UndecidedMatchReasonOutput, UnlessRequest,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -998,6 +1004,94 @@ pub struct StateMatches {
     /// read such a value without the run recording it, so a refutation holds of k-rust's choice
     /// of the value, not of every model of the definition.
     pub proof_agreement: bool,
+    /// The summary of the chain's matching, for a run whose request asked for a chain (k-rust
+    /// `StateMatchRequest::chain`); `None` for every other run. The fields above are those of
+    /// the request's own pattern, matched apart from the chain.
+    pub chain: Option<ChainMatches>,
+}
+
+/// k-rust's summary of a run's chain matching (`stateMatches.chain`; docs/compatibility.md,
+/// "Chains"), in the run's depth-first order.
+///
+/// A chain `P1, [U2] P2, …, [Un] Pn` holds on a path of the run when the path has states
+/// `s1`, …, `sn`, each at or after the previous one, that match the steps under one assignment
+/// of the variables the steps share, with no state strictly between `s(i-1)` and `si` matching
+/// `Ui`. A step matches a state as a [`StateMatches`] state reaches its pattern (decided, shown to
+/// exist, matched with empty constraints in every required mode), with the values earlier steps
+/// bound substituted for its imports; an `unless` matches without the existence check. A
+/// *completion* is such a chain on one path, *clean* when the path's diagnostics up to the last
+/// step's state are. The run keeps, per path, the partial occurrences the later steps can still
+/// complete, at most the request's `partial_cap` of them. Matching stops after the first clean
+/// completion no step state of which holds a term-level `\and`; the run goes on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainMatches {
+    /// The first clean completion with no term-level `\and` in a step state, where one exists,
+    /// and otherwise the first clean completion.
+    pub first_clean_completion: Option<ChainCompletion>,
+    /// The first completion on a path whose diagnostics up to its last step's state are not
+    /// clean.
+    pub first_dirty_completion: Option<ChainCompletion>,
+    /// How many completions were on paths that are not clean.
+    pub dirty_completions: u64,
+    /// For each part and reason, in k-rust's order, the matches left undecided. An undecided
+    /// step extends its partial occurrence only by the ways that were decided; an undecided
+    /// `unless` drops it. Either way a completion may have been missed.
+    pub undecided: Vec<ChainUndecided>,
+    /// The paths on which a partial occurrence was evicted beyond the request's `partial_cap`:
+    /// a completion may have been missed on them. An eviction never creates a completion.
+    pub overflowed_paths: u64,
+    /// The most partial occurrences one path kept.
+    pub peak_partials: u64,
+    /// The states the chain matcher processed.
+    pub states: u64,
+    /// The step and `unless` matches it made.
+    pub evaluations: u64,
+    /// The undecided answers the solver gave the chain matcher, which [`RunFacts::smt_unknowns`]
+    /// and [`StateMatches::smt_unknowns`] leave out.
+    pub smt_unknowns: usize,
+    /// The chain matcher's stops for lack of native stack (each leaves its match undecided),
+    /// which [`AdaptedExecution::stack_stops`] and [`StateMatches::stack_stops`] leave out.
+    pub stack_stops: usize,
+}
+
+/// A completed chain of a [`ChainMatches`]: each step's match in step order, the diagnostics of
+/// the path up to the last step's state, and whether a step state's term holds a term-level
+/// `\and`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainCompletion {
+    pub steps: Vec<ChainStepMatch>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<Pattern>>,
+    pub term_conjunction: bool,
+}
+
+/// One step of a [`ChainCompletion`]: the step (from 1), its state's depth, the state, and the
+/// values the step's own variables took (its imports are the earlier steps' values).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainStepMatch {
+    pub step: usize,
+    pub depth: u64,
+    pub state: Pattern,
+    pub bindings: Vec<ChainBinding>,
+}
+
+/// A variable of a chain part and the value a match gave it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainBinding {
+    pub variable: Pattern,
+    pub value: Pattern,
+}
+
+/// The undecided matches of one part of a chain for one reason: the part, the step (from 1) it
+/// is or whose `unless` it is, k-rust's reason, how many, the first state, and the values of the
+/// imported variables that first match was made with.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainUndecided {
+    pub part: ChainPartOutput,
+    pub step: usize,
+    pub reason: UndecidedMatchReasonOutput,
+    pub count: u64,
+    pub first: MatchedState,
+    pub bindings: Vec<ChainBinding>,
 }
 
 /// One matched state of a [`StateMatches`]: its depth, the state, the diagnostics of the path
@@ -1032,8 +1126,7 @@ impl StateMatches {
             refuted,
             smt_unknowns,
             stack_stops,
-            // kink sends no chain yet, so k-rust reports none.
-            chain: _,
+            chain,
         } = output;
         Self {
             first_clean_reach: first_clean_reach.map(MatchedState::of),
@@ -1058,6 +1151,7 @@ impl StateMatches {
             smt_unknowns,
             stack_stops,
             proof_agreement,
+            chain: chain.map(ChainMatches::of),
         }
     }
 
@@ -1069,6 +1163,108 @@ impl StateMatches {
             && self.dirty_reaches == 0
             && self.undecided.is_empty()
             && self.matched == self.refuted
+    }
+}
+
+impl ChainMatches {
+    /// The summary k-rust reported. Every field is destructured, so a field k-rust adds does
+    /// not compile until it is read here.
+    fn of(output: ChainMatchesOutput<Pattern>) -> Self {
+        let ChainMatchesOutput {
+            first_clean_completion,
+            first_dirty_completion,
+            dirty_completions,
+            undecided,
+            overflowed_paths,
+            peak_partials,
+            states,
+            evaluations,
+            smt_unknowns,
+            stack_stops,
+        } = output;
+        Self {
+            first_clean_completion: first_clean_completion.map(ChainCompletion::of),
+            first_dirty_completion: first_dirty_completion.map(ChainCompletion::of),
+            dirty_completions,
+            undecided: undecided.into_iter().map(ChainUndecided::of).collect(),
+            overflowed_paths,
+            peak_partials,
+            states,
+            evaluations,
+            smt_unknowns,
+            stack_stops,
+        }
+    }
+
+    /// Whether the chain matcher decided that no path completes the chain: no completion, clean
+    /// or not, no undecided match, and no path whose partial occurrences overflowed the cap.
+    #[must_use]
+    pub fn none_completes(&self) -> bool {
+        self.first_clean_completion.is_none()
+            && self.first_dirty_completion.is_none()
+            && self.dirty_completions == 0
+            && self.undecided.is_empty()
+            && self.overflowed_paths == 0
+    }
+}
+
+impl ChainCompletion {
+    fn of(output: ChainCompletionOutput<Pattern>) -> Self {
+        let ChainCompletionOutput {
+            steps,
+            diagnostics,
+            term_conjunction,
+        } = output;
+        Self {
+            steps: steps.into_iter().map(ChainStepMatch::of).collect(),
+            diagnostics,
+            term_conjunction,
+        }
+    }
+}
+
+impl ChainStepMatch {
+    fn of(output: ChainStepMatchOutput<Pattern>) -> Self {
+        let ChainStepMatchOutput {
+            step,
+            depth,
+            state,
+            bindings,
+        } = output;
+        Self {
+            step,
+            depth,
+            state,
+            bindings: bindings.into_iter().map(ChainBinding::of).collect(),
+        }
+    }
+}
+
+impl ChainBinding {
+    fn of(output: BindingOutput<Pattern>) -> Self {
+        let BindingOutput { variable, value } = output;
+        Self { variable, value }
+    }
+}
+
+impl ChainUndecided {
+    fn of(output: ChainUndecidedOutput<Pattern>) -> Self {
+        let ChainUndecidedOutput {
+            part,
+            step,
+            reason,
+            count,
+            first,
+            bindings,
+        } = output;
+        Self {
+            part,
+            step,
+            reason,
+            count,
+            first: MatchedState::of(first),
+            bindings: bindings.into_iter().map(ChainBinding::of).collect(),
+        }
     }
 }
 
@@ -1274,7 +1470,8 @@ impl AdaptedExecution {
     /// matcher's, for a run that matched its states ([`StateMatches::smt_unknowns`]). Every
     /// decision behind a reach, a refutation or an end is one of those, so a sum of 0 says that
     /// none rests on an undecided answer; a sum above 0 says only that some might. Always 0 in a
-    /// build without a solver.
+    /// build without a solver. A chain's matcher counts its own ([`ChainMatches::smt_unknowns`]),
+    /// which this sum leaves out: no verdict of the request's own pattern rests on them.
     #[must_use]
     pub fn undecided_answers(&self) -> usize {
         self.facts
@@ -1822,7 +2019,9 @@ impl ExecutionAdapter {
     /// apart from the run's ([`AdaptedExecution::undecided_answers`]). A backend that does not
     /// report state matches (its `state_matches` capability off) is
     /// [`ExecutionAdapterFailure::Backend`], and nothing runs. Without it (`None`) the request is
-    /// the one without matches, field for field.
+    /// the one without matches, field for field. A `matching` with a chain also gets the chain's
+    /// summary ([`StateMatches::chain`]); a result that reports a chain exactly when the request
+    /// did not ask for one is [`ExecutionAdapterFailure::Backend`].
     #[expect(
         clippy::too_many_arguments,
         reason = "one request's inputs: the backend and its tables, the start, the budget, the run, \
@@ -2165,6 +2364,15 @@ impl ExecutionAdapter {
                     .to_owned(),
             ));
         }
+        if let (Some(matching), Some(matches)) = (requested.matching, &state_matches)
+            && matching.chain.is_some() != matches.chain.is_some()
+        {
+            return Err(ExecutionAdapterFailure::Backend(
+                "a run reports a chain's matches exactly when it asked for a chain, and this one \
+                 did not"
+                    .to_owned(),
+            ));
+        }
         let leaves = result
             .leaves
             .into_iter()
@@ -2286,13 +2494,40 @@ impl ExecutionAdapter {
         recorded: RecordedRun,
         matching: &StateMatchRequest,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        Self::adapt_bounded_matching_result(
+            result,
+            timed_out,
+            budget,
+            RunBounds::NONE,
+            feasibility,
+            recorded,
+            matching,
+        )
+    }
+
+    /// [`Self::adapt_matching_result`] of a result whose request set `bounds`, as
+    /// [`Self::adapt_bounded_result`] admits its leaves.
+    pub fn adapt_bounded_matching_result(
+        result: KoreExecutionResult,
+        timed_out: bool,
+        budget: &ExecutionBudget,
+        bounds: RunBounds,
+        feasibility: Vec<LeafFeasibility>,
+        recorded: RecordedRun,
+        matching: &StateMatchRequest,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        let run = ResultRun {
+            max_work: bounds.max_work,
+            max_polls: bounds.max_polls,
+            ..ResultRun::default()
+        };
         Self::adapt(
             result,
             timed_out,
             budget,
             Requested {
                 matching: Some(matching),
-                ..Requested::unstopped(ResultRun::default())
+                ..Requested::unstopped(run)
             },
             feasibility,
             &BTreeSet::new(),

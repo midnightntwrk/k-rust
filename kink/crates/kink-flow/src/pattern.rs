@@ -269,7 +269,7 @@ use k_rust::{
         parser::{parse_definition, parse_pattern},
     },
 };
-use kink_campaign::{MatchAnswer, MatchUnknown};
+use kink_campaign::{MatchAnswer, MatchUnknown, UndecidedReason};
 use kink_native::{
     coverage::{Authorship, RuleAuthors},
     exclusion::{DefinitionExclusions, Exclusion, state_references_implementation_chosen},
@@ -1483,6 +1483,10 @@ fn stopped_cause(
                 .join(", "),
             lowered.requires_only_note()
         ),
+        MatchUnknown::ChainPartialCap(paths) => format!(
+            "{would}: the chain's matcher evicted partial occurrences beyond its cap on {paths} \
+             path(s) ({name}), so a completion may have been missed there"
+        ),
         MatchUnknown::StopConditionUndecided(reason) => format!(
             "{would}: a path ended at an arrival at a stop where the condition was left \
              undecided (stop-undecided{}), which is no end of the truncated system ({name})",
@@ -1549,12 +1553,28 @@ fn diagnostic_kind(diagnostic: &k_rust::backend::BackendDiagnosticOutput<Pattern
     crate::results::kebab(variant)
 }
 
-/// k-rust's name of an undecided match's reason.
-fn undecided_reason(reason: UndecidedMatchReasonOutput) -> String {
-    serde_json::to_value(reason)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| format!("{reason:?}"))
+/// The name of an undecided match's reason: k-rust's for a state's verdict; for a chain's
+/// part, the part's, with k-rust's reason and the step.
+fn undecided_reason(reason: UndecidedReason) -> String {
+    let named = |reason: UndecidedMatchReasonOutput| {
+        serde_json::to_value(reason)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_else(|| format!("{reason:?}"))
+    };
+    match reason {
+        UndecidedReason::State(inner) => named(inner),
+        UndecidedReason::Step {
+            step,
+            reason: inner,
+        }
+        | UndecidedReason::Unless {
+            step,
+            reason: inner,
+        } => {
+            format!("{} ({}) at step {step}", reason.name(), named(inner))
+        }
+    }
 }
 
 /// Run `body` under a watchdog that cancels it after `time`; whether the watchdog fired.

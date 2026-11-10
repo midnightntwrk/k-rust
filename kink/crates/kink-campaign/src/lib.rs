@@ -55,7 +55,10 @@ mod runner;
 pub mod selection;
 pub mod state_match;
 pub use selection::{CompiledEdit, Coupled, MutantSelection, Sel, SelectionPolicy, Witness};
-pub use state_match::{MatchAnswer, MatchUnknown, StoppedMatch, judge_matches};
+pub use state_match::{
+    CHAIN_PARTIAL_CAP, MatchAnswer, MatchUnknown, StoppedMatch, UndecidedReason,
+    judge_chain_matches, judge_matches,
+};
 
 pub use campaign::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, ExecutionFailureKind, ManifestTest,
