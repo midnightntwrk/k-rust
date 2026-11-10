@@ -84,7 +84,7 @@ pub use grammar::{
 };
 pub use initializer::{
     ComputationCellInitializer, ConfigurationVariable, ConfigurationVariableAttribute,
-    FixedCellInitializer, InitializerCellContent, InitializerFunction,
+    FixedCellInitializer, InitializerCellContent, InitializerFunction, InputDefault,
 };
 pub use item::{
     ConstructorDeclaration, ConstructorField, ProductionDocumentation, RawKItem, SortDeclaration,

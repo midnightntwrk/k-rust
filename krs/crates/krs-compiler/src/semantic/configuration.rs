@@ -57,28 +57,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
     check_unambiguous_cell_sorts(&cells)?;
     check_unique_cell_names(descriptor.id(), &cells)?;
 
-    let mut binding_sorts = BTreeMap::new();
-    let mut variables = Vec::with_capacity(configuration.initializer.variables.len());
-    for variable in &configuration.initializer.variables {
-        let id = SemanticId::new(variable.binding.clone())?;
-        let sort = semantic_sort_ref(&variable.sort.sort);
-        let arguments = SortType::of_variable(variable, descriptor)?.ir_arguments();
-        binding_sorts.insert(variable.binding.clone(), sort.clone());
-        variables.push(
-            FixedConfigurationVariable::new(
-                semantic_origin(
-                    descriptor,
-                    variable.binding_key.clone(),
-                    "configuration-variable",
-                )?,
-                id,
-                variable.external_name.clone(),
-                sort,
-                variable.main_key.is_some(),
-            )?
-            .with_arguments(arguments),
-        );
-    }
+    let (variables, binding_sorts) = configuration_variables(descriptor, configuration)?;
     let typing = initializer_typing(
         descriptor,
         configuration,
@@ -94,6 +73,8 @@ pub(super) fn lower_fixed_configuration_descriptor(
         collections: &typing,
         generated: std::cell::Cell::new(0),
     };
+    // The defaults first, as the parameters stand before the body.
+    let variables = with_defaults(descriptor, configuration, variables, &tables)?;
     let initializer = configuration
         .initializer
         .cells
@@ -130,6 +111,60 @@ pub(super) fn lower_fixed_configuration_descriptor(
     )?;
     check_main_cell(descriptor.id().item_name(), transport, &configuration)?;
     Ok(configuration)
+}
+
+/// The configuration's variables, without their defaults, which are lowered with the
+/// initializer's terms ([`with_defaults`]), and each one's sort by its binding.
+fn configuration_variables(
+    descriptor: &Descriptor,
+    configuration: &DescriptorFixedConfiguration,
+) -> Result<(Vec<SemanticVariable>, BTreeMap<String, SemanticSortRef>), DescriptorLoweringError> {
+    let mut binding_sorts = BTreeMap::new();
+    let mut variables = Vec::with_capacity(configuration.initializer.variables.len());
+    for variable in &configuration.initializer.variables {
+        let id = SemanticId::new(variable.binding.clone())?;
+        let sort = semantic_sort_ref(&variable.sort.sort);
+        let arguments = SortType::of_variable(variable, descriptor)?.ir_arguments();
+        binding_sorts.insert(variable.binding.clone(), sort.clone());
+        variables.push(
+            FixedConfigurationVariable::new(
+                semantic_origin(
+                    descriptor,
+                    variable.binding_key.clone(),
+                    "configuration-variable",
+                )?,
+                id,
+                variable.external_name.clone(),
+                sort,
+                variable.main_key.is_some(),
+            )?
+            .with_arguments(arguments),
+        );
+    }
+    Ok((variables, binding_sorts))
+}
+
+/// A Semantic IR configuration variable.
+type SemanticVariable = FixedConfigurationVariable<SemanticSortRef, SemanticTerm>;
+
+/// `variables`, each with the default its descriptor declares, lowered ([`lower_input_default`]).
+fn with_defaults(
+    descriptor: &Descriptor,
+    configuration: &DescriptorFixedConfiguration,
+    variables: Vec<SemanticVariable>,
+    tables: &InitializerTables<'_>,
+) -> Result<Vec<SemanticVariable>, DescriptorLoweringError> {
+    variables
+        .into_iter()
+        .zip(&configuration.initializer.variables)
+        .map(|(lowered, variable)| match &variable.default {
+            Some(default) => {
+                Ok(lowered
+                    .with_default(lower_input_default(descriptor, variable, default, tables)?))
+            }
+            None => Ok(lowered),
+        })
+        .collect()
 }
 
 /// Refuses a configuration that does not say which of its computation cells is the main cell,
@@ -818,8 +853,8 @@ struct InitializerTables<'a> {
 }
 
 /// The element types of an initializer: each leaf cell's value at the
-/// cell's type, with each configuration variable a binder of its declared
-/// type ([`Walker::variables`]).
+/// cell's type, and each input's default at the input's, with each configuration variable a
+/// binder of its declared type ([`Walker::variables`]).
 fn initializer_typing(
     descriptor: &Descriptor,
     configuration: &DescriptorFixedConfiguration,
@@ -827,6 +862,50 @@ fn initializer_typing(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<CollectionTyping, DescriptorLoweringError> {
+    /// The roots of a leaf's state `value` at `ty`, on a computation cell when `computation`.
+    fn state_roots<'t>(
+        value: &'t DescriptorInitializerStateTerm,
+        ty: Option<(SortType, super::collection_types::Position)>,
+        computation: bool,
+        output: &mut Vec<Root<'t>>,
+    ) {
+        match value {
+            // A computation in brackets is typed as its items, as `k::k![..]`'s are
+            // ([`lower_initializer_state`]).
+            ProtocolInitializerStateTerm::Term(term) if computation => {
+                match bracket_items(&term.term) {
+                    Some(Ok(items)) => {
+                        output.extend(items.into_iter().map(|item| Root::Term {
+                            term: item,
+                            ty: None,
+                            subject: false,
+                        }));
+                    }
+                    // Not brackets, or brackets with a rest: lowering refuses it.
+                    Some(Err(_)) | None => output.push(Root::Term {
+                        term: &term.term,
+                        ty,
+                        subject: false,
+                    }),
+                }
+            }
+            ProtocolInitializerStateTerm::Term(term) => output.push(Root::Term {
+                term: &term.term,
+                ty,
+                subject: false,
+            }),
+            ProtocolInitializerStateTerm::Map(map) => {
+                output.push(Root::InitializerMap { map, ty });
+            }
+            ProtocolInitializerStateTerm::KSequence(sequence) => {
+                output.extend(sequence.items.iter().map(|item| Root::Term {
+                    term: &item.value.term,
+                    ty: None,
+                    subject: false,
+                }));
+            }
+        }
+    }
     fn roots<'t>(
         walker: &Walker<'_>,
         cells: &'t [DescriptorInitializerCell],
@@ -840,44 +919,7 @@ fn initializer_typing(
                 | ProtocolInitializerCellContent::NeutralLeaf { value, .. } => {
                     let declared = require_cell_field(&cell.field.cell, declarations)?;
                     let ty = walker.cell_type(declared)?;
-                    match value {
-                        // A computation in brackets is typed as its items, as `k::k![..]`'s
-                        // are ([`lower_initializer_state`]).
-                        ProtocolInitializerStateTerm::Term(term)
-                            if is_computation_cell(declared) =>
-                        {
-                            match bracket_items(&term.term) {
-                                Some(Ok(items)) => {
-                                    output.extend(items.into_iter().map(|item| Root::Term {
-                                        term: item,
-                                        ty: None,
-                                        subject: false,
-                                    }));
-                                }
-                                // Not brackets, or brackets with a rest: lowering refuses it.
-                                Some(Err(_)) | None => output.push(Root::Term {
-                                    term: &term.term,
-                                    ty,
-                                    subject: false,
-                                }),
-                            }
-                        }
-                        ProtocolInitializerStateTerm::Term(term) => output.push(Root::Term {
-                            term: &term.term,
-                            ty,
-                            subject: false,
-                        }),
-                        ProtocolInitializerStateTerm::Map(map) => {
-                            output.push(Root::InitializerMap { map, ty });
-                        }
-                        ProtocolInitializerStateTerm::KSequence(sequence) => {
-                            output.extend(sequence.items.iter().map(|item| Root::Term {
-                                term: &item.value.term,
-                                ty: None,
-                                subject: false,
-                            }));
-                        }
-                    }
+                    state_roots(value, ty, is_computation_cell(declared), output);
                 }
                 ProtocolInitializerCellContent::Nested { children, .. } => {
                     roots(walker, children, declarations, output)?;
@@ -889,6 +931,14 @@ fn initializer_typing(
     let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
     walker.variables(&configuration.initializer.variables)?;
     let mut output = Vec::new();
+    // Each input's default, a value of the input, at its declared type, before the cells, as the
+    // parameters stand before the body. An input is no computation cell, so no brackets of its
+    // default are a computation's items.
+    for variable in &configuration.initializer.variables {
+        if let Some(default) = &variable.default {
+            state_roots(default, walker.variable_type(variable)?, false, &mut output);
+        }
+    }
     roots(
         &walker,
         &configuration.initializer.cells,
@@ -1030,6 +1080,78 @@ fn check_explicit_presence(
     })
 }
 
+/// Lowers an input's default (`#[k::config_var(.., default = D)]`), its value when a run binds
+/// none: a term of the input's declared sort, lowered as a leaf's term is at its cell's sort
+/// ([`lower_initializer_term`]). An input is no computation cell, so brackets are list notation
+/// there as in any term. A default that holds a construct krs cannot bind as a value yet is
+/// refused after its sort is judged, so that a mistake of the default's own is heard first
+/// ([`check_input_default_bindable`]).
+fn lower_input_default(
+    descriptor: &Descriptor,
+    variable: &krs_ir::DescriptorConfigurationVariable,
+    default: &DescriptorInitializerStateTerm,
+    tables: &InitializerTables<'_>,
+) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let key = match default {
+        ProtocolInitializerStateTerm::Term(term) => &term.key,
+        ProtocolInitializerStateTerm::KSequence(sequence) => &sequence.payload_key,
+        ProtocolInitializerStateTerm::Map(map) => &map.payload_key,
+    };
+    let sort = semantic_sort_ref(&variable.sort.sort);
+    let lowered = match default {
+        ProtocolInitializerStateTerm::Term(term) => {
+            lower_initializer_term(descriptor, &term.term, Some(&sort), tables)
+        }
+        // The syntax reads a default as one term; a sequence or a map state is lowered as a
+        // leaf's is.
+        ProtocolInitializerStateTerm::KSequence(_) | ProtocolInitializerStateTerm::Map(_) => {
+            lower_initializer_state(descriptor, default, &sort, tables, "input")
+        }
+    }
+    .map_err(|error| error.within(descriptor.id(), key_range(descriptor, key).as_ref()))?;
+    check_input_default_bindable(variable, &lowered)?;
+    Ok(lowered)
+}
+
+/// Refuses a default that holds a `let` block (a record update included, which lowers to one),
+/// a `k::matches!` test, or a sort test or projection: K's compiler evaluates each by a function
+/// it generates for the sentence that holds it (`#let`'s `#fun`, `:=K`'s match, the sort
+/// helpers), and a default is in no sentence. krs binds the default as the value it builds from
+/// the definition's own constructors, functions and collection operations, so these are not
+/// supported in a default yet.
+fn check_input_default_bindable(
+    variable: &krs_ir::DescriptorConfigurationVariable,
+    default: &SemanticTerm,
+) -> Result<(), DescriptorLoweringError> {
+    fn unbindable(term: &SemanticTerm) -> Option<(&SemanticTerm, &'static str)> {
+        let what = match term.kind() {
+            IrTermKind::Let { .. } => Some("a `let` block or a record update"),
+            IrTermKind::Matches { .. } => Some("a `k::matches!` test"),
+            IrTermKind::Application {
+                application: krs_ir::ApplicationRef::Generated(operation),
+                ..
+            } => Some(match operation {
+                krs_ir::GeneratedOperation::SortPredicate(_) => "a `k::is!` sort test",
+                krs_ir::GeneratedOperation::SortProjection(_) => "a `k::project!` projection",
+            }),
+            _ => None,
+        };
+        what.map(|what| (term, what))
+            .or_else(|| term.children().into_iter().find_map(unbindable))
+    }
+    let Some((term, what)) = unbindable(default) else {
+        return Ok(());
+    };
+    Err(DescriptorLoweringError::UnsupportedInputDefault {
+        reason: format!(
+            "the default of `{}` (`${}`) holds {what}, which an input's default does not support yet: K's compiler evaluates it by a function it generates for the sentence that holds it, and a default is in no sentence, since krs binds it as a value built from the definition's constructors, functions and collection operations",
+            variable.binding, variable.external_name
+        ),
+        range: term.origin().origin().exact_authored_range().map(Box::new),
+        item: None,
+    })
+}
+
 /// Lowers one initializer cell; an error that names no narrower node is located at the cell.
 fn lower_initializer_cell(
     descriptor: &Descriptor,
@@ -1057,7 +1179,13 @@ fn lower_initializer_cell_content(
         ) => Ok(FixedInitializerCell::term(
             origin,
             id,
-            lower_initializer_state(descriptor, value, &semantic_sort_ref(&sort.sort), tables)?,
+            lower_initializer_state(
+                descriptor,
+                value,
+                &semantic_sort_ref(&sort.sort),
+                tables,
+                "cell",
+            )?,
         )),
         (
             ProtocolInitializerCellContent::Nested { children, .. },
@@ -1184,11 +1312,14 @@ fn bracket_items(term: &DescriptorTerm) -> Option<Result<Vec<&DescriptorTerm>, &
     }
 }
 
+/// Lowers a leaf's state at `declared_sort`, the sort of the `place` it is the value of: a cell,
+/// or an input whose default it is.
 fn lower_initializer_state(
     descriptor: &Descriptor,
     state: &DescriptorInitializerStateTerm,
     declared_sort: &SemanticSortRef,
     tables: &InitializerTables<'_>,
+    place: &str,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
     let sort_parents = tables.sort_parents;
     let lower_term = |term: &DescriptorTerm, expected_sort: Option<&SemanticSortRef>| {
@@ -1238,7 +1369,7 @@ fn lower_initializer_state(
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
-                    "K sequence initializes a non-KSequence cell",
+                    format!("K sequence initializes a non-KSequence {place}"),
                 )
                 .within(descriptor.id(), key_range(descriptor, key).as_ref()));
             }
@@ -1252,7 +1383,7 @@ fn lower_initializer_state(
             if *declared_sort != SemanticSortRef::map() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
-                    "map initializes a non-Map cell",
+                    format!("map initializes a non-Map {place}"),
                 )
                 .within(descriptor.id(), key_range(descriptor, key).as_ref()));
             }

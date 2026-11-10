@@ -514,6 +514,10 @@ pub(super) struct TermBuilder<'a> {
     pub(super) nonce: u64,
     pub(super) cfg: &'a [Attribute],
     bindings: &'a [Ident],
+    /// The initializer's parameters while an input's default is expanded, `None` otherwise: a
+    /// default reads no input, so [`Self::bindings`] is empty then, and a name of one of these
+    /// is refused as what it is ([`Self::input_default`]).
+    default_of: Option<&'a [Ident]>,
     pub(super) next_key: usize,
     pub(super) key_functions: Vec<TokenStream>,
     associated_keys: bool,
@@ -615,6 +619,7 @@ impl<'a> TermBuilder<'a> {
             nonce,
             cfg,
             bindings,
+            default_of: None,
             next_key: 0,
             key_functions: Vec::new(),
             associated_keys: false,
@@ -779,6 +784,21 @@ impl<'a> TermBuilder<'a> {
         };
         self.rewrite = None;
         rewrite_wire(node, from?, to?)
+    }
+
+    /// Starts expanding an input's default, until [`Self::leave_input_default`]: the default is
+    /// the input's value when a run binds none, so it reads no input, and no name is bound in it
+    /// but by its own `let`s.
+    pub(super) fn enter_input_default(&mut self) {
+        let inputs = std::mem::take(&mut self.bindings);
+        self.default_of = Some(inputs);
+    }
+
+    /// Ends [`Self::enter_input_default`]: the initializer's parameters are bound again.
+    pub(super) fn leave_input_default(&mut self) {
+        if let Some(inputs) = self.default_of.take() {
+            self.bindings = inputs;
+        }
     }
 
     pub(super) fn with_associated_keys(mut self) -> Self {
@@ -1564,6 +1584,25 @@ impl<'a> TermBuilder<'a> {
     /// binds: an initializer's names are its parameters, a sentence's its
     /// pattern's and its local binders.
     fn unbound_name(&self, path: &Path, name: &str) -> ExpandError {
+        if let Some(inputs) = self.default_of {
+            if inputs.iter().any(|input| input.unraw() == name) {
+                return ExpandError::new(
+                    expand::DEFAULT_READS_INPUT,
+                    syn::spanned::Spanned::span(path),
+                    format!(
+                        "`{name}` is an input of this initializer, which an input's default does not read: a default is its input's value when a run binds none, so it is built from constants alone"
+                    ),
+                );
+            }
+            let suggestion = did_you_mean(name, self.names_in_scope());
+            return ExpandError::new(
+                expand::UNBOUND_NAME,
+                syn::spanned::Spanned::span(path),
+                format!(
+                    "`{name}` is not bound in this default: an input's default reads no input, so a bare snake-case name in it is one an enclosing `let` inside it binds{suggestion}"
+                ),
+            );
+        }
         let suggestion = did_you_mean(name, self.names_in_scope());
         let message = if matches!(self.form, Form::Initializer) {
             format!(

@@ -26,7 +26,7 @@ use crate::{
     TermSymbolKind, TokenRange,
 };
 
-/// Parsed payload of one `#[k::config_var(name = "...", main)]` helper.
+/// Parsed payload of one `#[k::config_var(name = "...", main, default = ...)]` helper.
 #[derive(Clone, Debug)]
 pub struct ConfigurationVariableAttribute {
     name: LitStr,
@@ -34,6 +34,36 @@ pub struct ConfigurationVariableAttribute {
     inferred_name: bool,
     inferred_main: bool,
     main_candidate: bool,
+    default: Option<InputDefault>,
+}
+
+/// An input's declared default, `default = D`: the input's value when a run binds none, one
+/// initializer term of the parameter's type ([`parse_input_default`]).
+#[derive(Clone, Debug)]
+pub struct InputDefault {
+    keyword: Ident,
+    expression: Expr,
+    value: StateTerm,
+}
+
+impl InputDefault {
+    /// The `default` key, where a refusal of the default as a whole points.
+    #[must_use]
+    pub const fn keyword(&self) -> &Ident {
+        &self.keyword
+    }
+
+    /// The default's expression as written.
+    #[must_use]
+    pub const fn expression(&self) -> &Expr {
+        &self.expression
+    }
+
+    /// The default's state.
+    #[must_use]
+    pub const fn value(&self) -> &StateTerm {
+        &self.value
+    }
 }
 
 impl ConfigurationVariableAttribute {
@@ -59,6 +89,12 @@ impl ConfigurationVariableAttribute {
     #[must_use]
     pub const fn has_inferred_main(&self) -> bool {
         self.inferred_main
+    }
+
+    /// The input's declared default (`default = D`), its value when a run binds none.
+    #[must_use]
+    pub const fn default(&self) -> Option<&InputDefault> {
+        self.default.as_ref()
     }
 
     /// Whether `main` is a candidate only: the variable is read by a kind-neutral leaf, and no
@@ -513,10 +549,22 @@ impl InitializerFunction {
             cell.clear_keys();
         }
         allocate_initializer_keys(&mut keys, &mut self.cells)?;
+        // The inputs' defaults after every cell, so that a default keys nothing of the cells.
+        for variable in &mut self.variables {
+            if let Some(default) = &mut variable.attribute.default {
+                default.value.clear_keys();
+                allocate_state_term_keys(&mut keys, &mut default.value)?;
+            }
+        }
         // Constant islands are numbered per kind over the initializer's terms
         // in the order expansion visits them.
         let mut terms = Vec::new();
         initializer_terms_mut(&mut self.cells, &mut terms);
+        for variable in &mut self.variables {
+            if let Some(default) = &mut variable.attribute.default {
+                terms.extend(default.value.terms_mut());
+            }
+        }
         for term in &mut terms {
             let (nodes, _, term_keys) = term.keying();
             crate::state_rule::allocate_claim_node_keys(&mut keys, [(nodes, term_keys)])?;
@@ -728,6 +776,15 @@ impl InitializerFunction {
             });
         }
         append_initializer_candidates(&self.cells, &self.variables, &mut candidates);
+        // A default reads no input, so every name it holds is a candidate: the expander refuses
+        // a parameter's name there before resolution.
+        for variable in &self.variables {
+            if let Some(default) = variable.attribute.default() {
+                for term in default.value().terms() {
+                    append_term_candidates(term, &[], &mut candidates);
+                }
+            }
+        }
         Ok(candidates)
     }
 }
@@ -1009,6 +1066,7 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
             inferred_name: true,
             inferred_main: false,
             main_candidate: false,
+            default: None,
         }
     };
     let (term_sort, sort, arguments) = if let Ok(term_sort) =
@@ -1074,9 +1132,30 @@ fn parse_config_var_stream(
     let missing_span = input.span();
     let mut name = None;
     let mut main = None;
+    let mut default = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         match key.to_string().as_str() {
+            "default" if default.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "default" },
+                    key.span(),
+                ));
+            }
+            "default" => {
+                input.parse::<Token![=]>()?;
+                let expression: Expr = input.parse()?;
+                default = Some(InputDefault {
+                    value: parse_input_default(&expression)?,
+                    expression,
+                    keyword: key,
+                });
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>()?;
+                continue;
+            }
             "name" if name.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "name" },
@@ -1091,35 +1170,7 @@ fn parse_config_var_stream(
             }
             "name" => {
                 input.parse::<Token![=]>()?;
-                let expression: Expr = input.parse()?;
-                let Expr::Lit(literal) = expression else {
-                    return Err(SyntaxError::new(
-                        SyntaxErrorKind::InvalidArgumentValue {
-                            name: "name",
-                            expected: "a nonempty Rust string literal",
-                        },
-                        expression.span(),
-                    ));
-                };
-                let Lit::Str(value) = literal.lit else {
-                    return Err(SyntaxError::new(
-                        SyntaxErrorKind::InvalidArgumentValue {
-                            name: "name",
-                            expected: "a nonempty Rust string literal",
-                        },
-                        literal.span(),
-                    ));
-                };
-                if !literal.attrs.is_empty() || value.value().is_empty() {
-                    return Err(SyntaxError::new(
-                        SyntaxErrorKind::InvalidArgumentValue {
-                            name: "name",
-                            expected: "a nonempty unadorned Rust string literal",
-                        },
-                        value.span(),
-                    ));
-                }
-                name = Some(value);
+                name = Some(parse_external_name(input.parse()?)?);
             }
             "main" => main = Some(key),
             _ => {
@@ -1150,7 +1201,52 @@ fn parse_config_var_stream(
         inferred_name: false,
         inferred_main: false,
         main_candidate: false,
+        default,
     })
+}
+
+/// The external name of `name = "N"`: a nonempty unadorned string literal.
+fn parse_external_name(expression: Expr) -> Result<LitStr, SyntaxError> {
+    let Expr::Lit(literal) = expression else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "name",
+                expected: "a nonempty Rust string literal",
+            },
+            expression.span(),
+        ));
+    };
+    let Lit::Str(value) = literal.lit else {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "name",
+                expected: "a nonempty Rust string literal",
+            },
+            literal.span(),
+        ));
+    };
+    if !literal.attrs.is_empty() || value.value().is_empty() {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "name",
+                expected: "a nonempty unadorned Rust string literal",
+            },
+            value.span(),
+        ));
+    }
+    Ok(value)
+}
+
+/// Reads an input's default ([`InputDefault`]) as one initializer term. A default is the
+/// input's value, a term of its sort, never a cell's content, so no cell form or cell notation is
+/// read here: `Some(..)` and `Cell::new(..)` are calls, a struct literal is a constructor's
+/// record, brackets are list notation, which the input's sort reads, `k::map![..]` is the
+/// collection literal it is in any term, and `k::k![..]`, which writes a computation cell's
+/// items, is the term reader's to refuse, as in any term.
+fn parse_input_default(expression: &Expr) -> Result<StateTerm, SyntaxError> {
+    Ok(StateTerm::Term(TermExpression::parse_tokens(
+        expression.to_token_stream(),
+    )?))
 }
 
 fn parse_body(
@@ -2037,6 +2133,11 @@ mod keyed {
             nodes.push_tokens(self.body_key.as_ref(), &self.body)?;
             for cell in &self.cells {
                 cell.keyed_nodes(nodes)?;
+            }
+            for variable in &self.variables {
+                if let Some(default) = variable.attribute.default() {
+                    default.value().keyed_nodes(nodes)?;
+                }
             }
             Ok(())
         }

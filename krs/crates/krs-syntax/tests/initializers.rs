@@ -665,3 +665,60 @@ fn an_entry_that_names_its_rust_wrapper_carries_no_spelling_to_judge() {
             .all(|field| field.located.is_empty())
     );
 }
+
+/// An input's default is read as one term, keyed after every cell, so a definition without one
+/// keeps each key; its names are resolution candidates, and `default` is written once.
+#[test]
+fn an_input_s_default_is_one_term_keyed_after_the_cells() {
+    let source = |attribute: &str| {
+        format!(
+            "fn init(\
+                #[k::config_var(name = \"PGM\", main)] pgm: Stmt,\
+                #[k::config_var({attribute})] requests: List<Request>,\
+             ) -> Self {{\
+                Self {{ k: k::k![pgm], requests: requests }}\
+             }}"
+        )
+    };
+    let plain =
+        krs_syntax::InitializerFunction::parse_source(&source("name = \"REQUESTS\"")).unwrap();
+    let defaulted = krs_syntax::InitializerFunction::parse_source(&source(
+        "name = \"REQUESTS\", default = [model::Irq(1)]",
+    ))
+    .unwrap();
+    let default = defaulted.variables()[1].attribute().default().unwrap();
+    assert_eq!(default.keyword(), "default");
+    assert!(matches!(default.value(), krs_syntax::StateTerm::Term(_)));
+    assert!(plain.variables()[1].attribute().default().is_none());
+
+    // Every key of the plain initializer is the defaulted one's, at the same tokens' role; the
+    // default's own keys come after them.
+    let keys = |initializer: &krs_syntax::InitializerFunction| {
+        initializer
+            .provenance()
+            .unwrap()
+            .into_iter()
+            .map(|anchor| anchor.key())
+            .collect::<Vec<_>>()
+    };
+    let (plain_keys, defaulted_keys) = (keys(&plain), keys(&defaulted));
+    assert!(defaulted_keys.len() > plain_keys.len());
+    assert!(plain_keys.iter().all(|key| defaulted_keys.contains(key)));
+
+    let paths = defaulted
+        .reference_candidates()
+        .unwrap()
+        .iter()
+        .map(krs_syntax::ReferenceCandidate::path_spelling)
+        .collect::<Vec<_>>();
+    assert!(paths.iter().any(|path| path == "model::Irq"), "{paths:?}");
+
+    let error = krs_syntax::InitializerFunction::parse_source(&source(
+        "name = \"REQUESTS\", default = [], default = []",
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        SyntaxErrorKind::DuplicateArgument { name: "default" }
+    ));
+}

@@ -975,6 +975,15 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// An input's default holding a construct krs cannot bind as the input's value yet.
+    UnsupportedInputDefault {
+        /// Stable reason naming the input and the construct.
+        reason: String,
+        /// The exact authored range of the construct.
+        range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity {
         /// Stable diagnostic detail.
@@ -1403,6 +1412,11 @@ macro_rules! by_subject_slots {
                 ..
             }
             | DescriptorLoweringError::UnusedConfigurationVariable {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::UnsupportedInputDefault {
                 range: $open_range,
                 item: $open_item,
                 ..
@@ -1838,6 +1852,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::CellCollection { reason, .. }
             | Self::CellWrapper { reason, .. }
             | Self::UnusedConfigurationVariable { reason, .. }
+            | Self::UnsupportedInputDefault { reason, .. }
             | Self::MainCell { reason, .. }
             | Self::ComputationCell { reason, .. } => formatter.write_str(reason),
             Self::ImplicitPresence { cells, .. } => formatter.write_str(
@@ -1969,6 +1984,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::UnusedConfigurationVariable { .. } => {
                 codes::analysis::UNUSED_CONFIGURATION_VARIABLE
             }
+            Self::UnsupportedInputDefault { .. } => codes::analysis::UNSUPPORTED_INPUT_DEFAULT,
             Self::ImplicitPresence { .. } => codes::analysis::COLLECTION_CONFIG_VAR_WITHOUT_INITIAL,
             Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
             // The validators restate rules the expander's walker, the parser and inference check

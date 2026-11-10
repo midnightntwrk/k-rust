@@ -154,11 +154,24 @@ fn init_inner(
             arguments,
             main_key,
             main_candidate: variable.attribute().is_main_candidate(),
+            // Expanded after the cells, below.
             default: None,
         });
     }
     let cells = builder.expand_cells(initializer.cells(), &quote!(Self))?;
-    let island_import_checks = initializer_state_island_import_checks(initializer.cells());
+    // The inputs' defaults after the cells, as the syntax keys them.
+    for (variable, wire) in initializer.variables().iter().zip(&mut variables) {
+        if let Some(default) = variable.attribute().default() {
+            wire.default = Some(builder.expand_default(default.value())?);
+        }
+    }
+    let defaults = initializer
+        .variables()
+        .iter()
+        .filter_map(|variable| variable.attribute().default())
+        .collect::<Vec<_>>();
+    let island_import_checks =
+        initializer_state_island_import_checks(initializer.cells(), &defaults);
     builder
         .key_functions
         .append(&mut builder.terms.key_functions);
@@ -547,6 +560,17 @@ impl<'a> InitializerBuilder<'a> {
             });
         }
         Ok(output)
+    }
+
+    /// Expands an input's default, a state read as a leaf's value is, whose terms read no input.
+    fn expand_default(
+        &mut self,
+        state: &StateTerm,
+    ) -> crate::Result<ProtocolInitializerStateTerm<WireTerm>> {
+        self.terms.enter_input_default();
+        let expanded = self.expand_state(state);
+        self.terms.leave_input_default();
+        expanded
     }
 
     fn expand_state(

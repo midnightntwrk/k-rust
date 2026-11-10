@@ -798,6 +798,18 @@ impl<'a> Walker<'a> {
         Ok(())
     }
 
+    /// The type and position of a configuration variable's values, its default's included.
+    pub(super) fn variable_type(
+        &self,
+        variable: &DescriptorConfigurationVariable,
+    ) -> Result<Option<(SortType, Position)>, DescriptorLoweringError> {
+        let ty = SortType::of_variable(variable, self.descriptor)?;
+        Ok(ty.kind().is_some().then(|| {
+            let position = Position::of(Owner::variable(variable), ty.clone());
+            (ty, position)
+        }))
+    }
+
     /// The content type and position of a leaf cell.
     pub(super) fn cell_type(
         &self,

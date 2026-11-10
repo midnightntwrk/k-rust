@@ -1,6 +1,8 @@
 //! Import checks for state islands nested in expansion inputs.
 
-use krs_syntax::{CellsExpression, FixedCellInitializer, InitializerCellContent, StateTerm};
+use krs_syntax::{
+    CellsExpression, FixedCellInitializer, InitializerCellContent, InputDefault, StateTerm,
+};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{FnArg, ItemFn, Pat, Path};
@@ -15,10 +17,32 @@ pub(super) fn wrapper_type_check(path: &Path) -> TokenStream {
 
 pub(super) fn initializer_state_island_import_checks(
     cells: &[FixedCellInitializer],
+    defaults: &[&InputDefault],
 ) -> Vec<TokenStream> {
     let mut paths = Vec::new();
     append_initializer_state_islands(cells, &mut paths);
+    // An input's default is consumed with the `#[k::config_var]` that writes it, its own `k!` or
+    // `map!` included.
+    for default in defaults {
+        if let Some(path) = own_state_island(default.value(), default.expression())
+            && path.leading_colon.is_none()
+            && path.segments.len() == 1
+        {
+            paths.push(path.clone());
+        }
+    }
     island_import_checks(paths)
+}
+
+/// The macro that writes `value`, the state `expression` reads as, itself: its `k!`, its own
+/// `map!`, or the `map!` literal that is its whole term.
+fn own_state_island<'a>(value: &'a StateTerm, expression: &'a syn::Expr) -> Option<&'a Path> {
+    match value.unwrap_present() {
+        StateTerm::KSequence(_) => cell_macro(expression),
+        StateTerm::Map(map) => map.island_path(),
+        StateTerm::Term(_) => own_map_literal(expression),
+        _ => None,
+    }
 }
 
 /// Appends a bare `absent!` around an optional cell's template, and the bare
@@ -40,13 +64,7 @@ fn append_initializer_state_islands(cells: &[FixedCellInitializer], output: &mut
         }
         match cell.content() {
             InitializerCellContent::Leaf { value, .. } => {
-                let island = match value.unwrap_present() {
-                    StateTerm::KSequence(_) => cell_macro(&cell.field().expr),
-                    StateTerm::Map(map) => map.island_path(),
-                    StateTerm::Term(_) => own_map_literal(&cell.field().expr),
-                    _ => None,
-                };
-                if let Some(path) = island
+                if let Some(path) = own_state_island(value, &cell.field().expr)
                     && path.leading_colon.is_none()
                     && path.segments.len() == 1
                 {
