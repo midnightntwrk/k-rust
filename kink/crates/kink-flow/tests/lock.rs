@@ -805,7 +805,7 @@ mod kink_tier {
         let output = binary(&manifest, &["--lock", "kink.lock", "--locked"]);
         assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["version"], 39);
+        assert_eq!(document["version"], 40);
         assert_eq!(
             (&document["lock"]["status"], &document["lock"]["header"]),
             (&json!("stale"), &json!(true))
@@ -896,8 +896,11 @@ mod clock {
     fn looping(test: &str, programs: &[(&str, &str)]) -> PathBuf {
         let dir = scratch(test).join("loop");
         copy_dir(&flow("loop"), &dir);
+        // A work budget so large that the clock fires first (FB45-KINK): these runs test the
+        // clock's path.
         let mut text = "[spec]\nentry = \"loop.k\"\nmain_module = \"LOOP\"\nsyntax_module = \
-                        \"LOOP-SYNTAX\"\n\n[budget]\ntime_ms = 500\nmax_depth = 1000000000\n"
+                        \"LOOP-SYNTAX\"\n\n[budget]\ntime_ms = 500\nmax_depth = 1000000000\n\
+                        work_factor = 1000000000000\n"
             .to_owned();
         for (id, program) in programs {
             text.push_str(&format!(

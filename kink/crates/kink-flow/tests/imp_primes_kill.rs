@@ -179,6 +179,7 @@ fn confirm() {
                     bindings: false,
                     modality,
                     max_work: None,
+                    max_polls: None,
                 },
             )
             .unwrap()

@@ -1743,7 +1743,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "[compare]\n{preamble}version = 25\nprofile = \"no-z3\"\n\
+            "[compare]\n{preamble}version = 26\nprofile = \"no-z3\"\n\
              protocol = \"kink-implementation/1\"\n\n[compare.spec]\noutcome = \"admitted\"\n\n\
              {legend}{rows}"
         )
@@ -1784,7 +1784,7 @@ mod tests {
             )
         );
         assert_eq!(lock.header["protocol"], "kink-implementation/1");
-        assert_eq!(lock.header["version"], 25);
+        assert_eq!(lock.header["version"], 26);
         // A row with no implementation, program or view does not decode.
         let broken = text.replacen("view = \"whole\"\n", "", 1);
         assert!(
@@ -2057,7 +2057,7 @@ mod tests {
         assert!(!header.contains("version"), "{header}");
         assert!(
             run.contains(
-                "\nversion = 25\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
+                "\nversion = 26\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
             ),
             "{run}"
         );
@@ -2075,7 +2075,7 @@ mod tests {
             lock.killers(),
             BTreeMap::from([("a".to_owned(), "t1".to_owned())])
         );
-        assert_eq!(lock.header["version"], 25);
+        assert_eq!(lock.header["version"], 26);
         // The other command finds no section of its own: it records nothing, and is no error.
         let coverage = decoded(&run, LockKind::Coverage);
         assert_eq!(
@@ -2497,7 +2497,7 @@ mod tests {
         assert_eq!(
             lock.refuse_other_version(command).unwrap_err(),
             "kink.lock: it is recorded at version 23 of the verdicts rendering, and this build \
-             writes version 25, so --locked cannot find it current; run `krs kink coverage \
+             writes version 26, so --locked cannot find it current; run `krs kink coverage \
              --package p --definition main` without --locked once to rewrite it, and review its \
              diff"
         );
@@ -2513,12 +2513,12 @@ mod tests {
             decoded(&current, kind).refuse_other_version(command),
             Ok(())
         );
-        let other_version = current.replace("\nversion = 25\n", "\nversion = 26\n");
+        let other_version = current.replace("\nversion = 26\n", "\nversion = 27\n");
         assert!(
             decoded(&other_version, kind)
                 .refuse_other_version(command)
                 .unwrap_err()
-                .starts_with("kink.lock: its [coverage] section is recorded at version 26"),
+                .starts_with("kink.lock: its [coverage] section is recorded at version 27"),
         );
         assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
         let refused = Lock::decode(Path::new(LOCK_FILE), old.to_owned(), LockKind::Run);

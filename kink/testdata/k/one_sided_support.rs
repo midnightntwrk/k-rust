@@ -73,7 +73,8 @@ fn ordinal(key: Option<&str>) -> Option<usize> {
 }
 
 /// Explains the one-sided kill of slot `slot` of the test `initial` on the claim-free mutant
-/// `compiled` (its main module `module`, encoded) under the work budget `max_work`, whose
+/// `compiled` (its main module `module`, encoded) under the work budget `max_polls` (a bound of
+/// polls, as kink-campaign bounds a mutant's result run since FB45-KINK), whose
 /// unbounded two-sided run was `unbounded` (with `slot`, one argument); `Err` says what is not explained. It re-runs both
 /// runs as the campaign runner does (state sets, whatever their leaves) and bridges them with the
 /// mutant's own decider.
@@ -82,7 +83,7 @@ pub fn explain_one_sided_kill(
     module: &str,
     initial: &Pattern,
     budget: ExecutionBudget,
-    max_work: u64,
+    max_polls: u64,
     (unbounded, slot): (&TestRun, usize),
     classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Result<Explanation, String> {
@@ -98,7 +99,7 @@ pub fn explain_one_sided_kill(
     let mut backend = Backend::new(kore, module.to_owned(), BackendOptions::default())
         .map_err(|e| e.to_string())?;
     let adapter = ExecutionAdapter::with_profile(SolverProfile::of(&backend));
-    let mut run = |max_work| {
+    let mut run = |max_polls| {
         adapter
             .execute_result(
                 &mut backend,
@@ -108,13 +109,14 @@ pub fn explain_one_sided_kill(
                     guards: false,
                     bindings: false,
                     modality: ResultModality::StateSet,
-                    max_work,
+                    max_work: None,
+                    max_polls,
                 },
             )
             .map_err(|e| format!("{e:?}"))
     };
     let full = run(None)?;
-    let bounded = run(Some(max_work))?;
+    let bounded = run(Some(max_polls))?;
     if full.timed_out() || full.stack_stops() != 0 {
         return Err(format!(
             "the unbounded run timed out ({}) or met stack stops ({})",
@@ -185,7 +187,7 @@ pub fn explain_one_sided_kill(
     }
     if killing.is_empty() {
         return Err(format!(
-            "the bounded run (max_work {max_work}) gives no one-sided terminal"
+            "the bounded run (max_polls {max_polls}) gives no one-sided terminal"
         ));
     }
     let mut killing_leaves = Vec::new();

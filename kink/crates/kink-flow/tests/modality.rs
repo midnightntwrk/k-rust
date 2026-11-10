@@ -288,6 +288,7 @@ fn compare_side(
                     bindings: false,
                     modality,
                     max_work: None,
+                    max_polls: None,
                 },
             )
         };

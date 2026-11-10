@@ -467,6 +467,7 @@ mod tests {
                 stack_stops: 0,
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
+                polls: 0,
                 coverage: None,
                 facts: crate::execution::RunFacts::default(),
                 state_matches: None,

@@ -68,10 +68,10 @@ pub const DEFAULT_TIME_MS: u64 = 10_000;
 /// Default rewrite-depth bound of one program run. Every run is bounded (NEXT-PLAN 2.2
 /// forbids unbounded runs), so the bound is never absent.
 pub const DEFAULT_MAX_DEPTH: u64 = 100_000;
-/// The fixed floor of a calibrated work budget (`[budget] work_factor`): a mutant's result run of
-/// a program whose baseline run visited `W` states may visit `work_factor * W + WORK_FLOOR`
-/// (kink-campaign `WorkBudget::Calibrated`; re-pin lane 1, L1-1).
-pub const WORK_FLOOR: u64 = 10_000;
+/// The default of `[budget] work_factor` (FB45-KINK): a mutant's result run of a program whose
+/// baseline run counted `P` polls may count `max(5 × P, P_max)` polls, `P_max` the largest `P` of
+/// the corpus's comparable programs (kink-campaign `WorkBudget::Calibrated`).
+pub const DEFAULT_WORK_FACTOR: u64 = 5;
 /// Default include directories: the manifest's directory.
 pub const DEFAULT_INCLUDE_DIRS: [&str; 1] = ["."];
 /// Default Markdown code-block selector.
@@ -540,13 +540,18 @@ impl StopSection {
 pub struct Budget {
     pub time_ms: u64,
     pub max_depth: u64,
-    /// `work_factor`: the work budget of a mutant's run of a program, as a multiple of the
-    /// states the program's baseline run visited, plus [`WORK_FLOOR`] (re-pin lane 1, L1-1).
-    /// Absent: no work budget (a mutant's run is bounded by `time_ms` and `max_depth` only). A
-    /// work-bound run is never complete, so its program is `unknown` for that mutant, never a
-    /// kill; the budget never applies to a baseline run, which [`Budget::baseline_max_work`]
-    /// bounds instead.
-    pub work_factor: Option<u64>,
+    /// `work_factor`, `k` (FB45-KINK; default [`DEFAULT_WORK_FACTOR`]): the work budget of a
+    /// mutant's run of a program, in the backend's polls, which count the work inside a step too
+    /// (k-rust `max_polls`): `max(k × P, P_max)`, where `P` is the polls of the program's baseline
+    /// run and `P_max` the largest `P` of the corpus's comparable programs, so a cheap program is
+    /// not cut before it has done the work of the corpus's most expensive baseline, and a mutant
+    /// that never ends costs at most `k` program-worths. A run the budget cuts is never complete,
+    /// so its program is `unknown` for that mutant (unless the part it ran kills one-sidedly),
+    /// never a kill and never a survivor: the budget decides how many outcomes are decided, never
+    /// which way one goes. The count is a function of the request and the definition, so a cut is
+    /// decided, cached and locked like any outcome, unlike a run `time_ms` stops. The budget never
+    /// applies to a baseline run, which [`Budget::baseline_max_work`] bounds instead.
+    pub work_factor: u64,
     /// `baseline_max_work`: the most states one baseline result run of a program may visit
     /// across all its paths (k-rust `max_work`). A bound only stops a run, deterministically: a
     /// run it does not stop is the run without it, and a run it stops is class `unknown`, which,
@@ -567,7 +572,7 @@ impl Default for Budget {
         Self {
             time_ms: DEFAULT_TIME_MS,
             max_depth: DEFAULT_MAX_DEPTH,
-            work_factor: None,
+            work_factor: DEFAULT_WORK_FACTOR,
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         }
@@ -582,15 +587,24 @@ impl Budget {
         kink_native::backend_options(self.smt_resource_limit)
     }
 
-    /// The campaign work budget of the mutants' runs.
+    /// The campaign work budget of the mutants' runs, whose floor `floor` is the largest
+    /// baseline polls of the corpus's comparable programs ([`Self::work_factor`]).
     #[must_use]
-    pub const fn work(self) -> kink_campaign::WorkBudget {
-        match self.work_factor {
-            None => kink_campaign::WorkBudget::Unbounded,
-            Some(factor) => kink_campaign::WorkBudget::Calibrated {
-                factor,
-                floor: WORK_FLOOR,
-            },
+    pub const fn work(self, floor: u64) -> kink_campaign::WorkBudget {
+        kink_campaign::WorkBudget::Calibrated {
+            factor: self.work_factor,
+            floor,
+        }
+    }
+
+    /// The bound of polls of every mutant's run of a program whose baseline run counted
+    /// `baseline` polls, in a corpus whose largest baseline count is `floor`
+    /// ([`Self::work_factor`]).
+    #[must_use]
+    pub const fn poll_bound(self, baseline: u64, floor: u64) -> u64 {
+        match self.work(floor).limit(baseline) {
+            Some(bound) => bound,
+            None => u64::MAX,
         }
     }
 }
@@ -1323,10 +1337,7 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
     Ok(Budget {
         time_ms: positive(budget, "budget", "time_ms", DEFAULT_TIME_MS)?,
         max_depth: positive(budget, "budget", "max_depth", DEFAULT_MAX_DEPTH)?,
-        work_factor: budget
-            .contains_key("work_factor")
-            .then(|| positive(budget, "budget", "work_factor", 1))
-            .transpose()?,
+        work_factor: positive(budget, "budget", "work_factor", DEFAULT_WORK_FACTOR)?,
         baseline_max_work: budget
             .contains_key("baseline_max_work")
             .then(|| positive(budget, "budget", "baseline_max_work", 1))

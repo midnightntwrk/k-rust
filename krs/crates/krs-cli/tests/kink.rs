@@ -3436,7 +3436,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 21);
+    assert_eq!(document["version"], 22);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -6655,14 +6655,14 @@ fn story_lock(killers: [&str; 3]) -> String {
          section,\n# and keeps the others as they are.\nschema = \"kink-flow-verdicts\"\n\n[run]\n\
          # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run \
          tries\n# each `killer` first, a run without --locked rewrites this section, and `run \
-         --locked` checks\n# that it is current.\nversion = 25\nprofile = \"z3\"\nz3_version = \
+         --locked` checks\n# that it is current.\nversion = 26\nprofile = \"z3\"\nz3_version = \
          \"{}\"\n",
         build.version
     );
     if let Some(digest) = &build.library_sha256 {
         let _ = writeln!(text, "z3_library_sha256 = \"{digest}\"");
     }
-    text.push_str("\n[run.spec]\noutcome = \"admitted\"\n\n");
+    text.push_str("work_factor = 5\n\n[run.spec]\noutcome = \"admitted\"\n\n");
     text.push_str(
         "# Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a\n\
          # program's result differs on the mutant; `killer` names it), survived (every program \

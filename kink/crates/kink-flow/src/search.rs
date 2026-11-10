@@ -47,7 +47,10 @@
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
-//!    the program digest and the program's baseline run digest), decide with no call
+//!    the program digest and the program's baseline run digest) that serve the program's bound of
+//!    polls (FB45-KINK: `max(work_factor × P, P_max)`, [`Search::poll_bound`]; a record names the
+//!    bound its run was made under and serves the bounds under which a request makes that run,
+//!    `outcomes::RunPolls::serves`), decide with no call
 //!    ([`tier1_decision`]) when the killer the row must name is decided by them. Let k be the
 //!    lock's killer of the mutation ([`crate::lock`]) when it names a program of O. A valid
 //!    `killed` record of k decides: the killer is k. If k has no valid record, tier 1 does not
@@ -185,7 +188,7 @@ use crate::{
         EditedRule, Expect, InvalidMutation, Mutation, MutationList, ResolvedMutation, resolve,
         rule_texts,
     },
-    outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
+    outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, RunPolls, cacheable, slot_name},
     report::{
         MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action, action_spelled,
         claims_value, executed_cause, horizon_reason, matrix, observation_slot,
@@ -396,6 +399,10 @@ struct Candidate<'r> {
     digest: Sha256Digest,
     /// The cached record's run digest (a comparable record always has one, unless edited).
     run_sha256: Option<&'r str>,
+    /// The cached record's baseline polls `P` (FB45-KINK, `results::ProgramResult::polls`): the
+    /// bound of every mutant's run of the program is `max(work_factor × P, P_max)`
+    /// ([`Search::poll_bound`]).
+    polls: Option<u64>,
     /// The cached coverage's `complete`: a run that is not complete covers only what it explored
     /// before it stopped, so it witnesses every edit (kink-campaign `coverage_selected`).
     complete: bool,
@@ -436,6 +443,7 @@ fn candidate<'r>(index: usize, id: &'r str, row: &'r ProgramRow) -> Option<Candi
         id,
         digest: row.digest?,
         run_sha256: record["run_sha256"].as_str(),
+        polls: record["polls"].as_u64(),
         complete: record["coverage"]["complete"].as_bool().unwrap_or(false),
         matches: sentences("sentences"),
         applies: sentences("applied_sentences"),
@@ -504,6 +512,9 @@ struct Search<'a, 's> {
     runner: &'a BaselineRunner<'a>,
     rows: &'a [ProgramRow],
     candidates: Vec<Candidate<'a>>,
+    /// `P_max`, the largest baseline polls of the comparable programs ([`poll_floor`]): the floor
+    /// of every mutant's bound of polls (FB45-KINK, [`Search::poll_bound`]).
+    floor: u64,
     /// Each candidate's test case with the specification's oracles, assembled on first use.
     tests: Vec<Option<TestCase>>,
     mode: RunMode,
@@ -525,6 +536,16 @@ struct Search<'a, 's> {
 }
 
 impl Search<'_, '_> {
+    /// The bound of polls of every mutant's run of `candidate` (FB45-KINK, `[budget]
+    /// work_factor`): `max(work_factor × P, P_max)`, `P` its baseline's polls, `P_max` the
+    /// corpus's largest ([`Self::floor`]); the bound the campaign call computes from the live
+    /// baseline run, whose polls the drift check holds equal to the record's.
+    fn poll_bound(&self, candidate: &Candidate<'_>) -> u64 {
+        self.manifest
+            .budget
+            .poll_bound(candidate.polls.unwrap_or(0), self.floor)
+    }
+
     fn test(&mut self, candidate: usize) -> Result<TestCase, CorpusError> {
         if let Some(test) = &self.tests[candidate] {
             return Ok(test.clone());
@@ -662,7 +683,10 @@ impl Search<'_, '_> {
             selection: kink_campaign::SelectionPolicy::None,
             share_evidence: false,
             run: kink_campaign::RunOptions {
-                work: self.manifest.budget.work(),
+                // FB45-KINK: every mutant's result run is bounded by `max(work_factor × P,
+                // P_max)` polls, `P` the program's baseline polls and `P_max` the corpus's
+                // largest, so the floor is a function of the corpus, never of the call.
+                work: self.manifest.budget.work(self.floor),
                 // Re-pin L1-2 (decision 6): a work-bound mutant run can kill one-sidedly. Every
                 // campaign call of the flow classifies with `all_normal` (`results::classify`),
                 // which never answers a semantic crash.
@@ -730,6 +754,25 @@ impl Search<'_, '_> {
                         candidate.id,
                         candidate.run_sha256.unwrap_or("null"),
                         now.as_deref().unwrap_or("no baseline row"),
+                    ),
+                ));
+                continue;
+            }
+            // FB45-KINK: the call bounds the mutant's run by the live baseline's polls, and tier
+            // 1 keys a cut record by the bound the record's polls give: they must be one count.
+            let polls = run
+                .baseline
+                .iter()
+                .find(|evidence| evidence.test_id == candidate.id)
+                .and_then(|evidence| evidence.notes.polls);
+            if polls != candidate.polls {
+                mismatched.push((
+                    candidate.id,
+                    format!(
+                        "{}: cached polls {}, now {}",
+                        candidate.id,
+                        candidate.polls.map_or("null".to_owned(), |p| p.to_string()),
+                        polls.map_or("null".to_owned(), |p| p.to_string()),
                     ),
                 ));
             }
@@ -882,8 +925,12 @@ impl Search<'_, '_> {
             .filter_map(|&c| {
                 let candidate = &self.candidates[c];
                 let record = stored.get(&candidate.digest.to_string())?;
-                (candidate.run_sha256 == Some(record.baseline_run_sha256.as_str()))
-                    .then(|| (c, record.clone()))
+                // FB45-KINK: a record serves the program's bound of polls now: a cut run's at
+                // exactly the bound it was cut at, a run that ended at every bound it ends under
+                // (`outcomes::RunPolls::serves`).
+                (candidate.run_sha256 == Some(record.baseline_run_sha256.as_str())
+                    && record.polls.serves(self.poll_bound(candidate)))
+                .then(|| (c, record.clone()))
             })
             .collect();
         (records, witness)
@@ -1246,6 +1293,7 @@ impl Search<'_, '_> {
                     .find(|evidence| evidence.test_id == test.test_id)
                     .map(|evidence| &evidence.notes);
                 let (outcome, slots) = cacheable(&test.run, notes)?;
+                let polls = RunPolls::of(notes?)?;
                 let candidate = &self.candidates[self.position(&test.test_id)?];
                 let cause = match outcome {
                     CachedOutcome::Unknown => Some(causes.get(&test.test_id)?.clone()),
@@ -1279,6 +1327,7 @@ impl Search<'_, '_> {
                         observation: notes
                             .and_then(observation_verdict)
                             .map_or(Value::Null, observation_slot),
+                        polls,
                     },
                 ))
             })
@@ -2571,6 +2620,7 @@ fn entry_cause(
             reader,
         }),
         found.and_then(|evidence| crate::report::observation_verdict(&evidence.notes)),
+        found.and_then(|evidence| poll_cut(live, budget, &test.test_id, &evidence.notes)),
     )?;
     Some(match (found, &test.run) {
         (
@@ -2581,6 +2631,31 @@ fn entry_cause(
             crate::exclusion::readings_text(&evidence.notes.short_circuit_readings)
         ),
         _ => cause,
+    })
+}
+
+/// The cut of the mutant's run of `test_id` by its work budget (FB45-KINK), when the run ended at
+/// its bound of polls: the bound it ran under and the polls of the call's baseline run of the
+/// program (which the drift check holds equal to the record's).
+fn poll_cut(
+    live: &LiveCall,
+    budget: Budget,
+    test_id: &str,
+    notes: &kink_campaign::RunNotes,
+) -> Option<crate::report::PollCut> {
+    if !notes.poll_bound {
+        return None;
+    }
+    let baseline = live
+        .baseline
+        .iter()
+        .find(|evidence| evidence.test_id == test_id)?
+        .notes
+        .polls?;
+    Some(crate::report::PollCut {
+        bound: notes.max_polls?,
+        baseline,
+        factor: budget.work_factor,
     })
 }
 
@@ -2857,6 +2932,7 @@ pub fn run_front(
         runner: &runner,
         rows: &update.rows,
         tests: vec![None; candidates.len()],
+        floor: poll_floor(&candidates),
         candidates,
         mode,
         tier1,
@@ -3138,6 +3214,11 @@ pub fn run_front(
             list: &list.mutations,
         },
     );
+    // FB45-KINK: the work budget the verdicts were decided under (`[budget] work_factor`), which
+    // the verdicts rendering and so the lock name, and the floor of its bound of polls, the
+    // corpus's largest baseline polls.
+    document["work_factor"] = json!(manifest.budget.work_factor);
+    document["poll_floor"] = json!(search.floor);
     // The lock, compared and written once the run's rows are final (README, "The killer
     // record"): its text is the rendering of this document, which neither the `lock` member nor
     // a front end's annotation is part of.
@@ -3235,6 +3316,7 @@ pub(crate) fn search_derived(
         runner,
         rows: &update.rows,
         tests: vec![None; candidates.len()],
+        floor: poll_floor(&candidates),
         candidates,
         mode,
         tier1,
@@ -3331,6 +3413,18 @@ fn tier1_store(
 
 /// The comparable programs of `rows` (the results update's rows, in `FLOW.toml`'s order), the
 /// possible killers O.
+/// `P_max` (FB45-KINK): the largest baseline polls of the comparable programs, 0 without one. The
+/// floor of every mutant's bound of polls, so a program whose baseline is cheap is not cut before
+/// it has done the work of the corpus's most expensive baseline; a function of the corpus's
+/// result records, never of the programs one call runs.
+fn poll_floor(candidates: &[Candidate<'_>]) -> u64 {
+    candidates
+        .iter()
+        .filter_map(|candidate| candidate.polls)
+        .max()
+        .unwrap_or(0)
+}
+
 fn candidates<'r>(manifest: &'r FlowManifest, rows: &'r [ProgramRow]) -> Vec<Candidate<'r>> {
     manifest
         .programs
@@ -4289,6 +4383,11 @@ mod tests {
             decider_smt_unknowns: 0,
             allowance_bytes: None,
             observation: serde_json::Value::Null,
+            polls: crate::outcomes::RunPolls {
+                count: 0,
+                bound: 0,
+                cut: false,
+            },
         };
         let killed = |c| (c, record(CachedOutcome::Killed));
         let agree = |c| (c, record(CachedOutcome::Agree));

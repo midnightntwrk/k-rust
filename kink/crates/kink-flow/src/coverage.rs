@@ -465,7 +465,11 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// status `undecided` where nothing else differs, and each flip names the programs whose run on
 /// its mutant the clock stopped (`timed_out`), and each argued item's evidence the programs whose
 /// evidence run it stopped (`argument_check.evidence.clock_stopped`; FB45-LOCKED-TIMEOUT).
-pub const COVERAGE_VERSION: u64 = 21;
+/// 22 bounds every flip's mutant run by the work budget, a bound of polls on by default
+/// (FB45-KINK): `settings` names `work_factor`, each program row its baseline's `polls`, and a
+/// flip whose mutant run the bound cut is `unknown`, with the program's cause naming the polls and
+/// the bound, where a flip that never ends was `unknown` by a timeout.
+pub const COVERAGE_VERSION: u64 = 22;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -1187,6 +1191,8 @@ fn settings(manifest: &FlowManifest, depth: NonZeroU64, flips: bool) -> Value {
     json!({
         "tiers": if flips { json!([1, 2]) } else { json!([1]) },
         "depth": depth.get(),
+        // FB45-KINK: the work budget of the flips' mutant runs, which the lock names.
+        "work_factor": manifest.budget.work_factor,
         "mcdc": section.mcdc.value(),
         "max_obligations": section.max_obligations.get(),
         "invariants": section

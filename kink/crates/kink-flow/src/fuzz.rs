@@ -3063,8 +3063,7 @@ pub fn fuzz_front(
                 }
             }
             let mut judgement =
-                KinkJudgement::new(job_kind, baseline, mutant_side, manifest.budget.work())
-                    .with_spelling(spelling);
+                KinkJudgement::new(job_kind, baseline, mutant_side).with_spelling(spelling);
             // Every candidate keeps the template's text outside its holes, so the filter's state
             // exclusion of the template's input, read without a run's lists, is one of every
             // candidate whose holes do not replace the excluded application. A hole whose span

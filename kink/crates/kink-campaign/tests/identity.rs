@@ -519,15 +519,18 @@ fn the_identity_is_an_object_of_its_components() {
     // gives one-sided evidence across its stages, so one written under v3 differs too. v5: the
     // cell projection reaches cells inside `?` and `*` cells, so one written under v4 differs.
     // v6: a run with a stop condition gives one-sided evidence, so one written under v5 differs.
+    // v7 (FB45-KINK): the mutant's run is cut by a bound of polls, so one written under v6
+    // differs.
     assert_eq!(
         kink_campaign::ONE_SIDED_VERSION,
-        "kink-campaign/one-sided/v6"
+        "kink-campaign/one-sided/v7"
     );
     for retired in [
         "kink-campaign/one-sided/v2",
         "kink-campaign/one-sided/v3",
         "kink-campaign/one-sided/v4",
         "kink-campaign/one-sided/v5",
+        "kink-campaign/one-sided/v6",
     ] {
         let mut old = identity.clone();
         old["one_sided"] = retired.into();

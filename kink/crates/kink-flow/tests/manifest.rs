@@ -40,7 +40,7 @@ fn a_minimal_manifest_takes_every_default() {
         Budget {
             time_ms: 10_000,
             max_depth: 100_000,
-            work_factor: None,
+            work_factor: 5,
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         }
@@ -111,7 +111,7 @@ text = "1 + 2"
         Budget {
             time_ms: 250,
             max_depth: 7,
-            work_factor: Some(3),
+            work_factor: 3,
             baseline_max_work: Some(20_000),
             smt_resource_limit: std::num::NonZeroU32::new(50_000).unwrap(),
         }
@@ -126,19 +126,23 @@ text = "1 + 2"
         manifest.budget.backend_options().smt_retry_limit,
         kink_native::BACKEND_OPTIONS.smt_retry_limit
     );
-    // Re-pin L1-1: `work_factor` calibrates the mutants' work budget from each program's
-    // baseline work; absent, there is none.
+    // FB45-KINK: `work_factor` calibrates the mutants' bound of polls from each program's
+    // baseline polls, with the corpus's largest baseline as the floor; absent, it is 5.
     assert_eq!(
-        manifest.budget.work(),
+        manifest.budget.work(1_234),
         kink_campaign::WorkBudget::Calibrated {
             factor: 3,
-            floor: kink_flow::manifest::WORK_FLOOR
+            floor: 1_234
         }
     );
     assert_eq!(
-        Budget::default().work(),
-        kink_campaign::WorkBudget::Unbounded
+        Budget::default().work(0),
+        kink_campaign::WorkBudget::Calibrated {
+            factor: kink_flow::manifest::DEFAULT_WORK_FACTOR,
+            floor: 0
+        }
     );
+    assert_eq!(kink_flow::manifest::DEFAULT_WORK_FACTOR, 5);
     assert_eq!(
         manifest.programs,
         [

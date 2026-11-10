@@ -33,9 +33,9 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kore::{ast::Pattern, walk};
 use kink_campaign::{
     BaselineSession, Campaign, CampaignOptions, CampaignRun, CellLayout, CellProjection,
-    CrashPolicy, ExecutionFailureKind, MutantId, MutantStatus, OneSided, OracleDeclaration,
-    OracleOutcome, OracleSide, Projection, RunOptions, ScheduleMode, SelectionPolicy as Sel,
-    SideRun, StateProjection, TestCase, TestRun, WorkBudget, run_campaign_multi_with,
+    CrashPolicy, ExecutionFailureKind, MutantStatus, OneSided, OracleDeclaration, OracleOutcome,
+    OracleSide, Projection, RunOptions, ScheduleMode, SelectionPolicy as Sel, SideRun,
+    StateProjection, TestCase, TestRun, WorkBudget, run_campaign_multi_with,
 };
 use kink_native::execution::{ExecutionBudget, ResultModality};
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -245,12 +245,12 @@ fn token_patch(baseline: &Baseline, rule: &str, from: &str, to: &str) -> Patch {
     .unwrap()
 }
 
-/// A state-set run with the mutants' work budget `max_work` (none: unbounded) and the rule on or
-/// off.
-const fn options(max_work: Option<u64>, one_sided: OneSided) -> RunOptions {
+/// A state-set run with the mutants' work budget `max_polls` (none: unbounded; FB45-KINK: a bound
+/// of polls, where it bounded states before) and the rule on or off.
+const fn options(max_polls: Option<u64>, one_sided: OneSided) -> RunOptions {
     RunOptions {
         result_modality: ResultModality::StateSet,
-        work: match max_work {
+        work: match max_polls {
             None => WorkBudget::Unbounded,
             Some(floor) => WorkBudget::Calibrated { factor: 0, floor },
         },
@@ -265,7 +265,8 @@ const fn options(max_work: Option<u64>, one_sided: OneSided) -> RunOptions {
 const ON: OneSided = OneSided::NoCrashClassifier;
 const OFF: OneSided = OneSided::Off;
 
-/// The campaign run, and the work of the mutant's run of `t` (its census).
+/// The campaign run, and the work of the mutant's run of `t`: its polls (FB45-KINK, the unit the
+/// work budget bounds).
 fn run(
     campaign: &Campaign<'_>,
     generation: &CandidateGeneration<'_>,
@@ -286,10 +287,11 @@ fn run(
         &mut session,
     )
     .unwrap();
-    let work = session
-        .last_call()
-        .mutant_run(MutantId(0), "t")
-        .and_then(|recording| recording.census.work);
+    let work = result.mutants[0]
+        .evidence
+        .iter()
+        .find(|evidence| evidence.test_id == "t")
+        .and_then(|evidence| evidence.notes.polls);
     (result, work)
 }
 
@@ -299,6 +301,30 @@ fn verdict(run: &CampaignRun) -> (TestRun, MutantStatus) {
         panic!("one mutant")
     };
     (mutant.plan.tests[0].run.clone(), mutant.report.status)
+}
+
+/// Whether the mutant's run of `t` ended at its bound of polls (FB45-KINK). A bound below a run's
+/// count cuts it unless the count's last polls were charged after its last interruption point
+/// (k-rust, "Poll budget"), so a bounded run that did not end there is the unbounded run, and
+/// compares as it does.
+fn cut(run: &CampaignRun) -> bool {
+    run.mutants[0]
+        .evidence
+        .iter()
+        .find(|evidence| evidence.test_id == "t")
+        .is_some_and(|evidence| evidence.notes.poll_bound)
+}
+
+/// The kink tier's budgets below the mutant's polls `work`: 0, 1, 2, every eighth of it and
+/// `work - 1`, in increasing order. The budget counts polls (FB45-KINK), finer than the states it
+/// counted before, so the ladder samples the run where it once took every small count.
+fn ladder(work: u64) -> Vec<u64> {
+    let mut budgets = std::collections::BTreeSet::from([0, 1, 2, work - 1]);
+    budgets.extend((1..8).map(|eighth| work * eighth / 8));
+    budgets
+        .into_iter()
+        .filter(|budget| *budget < work)
+        .collect()
 }
 
 fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
@@ -314,8 +340,10 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
 /// for every mutant and every budget of `budgets(work)` (each below the mutant's work), each slot
 /// is the unbounded run's outcome or `Unknown`, and a slot distinguishes only where the unbounded
 /// run's distinguishes. The early mutant is killed one-sidedly from the first budget that lets it
-/// finish the early branch on, budget 2. The kink tier runs the budgets 0, 2 and `work - 1`, the
-/// heavy tier every budget below the work.
+/// finish the early branch on (budget 2 when the budget counted states; FB45-KINK: it counts
+/// polls, so the first such budget is the run's own, and a bounded run that did not end at its
+/// bound is the unbounded run). The kink tier runs [`ladder`], the heavy tier every budget below
+/// the work.
 fn one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec<u64>) {
     on_a_big_stack(move || {
         let validator = validator();
@@ -350,6 +378,10 @@ fn one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec<u64>
                     ScheduleMode::Full,
                     options(Some(budget), ON),
                 );
+                if !cut(&on) {
+                    assert_eq!(verdict(&on), verdict(&unbounded), "{rule} budget {budget}");
+                    continue;
+                }
                 let TestRun::Compared(outcomes) = verdict(&on).0 else {
                     panic!("{rule} budget {budget}: compares")
                 };
@@ -364,18 +396,14 @@ fn one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec<u64>
                 }
             }
         }
-        // Visiting start(10) and done(18) finishes the early branch: budgets 2 and up.
+        // Visiting start(10) and done(18) finishes the early branch, from some budget on.
         assert!(
             one_sided_kills
                 .iter()
-                .all(|(rule, ..)| *rule == "ONESIDED.early")
+                .all(|(rule, _, slot)| *rule == "ONESIDED.early" && *slot == 1),
+            "{one_sided_kills:?}"
         );
-        assert_eq!(
-            one_sided_kills
-                .first()
-                .map(|(_, budget, slot)| (*budget, *slot)),
-            Some((2, 1))
-        );
+        assert!(!one_sided_kills.is_empty(), "no budget kills one-sidedly");
     });
 }
 
@@ -422,8 +450,9 @@ impl Expected {
 /// gives `Unknown` on every slot or a one-sided `Distinguish`, and every one-sided kill is
 /// explained: the unbounded run is unknown only because of a contradicted claim or a non-value
 /// terminal on a leaf other than the killing one (`one_sided_support::explain_one_sided_kill`);
-/// anything else fails the test. The kills are exactly the budgets from 3 on. The kink tier runs
-/// the budgets 0, 3 (the first kill) and `work - 1`, the heavy tier every budget below the work.
+/// anything else fails the test. The kills are exactly the cut budgets from the first that lets
+/// the run finish the early branch on (3 when the budget counted states; FB45-KINK: polls). The
+/// kink tier runs [`ladder`], the heavy tier every budget below the work.
 fn one_sided_kills_beside_an_unclean_unbounded_run_are_explained(budgets: fn(u64) -> Vec<u64>) {
     on_a_big_stack(move || {
         for (name, module, rule, expected, _) in PROBES {
@@ -444,6 +473,7 @@ fn one_sided_kills_beside_an_unclean_unbounded_run_are_explained(budgets: fn(u64
             assert_eq!(reference, expected.run(), "{name}");
             let work = work.expect("the mutant's work");
             let mut kills = Vec::new();
+            let mut cuts = Vec::new();
             let budgets = budgets(work);
             for &budget in &budgets {
                 assert!(
@@ -456,6 +486,16 @@ fn one_sided_kills_beside_an_unclean_unbounded_run_are_explained(budgets: fn(u64
                     ScheduleMode::Full,
                     options(Some(budget), ON),
                 );
+                if !cut(&on) {
+                    assert_eq!(verdict(&on).0, reference, "{name} budget {budget}");
+                    continue;
+                }
+                // A cut late enough to explore the late branch's contradicted leaf makes the run
+                // no evidence, as the unbounded run is (decision 2, applied before the rule).
+                if matches!(reference, TestRun::Failed(_)) && verdict(&on).0 == reference {
+                    continue;
+                }
+                cuts.push(budget);
                 let TestRun::Compared(outcomes) = verdict(&on).0 else {
                     panic!("{name} budget {budget}: compares")
                 };
@@ -482,17 +522,18 @@ fn one_sided_kills_beside_an_unclean_unbounded_run_are_explained(budgets: fn(u64
                     }
                 }
             }
-            // start(10), go(10, 6), done(16): the early branch is finished from budget 3 on, and
-            // only the whole-term slot can see it (its exit stop is the baseline's).
+            // start(10), go(10, 6), done(16): the early branch is finished from some budget on,
+            // and only the whole-term slot can see it (its exit stop is the baseline's).
+            let first = kills.first().map_or(work, |(budget, _)| *budget);
             assert_eq!(
                 kills,
-                budgets
-                    .iter()
-                    .filter(|budget| (3..work).contains(budget))
+                cuts.iter()
+                    .filter(|budget| **budget >= first)
                     .map(|budget| (*budget, 1))
                     .collect::<Vec<_>>(),
                 "{name}"
             );
+            assert!(!kills.is_empty(), "{name}: no budget kills one-sidedly");
         }
     });
 }
@@ -600,6 +641,7 @@ fn cell_one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec
                 panic!("{rule} {from}: the unbounded run compares")
             };
             let work = work.expect("the mutant's work");
+            let mut reached = false;
             for budget in budgets(work) {
                 assert!(budget < work, "{rule} {from}: budget {budget}");
                 let (on, _) = run(
@@ -608,6 +650,10 @@ fn cell_one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec
                     ScheduleMode::Full,
                     options(Some(budget), ON),
                 );
+                if !cut(&on) {
+                    assert_eq!(verdict(&on), verdict(&unbounded), "{rule} {from} {budget}");
+                    continue;
+                }
                 let TestRun::Compared(outcomes) = verdict(&on).0 else {
                     panic!("{rule} {from} budget {budget}: compares")
                 };
@@ -618,13 +664,19 @@ fn cell_one_sided_kills_agree_with_the_unbounded_verdict(budgets: fn(u64) -> Vec
                          {expected:?}"
                     );
                 }
-                let expected = if budget < 2 {
-                    vec![Unknown; 3]
-                } else {
+                // Unknown until the early leaf is explored (budget 2 when the budget counted
+                // states), then the early leaf's verdict for every larger budget.
+                let expected = if reached {
                     early_leaf.to_vec()
+                } else if outcomes == early_leaf {
+                    reached = true;
+                    early_leaf.to_vec()
+                } else {
+                    vec![Unknown; 3]
                 };
                 assert_eq!(outcomes, expected, "{rule} {from} budget {budget}");
             }
+            assert!(reached, "{rule} {from}: no budget reaches the early leaf");
         }
     });
 }
@@ -640,21 +692,19 @@ mod kink_tier {
     #[test]
     #[ignore = "kink"]
     fn every_one_sided_kill_agrees_with_the_unbounded_verdict() {
-        one_sided_kills_agree_with_the_unbounded_verdict(|work| vec![0, 1, 2, work - 1]);
+        one_sided_kills_agree_with_the_unbounded_verdict(ladder);
     }
 
     #[test]
     #[ignore = "kink"]
     fn every_one_sided_kill_beside_an_unclean_unbounded_run_is_explained() {
-        one_sided_kills_beside_an_unclean_unbounded_run_are_explained(|work| {
-            vec![0, 2, 3, work - 1]
-        });
+        one_sided_kills_beside_an_unclean_unbounded_run_are_explained(ladder);
     }
 
     #[test]
     #[ignore = "kink"]
     fn every_one_sided_kill_over_the_cell_slot_agrees_with_the_unbounded_verdict() {
-        cell_one_sided_kills_agree_with_the_unbounded_verdict(|work| vec![0, 1, 2, work - 1]);
+        cell_one_sided_kills_agree_with_the_unbounded_verdict(ladder);
     }
 
     /// A mutant that changes only an unobservable cell: early's 1 becomes 2, so the early final
@@ -865,13 +915,17 @@ mod kink_tier {
                 );
                 assert_eq!(verdict(&unbounded), unbounded_expected, "{rule}");
                 let work = work.expect("the mutant's work");
-                for budget in [1, 2, 3, work / 2, work - 1] {
+                for budget in ladder(work) {
                     let (on, _) = run(
                         &campaign,
                         &generation,
                         ScheduleMode::Full,
                         options(Some(budget), ON),
                     );
+                    if !cut(&on) {
+                        assert_eq!(verdict(&on), unbounded_expected, "{rule} budget {budget}");
+                        continue;
+                    }
                     assert_eq!(
                         verdict(&on),
                         (
@@ -889,10 +943,11 @@ mod kink_tier {
     /// re-pin L1-2-fix-1). The mutant's claim-free definition keeps f's false `total` (the edit is
     /// in a rewrite rule, which removes no claim of f). Unbounded, the two-sided per-test rule makes
     /// the test unknown: l12ct's late branch contradicts the claim (the test is no evidence), l12cs's
-    /// ends in done(f(-1)), which is not a value. Under the work budgets 14, 7 and 3 (the mutant's
-    /// work is 15) the run has finished the early branch, done(16), which the baseline's complete set
-    /// lacks, and the rule kills one-sidedly in both schedules; with it off the test is `Unknown`, as
-    /// at budget 2, where done(16) is not yet reached. The killing leaf's own path carries no
+    /// ends in done(f(-1)), which is not a value. Under every cut budget from the one at which the
+    /// run has finished the early branch, done(16), which the baseline's complete set lacks, the
+    /// rule kills one-sidedly in both schedules; with it off the test is `Unknown`, as at budget 0,
+    /// where done(16) is not yet reached. (When the budget counted states these were 14, 7 and 3 of
+    /// the mutant's 15, and 2; FB45-KINK: it counts polls, and [`ladder`] samples them.) The killing leaf's own path carries no
     /// contradiction: it is a clean stuck leaf of the unbounded run, distinct from the late branch's
     /// offending leaf, which is the only one. So the two-sided per-test rule is the conservative one
     /// here: a budget gives `Killed` where the unbounded run gives `Unknown`.
@@ -908,6 +963,7 @@ mod kink_tier {
                 let generation = replace(validator.baseline(), rule, "7", "6");
                 let (compiled, withdrawn) = claim_free(&validator, &patch);
                 assert_eq!(withdrawn, 0, "{name}: f keeps its `total`");
+                let mut killing = Vec::new();
                 for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                     let (unbounded, work) =
                         run(&campaign, &generation, schedule, options(None, ON));
@@ -916,14 +972,38 @@ mod kink_tier {
                         (expected.run(), MutantStatus::Unknown),
                         "{name}"
                     );
-                    assert_eq!(work, Some(15), "{name}");
+                    // 15 states when the budget counted them (FB45-KINK: it counts polls).
+                    let work = work.expect("the mutant's work");
                     assert_eq!(
                         run(&campaign, &generation, schedule, options(None, OFF)).0,
                         unbounded
                     );
-                    for budget in [14, 7, 3] {
+                    let mut kills = Vec::new();
+                    for budget in ladder(work) {
                         let (on, _) =
                             run(&campaign, &generation, schedule, options(Some(budget), ON));
+                        // A run not cut is the unbounded run, and one cut late enough to explore
+                        // the late branch's contradicted leaf is no evidence, as the unbounded
+                        // run is (decision 2, applied before the rule).
+                        if !cut(&on)
+                            || (matches!(expected, Expected::Failed(_))
+                                && verdict(&on) == verdict(&unbounded))
+                        {
+                            assert_eq!(verdict(&on), verdict(&unbounded), "{name} {budget}");
+                            continue;
+                        }
+                        // Before done(16) is reached the cut run kills nothing; from there on it
+                        // kills one-sidedly.
+                        if kills.is_empty()
+                            && verdict(&on)
+                                == (
+                                    TestRun::Compared(vec![Unknown, Unknown]),
+                                    MutantStatus::Unknown,
+                                )
+                        {
+                            continue;
+                        }
+                        kills.push(budget);
                         assert_eq!(
                             verdict(&on),
                             (
@@ -951,18 +1031,20 @@ mod kink_tier {
                             "{name} budget {budget} off"
                         );
                     }
-                    let (early, _) = run(&campaign, &generation, schedule, options(Some(2), ON));
+                    assert!(!kills.is_empty(), "{name}: no budget kills one-sidedly");
+                    killing = kills;
+                    let (early, _) = run(&campaign, &generation, schedule, options(Some(0), ON));
                     assert_eq!(
                         verdict(&early),
                         (
                             TestRun::Compared(vec![Unknown, Unknown]),
                             MutantStatus::Unknown
                         ),
-                        "{name} budget 2"
+                        "{name} budget 0"
                     );
                 }
                 let encoded = k_rust::kast::identifier::encode(module);
-                for budget in [14, 7, 3] {
+                for budget in killing {
                     let explanation = one_sided_support::explain_one_sided_kill(
                         &compiled,
                         &encoded,

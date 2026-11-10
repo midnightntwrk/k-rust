@@ -334,6 +334,7 @@ fn forge_record(
             record["mutant_run_sha256"].as_str().unwrap(),
             &record["difference"],
             &kink_flow::outcomes::OutcomeRecord::report_value(record),
+            kink_flow::outcomes::RunPolls::from_value(&record["polls"]).unwrap(),
         );
         record["record_sha256"] = json!(sealed.to_string());
     }
@@ -502,6 +503,11 @@ fn an_outcome_written_under_another_identity_is_ignored() {
         decider_smt_unknowns: 0,
         allowance_bytes: None,
         observation: serde_json::Value::Null,
+        polls: kink_flow::outcomes::RunPolls {
+            count: 0,
+            bound: 0,
+            cut: false,
+        },
     };
     let records = [(program.clone(), record)];
     let here = OutcomeStore::new(&cache, context.clone());
@@ -581,6 +587,11 @@ fn the_outcome_file_keeps_the_compiled_edit() {
                 decider_smt_unknowns: 0,
                 allowance_bytes: None,
                 observation: serde_json::Value::Null,
+                polls: kink_flow::outcomes::RunPolls {
+                    count: 0,
+                    bound: 0,
+                    cut: false,
+                },
             },
         )
     };
@@ -735,6 +746,11 @@ fn an_unknown_record_says_why_and_no_other_record_has_a_cause() {
         decider_smt_unknowns: 1,
         allowance_bytes: None,
         observation: serde_json::Value::Null,
+        polls: kink_flow::outcomes::RunPolls {
+            count: 0,
+            bound: 0,
+            cut: false,
+        },
     };
     let unknown = record(
         CachedOutcome::Unknown,
@@ -1047,6 +1063,12 @@ fn forge_agreements(
             &baseline,
             &Value::Null,
             &kink_flow::outcomes::OutcomeRecord::no_report(),
+            // A run that ended at no poll: it serves every bound.
+            kink_flow::outcomes::RunPolls {
+                count: 0,
+                bound: 0,
+                cut: false,
+            },
         );
         records.insert(
             digest,
@@ -1061,6 +1083,7 @@ fn forge_agreements(
                 "open_application": false,
                 "smt_unknowns": 0,
                 "decider_smt_unknowns": 0,
+                "polls": {"count": 0, "bound": 0, "cut": false},
                 "record_sha256": sealed.to_string(),
             }),
         );
@@ -1948,6 +1971,7 @@ misunderstanding = "a test mutation"
             record["mutant_run_sha256"].as_str().unwrap(),
             &record["difference"],
             &kink_flow::outcomes::OutcomeRecord::report_value(&record),
+            kink_flow::outcomes::RunPolls::from_value(&record["polls"]).unwrap(),
         );
         assert_eq!(record["record_sha256"], json!(sealed.to_string()));
     }

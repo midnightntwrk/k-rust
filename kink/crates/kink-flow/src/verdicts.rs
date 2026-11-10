@@ -14,7 +14,7 @@
 //! [coverage]
 //! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 //! # ...
-//! version = 25
+//! version = 26
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -27,6 +27,7 @@
 //! depth = 1
 //! mcdc = [
 //! ]
+//! work_factor = 5
 //!
 //! # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
 //! # ...
@@ -107,7 +108,8 @@
 //! the ids, not in what is open. A run rendering names no rule, so it has no `krs_annotation`
 //! line, which could only move a lock without any verdict moving.
 //!
-//! A `coverage` document gives its settings (`depth`, `mcdc`; not the tiers computed, since a
+//! A `run` section names the work budget (`work_factor`) after the solver lines. A `coverage`
+//! document gives its settings (`depth`, `mcdc`, `work_factor`; not the tiers computed, since a
 //! lock is written only where both ran and `[flips] run` says whether tier 2 did), then per
 //! family the ids of its open obligations and its argued ones, in item order (`[rules]`,
 //! `[requirements]`, `[syntax]`, and `[rule_windows]` and `[syntax_paths]` where the document has
@@ -260,7 +262,12 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `[[compare.verdict]]` per (implementation, program, view), and the record's comment names it:
 /// a `[run]` or `[coverage]` section differs in its `version` line only, and the record in its
 /// comment.
-pub const VERDICTS_VERSION: u64 = 25;
+/// 26 since a `[run]` section names the work budget its verdicts were decided under
+/// (`work_factor`, FB45-KINK: a mutant's run is bounded by `max(work_factor × P, P_max)` polls,
+/// and a run the bound cuts is `unknown`), and so does a `[coverage.settings]` table, for its
+/// flips: a lock says which budget its verdicts are complete to, and one written under another
+/// budget is stale. A program whose mutant run never ends is `unknown` where it was a `timeout`.
+pub const VERDICTS_VERSION: u64 = 26;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
 /// command keeps, and that a command touches only its own, so that a reader of `kink.lock` needs
@@ -440,6 +447,13 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
     if let Some(digest) = document["z3"]["library_sha256"].as_str() {
         line(&mut text, "z3_library_sha256", &string(digest));
     }
+    // FB45-KINK: the work budget a run's verdicts were decided under (a coverage section names
+    // it in its settings).
+    if kind == "run"
+        && let Some(factor) = document["work_factor"].as_u64()
+    {
+        line(&mut text, "work_factor", &factor.to_string());
+    }
     if kind == "coverage"
         && let Some(annotation) = document["krs"]["version"].as_u64()
     {
@@ -573,6 +587,10 @@ fn coverage(text: &mut String, document: &Value) {
             )
         };
         line(text, "mcdc", &mcdc);
+        // FB45-KINK: the work budget a flip's verdict was decided under.
+        if let Some(factor) = settings["work_factor"].as_u64() {
+            line(text, "work_factor", &factor.to_string());
+        }
     }
     if !document["families"].is_object() {
         return;

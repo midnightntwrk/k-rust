@@ -10,8 +10,8 @@
 //! refused hit is repaired from the client's candidates ([`repair_candidates`]).
 //!
 //! **What is judged.** The filter reads the witness case the campaign built: each side's initial
-//! configuration, the configuration and halt of every leaf, the rule of every undefined step and
-//! each side's work. It composes kink's own deciders, in the order kink's runner applies them to a
+//! configuration, the configuration and halt of every leaf and the rule of every undefined step.
+//! It composes kink's own deciders, in the order kink's runner applies them to a
 //! run (`kink-campaign` `Runtime::judge_with`, `judge_across`):
 //! 1. the state exclusion of the baseline side's initial configuration as a route without
 //!    k-rust's run lists reads it (`DefinitionExclusions::static_state_exclusion`: an
@@ -33,12 +33,15 @@
 //! 4. for a kill, every `stuck` leaf's value judged under the other side's definition too, as
 //!    `judge_ends` judges each side's ends (cause `cross-<test>`): a `trivial` leaf is an undefined
 //!    step, whose pre-step configuration is reached but is no end (kink27 R1-UNDEF), so kink's
-//!    runner does not judge it across and neither does the filter;
-//! 5. for a kill by a removed end under the flow's `[budget] work_factor`, the mutant's run must
-//!    complete within kink's budget for it, `work_factor × W + WORK_FLOOR` with `W` the baseline
-//!    run's work: a run bounded by at least its unbounded work completes, and a removed end needs
-//!    the mutant's complete set of ends (`work-factor`). An added end is left to kink's own run,
-//!    which may still kill it through one-sided evidence of a work-bound mutant.
+//!    runner does not judge it across and neither does the filter.
+//!
+//! Whether the mutant's run ends within kink's work budget is left to kink's own run (FB45-KINK):
+//! the budget is a bound of polls, `max(work_factor × P, P_max)`, and a witness case records its
+//! runs' states (`WitnessSide::work`), not their polls, so the filter cannot read it. v3 refused a
+//! removed-end kill whose mutant run visited more states than the budget's bound of states
+//! (`work-factor`); kink's confirmation now gives such a witness its `unknown`, as it gives an
+//! added end that kink's run cuts, which may still kill through one-sided evidence of a
+//! poll-bound mutant.
 //!
 //! A reach job judges the baseline alone (1 to 3, own definition); a pattern job judges only the
 //! state exclusion (1): a query's stepped run stops at its first match, so the leaves the case
@@ -65,9 +68,7 @@
 //!   runner judges each run by k-rust's `shortCircuitReadings` list of that run (kink-native
 //!   `DefinitionExclusions::run_exclusion` and `state_exclusion`): a case whose runs read no
 //!   skipped operand that counts is judged by kink but can be refused here, since the case
-//!   k-rust-fuzz hands the filter carries no such list; the work-factor check reads the fuzz's work
-//!   for kink's, which differs where kink sends another execution request (both read the state set
-//!   of the same request whatever its leaves since KINK-PATHSET-FALLBACK); and a term past the
+//!   k-rust-fuzz hands the filter carries no such list; and a term past the
 //!   backend's depth is refused (`too-deep`) where kink's runner, judging it without a stack sized
 //!   for it, may overflow instead. (Leaves kink drops as solver-refuted, `Unsat`, never reach TV-01
 //!   here either: [`leaf_term`] gives a term only for a decided state, which the adapter never
@@ -76,7 +77,8 @@
 //!   feasible and judge), leaf diagnostics (kink makes a diagnosed leaf incomplete), a halt
 //!   outside the bridge's contract, a configuration that does not parse, a side kink-native could
 //!   not reach, the mutant's single path of a one-path campaign (which is not its set of ends),
-//!   an added end under `work_factor`, a `trivial` leaf kink does not show to exist, everything
+//!   a kill (removed or added end) whose mutant run kink's work budget cuts, a `trivial` leaf kink
+//!   does not show to exist, everything
 //!   after a pattern's first match, the run's `implementationChosenValues` list (since kink27
 //!   R3-CENSUS-RUNLEVEL a definition that applies a k-rust class reaches fuzz jobs; the filter
 //!   judges leaves and halts, not that list, so it can keep a witness kink refuses as
@@ -89,9 +91,9 @@
 //!
 //! **Identity.** [`KinkJudgement::id`] names [`FILTER_VERSION`] (this composition: the deciders,
 //! the leaves, the cause tokens, the repair), the `KINK_IDENTITY` components it composes or
-//! assumes (`terminal_value`, `data_facts`, `definition_exclusion`, `execution_request`, whose
-//! request shape the work-factor check assumes, and `k_rust_revision`) and the flow's work
-//! budget. It never names `kink_build`, which changes with every rebuild of an identical filter.
+//! assumes (`terminal_value`, `data_facts`, `definition_exclusion`, `execution_request` and
+//! `k_rust_revision`). It never names `kink_build`, which changes with every rebuild of an
+//! identical filter, nor the flow's work budget, which no step reads since v4.
 //!
 //! **Memory.** The filter keeps each side's kink load (a backend and its parsed KORE) for the
 //! whole campaign, beside the campaign's own backends: about +90 MB of peak resident memory on
@@ -107,9 +109,9 @@ use k_rust::{
 };
 use k_rust_fuzz::{
     FilterRefusal, Value, WitnessFilter,
-    report::{KillKind, WitnessCase, WitnessSide},
+    report::{WitnessCase, WitnessSide},
 };
-use kink_campaign::{KINK_IDENTITY, WorkBudget};
+use kink_campaign::KINK_IDENTITY;
 use kink_native::{
     bridge::{LeafTerm, leaf_term},
     data::{DataFacts, data_ends},
@@ -131,8 +133,10 @@ use crate::results::non_value_text;
 /// kink's exit stop from telling sides apart by an undefined path, changed no step of the filter;
 /// TV-01 on `trivial` leaves (3) stays until R3-UNDEF-BRIDGE. v3 (kink27 R3-UNDEF-BRIDGE): TV-01
 /// (3) reads the `stuck` leaves only; a `trivial` leaf needs only existence, which the fuzz's
-/// clean-leaf rule already requires.
-pub const FILTER_VERSION: &str = "kink-flow/witness-filter/v3";
+/// clean-leaf rule already requires. v4 (FB45-KINK): no `work-factor` step (5): kink's work budget
+/// is a bound of polls, which a witness case does not record, so kink's own run decides whether a
+/// kill's mutant run ends within it; the identity no longer names the budget.
+pub const FILTER_VERSION: &str = "kink-flow/witness-filter/v4";
 
 /// The repair candidates a refused hit gets at most ([`repair_candidates`]).
 const REPAIR_CANDIDATES: usize = 2;
@@ -416,11 +420,6 @@ fn exclusion_remedy(spelling: &dyn CommandSpelling) -> String {
     )
 }
 
-/// The remedy of a refusal by the work budget.
-const WORK_REMEDY: &str = "kink's run of the mutant stops at its work budget before it shows that \
-                           the baseline's end is missing; raise [budget] work_factor in FLOW.toml, \
-                           or choose a template or hole range on which the mutant ends sooner";
-
 /// The remedy of a refusal of terms too deep.
 const DEEP_REMEDY: &str = "choose a smaller hole range or a template whose runs build shallower \
                            terms";
@@ -430,34 +429,24 @@ pub struct KinkJudgement {
     job: FilterJob,
     baseline: FilterSide,
     mutant: Option<FilterSide>,
-    work: WorkBudget,
     id: String,
     /// The remedy of a refusal by an exclusion ([`Self::with_spelling`]).
     exclusion_remedy: String,
 }
 
 impl KinkJudgement {
-    /// The filter of `job` on `baseline` (and `mutant` for a kill), with the flow's work budget.
+    /// The filter of `job` on `baseline` (and `mutant` for a kill).
     #[must_use]
-    pub fn new(
-        job: FilterJob,
-        baseline: FilterSide,
-        mutant: Option<FilterSide>,
-        work: WorkBudget,
-    ) -> Self {
+    pub fn new(job: FilterJob, baseline: FilterSide, mutant: Option<FilterSide>) -> Self {
         let component = |key: &str| {
             KINK_IDENTITY
                 .iter()
                 .find(|component| component.key == key)
                 .map_or("", |component| component.value)
         };
-        let budget = match work {
-            WorkBudget::Unbounded => "unbounded".to_owned(),
-            WorkBudget::Calibrated { factor, floor } => format!("{factor}*W+{floor}"),
-        };
         let id = format!(
             "{FILTER_VERSION};terminal_value={};data_facts={};definition_exclusion={};\
-             execution_request={};k_rust_revision={};work={budget}",
+             execution_request={};k_rust_revision={}",
             component("terminal_value"),
             component("data_facts"),
             component("definition_exclusion"),
@@ -468,7 +457,6 @@ impl KinkJudgement {
             job,
             baseline,
             mutant,
-            work,
             id,
             exclusion_remedy: exclusion_remedy(&crate::cli::KinkFlowSpelling),
         }
@@ -584,33 +572,7 @@ impl KinkJudgement {
                 &mut refusals,
             );
         }
-        // 5. A removed end needs the mutant's run complete within kink's work budget.
-        if case.kill == Some(KillKind::RemovedEnd) {
-            refusals.extend(self.work_refusal(case));
-        }
         refusals
-    }
-
-    /// The `work-factor` refusal of a removed-end kill whose mutant run visited more states than
-    /// kink's budget for it ([`WorkBudget::limit`] of the baseline's work).
-    fn work_refusal(&self, case: &WitnessCase) -> Option<Refused> {
-        let (baseline, mutant) = (case.sides.first()?.work?, case.sides.get(1)?.work?);
-        let limit = self.work.limit(baseline)?;
-        (mutant > limit).then(|| {
-            let WorkBudget::Calibrated { factor, floor } = self.work else {
-                unreachable!("an unbounded budget has no limit")
-            };
-            Refused::new(
-                "work-factor",
-                format!(
-                    "the mutant's run visited {mutant} states, more than kink's budget for it \
-                     (work_factor {factor} x the baseline's {baseline} + {floor} = {limit}), so \
-                     kink's run of the mutant stops work-bound and cannot show the baseline's end \
-                     missing"
-                ),
-                WORK_REMEDY,
-            )
-        })
     }
 }
 
@@ -964,7 +926,7 @@ mod tests {
     };
     use k_rust_fuzz::{
         OutcomeClass,
-        report::{DefinitionRole, Reaching},
+        report::{DefinitionRole, KillKind, Reaching},
     };
 
     /// Two constructors of one sort, `a` and `b`, and a hooked String sort.
@@ -1088,12 +1050,8 @@ mod tests {
                 KillKind::AddedEnd,
             )
         };
-        let mut judgement = KinkJudgement::new(
-            FilterJob::Kill,
-            side(&["claimed"]),
-            Some(side(&[])),
-            WorkBudget::Unbounded,
-        );
+        let mut judgement =
+            KinkJudgement::new(FilterJob::Kill, side(&["claimed"]), Some(side(&[])));
         assert_eq!(judgement.judge(&case(None, Some("claimed"))), Ok(()));
         let refused = judgement
             .judge(&case(Some("claimed"), None))
@@ -1101,12 +1059,8 @@ mod tests {
         assert_eq!(refused.cause, "preserves-definedness");
         assert!(refused.detail.contains("baseline"), "{}", refused.detail);
         // And the other way round: a rule in the mutant's facts alone.
-        let mut judgement = KinkJudgement::new(
-            FilterJob::Kill,
-            side(&[]),
-            Some(side(&["claimed"])),
-            WorkBudget::Unbounded,
-        );
+        let mut judgement =
+            KinkJudgement::new(FilterJob::Kill, side(&[]), Some(side(&["claimed"])));
         assert_eq!(judgement.judge(&case(Some("claimed"), None)), Ok(()));
         assert_eq!(
             judgement
@@ -1116,12 +1070,11 @@ mod tests {
         );
     }
 
-    /// S5: under `[budget] work_factor`, a removed-end kill whose mutant run visited more states
-    /// than `factor × W + floor` (kink's budget, `W` the baseline's work) is refused, since kink's
-    /// run of the mutant stops at its budget; one within the budget, an added end, and an
-    /// unbounded flow are accepted.
+    /// FB45-KINK: the filter refuses no kill for its mutant run's work, a removed end and an added
+    /// one alike: kink's work budget is a bound of polls, which the case does not record, so kink's
+    /// own run decides; and the filter's identity names no work budget.
     #[test]
-    fn a_removed_end_beyond_kinks_work_budget_is_refused() {
+    fn a_kill_is_never_refused_for_its_mutant_runs_work() {
         let case = |kind, baseline_work, mutant_work| {
             kill(
                 witness_side(
@@ -1137,52 +1090,18 @@ mod tests {
                 kind,
             )
         };
-        let budget = WorkBudget::Calibrated {
-            factor: 2,
-            floor: 10_000,
-        };
-        let mut judgement = KinkJudgement::new(FilterJob::Kill, side(&[]), Some(side(&[])), budget);
-        let refused = judgement
-            .judge(&case(KillKind::RemovedEnd, 100, 10_201))
-            .expect_err("beyond 2 x 100 + 10000");
-        assert_eq!(refused.cause, "work-factor");
-        assert!(refused.detail.contains("10200"), "{}", refused.detail);
-        assert_eq!(
-            judgement.judge(&case(KillKind::RemovedEnd, 100, 10_200)),
-            Ok(())
-        );
-        assert_eq!(
-            judgement.judge(&case(KillKind::AddedEnd, 100, 99_999)),
-            Ok(())
-        );
-        let mut unbounded = KinkJudgement::new(
-            FilterJob::Kill,
-            side(&[]),
-            Some(side(&[])),
-            WorkBudget::Unbounded,
-        );
-        assert_eq!(
-            unbounded.judge(&case(KillKind::RemovedEnd, 1, 99_999)),
-            Ok(())
-        );
-        assert!(
-            judgement.id().ends_with(";work=2*W+10000"),
-            "{}",
-            judgement.id()
-        );
-        assert!(
-            unbounded.id().ends_with(";work=unbounded"),
-            "{}",
-            unbounded.id()
-        );
+        let mut judgement = KinkJudgement::new(FilterJob::Kill, side(&[]), Some(side(&[])));
+        for kind in [KillKind::RemovedEnd, KillKind::AddedEnd] {
+            assert_eq!(judgement.judge(&case(kind, 1, 99_999)), Ok(()));
+        }
+        assert!(!judgement.id().contains("work="), "{}", judgement.id());
         assert!(!judgement.id().contains("kink_build"));
     }
 
     /// The identity names the filter's composition and the kink components it composes.
     #[test]
     fn the_identity_names_the_composition_and_kinks_components() {
-        let judgement =
-            KinkJudgement::new(FilterJob::Reach, side(&[]), None, WorkBudget::Unbounded);
+        let judgement = KinkJudgement::new(FilterJob::Reach, side(&[]), None);
         let id = judgement.id();
         assert!(id.starts_with(&format!("{FILTER_VERSION};")), "{id}");
         for key in [
@@ -1197,7 +1116,10 @@ mod tests {
                 .find(|component| component.key == key)
                 .expect("a component")
                 .value;
-            assert!(id.contains(&format!("{key}={value};")), "{id}");
+            assert!(
+                format!("{id};").contains(&format!("{key}={value};")),
+                "{id}"
+            );
         }
     }
 
@@ -1206,12 +1128,8 @@ mod tests {
     /// symbol of the mutant).
     #[test]
     fn ends_are_judged_under_their_own_and_the_other_sides_definition() {
-        let mut judgement = KinkJudgement::new(
-            FilterJob::Kill,
-            side(&[]),
-            Some(side_of(WITHOUT_B, &[])),
-            WorkBudget::Unbounded,
-        );
+        let mut judgement =
+            KinkJudgement::new(FilterJob::Kill, side(&[]), Some(side_of(WITHOUT_B, &[])));
         let case = |baseline: &str, mutant: &str| {
             kill(
                 witness_side(DefinitionRole::Baseline, &[(baseline, STUCK, None)], 1),
@@ -1258,8 +1176,7 @@ mod tests {
         // kink27 R3-UNDEF-BRIDGE: a trivial leaf needs only existence, never TV-01.
         assert_eq!(judgement.judge(&undefined), Ok(()));
         // A reach judges the baseline alone, under its own definition.
-        let mut reach =
-            KinkJudgement::new(FilterJob::Reach, side(&[]), None, WorkBudget::Unbounded);
+        let mut reach = KinkJudgement::new(FilterJob::Reach, side(&[]), None);
         let mut alone = case("Lblb{}()", "Lbla{}()");
         alone.sides.truncate(1);
         assert_eq!(reach.judge(&alone), Ok(()));
@@ -1298,7 +1215,6 @@ mod tests {
             FilterJob::Kill,
             short_circuit_side(&["reading"]),
             Some(side(&[])),
-            WorkBudget::Unbounded,
         );
         assert_eq!(
             judgement
@@ -1314,12 +1230,7 @@ mod tests {
             .exclusions
             .preserves_definedness
             .insert("reading".into());
-        let mut judgement = KinkJudgement::new(
-            FilterJob::Kill,
-            both,
-            Some(side(&[])),
-            WorkBudget::Unbounded,
-        );
+        let mut judgement = KinkJudgement::new(FilterJob::Kill, both, Some(side(&[])));
         let causes: Vec<String> = judgement
             .refusals(&case(Some("reading"), None))
             .into_iter()
@@ -1333,12 +1244,8 @@ mod tests {
     /// repair proposes nothing.
     #[test]
     fn a_repair_is_proposed_only_when_every_refusal_is_repairable() {
-        let mut judgement = KinkJudgement::new(
-            FilterJob::Kill,
-            side(&[]),
-            Some(side_of(WITHOUT_B, &[])),
-            WorkBudget::Unbounded,
-        );
+        let mut judgement =
+            KinkJudgement::new(FilterJob::Kill, side(&[]), Some(side_of(WITHOUT_B, &[])));
         let accented = r#"\dv{SortString{}}("é")"#;
         let case = |baseline: &str| {
             kill(
@@ -1372,8 +1279,7 @@ mod tests {
     fn an_unreached_side_accepts_every_case() {
         let mut unreached = side(&[]);
         unreached.reachable = false;
-        let mut judgement =
-            KinkJudgement::new(FilterJob::Reach, unreached, None, WorkBudget::Unbounded);
+        let mut judgement = KinkJudgement::new(FilterJob::Reach, unreached, None);
         let mut case = kill(
             witness_side(
                 DefinitionRole::Baseline,
@@ -1405,12 +1311,8 @@ mod tests {
                 for _ in 0..depth {
                     text.push(')');
                 }
-                let mut judgement = KinkJudgement::new(
-                    FilterJob::Reach,
-                    side_of(WITH_C, &[]),
-                    None,
-                    WorkBudget::Unbounded,
-                );
+                let mut judgement =
+                    KinkJudgement::new(FilterJob::Reach, side_of(WITH_C, &[]), None);
                 let mut case = kill(
                     witness_side(DefinitionRole::Baseline, &[(&text, STUCK, None)], 1),
                     witness_side(DefinitionRole::Mutant, &[], 1),

@@ -314,7 +314,8 @@ mod kink_tier {
                         guards: false,
                         bindings: false,
                         modality: ResultModality::PathSet,
-                        max_work: None
+                        max_work: None,
+                        max_polls: None,
                     })
                 ),
                 (
@@ -425,7 +426,8 @@ mod kink_tier {
                         guards: false,
                         bindings: false,
                         modality: ResultModality::PathSet,
-                        max_work: None
+                        max_work: None,
+                        max_polls: None,
                     })
                 ),
                 (
@@ -448,7 +450,8 @@ mod kink_tier {
                         guards: false,
                         bindings: false,
                         modality: ResultModality::PathSet,
-                        max_work: None
+                        max_work: None,
+                        max_polls: None,
                     })
                 ),
                 (

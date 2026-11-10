@@ -587,6 +587,12 @@ pub struct ProgramResult {
     /// [`crate::exclusion::readings_value`] prints them: the step that excluded the run. An empty
     /// array for every other result. Outside the key and the run digest.
     pub short_circuit_readings: Value,
+    /// The polls of the baseline run (k-rust `polls`, kink-campaign `RunNotes::polls`) of a
+    /// comparable (or comparable-prefix) result: `P` of the program, which bounds every mutant's
+    /// run of it by `max(work_factor × P, P_max)` polls, `P_max` the largest `P` of the corpus's
+    /// comparable programs (FB45-KINK; `search`). `None` for every other class. A function of the
+    /// key, as the class is, and outside the run digest.
+    pub polls: Option<u64>,
     /// Why the result is not a function of its key ([`host_dependence`]); `None` when it is.
     /// Outside the record: a result with a host dependence is never written.
     pub host: Option<HostDependence>,
@@ -617,6 +623,7 @@ impl ProgramResult {
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
+            polls: None,
             short_circuit_readings: json!([]),
             host: None,
         }
@@ -1077,6 +1084,7 @@ impl<'a> BaselineRunner<'a> {
                         specification_diagnostics: json!([]),
                         smt_unknowns: evidence.notes.smt_unknowns,
                         decider_smt_unknowns: evidence.notes.decider_smt_unknowns,
+                        polls: None,
                         short_circuit_readings: json!([]),
                         host: None,
                     };
@@ -1105,6 +1113,7 @@ impl<'a> BaselineRunner<'a> {
                     ),
                     smt_unknowns: evidence.notes.smt_unknowns,
                     decider_smt_unknowns: evidence.notes.decider_smt_unknowns,
+                    polls: evidence.notes.polls,
                     short_circuit_readings: json!([]),
                     host: None,
                 }
@@ -1131,6 +1140,7 @@ impl<'a> BaselineRunner<'a> {
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
                     decider_smt_unknowns: 0,
+                    polls: None,
                     short_circuit_readings: json!([]),
                     host: Some(HostDependence::Time),
                 }
@@ -1168,6 +1178,7 @@ impl<'a> BaselineRunner<'a> {
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
                     decider_smt_unknowns: 0,
+                    polls: None,
                     short_circuit_readings: json!([]),
                     host: None,
                 }
@@ -1192,6 +1203,7 @@ impl<'a> BaselineRunner<'a> {
                 specification_diagnostics: json!([]),
                 smt_unknowns: 0,
                 decider_smt_unknowns: 0,
+                polls: None,
                 short_circuit_readings: json!([]),
                 host: Some(HostDependence::StopCondition),
             },
@@ -1219,6 +1231,7 @@ impl<'a> BaselineRunner<'a> {
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
+            polls: None,
             short_circuit_readings: json!([]),
             host: Some(HostDependence::Failure),
         }
@@ -1302,6 +1315,7 @@ impl<'a> BaselineRunner<'a> {
                 specification_diagnostics: json!([]),
                 smt_unknowns: 0,
                 decider_smt_unknowns: 0,
+                polls: None,
                 short_circuit_readings: json!([]),
                 host: Some(HostDependence::Time),
             };
@@ -1426,6 +1440,7 @@ impl<'a> BaselineRunner<'a> {
             ),
             smt_unknowns: execution.facts().smt_unknowns,
             decider_smt_unknowns: execution.facts().decider_smt_unknowns,
+            polls: None,
             short_circuit_readings: crate::exclusion::readings_value(&readings),
             host: host_dependence(
                 class,
@@ -2115,6 +2130,7 @@ fn record_facts(
         "smt_unknowns": result.smt_unknowns,
         "decider_smt_unknowns": result.decider_smt_unknowns,
         "short_circuit_readings": result.short_circuit_readings,
+        "polls": result.polls,
     });
     // Under `[observe]`, the channels the baseline recorded and their horizons; absent without a
     // record, so a record without `[observe]` has the members it had.
@@ -2269,6 +2285,14 @@ fn verify_record(record: &Value, result: &ProgramResult) -> Vec<String> {
             "class: cached {}, now {}",
             record["class"],
             result.class.as_str()
+        ));
+    }
+    // FB45-KINK: the baseline's polls bound every mutant's run of the program.
+    if record["polls"] != json!(result.polls) {
+        differences.push(format!(
+            "polls: cached {}, now {}",
+            record["polls"],
+            json!(result.polls)
         ));
     }
     let now = result.run_sha256().map(|d| d.to_string());
@@ -2500,6 +2524,9 @@ fn program_row(
         row["decider_smt_unknowns"] = record["decider_smt_unknowns"].clone();
         // CF-16: each end's computation head and class (null unless comparable).
         row["ends"] = record.get("ends").cloned().unwrap_or(Value::Null);
+        // FB45-KINK: the baseline run's polls, which bound every mutant's run of the program
+        // (null unless comparable).
+        row["polls"] = record.get("polls").cloned().unwrap_or(Value::Null);
         // The step that excluded a `short-circuit-reading` run (empty otherwise).
         row["short_circuit_readings"] = record
             .get("short_circuit_readings")
@@ -2965,6 +2992,7 @@ mod tests {
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
             decider_smt_unknowns: 0,
+            polls: None,
             short_circuit_readings: json!([]),
             host: None,
         }

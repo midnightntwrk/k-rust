@@ -333,6 +333,7 @@ fn forge_record(
         record["mutant_run_sha256"].as_str().unwrap(),
         &record["difference"],
         &kink_flow::outcomes::OutcomeRecord::report_value(record),
+        kink_flow::outcomes::RunPolls::from_value(&record["polls"]).unwrap(),
     );
     record["record_sha256"] = json!(sealed.to_string());
     write_json(&path, &file);
@@ -387,6 +388,7 @@ fn forge_kill(manifest: &Path, document: &Value, from: &str, to: &str, program: 
         record["mutant_run_sha256"].as_str().unwrap(),
         &record["difference"],
         &kink_flow::outcomes::OutcomeRecord::report_value(&record),
+        kink_flow::outcomes::RunPolls::from_value(&record["polls"]).unwrap(),
     );
     record["record_sha256"] = json!(sealed.to_string());
     file["mutation_identity"] = json!(identity);

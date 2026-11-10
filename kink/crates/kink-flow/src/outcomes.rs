@@ -18,12 +18,15 @@
 //! comparable value although the run returned (the watchdog stopped no part of it: a run it
 //! stopped is `Failed(TimeLimit)`, and a path it stopped makes its side `timeout`, not
 //! `unknown`). Its causes, each read from the run's leaves and from kink's judgement of them:
-//! - a path stopped by a bound of the request: the work budget (`[budget] work_factor`: at most
-//!   `factor * W + floor` states, `W` the states the program's baseline run visited, itself a
-//!   function of the baseline's request, which the context and the program digest name),
-//!   `max_depth`, `max_simplification_iterations` or `max_breadth`. Each counts work, not time,
-//!   so it stops the same request at the same place on every host; each is in the context's
-//!   `budget` (the work budget as `budget.work: {factor, floor}`);
+//! - a path stopped by a bound of the request: the work budget (`[budget] work_factor`, FB45-KINK:
+//!   at most `max(factor × P, P_max)` polls, inside steps included, `P` the polls of the
+//!   program's baseline run and `P_max` the corpus's largest `P`, each a function of its
+//!   baseline's request), `max_depth`, `max_simplification_iterations` or `max_breadth`. Each
+//!   counts work, not time, so it stops the same request at the same place on every host; each
+//!   but the work budget is in the context's `budget`, and the work budget is in the record
+//!   (`polls: {count, bound, cut}`): a record serves exactly the bounds under which a request
+//!   makes its run ([`RunPolls::serves`]), so a record of a cut run serves the bound it was cut
+//!   at, and one of a run that ended serves every bound it ends under, whatever `work_factor` is;
 //! - a leaf k-rust left indeterminate or vacuous, or a state kink's feasibility check did not
 //!   decide: without Z3 no solver is asked; under the Z3 profile every query, k-rust's and
 //!   kink's own (leaf feasibility, the observation decider, the pair's judgement), is bounded by
@@ -33,7 +36,7 @@
 //! - an end that is no value kink compares (a symbolic term, a collection kink cannot compare,
 //!   a mix of crashes), or that is not data under the other side's definition (kink-campaign
 //!   `judge_across`): a function of the ends and of the two definitions;
-//! - the one-sided rule (re-pin L1-2): a work-bound run kills when one of its stuck ground
+//! - the one-sided rule (re-pin L1-2): a poll-bound run kills when one of its stuck ground
 //!   terminals is outside the baseline's set, and stays `unknown` otherwise, a function of the
 //!   run and of the rule's version (`kink.one_sided` in the context);
 //! - the baseline's side: a baseline end the pair's judgement finds not data under the mutant's
@@ -79,10 +82,10 @@
 //! cannot be named, tier 1 is off (`search::tier1_refusal`).
 //!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
-//! `{schema: "kink-flow-outcomes", version: 6, context, context_sha256, mutation_identity,
+//! `{schema: "kink-flow-outcomes", version: 7, context, context_sha256, mutation_identity,
 //! mutation_id, removed_claims, witness, records: {<program digest>: {program_id,
 //! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, cause, open_application,
-//! smt_unknowns, decider_smt_unknowns, allowance_bytes, observation?, record_sha256}}}`.
+//! smt_unknowns, decider_smt_unknowns, allowance_bytes, observation?, polls, record_sha256}}}`.
 //!
 //! `removed_claims` is the row's (`report::claims_value`):
 //! the claims the mutant every record ran on does not carry (re-pin R0c-fix-2).
@@ -175,12 +178,79 @@ pub const OUTCOMES_SCHEMA: &str = "kink-flow-outcomes";
 /// names its format, and is a front end's evidence where the context names one (`evidence`); 5
 /// since a record's outcome can be `unknown` (CF-33d) and every record carries `cause`,
 /// `smt_unknowns` and `decider_smt_unknowns`; 6 since an `unknown` record keeps whether its cause
-/// is an open application of an edited function (`open_application`).
-pub const OUTCOMES_VERSION: u64 = 6;
+/// is an open application of an edited function (`open_application`); 7 since every record keeps
+/// the polls of the mutant's run (`polls`: its count, the bound it ran under and whether it ended
+/// there, FB45-KINK), which decide the bounds the record serves, and the context no longer names
+/// the work budget.
+pub const OUTCOMES_VERSION: u64 = 7;
 /// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest; v3
 /// since CF-33d added the record's report (`cause`, `smt_unknowns`, `decider_smt_unknowns`); v4
-/// since the report holds `open_application`.
-pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v4";
+/// since the report holds `open_application`; v5 since the digest holds `polls`.
+pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v5";
+
+/// The polls of a recorded mutant run (FB45-KINK, `[budget] work_factor`): what it counted
+/// (k-rust `polls`), the bound it ran under (`max_polls`, `max(work_factor × P, P_max)` when it
+/// ran) and whether it ended there (`cut`: its last leaf is `poll-bound`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RunPolls {
+    pub count: u64,
+    pub bound: u64,
+    pub cut: bool,
+}
+
+impl RunPolls {
+    /// The polls of the run whose evidence notes are `notes`, when it ran under a bound and
+    /// returned a count.
+    #[must_use]
+    pub const fn of(notes: &RunNotes) -> Option<Self> {
+        match (notes.polls, notes.max_polls) {
+            (Some(count), Some(bound)) => Some(Self {
+                count,
+                bound,
+                cut: notes.poll_bound,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether the recorded run is the run a request under the bound of polls `bound` makes, so
+    /// its outcome is that request's. A cut run is the run of its own bound only: under another
+    /// it ends elsewhere, or not at all. A run that ended is the run without a bound (a bound
+    /// only refuses a poll past it, and refused none), and so the run of every bound under which
+    /// no poll it made is refused: every bound at least the smaller of the bound it ran under and
+    /// its count (k-rust `docs/compatibility.md`, "Poll budget": a bound at least a run's count
+    /// changes nothing in it). So raising `work_factor` re-runs only the cut runs, and lowering it
+    /// re-runs the runs that ended above the new bound.
+    #[must_use]
+    pub const fn serves(self, bound: u64) -> bool {
+        if self.cut {
+            self.bound == bound
+        } else {
+            bound
+                >= if self.count < self.bound {
+                    self.count
+                } else {
+                    self.bound
+                }
+        }
+    }
+
+    /// `{count, bound, cut}`, as a record holds it.
+    #[must_use]
+    pub fn value(self) -> Value {
+        json!({"count": self.count, "bound": self.bound, "cut": self.cut})
+    }
+
+    /// The polls a record holds (`{count, bound, cut}`), when it holds them.
+    #[must_use]
+    pub fn from_value(value: &Value) -> Option<Self> {
+        Some(Self {
+            count: value.get("count")?.as_u64()?,
+            bound: value.get("bound")?.as_u64()?,
+            cut: value.get("cut")?.as_bool()?,
+        })
+    }
+}
 /// The tier-1 directory's name in the cache directory.
 pub const OUTCOMES_DIRECTORY: &str = "outcomes";
 
@@ -328,6 +398,10 @@ pub struct OutcomeRecord {
     /// it is a member of the report only when not null, so a record without it has the digest it
     /// had; read only by the report.
     pub observation: Value,
+    /// The polls of the mutant's run ([`RunPolls`]): which bounds of polls the record serves,
+    /// which the kill search reads before it reads the record ([`RunPolls::serves`]). Outside the
+    /// key, inside the record digest.
+    pub polls: RunPolls,
 }
 
 impl OutcomeRecord {
@@ -357,6 +431,7 @@ impl OutcomeRecord {
             &self.mutant_run_sha256,
             &self.difference,
             &self.report(),
+            self.polls,
         )
     }
 
@@ -423,6 +498,7 @@ impl OutcomeRecord {
             "smt_unknowns": self.smt_unknowns,
             "decider_smt_unknowns": self.decider_smt_unknowns,
             "allowance_bytes": self.allowance_bytes,
+            "polls": self.polls.value(),
             "record_sha256": self
                 .digest(context_sha256, mutation_identity, program_digest)
                 .to_string(),
@@ -434,11 +510,11 @@ impl OutcomeRecord {
     }
 }
 
-/// `record_sha256 = payload_digest("kink-flow/outcome-record/v4", canonical JSON of
+/// `record_sha256 = payload_digest("kink-flow/outcome-record/v5", canonical JSON of
 /// {context_sha256, mutation_identity, program_digest, baseline_run_sha256, outcome, slots,
-/// mutant_run_sha256, difference, report})`, where `report` is `{cause, open_application,
-/// smt_unknowns, decider_smt_unknowns}`. It detects corruption and a record moved under another key, not
-/// forgery (README 7.5.1).
+/// mutant_run_sha256, difference, report, polls})`, where `report` is `{cause, open_application,
+/// smt_unknowns, decider_smt_unknowns}` and `polls` `{count, bound, cut}`. It detects corruption
+/// and a record moved under another key, not forgery (README 7.5.1).
 #[allow(clippy::too_many_arguments)]
 pub fn record_sha256(
     context_sha256: &str,
@@ -450,6 +526,7 @@ pub fn record_sha256(
     mutant_run_sha256: &str,
     difference: &Value,
     report: &Value,
+    polls: RunPolls,
 ) -> Sha256Digest {
     payload_digest(
         RECORD_DOMAIN,
@@ -463,6 +540,7 @@ pub fn record_sha256(
             "mutant_run_sha256": mutant_run_sha256,
             "difference": difference,
             "report": report,
+            "polls": polls.value(),
         }))
         .as_bytes(),
     )
@@ -595,6 +673,7 @@ impl OutcomeStore {
             decider_smt_unknowns: value.get("decider_smt_unknowns")?.as_u64()?,
             allowance_bytes: value.get("allowance_bytes").and_then(Value::as_u64),
             observation: value.get("observation").cloned().unwrap_or(Value::Null),
+            polls: RunPolls::from_value(value.get("polls")?)?,
         };
         let digest = record.digest(&self.context_sha256, &identity.to_string(), program);
         (field("record_sha256")? == digest.to_string()).then_some(record)
@@ -654,5 +733,68 @@ impl OutcomeStore {
             }),
         )?;
         Ok(written)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FB45-KINK: a cut run's record serves the bound it was cut at only; a record of a run that
+    /// ended serves every bound under which no poll it made is refused (from the smaller of its
+    /// bound and its count up), so raising `work_factor` re-runs the cut runs alone, and lowering
+    /// it re-runs a run that ended only when the new bound is below what it used.
+    #[test]
+    fn a_record_serves_exactly_the_bounds_whose_run_it_is() {
+        let cut = RunPolls {
+            count: 145,
+            bound: 145,
+            cut: true,
+        };
+        assert!(cut.serves(145));
+        assert!(!cut.serves(144));
+        assert!(!cut.serves(146));
+        assert!(!cut.serves(u64::MAX));
+        let ended = RunPolls {
+            count: 40,
+            bound: 145,
+            cut: false,
+        };
+        assert!(ended.serves(145));
+        assert!(ended.serves(40));
+        assert!(ended.serves(u64::MAX));
+        assert!(!ended.serves(39));
+        // A run that ended although its count passed its bound (polls charged after its last
+        // interruption point) is the run of every bound from that bound up.
+        let past = RunPolls {
+            count: 150,
+            bound: 145,
+            cut: false,
+        };
+        assert!(past.serves(145));
+        assert!(past.serves(150));
+        assert!(!past.serves(144));
+        assert_eq!(RunPolls::from_value(&cut.value()), Some(cut));
+        assert_eq!(RunPolls::from_value(&json!({"count": 1})), None);
+    }
+
+    /// FB45-KINK: the bound of a mutant's run is `max(work_factor × P, P_max)`: a program whose
+    /// baseline is cheap gets the corpus's largest baseline, an expensive one `work_factor` times
+    /// its own, never a corpus-worth more.
+    #[test]
+    fn the_bound_is_the_larger_of_k_times_the_baseline_and_the_corpus_floor() {
+        let budget = crate::manifest::Budget::default();
+        assert_eq!(budget.work_factor, 5);
+        assert_eq!(budget.poll_bound(1_234, 0), 6_170);
+        assert_eq!(budget.poll_bound(1_234, 6_170), 6_170);
+        assert_eq!(budget.poll_bound(1_234, 6_171), 6_171);
+        assert_eq!(budget.poll_bound(10, 20_000), 20_000);
+        assert_eq!(budget.poll_bound(20_000, 20_000), 100_000);
+        let raised = crate::manifest::Budget {
+            work_factor: 7,
+            ..budget
+        };
+        assert_eq!(raised.poll_bound(1_234, 0), 8_638);
+        assert_eq!(raised.poll_bound(u64::MAX, 0), u64::MAX);
     }
 }

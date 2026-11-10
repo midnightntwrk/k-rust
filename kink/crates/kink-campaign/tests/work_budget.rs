@@ -1,10 +1,11 @@
 //! Re-pin lane 1 (L1-1): the mutants' work budget (`RunOptions::work`) and the result-run
 //! modality (`RunOptions::result_modality`) as a campaign uses them.
 //!
-//! A calibrated work budget bounds a mutant's result run of a test by the work of the baseline's
-//! run of that test. It only stops runs: a run it does not stop is the unbounded run, and a run it
-//! stops ends in a `work-bound` leaf, so the test is `Unknown`. It never bounds a baseline run.
-//! So the budget decides only how many mutants end `Unknown`: never a kill.
+//! A calibrated work budget bounds a mutant's result run of a test by the polls of the baseline's
+//! run of that test (FB45-KINK: `max(factor × P, floor)` polls, where it bounded states before).
+//! It only stops runs: a run it does not stop is the unbounded run, and a run it stops ends in a
+//! `poll-bound` leaf, so the test is `Unknown`. It never bounds a baseline run. So the budget
+//! decides only how many mutants end `Unknown`: never a kill.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -194,17 +195,19 @@ const fn calibrated(factor: u64, floor: u64) -> RunOptions {
     }
 }
 
+/// FB45-KINK: the bound is the larger of `factor` times the baseline's polls and the floor, so a
+/// cheap program gets the floor (kink-flow: the corpus's largest baseline) and an expensive one
+/// `factor` times its own baseline.
 #[test]
-fn the_limit_is_factor_times_baseline_work_plus_floor() {
+fn the_limit_is_the_larger_of_factor_times_baseline_polls_and_the_floor() {
     assert_eq!(WorkBudget::Unbounded.limit(5), None);
-    assert_eq!(
-        WorkBudget::Calibrated {
-            factor: 4,
-            floor: 10
-        }
-        .limit(5),
-        Some(30)
-    );
+    let budget = |factor, floor| WorkBudget::Calibrated { factor, floor };
+    assert_eq!(budget(4, 10).limit(5), Some(20));
+    assert_eq!(budget(4, 20).limit(5), Some(20));
+    assert_eq!(budget(4, 21).limit(5), Some(21));
+    assert_eq!(budget(4, 1_000).limit(5), Some(1_000));
+    assert_eq!(budget(5, 0).limit(0), Some(0));
+    assert_eq!(budget(5, 1_234).limit(0), Some(1_234));
     assert_eq!(
         WorkBudget::Calibrated {
             factor: u64::MAX,
@@ -221,7 +224,7 @@ fn the_limit_is_factor_times_baseline_work_plus_floor() {
 }
 
 /// The step's `1` becomes `-1`: `count(3)` counts up forever. Without a work budget its run is
-/// stopped by the time bound (`Timeout`); under a calibrated budget it ends in a work-bound leaf
+/// stopped by the time bound (`Timeout`); under a calibrated budget it ends in a poll-bound leaf
 /// long before, and the mutant is `Unknown`, never killed. That the work budget, not the clock,
 /// stopped the bounded run is its outcome: a run the clock stops is `Failed(TimeLimit)`, so no
 /// elapsed time is compared (a wall-time bound fails under load). The time bound is waited for once, in
@@ -257,7 +260,7 @@ fn assert_never_ends_unbounded(unbounded: &CampaignRun) {
     assert_eq!(unbounded.mutants[0].report.status, MutantStatus::Timeout);
 }
 
-/// The bounded run of the never-ending mutant: a work-bound leaf, `Unknown`, never killed.
+/// The bounded run of the never-ending mutant: a poll-bound leaf, `Unknown`, never killed.
 fn assert_never_ends_bounded(bounded: &CampaignRun, unbounded: &CampaignRun) {
     assert_eq!(
         bounded.mutants[0].plan.tests[0].run,
@@ -265,6 +268,14 @@ fn assert_never_ends_bounded(bounded: &CampaignRun, unbounded: &CampaignRun) {
     );
     assert_eq!(bounded.mutants[0].report.status, MutantStatus::Unknown);
     assert!(bounded.mutants[0].report.killing_test_ids.is_empty());
+    let notes = &bounded.mutants[0].evidence[0].notes;
+    assert!(notes.poll_bound, "{notes:?}");
+    assert!(
+        notes.polls.unwrap() >= notes.max_polls.unwrap(),
+        "{notes:?}"
+    );
+    let baseline = bounded.baseline[0].notes.polls.unwrap();
+    assert_eq!(notes.max_polls, Some((4 * baseline).max(100)));
     // The baseline is never bounded.
     assert_eq!(bounded.baseline, unbounded.baseline);
 }
@@ -304,9 +315,9 @@ mod kink_tier {
 
     /// The budget only decides how many mutants end `Unknown`. `stop`'s `7` becomes `8`: the same
     /// work, another result, killed under every budget. The guard's `0` becomes `-2`: two more
-    /// states and another final state, killed without a budget and under a budget with room, and
-    /// `Unknown` (never another verdict) under a budget of exactly the baseline's work. The result
-    /// modality changes no status.
+    /// states and another final state, killed without a budget and under a budget with room (a
+    /// factor, or a floor), and `Unknown` (never another verdict) under a budget of exactly the
+    /// baseline's polls. The result modality changes no status.
     #[test]
     #[ignore = "kink"]
     fn a_work_budget_decides_only_how_many_mutants_are_unknown() {
@@ -331,7 +342,8 @@ mod kink_tier {
                     RunOptions::default(),
                     path_set,
                     calibrated(1, 0),
-                    calibrated(1, 10),
+                    calibrated(3, 0),
+                    calibrated(1, 1_000_000),
                 ] {
                     let report = &run(&campaign, &same_work, schedule, options).mutants[0].report;
                     assert_eq!(report.status, MutantStatus::Killed, "{options:?}");
@@ -340,7 +352,8 @@ mod kink_tier {
                 for (options, expected) in [
                     (RunOptions::default(), MutantStatus::Killed),
                     (path_set, MutantStatus::Killed),
-                    (calibrated(1, 10), MutantStatus::Killed),
+                    (calibrated(3, 0), MutantStatus::Killed),
+                    (calibrated(1, 1_000_000), MutantStatus::Killed),
                     (calibrated(1, 0), MutantStatus::Unknown),
                 ] {
                     let run = run(&campaign, &more_work, schedule, options);

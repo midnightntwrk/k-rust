@@ -488,8 +488,9 @@ pub fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
 /// because a symbolic or constrained leaf may be infeasible.
 /// An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
 /// refines it by its cause. A requested depth bound keeps its limit stop only for a decided or
-/// feasible state (see `decided_stop`); a breadth-bound or work-bound leaf is `BackendLimit`,
-/// without a real prefix, because its state was never normalised (re-pin findings A-11, A-05). A
+/// feasible state (see `decided_stop`); a breadth-bound, work-bound or poll-bound leaf is
+/// `BackendLimit`, without a real prefix, because its state was never normalised (re-pin findings
+/// A-11, A-05; FB45-KINK). A
 /// vacuous leaf that is not discarded is `SolverUnknown`.
 /// The adapter rejects unrequested bound and stop halts ([`HaltClass::admitted_by`]): a stop leaf
 /// reaches the bridge only from a run that selected its rule, and is then a final configuration
@@ -515,6 +516,12 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         // path has no real prefix and no slot takes a term or a witness from it. The adapter
         // admits it only for a request that set `max_work`.
         HaltClass::WorkBound => PathStop::BackendLimit,
+        // A poll-bound leaf is the state as it stood when the bound of polls stopped its
+        // expansion, possibly inside a step, with the pending states dropped (FB45-KINK): as for
+        // a work-bound leaf, it is no reached result, its path has no real prefix and no slot
+        // takes a term or a witness from it. The adapter admits it only for a request that set
+        // `max_polls`.
+        HaltClass::PollBound => PathStop::BackendLimit,
         // Every request answers a cancellation with an error (`cancelled_result: error`, re-pin
         // L1-1, finding A-03), and no request stops at a branch, so a cancelled or branch leaf is
         // outside the contract, as the adapter says. A stop-undecided leaf is admitted only for a
@@ -1166,17 +1173,20 @@ pub fn paths_from_execution_existing(
     Ok(paths.finish())
 }
 
-/// The clean, ground, stuck or stopped terminals of a work-bound run (re-pin L1-2, decision 6,
-/// finding A-15; stop leaves since CF-21): the leaves a one-sided kill may read. Empty unless the
-/// run is a complete run cut short by its work budget and nothing else:
+/// The clean, ground, stuck or stopped terminals of a work-bound or poll-bound run (re-pin L1-2,
+/// decision 6, finding A-15; stop leaves since CF-21; a bound of polls since FB45-KINK): the leaves
+/// a one-sided kill may read. Empty unless the run is a complete run cut short by its counted
+/// bound, of states or of polls, and nothing else:
 /// - it did not time out (decision 6 rejects cancelled runs), counted no stack stop and went on
 ///   past no stop rule ([`crate::execution::RunFacts::passed_stops`]: a leaf below a passed stop
 ///   need not be final in the truncated system);
-/// - its last leaf, and only that one, is `WorkBound` (k-rust checks the budget before it expands
-///   a state, so every earlier leaf is a state whose own expansion finished);
+/// - its last leaf, and only that one, is `WorkBound` or `PollBound` (k-rust checks the work
+///   budget before it expands a state, and a bound of polls stops the state it was expanding and
+///   makes that state the last leaf, so every earlier leaf is a state whose own expansion
+///   finished: k-rust reports the leaves completed before the stop, then the stopped one);
 /// - every other leaf is `Stuck`, `CutPoint`, `TerminalRule`, `Trivial` or `Vacuous`, no leaf
 ///   carries a diagnostic (a cut point's proposed successor included), and every path but the
-///   work-bound leaf's is complete (a depth, breadth or undecided stop, a diagnosed leaf or a
+///   bound leaf's is complete (a depth, breadth or undecided stop, a diagnosed leaf or a
 ///   stuck term that is not a value makes the run more than work-bound); a `Trivial` leaf
 ///   completes when its pre-step configuration is shown to exist (`exists`, see
 ///   [`paths_from_execution_existing`]), not only by a terminal value;
@@ -1209,7 +1219,7 @@ pub fn work_bound_stuck_terminals(
     if execution.timed_out
         || execution.stack_stops != 0
         || !execution.facts.passed_stops.is_empty()
-        || last.halt != HaltClass::WorkBound
+        || !matches!(last.halt, HaltClass::WorkBound | HaltClass::PollBound)
         || leaves.iter().any(diagnosed)
         || !explored.iter().all(|leaf| {
             matches!(
@@ -2167,7 +2177,7 @@ mod tests {
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 63] = [
+        let rows: [Row; 65] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
@@ -2224,6 +2234,11 @@ mod tests {
             (H::WorkBound, GROUND, F, 1, Incomplete(P::BackendLimit)),
             (H::WorkBound, SYMBOLIC, F, 1, Incomplete(P::BackendLimit)),
             (H::WorkBound, CONSTRAINED, N, 1, Incomplete(P::BackendLimit)),
+            // FB45-KINK: a poll-bound leaf (admitted only for a request with `max_polls`) is the
+            // state its expansion stood at when the bound stopped it, as a work-bound one is no
+            // reached result. Before: read as cancelled, a contract violation.
+            (H::PollBound, GROUND, U, 1, Incomplete(P::BackendLimit)),
+            (H::PollBound, SYMBOLIC, F, 1, Incomplete(P::BackendLimit)),
             (H::Vacuous, BOTTOM, U, 1, Discarded(DiscardReason::Vacuous)),
             // A `Stuck` halt holds for every instance of its state, in both profiles. A
             // constrained or symbolic stuck leaf completes when its state was shown feasible
@@ -2341,6 +2356,7 @@ mod tests {
                 stack_stops: 0,
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
+                polls: 0,
                 coverage: None,
                 facts: crate::execution::RunFacts::default(),
                 state_matches: None,
@@ -2395,6 +2411,7 @@ mod tests {
             stack_stops: 0,
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
+            polls: 0,
             coverage: None,
             facts: crate::execution::RunFacts::default(),
             state_matches: None,
@@ -2583,6 +2600,7 @@ mod tests {
                 stack_stops: 0,
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
+                polls: 0,
                 coverage: None,
                 facts: crate::execution::RunFacts::default(),
                 state_matches: None,
@@ -2638,6 +2656,7 @@ mod tests {
                 stack_stops: 0,
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
+                polls: 0,
                 coverage: None,
                 facts: crate::execution::RunFacts::default(),
                 state_matches: None,
@@ -2666,6 +2685,7 @@ mod tests {
             stack_stops: 0,
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
+            polls: 0,
             coverage: None,
             facts: crate::execution::RunFacts::default(),
             state_matches: None,
@@ -2702,10 +2722,15 @@ mod tests {
         // Re-pin L1-1: a work budget is a request option beside the budget (`ResultRun`), and
         // every request answers a cancellation with an error. CF-21: stop rules are a request
         // option too, each direction admitting its own halt.
-        let excluded = |budget: &ExecutionBudget, max_work: Option<u64>, stop: &StopRules| {
+        // FB45-KINK: a bound of polls is one too, beside the work budget.
+        let excluded = |budget: &ExecutionBudget, bound: Option<u64>, stop: &StopRules| {
+            let bounds = crate::execution::RunBounds {
+                max_work: bound,
+                max_polls: bound,
+            };
             HaltClass::ALL
                 .into_iter()
-                .filter(|halt| !halt.admitted_by(budget, max_work, stop))
+                .filter(|halt| !halt.admitted_by(budget, bounds, stop))
                 .collect::<std::collections::BTreeSet<_>>()
         };
         let before = StopRules {
@@ -2748,12 +2773,17 @@ mod tests {
                 H::DepthBound,
                 H::BreadthBound,
                 H::WorkBound,
+                H::PollBound,
             ])
         );
         for halt in HaltClass::ALL {
             assert_eq!(
                 halt.adapter_admits(&unbounded),
-                halt.admitted_by(&unbounded, None, &StopRules::NONE)
+                halt.admitted_by(
+                    &unbounded,
+                    crate::execution::RunBounds::NONE,
+                    &StopRules::NONE
+                )
             );
         }
         assert_eq!(
@@ -2814,6 +2844,7 @@ mod tests {
                 stack_stops: 0,
                 modality: crate::execution::ResultModality::PathSet,
                 work: 0,
+                polls: 0,
                 coverage: None,
                 facts: crate::execution::RunFacts::default(),
                 state_matches: None,
@@ -2845,6 +2876,7 @@ mod tests {
             stack_stops: 0,
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
+            polls: 0,
             coverage: None,
             facts: crate::execution::RunFacts::default(),
             state_matches: None,
@@ -2878,6 +2910,7 @@ mod tests {
             stack_stops: 0,
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
+            polls: 0,
             coverage: None,
             facts: crate::execution::RunFacts::default(),
             state_matches: None,
@@ -2930,6 +2963,7 @@ mod tests {
             stack_stops: 0,
             modality: crate::execution::ResultModality::PathSet,
             work: 0,
+            polls: 0,
             coverage: None,
             facts: crate::execution::RunFacts::default(),
             state_matches: None,
@@ -2998,6 +3032,7 @@ mod tests {
             stack_stops: 0,
             modality: crate::execution::ResultModality::StateSet,
             work: 3,
+            polls: 0,
             coverage: None,
             facts: crate::execution::RunFacts::default(),
             state_matches: None,

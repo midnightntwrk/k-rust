@@ -864,7 +864,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
         cold.starts_with(&format!(
             "{}{}\n[run.spec]\noutcome = \"admitted\"\n",
             flow_support::heading("run"),
-            flow_support::solver_lines()
+            flow_support::run_lines()
         )),
         "{cold}"
     );

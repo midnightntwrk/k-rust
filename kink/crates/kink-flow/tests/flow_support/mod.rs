@@ -178,7 +178,7 @@ pub fn heading(document: &str) -> String {
          # [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps\n\
          # <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,\n\
          # and keeps the others as they are.\n\
-         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 25\n"
+         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 26\n"
     )
 }
 
@@ -194,6 +194,12 @@ pub const MUTATIONS_LEGEND: &str = "\
 /// The lines a verdicts rendering of this build writes for its solver, after `document`:
 /// `profile`, and under the Z3 profile the Z3 build, `z3_version` and, when the build names its
 /// library, `z3_library_sha256`, read from k-rust's `z3_build` rather than from kink-flow.
+/// [`solver_lines`] of an admitted run's section, then its work budget (FB45-KINK: `work_factor`,
+/// 5 unless the manifest sets one), which a run section names after the solver.
+pub fn run_lines() -> String {
+    format!("{}work_factor = 5\n", solver_lines())
+}
+
 pub fn solver_lines() -> String {
     let profile = if cfg!(feature = "z3") { "z3" } else { "no-z3" };
     let mut lines = format!("profile = \"{profile}\"\n");

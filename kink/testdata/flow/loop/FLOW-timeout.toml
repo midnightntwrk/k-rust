@@ -7,6 +7,10 @@ syntax_module = "LOOP-SYNTAX"
 
 [budget]
 time_ms = 500
+# A work budget so large that the clock fires first (FB45-KINK: the default, 5, cuts a run that
+# never ends long before 500 ms): these runs test the clock's path; tests/work_budget.rs tests the
+# budget's.
+work_factor = 1000000000000
 max_depth = 1000000000
 
 [[program]]

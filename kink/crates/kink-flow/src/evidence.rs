@@ -1408,6 +1408,11 @@ mod tests {
             decider_smt_unknowns: 0,
             allowance_bytes: None,
             observation: serde_json::Value::Null,
+            polls: crate::outcomes::RunPolls {
+                count: 0,
+                bound: 0,
+                cut: false,
+            },
         };
         outcomes
             .write(

@@ -169,7 +169,11 @@ use std::{path::Path, sync::OnceLock};
 /// those the run did not try (an undecided one with cause `untried`), so they do not depend on
 /// the order in which the backend tries a group's equations; a v24 record holds the tried
 /// entries only, so an equation tried after the one that applied would read never refuted.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v25";
+/// v26 (FB45-KINK): a comparable (or comparable-prefix) record holds `polls`, the polls of the
+/// baseline run (k-rust `polls`), outside the key and the run digest, from which kink-flow bounds
+/// every mutant's run of the program (`max(work_factor × P, P_max)`); a v25 record has none, so
+/// its program's mutants would have no bound.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v26";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

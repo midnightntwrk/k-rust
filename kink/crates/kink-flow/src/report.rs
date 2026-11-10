@@ -268,7 +268,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// rewriting it or reporting it as a difference ([`crate::clock`]): the lock has `kept` and
 /// `clock_stopped`, and `--locked` gives the status `undecided` where nothing else differs
 /// (FB45-LOCKED-TIMEOUT).
-pub const RUN_VERSION: u64 = 39;
+/// 40 bounds every mutant's run by the work budget, a bound of polls on by default (FB45-KINK:
+/// `max(work_factor × P, P_max)`, `P` a program's baseline polls, `P_max` the corpus's largest):
+/// the document names `work_factor` and `poll_floor`, each program row its baseline's `polls`, and
+/// a program whose mutant run the bound cut is `unknown` with a cause naming the polls and the
+/// bound, where a mutant that never ends was a `timeout`.
+pub const RUN_VERSION: u64 = 40;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
@@ -1025,11 +1030,50 @@ pub fn open_application_cause(
 /// reduces ([`open_application_cause`]): the end is no value, so kink cannot compare it.
 pub const OPEN_APPLICATION_REASON: &str = "open-application";
 
+/// A mutant run its work budget cut (FB45-KINK, `[budget] work_factor`): the run ended at its
+/// bound of polls `bound`, `max(factor × baseline, floor)`, where `baseline` is the polls of the
+/// program's baseline run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PollCut {
+    pub bound: u64,
+    pub baseline: u64,
+    pub factor: u64,
+}
+
+impl PollCut {
+    /// What the cause says of the cut: `the mutant's run used more than 5 × the baseline's 1234
+    /// polls (6170), its work budget ([budget] work_factor), so it is no complete run`, or, where
+    /// the corpus's floor is the bound, that the run used more than that many polls, the polls of
+    /// the corpus's most expensive baseline run. A function of the bound and the baseline's
+    /// count, never of a clock.
+    #[must_use]
+    pub fn clause(self) -> String {
+        let Self {
+            bound,
+            baseline,
+            factor,
+        } = self;
+        if baseline.saturating_mul(factor) >= bound {
+            format!(
+                "the mutant's run used more than {factor} × the baseline's {baseline} polls \
+                 ({bound}), its work budget ([budget] work_factor), so it is no complete run"
+            )
+        } else {
+            format!(
+                "the mutant's run used more than {bound} polls, its work budget: the polls of the \
+                 corpus's most expensive baseline run, above {factor} × this program's baseline's \
+                 {baseline} ([budget] work_factor), so it is no complete run"
+            )
+        }
+    }
+}
+
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
 /// that run and, when the session recorded it, the leaf census of the mutant's run: `None` when
 /// the outcome is `agree` or `distinguish` (or the test was skipped). `slots` names the slots
 /// ([`slots_value`]); `observation` is the observation slot's verdict, under `[observe]`, whose
 /// cause is that slot's.
+#[allow(clippy::too_many_arguments)]
 pub fn executed_cause(
     slots: &[&str],
     run: &TestRun,
@@ -1038,6 +1082,7 @@ pub fn executed_cause(
     budget: Budget,
     census: Option<MutantCensus<'_>>,
     observation: Option<&ObservationVerdict>,
+    cut: Option<PollCut>,
 ) -> Option<String> {
     match run {
         TestRun::SkippedAfterKill => None,
@@ -1127,6 +1172,10 @@ pub fn executed_cause(
                 .join("; ");
             if let Some(open) = &open {
                 cause = format!("{open}; {cause}");
+            }
+            // FB45-KINK: a run its work budget cut says so first, with the polls and the bound.
+            if let Some(cut) = cut {
+                cause = format!("{}; {cause}", cut.clause());
             }
             if let (true, Some(census)) = (incomplete(sides, across), census) {
                 // With the open application named first, the census follows without it.
@@ -1293,16 +1342,10 @@ fn slot_cause(outcome: OracleOutcome, mutant: Option<&OracleSide>, budget: Budge
         ),
         Some(OracleSide::Unknown) => format!(
             "the mutant's run did not end in a value kink can compare (a path stopped at \
-             max_depth = {} or ended undecided{}, or a final configuration holds a collection kink \
-             cannot compare, such as one with a Bytes key, an unevaluated function or a symbolic term)",
-            budget.max_depth,
-            // Re-pin L1-1: the work budget of the mutant's run, when the manifest sets one (the
-            // run's census then says `work-bound 1`).
-            budget
-                .work_factor
-                .map_or_else(String::new, |factor| format!(
-                    ", the run reached its work budget (work_factor = {factor})"
-                ))
+             max_depth = {} or ended undecided, the run reached its work budget (work_factor = \
+             {}), or a final configuration holds a collection kink cannot compare, such as one \
+             with a Bytes key, an unevaluated function or a symbolic term)",
+            budget.max_depth, budget.work_factor,
         ),
         Some(OracleSide::Error) => "the backend failed while running the mutant".into(),
         Some(OracleSide::SemanticCrash(_)) => {

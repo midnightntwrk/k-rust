@@ -1483,14 +1483,16 @@ impl LeafFacts {
     }
 
     /// Whether k-rust expanded the step into `leaf`'s state: every halt but a work-bound,
-    /// breadth-bound, timed-out or cancelled one, whose state was taken from the worklist (or
-    /// left on it) before its producing step's successor was normalized and split, so its
+    /// poll-bound, breadth-bound, timed-out or cancelled one, whose state was taken from the
+    /// worklist (or left on it, or stopped within its step) before its producing step's successor
+    /// was normalized and split, so its
     /// predicate need not hold that step's right-hand side obligations, and no undefined step
     /// need stand beside it for the instances where they fail.
     const fn expanded(halt: HaltClass) -> bool {
         !matches!(
             halt,
             HaltClass::WorkBound
+                | HaltClass::PollBound
                 | HaltClass::BreadthBound
                 | HaltClass::Timeout
                 | HaltClass::Cancelled
@@ -4158,6 +4160,7 @@ mod tests {
         for halt in [
             HaltClass::Vacuous,
             HaltClass::WorkBound,
+            HaltClass::PollBound,
             HaltClass::BreadthBound,
             HaltClass::Timeout,
             HaltClass::Cancelled,

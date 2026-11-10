@@ -618,6 +618,11 @@ mod kink_tier {
                 decider_smt_unknowns: 0,
                 allowance_bytes: None,
                 observation: serde_json::Value::Null,
+                polls: kink_flow::outcomes::RunPolls {
+                    count: 0,
+                    bound: 0,
+                    cut: false,
+                },
             };
             store
                 .write(

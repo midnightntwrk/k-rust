@@ -132,6 +132,7 @@ fn a_state_set_with_an_undefined_step_stays_a_state_set() {
                         bindings: false,
                         modality: ResultModality::PathSet,
                         max_work: None,
+                        max_polls: None,
                     },
                 )
                 .unwrap();
@@ -204,6 +205,7 @@ fn an_undefined_step_after_converging_diamonds_is_one_leaf_of_a_complete_state_s
                         bindings: false,
                         modality,
                         max_work: Some(max_work),
+                        max_polls: None,
                     },
                 )
                 .unwrap()
@@ -355,6 +357,7 @@ mod kink_tier {
                             ResultRun {
                                 modality,
                                 max_work,
+                                max_polls: None,
                                 guards: false,
                                 bindings: false,
                             },
@@ -407,7 +410,11 @@ mod kink_tier {
             // A stepped run (never under a work budget) and a result run without one admit no
             // work-bound leaf.
             assert!(!HaltClass::WorkBound.adapter_admits(&budget()));
-            assert!(HaltClass::WorkBound.admitted_by(&budget(), Some(1), &StopRules::NONE));
+            assert!(HaltClass::WorkBound.admitted_by(
+                &budget(),
+                kink_native::execution::RunBounds::work(Some(1)),
+                &StopRules::NONE
+            ));
         });
     }
 }

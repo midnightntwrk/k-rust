@@ -183,8 +183,11 @@ pub const EXECUTION_DIGEST_KIND: &str = EXECUTION_DOMAIN;
 /// resource-bounded and the context's budget names its units and Z3 build, so a record may hold
 /// an outcome that rests on solver answers. v3 (CF-33d): a record may hold an `unknown` outcome,
 /// one whose run is a function of the context (`crate::outcomes`, "Unknown outcomes"), with its
-/// cause.
-pub const OUTCOME_SCHEMA_VERSION: &str = "kink-flow/outcome/v3";
+/// cause. v4 (FB45-KINK): the context no longer names the mutants' work budget; it is a bound of
+/// polls, `max(work_factor × P, P_max)`, and each record names the polls of its run and serves
+/// exactly the bounds under which a request makes that run (`outcomes::RunPolls::serves`), so a
+/// record of a run that ended serves every `work_factor` it ends under.
+pub const OUTCOME_SCHEMA_VERSION: &str = "kink-flow/outcome/v4";
 /// Domain of the digest of a tier-1 context, which names its directory under `outcomes/`.
 pub const OUTCOME_CONTEXT_DOMAIN: &str = "kink-flow/outcome-context/v1";
 /// Domain of a mutation's position-free identity (flow README 7.5.4).
@@ -425,14 +428,11 @@ pub fn outcome_context(
     evidence: Option<&Value>,
     observe: Option<&Value>,
 ) -> Value {
-    // The budget object of the result key, so both keys name the same bounds, and the mutants'
-    // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
-    // context without a work budget is unchanged).
-    let work_factor = budget.work_factor;
-    let mut budget = budget_value(budget);
-    if let Some(factor) = work_factor {
-        budget["work"] = json!({"factor": factor, "floor": crate::manifest::WORK_FLOOR});
-    }
+    // The budget object of the result key, so both keys name the same bounds. The mutants' work
+    // budget (`[budget] work_factor`, a bound of polls) is not in it (FB45-KINK): each record
+    // names the bound of polls its run was made under and serves exactly the bounds under which a
+    // request makes that run (`outcomes::RunPolls::serves`).
+    let budget = budget_value(budget);
     let mut context = json!({
         "outcome_schema": OUTCOME_SCHEMA_VERSION,
         "kink_build": kink_build.to_string(),

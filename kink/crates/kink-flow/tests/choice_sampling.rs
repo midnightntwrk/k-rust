@@ -220,6 +220,7 @@ fn side(manifest: &Path, seed: Option<u64>) -> Side {
                             bindings: false,
                             modality: ResultModality::StateSet,
                             max_work: None,
+                            max_polls: None,
                         },
                     )
                     .map(|execution| Observed::of(&execution, choice_sampling::take_counts()))

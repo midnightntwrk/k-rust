@@ -13,7 +13,8 @@
 //! cancelled run answers an error, so a timed-out run publishes no leaf. A watchdog cancels
 //! execution when the time budget expires, which the time a reader of the run spends at its
 //! points off the run's clock does not count against ([`off_the_clock`]); a result run may also
-//! carry a work budget (`max_work`), whose `work-bound` leaf makes the run incomplete.
+//! carry a work budget (`max_work`), whose `work-bound` leaf makes the run incomplete, and a
+//! bound of polls (`max_polls`), whose `poll-bound` leaf does too.
 //! Each leaf also records whether its state is shown feasible or infeasible, and an
 //! indeterminate leaf its structured cause; the execution records the definition facts the
 //! bridge needs to use them ([`crate::feasibility`]).
@@ -96,6 +97,13 @@ pub enum HaltClass {
     /// unexpanded and unnormalised, and the pending states dropped. The adapter admits it only
     /// for a request that set `max_work` ([`HaltClass::admitted_by`]); it never completes a run.
     WorkBound,
+    /// k-rust's `poll-bound` halt (`max_polls` reached): the state as it stood when the bound
+    /// stopped its expansion, and the pending states dropped. The bound counts every poll of the
+    /// run, inside its steps included, so a ground function evaluation that never ends is stopped
+    /// by it, not by a clock, and where it stops the run is a function of the request and the
+    /// definition (k-rust `docs/compatibility.md`, "Poll budget"). The adapter admits it only for
+    /// a request that set `max_polls` ([`HaltClass::admitted_by`]); it never completes a run.
+    PollBound,
     /// k-rust's `stop-undecided` halt: a stop condition was left undecided at an arrival, and
     /// the path ends there, its state the arrival's stop state. Only an in-process request with
     /// a stop condition has it ([`ExecutionAdapter::execute_result_counted`]): the adapter admits
@@ -118,7 +126,7 @@ pub enum HaltClass {
 }
 
 impl HaltClass {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Stuck,
         Self::Trivial,
         Self::Vacuous,
@@ -133,31 +141,32 @@ impl HaltClass {
         Self::Timeout,
         Self::Cancelled,
         Self::WorkBound,
+        Self::PollBound,
         Self::StopUndecided,
         Self::ProbeDifference,
         Self::ProbeDone,
     ];
 
     /// Whether the adapter's request can yield this halt under `budget`, for a request without
-    /// a work budget and without stop rules (every stepped run, and a result run without
-    /// `max_work` or a [`StopRules`]).
+    /// a work budget, a bound of polls or stop rules (every stepped run, and a result run without
+    /// `max_work`, `max_polls` or a [`StopRules`]).
     #[must_use]
     pub const fn adapter_admits(self, budget: &ExecutionBudget) -> bool {
-        self.admitted_by(budget, None, &NO_STOP_RULES)
+        self.admitted_by(budget, RunBounds::NONE, &NO_STOP_RULES)
     }
 
-    /// Whether the adapter's request can yield this halt under `budget`, `max_work` and `stop`.
+    /// Whether the adapter's request can yield this halt under `budget`, `bounds` and `stop`.
     /// A `Cancelled` leaf never: every request answers a cancellation with an error
     /// (`cancelled_result: error`, re-pin finding A-03). A `Branch` leaf never: the request does
-    /// not stop at a branch. A `work-bound` leaf exactly when the request set `max_work`; a
-    /// `cut-point` leaf exactly when `stop` names a rule to stop before (`cut_point_rules`), and
-    /// a `terminal` leaf exactly when it names one to stop after (`terminal_rules`): k-rust stops
-    /// a path at no other rule.
+    /// not stop at a branch. A `work-bound` leaf exactly when the request set `max_work`, a
+    /// `poll-bound` leaf exactly when it set `max_polls`; a `cut-point` leaf exactly when `stop`
+    /// names a rule to stop before (`cut_point_rules`), and a `terminal` leaf exactly when it
+    /// names one to stop after (`terminal_rules`): k-rust stops a path at no other rule.
     #[must_use]
     pub const fn admitted_by(
         self,
         budget: &ExecutionBudget,
-        max_work: Option<u64>,
+        bounds: RunBounds,
         stop: &StopRules,
     ) -> bool {
         match self {
@@ -169,7 +178,8 @@ impl HaltClass {
             | Self::SimplificationError => true,
             Self::DepthBound => budget.max_depth.is_some(),
             Self::BreadthBound => budget.max_breadth.is_some(),
-            Self::WorkBound => max_work.is_some(),
+            Self::WorkBound => bounds.max_work.is_some(),
+            Self::PollBound => bounds.max_polls.is_some(),
             Self::CutPoint => !stop.before.is_empty(),
             Self::TerminalRule => !stop.after.is_empty(),
             Self::Branch
@@ -205,9 +215,7 @@ impl HaltClass {
             HaltReasonOutput::SimplificationError => Self::SimplificationError,
             HaltReasonOutput::Timeout => Self::Timeout,
             HaltReasonOutput::Cancelled => Self::Cancelled,
-            // The adapter's requests set no bound of polls (`max_polls`), so a `poll-bound` leaf
-            // is no outcome of them: like a cancelled leaf, it is never admitted.
-            HaltReasonOutput::PollBound => Self::Cancelled,
+            HaltReasonOutput::PollBound => Self::PollBound,
             HaltReasonOutput::WorkBound => Self::WorkBound,
             HaltReasonOutput::StopUndecided => Self::StopUndecided,
             HaltReasonOutput::ProbeDifference => Self::ProbeDifference,
@@ -329,10 +337,12 @@ impl ResultModality {
 }
 
 /// How a result run is requested besides its [`ExecutionBudget`]: its modality, its work
-/// budget (k-rust `max_work`: the most states the run may visit across all its paths), whether
+/// budget (k-rust `max_work`: the most states the run may visit across all its paths), its bound
+/// of polls (k-rust `max_polls`: the most polls the run may count, inside its steps included,
+/// [`AdaptedExecution::polls`]), whether
 /// its coverage collects guard outcomes (`guards`), and whether it collects the bindings of its
-/// fired instances (`bindings`). The default is a state set without a work budget, guard
-/// outcomes or bindings.
+/// fired instances (`bindings`). The default is a state set without a work budget, a bound of
+/// polls, guard outcomes or bindings.
 ///
 /// With `guards`, the request names every rewrite rule and function equation of the definition
 /// whose `requires` is not empty (k-rust `collect_guards`), and the run's coverage carries their
@@ -350,8 +360,45 @@ impl ResultModality {
 pub struct ResultRun {
     pub modality: ResultModality,
     pub max_work: Option<u64>,
+    pub max_polls: Option<u64>,
     pub guards: bool,
     pub bindings: bool,
+}
+
+impl ResultRun {
+    /// The run's two counted bounds, the halts they admit ([`HaltClass::admitted_by`]).
+    #[must_use]
+    pub const fn bounds(&self) -> RunBounds {
+        RunBounds {
+            max_work: self.max_work,
+            max_polls: self.max_polls,
+        }
+    }
+}
+
+/// The counted bounds of a request (k-rust `max_work` and `max_polls`), which decide whether it
+/// can yield a `work-bound` or a `poll-bound` leaf ([`HaltClass::admitted_by`]).
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct RunBounds {
+    pub max_work: Option<u64>,
+    pub max_polls: Option<u64>,
+}
+
+impl RunBounds {
+    /// Neither bound: a request that yields neither leaf.
+    pub const NONE: Self = Self {
+        max_work: None,
+        max_polls: None,
+    };
+
+    /// A work budget alone.
+    #[must_use]
+    pub const fn work(max_work: Option<u64>) -> Self {
+        Self {
+            max_work,
+            max_polls: None,
+        }
+    }
 }
 
 /// The stop rules of a result run (k-rust `cut_point_rules` and `terminal_rules`), each rule
@@ -465,7 +512,7 @@ impl Requested<'_> {
         match halt {
             HaltClass::StopUndecided => self.conditioned && !self.stop.is_none(),
             HaltClass::ProbeDifference | HaltClass::ProbeDone => self.probed,
-            _ => halt.admitted_by(budget, self.run.max_work, self.stop),
+            _ => halt.admitted_by(budget, self.run.bounds(), self.stop),
         }
     }
 
@@ -1055,6 +1102,9 @@ pub struct AdaptedExecution {
     /// k-rust's count of the states the run visited (`work`, the unit `max_work` bounds); 0 for
     /// a timed-out run, which reports no result.
     pub(crate) work: u64,
+    /// k-rust's count of the polls the run counted (`polls`, the unit `max_polls` bounds); 0 for
+    /// a timed-out run, which reports no result.
+    pub(crate) polls: u64,
     /// k-rust's run coverage; `None` for a timed-out run.
     pub(crate) coverage: Option<RunCoverage>,
     /// k-rust's run-level facts (re-pin adoption A-1); empty for a timed-out run.
@@ -1175,6 +1225,23 @@ impl AdaptedExecution {
     #[must_use]
     pub const fn work(&self) -> u64 {
         self.work
+    }
+
+    /// The polls the run counted (k-rust `polls`, the unit a request's `max_polls` bounds,
+    /// counted inside steps too); 0 for a timed-out run. A function of the request and the
+    /// definition wherever the result is, on a fresh and on a reused backend alike, so a bound
+    /// computed from it is one too (k-rust `docs/compatibility.md`, "Poll budget").
+    #[must_use]
+    pub const fn polls(&self) -> u64 {
+        self.polls
+    }
+
+    /// Whether the run ended at its bound of polls: its last leaf is `poll-bound`.
+    #[must_use]
+    pub fn poll_bound(&self) -> bool {
+        self.leaves
+            .last()
+            .is_some_and(|leaf| leaf.halt == HaltClass::PollBound)
     }
 
     /// k-rust's run coverage; `None` for a timed-out run.
@@ -1309,6 +1376,9 @@ pub enum ExecutionAdapterFailure {
 ///   never reads (finding A-03);
 /// - `max_work`: `requested.run.max_work` (none for a stepped run and by default); its
 ///   `work-bound` leaf is admitted exactly then ([`HaltClass::admitted_by`]).
+/// - `max_polls`: `requested.run.max_polls` (none for a stepped run and by default; kink-campaign
+///   sets it on a mutant's result run, `WorkBudget`); its `poll-bound` leaf is admitted exactly
+///   then.
 ///
 /// - `collect_offered: false` (k-rust 58720d2e5, KINK-04/3): no offered coverage is asked for,
 ///   which is the behaviour before that field existed; asking changes no other field of the
@@ -1373,7 +1443,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
             collection
         }),
         max_work: run.max_work,
-        max_polls: None,
+        max_polls: run.max_polls,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
         match_states: matching.cloned(),
@@ -1448,13 +1518,18 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// rule windows also sends the depth in its binding collection (`collect_bindings.depth`), so its
 /// bindings report the syntax paths of length up to it its fired instances touched; the one
 /// store that holds them, kink-flow's result records, moved its `RESULT_SCHEMA_VERSION`. A run
-/// of depth 1 sends the request of v7, field for field.
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v8";
+/// of depth 1 sends the request of v7, field for field. v9 (FB45-KINK): a result run may carry a
+/// bound of polls (`max_polls`, [`ResultRun::max_polls`]), whose `poll-bound` leaf is admitted
+/// exactly then ([`HaltClass::PollBound`]), and kink-campaign bounds a mutant's result run by
+/// polls, `max(factor × P, floor)` with `P` the polls of the baseline's run of the test, in place
+/// of v8's bound of states (`WorkBudget`); a run without the bound sends the request of v8.
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v9";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
 const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
     modality: ResultModality::PathSet,
     max_work: None,
+    max_polls: None,
     guards: false,
     bindings: false,
 });
@@ -2136,6 +2211,7 @@ impl ExecutionAdapter {
             stack_stops: result.stack_stops,
             modality,
             work: result.work,
+            polls: result.polls,
             coverage: result
                 .coverage
                 .map(|coverage| RunCoverage::of(coverage, rewrites, requested.depth)),
@@ -2159,22 +2235,31 @@ impl ExecutionAdapter {
         feasibility: Vec<LeafFeasibility>,
         recorded: RecordedRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        Self::adapt_bounded_result(result, timed_out, budget, None, feasibility, recorded)
+        Self::adapt_bounded_result(
+            result,
+            timed_out,
+            budget,
+            RunBounds::NONE,
+            feasibility,
+            recorded,
+        )
     }
 
-    /// [`Self::adapt_result`] of a result whose request set `max_work`, so a `work-bound` leaf is
-    /// admitted exactly when `max_work` is set ([`HaltClass::admitted_by`]; re-pin L1-2: tests of
-    /// the one-sided kill hold a work-bound result).
+    /// [`Self::adapt_result`] of a result whose request set `bounds`, so a `work-bound` leaf is
+    /// admitted exactly when `max_work` is set and a `poll-bound` leaf exactly when `max_polls` is
+    /// ([`HaltClass::admitted_by`]; re-pin L1-2: tests of the one-sided kill hold a bounded
+    /// result).
     pub fn adapt_bounded_result(
         result: KoreExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
-        max_work: Option<u64>,
+        bounds: RunBounds,
         feasibility: Vec<LeafFeasibility>,
         recorded: RecordedRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let run = ResultRun {
-            max_work,
+            max_work: bounds.max_work,
+            max_polls: bounds.max_polls,
             ..ResultRun::default()
         };
         Self::adapt(
@@ -2822,13 +2907,13 @@ mod tests {
     #[test]
     fn every_halt_variant_is_classified_exhaustively() {
         let actual = HaltReasonOutput::ALL.map(HaltClass::from_output);
-        // `poll-bound` is read as `Cancelled`, never admitted, since the adapter's requests set no
-        // `max_polls`; every other reason has a class of its own.
+        // FB45-KINK: `poll-bound` is a class of its own, admitted for a request that sets
+        // `max_polls`, as every other reason is.
         assert_eq!(
             HaltClass::from_output(HaltReasonOutput::PollBound),
-            HaltClass::Cancelled
+            HaltClass::PollBound
         );
-        assert_eq!(actual.len(), HaltClass::ALL.len() + 1);
+        assert_eq!(actual.len(), HaltClass::ALL.len());
         for class in HaltClass::ALL {
             assert!(actual.contains(&class), "{class:?}");
         }
@@ -3140,6 +3225,7 @@ mod tests {
                 bindings: false,
                 modality: ResultModality::StateSet,
                 max_work: Some(11),
+                max_polls: Some(13),
             },
         ] {
             // A stop is sent as the backend's stop rules, before as cut points and after as
@@ -3193,6 +3279,7 @@ mod tests {
                 assert_eq!(request.stop_count, sent);
                 assert_eq!(request.result_modality, run.modality.output());
                 assert_eq!(request.max_work, run.max_work);
+                assert_eq!(request.max_polls, run.max_polls);
                 assert!(request.collect_coverage);
                 assert!(request.collect_committed);
                 assert!(!request.trace);
@@ -3212,6 +3299,8 @@ mod tests {
         assert_eq!(ResultRun::default().max_work, None);
         assert_eq!(STEPPED.run.modality, ResultModality::PathSet);
         assert_eq!(STEPPED.run.max_work, None);
+        assert_eq!(ResultRun::default().max_polls, None);
+        assert_eq!(STEPPED.run.max_polls, None);
         assert!(STEPPED.stop.is_none());
     }
 
@@ -3797,7 +3886,8 @@ mod tests {
     /// budget and whatever leaves surround it, the adapter answers `ContractViolation` and
     /// publishes no leaf. A request with `max_work` admits it, and the bridge makes its path
     /// incomplete without a real prefix (bridge `halt_stop`; oracles.rs
-    /// `work_bound_leaf_never_yields_distinguish`).
+    /// `work_bound_leaf_never_yields_distinguish`). FB45-KINK: the same of a `poll-bound` leaf and
+    /// `max_polls`, and neither bound admits the other's leaf.
     #[test]
     fn work_bound_leaf_is_a_contract_violation_under_every_budget() {
         let state = Pattern::Application {
@@ -3858,58 +3948,76 @@ mod tests {
                 max_depth,
                 max_breadth,
             };
-            assert!(!HaltClass::WorkBound.adapter_admits(&budget), "{budget:?}");
-            assert!(
-                HaltClass::WorkBound.admitted_by(&budget, Some(1), &StopRules::NONE),
-                "{budget:?}"
-            );
-            for leaves in [
-                vec![leaf(HaltReasonOutput::WorkBound)],
-                vec![
-                    leaf(HaltReasonOutput::Stuck),
-                    leaf(HaltReasonOutput::WorkBound),
-                ],
+            let work = RunBounds::work(Some(1));
+            let polls = RunBounds {
+                max_work: None,
+                max_polls: Some(1),
+            };
+            for (halt, output, bounds, other) in [
+                (
+                    HaltClass::WorkBound,
+                    HaltReasonOutput::WorkBound,
+                    work,
+                    polls,
+                ),
+                (
+                    HaltClass::PollBound,
+                    HaltReasonOutput::PollBound,
+                    polls,
+                    work,
+                ),
             ] {
-                let feasibility = vec![LeafFeasibility::Syntactic; leaves.len()];
-                for timed_out in [false, true] {
-                    assert_eq!(
-                        ExecutionAdapter::adapt(
+                assert!(!halt.adapter_admits(&budget), "{budget:?}");
+                assert!(
+                    halt.admitted_by(&budget, bounds, &StopRules::NONE),
+                    "{budget:?}"
+                );
+                assert!(
+                    !halt.admitted_by(&budget, other, &StopRules::NONE),
+                    "{budget:?}"
+                );
+                for leaves in [
+                    vec![leaf(output)],
+                    vec![leaf(HaltReasonOutput::Stuck), leaf(output)],
+                ] {
+                    let feasibility = vec![LeafFeasibility::Syntactic; leaves.len()];
+                    for timed_out in [false, true] {
+                        assert_eq!(
+                            ExecutionAdapter::adapt(
+                                result(leaves.clone()),
+                                timed_out,
+                                &budget,
+                                Requested::unstopped(ResultRun::default()),
+                                feasibility.clone(),
+                                &BTreeSet::new(),
+                                RecordedRun {
+                                    short_circuit_readings: true,
+                                    ground: true,
+                                },
+                            ),
+                            Err(ExecutionAdapterFailure::ContractViolation(halt)),
+                            "{budget:?} timed_out={timed_out}"
+                        );
+                        let admitted = ExecutionAdapter::adapt(
                             result(leaves.clone()),
                             timed_out,
                             &budget,
-                            Requested::unstopped(ResultRun::default()),
+                            Requested::unstopped(ResultRun {
+                                max_work: bounds.max_work,
+                                max_polls: bounds.max_polls,
+                                ..ResultRun::default()
+                            }),
                             feasibility.clone(),
                             &BTreeSet::new(),
                             RecordedRun {
                                 short_circuit_readings: true,
                                 ground: true,
                             },
-                        ),
-                        Err(ExecutionAdapterFailure::ContractViolation(
-                            HaltClass::WorkBound
-                        )),
-                        "{budget:?} timed_out={timed_out}"
-                    );
-                    let admitted = ExecutionAdapter::adapt(
-                        result(leaves.clone()),
-                        timed_out,
-                        &budget,
-                        Requested::unstopped(ResultRun {
-                            max_work: Some(1),
-                            ..ResultRun::default()
-                        }),
-                        feasibility.clone(),
-                        &BTreeSet::new(),
-                        RecordedRun {
-                            short_circuit_readings: true,
-                            ground: true,
-                        },
-                    )
-                    .expect("a work budget admits its leaf");
-                    assert_eq!(
-                        admitted.leaves().last().map(|leaf| leaf.halt),
-                        Some(HaltClass::WorkBound)
-                    );
+                        )
+                        .expect("a bound admits its leaf");
+                        assert_eq!(admitted.leaves().last().map(|leaf| leaf.halt), Some(halt));
+                        assert_eq!(admitted.poll_bound(), halt == HaltClass::PollBound);
+                    }
                 }
             }
         }
@@ -4272,7 +4380,7 @@ mod tests {
         };
         for halt in [HaltClass::ProbeDifference, HaltClass::ProbeDone] {
             assert!(halt.is_probe());
-            assert!(!halt.admitted_by(&budget, Some(9), &stop));
+            assert!(!halt.admitted_by(&budget, RunBounds::work(Some(9)), &stop));
             for stop in [&NO_STOP_RULES, &stop] {
                 for conditioned in [false, true] {
                     assert!(!requested(stop, conditioned, false).admits(halt, &budget));
@@ -4355,6 +4463,7 @@ mod tests {
             stack_stops: 0,
             modality: ResultModality::StateSet,
             work: 0,
+            polls: 0,
             coverage: None,
             facts: RunFacts::default(),
             state_matches: None,

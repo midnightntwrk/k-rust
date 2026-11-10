@@ -1,12 +1,15 @@
-//! Re-pin lane 1 (L1-1): `[budget] work_factor`, the work budget of the mutants' runs.
+//! Re-pin lane 1 (L1-1), FB45-KINK: `[budget] work_factor`, the work budget of the mutants' runs,
+//! a bound of polls on by default: `max(work_factor × P, P_max)`, `P` a program's baseline polls
+//! and `P_max` the corpus's largest.
 //!
-//! The loop fixture's `countdown-escapes` makes `countdown(3)` step to itself forever. Under the
-//! fixture's time bound it is a timeout (tests/search.rs); with a work budget its run ends in a
-//! work-bound leaf long before any time bound, so the program is `unknown` for the mutant with a
-//! cause that names the budget, never a kill. The work budget counts states, not time, so that
-//! `unknown` is a function of the outcome key, which names the budget, and it is cached with its
-//! cause (CF-33d); another factor reuses no cached outcome. The same mutant stopped by the clock
-//! instead is a timeout, which depends on the host's load and is run again by every command.
+//! The loop fixture's `countdown-escapes` makes `countdown(3)` step to itself forever. Its run
+//! ends in a poll-bound leaf long before any time bound, so the program is `unknown` for the
+//! mutant with a cause that names the polls and the bound, never a kill. The work budget counts
+//! polls, not time, so that `unknown` is a function of its key and of the bound its record names,
+//! and it is cached with its cause (CF-33d), whatever `time_ms` is; another factor re-runs the cut
+//! run only, since a run that ended is the run without the bound. The same mutant stopped by the
+//! clock instead (a factor so large that the clock fires first) is a timeout, which depends on the
+//! host's load and is run again by every command.
 
 use kink_flow::{
     FlowManifest, MutationList,
@@ -57,12 +60,17 @@ fn fixture(test: &str, factor: u64) -> PathBuf {
 }
 
 fn set_factor(manifest: &Path, factor: u64) {
+    set_budget(manifest, factor, NO_CLOCK_MS);
+}
+
+/// The manifest's `[budget]` with `work_factor = factor` and `time_ms = time_ms`.
+fn set_budget(manifest: &Path, factor: u64, time_ms: u64) {
     let text = fs::read_to_string(manifest).unwrap();
     let text = text
         .lines()
         .filter(|line| !line.starts_with("work_factor"))
         .map(|line| match line {
-            line if line.starts_with("time_ms = ") => format!("time_ms = {NO_CLOCK_MS}"),
+            line if line.starts_with("time_ms = ") => format!("time_ms = {time_ms}"),
             "[budget]" => format!("[budget]\nwork_factor = {factor}"),
             line => line.to_owned(),
         })
@@ -122,19 +130,20 @@ fn executed(document: &Value) -> Vec<(String, String, Option<String>, bool)> {
 mod kink_tier {
     use super::*;
 
-    /// CF-33d: the work-bound `unknown` of `countdown` is cached with its cause, so the next
-    /// command answers the whole row from the outcome cache (no call, no baseline run), with the
-    /// cause the live run gave; another work factor is another outcome key. The same mutant under
-    /// the clock alone is a timeout, a host-bound cause, which is never cached: every command runs
-    /// it again.
+    /// CF-33d, FB45-KINK: the poll-bound `unknown` of `countdown` is cached with its cause, so the
+    /// next command answers the whole row from the outcome cache (no call, no baseline run), with
+    /// the cause the live run gave, under another `time_ms` too; raising the work factor re-runs
+    /// only the cut run, and twice's agreement, a run that ended, is still read from the cache. The
+    /// same mutant under the clock alone is a timeout, a host-bound cause, which is never cached:
+    /// every command runs it again.
     #[test]
     #[ignore = "kink"]
-    fn a_work_bound_unknown_is_cached_with_its_cause_and_a_timeout_is_not() {
+    fn a_poll_bound_unknown_is_cached_with_its_cause_and_a_timeout_is_not() {
         let manifest = fixture("loop-work", 2);
         let first = search(&manifest);
         // The time bound is `NO_CLOCK_MS`; that the work budget, not the clock, stopped the loop is
         // the run's outcome and cause below: a run the clock stops is a timeout, and this one is
-        // `unknown` because it reached its work budget, with one work-bound leaf. So no elapsed
+        // `unknown` because it reached its work budget, with one poll-bound leaf. So no elapsed
         // time is compared (a wall-time bound fails under load).
         let entries = executed(&first);
         assert_eq!(entries.len(), 2, "{entries:?}");
@@ -145,10 +154,31 @@ mod kink_tier {
         );
         let cause = cause.as_deref().unwrap();
         assert!(
-            cause.contains("the run reached its work budget (work_factor = 2)")
-                && cause.contains("work-bound 1"),
+            cause.starts_with("the mutant's run used more than ")
+                && cause.contains(" polls")
+                && cause.contains("work_factor")
+                && cause.contains("poll-bound 1"),
             "{cause}"
         );
+        let bound = |document: &Value| {
+            let floor = document["poll_floor"].as_u64().unwrap();
+            let polls = document["programs"][0]["polls"].as_u64().unwrap();
+            (polls, floor)
+        };
+        let (countdown_polls, floor) = bound(&first);
+        assert_eq!(first["work_factor"], 2);
+        assert_eq!(
+            floor,
+            first["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|program| program["polls"].as_u64().unwrap())
+                .max()
+                .unwrap()
+        );
+        let limit = (2 * countdown_polls).max(floor);
+        assert!(cause.contains(&format!("{limit}")), "{limit}: {cause}");
         assert_eq!(
             (entries[1].0.as_str(), entries[1].1.as_str(), entries[1].3),
             ("twice", "agree", false)
@@ -183,20 +213,57 @@ mod kink_tier {
         assert_eq!(row_of(&full)["calls"], serde_json::json!([]));
         assert_eq!(executed(&full), executed(&second));
 
-        // Another factor is another outcome key: nothing cached applies.
-        set_factor(&manifest, 3);
-        let third = executed(&search(&manifest));
-        assert!(third.iter().all(|(.., cached)| !cached), "{third:?}");
+        // Another clock: no outcome depends on it, so the row is the cache's, cause for cause.
+        set_budget(&manifest, 2, NO_CLOCK_MS / 10);
+        let clocked_again = search(&manifest);
+        assert_eq!(row_of(&clocked_again)["calls"], serde_json::json!([]));
+        assert_eq!(executed(&clocked_again), executed(&second));
+        let verdicts =
+            |document: &Value| kink_flow::verdicts::verdicts(document).expect("a run rendering");
+        assert_eq!(verdicts(&clocked_again), verdicts(&first));
+        assert!(
+            verdicts(&first).contains("\nwork_factor = 2\n"),
+            "{}",
+            verdicts(&first)
+        );
 
-        // Under the fixture's clock and no work budget the watchdog stops countdown: a timeout,
-        // which depends on the host's load, so it is not written and the next command runs it
-        // again (twice's agreement is cached under this context).
+        // A larger factor: only the cut run runs again, under its new bound; twice's run ended, so
+        // it is the run without the bound, and its record serves the new bound too.
+        set_factor(&manifest, 3);
+        let raised = search(&manifest);
+        let third = executed(&raised);
+        assert_eq!(
+            third
+                .iter()
+                .map(|(program, outcome, _, cached)| (program.as_str(), outcome.as_str(), *cached))
+                .collect::<Vec<_>>(),
+            // The cached cell first, then the live call's (search.rs, the assembled plan).
+            [("twice", "agree", true), ("countdown", "unknown", false)],
+            "{third:?}"
+        );
+        let raised_limit = (3 * countdown_polls).max(floor);
+        let raised_cause = third[1].2.as_deref().unwrap();
+        assert!(
+            raised_cause.contains(&format!("{raised_limit}")),
+            "{raised_limit}: {raised_cause}"
+        );
+        assert_eq!(raised["outcome_cache"]["records_written"], 1, "{raised:#}");
+        assert!(
+            verdicts(&raised).contains("\nwork_factor = 3\n"),
+            "{}",
+            verdicts(&raised)
+        );
+
+        // Under the fixture's clock and a factor so large that the clock fires first, the watchdog
+        // stops countdown: a timeout, which depends on the host's load, so it is not written and
+        // the next command runs it again (twice's agreement is cached under this context).
         let clocked =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/loop/FLOW-search.toml");
         let dir = manifest.parent().unwrap().with_file_name("loop-clock");
         let _ = fs::remove_dir_all(&dir);
         copy_dir(clocked.parent().unwrap(), &dir);
         let clocked = dir.join("FLOW-search.toml");
+        set_budget(&clocked, 1 << 40, 500);
         let cold = search_timeout(&clocked);
         assert_eq!(cold["outcome_cache"]["records_written"], 1, "{cold:#}");
         let warm = search_timeout(&clocked);

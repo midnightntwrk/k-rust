@@ -187,6 +187,7 @@ fn every_adapted_run_carries_the_run_level_facts() {
                     bindings: false,
                     modality: ResultModality::PathSet,
                     max_work: None,
+                    max_polls: None,
                 },
             )
             .unwrap();
@@ -484,6 +485,7 @@ fn the_run_facts_carry_the_short_circuit_readings_as_recorded() {
                     bindings: false,
                     modality: ResultModality::PathSet,
                     max_work: None,
+                    max_polls: None,
                 },
             )
             .unwrap();
@@ -719,6 +721,7 @@ mod kink_tier {
                 bindings: false,
                 modality,
                 max_work: Some(13),
+                max_polls: None,
             };
             let expected = [td_record("REPLACE", Some("ytd"), ObservedInOutput::Run)];
             let execute = |modality| {

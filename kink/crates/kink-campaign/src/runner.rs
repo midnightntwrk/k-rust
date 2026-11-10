@@ -16,13 +16,14 @@
 //!   path set, and its `contradictedClaims` list holds absorbed arrivals' records, which the
 //!   exclusions read. A test with a pattern oracle runs as a stepped path set on both sides.
 //!   A run the time bound cancelled is `Failed(TimeLimit)` (k-rust answers a cancellation with an
-//!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`]), and a
-//!   baseline's result run [`RunOptions::baseline_max_work`] stopped, end in a `work-bound` leaf,
-//!   and every other incomplete run is `Unknown`, including a backend diagnostic. A baseline's
-//!   `work-bound` side is `Unknown`, so admission refuses the campaign (`BaselineOracleFailed`). A
-//!   work-bound mutant side is `Unknown` too, but its slot can still distinguish one-sidedly from a
-//!   clean, ground, stuck leaf outside the baseline's complete set (re-pin L1-2, decision 6;
-//!   [`OneSided`], off by default).
+//!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`], a bound
+//!   of polls) ends in a `poll-bound` leaf, and a baseline's result run
+//!   [`RunOptions::baseline_max_work`] stopped ends in a `work-bound` leaf; every other incomplete
+//!   run is `Unknown`, including a backend diagnostic. A baseline's `work-bound` side is
+//!   `Unknown`, so admission refuses the campaign (`BaselineOracleFailed`). A poll-bound mutant
+//!   side is `Unknown` too, but its slot can still distinguish one-sidedly from a clean, ground,
+//!   stuck leaf outside the baseline's complete set (re-pin L1-2, decision 6; [`OneSided`], off by
+//!   default).
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
 //!   crash among several terminals is `Unknown`. This counts terminal leaves, not distinct
 //!   configurations: a path set with two paths to one crash configuration is `Unknown`, and the
@@ -199,8 +200,8 @@ use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, DefinitionTables, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
-    HaltClass, RequestProbe, ResultModality, ResultRun, SolverProfile, StateMatchRequest,
-    StepRunFailure, SteppedExecution, StopRules,
+    HaltClass, RequestProbe, ResultModality, ResultRun, RunBounds, SolverProfile,
+    StateMatchRequest, StepRunFailure, SteppedExecution, StopRules,
 };
 
 use crate::condition::{KoreSignature, StopWhen};
@@ -380,7 +381,7 @@ pub struct TestEvidence {
     pub undefined_steps: bool,
     /// The states of the run's one-sided terminals (re-pin L1-2, [`OneSided`]) that its pair kept
     /// ([`RunCache::one_sided`] after [`judge_across`]: the clean, ground, stuck terminals of a
-    /// work-bound mutant run that are data under the baseline's definition): the ends a state
+    /// poll-bound mutant run that are data under the baseline's definition): the ends a state
     /// slot of the pair distinguishes one-sidedly from, when its projection of one of them is
     /// outside the baseline's projected set. Set only on a mutant's evidence, by the pairing;
     /// empty on every other evidence. Read by no comparison, fold, status or score (the slot
@@ -480,6 +481,20 @@ pub struct RunNotes {
     /// observation slot and whether the baseline is a prefix program: it is the one member of the
     /// notes a comparison reads. `None` for a run without a declaration.
     pub observation: Option<Observation>,
+    /// k-rust's count of the polls the run counted (`polls`, kink-native
+    /// [`AdaptedExecution::polls`]), the unit a mutant's work budget bounds ([`WorkBudget`]); `None`
+    /// for a run that failed or timed out. A function of the request and the definition, so a
+    /// reader keys what it derives from it on them. Decides nothing here.
+    pub polls: Option<u64>,
+    /// The bound of polls the result run was requested with (`max_polls`: a mutant's, from
+    /// [`WorkBudget::limit`]); `None` for a run without one (every baseline's, every stepped run).
+    pub max_polls: Option<u64>,
+    /// Whether the run ended at [`Self::max_polls`]: its last leaf is `poll-bound`, so the run is
+    /// the bounded run of its request, not the run without the bound, and its sides are
+    /// `Unknown` unless a slot distinguishes one-sidedly ([`OneSided`]). A run that did not end
+    /// there is the run without the bound (k-rust: a bound at least a run's count changes
+    /// nothing in it). Decides nothing here.
+    pub poll_bound: bool,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -536,9 +551,9 @@ pub struct RunOptions {
     /// request is `Unknown` (`tests/state_set_routes.rs` routes 1 and 2). `PathSet` is the reading
     /// at 1ee9955, kept for the modality differential.
     pub result_modality: ResultModality,
-    /// The work budget of every mutant result run ([`WorkBudget`]).
+    /// The work budget of every mutant result run ([`WorkBudget`]: a bound of polls).
     pub work: WorkBudget,
-    /// Whether a work-bound mutant run can kill one-sidedly ([`OneSided`]; re-pin L1-2).
+    /// Whether a poll-bound mutant run can kill one-sidedly ([`OneSided`]; re-pin L1-2).
     pub one_sided: OneSided,
     /// The `max_work` of every baseline result run of the call (k-rust: the most states a run may
     /// visit across all its paths), never of a stepped run, for [`WorkBudget`]'s reason. A bound
@@ -583,7 +598,8 @@ impl RunOptions {
     }
 
     /// Every option as a JSON object, `{result_modality, work, one_sided}`: `work` is null
-    /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]; and
+    /// without a work budget, else `{unit: "polls", factor, floor}`; `one_sided` is
+    /// [`OneSided::name`]; and
     /// `baseline_max_work` only when it is set, so the value of every option set without it, a
     /// kink-corpus index entry's included, is the value it had before the option existed, and
     /// absence means exactly `None`; `stop` likewise only with a stop ([`Stop::value`]), and
@@ -608,7 +624,9 @@ impl RunOptions {
         } = *self;
         let work = match work {
             WorkBudget::Unbounded => Value::Null,
-            WorkBudget::Calibrated { factor, floor } => json!({"factor": factor, "floor": floor}),
+            WorkBudget::Calibrated { factor, floor } => {
+                json!({"unit": "polls", "factor": factor, "floor": floor})
+            }
         };
         let mut value = json!({
             "result_modality": result_modality.name(),
@@ -991,13 +1009,18 @@ impl Stop {
 /// state, so the leaf is final in the truncated system by a fact of its own path, as under v5. A
 /// run with a `stop-undecided` leaf (a path that ended at an arrival the condition left
 /// undecided) gives none: it is no evidence (`stop-condition`) before it is judged into sides.
-pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v6";
+/// v7 (FB45-KINK): the mutant's run is cut by a bound of polls ([`WorkBudget`]), not of states,
+/// so the evidence is read from a run whose last leaf is `poll-bound`: the state whose expansion
+/// the bound stopped, possibly inside a step. Every earlier leaf is a leaf k-rust completed before
+/// the stop, so a clean ground stuck or stop leaf among them is a fact of its own path, as under
+/// v6; the rule reads them alike.
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v7";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
 ///
 /// With [`OneSided::NoCrashClassifier`], a state slot whose mutant run ended at its work budget
-/// ([`WorkBudget`]) distinguishes when the run's explored part holds a final configuration whose
+/// ([`WorkBudget`], a bound of polls) distinguishes when the run's explored part holds a final configuration whose
 /// projection the baseline's complete set lacks. Every completion of the mutant run has that
 /// configuration among its finals, so the mutant's projected set differs from the baseline's
 /// whatever the unexplored part holds. Exactly when (every condition required):
@@ -1005,7 +1028,7 @@ pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v6";
 ///   every exclusion, all of whose terminals are ground values;
 /// - the test is ground (its initial state has no free variable);
 /// - the mutant run was judged into sides (it is not an error, not timed out, and no exclusion
-///   applies to it), and its only incompleteness is its last, `work-bound` leaf
+///   applies to it), and its only incompleteness is its last, `poll-bound` leaf
 ///   ([`kink_native::bridge::work_bound_stuck_terminals`]: no stack stop, no diagnostic on any
 ///   leaf, every other leaf stuck, trivial or vacuous, every other path complete, no crash);
 /// - a leaf of it is `Stuck`, clean, with a decided ground value (one term, no path predicate, no
@@ -1040,7 +1063,7 @@ pub enum OneSided {
     /// `ExecutionTerminalKind::SemanticCrash` (as kink-flow's and kink-corpus's `all_normal`). The
     /// state slot does not model a mutant set that mixes crash and normal terminals, and a crash
     /// against a normal baseline is no set difference under any crash policy, so a crash terminal
-    /// in the part of the mutant run its work budget left unexplored could change the two-sided
+    /// in the part of the mutant run its bound of polls left unexplored could change the two-sided
     /// verdict away from `Distinguish`. The runner cannot read a classifier's range, so the caller
     /// states it; the explored terminals are checked anyway.
     NoCrashClassifier,
@@ -1057,34 +1080,43 @@ impl OneSided {
     }
 }
 
-/// The work budget (k-rust `max_work`: the most states a run may visit across all its paths) of
-/// a mutant's result runs, calibrated per test from the baseline's run of that test, which used
-/// the same request shape (re-pin lane 1, L1-1; k-rust answers section 4.6). A budget only stops a
-/// run: a run it does not stop is the unbounded run (k-rust KINK-16 criterion 2), and a run it
-/// stops ends in a `work-bound` leaf, which makes the side incomplete, so every slot of that test
-/// is `Unknown`, unless it distinguishes one-sidedly ([`OneSided`], re-pin L1-2). A baseline's
-/// result runs take [`RunOptions::baseline_max_work`] instead, and no work budget ever applies to
-/// a stepped run (a pattern test's observed path set): a
-/// bounded stepped run would expose the paths it finished where the unbounded run timed out, and
-/// a pattern slot can take a witness from them, which would move a `Timeout` toward `Killed`.
+/// The work budget of a mutant's result runs (FB45-KINK): a bound of polls (k-rust `max_polls`,
+/// the backend's interruption point, counted inside steps too, each solver query once), calibrated
+/// per test from the polls of the baseline's run of that test, which used the same request shape.
+/// A budget only stops a run: a run it does not stop is the run without it (k-rust: a bound at
+/// least a run's count changes nothing in it, `docs/compatibility.md`, "Poll budget"), and a run
+/// it stops ends in a `poll-bound` leaf, which makes the side incomplete, so every slot of that
+/// test is `Unknown`, unless it distinguishes one-sidedly ([`OneSided`], re-pin L1-2). So the
+/// budget's value decides how many outcomes are decided, never which way one goes. The count is a
+/// function of the request and the definition, so where the bound stops a run is too: a cut run is
+/// as decided as a complete one, unlike a run the clock stops. A baseline's result runs take
+/// [`RunOptions::baseline_max_work`] instead, and no work budget ever applies to a stepped run (a
+/// pattern test's observed path set): a bounded stepped run would expose the paths it finished
+/// where the unbounded run timed out, and a pattern slot can take a witness from them, which
+/// would move a `Timeout` toward `Killed`. A test whose baseline run returned no count (it timed
+/// out or failed) gives its mutants no bound.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum WorkBudget {
     /// No work budget: runs are bounded by the campaign's budget only.
     #[default]
     Unbounded,
-    /// `max_work = factor * W + floor`, where `W` is the work of the baseline's run of the test.
+    /// `max_polls = max(factor × P, floor)`, where `P` is the polls of the baseline's run of the
+    /// test. The caller chooses `floor` (kink-flow: the largest `P` of the corpus's programs, so a
+    /// cheap program is not cut before it has done the work of the corpus's most expensive
+    /// baseline).
     Calibrated { factor: u64, floor: u64 },
 }
 
 impl WorkBudget {
-    /// The `max_work` of a mutant's result run of a test whose baseline run visited
-    /// `baseline_work` states; `None` without a budget.
+    /// The `max_polls` of a mutant's result run of a test whose baseline run counted
+    /// `baseline_polls` polls; `None` without a budget.
     #[must_use]
-    pub const fn limit(self, baseline_work: u64) -> Option<u64> {
+    pub const fn limit(self, baseline_polls: u64) -> Option<u64> {
         match self {
             Self::Unbounded => None,
             Self::Calibrated { factor, floor } => {
-                Some(baseline_work.saturating_mul(factor).saturating_add(floor))
+                let relative = baseline_polls.saturating_mul(factor);
+                Some(if relative > floor { relative } else { floor })
             }
         }
     }
@@ -1723,7 +1755,8 @@ impl<'v> BaselineSession<'v> {
         memoise: bool,
     ) -> (TestEvidence, RunCache) {
         if !memoise {
-            let (evidence, cache) = runtime.run_bounded(campaign, test, runtime.baseline_max_work);
+            let (evidence, cache) =
+                runtime.run_bounded(campaign, test, RunBounds::work(runtime.baseline_max_work));
             self.record_baseline(&cache, false);
             return (evidence, cache);
         }
@@ -1769,8 +1802,12 @@ impl<'v> BaselineSession<'v> {
             self.record_baseline(&cache, true);
             return (evidence, cache);
         }
-        let (evidence, executed) =
-            runtime.run_keeping(campaign, test, runtime.baseline_max_work, None);
+        let (evidence, executed) = runtime.run_keeping(
+            campaign,
+            test,
+            RunBounds::work(runtime.baseline_max_work),
+            None,
+        );
         let cache = executed.cache.clone();
         self.record_baseline(&cache, false);
         self.live += 1;
@@ -2030,16 +2067,16 @@ fn run_campaign_session(
                 format!("{failure:?}"),
             )
         })?;
-    let (baseline_evidence, baseline_coverage, baseline_work) = {
+    let (baseline_evidence, baseline_coverage, baseline_polls) = {
         let baseline_runs = campaign
             .tests
             .iter()
             .map(|test| session.baseline_run(&mut runtime, campaign, test, memoise))
             .collect::<Vec<_>>();
-        // The work of each baseline run, which calibrates the mutants' work budget of its test.
-        let baseline_work = baseline_runs
+        // The polls of each baseline run, which calibrate the mutants' work budget of its test.
+        let baseline_polls = baseline_runs
             .iter()
-            .map(|(_, cache)| cache.work)
+            .map(|(_, cache)| cache.polls)
             .collect::<Vec<_>>();
         let baseline_coverage = baseline_runs
             .iter()
@@ -2116,13 +2153,13 @@ fn run_campaign_session(
             ));
         }
         validate_baseline(admission)?;
-        (baseline_evidence, baseline_coverage, baseline_work)
+        (baseline_evidence, baseline_coverage, baseline_polls)
     };
     let paired = campaign
         .tests
         .iter()
-        .zip(&baseline_work)
-        .map(|(test, work)| {
+        .zip(&baseline_polls)
+        .map(|(test, polls)| {
             let baseline = baseline_evidence
                 .iter()
                 .find(|e| e.test_id == test.id)
@@ -2137,7 +2174,7 @@ fn run_campaign_session(
                     test,
                     baseline,
                     coverage,
-                    mutant_max_work: work.and_then(|work| options.run.work.limit(work)),
+                    mutant_max_polls: polls.and_then(|polls| options.run.work.limit(polls)),
                 },
             )
         })
@@ -2484,6 +2521,7 @@ fn capture_element(
     let run = ResultRun {
         modality: runtime.modality,
         max_work: options.baseline_max_work,
+        max_polls: None,
         guards: true,
         bindings: false,
     };
@@ -2777,9 +2815,9 @@ struct PairedTest<'a> {
     test: &'a TestCase,
     baseline: &'a TestEvidence,
     coverage: &'a TestCoverage,
-    /// The work budget of every mutant's result run of this test ([`WorkBudget::limit`] of the
-    /// baseline run's work; `None` without a budget or without a baseline count).
-    mutant_max_work: Option<u64>,
+    /// The bound of polls of every mutant's result run of this test ([`WorkBudget::limit`] of the
+    /// baseline run's polls; `None` without a budget or without a baseline count).
+    mutant_max_polls: Option<u64>,
 }
 
 struct MutantExecution {
@@ -3410,14 +3448,18 @@ fn run_tests(
                     stepped: cached.stepped.clone(),
                     coverage: None,
                     recording: None,
-                    work: None,
+                    polls: None,
+                    max_polls: None,
                     one_sided: cached.one_sided.clone(),
                 },
             ),
             None => sides.runtime.run_compared(
                 campaign,
                 test,
-                pair.mutant_max_work,
+                RunBounds {
+                    max_work: None,
+                    max_polls: pair.mutant_max_polls,
+                },
                 baseline_record(baseline),
             ),
         };
@@ -3610,11 +3652,13 @@ struct RunCache {
     stepped: Option<SteppedExecution>,
     coverage: Option<TestCoverage>,
     recording: Option<RunRecording>,
-    /// The states the run visited (k-rust `work`) when it returned a result in time; on the
+    /// The polls the run counted (k-rust `polls`) when it returned a result in time; on the
     /// baseline it calibrates the mutants' work budget of the test ([`WorkBudget`]).
-    work: Option<u64>,
+    polls: Option<u64>,
+    /// The bound of polls the result run was requested with ([`RunNotes::max_polls`]).
+    max_polls: Option<u64>,
     /// The one-sided evidence of a mutant run (re-pin L1-2, [`OneSided`]): the clean, ground,
-    /// stuck terminals of a work-bound run judged into sides, of a ground test, read with the
+    /// stuck terminals of a poll-bound run judged into sides, of a ground test, read with the
     /// campaign's classifier and the mutant's own definition
     /// ([`kink_native::bridge::work_bound_stuck_terminals`]). Empty for every other run, and for
     /// every run of a side whose option is off (a baseline's always). Classifier-dependent, unlike
@@ -4285,18 +4329,18 @@ impl Runtime {
     /// bound).
     #[cfg(test)]
     fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
-        self.run_bounded(campaign, test, None)
+        self.run_bounded(campaign, test, RunBounds::NONE)
     }
 
-    /// [`Runtime::run`] with a work budget for a result run (`max_work`; a mutant's,
-    /// [`WorkBudget`]).
+    /// [`Runtime::run`] with the counted bounds of a result run (a baseline's `max_work`,
+    /// [`RunOptions::baseline_max_work`]; a mutant's `max_polls`, [`WorkBudget`]).
     fn run_bounded(
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
-        max_work: Option<u64>,
+        bounds: RunBounds,
     ) -> (TestEvidence, RunCache) {
-        let (evidence, executed) = self.run_keeping(campaign, test, max_work, None);
+        let (evidence, executed) = self.run_keeping(campaign, test, bounds, None);
         (evidence, executed.cache)
     }
 
@@ -4306,10 +4350,10 @@ impl Runtime {
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
-        max_work: Option<u64>,
+        bounds: RunBounds,
         against: Option<&BaselineRecord>,
     ) -> (TestEvidence, RunCache) {
-        let (evidence, executed) = self.run_keeping(campaign, test, max_work, against);
+        let (evidence, executed) = self.run_keeping(campaign, test, bounds, against);
         (evidence, executed.cache)
     }
 
@@ -4319,11 +4363,11 @@ impl Runtime {
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
-        max_work: Option<u64>,
+        bounds: RunBounds,
         against: Option<&BaselineRecord>,
     ) -> (TestEvidence, Executed) {
         let started = Instant::now();
-        let mut executed = self.execute_against(campaign, test, max_work, against);
+        let mut executed = self.execute_against(campaign, test, bounds, against);
         let (evidence, one_sided) = self.judge_with(campaign, test, &executed, None);
         executed.cache.one_sided = one_sided;
         // Recording only (flow F-13): read from the execution the run already has.
@@ -4344,7 +4388,7 @@ impl Runtime {
     /// a stepped path set, and when stepping fails its run is a path-set result run, so both
     /// sides of such a test are path sets; any other test runs as a result run in this side's
     /// modality, which is the campaign's, whatever its leaves ([`RunOptions::result_modality`]).
-    /// `max_work` bounds result runs only, never a stepped run ([`WorkBudget`]). A result run
+    /// `bounds` bound result runs only, never a stepped run ([`WorkBudget`]). A result run
     /// with a stop ([`RunOptions::stop`]) is one request to the test's count
     /// ([`Stop::execute_result`]); one without is the request it was before stops existed. Every
     /// result run reads the side's definition tables, built on its first.
@@ -4355,7 +4399,7 @@ impl Runtime {
         test: &TestCase,
         max_work: Option<u64>,
     ) -> Executed {
-        self.execute_against(campaign, test, max_work, None)
+        self.execute_against(campaign, test, RunBounds::work(max_work), None)
     }
 
     /// [`Runtime::execute`], with the side's observation probe on a result run under an
@@ -4366,11 +4410,14 @@ impl Runtime {
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
-        max_work: Option<u64>,
+        bounds: RunBounds,
         against: Option<&BaselineRecord>,
     ) -> Executed {
         stage_log::note(campaign, stage_log::Stage::Execute);
-        let mut cache = RunCache::default();
+        let mut cache = RunCache {
+            max_polls: bounds.max_polls,
+            ..RunCache::default()
+        };
         let has_pattern = test
             .oracles
             .iter()
@@ -4398,7 +4445,8 @@ impl Runtime {
                         campaign.budget,
                         ResultRun {
                             modality: ResultModality::PathSet,
-                            max_work,
+                            max_work: bounds.max_work,
+                            max_polls: bounds.max_polls,
                             guards: self.coverage.is_some(),
                             bindings: self.coverage.is_some(),
                         },
@@ -4415,7 +4463,8 @@ impl Runtime {
             // runs never do.
             let run = ResultRun {
                 modality: self.modality,
-                max_work,
+                max_work: bounds.max_work,
+                max_polls: bounds.max_polls,
                 guards: self.coverage.is_some(),
                 bindings: self.coverage.is_some(),
             };
@@ -4464,11 +4513,11 @@ impl Runtime {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
             Err(_) => TestCoverage::failed(&test.id),
         });
-        cache.work = execution
+        cache.polls = execution
             .as_ref()
             .ok()
             .filter(|execution| !execution.timed_out())
-            .map(AdaptedExecution::work);
+            .map(AdaptedExecution::polls);
         Executed {
             execution,
             pattern_failure,
@@ -4549,6 +4598,9 @@ impl Runtime {
                 incomplete_leaves: BTreeSet::new(),
                 stop_condition: None,
                 observation: None,
+                polls: Some(execution.polls()),
+                max_polls: executed.cache.max_polls,
+                poll_bound: execution.poll_bound(),
             },
             _ => RunNotes::default(),
         };
@@ -6282,7 +6334,7 @@ mod tests {
             options.value(),
             solver(json!({
                 "result_modality": "path-set",
-                "work": {"factor": 4, "floor": 10_000},
+                "work": {"unit": "polls", "factor": 4, "floor": 10_000},
                 "one_sided": "no-crash-classifier",
             }))
         );
@@ -6300,7 +6352,7 @@ mod tests {
             .value(),
             solver(json!({
                 "result_modality": "path-set",
-                "work": {"factor": 4, "floor": 10_000},
+                "work": {"unit": "polls", "factor": 4, "floor": 10_000},
                 "one_sided": "no-crash-classifier",
                 "baseline_max_work": 20_000,
             }))
@@ -6466,7 +6518,7 @@ mod tests {
                     coverage: None,
                     work: execution.work(),
                     expanded: 0,
-                    polls: 0,
+                    polls: execution.polls(),
                     stack_stops: 0,
                     smt_unknowns: 0,
                     implementation_chosen_values: Vec::new(),
@@ -6487,7 +6539,7 @@ mod tests {
                         result,
                         false,
                         &campaign.budget,
-                        max_work,
+                        RunBounds::work(max_work),
                         feasibility.clone(),
                         RecordedRun {
                             short_circuit_readings: true,
@@ -6512,7 +6564,10 @@ mod tests {
                         TestEvidence {
                             test_id: "t".into(),
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
-                            notes: RunNotes::default(),
+                            notes: RunNotes {
+                                polls: Some(execution.polls()),
+                                ..RunNotes::default()
+                            },
                             ends: BTreeSet::new(),
                             undefined_steps: false,
                             one_sided_ends: BTreeSet::new(),
@@ -6724,7 +6779,7 @@ mod tests {
                         test,
                         baseline: &baseline,
                         coverage: &coverage,
-                        mutant_max_work: None,
+                        mutant_max_polls: None,
                     },
                 )]);
                 // The total definition as the mutant side.
@@ -7721,7 +7776,7 @@ mod tests {
                                         test,
                                         baseline,
                                         coverage,
-                                        mutant_max_work: None,
+                                        mutant_max_polls: None,
                                     },
                                 )
                             })

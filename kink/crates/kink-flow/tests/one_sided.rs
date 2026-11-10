@@ -22,7 +22,9 @@
 //!
 //! The campaign is kink-flow's: the fixed oracles (exit stop without a cell, whole term), the
 //! all-normal classifier, state-set result runs, and the work budget `Calibrated { factor: 0,
-//! floor: b }`, i.e. `max_work = b` on every mutant run.
+//! floor: b }`, i.e. `max_polls = b` on every mutant run (FB45-KINK: the budget bounds polls, and
+//! the ladder runs below the polls `w` of the mutant's unbounded run; it bounded states before, and
+//! the counts below were recorded then).
 //!
 //! Both are `#[ignore]`d for their cost (every run compiles its mutant) and run and recorded in the
 //! L1-2 and L1-2-fix-1 handoffs; the gate runs the exhaustive differential of the fixture `testdata/k/l1/onesided.k`
@@ -272,13 +274,16 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
                 continue;
             }
             tally.mutants += 1;
+            // FB45-KINK: the work budget bounds polls, so the ladder runs below the polls of the
+            // mutant's unbounded run.
             let works = tests
                 .iter()
                 .map(|test| {
-                    session
-                        .last_call()
-                        .mutant_run(MutantId(0), &test.id)
-                        .and_then(|recording| recording.census.work)
+                    mutant
+                        .evidence
+                        .iter()
+                        .find(|evidence| evidence.test_id == test.id)
+                        .and_then(|evidence| evidence.notes.polls)
                 })
                 .collect::<Vec<_>>();
             let censuses = tests
@@ -316,7 +321,7 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
                                     HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
                                 )
                             }))
-                        .then_some(census.work?)
+                        .then_some(work?)
                         .filter(|work| *work > 0)
                     });
                     tally.undecided.push(format!(
@@ -387,13 +392,10 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
                         }
                         continue;
                     }
-                    let WorkBudget::Calibrated { .. } = manifest.budget.work() else {
-                        continue;
-                    };
                     let bounded = run_campaign_multi_with(
                         &campaign(std::slice::from_ref(test)),
                         generations,
-                        &options(manifest.budget.work()),
+                        &options(manifest.budget.work(0)),
                         &mut session,
                     )
                     .unwrap();
@@ -429,13 +431,16 @@ fn differential(manifest_path: &Path, time: Option<Duration>, ladder: Ladder, ta
                         .last_call()
                         .mutant_run(MutantId(0), &test.id)
                         .map(|recording| recording.census.clone());
-                    if census
+                    // A bound below a run's count cuts it, unless the count's last polls were
+                    // charged after the run's last interruption point (k-rust, "Poll budget"):
+                    // such a run is the unbounded run, and compares as it does.
+                    let cut = census
                         .as_ref()
-                        .is_none_or(|census| census.leaves.get(&HaltClass::WorkBound) != Some(&1))
-                    {
+                        .is_some_and(|census| census.leaves.get(&HaltClass::PollBound) == Some(&1));
+                    if !cut && bounded.mutants[0].plan.tests[0].run != plan.run {
                         tally
                             .failed
-                            .push(format!("{at}: not work-bound: {census:?}"));
+                            .push(format!("{at}: not poll-bound: {census:?}"));
                         continue;
                     }
                     let TestRun::Compared(outcomes) = &bounded.mutants[0].plan.tests[0].run else {
@@ -530,8 +535,10 @@ const NO_CLOCK_MS: u64 = 600_000;
 /// The corpus of `testdata/k/l1/onesided.k` with one program, `start(12000)`, and one mutation,
 /// early's 7 becomes 8 and late's 2 becomes 3: its early final configuration `done(12008)` is not
 /// the baseline's, and its loop is half as long again, so with `work_factor = 1` its run (about
-/// 36000 states) passes `W + 10000` (the baseline's 24000 states plus the floor) and ends at the
-/// budget after the early branch has finished.
+/// one and a half times the baseline's polls) passes `max(1 × P, P_max) = P`, the baseline's
+/// polls (the corpus's only program), and ends at the budget after the early branch has finished
+/// (FB45-KINK; the bound counted states before). Without a factor the default, 5, leaves the run
+/// complete.
 fn one_sided_corpus(work_factor: Option<u64>) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("kink-flow-one-sided-{}", std::process::id()))
@@ -691,10 +698,11 @@ mod kink_tier {
         // Under the budget: the exit stop (normal, no code) is the baseline's, so that slot is
         // unknown; the whole term distinguishes one-sidedly, from the explored part's end.
         killed(false, true, "unknown");
-        // The re-run takes the killed outcome from tier 1 (keyed with the work budget).
+        // The re-run takes the killed outcome from tier 1 (a cut run's record serves its own bound
+        // of polls).
         killed(true, true, "unknown");
         assert_eq!(difference(&second), difference(&first));
-        // Without a budget the mutant's run is complete and both slots compare.
+        // Under the default budget the mutant's run is complete and both slots compare.
         killed(false, false, "agree");
     }
 }
