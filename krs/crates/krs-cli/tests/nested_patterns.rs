@@ -1433,17 +1433,20 @@ pub struct Machine {
     pub wcell: W,
     #[k::cell(nested)]
     pub core: Core,
+    #[k::cell]
+    pub slot: k::KItem,
 }
 
 impl Machine {
     #[k::init]
-    pub fn init(pgm: Stmt) -> Self {
+    pub fn init(pgm: Stmt, item: k::KItem) -> Self {
         Self {
             k: k::k![pgm],
             stack: list::empty(),
             ocell: O { oo: k::absent!(0), op: k::absent!(0), on: 0 },
             wcell: W { wg: Gw { wo: k::absent!(0), wa: 0 }, wn: 0 },
             core: Core { pc: 0, fpu: k::absent!(Fpu { fx: 0 }) },
+            slot: item,
         }
     }
 }
@@ -1600,7 +1603,35 @@ fn presence_witnesses() -> Vec<(&'static str, String, &'static str)> {
         (
             "leaf-readable",
             readable_presence("stack: Core { fpu: Some(_), .. }", ""),
+            "Core {",
+        ),
+        (
+            "leaf-result-readable",
+            readable_written("stack: Core { pc: 0, fpu: None }"),
+            "Core {",
+        ),
+        (
+            "kitem-leaf-readable",
+            readable_presence("slot: Core { fpu: Some(_), .. }", ""),
             "Some(_)",
+        ),
+        (
+            "constructor-record-readable",
+            readable_presence("slot: Hold { s: Some(_) }", ""),
+            "Some(_)",
+        ),
+        (
+            "constructor-call-readable",
+            readable_presence("slot: Hold(Some(_))", ""),
+            "Some(_)",
+        ),
+        (
+            "constructor-in-group-cells",
+            cells_presence(
+                "wcell: k::fragment![crate::W { wg: crate::Gw { wo: Some(_), wa: Cmd::Hold { s: None } }, .. }]",
+                false,
+            ),
+            "None",
         ),
         (
             "leaf-cells",
@@ -1624,9 +1655,11 @@ fn presence_witnesses() -> Vec<(&'static str, String, &'static str)> {
 /// as a bare term lacks its presence, and a plain child's `Some(..)` is a presence it has none
 /// of (TABLE item 1: a `cells!` subject's `oo: x` passed and matched a present `oo` only, and
 /// `on: Some(x)` met the limit). On a leaf a `cells!` fragment
-/// meets the leaf's refusal, its wrapper (`cell-wrapper`), before the limit. The readable record
-/// on a leaf still meets the limit: the table reads that record as a term of the leaf, which the
-/// compiler's sort inference refuses only after the collector raised it (RDRB, open).
+/// meets the leaf's refusal, its wrapper (`cell-wrapper`), before the limit, and a readable group
+/// record on a leaf whose sort holds no cell term is no term of the leaf (`invalid-term`, TABLE
+/// item 3); on a `KItem` leaf it is a value, whose `?` child is the limit's. A constructor's
+/// record is a term, so `Some(..)` or `None` in its field names no declaration
+/// (`not-a-declaration`), as in the call `Hold(Some(_))`, inside group records too.
 #[test]
 fn a_group_records_presence_child_waits_for_its_entry_on_every_route() {
     let target = shared_fixture_target();
@@ -1670,7 +1703,12 @@ fn a_group_records_presence_child_waits_for_its_entry_on_every_route() {
             "plain-presence-readable: error[krs::analysis::optional-presence]",
             "plain-presence-cells: error[krs::analysis::optional-presence]",
             "depth-2-bare-cells: error[krs::analysis::optional-presence]",
-            "leaf-readable: error[krs::analysis::collection-entry]",
+            "leaf-readable: error[krs::analysis::invalid-term]",
+            "leaf-result-readable: error[krs::analysis::invalid-term]",
+            "kitem-leaf-readable: error[krs::analysis::collection-entry]",
+            "constructor-record-readable: error[krs::expand::not-a-declaration]",
+            "constructor-call-readable: error[krs::expand::not-a-declaration]",
+            "constructor-in-group-cells: error[krs::expand::not-a-declaration]",
             "leaf-cells: error[krs::analysis::cell-wrapper]",
         ]
     "#]]

@@ -453,6 +453,10 @@ pub(super) fn judge_readable(
         groups: target.groups(),
     }
     .judge_located();
+    if judged.is_ok() {
+        group_record_on_leaf(subject.iter().chain(&result), target.groups())?;
+        presence_in_constructor_record(subject.iter().chain(&result), target.groups())?;
+    }
     subject_limit(&judged, authored)?;
     if judged.is_ok()
         && let Some(entry) = result.iter().find(|entry| {
@@ -620,7 +624,7 @@ pub(super) fn initializer_content_sort(
             "the cell `{cell}` holds a `{group}` group, and the initializer gives it a `{record}` record, another group's content, whose sort is not below the cell's"
         ),
     };
-    let error = CollectionError::new(CollectionErrorKind::InitializerContentSort, detail);
+    let error = CollectionError::new(CollectionErrorKind::ContentSort, detail);
     let range = path.split_first().and_then(|(top, children)| {
         let field = authored
             .subject
@@ -660,6 +664,172 @@ pub(super) fn initializer_content_sort(
     match range {
         Some(range) => error.with_source_range(range),
         None => error,
+    }
+}
+
+/// Refuses the first admitted entry whose whole value, below its presence, `Cell(..)` and an
+/// alias, is a record of a group (`Core { .. }`, `k::fragment![crate::Core { .. }]`) on a leaf
+/// whose sort holds no cell term, at the record. A group record there is the group's cell term,
+/// a value of its cell sort, which is below `KItem` (and `K`) only, so on any other leaf it is
+/// no term of the leaf's sort: the whole entry's mistake, told before the faults of its parts (a
+/// `?` child's presence, whose limit waits for the entry), as the table tells an entry's kind
+/// before them. On a `KItem` leaf the record is a value of the leaf, judged as a term is.
+fn group_record_on_leaf<'e, 'a: 'e>(
+    entries: impl IntoIterator<Item = &'e Entry<'a>>,
+    groups: &[GroupKind],
+) -> Result<(), CollectionError> {
+    for entry in entries {
+        let (Some(sort), Some(spelling)) = (&entry.sort, &entry.field.spelling) else {
+            continue;
+        };
+        if matches!(sort.as_str(), "KItem" | "KSequence") {
+            continue;
+        }
+        let mut at = Vec::new();
+        let mut value = spelling;
+        while let EntrySpelling::Present(inner)
+        | EntrySpelling::Absent(inner)
+        | EntrySpelling::Cell(inner)
+        | EntrySpelling::Alias(_, inner) = value
+        {
+            at.push(0);
+            value = inner;
+        }
+        let (EntrySpelling::Record(record) | EntrySpelling::Fragment(record)) = value else {
+            continue;
+        };
+        if !groups.iter().any(|group| group.name == record.head) {
+            continue;
+        }
+        let cell = unraw(&entry.cell.field);
+        let error = CollectionError::new(
+            CollectionErrorKind::ContentSort,
+            format!(
+                "the cell `{cell}` holds a `{sort}` leaf, and the entry gives it a `{head}` record, the `{head}` group's cell term, whose sort is not below the leaf's: a group's cell sort is below `KItem` only, so a leaf holds a group's record only where its sort is `KItem`",
+                head = record.head
+            ),
+        );
+        let range = entry
+            .field
+            .located
+            .iter()
+            .find(|(path, _)| *path == at)
+            .map(|(_, range)| range)
+            .or(entry.field.range.as_ref());
+        return Err(match range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        });
+    }
+    Ok(())
+}
+
+/// Refuses the first admitted entry that writes `Some(..)` or `None` as a field of a constructor
+/// record, a record whose head names no group, at a configuration position: the macro, which
+/// resolves no path, reads every `Path { .. }` there as a group record and carries such a field
+/// as a group record's `?` child presence, whose limit waits for the entries
+/// ([`krs_syntax::RuleClause::part_refusal`]). A constructor record is a term, its field a term
+/// position that is no cell's, and `Some(..)` and `None` are a `?` cell's presence, never a term,
+/// so the field names no KRS declaration, as `Hold(Some(_))` does: a principle, told before the
+/// limit. A group record's own `?` child stays the limit's, at any depth, a constructor's field
+/// included.
+fn presence_in_constructor_record<'e, 'a: 'e>(
+    entries: impl IntoIterator<Item = &'e Entry<'a>>,
+    groups: &[GroupKind],
+) -> Result<(), CollectionError> {
+    for entry in entries {
+        let Some(spelling) = &entry.field.spelling else {
+            continue;
+        };
+        let mut at = Vec::new();
+        let Some((field, head, present)) = constructor_presence(spelling, groups, &mut at) else {
+            continue;
+        };
+        let written = if present { "Some(..)" } else { "None" };
+        let error = CollectionError::new(
+            CollectionErrorKind::NotADeclaration,
+            format!(
+                "`{written}` is not a KRS declaration of this name: the field `{field}` of the constructor record `{head} {{ .. }}` holds a term, and `Some(..)` and `None` are a `?` cell's presence, which names a cell's entry and never a term (KRS has no `Option` term); a term names a constructor, function, constant, cell group or builtin operation"
+            ),
+        );
+        let range = entry
+            .field
+            .located
+            .iter()
+            .find(|(path, _)| *path == at)
+            .map(|(_, range)| range)
+            .or(entry.field.range.as_ref());
+        return Err(match range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        });
+    }
+    Ok(())
+}
+
+/// The first field of a constructor record in `spelling`, below its presence, `Cell(..)`, aliases
+/// and group records' children, whose value is `Some(..)` or `None`: its name, the record's head,
+/// and whether it is `Some(..)`; `at` is left at its spelling. A record whose head names one of
+/// `groups` is a group record; any other is a constructor's.
+fn constructor_presence(
+    spelling: &EntrySpelling,
+    groups: &[GroupKind],
+    at: &mut Vec<usize>,
+) -> Option<(String, String, bool)> {
+    match spelling {
+        EntrySpelling::Present(inner)
+        | EntrySpelling::Absent(inner)
+        | EntrySpelling::Cell(inner)
+        | EntrySpelling::Alias(_, inner) => {
+            at.push(0);
+            let found = constructor_presence(inner, groups, at);
+            if found.is_none() {
+                at.pop();
+            }
+            found
+        }
+        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
+            let constructor = !groups.iter().any(|group| group.name == record.head);
+            record
+                .fields
+                .iter()
+                .enumerate()
+                .find_map(|(step, (name, value))| {
+                    at.push(step);
+                    let mut value = value;
+                    let mut aliased = 0;
+                    while let EntrySpelling::Alias(_, inner) = value {
+                        at.push(0);
+                        aliased += 1;
+                        value = inner;
+                    }
+                    let found = match value {
+                        EntrySpelling::Present(_) if constructor => {
+                            Some((name.clone(), record.head.clone(), true))
+                        }
+                        EntrySpelling::Missing if constructor => {
+                            Some((name.clone(), record.head.clone(), false))
+                        }
+                        EntrySpelling::Record(_) | EntrySpelling::Fragment(_) => {
+                            constructor_presence(value, groups, at)
+                        }
+                        EntrySpelling::Present(inner) => {
+                            at.push(0);
+                            let found = constructor_presence(inner, groups, at);
+                            if found.is_none() {
+                                at.pop();
+                            }
+                            found
+                        }
+                        _ => None,
+                    };
+                    if found.is_none() {
+                        at.truncate(at.len() - 1 - aliased);
+                    }
+                    found
+                })
+        }
+        _ => None,
     }
 }
 
@@ -873,6 +1043,8 @@ fn judge_sentence(
             .expect("a judged entry is the sentence's")
     };
     if judged.is_ok() {
+        group_record_on_leaf(subject.iter().chain(&result), &tree.groups)?;
+        presence_in_constructor_record(subject.iter().chain(&result), &tree.groups)?;
         for key in &tree.keys {
             kept_key(key, &subject, &result)?;
             kept_key_in_place(key, subject_cells, &subject)?;
