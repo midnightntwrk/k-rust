@@ -386,7 +386,7 @@ function Rail({ current, done }: { current: Lesson; done: Readonly<Record<string
       </ol>
       <div className={styles.railFoot}>
         <p>
-          Every pane, goal state and number comes from the kcore-spec Lean package at <code title={lean.provenance.kcoreSpecCommit}>{shortCommit}</code>, with Lean {lean.provenance.leanVersion}.
+          Every pane and number comes from the kcore-spec Lean package at <code title={lean.provenance.kcoreSpecCommit}>{shortCommit}</code>, with Lean {lean.provenance.leanVersion}.
           The package is not yet part of this repository.
         </p>
         <p>Space plays or pauses. ← and → step.</p>

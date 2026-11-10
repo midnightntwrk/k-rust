@@ -1,158 +1,39 @@
 // The Lean lessons' data: src/generated/lean-lessons.json, written by the generator beside the
 // kcore-spec package (it records the commit it read). Everything a scene shows as output comes
-// from it: Lean source text with its own line numbers, peano's KORE, facts Lean computed on the
-// definition, goal states captured from the elaborator, heartbeats, the review cone.
+// from it: Lean source text with its own line numbers, peano's KORE and a run of it, facts Lean
+// computed on the definition, and the package build's costs.
 // The helpers throw when a scene asks for something the data no longer has, so the site build
 // fails instead of showing a stale highlight.
 
 import raw from '../../generated/lean-lessons.json'
 
+/** A ground term, with symbols and sorts by their KORE names. */
 export type Ground =
   | { ctor: string; args: Ground[] }
   | { inj: [string, string]; arg: Ground }
   | { dv: string; lit: string }
 
+/** A term of a rule or a clause: variables by number. */
 export type Pattern =
   | { var: number }
   | { app: string; args: Pattern[] }
   | { inj: [string, string]; arg: Pattern }
   | { as: number; arg: Pattern }
+  | { dv: string; lit: string }
 
 export type Binding = { var: number; value: Ground }
-
-export type Explain = {
-  rule: 'var' | 'ctor' | 'call' | 'inj' | 'as'
-  term: Pattern
-  value: Ground | null
-  head?: string
-  var?: number
-  children?: Explain[]
-  call?: { function: string | null; args?: Ground[]; by?: 'clause' | 'owise' | 'none'; clause?: number; subst?: Binding[]; rhs?: Explain }
-}
 
 export type ConfigFact = {
   name: string
   term: Ground
   sort: string | null
-  rules: { rule: string; match: Binding[] | null; rhs: Explain | null }[]
-  successors: Ground[] | null
+  isConfig: boolean
+  /** For each rule, its matches: the substitution, whether the rule applies under it, and what its right-hand side evaluates to. */
+  rules: { rule: number; matches: { subst: Binding[]; applies: boolean | null; rhs: Ground | null }[] }[]
+  successors: Ground[]
 }
 
 export type Source = { file: string; start: number; end: number; text: string }
-
-export type GammaItem = { line: number; label: string; text: string }
-
-export type Diff21Row = {
-  subject: string
-  module: string
-  initial: number
-  compared: number
-  transitions: number
-  stuck: number
-  branching: number
-  differences: number
-  errors: number
-  unexplored: number
-  refSampled: number
-  refAgree: number
-  refDifferences: number
-}
-
-export type EmitStats = {
-  modules: { name: string; sentences: number }[]
-  userKinds: Record<string, number>
-  fixedInUser: number
-  emptySlices: string[]
-  equalsKore: boolean
-  wf: boolean
-  report: { condition: string; holds: boolean }[]
-}
-
-export type GoalStep = {
-  kind: string
-  canonical: boolean
-  depth: number
-  line: number
-  endLine: number
-  text: string
-  goalsBefore: string[]
-  goalsAfter: string[]
-}
-
-export type ConeDecl = { module: string; start: number; end: number; kind: string; name: string; via: string | null; depth: number }
-export type Cone = {
-  title: string
-  roots: string[]
-  modules: { module: string; decls: number; lines: number }[]
-  totals: Record<string, { coneLines: number; decls: number; fileLines: number }>
-  folded: number
-  theoremsMet: number
-  decls?: ConeDecl[]
-  elaborated?: string
-  trusted?: { prefix: string; count: number; names: string[] }[]
-}
-
-/** A binding of an F1 match: variable index, its declared sort, its value as Lean rendered it. */
-export type F1Binding = { var: number; sort: string; value: string }
-export type F1Config = {
-  name: string
-  text: string
-  isConfig: boolean
-  rules: { rule: string; matches: F1Binding[][] }[]
-  successors: string[]
-}
-export type FactsF1 = {
-  configs: F1Config[]
-  mapPattern: { pattern: string; map: string; free: F1Binding[][]; keyBound: F1Binding[][]; keyAbsent: F1Binding[][] }
-  canonical: { entries: string; sorted: boolean; unsorted: boolean }
-  storeInF1: boolean
-  storeParsedCoreIsExample: boolean
-}
-
-export type F2Rule = { index: number; kind: 'rule' | 'heat' | 'cool'; lhs: string; rhs: string; lines: [number, number]; priority: number; requires: string | null }
-export type F2Binding = { var: string; value: string }
-export type F2Run = {
-  program: string
-  initial: { k: string; state: string }
-  isConfig: boolean
-  length: number
-  branching: number
-  stuck: boolean
-  stepsAreSuccessors: boolean
-  final: string
-  rules: F2Rule[]
-  steps: { cells: { k: string; state: string }; choices: number; rule: number }[]
-  /** The rules that match the final configuration, each with its matches; none applies. */
-  blocked: { rule: F2Rule; matches: F2Binding[][] }[]
-}
-export type F2PrioConfig = {
-  name: string
-  k: string
-  isConfig: boolean
-  stepsAreSuccessors: boolean
-  rules: { rule: F2Rule; applies: boolean; matches: number }[]
-  successors: { k: string; rule: number }[]
-}
-export type FactsF2 = {
-  imp: {
-    inF2: boolean
-    rules: number
-    ruleKinds: Record<'rule' | 'heat' | 'cool', number>
-    sentences: number
-    sortPreds: number
-    supersortsOfInt: string[]
-    userSorts: string[]
-    userSubsorts: [string, string][]
-    priorities: number[]
-    report: { condition: string; holds: boolean }[]
-  }
-  runs: F2Run[]
-  sortPreds: { item: string; sort: string; isKResult: string }[]
-  prio: { inF2: boolean; configs: F2PrioConfig[] }
-  /** Configurations where both rules of a listed overlap apply, with each rule's successor. */
-  witnesses: { name: string; pair: [number, number]; cells: { k: string; state: string }; witnessOK: boolean; stepsAreSuccessors: boolean; rules: { rule: F2Rule; applies: boolean }[]; successors: { k: string; rule: number }[] }[]
-}
-export type DiffF2Row = { subject: string; cap: number; inF2: boolean; compared: number; transitions: number; branching: number; stuck: number; unexplored: number; differences: number; errors: number }
 
 type Data = {
   provenance: {
@@ -163,90 +44,25 @@ type Data = {
     inputs: Record<string, { sha256: string; committed: boolean }>
   }
   sources: Record<string, Source>
+  package: { modules: string[]; tie: string[]; user: string[]; build: Record<string, { seconds: number; rssMiB: number }>; certSteps: number }
   peanoK: string
   kore: { start: number; end: number; text: string; kind: 'rule' | 'equation'; owise: boolean; sourceLocation: string }[]
   facts: {
+    registry: { sorts: number; syms: number; ownSorts: string[]; ownSyms: string[] }
+    emit: {
+      modules: { name: string; sentences: number }[]
+      userKinds: Record<string, number>
+      fixedInUser: number
+      equalsKore: boolean
+      reordered: boolean
+      wf: boolean
+      report: { condition: string; holds: boolean }[]
+    }
     configs: ConfigFact[]
-    rules: { name: string; vars: string[]; lhs: Pattern; rhs: Pattern }[]
-    pred: { arg: Ground; value: Ground | null; clauseMatch: Binding[] | null; explain: Explain }[]
-    evalReady: boolean
-    rulesApart: boolean
-    noDiamonds: boolean
-    subsorts: [string, string][]
-    ctorSigs: { name: string; args: string[]; result: string }[]
-    emit: EmitStats
-  }
-  goals: Record<string, GoalStep[]>
-  heartbeats: Record<string, number>
-  oneTime: Record<string, number>
-  cones: { user: Cone; emit: Cone; root: Cone; rootOpaque: Cone }
-  f0check: {
-    totalKHb: number
-    peakRssKb: number
-    seconds: number
-    decisions: Record<'wf_peano' | 'emit_peano' | 'peano_F0', { kHb: number; seconds: number }>
-    rejections: number
-    controls: number
-    rejectionKHb: number
+    rules: { index: number; vars: string[]; lhs: Pattern; rhs: Pattern; prio: number }[]
+    pred: { arg: Ground; value: Ground | null }[]
   }
   krun: { command: string; versions: string; steps: { depth: number; text: string }[] }
-  gammaD: {
-    signature: number
-    axioms: number
-    nodes: number
-    file: string
-    definedness: GammaItem
-    arityPred: GammaItem
-    nextArity: GammaItem
-    predEqs: GammaItem[]
-    rules: GammaItem[]
-  }
-  diff21: Diff21Row[]
-  loop: {
-    log: { run: string; change: string; total_kHb: number; verdict: string; groups: Record<string, number> | null }[]
-    recheck: { kHb: Record<string, number>; total_kHb: number }
-    negative: { case: string; via: string; result: string }[]
-    growth: { n: number; before: number | null; after: number }[]
-    judgeHeader: Source
-    targets: number
-  }
-  f1Cones: Record<'user' | 'emit' | 'root', { title: string; roots: string[]; modules: { module: string; decls: number; lines: number }[]; totals: Record<string, { coneLines: number; decls: number; fileLines: number }> }>
-  factsF1: FactsF1
-  storeK: string
-  diffF1: {
-    rows: { subject: string; compared: number; transitions: number; branching: number; differences: number; errors: number; unexplored: number; refSampled: number; refAgree: number; refDifferences: number }[]
-    subjects: number
-    compared: number
-    transitions: number
-    branching: number
-    differences: number
-    errors: number
-    unexplored: number
-    refSampled: number
-    refAgree: number
-    refDifferences: number
-  }
-  audit: { axioms: Record<'none' | 'bool' | 'int', number>; sentences: Record<'none' | 'bool' | 'int', number>; total: number; falseAxioms: number; curated: number }
-  factsF2: FactsF2
-  impK: string
-  impPrograms: Record<string, string>
-  prioK: string
-  f2Cones: Record<string, { title: string; roots: string[]; modules: { module: string; decls: number; lines: number }[]; totals: Record<string, { coneLines: number; decls: number; fileLines: number }> }>
-  diffF2: { rows: DiffF2Row[]; subjects: number; compared: number; transitions: number; branching: number; stuck: number; unexplored: number; differences: number; errors: number; identical: number }
-  membershipF2: { texts: number; inF2: number; firstFailure: Record<'in F2' | 'parse' | 'wf' | 'emit', number> }
-  scopeF2: { intro: string; additions: { addition: string; kore: string; section: string }[]; outOfF2: string }
-  detF2: {
-    texts: number
-    pass: number
-    fail: number
-    strict: number
-    branching: number
-    failing: { name: string; kind: 'strict' | 'branching'; rules: number; pairs: [number, number][] }[]
-    kimp: { rules: number; pairs: number }
-    kink: { rules: number; overlaps: [number, number][] }
-    costs: { modules: string[]; fact: string; seconds: string; peak: string }[]
-  }
-  refKompile: { rows: { difference: string; sentences: string; readByStep: string }[]; krustSentences: number; refSentences: number }
 }
 
 export const lean = raw as unknown as Data
@@ -276,13 +92,12 @@ export function span(src: Source, from: string, to?: string, after = 0): number[
   return Array.from({ length: last - first + 1 }, (_, i) => first + i)
 }
 
-/** A pane over consecutive Γ_D items: each item's label and pattern, at their lines in GAMMA_D.txt. */
-export function gammaSource(...items: GammaItem[]): Source {
-  items.forEach((it, i) => {
-    if (i > 0 && it.line !== items[i - 1].line + 2) throw new Error(`lean lessons: Γ_D items at ${items[i - 1].line} and ${it.line} are not consecutive`)
-  })
-  const text = items.flatMap((it) => [it.label, it.text]).join('\n')
-  return { file: lean.gammaD.file, start: items[0].line, end: items[0].line + 2 * items.length - 1, text }
+/** The part of `src` from the line containing `from` (to the line containing `to`, or the end), keeping its line numbers. */
+export function slice(src: Source, from: string, to?: string): Source {
+  const first = lineOf(src, from)
+  const last = to === undefined ? src.end : lineOf(src, to, first - 1)
+  const text = src.text.split('\n').slice(first - src.start, last - src.start + 1).join('\n')
+  return { file: src.file, start: first, end: last, text }
 }
 
 /** A pane over a text that is not a file: lines numbered from 1. */
@@ -291,6 +106,7 @@ export function textSource(file: string, text: string): Source {
 }
 
 export const peanoK = textSource('peano.k', lean.peanoK)
+export const peanoLines = lean.peanoK.split('\n').length
 
 export function koreAxiom(kind: 'rule' | 'equation', index: number): Source {
   const found = lean.kore.filter((axiom) => axiom.kind === kind)[index]
@@ -300,45 +116,18 @@ export function koreAxiom(kind: 'rule' | 'equation', index: number): Source {
 
 // ---- facts ----------------------------------------------------------------------------------
 
-export function configF1(name: string): F1Config {
-  const found = lean.factsF1.configs.find((c) => c.name === name)
-  if (!found) throw new Error(`lean lessons: no computed F1 configuration ${name}`)
-  return found
-}
-
 export function config(name: string): ConfigFact {
   const found = lean.facts.configs.find((c) => c.name === name)
   if (!found) throw new Error(`lean lessons: no computed configuration ${name}`)
   return found
 }
 
-export function ruleFact(c: ConfigFact, rule: string) {
-  const found = c.rules.find((r) => r.rule === rule)
-  if (!found) throw new Error(`lean lessons: ${c.name} has no rule ${rule}`)
+export function build(module: string) {
+  const found = lean.package.build[module]
+  if (!found) throw new Error(`lean lessons: no build record of ${module}`)
   return found
 }
 
-export function goals(theorem: string): GoalStep[] {
-  const found = lean.goals[theorem]
-  if (!found) throw new Error(`lean lessons: no captured goals for ${theorem}`)
-  return found
-}
-
-/** The captured tactic step of `theorem` whose text starts with `prefix` (the n-th such). */
-export function goalStep(theorem: string, prefix: string, n = 0): GoalStep {
-  const hits = goals(theorem).filter((step) => step.text.trimStart().startsWith(prefix))
-  if (!hits[n]) throw new Error(`lean lessons: ${theorem} has no tactic step ${n} starting ${JSON.stringify(prefix)}`)
-  return hits[n]
-}
-
-export function heartbeats(decl: string): number {
-  const found = lean.heartbeats[decl]
-  if (found === undefined) throw new Error(`lean lessons: no heartbeats for ${decl}`)
-  return found
-}
-
-/** Thousands of heartbeats, as the cost tables count them. */
-export const kHb = (raw: number) => Math.round(raw / 1000).toLocaleString('en-US')
 export const fmt = (n: number) => n.toLocaleString('en-US')
 
 export const shortCommit = lean.provenance.kcoreSpecCommit.slice(0, 12)
@@ -363,11 +152,19 @@ export function groundText(t: Ground): string {
   return `\\dv{${t.dv}}("${t.lit}")`
 }
 
+/** A ground term as K writes it: injections left out, a domain value as its literal. */
+export function kText(t: Ground): string {
+  if ('ctor' in t) return t.args.length ? `${symbol(t.ctor)}(${t.args.map(kText).join(', ')})` : symbol(t.ctor)
+  if ('inj' in t) return kText(t.arg)
+  return t.lit
+}
+
 export function patternText(p: Pattern): string {
   if ('var' in p) return `X${p.var}`
   if ('as' in p) return `${patternText(p.arg)} #as X${p.as}`
   if ('app' in p) return p.args.length ? `${symbol(p.app)}(${p.args.map(patternText).join(', ')})` : symbol(p.app)
-  return `inj{${p.inj[0]},${p.inj[1]}}(${patternText(p.arg)})`
+  if ('inj' in p) return `inj{${p.inj[0]},${p.inj[1]}}(${patternText(p.arg)})`
+  return p.lit
 }
 
 /** The content of the k cell of a configuration `<generatedTop>(<k>(kseq(item, dotk)), ctr)`. */
@@ -386,5 +183,5 @@ export function kItem(t: Ground): Ground {
 }
 
 export function substText(σ: Binding[]): string {
-  return `[${σ.map((b) => `X${b.var} ↦ ${groundText(b.value)}`).join(', ')}]`
+  return `[${σ.map((b) => `X${b.var} ↦ ${kText(b.value)}`).join(', ')}]`
 }

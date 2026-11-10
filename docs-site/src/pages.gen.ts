@@ -19,16 +19,10 @@ type Page =
   | { path: '/k-rust/fuzzing'; render: 'static' }
   | { path: '/k-rust'; render: 'static' }
   | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
-  | { path: '/lean/beyond-peano'; render: 'static' }
-  | { path: '/lean/imp-fragment'; render: 'static' }
   | { path: '/lean'; render: 'static' }
-  | { path: '/lean/making-proofs-cheap'; render: 'static' }
-  | { path: '/lean/matching-logic'; render: 'static' }
-  | { path: '/lean/proving-a-property'; render: 'static' }
-  | { path: '/lean/sound-and-complete'; render: 'static' }
-  | { path: '/lean/the-definition-as-a-value'; render: 'static' }
+  | { path: '/lean/proving-peanos-claims'; render: 'static' }
+  | { path: '/lean/the-definition-in-lean'; render: 'static' }
   | { path: '/lean/what-a-step-means'; render: 'static' }
-  | { path: '/lean/what-you-have-to-read'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }

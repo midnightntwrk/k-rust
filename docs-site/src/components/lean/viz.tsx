@@ -101,6 +101,7 @@ export function patternTree(p: Pattern, path = 'r'): TreeNode {
   if ('var' in p) return { label: `X${p.var}`, kind: 'var', v: p.var, path, children: [] }
   if ('as' in p) return { label: `#as X${p.as}`, kind: 'as', v: p.as, path, children: [patternTree(p.arg, `${path}.0`)] }
   if ('app' in p) return { label: symbol(p.app), kind: 'ctor', path, children: p.args.map((a, i) => patternTree(a, `${path}.${i}`)) }
+  if ('dv' in p) return { label: `\\dv{${p.dv}}("${p.lit}")`, kind: 'dv', path, children: [] }
   return { label: `inj{${p.inj[0]},${p.inj[1]}}`, kind: 'inj', path, children: [patternTree(p.arg, `${path}.0`)] }
 }
 

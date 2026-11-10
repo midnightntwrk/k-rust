@@ -5,9 +5,8 @@
 // script; the extra configurations and their successors were computed by Lean on the package's
 // data (Facts.lean).
 
-import { type Ground, config, fmt, groundText, kItem, koreAxiom, lean, lineOf, peanoK, span, textSource } from '../data'
+import { type Ground, config, fmt, groundText, kItem, koreAxiom, lean, lineOf, peanoK, peanoLines, span, textSource } from '../data'
 import { type Lesson, note } from '../lesson'
-import { diffNumbers, peanoLines } from '../numbers'
 import { A, Arrow, Box, Label, Svg } from '../viz'
 
 const k = peanoK
@@ -21,7 +20,7 @@ const userModule = emit.modules[emit.modules.length - 1]
 const totalSentences = emit.modules.reduce((sum, m) => sum + m.sentences, 0)
 
 if (userModule.name !== 'PEANO') throw new Error('lean lessons: the last emitted module is not PEANO')
-if (!emit.equalsKore) throw new Error('lean lessons: the emitted KORE no longer equals kompile’s for peano')
+if (!emit.reordered) throw new Error('lean lessons: the emitted KORE is no longer kompile’s for peano, up to the order of sentences')
 
 const runs = lean.krun.steps
 const out = (d: number) => {
@@ -126,7 +125,7 @@ export const lesson1: Lesson = {
             q: 'Your rule mentions only the k cell. Why does its axiom mention a counter cell at all?',
             options: ['The counter is incremented by every rule', 'A rule rewrites a whole configuration, so kompile completes it with the cells it leaves out, as variables that copy them unchanged', 'It is a debugging aid that backends ignore'],
             answer: 1,
-            why: 'The variable `DotVar0` appears on both sides, so the cell passes through unchanged. Lesson 5 turns that observation into a proved invariant.',
+            why: 'The variable `DotVar0` appears on both sides, so the cell passes through unchanged. Lesson 4 turns that observation into a proved invariant.',
           },
         },
         { hl: { k: [lineOf(k, 'rule <k> run(s(N))')], r: [lineOf(rule0, 'VarN'), lineOf(rule0, 'Lblpred')] }, notes: [note('r', lineOf(rule0, 'VarN'), "The two copies of `s(N)` became one shared subterm: `\\and` of the pattern and a fresh variable.", '\\and'), note('r', lineOf(rule0, 'Lblpred'), "The right-hand side reuses that variable.", "Var'Unds'Gen4")] },
@@ -148,10 +147,10 @@ export const lesson1: Lesson = {
             q: 'Why a negation, and not an attribute that says "try this one last"?',
             options: ['An attribute would be too slow to check', 'A KORE axiom is a logical statement, read without any order, so "last" has to be written as a condition', 'Attributes are not allowed on KORE axioms'],
             answer: 1,
-            why: 'Axioms in a theory have no order. This is why lesson 2 can read the KORE file as a set of patterns.',
+            why: 'Axioms in a theory have no order. This is why lesson 2 can compare two KORE texts up to the order of their sentences.',
           },
         },
-        { say: `For these ${peanoLines} lines, kompile writes ${emit.modules.length} modules and ${fmt(totalSentences)} sentences. The module \`PEANO\` alone has ${fmt(userModule.sentences)}, and ${fmt(emit.fixedInUser)} of those are the same text in every definition.` },
+        { say: `For these ${peanoLines} lines, kompile writes ${emit.modules.length} modules and ${fmt(totalSentences)} sentences. The module \`PEANO\` alone has ${fmt(userModule.sentences)}, and ${fmt(emit.fixedInUser)} of those are the same text in every definition with the same imports.` },
       ],
     },
     {
@@ -183,7 +182,7 @@ export const lesson1: Lesson = {
       visual: beyond,
       frames: [
         { say: 'A run visits one path. These are the four configurations this one visited, in a line.' },
-        { say: "`done(s(z))` is a configuration too. No rule writes it, so no run from a program of the form `run(n)` reaches it. The package's step function, which lesson 4 explains, computes that it has no next configuration." },
+        { say: "`done(s(z))` is a configuration too. No rule writes it, so no run from a program of the form `run(n)` reaches it. The package's step function, which lesson 3 explains, computes that it has no next configuration." },
         { say: 'The fixed signature of every kompiled definition adds configurations no program writes, such as a k cell holding `#KConfigValue(.K)`.' },
         { say: 'And there are infinitely many more. A second run of the same program would show the same three steps. It says nothing about other inputs.' },
         {
@@ -214,10 +213,10 @@ export const lesson1: Lesson = {
     },
   ],
   checked: [
-    "The KORE in these scenes is kompile's output for `peano.k`, as krust's kompile wrote it. Lesson 3 shows the package's Lean data generates exactly this KORE, a fact the Lean kernel checks.",
+    "The KORE in these scenes is kompile's output for `peano.k`, as krust's kompile wrote it. Lesson 2 shows the package's Lean definition generates this KORE, up to the order of its sentences, a fact the Lean kernel checks.",
     "The run is krust's output for this program, captured when the page's data was generated.",
-    `The next configurations in the last scene were computed by the package's executable step function. Lesson 4 proves it equal to the step relation; lesson 6 compares it with krust on ${diffNumbers.configs} configurations.`,
-    "Not checked: that kompile's KORE means what `peano.k` means. kompile is trusted, and lesson 6 says so.",
+    "The next configurations in the last scene were computed by the package's executable step function. Lesson 3 shows it lists exactly the successors of the step relation.",
+    "Not checked: that kompile's KORE means what `peano.k` means. kompile is trusted, and the overview says so.",
   ],
   tryit: [
     {
