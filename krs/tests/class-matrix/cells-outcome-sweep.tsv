@@ -128,86 +128,86 @@ subject, written	*	? group G	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	ow
 subject, written	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
-result, matched	-	computation	[y, ..]	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, matched	-	leaf List	[y, ..]	pop	pop	sort	rm	ok	sort	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
-result, matched	-	leaf Cons	[y, ..]	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
-result, matched	-	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	rm	rm
-result, matched	-	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+result, matched	-	computation	[y, ..]	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, matched	-	leaf List	[y, ..]	pop	pop	sort	rm	ok	sort	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
+result, matched	-	leaf Cons	[y, ..]	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
+result, matched	-	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
+result, matched	-	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, matched	-	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
-result, matched	-	? leaf Int	Some(old)	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf List	Some([y, ..])	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf Map	Some({ z -> y, .. })	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	-	? leaf Int	Some(old)	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	-	? leaf List	Some([y, ..])	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	-	? leaf Map	Some({ z -> y, .. })	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? group G	Some(G { a: y, .. })	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, matched	-	* List of G	[G { a: y, .. }, ..]	pop	pop	sort	rm	ok	sort|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	-	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	-	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, matched	?	computation	[y, ..]	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf List	[y, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf Cons	[y, ..]	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	?	computation	[y, ..]	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf List	[y, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf Cons	[y, ..]	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	?	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, matched	?	? leaf Int	Some(old)	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf List	Some([y, ..])	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf Map	Some({ z -> y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	?	? leaf Int	Some(old)	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	? leaf List	Some([y, ..])	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	? leaf Map	Some({ z -> y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	?	? group G	Some(G { a: y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, matched	?	* List of G	[G { a: y, .. }, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, matched	*	computation	[y, ..]	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf List	[y, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf Cons	[y, ..]	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+result, matched	*	computation	[y, ..]	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf List	[y, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf Cons	[y, ..]	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
 result, matched	*	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, matched	*	? leaf Int	Some(old)	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf List	Some([y, ..])	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf Map	Some({ z -> y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	*	? leaf Int	Some(old)	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	*	? leaf List	Some([y, ..])	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	*	? leaf Map	Some({ z -> y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	*	? group G	Some(G { a: y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, matched	*	* List of G	[G { a: y, .. }, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	-	computation	-	pop	pop	cir	cir	cir	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+result, unmatched	-	computation	-	pop	pop	cir	cir	cir	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
-result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? group G	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, unmatched	-	* List of G	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	?	computation	-	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf List	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf Cons	-	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	?	computation	-	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf List	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf Cons	-	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	?	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	?	? leaf Int	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	? leaf List	-	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	? leaf Map	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	?	? leaf Int	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	? leaf List	-	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	? leaf Map	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	?	? group G	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, unmatched	?	* List of G	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf List	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf Cons	-	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+result, unmatched	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf List	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf Cons	-	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
 result, unmatched	*	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	*	? leaf Int	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	*	? leaf Map	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	*	? leaf Int	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	*	? leaf Map	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	*	? group G	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, unmatched	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
@@ -299,86 +299,86 @@ subject, written	*	? group G	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	ow
 subject, written	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
-result, matched	-	computation	[y, ..]	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, matched	-	leaf List	[y, ..]	pop	pop	sort	rm	ok	sort	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
-result, matched	-	leaf Cons	[y, ..]	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
-result, matched	-	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	rm	rm
-result, matched	-	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+result, matched	-	computation	[y, ..]	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, matched	-	leaf List	[y, ..]	pop	pop	sort	rm	ok	sort	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
+result, matched	-	leaf Cons	[y, ..]	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
+result, matched	-	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
+result, matched	-	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, matched	-	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
-result, matched	-	? leaf Int	Some(old)	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf List	Some([y, ..])	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf Map	Some({ z -> y, .. })	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	-	? leaf Int	Some(old)	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	-	? leaf List	Some([y, ..])	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	-	? leaf Map	Some({ z -> y, .. })	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? group G	Some(G { a: y, .. })	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, matched	-	* List of G	[G { a: y, .. }, ..]	pop	pop	sort	rm	ok	sort|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	-	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	-	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, matched	?	computation	[y, ..]	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf List	[y, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf Cons	[y, ..]	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	?	computation	[y, ..]	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf List	[y, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf Cons	[y, ..]	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	?	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, matched	?	? leaf Int	Some(old)	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf List	Some([y, ..])	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf Map	Some({ z -> y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	?	? leaf Int	Some(old)	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	? leaf List	Some([y, ..])	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	? leaf Map	Some({ z -> y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	?	? group G	Some(G { a: y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, matched	?	* List of G	[G { a: y, .. }, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, matched	*	computation	[y, ..]	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf List	[y, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf Cons	[y, ..]	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, matched	*	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+result, matched	*	computation	[y, ..]	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf Int	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf List	[y, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf Cons	[y, ..]	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, matched	*	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
 result, matched	*	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, matched	*	? leaf Int	Some(old)	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf List	Some([y, ..])	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf Map	Some({ z -> y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, matched	*	? leaf Int	Some(old)	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	*	? leaf List	Some([y, ..])	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	*	? leaf Map	Some({ z -> y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	*	? group G	Some(G { a: y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, matched	*	* List of G	[G { a: y, .. }, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	-	computation	-	pop	pop	cir	cir	cir	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	sort	sort
-result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+result, unmatched	-	computation	-	pop	pop	cir	cir	cir	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
+result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
-result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? group G	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, unmatched	-	* List of G	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	?	computation	-	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf List	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf Cons	-	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	?	computation	-	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf List	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf Cons	-	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	?	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	?	? leaf Int	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	? leaf List	-	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	?	? leaf Map	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	?	? leaf Int	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	? leaf List	-	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	? leaf Map	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	?	? group G	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, unmatched	?	* List of G	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf List	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf Cons	-	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-result, unmatched	*	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+result, unmatched	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf Int	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf List	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf Cons	-	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
+result, unmatched	*	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
 result, unmatched	*	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
-result, unmatched	*	? leaf Int	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-result, unmatched	*	? leaf Map	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+result, unmatched	*	? leaf Int	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	*	? leaf Map	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	*	? group G	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 result, unmatched	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
@@ -470,86 +470,86 @@ subject, written	*	? group G	-	cw	cwi	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
 subject, written	*	* List of G	-	pop	pop	cw	cw	cw	cw	cw	cwi	ils	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Set of G	-	pop	pop	cw	cw	cw	cw	cw	ils	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Map of G	-	pop	pop	cw	cw	cw	cw	cw	ils	cwi	cwi	cwi	cwi	cwi	rmc
-result, matched	-	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	cw|product:arm	sort	rm	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Int	k::configuration::Cell(old)	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	-	leaf List	k::configuration::Cell([y, ..])	pop	pop	rm	sort	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	rm	sort	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	rm	br	sort|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Set	k::configuration::Cell(old)	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, matched	-	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	cw|product:arm	sort	rm	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf Int	k::configuration::Cell(old)	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf List	k::configuration::Cell([y, ..])	pop	pop	rm	sort	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	rm	sort	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	rm	br	sort|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	-	leaf Set	k::configuration::Cell(old)	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, matched	-	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
-result, matched	-	? leaf Int	Some(k::configuration::Cell(old))	sort	ok	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf List	Some(k::configuration::Cell([y, ..]))	rm	ok	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	rm	ok	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, matched	-	? leaf Int	Some(k::configuration::Cell(old))	sort	ok	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	-	? leaf List	Some(k::configuration::Cell([y, ..]))	rm	ok	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	-	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	rm	ok	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? group G	Some(k::fragment![crate::G { a: y, .. }])	cw	ok	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, matched	-	* List of G	[k::fragment![crate::G { a: y, .. }], ..]	pop	pop	cw	cw	cw|product:arm	cw	cw	sort	ils	cwi	wop	cwi	cwi	rmc
 result, matched	-	* Set of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	sort	cwi	wop	cwi	cwi	rmc
 result, matched	-	* Map of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	sort	cwi	wop	cwi	cwi	rmc
-result, matched	?	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	cw|product:arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Int	k::configuration::Cell(old)	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	?	leaf List	k::configuration::Cell([y, ..])	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Set	k::configuration::Cell(old)	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, matched	?	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	cw|product:arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf Int	k::configuration::Cell(old)	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf List	k::configuration::Cell([y, ..])	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	?	leaf Set	k::configuration::Cell(old)	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, matched	?	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
-result, matched	?	? leaf Int	Some(k::configuration::Cell(old))	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf List	Some(k::configuration::Cell([y, ..]))	owp	owp	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	owp	owp	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, matched	?	? leaf Int	Some(k::configuration::Cell(old))	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	? leaf List	Some(k::configuration::Cell([y, ..]))	owp	owp	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	?	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	owp	owp	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	?	? group G	Some(k::fragment![crate::G { a: y, .. }])	cw	owp	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, matched	?	* List of G	[k::fragment![crate::G { a: y, .. }], ..]	pop	pop	cw	cw	cw|product:arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	rmc
 result, matched	?	* Set of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	rmc
 result, matched	?	* Map of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	rmc
-result, matched	*	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	cw|product:arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Int	k::configuration::Cell(old)	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	*	leaf List	k::configuration::Cell([y, ..])	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Set	k::configuration::Cell(old)	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, matched	*	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	cw|product:arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf Int	k::configuration::Cell(old)	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf List	k::configuration::Cell([y, ..])	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, matched	*	leaf Set	k::configuration::Cell(old)	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, matched	*	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	cwi	wop	cwi	cwi	rmc
-result, matched	*	? leaf Int	Some(k::configuration::Cell(old))	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf List	Some(k::configuration::Cell([y, ..]))	cwi	cwi	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	cwi	cwi	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, matched	*	? leaf Int	Some(k::configuration::Cell(old))	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	*	? leaf List	Some(k::configuration::Cell([y, ..]))	cwi	cwi	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, matched	*	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	cwi	cwi	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	*	? group G	Some(k::fragment![crate::G { a: y, .. }])	cw	cwi	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, matched	*	* List of G	[k::fragment![crate::G { a: y, .. }], ..]	pop	pop	cw	cw	cw|product:arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	rmc
 result, matched	*	* Set of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	rmc
 result, matched	*	* Map of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	rmc
-result, unmatched	-	computation	-	pop	pop	cw	cw	cw|product:arm	rm	sort	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf Int	-	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf List	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf Cons	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf Map	-	pop	pop	sort	br	rm|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	-	leaf Set	-	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, unmatched	-	computation	-	pop	pop	cw	cw	cw|product:arm	rm	sort	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf Int	-	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf List	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf Cons	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf Map	-	pop	pop	sort	br	rm|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	-	leaf Set	-	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, unmatched	-	group G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
-result, unmatched	-	? leaf Int	-	uor	uor	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, unmatched	-	? leaf List	-	uor	uor	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, unmatched	-	? leaf Map	-	uor	uor	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, unmatched	-	? leaf Int	-	uor	uor	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	-	? leaf List	-	uor	uor	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	-	? leaf Map	-	uor	uor	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? group G	-	cw	uor	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, unmatched	-	* List of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	rm	ils	cwi	wop	cwi	cwi	rmc
 result, unmatched	-	* Set of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	rm	cwi	wop	cwi	cwi	rmc
 result, unmatched	-	* Map of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	rm	cwi	wop	cwi	cwi	rmc
-result, unmatched	?	computation	-	pop	pop	cw	cw	cw|product:arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf Int	-	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf List	-	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf Cons	-	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf Map	-	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	?	leaf Set	-	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, unmatched	?	computation	-	pop	pop	cw	cw	cw|product:arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf Int	-	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf List	-	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf Cons	-	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf Map	-	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	?	leaf Set	-	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, unmatched	?	group G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
-result, unmatched	?	? leaf Int	-	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, unmatched	?	? leaf List	-	owp	owp	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, unmatched	?	? leaf Map	-	owp	owp	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, unmatched	?	? leaf Int	-	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	? leaf List	-	owp	owp	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	?	? leaf Map	-	owp	owp	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	?	? group G	-	cw	owp	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, unmatched	?	* List of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	rmc
 result, unmatched	?	* Set of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	rmc
 result, unmatched	?	* Map of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	rmc
-result, unmatched	*	computation	-	pop	pop	cw	cw	cw|product:arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf Int	-	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf List	-	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf Cons	-	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf Map	-	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, unmatched	*	leaf Set	-	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, unmatched	*	computation	-	pop	pop	cw	cw	cw|product:arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf Int	-	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf List	-	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf Cons	-	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf Map	-	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
+result, unmatched	*	leaf Set	-	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, unmatched	*	group G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	cwi	wop	cwi	cwi	rmc
-result, unmatched	*	? leaf Int	-	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, unmatched	*	? leaf Map	-	cwi	cwi	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, unmatched	*	? leaf Int	-	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
+result, unmatched	*	? leaf Map	-	cwi	cwi	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	*	? group G	-	cw	cwi	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, unmatched	*	* List of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	rmc
 result, unmatched	*	* Set of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	rmc

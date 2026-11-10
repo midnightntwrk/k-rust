@@ -1363,11 +1363,9 @@ impl Admission<'_> {
 /// outermost first, then its path (`path`, the layers of the cell's `?` and `*` ancestors,
 /// outermost first). An initializer's value of a `*` cell is one instance's template, judged below the
 /// instances layer. `bound` tells what each name the rule binds outside the entry binds (`None`:
-/// the rule binds it nowhere there); `groups` are the
-/// configuration's groups. No step reads them: a group record the entry writes for a cell is
-/// judged by the group the cell's layers hold, and a record in a built term holds no bare `..`
-/// whatever its head ([`open_record`]); the callers that pass them are the collector and the
-/// cells oracle's checks.
+/// the rule binds it nowhere there). A group record the entry writes for a cell is judged by the
+/// group the cell's layers hold, and a record in a built term holds no bare `..` whatever its
+/// head ([`open_record`]), so no step needs the configuration's other groups.
 ///
 /// # Errors
 ///
@@ -1379,10 +1377,8 @@ pub fn admit(
     stack: &[Layer],
     spelling: &EntrySpelling,
     bound: &dyn Fn(&str) -> Option<Bound>,
-    groups: &[GroupKind],
 ) -> Result<Admitted, Refusal> {
-    admit_located(form, side, path, stack, spelling, bound, groups)
-        .map_err(|located| located.refusal)
+    admit_located(form, side, path, stack, spelling, bound).map_err(|located| located.refusal)
 }
 
 /// [`admit`], with where inside the spelling the refusal is raised.
@@ -1397,7 +1393,6 @@ pub fn admit_located(
     stack: &[Layer],
     spelling: &EntrySpelling,
     bound: &dyn Fn(&str) -> Option<Bound>,
-    _groups: &[GroupKind],
 ) -> Result<Admitted, Located> {
     let mut admission = Admission::new(form, side, bound);
     admission
@@ -2332,7 +2327,6 @@ impl<C: PartialEq> Sentence<'_, C> {
                 &entry.kind.own.layers,
                 spelling,
                 &bound,
-                self.groups,
             )
             .map_err(|located| (at, located))?;
         }
@@ -2577,16 +2571,7 @@ mod tests {
     }
 
     fn judge(form: EntryForm, side: EntrySide, stack: &[Layer], text: &str) -> Result<(), Refusal> {
-        admit(
-            form,
-            side,
-            &[],
-            stack,
-            &read(form, text),
-            &|_| None,
-            &groups(stack),
-        )
-        .map(|_| ())
+        admit(form, side, &[], stack, &read(form, text), &|_| None).map(|_| ())
     }
 
     fn below(
@@ -2596,16 +2581,7 @@ mod tests {
         stack: &[Layer],
         text: &str,
     ) -> Result<(), Refusal> {
-        admit(
-            form,
-            side,
-            path,
-            stack,
-            &read(form, text),
-            &|_| None,
-            &groups(stack),
-        )
-        .map(|_| ())
+        admit(form, side, path, stack, &read(form, text), &|_| None).map(|_| ())
     }
 
     /// An admitted result entry paired with its subject's entry `subject` (`None`: the subject
@@ -2627,15 +2603,7 @@ mod tests {
                     .map_or(Bound::Value, |(_, head)| Bound::Record(head.clone())),
             )
         };
-        admit(
-            form,
-            EntrySide::Result,
-            &[],
-            stack,
-            &spelling,
-            &bound,
-            &groups(stack),
-        )?;
+        admit(form, EntrySide::Result, &[], stack, &spelling, &bound)?;
         let subject = subject.map(|text| read(form, text));
         pair(
             form,
@@ -3974,7 +3942,7 @@ mod tests {
         let reading = EntryReading::new(init, &variables);
         let admitted = |stack: &[Layer], text: &str| {
             let spelling = reading.value(text.parse().expect("lexes")).expect("reads");
-            admit(init, side, &[], stack, &spelling, &|_| None, &[]).map(|_| ())
+            admit(init, side, &[], stack, &spelling, &|_| None).map(|_| ())
         };
         let list = [Layer::Leaf(Notation::List)];
         assert_eq!(admitted(&list, "[0, r @ ..]"), refused);
@@ -4008,32 +3976,14 @@ mod tests {
             .value("k::k![Cmd::Go(), ..pgm]".parse().expect("lexes"))
             .expect("reads");
         assert_eq!(
-            admit(
-                init,
-                side,
-                &[],
-                &[Layer::Computation],
-                &spliced,
-                &|_| None,
-                &[]
-            )
-            .map(|_| ()),
+            admit(init, side, &[], &[Layer::Computation], &spliced, &|_| None).map(|_| ()),
             Err(Refusal::InitializerRemainder)
         );
         let open = reading
             .value("k::k![Cmd::Go(), ..]".parse().expect("lexes"))
             .expect("reads");
         assert_eq!(
-            admit(
-                init,
-                side,
-                &[],
-                &[Layer::Computation],
-                &open,
-                &|_| None,
-                &[]
-            )
-            .map(|_| ()),
+            admit(init, side, &[], &[Layer::Computation], &open, &|_| None).map(|_| ()),
             Err(Refusal::InitializerRemainder)
         );
     }

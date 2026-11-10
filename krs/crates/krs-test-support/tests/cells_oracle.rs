@@ -1415,7 +1415,6 @@ fn product_outcome(
     entry: &EntryCase,
     kind: &cell_kind::EntryKind,
     spelling: &EntrySpelling,
-    groups: &[cell_kind::GroupKind],
 ) -> Outcome {
     let rewrite = rendered_sentence(case, entry)
         .map_or(cell_entries::Rewrite::Result, |rendered| {
@@ -1431,7 +1430,7 @@ fn product_outcome(
     };
     let side = product_side(entry.entry.side);
     let bound = |name: &str| product_bound(&entry.context, name);
-    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound, groups) {
+    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound) {
         Ok(admitted) => admitted,
         Err(refusal) => return Outcome::Refuse(refusal.class()),
     };
@@ -1475,10 +1474,6 @@ fn product_outcome(
 fn check_2_the_product_admits_as_the_table_says() {
     let exceptions = exceptions();
     let configurations = configurations();
-    let groups = configurations
-        .iter()
-        .map(|(base, configuration)| (*base, configuration.groups()))
-        .collect::<BTreeMap<_, _>>();
     let mut failures = Vec::new();
     let mut kinds = BTreeSet::new();
     let mut counts = BTreeMap::<String, usize>::new();
@@ -1535,7 +1530,7 @@ fn check_2_the_product_admits_as_the_table_says() {
             ));
             continue;
         }
-        let got = product_outcome(case, entry, &kind, &spelling, &groups[&case.base]);
+        let got = product_outcome(case, entry, &kind, &spelling);
         let excepted = !naming(&case.id, &exceptions).is_empty();
         let want = match &EXPECTED[&case.id] {
             Expected::Refuse { name, .. } if excepted => Outcome::Refuse(name),
@@ -2483,19 +2478,10 @@ impl Probe<'_> {
                     .map_or(Bound::Value, |(_, head)| Bound::Record(head.clone()))
             })
         };
-        let groups = self
-            .groups()
-            .iter()
-            .map(|group| match product_layer(&Layer::Group(group.clone())) {
-                cell_kind::Layer::Group(group) => group,
-                other => unreachable!("a group's layer is {other:?}"),
-            })
-            .collect::<Vec<_>>();
-        let admitted =
-            match cell_entries::admit(form, side, &path, &stack, &spelling, &bound, &groups) {
-                Ok(admitted) => admitted,
-                Err(refusal) => return Outcome::Refuse(refusal.class()),
-            };
+        let admitted = match cell_entries::admit(form, side, &path, &stack, &spelling, &bound) {
+            Ok(admitted) => admitted,
+            Err(refusal) => return Outcome::Refuse(refusal.class()),
+        };
         let pair_stack = match (side, stack.split_first()) {
             (EntrySide::Initializer, Some((cell_kind::Layer::Instances(_), template))) => template,
             _ => &stack[..],
@@ -3287,80 +3273,60 @@ fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
     ]);
 }
 
-/// R4 under the vacuous-rest ruling, on a term: a record a result's value writes at a leaf, or
-/// where the missing layer's advice puts it, is refused where its bare `..` leaves a field open,
-/// and judged as the value it is otherwise (P6, P0, P3's reason). A record whose head names no
-/// group of the configuration has no fields it is known to name, so its `..` is open.
+/// R4 on a term (DOTS): `..` says the fields a record leaves unnamed are what they would
+/// otherwise be, and a record a result's value builds, at a leaf or where the missing layer's
+/// advice puts it, is made from nothing, so its bare `..` names no value however many fields it
+/// names, whatever its head: refused at the record, before the missing layer the inside would
+/// otherwise let through (P6, P3's reason).
 #[test]
-fn a_bare_rest_in_a_term_is_refused_where_it_leaves_a_field_open() {
+fn a_bare_rest_in_a_term_is_refused_whatever_fields_it_names() {
     let open = Outcome::Refuse("open-record-outside-pattern");
     let set = [Layer::Leaf(Notation::Set)];
     let code = [Layer::Computation];
     let optional_list = [Layer::Optional, Layer::Leaf(Notation::List)];
-    probes_agree(&[
-        (
-            result_probe(Form::Readable, &set, "G { a: x, .. }", Some("old")),
+    let records = ["G { a: x, .. }", "G { a: x, b: y, .. }"];
+    let fragments =
+        records.map(|record| format!("k::configuration::Cell(k::fragment![crate::{record}])"));
+    let mut probes = Vec::new();
+    for (record, fragment) in records.iter().zip(&fragments) {
+        probes.push((
+            result_probe(Form::Readable, &set, record, Some("old")),
             open,
-        ),
-        (
-            result_probe(Form::Readable, &set, "G { a: x, b: y, .. }", Some("old")),
-            Outcome::After,
-        ),
-        (
-            result_probe(Form::Readable, &code, "G { a: x, .. }", Some("[y, ..]")),
+        ));
+        probes.push((
+            result_probe(Form::Readable, &code, record, Some("[y, ..]")),
             open,
-        ),
-        (
-            result_probe(
-                Form::Readable,
-                &code,
-                "G { a: x, b: y, .. }",
-                Some("[y, ..]"),
-            ),
-            Outcome::Refuse("cell-wrapper"),
-        ),
-        (
+        ));
+        probes.push((
             result_probe(
                 Form::Readable,
                 &optional_list,
-                "G { a: x, .. }",
+                record,
                 Some("Some([y, ..])"),
             ),
             open,
-        ),
-        (
-            result_probe(
-                Form::Readable,
-                &optional_list,
-                "G { a: x, b: y, .. }",
-                Some("Some([y, ..])"),
-            ),
-            Outcome::Refuse("optional-without-presence"),
-        ),
-        (
+        ));
+        probes.push((
             result_probe(
                 Form::Cells,
                 &set,
-                "k::configuration::Cell(k::fragment![crate::G { a: x, b: y, .. }])",
-                Some("k::configuration::Cell(old)"),
-            ),
-            Outcome::After,
-        ),
-        (
-            result_probe(
-                Form::Cells,
-                &set,
-                "k::configuration::Cell(k::fragment![crate::G { a: x, .. }])",
+                fragment,
                 Some("k::configuration::Cell(old)"),
             ),
             open,
-        ),
-        // A head no group names.
-        (
-            result_probe(Form::Readable, &set, "Q { a: x, .. }", Some("old")),
-            open,
-        ),
-    ]);
+        ));
+    }
+    // A head no group names.
+    probes.push((
+        result_probe(Form::Readable, &set, "Q { a: x, .. }", Some("old")),
+        open,
+    ));
+    // Every field named and no `..`: the record is judged as the value it is.
+    probes.push((
+        result_probe(Form::Readable, &code, "G { a: x, b: y }", Some("[y, ..]")),
+        Outcome::Refuse("cell-wrapper"),
+    ));
+    probes_agree(&probes);
 }
 
 /// F3: a bare `..` in a result is Rust's default fields, which only a created instance has (its
@@ -7552,21 +7518,20 @@ fn check_7n_a_refusal_inside_a_childs_content_names_the_child_there() {
             let mut groups = Vec::new();
             cell_entries::collect_groups(&stack, &mut groups);
             cell_entries::collect_groups(&[product_layer(&group_g())], &mut groups);
-            let refused =
-                cell_entries::admit_located(form, side, &[], &stack, &spelling, &bound, &groups)
+            let refused = cell_entries::admit_located(form, side, &[], &stack, &spelling, &bound)
+                .err()
+                .or_else(|| {
+                    cell_entries::pair_located(
+                        form,
+                        side,
+                        &stack,
+                        &spelling,
+                        other.as_ref(),
+                        written,
+                        &bound,
+                    )
                     .err()
-                    .or_else(|| {
-                        cell_entries::pair_located(
-                            form,
-                            side,
-                            &stack,
-                            &spelling,
-                            other.as_ref(),
-                            written,
-                            &bound,
-                        )
-                        .err()
-                    });
+                });
             let Some(refused) = refused.filter(|refused| refused.refusal.class() == class) else {
                 continue;
             };

@@ -840,7 +840,7 @@ fn names_every_field(record: &Record, group: &Group) -> bool {
 }
 
 /// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed (P6:
-/// a bare `..` in a built record is Rust's default fields). A `..` after every child defaults
+/// a bare `..` in the record a result's entry writes for its cell is Rust's default fields). A `..` after every child defaults
 /// none: Rust and K then read the same exact record, so P0 refuses nothing.
 fn leaves_open(record: &Record, group: &Group) -> bool {
     record.rest == RecordRest::Open && !names_every_field(record, group)
@@ -1179,10 +1179,10 @@ impl Judge<'_> {
     /// A value at a value position: a fresh readable binder and `_` take the position's sort;
     /// everything else, a bound binder and every `cells!` binder (whose parameter is typed)
     /// included, is the lattice's (step 4). In a result, a value is a built term, and a record
-    /// in it whose bare `..` leaves a field open is refused: Rust's default fields, which only
-    /// a created instance has (its template), and a term's record is no instance (P6). A `..`
-    /// after every field defaults none (P0). That is the record's shape, known from the
-    /// declaration, so it comes before the sort (P4).
+    /// in it with a bare `..` is refused, however many fields it names ([`open_record`]): a term
+    /// built from nothing has no fields its `..` could leave as they were, and a term's record is
+    /// no instance, whose template would give them (P6). That is the record's shape, so it comes
+    /// before the sort (P4).
     fn value(&mut self, spelling: &Spelling, depth: usize) -> Result<(), Refusal> {
         match spelling {
             Spelling::Wild => {}
@@ -1194,7 +1194,7 @@ impl Judge<'_> {
             Spelling::Alias(_, inner) => return self.value(inner, depth + 1),
             _ => self.sort = true,
         }
-        if self.side == Side::Result && open_record(spelling, &self.context.groups) {
+        if self.side == Side::Result && open_record(spelling) {
             return refuse("open-record-outside-pattern", Step::Inside, depth);
         }
         Ok(())
@@ -1236,7 +1236,7 @@ impl Judge<'_> {
                 for item in items {
                     match record_of(item, group) {
                         Some(record) => self.fragment_terms(group, record, depth + 1)?,
-                        None if open_record(item, &self.context.groups) => {
+                        None if open_record(item) => {
                             return refuse("open-record-outside-pattern", Step::Inside, depth + 1);
                         }
                         None => {}
@@ -1244,7 +1244,7 @@ impl Judge<'_> {
                 }
                 Ok(())
             }
-            _ if open_record(spelling, &self.context.groups) => {
+            _ if open_record(spelling) => {
                 refuse("open-record-outside-pattern", Step::Inside, depth)
             }
             _ => Ok(()),
@@ -1639,23 +1639,17 @@ fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool
     }
 }
 
-/// Whether `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
-/// open ([`leaves_open`]). A record's fields are those of the group of `groups` its head names;
-/// a head that names none has no fields the record is known to name, so its `..` is open.
-fn open_record(spelling: &Spelling, groups: &[Group]) -> bool {
-    let open = match spelling {
-        Spelling::Record(record) | Spelling::Fragment(record) => {
-            record.rest == RecordRest::Open
-                && groups
-                    .iter()
-                    .find(|group| group.name == record.head)
-                    .is_none_or(|group| leaves_open(record, group))
-        }
-        _ => false,
-    };
-    open || children(spelling)
-        .into_iter()
-        .any(|one| open_record(one, groups))
+/// Whether `spelling`, a term, holds a record (itself included) with a bare `..`, whatever its
+/// head and however many fields it names. `..` says the fields a record leaves unnamed are what
+/// they would otherwise be: anything in a pattern, and in the record a result's entry writes for
+/// its cell, the cell's content or a created instance's template (P6). A term a result builds is
+/// made from nothing, so there is nothing they would otherwise be, and its `..` names no value,
+/// even after every field.
+fn open_record(spelling: &Spelling) -> bool {
+    matches!(
+        spelling,
+        Spelling::Record(record) | Spelling::Fragment(record) if record.rest == RecordRest::Open
+    ) || children(spelling).into_iter().any(open_record)
 }
 
 /// `spelling` below an alias.

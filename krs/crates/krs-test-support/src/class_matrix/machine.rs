@@ -646,7 +646,7 @@ k::rules! {
     #[k::rule(priority = 10)]
     add_obj: { k: [Cmd::AddObj(a, m), ..], bag: { .. } } => { k: [..], bag: { Obj { key: a, m: k::project!(Map, m) }, .. } };
     #[k::rule(priority = 10)]
-    push_job: { k: [Cmd::PushJob(a), ..] } => { k: [Job { payload: a, .. }, ..] };
+    push_job: { k: [Cmd::PushJob(a), ..] } => { k: [Job { payload: a }, ..] };
 }
 
 #[k::function(partial, syntax = "memp")]
