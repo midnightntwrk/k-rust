@@ -244,7 +244,9 @@ def rule_names() -> list[str]:
 
 
 def recorded_verdicts(identifier: str, verb: str) -> dict:
-    """The recorded `krs kink <verb> --output verdicts` of `identifier`, with an admitted spec."""
+    """The `[<verb>]` section of the recorded `krs kink <verb> --output verdicts` of
+    `identifier`, with an admitted spec: the rendering is the corpus record, one section per
+    command, and a command's own rows are in its section."""
 
     path = OUTPUTS / f"{identifier}.txt"
     if not path.is_file():
@@ -260,13 +262,15 @@ def recorded_verdicts(identifier: str, verb: str) -> dict:
         verdicts = tomllib.loads(rendering)
     except tomllib.TOMLDecodeError as error:
         fail(f"recorded output {identifier} is not a verdicts rendering ({error}); it reads:\n{rendering}")
-    if verdicts.get("schema") != "kink-flow-verdicts" or verdicts.get("document") != verb:
-        fail(f"recorded output {identifier} is not the verdicts rendering of a {verb} document")
-    spec = verdicts.get("spec", {})
+    section = verdicts.get(verb)
+    if verdicts.get("schema") != "kink-flow-verdicts" or not isinstance(section, dict):
+        fail(f"recorded output {identifier} is not the verdicts rendering of a {verb} document "
+             f"(a `kink-flow-verdicts` record with a [{verb}] section)")
+    spec = section.get("spec", {})
     if spec.get("outcome") != "admitted":
         fail(f"recorded output {identifier}: the specification is {spec.get('outcome')} "
              f"(stage {spec.get('stage')}, reason {spec.get('reason')})")
-    return verdicts
+    return section
 
 
 def recorded_rules() -> list[dict]:

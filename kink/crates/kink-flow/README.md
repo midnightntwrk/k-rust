@@ -1727,10 +1727,11 @@ schema = "kink-flow-verdicts"
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 25
+version = 26
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
+work_factor = 5
 
 [run.spec]
 outcome = "admitted"
@@ -1749,7 +1750,7 @@ status = "survived"
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...
-version = 25
+version = 26
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1762,6 +1763,7 @@ outcome = "admitted"
 depth = 1
 mcdc = [
 ]
+work_factor = 5
 
 # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
 # ...
@@ -1790,7 +1792,7 @@ killer = "irq"
 [compare]
 # The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run
 # ...
-version = 25
+version = 26
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1911,7 +1913,7 @@ A section that differs neither in its header nor in a row's verdict (rows in ano
 One that is not TOML (merge-conflict markers included), has another schema, has a section of the command that is no table or does not begin with its own line, repeats an id or has a `killer` that is not a string refuses the command: exit 2, no row or family, `lock: {path, outcome: "refused", detail}`, and in the rendering a `[run.lock]` or `[coverage.lock]` table with `outcome = "refused"`.
 The next step is to resolve the file, or delete it to start from the search's killers; a run then regenerates it.
 
-**Other versions.** Under `--locked` a section of another version (its `version` is not this build's, or absent) is refused before admission, exit 2, with the detail `kink.lock: its [run] section is recorded at version 24 of the verdicts rendering, and this build writes version 25, so --locked cannot find it current; run `krs kink run --package p --definition main` without --locked once to rewrite it, and review its diff` (the command as the front end spells it).
+**Other versions.** Under `--locked` a section of another version (its `version` is not this build's, or absent) is refused before admission, exit 2, with the detail `kink.lock: its [run] section is recorded at version 25 of the verdicts rendering, and this build writes version 26, so --locked cannot find it current; run `krs kink run --package p --definition main` without --locked once to rewrite it, and review its diff` (the command as the front end spells it).
 Another version writes other bytes for the same verdicts, so the comparison could only find it stale, after a whole run; a run without `--locked` reads its killers and rewrites its section, and the diff shows what the new version changed beside any moved verdict.
 
 **Old files.** Before version 24 each command kept its own file, the command's rendering at its top (`document = "run"` or `"coverage"`, the rows `[[mutation]]` or `[[flip]]`, the standings under `[arguments]`), which the krs front end named `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
@@ -1950,10 +1952,11 @@ schema = "kink-flow-verdicts"
 [coverage]                    # or [run]: the command's section
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...                         (the comment naming the command, and what it does with its section as a lock)
-version = 25
+version = 26
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
+                              # run: work_factor = 5, [budget] work_factor, the mutants' work budget
 krs_annotation = 10           # coverage: a document the KRS front end annotated, its krs.version
 
 [coverage.spec]
@@ -1963,6 +1966,7 @@ outcome = "admitted" # a refused specification adds its stage and reason, and no
 depth = 1
 mcdc = [                      # or the names, one per line, or true
 ]
+work_factor = 5               # coverage: [budget] work_factor, the flips' work budget
 
 # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
 # ...                         (the comment saying what each list and standing is)
@@ -2339,7 +2343,7 @@ A flip that changes only sentences outside the coverage scope (claim helpers) is
 - **Sides.** The baseline is the admitted specification's compile, with its claims. The mutant is the claim-free, consistency-checked mutant kink's runner builds for every test of the mutation (kink-campaign `claim_free_mutant`, admitted with the flow's `[spec] assume_joined`). Both run on the backend route kink runs (`Backend::from_definition`). A mutation `run` would refuse (`invalid-mutation`, `equivalent`, `not-admitted` with its reason and `inconsistent_pairs`, unsupported claims) ends the command with that status and reason; nothing is fuzzed. So does a mutation `run` decides from its edit alone, on a baseline whose findings are all assumed (`run` step 2): `unkillable` (reason `weakening`) or `equivalent` (reason `valid-condition`) is a fact of the axioms, which no case can change, so the job is refused at stage `mutation`, reason the status, with `job.status`, `job.reason`, `job.weakening` and the row's action, exit 2.
 - **Target.** The differential target on all paths (`--one-path` for one), as kink compares complete state sets: a case is a hit when the mutant reaches an end the baseline cannot or the reverse, on ends that are data.
 - **Comparability is strict.** If a definition's full critical-pair check reports a finding no name assumes, the campaign is `not-comparable` and the document lists every finding (`findings`: side, name, verdict). Such a definition may identify the two ends a kill compares, so a kill there would hold in no model of it, and `run` refuses it too (`baseline-findings`). A finding is read as resolved only when you name it: the flow's `[spec] assume_joined` names are always passed, and `--assume-joined NAME` adds one for this command. A decided finding cannot be named; a genuine one can, but it is a premise known to be false, and the fragment says so.
-- **Budgets.** `--cases N` (default 1000) or `--work W`, `--seed S` (default 0), the library's blind proposer. Every case runs with `[budget] max_depth`, a safety limit of `[budget] time_ms` per execution, and a work bound of `--max-work N` (default 100000). `run` bounds the mutant at `work_factor` times the baseline's work plus 10000, so a kill whose mutant needs more is `unknown` there. `--time-limit-ms T` cancels the campaign's run after `T` ms (not the admission and compiles before it); a cancelled campaign is outside the determinism contract (`stopped: time-limit`). A case whose run stopped for lack of native stack (the embedded report's unjudged reason `stack-stops`) judges nothing, and no option bounds the stack: after `--stack-stops N` such cases in a row (default 25) the search ends (`stopped: stack-stops`, the embedded campaign `cancelled` by kink-flow). 25 is as many cases as the guide's trials needed to kill every killable mutation on a template whose run reached the edited rule and ended on both definitions (docs/fuzzing.md, "Choosing a template"), and none of the 25 is a case that could kill; the stop is advice, never a verdict. Of a kill job, a case whose mutant run ends holding a term not shown to exist (unjudged reason `not-ceil-free` on the mutant: an application the mutant leaves open, which no budget decides) judges nothing either: after `--open-stops N` such cases in a row (default 25, by the same argument) the search ends (`stopped: open-stops`). Both stops count cases, never time. kink-flow ends either search through the campaign's observer, which k-rust-fuzz reports as its caller's cancellation (the embedded campaign `cancelled`); the `action` says which count ended it instead. Otherwise the same inputs and seed give the same document, but for cases a clock or the stack decided: a case that `time_ms`, a solver `unknown` or a stop for lack of stack decided is outside the determinism contract (the embedded report's `totals.outside-determinism`), and since every later case depends on the cases before it, a re-run may differ from the first such case on (`totals.first-outside-determinism`, which also counts a candidate whose confirmation the clock stopped, and which the statement in `action` names); kink's confirmation runs under `time_ms` too.
+- **Budgets.** `--cases N` (default 1000) or `--work W`, `--seed S` (default 0), the library's blind proposer. Every case runs with `[budget] max_depth`, a safety limit of `[budget] time_ms` per execution, and a work bound of `--max-work N` (default 100000). `run` bounds the mutant's run at `max(work_factor × P, P_max)` polls ("What decides a verdict"), so a kill whose mutant needs more is `unknown` there. `--time-limit-ms T` cancels the campaign's run after `T` ms (not the admission and compiles before it); a cancelled campaign is outside the determinism contract (`stopped: time-limit`). A case whose run stopped for lack of native stack (the embedded report's unjudged reason `stack-stops`) judges nothing, and no option bounds the stack: after `--stack-stops N` such cases in a row (default 25) the search ends (`stopped: stack-stops`, the embedded campaign `cancelled` by kink-flow). 25 is as many cases as the guide's trials needed to kill every killable mutation on a template whose run reached the edited rule and ended on both definitions (docs/fuzzing.md, "Choosing a template"), and none of the 25 is a case that could kill; the stop is advice, never a verdict. Of a kill job, a case whose mutant run ends holding a term not shown to exist (unjudged reason `not-ceil-free` on the mutant: an application the mutant leaves open, which no budget decides) judges nothing either: after `--open-stops N` such cases in a row (default 25, by the same argument) the search ends (`stopped: open-stops`). Both stops count cases, never time. kink-flow ends either search through the campaign's observer, which k-rust-fuzz reports as its caller's cancellation (the embedded campaign `cancelled`); the `action` says which count ended it instead. Otherwise the same inputs and seed give the same document, but for cases a clock or the stack decided: a case that `time_ms`, a solver `unknown` or a stop for lack of stack decided is outside the determinism contract (the embedded report's `totals.outside-determinism`), and since every later case depends on the cases before it, a re-run may differ from the first such case on (`totals.first-outside-determinism`, which also counts a candidate whose confirmation the clock stopped, and which the statement in `action` names); kink's confirmation runs under `time_ms` too.
 - **Definition exclusions.** Before any case, kink's definition exclusions are read on both sides as kink's runner reads them (kink-native `DefinitionExclusions::of_validated`, `definition_exclusion`). One on the mutant (an edit that brings in an implementation-chosen hook, an equals condition, or a load stack stop) makes `run` report the mutation `unknown` with that reason; one on the baseline excludes every baseline run, so `run` finds no comparable program (`error`, `no-comparable-program`, each program's cause naming the exclusion). Either refuses the job with that status and reason (`job.refusal.stage: exclusions`, `job.exclusions`: each side's `{exclusion, detail}`, the detail as the check document's `spec.exclusion` gives it, or null); nothing is fuzzed. A rule the short-circuit analysis flags is none: kink's runner judges each run of such a side by its own list of short-circuit readings, so the job runs, and the witness filter keeps its static reading of the flag (below).
 - **Assembly.** kink assembles every test's input from the baseline's grammar, for both sides. The campaign binds kink's stream defaults (`$IO` to `"off"`, `$STDIN` to `""`) after the template's variables, as kink does, for each stream variable the definition declares and the template leaves unbound, since k-rust-fuzz's own default binds `$STDIN` to krun's buffered `"\n"`; the printed fragment leaves these bindings out. A run of no case gives each side's initial configuration at the holes' anchors (the fuzz report identity's `initial-configuration-digest`). When the mutant's differs from the baseline's (an edit of a `[macro]` rule, or of anything the program's parse reads), the job is refused before any case (`mutant-assembly-differs`: the mutant parses the template differently from kink's input); when the baseline's differs from kink's own assembly of the template, it is refused too (`template-assembly-differs`, a defect to report). The campaign reads a configuration variable's text as krun reads `-c`, with the rule kink reads the manifest's `program.variables` with (the syntax module's grammar first wherever it has the variable's sort), so a `Word` token that the main module's scanner alone would read as another token sort is the same `Word` in the campaign and in kink. Then the candidate's program is assembled by kink exactly as a `[[program]]` (start sort, variables, the concrete-state check and the input gate), and each side's `initial_configuration` in the witness, parsed as KORE, must equal it; otherwise the candidate is not offered (`stopped: assembly-mismatch`, `candidate.assembly` says which side or kink's refusal).
 - **The last run.** The last `run` document (`report.json` in `--cache DIR`, default `.kink-flow`, read as `report` reads it and only when it is of the current specification and of the corpus's programs, each id with its program digest: a row's status and `witnesses` are facts about the programs that run judged, a killer one of them) gives the template's own program class (found by its program digest) and the mutation's status and `witnesses`, each suggested as a template (`template.last_run`; `witnesses` is `null` when the last run's row is: no compiled edit of the mutation was known to it). Nothing in the cache is written.

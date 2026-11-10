@@ -116,7 +116,7 @@ On the introduction's four cases, two of the guide's mutations survive:
 ```
 
 `--full` names every case that kills a mutation (`killed_by`).
-Without it each killed mutation names one killer, the one `verdicts.lock` records while it still kills, else the first killing case in the search's order (the cases that reach an edited rule first, then the rest, each in `FLOW.toml`'s order), and `run` stops there; `--full` names that same killer.
+Without it each killed mutation names one killer, the one `kink.lock` records while it still kills, else the first killing case in the search's order (the cases that reach an edited rule first, then the rest, each in `FLOW.toml`'s order), and `run` stops there; `--full` names that same killer.
 The rendering gives each mutation's `id`, `status`, a killed mutation's `killer` and, with `--full`, its `killed_by`; the JSON document, the default output, also gives each mutation's `witnesses`, `reason` and `action` (`mutations[].witnesses`, `mutations[].reason`, `mutations[].action`), and each case's outcome on the mutant with its `cause` (`mutations[].executed[].cause`).
 
 ### 4. Kill a survivor, or argue it away
@@ -150,7 +150,7 @@ Drop it, or keep it with that argument written in its `misunderstanding`, as the
 
 ### 5. Commit, and check in CI
 
-Commit `kink/definition.k`, `kink/verdicts.lock` and `kink/coverage.lock` with the corpus.
+Commit `kink/definition.k` and `kink/kink.lock` with the corpus.
 `krs kink emit --check` writes nothing and exits 2 when `definition.k` is not the package's current emission, so a CI run trusts committed verdicts only for the K they were judged on:
 
 ```console [recorded with krs]
@@ -160,20 +160,21 @@ Commit `kink/definition.k`, `kink/verdicts.lock` and `kink/coverage.lock` with t
 A stale file's document says `stale`, and its `refusal` names the command that writes the file.
 Every verb that builds the package takes `--locked`, which refuses a stale `definition.k` instead of writing it.
 
-`kink/verdicts.lock` is the corpus's killer record.
-Every `krs kink run` of the corpus's own mutations reads it and, after judging every mutation, writes it: each mutation's status and, for a killed one, its one recorded killer.
+`kink/kink.lock` is the corpus's record, one section per command: `[run]`, the killer record, `[coverage]`, the coverage lock, and `[compare]`, the verdicts of other implementations (below); each command reads, checks and rewrites only its own section, and keeps the others as they are.
+Every `krs kink run` of the corpus's own mutations reads `[run]` and, after judging every mutation, writes it: each mutation's status and, for a killed one, its one recorded killer.
 A later run tries the recorded killer first and keeps it while it still kills, so adding a case moves no killer, and re-proving a killed mutation after an edit of the specification costs one run of its killer.
-When the recorded killer no longer kills, or leaves the corpus, the first killing case in the search's order replaces it, and the lock's diff shows the move.
-The lock only orders the work and names the killer: every status still comes from runs.
-A run with `--mutations` judges another list and uses no lock.
-Under `--locked` the run leaves `definition.k` and the lock unwritten (its cache is written as in any run) and compares the lock it would write with the file; for the guide's corpus it prints exactly the lock's bytes:
+When the recorded killer no longer kills, or leaves the corpus, the first killing case in the search's order replaces it, and the record's diff shows the move.
+The record only orders the work and names the killer: every status still comes from runs.
+A run with `--mutations` judges another list and uses no record.
+Under `--locked` the run leaves `definition.k` and the record unwritten (its cache is written as in any run) and compares the `[run]` section it would write with the file's; the guide's corpus commits a record only `run` writes, so its run prints exactly the record's bytes:
 
 ```console [recorded with krs]
 // [!include ~/snippets/outputs/mutation-testing-run-locked.txt]
 ```
 
-The header names the Z3 build the verdicts were decided on: `z3_version`, Z3's version string, and `z3_library_sha256`, the digest of the Z3 library krs links.
-Whether a solver query is decided within its resource units depends on that build, so a lock recorded on another Z3 build is a finding under `--locked`, even when every verdict agrees: record the lock on the build your CI links.
+The section's header names the Z3 build the verdicts were decided on: `z3_version`, Z3's version string, and `z3_library_sha256`, the digest of the Z3 library krs links.
+Whether a solver query is decided within its resource units depends on that build, so a section recorded on another Z3 build is a finding under `--locked`, even when every verdict agrees: record the lock on the build your CI links.
+It also names `work_factor`, the work budget each mutant's run had ([Unknowns and budgets](#unknowns-and-budgets)), so a verdict the budget left `unknown` is a verdict of the record, and raising the factor re-runs only the runs it cut.
 
 CI runs `krs kink emit --check`, then `krs kink run --locked`, and reads the exit status, here for the package's own corpus `kink/`:
 
@@ -181,19 +182,23 @@ CI runs `krs kink emit --check`, then `krs kink run --locked`, and reads the exi
 krs kink emit --package story-plus --definition main --check
 status=0
 krs kink run --package story-plus --definition main --locked > /dev/null || status=$?
-# 0: the lock is current and every mutation has a verdict;
-# 3: the lock is current, and some mutations have no verdict (unknown or timeout);
-# 1: the verdicts or killers moved, or the lock names another Z3 build, and stderr names
+# 0: [run] is current and every mutation has a verdict;
+# 3: [run] is current, and some mutations have no verdict (unknown or timeout);
+# 1: the verdicts or killers moved, or [run] names another Z3 build, and stderr names
 #    each change: run without --locked,
-#    review the lock's diff, and commit it;
-# 2: the run could not be asked (a stale definition.k, a refused corpus, list, lock or
-#    mutation, or a lock another kink version wrote, which a run without --locked
-#    rewrites): stderr has each refusal's text
+#    review kink.lock's diff, and commit it;
+# 2: the run could not be asked (a stale definition.k, a refused corpus, list, record or
+#    mutation, a [run] section another kink version wrote, which a run without --locked
+#    rewrites, or an old verdicts.lock still beside kink.lock): stderr has each refusal's text
 [ "$status" -eq 0 ] || [ "$status" -eq 3 ] || exit "$status"
 ```
 
 A CI that must not accept an `unknown` fails on 3 too.
-`krs kink coverage --package story-plus --definition main --locked` checks `kink/coverage.lock` the same way, with the same exit statuses: 1 when an obligation opened or closed or a condition flip's status or killer moved.
+`krs kink coverage --package story-plus --definition main --locked` checks the `[coverage]` section the same way, with the same exit statuses: 1 when an obligation opened or closed or a condition flip's status or killer moved.
+Where `FLOW.toml` declares another implementation of the system, an `[[implementation]]` such as an emulator, `krs kink compare` runs it on every case and compares its answer with the definition's ends ([the corpus loop](/reference/workflow#the-corpus-loop)), and `krs kink compare --package story-plus --definition main --locked` checks the `[compare]` section: 1 when a verdict moved, and 3 when the clock cancelled an implementation's run, which decides no verdict and leaves its rows as recorded.
+
+A corpus of an earlier kink committed two files, `kink/verdicts.lock` and `kink/coverage.lock`.
+The command that kept each (`run`, `coverage`), run without `--locked`, reads its killers, moves them into `kink/kink.lock`, and says on stderr to delete the old file; under `--locked` the command is refused (exit 2) while the old file is there.
 
 ## Reading the emitted K
 
@@ -320,7 +325,10 @@ A run over `refused.toml` judges nothing and exits 2:
 - **Budgets.** `[budget]` bounds every run:
   - `time_ms` is a host clock; a run that reaches it is `timeout`, which is never cached.
   - `max_depth` bounds each path; a run that reaches it is inconclusive, `unknown`.
-  - `work_factor` bounds a mutant's run by the work of the same case's baseline run, and `baseline_max_work` bounds a baseline run; their unknowns are cached, since the bound is in the key.
+  - `work_factor`, `k` (default 5), bounds a mutant's run of a case by its work, counted in polls, the backend's interruption points (inside a step too, each solver query once): at most `max(k × P, P_max)` polls, `P` the polls of the case's baseline run and `P_max` the largest `P` of the corpus's comparable cases.
+    A run the bound cuts is `unknown` (reason `work-budget`, its `cause` naming the polls and the bound), unless the part it ran already shows a difference: the bound decides how many verdicts are decided, never which way one goes.
+    The count is a function of the definition and the case, not of the host, so the unknown is cached and the record names `k`; raising it re-runs only the runs it cut, since a run it did not cut is the run without it.
+  - `baseline_max_work` bounds a baseline run in states visited; its unknowns are cached, since the bound is in the key.
   - `smt_resource_limit` bounds each solver query in Z3 resource units.
 
   Raise the bound the `cause` names, and only after reading it: a case whose run does not end under the mutant is better rewritten to end.
@@ -370,8 +378,7 @@ A run over `refused.toml` judges nothing and exits 2:
 | `kink/definition.k` | yes; CI runs `krs kink emit --check` | the K the verdicts are about; a reviewer reads each mutation against it |
 | `kink/FLOW.toml`, `kink/cases/`, `kink/mutations/<topic>.toml` | yes | the corpus and the misunderstandings it is checked against |
 | `kink/.gitignore` | yes | its line `/.kink-flow/` keeps the caches out |
-| `kink/verdicts.lock` | yes; CI runs `krs kink run --locked` | each mutation's verdict and its one recorded killer; `run` tries it first |
-| `kink/coverage.lock` | yes; CI runs `krs kink coverage --locked` | each family's open obligations, each condition flip's status and its one recorded killer; `coverage` tries it first |
+| `kink/kink.lock` | yes; CI runs `krs kink run --locked` and `krs kink coverage --locked`, and `krs kink compare --locked` with an `[[implementation]]` | the corpus's record: `[run]`, each mutation's verdict and its one recorded killer, which `run` tries first; `[coverage]`, each family's open obligations, each condition flip's status and its one recorded killer, which `coverage` tries first; `[compare]`, each implementation's verdict on each case under each view |
 | `kink/PATTERNS.toml`, `kink/TEMPLATES.toml` | yes, when used | the patterns `query` checks, and the case templates `fuzz` searches |
 | `kink/.kink-flow/` | never | caches, keyed by every input, so a fresh checkout recomputes them |
 
