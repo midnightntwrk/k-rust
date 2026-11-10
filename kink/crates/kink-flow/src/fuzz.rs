@@ -1017,6 +1017,31 @@ fn instance(
             )
         }
     };
+    // A fuzz campaign varies and replays K text only: an input the template leaves to its
+    // declared default would be bound by kink's assembly and not by the campaign's.
+    let bound = text
+        .as_ref()
+        .map(|_| "PGM".to_owned())
+        .into_iter()
+        .chain(
+            variables
+                .iter()
+                .map(|(name, _)| name.strip_prefix('$').unwrap_or(name).to_owned()),
+        )
+        .collect::<BTreeSet<_>>();
+    let defaulted = inputs.defaults(&bound).map_err(refused)?;
+    if !defaulted.is_empty() {
+        return Err(refused(format!(
+            "the template binds no value for {}, which take their declared defaults, and fuzz \
+             does not carry a default yet: fuzz varies K text, so bind every input as K text \
+             under `variables`",
+            defaulted
+                .iter()
+                .map(|(name, _)| format!("${name}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
     Ok(Instance {
         text,
         start_sort,
@@ -1312,6 +1337,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         text,
         typed: Vec::new(),
         bound: None,
+        defaults: Vec::new(),
     };
     let digest = program_digest(&program, &inputs).to_string();
     let id = format!("{}-fz-{}", template.id, &digest[..8]);
@@ -1568,6 +1594,7 @@ fn template_inputs(instance: &Instance) -> CaseInputs {
         text: instance.text.clone(),
         typed: Vec::new(),
         bound: None,
+        defaults: Vec::new(),
     }
 }
 

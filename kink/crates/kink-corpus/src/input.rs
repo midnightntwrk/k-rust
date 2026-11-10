@@ -34,13 +34,17 @@ pub struct TestInputSpec {
 }
 
 /// The value of one configuration variable: K text, read at the variable's sort with the rule
-/// every tool reads a variable's text with (k-rust `variable_reading_modules`), or a KAST term a
+/// every tool reads a variable's text with (k-rust `variable_reading_modules`), a KAST term a
 /// front end built without the parser, which is typed and macro-expanded as a parsed value is and
-/// must have a sort at most the variable's (k-rust `ConfigurationAssembler::bind_term`).
+/// must have a sort at most the variable's (k-rust `ConfigurationAssembler::bind_term`), or a
+/// KORE value a front end lowered with the definition at exactly the variable's declared sort
+/// (an input's declared default), placed as every value is and not typed again (k-rust
+/// `ConfigurationAssembler::bind_pattern`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VariableInput {
     Text(String),
     Term(Term),
+    Pattern(Pattern),
 }
 
 impl From<&str> for VariableInput {
@@ -250,8 +254,9 @@ impl<'g> InputAssembler<'g> {
     /// [`assemble_input_with`] assembles it. Without a program `$PGM` is left unbound, so a
     /// definition that declares it refuses the configuration as missing `$PGM`, unless a term
     /// binds it: a [`VariableInput::Term`] for `PGM` is bound as a program built without the
-    /// parser (k-rust `ConfigurationAssembler::program_term`), and with a program text as well it
-    /// is a second `$PGM`. A program given to a definition that declares no `$PGM` is refused
+    /// parser (k-rust `ConfigurationAssembler::program_term`), and a [`VariableInput::Pattern`]
+    /// for it as a lowered program (`program_pattern`); with a program text as well either is a
+    /// second `$PGM`. A program given to a definition that declares no `$PGM` is refused
     /// (`StrayProgram`), since it would bind nothing.
     ///
     /// The assembler is cleared first, so a configuration an earlier call abandoned on an error
@@ -288,6 +293,12 @@ impl<'g> InputAssembler<'g> {
                     assembler.program_term(term.clone())
                 }
                 VariableInput::Term(term) => assembler.bind_term(name, term.clone()),
+                VariableInput::Pattern(pattern)
+                    if name.strip_prefix('$').unwrap_or(name) == "PGM" =>
+                {
+                    assembler.program_pattern(pattern.clone())
+                }
+                VariableInput::Pattern(pattern) => assembler.bind_pattern(name, pattern.clone()),
             }
             .map_err(input_error)?;
         }

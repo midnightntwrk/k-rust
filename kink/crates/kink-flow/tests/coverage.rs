@@ -387,10 +387,39 @@ fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
         text: None,
         typed: Vec::new(),
         bound: None,
+        defaults: Vec::new(),
     };
     assert_ne!(
         program_digest(&program("p"), &bare),
         program_digest(&program("p"), &"".into())
+    );
+    // A declared default the case takes enters by its value: the K text of the definition does
+    // not hold it, so the digest is what changes when only the default does.
+    let defaulted = |kore: &str| CaseInputs {
+        defaults: vec![(
+            "LOG".to_owned(),
+            k_rust::kore::parser::parse_pattern(kore).unwrap(),
+        )],
+        ..bare.clone()
+    };
+    let one = program_digest(
+        &program("p"),
+        &defaulted(r#"Lblboot{}(\dv{SortInt{}}("1"))"#),
+    );
+    assert_ne!(one, program_digest(&program("p"), &bare));
+    assert_ne!(
+        one,
+        program_digest(
+            &program("p"),
+            &defaulted(r#"Lblboot{}(\dv{SortInt{}}("4"))"#)
+        )
+    );
+    assert_eq!(
+        one,
+        program_digest(
+            &program("p"),
+            &defaulted(r#"Lblboot{}(\dv{SortInt{}}("1"))"#)
+        )
     );
 }
 

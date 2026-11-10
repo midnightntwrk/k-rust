@@ -2735,6 +2735,113 @@ entry = { Load = { addr = 2, len = 3 } }
     assert_eq!(changed["cached"], false, "{changed:#}");
 }
 
+/// [`COUNTER`] with three inputs: the main one and `log` declare defaults, a constructor and a
+/// call, and `seed` declares none.
+fn defaulted_counter(log_default: &str) -> String {
+    let source = COUNTER
+        .replace(
+            "use k::builtin::{Int, KSequence, int};",
+            "use k::builtin::{Int, KSequence, List, int};",
+        )
+        .replace(
+            "    pub k: KSequence,\n}",
+            "    pub k: KSequence,\n    #[k::cell]\n    pub log: List<Exp>,\n    #[k::cell]\n    pub seed: Int,\n}",
+        )
+        .replace(
+            "    pub fn init(pgm: Exp) -> Self {\n        Self { k: k::k![pgm] }",
+            &format!(
+                "    pub fn init(\n        #[k::config_var(name = \"PGM\", main, default = ExpSyntax::Count(2))] pgm: Exp,\n        #[k::config_var(name = \"LOG\", default = {log_default})] log: List<Exp>,\n        #[k::config_var(name = \"SEED\")] seed: Int,\n    ) -> Self {{\n        Self {{ k: k::k![pgm], log, seed }}"
+            ),
+        );
+    assert!(source.contains("default = Boot"), "{source}");
+    format!(
+        "{source}\n#[k::function(total, internal)]\npub fn Boot(n: k::Term<Int>) -> k::Term<List<Exp>> {{\n    [ExpSyntax::Count(n)]\n}}\n"
+    )
+}
+
+/// A case that binds no value for an input with a declared default takes the default, the main
+/// input's included, and ends where binding each default by hand ends: both meet one
+/// expectation. A program that binds no value for an input without a default is refused naming
+/// it. The default is part of the definition but not of its K text, so the program digest of a
+/// case that takes it holds it: changing only the default changes that digest, and the result is
+/// computed again, while a case that binds the input keeps its digest and its end.
+#[test]
+fn a_program_that_omits_a_defaulted_input_takes_its_default() {
+    let flow = br#"[spec]
+krs = { definition = "main" }
+
+[[program]]
+cases = "cases/*.toml"
+
+[[program]]
+id = "no-seed"
+text = "count(1)"
+"#;
+    let expect = "\n[expect]\nhalt = \"stuck\"\ncompare = [\"log\", \"seed\"]\ncells = { log = [{ Count = [1] }], seed = 5 }\n";
+    let project = project_of(
+        "krs-cli-kink-defaults",
+        "ORG-KRS-CLI-KINK-DEFAULTS",
+        &[
+            (
+                "src/lib.rs".to_owned(),
+                defaulted_counter("Boot(1)").into_bytes(),
+            ),
+            ("kink/FLOW.toml".to_owned(), flow.to_vec()),
+            (
+                "kink/cases/omitted.toml".to_owned(),
+                format!("[inputs]\nseed = 5\n{expect}").into_bytes(),
+            ),
+            (
+                "kink/cases/by-hand.toml".to_owned(),
+                format!(
+                    "[inputs]\npgm = {{ Count = [2] }}\nseed = 5\nlog = {{ \"$call\" = {{ Boot = [1] }} }}\n{expect}"
+                )
+                .into_bytes(),
+            ),
+        ],
+    );
+    let rows = |output: &Output| {
+        let document = json(output);
+        let rows = document["programs"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{document:#}"))
+            .iter()
+            .map(|row| (row["id"].as_str().unwrap().to_owned(), row.clone()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        (document, rows)
+    };
+    let (document, first) = rows(&project.kink("coverage", &[]));
+    let (omitted, by_hand) = (&first["cases/omitted.toml"], &first["cases/by-hand.toml"]);
+    for row in [omitted, by_hand] {
+        assert_eq!(row["class"], "comparable", "{document:#}");
+        assert_eq!(row["expectation"]["verdict"], "met", "{document:#}");
+    }
+    assert_eq!(omitted["ends"], by_hand["ends"], "{document:#}");
+    let refused = &first["no-seed"];
+    assert_eq!(refused["class"], "refused", "{document:#}");
+    assert!(
+        refused["cause"].to_string().contains("$SEED"),
+        "{refused:#}"
+    );
+
+    // Only the default changes: the K text is the same.
+    project.write("src/lib.rs", defaulted_counter("Boot(4)"));
+    let (document, second) = rows(&project.kink("coverage", &[]));
+    let (omitted_now, by_hand_now) = (&second["cases/omitted.toml"], &second["cases/by-hand.toml"]);
+    assert_eq!(
+        document["definition"]["status"], "unchanged",
+        "{document:#}"
+    );
+    assert_ne!(omitted_now["digest"], omitted["digest"], "{document:#}");
+    assert_eq!(omitted_now["cached"], false, "{document:#}");
+    assert_eq!(
+        omitted_now["expectation"]["verdict"], "unmet",
+        "{document:#}"
+    );
+    assert_eq!(by_hand_now["digest"], by_hand["digest"], "{document:#}");
+    assert_eq!(by_hand_now["expectation"]["verdict"], "met", "{document:#}");
+}
+
 /// The definition the front end's mutation checks judge (its module doc says what it holds).
 const CHECKED: &str = include_str!("fixtures/kink-checks/src/lib.rs");
 

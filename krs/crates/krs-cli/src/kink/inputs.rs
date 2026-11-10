@@ -15,12 +15,20 @@
 //! text programs compiles nothing; the bytes, the message for a file that is not text, and a
 //! parameter type the Definition IR alone does not give ([`krs_exec::MainVariable`]) need the
 //! native compile.
+//!
+//! A case that binds no value for an input with a declared default takes the default, as `krs
+//! run` does ([`krs_exec::Semantics::configure`]): the decoder gives kink the KORE value the
+//! native compile lowered for it ([`krs_exec::Semantics::input_defaults`]), which kink binds as
+//! that value, so the case starts where binding the default by hand starts. Which inputs have a
+//! default the Definition IR says, so a case that binds every input compiles nothing for it.
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use k_rust::kast::Term;
+use k_rust::kore::ast::Pattern;
 use kink_flow::{InputDecoder, ProgramBinding};
 use krs_exec::{ConfigValue, ExecError, MainVariable, ProgramFile, Semantics};
 use krs_ir_levels::DefinitionIr;
@@ -34,6 +42,8 @@ pub(crate) struct KrsInputs {
     main: Option<MainVariable>,
     /// Whether a parameter's configuration variable is `$PGM`, read from the Definition IR.
     declares_pgm: bool,
+    /// The K names of the inputs with a declared default, read from the Definition IR.
+    defaulted: Vec<String>,
 }
 
 impl KrsInputs {
@@ -43,6 +53,7 @@ impl KrsInputs {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
             main: krs_exec::main_variable(&definition),
             declares_pgm: krs_exec::declares_variable(&definition, "PGM"),
+            defaulted: krs_exec::defaulted_variables(&definition),
             definition: Arc::new(definition),
         }
     }
@@ -125,6 +136,37 @@ impl InputDecoder for KrsInputs {
             semantics
                 .input_term(name, &value)
                 .map_err(|error| error.to_string())
+        })
+    }
+
+    /// The default of each input with one that `bound` does not name: the KORE value
+    /// `krs run` binds for it ([`krs_exec::Semantics::input_defaults`]), from the native compile,
+    /// which is made only where some default is taken.
+    fn defaults(&self, bound: &BTreeSet<String>) -> Result<Vec<(String, Pattern)>, String> {
+        let taken = self
+            .defaulted
+            .iter()
+            .filter(|variable| !bound.contains(*variable))
+            .collect::<Vec<_>>();
+        if taken.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_semantics("binding an input's default", |semantics| {
+            taken
+                .into_iter()
+                .map(|variable| {
+                    semantics
+                        .input_defaults()
+                        .get(variable)
+                        .map(|pattern| (variable.clone(), pattern.clone()))
+                        .ok_or_else(|| {
+                            format!(
+                                "the Definition IR declares a default for ${variable}, and its \
+                                 native compile carries none"
+                            )
+                        })
+                })
+                .collect()
         })
     }
 

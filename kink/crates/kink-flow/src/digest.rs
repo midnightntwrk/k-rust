@@ -104,6 +104,15 @@ pub fn spec_digest(manifest: &FlowManifest, files: &[SourceFile]) -> Sha256Diges
 /// changes the term and so the digest, and reformatting the file does not. A program with a
 /// program text and no typed inputs has exactly the payload it had before typed inputs existed,
 /// so its digest, and every result and outcome cached under it, is unchanged.
+///
+/// A declared default the program takes ([`CaseInputs::defaults`]) enters by its value too:
+/// `{name, kore_sha256}`, the variable's K name and the sha256 of the default's KORE text,
+/// sorted by name, under `defaults`, absent when the program takes none. The default is part of
+/// the definition, yet the execution digest does not see it: it is the loaded K definition's,
+/// and a K configuration declares no defaults, so the K text is the same whatever the default.
+/// So a program's digest, and every result and outcome cached under it, changes when only a
+/// default it takes changes, and a program that binds every input keeps the payload it had
+/// before defaults existed.
 pub fn program_payload(program: &Program, inputs: &CaseInputs) -> Value {
     let mut variables = program.variables.clone();
     variables.sort();
@@ -133,6 +142,23 @@ pub fn program_payload(program: &Program, inputs: &CaseInputs) -> Value {
         payload["typed"] = typed
             .into_iter()
             .map(|(name, kast_sha256)| json!({"name": name, "kast_sha256": kast_sha256}))
+            .collect();
+    }
+    if !inputs.defaults.is_empty() {
+        let mut defaults = inputs
+            .defaults
+            .iter()
+            .map(|(name, pattern)| {
+                (
+                    name.clone(),
+                    sha256(pattern.to_string().as_bytes()).to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        defaults.sort();
+        payload["defaults"] = defaults
+            .into_iter()
+            .map(|(name, kore_sha256)| json!({"name": name, "kore_sha256": kore_sha256}))
             .collect();
     }
     payload

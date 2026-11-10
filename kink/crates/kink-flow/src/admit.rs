@@ -54,7 +54,9 @@ use crate::evidence::Renderer;
 pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{Decoder, FlowManifest, Program};
 use crate::observed::{ResultProjection, result_projection};
-use k_rust::{backend::Backend, k_rust_backend::definition::BackendDefinition, kast::Term};
+use k_rust::{
+    backend::Backend, k_rust_backend::definition::BackendDefinition, kast::Term, kore::ast::Pattern,
+};
 use kink_campaign::TestCase;
 use kink_corpus::{
     CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
@@ -80,7 +82,7 @@ use kink_patch::SemanticInput;
 use std::{
     borrow::Cow,
     cell::OnceCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -116,6 +118,18 @@ pub trait InputDecoder {
     fn program(&self, name: Option<&str>, bytes: &[u8]) -> Option<Result<ProgramBinding, String>> {
         let _ = (name, bytes);
         None
+    }
+
+    /// The declared default of each input with one that a case binding exactly `bound` (K names
+    /// without `$`) gives no value: the configuration variable's K name (without `$`) and the
+    /// KORE value the front end lowered with the definition at the variable's declared sort, which
+    /// kink binds as that value, so the case is the one that binds the default by hand. A case
+    /// that binds an input replaces its default whole. The default method knows none, as a K
+    /// definition declares none. The error is the reader's message, which admission reports as
+    /// the refusal's detail (`input-value`).
+    fn defaults(&self, bound: &BTreeSet<String>) -> Result<Vec<(String, Pattern)>, String> {
+        let _ = bound;
+        Ok(Vec::new())
     }
 }
 
@@ -201,6 +215,10 @@ pub struct CaseInputs {
     /// The program, where the front end's decoder binds it otherwise than as `$PGM` text
     /// ([`InputDecoder::program`]): to another variable, or as a term.
     pub bound: Option<BoundProgram>,
+    /// Each declared default the case takes, as the front end's decoder gives it
+    /// ([`InputDecoder::defaults`]): the configuration variable's K name (without `$`) of an
+    /// input the case binds no value for, and its default's KORE value, sorted by name.
+    pub defaults: Vec<(String, Pattern)>,
 }
 
 /// A program the front end bound otherwise than as `$PGM` text.
@@ -223,6 +241,7 @@ impl CaseInputs {
             text: Some(text.into()),
             typed: Vec::new(),
             bound: None,
+            defaults: Vec::new(),
         }
     }
 }
@@ -475,6 +494,13 @@ impl ProgramInputs {
         read_inputs(&self.root, &self.decoder, &self.renderer, program)
     }
 
+    /// The declared defaults a case that binds exactly `bound` (K names without `$`) takes, by
+    /// the manifest's decoder ([`InputDecoder::defaults`]), sorted by name; none without a
+    /// decoder. The error is the decoder's message.
+    pub fn defaults(&self, bound: &BTreeSet<String>) -> Result<Vec<(String, Pattern)>, String> {
+        decoder_defaults(&self.decoder, bound)
+    }
+
     /// A session that admits programs of `spec`, which must be the specification these inputs
     /// were admitted with (the other half of the pair `admit_spec` returned, or a clone of
     /// it): the input grammar is a function of the specification, and these inputs keep the
@@ -613,13 +639,20 @@ fn read_typed_inputs(
         (None, None) => None,
     };
     if program.inputs.is_empty() {
+        let defaults = case_defaults(
+            decoder,
+            program,
+            program_variable,
+            &BTreeMap::<String, ()>::new(),
+        )?;
         return Ok(CaseInputs {
             text,
             typed: Vec::new(),
             bound,
+            defaults,
         });
     }
-    let Some(decoder) = decoder.get() else {
+    let Some(decoder_ref) = decoder.get() else {
         return Err(AdmissionRefusal {
             stage: "inputs".into(),
             reason: "typed-inputs".into(),
@@ -635,7 +668,7 @@ fn read_typed_inputs(
     // By K name, with the input name each came from.
     let mut typed = BTreeMap::<String, (String, Term)>::new();
     for (name, document) in &program.inputs {
-        let (variable, term) = decoder
+        let (variable, term) = decoder_ref
             .decode(name, document, &mut files)
             .map_err(|message| value_refusal(format!("input `{name}`: {message}")))?;
         let variable = variable.strip_prefix('$').unwrap_or(&variable).to_owned();
@@ -662,6 +695,7 @@ fn read_typed_inputs(
         }
         typed.insert(variable, (name.clone(), term));
     }
+    let defaults = case_defaults(decoder, program, program_variable, &typed)?;
     Ok(CaseInputs {
         text,
         typed: typed
@@ -669,7 +703,51 @@ fn read_typed_inputs(
             .map(|(variable, (_, term))| (variable, term))
             .collect(),
         bound,
+        defaults,
     })
+}
+
+/// The defaults `program` takes ([`CaseInputs::defaults`]): the front end's decoder's
+/// ([`InputDecoder::defaults`]) for every input the case binds no value for, by the program
+/// (`program_variable`), `variables` or a typed input (`typed`, by K name); none without a
+/// decoder. A decoder's refusal refuses the program (`inputs`/`input-value`).
+fn case_defaults<T>(
+    decoder: &Decoder,
+    program: &Program,
+    program_variable: Option<(&str, &str)>,
+    typed: &BTreeMap<String, T>,
+) -> Result<Vec<(String, Pattern)>, AdmissionRefusal> {
+    let bound = program_variable
+        .map(|(variable, _)| variable.to_owned())
+        .into_iter()
+        .chain(
+            program
+                .variables
+                .iter()
+                .map(|(name, _)| name.strip_prefix('$').unwrap_or(name).to_owned()),
+        )
+        .chain(typed.keys().cloned())
+        .collect::<BTreeSet<_>>();
+    decoder_defaults(decoder, &bound).map_err(|message| AdmissionRefusal {
+        stage: "inputs".into(),
+        reason: "input-value".into(),
+        detail: format!("the inputs' defaults: {message}"),
+    })
+}
+
+/// The defaults the decoder gives a case that binds exactly `bound` ([`InputDecoder::defaults`]),
+/// without any of `bound` and sorted by name; none without a decoder.
+fn decoder_defaults(
+    decoder: &Decoder,
+    bound: &BTreeSet<String>,
+) -> Result<Vec<(String, Pattern)>, String> {
+    let Some(decoder) = decoder.get() else {
+        return Ok(Vec::new());
+    };
+    let mut defaults = decoder.defaults(bound)?;
+    defaults.retain(|(variable, _)| !bound.contains(variable));
+    defaults.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(defaults)
 }
 
 /// Admits the programs of one admitted specification. The program grammar and the
@@ -832,7 +910,8 @@ impl<'a> InputSession<'a> {
 }
 
 /// A program's bindings by name, in binding order: the program where the front end binds it
-/// by name ([`CaseInputs::bound`]), its text variables, then its typed inputs.
+/// by name ([`CaseInputs::bound`]), its text variables, its typed inputs, then the defaults it
+/// takes ([`CaseInputs::defaults`]).
 fn bindings(program: &Program, inputs: &CaseInputs) -> Vec<(String, VariableInput)> {
     inputs
         .bound
@@ -849,6 +928,12 @@ fn bindings(program: &Program, inputs: &CaseInputs) -> Vec<(String, VariableInpu
                 .typed
                 .iter()
                 .map(|(name, term)| (name.clone(), VariableInput::Term(term.clone()))),
+        )
+        .chain(
+            inputs
+                .defaults
+                .iter()
+                .map(|(name, pattern)| (name.clone(), VariableInput::Pattern(pattern.clone()))),
         )
         .collect()
 }
@@ -892,6 +977,12 @@ fn named_inputs(program: &Program, inputs: &CaseInputs) -> String {
                 .typed
                 .iter()
                 .map(|(name, _)| format!("${name} (a typed input)")),
+        )
+        .chain(
+            inputs
+                .defaults
+                .iter()
+                .map(|(name, _)| format!("${name} (its default)")),
         )
         .collect::<Vec<_>>()
         .join(", ")
