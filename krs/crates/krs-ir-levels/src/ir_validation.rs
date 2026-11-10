@@ -143,6 +143,10 @@ pub(crate) trait Validation: IrLevel {
     fn group_sort(cell: &FixedCell<Self::Sort, Self::Cell>) -> Option<Self::Sort>;
     /// Extracts the cell named by a group-cell sort (`IrSortRef::Cell`).
     fn cell_sort(sort: &Self::Sort) -> Option<&Self::Declaration>;
+    /// Extracts the cell named by a sort keyed by a cell's identity (`IrSortRef::LeafCell`,
+    /// `IrSortRef::CellCollection`), which is checked as a cell reference: a registered fixed
+    /// cell of the level.
+    fn cell_identity_sort(sort: &Self::Sort) -> Option<&Self::Cell>;
     /// Checks the cell named by a group-cell sort (`IrSortRef::Cell`): a
     /// nominal `#[k::cell]` declaration in Semantic IR, a fixed-cell symbol in
     /// Definition IR.
@@ -637,20 +641,20 @@ fn configuration_leaf_sorts<L: Validation>(
 
 /// Completes the judging graph with K's `S <: KItem` for every sort `S` but
 /// `K`: each declared sort in `declared`, each builtin sort other than `K`,
-/// each sort the graph already names, and the generated sort of every nested
-/// (group) cell of the configuration. In the emitted K every sort but `K` is
+/// each sort the graph already names, and the generated sort of every cell of
+/// the configuration, nested (group) or leaf, and of every collection cell's instances. In the emitted K every sort but `K` is
 /// a `KItem`, whether or not a subsort sentence states it, so a term of any
 /// of them may stand wherever a `KItem` is expected, as the compiler's
 /// inference catalog also allows. Sort parameters are not sorts and get no
 /// edge.
 pub(crate) fn insert_k_item_parents<D, L>(
     configuration: Option<&Configuration<L>>,
-    k_item: Option<IrSortRef<D>>,
+    k_item: Option<IrSortRef<D, L::Cell>>,
     declared: impl IntoIterator<Item = D>,
     parents: &mut SortParents<L>,
 ) where
     D: Clone + Ord,
-    L: Validation<Sort = IrSortRef<D>>,
+    L: Validation<Sort = IrSortRef<D, <L as IrLevel>::Cell>>,
 {
     let Some(k_item) = k_item else {
         return;
@@ -668,6 +672,14 @@ pub(crate) fn insert_k_item_parents<D, L>(
                 .into_values()
                 .filter_map(|(sort, _)| sort),
         );
+        for (id, cell) in configuration_cell_index::<L>(configuration) {
+            if matches!(cell.content(), FixedCellContent::Term { .. }) {
+                sorts.insert(IrSortRef::LeafCell(id.clone()));
+            }
+            if cell.multiplicity() == Some(krs_ir::CellMultiplicity::Star) {
+                sorts.insert(IrSortRef::CellCollection(id));
+            }
+        }
     }
     for sort in sorts {
         if sort == k_item
@@ -1825,6 +1837,9 @@ pub(crate) fn validate_term_cell_references<L: Validation>(
     declarations: &Declarations<L>,
     cell_ids: &BTreeSet<L::Cell>,
 ) -> Result<(), L::Error> {
+    if let Some(cell) = L::cell_identity_sort(term.sort()) {
+        L::require_cell(declarations, cell_ids, cell)?;
+    }
     let children = match term.kind() {
         IrTermKind::Cell { cell, children } => {
             L::require_cell(declarations, cell_ids, cell)?;
@@ -2068,6 +2083,11 @@ fn validate_term_node<L: Validation>(
 ) -> Result<(), L::Error> {
     insert_node::<L>(nodes, term.origin().key())?;
     require_sort::<L>(declarations, term.sort())?;
+    if L::CHECK_CELL_REFERENCES_DURING_TERM_VALIDATION
+        && let Some(cell) = L::cell_identity_sort(term.sort())
+    {
+        L::require_cell(declarations, cell_ids, cell)?;
+    }
     if L::parameter_name(term.sort()).is_some() {
         return Err(L::error(ValidationError::ParameterSortInTerm));
     }

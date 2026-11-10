@@ -969,7 +969,10 @@ impl ValueIndex {
         let sort_ref = |sort: &DefinitionSortRef| match sort {
             DefinitionSortRef::Builtin(builtin) => Some(SortRef::Builtin(*builtin)),
             DefinitionSortRef::Declared(symbol) => sorts_by_symbol.get(symbol).cloned(),
-            DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => None,
+            DefinitionSortRef::Cell(_)
+            | DefinitionSortRef::LeafCell(_)
+            | DefinitionSortRef::CellCollection(_)
+            | DefinitionSortRef::Parameter(_) => None,
         };
         for module in definition.modules() {
             for sentence in module.sentences() {
@@ -1190,7 +1193,10 @@ impl ValueIndex {
         match sort {
             DefinitionSortRef::Builtin(builtin) => Some(SortRef::Builtin(*builtin)),
             DefinitionSortRef::Declared(symbol) => self.sorts_by_symbol.get(symbol).cloned(),
-            DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => None,
+            DefinitionSortRef::Cell(_)
+            | DefinitionSortRef::LeafCell(_)
+            | DefinitionSortRef::CellCollection(_)
+            | DefinitionSortRef::Parameter(_) => None,
         }
     }
 

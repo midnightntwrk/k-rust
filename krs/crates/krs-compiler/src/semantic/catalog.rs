@@ -33,6 +33,14 @@ pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
         DescriptorSortRef::Declared(id) => SemanticSortRef::Declared(id.clone()),
         DescriptorSortRef::Builtin(sort) => SemanticSortRef::Builtin(*sort),
         DescriptorSortRef::Cell(id) => SemanticSortRef::Cell(id.clone()),
+        DescriptorSortRef::LeafCell(cell) => SemanticSortRef::LeafCell(
+            super::origin::semantic_cell_id(cell)
+                .expect("a cell's owner and Rust field name a valid cell id"),
+        ),
+        DescriptorSortRef::CellCollection(cell) => SemanticSortRef::CellCollection(
+            super::origin::semantic_cell_id(cell)
+                .expect("a cell's owner and Rust field name a valid cell id"),
+        ),
         DescriptorSortRef::Parameter(name) => {
             SemanticSortRef::Parameter(krs_ir_levels::SortParameterId::new(name.clone()))
         }

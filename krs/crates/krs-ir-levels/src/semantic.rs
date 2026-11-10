@@ -70,7 +70,7 @@ pub type SemanticProductionItem = GrammarProductionItem<SemanticSortRef>;
 pub type SemanticProductionAttribute = ProductionAttribute<SemanticSortRef, StableItemId>;
 
 /// A resolved sort reference in semantic IR.
-pub type SemanticSortRef = crate::IrSortRef<StableItemId>;
+pub type SemanticSortRef = crate::IrSortRef<StableItemId, SemanticId>;
 
 /// A checked resolved semantic theory.
 ///

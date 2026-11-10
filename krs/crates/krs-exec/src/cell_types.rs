@@ -279,7 +279,10 @@ fn cell_type(
     let (kore, builtin) = match sort {
         DefinitionSortRef::Builtin(builtin) => (kore_sort_name(builtin.k_name()), Some(*builtin)),
         DefinitionSortRef::Declared(symbol) => (sort_names.get(symbol)?.clone(), None),
-        DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => return None,
+        DefinitionSortRef::Cell(_)
+        | DefinitionSortRef::LeafCell(_)
+        | DefinitionSortRef::CellCollection(_)
+        | DefinitionSortRef::Parameter(_) => return None,
     };
     let arguments = arguments
         .iter()

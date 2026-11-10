@@ -502,7 +502,11 @@ impl Signature {
     fn is_open(&self, sort: &Sort) -> bool {
         match sort {
             Sort::Builtin(BuiltinSort::Bool) => false,
-            Sort::Builtin(_) | Sort::Cell(_) | Sort::Parameter(_) => true,
+            Sort::Builtin(_)
+            | Sort::Cell(_)
+            | Sort::LeafCell(_)
+            | Sort::CellCollection(_)
+            | Sort::Parameter(_) => true,
             Sort::Declared(id) => {
                 let built = self.sorts.iter().any(|below| {
                     self.is_subsort(below, sort)
@@ -641,6 +645,8 @@ fn sort_name(sort: &Sort) -> String {
     match sort {
         Sort::Builtin(builtin) => builtin.k_name().to_owned(),
         Sort::Declared(id) | Sort::Cell(id) => id.item_name().to_owned(),
+        Sort::LeafCell(_) => crate::LEAF_CELL_SORT.to_owned(),
+        Sort::CellCollection(_) => crate::CELL_COLLECTION_SORT.to_owned(),
         Sort::Parameter(parameter) => parameter.as_str().to_owned(),
     }
 }

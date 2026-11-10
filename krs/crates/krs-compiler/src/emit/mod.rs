@@ -446,7 +446,14 @@ impl<'a> EmitContext<'a> {
         match sort {
             DefinitionSortRef::Declared(id) => self.sort_name(id).map(std::borrow::Cow::Borrowed),
             DefinitionSortRef::Builtin(sort) => Ok(std::borrow::Cow::Borrowed(sort.k_name())),
-            DefinitionSortRef::Cell(id) => self
+            DefinitionSortRef::CellCollection(id) => self
+                .index
+                .cell_collection_sort_name(id)
+                .map(std::borrow::Cow::Owned)
+                .ok_or_else(|| {
+                    EmitError::InvalidReference(format!("missing source collection cell {id}"))
+                }),
+            DefinitionSortRef::Cell(id) | DefinitionSortRef::LeafCell(id) => self
                 .index
                 .cell_sort_name(id)
                 .map(std::borrow::Cow::Owned)

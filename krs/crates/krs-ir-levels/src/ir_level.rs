@@ -46,7 +46,7 @@ pub struct SemanticLevel;
 pub struct DefinitionLevel;
 
 impl IrLevel for SemanticLevel {
-    type Sort = IrSortRef<StableItemId>;
+    type Sort = IrSortRef<StableItemId, SemanticId>;
     type Declaration = StableItemId;
     type Cell = SemanticId;
     type RuleTerm = Box<IrTerm<Self>>;
@@ -85,10 +85,11 @@ impl IrLevel for DefinitionLevel {
     }
 }
 
-/// A declared or builtin sort reference at one IR level.
+/// A declared or builtin sort reference at one IR level. `D` identifies a declaration, `C` a
+/// cell (the level's [`IrLevel::Cell`]).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "sort_source", content = "sort", rename_all = "snake_case")]
-pub enum IrSortRef<D> {
+pub enum IrSortRef<D, C = D> {
     /// A sort declaration identity at this IR level.
     Declared(D),
     /// Sort intrinsic to the K language.
@@ -97,6 +98,17 @@ pub enum IrSortRef<D> {
     /// `<frame>`: the nominal `#[k::cell]` declaration at Semantic level and
     /// the group cell's symbol at Definition level. It is a subsort of `KItem`.
     Cell(D),
+    /// K's generated sort of one leaf cell, such as `OoCell` for `<oo>`, by the cell's identity
+    /// at this level: its cell id at Semantic level, its symbol at Definition level. A leaf has
+    /// no declaration of its own to name it by, as a group has. Its values are what the cell's
+    /// place in its parent holds: the cell, and for a `?` cell also its absence, `.OoCell`. It
+    /// is a subsort of `KItem`.
+    LeafCell(C),
+    /// K's generated sort of the instances of one collection (`*`) cell, such as
+    /// `AcctCellMap` for `<acct multiplicity="*" type="Map">`, by the cell's identity at this
+    /// level, as [`Self::LeafCell`]. Its values are what the cell's place in its parent holds:
+    /// the collection of the cell's instances, empty included. It is a subsort of `KItem`.
+    CellCollection(C),
     /// A sort parameter of a parametric production (`S` of K's
     /// `syntax {S} S ::= choose(Bool, S, S)`, KF-027). It occurs only in the
     /// signature of the production that declares it, never in a term.
@@ -129,7 +141,7 @@ impl std::fmt::Display for SortParameterId {
     }
 }
 
-impl<D> IrSortRef<D> {
+impl<D, C> IrSortRef<D, C> {
     /// Refers to a declared sort.
     #[must_use]
     pub const fn declared(sort: D) -> Self {
@@ -2224,7 +2236,7 @@ impl<L: IrLevel> Serialize for IrTermKind<L> {
 
 impl<L> IrTerm<L>
 where
-    L: IrLevel<Sort = IrSortRef<<L as IrLevel>::Declaration>>,
+    L: IrLevel<Sort = IrSortRef<<L as IrLevel>::Declaration, <L as IrLevel>::Cell>>,
 {
     /// Creates an explicit source-level K computation sequence.
     /// The frontend remains responsible for inserting each item's injection into `KItem`.

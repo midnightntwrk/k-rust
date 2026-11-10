@@ -13,16 +13,20 @@ use k_rust_domain::{TokenValue, prelude_token_value};
 use krs_ir_levels::IrSortRef;
 
 /// The value the token `text` of `sort` denotes, when it denotes one other than its text.
-fn value<D>(sort: &IrSortRef<D>, text: &str) -> Option<TokenValue> {
+fn value<D, C>(sort: &IrSortRef<D, C>, text: &str) -> Option<TokenValue> {
     match sort {
         IrSortRef::Builtin(builtin) => prelude_token_value(builtin.k_name(), text),
-        IrSortRef::Declared(_) | IrSortRef::Cell(_) | IrSortRef::Parameter(_) => None,
+        IrSortRef::Declared(_)
+        | IrSortRef::Cell(_)
+        | IrSortRef::LeafCell(_)
+        | IrSortRef::CellCollection(_)
+        | IrSortRef::Parameter(_) => None,
     }
 }
 
 /// Whether the tokens `left` and `right` of `sort` denote one value: equal texts, or equal
 /// values ([`value`]).
-pub(crate) fn same_token<D>(sort: &IrSortRef<D>, left: &str, right: &str) -> bool {
+pub(crate) fn same_token<D, C>(sort: &IrSortRef<D, C>, left: &str, right: &str) -> bool {
     left == right
         || matches!(
             (value(sort, left), value(sort, right)),
@@ -33,7 +37,7 @@ pub(crate) fn same_token<D>(sort: &IrSortRef<D>, left: &str, right: &str) -> boo
 /// A text naming the value the token `text` of `sort` denotes and no other, by which two
 /// tokens of `sort` are equal exactly when [`same_token`] holds of them: the value's key, or the
 /// text itself, each marked apart. A key to compare by, not a token.
-pub(crate) fn token_key<D>(sort: &IrSortRef<D>, text: &str) -> String {
+pub(crate) fn token_key<D, C>(sort: &IrSortRef<D, C>, text: &str) -> String {
     match value(sort, text) {
         Some(value) => format!("value:{}", value.key()),
         None => format!("text:{text}"),

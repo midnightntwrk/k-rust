@@ -3953,7 +3953,9 @@ impl StructuredTermBuilder<'_> {
                     super::overload::sort_name(&semantic),
                 ))
             }
-            SemanticSortRef::Cell(_) => Some(format!(
+            SemanticSortRef::Cell(_)
+            | SemanticSortRef::LeafCell(_)
+            | SemanticSortRef::CellCollection(_) => Some(format!(
                 "`k::lexeme!({}, {text:?})` names a generated cell sort, which is not a token sort",
                 super::overload::sort_name(&semantic),
             )),
@@ -4422,7 +4424,10 @@ impl StructuredTermBuilder<'_> {
                 .catalog
                 .values()
                 .any(|signature| signature.token && signature.result_sort == *sort),
-            SemanticSortRef::Cell(_) | SemanticSortRef::Parameter(_) => false,
+            SemanticSortRef::Cell(_)
+            | SemanticSortRef::LeafCell(_)
+            | SemanticSortRef::CellCollection(_)
+            | SemanticSortRef::Parameter(_) => false,
         }
     }
 
@@ -4914,9 +4919,10 @@ fn marker_spelling(sort: &SemanticSortRef) -> String {
     match sort {
         SemanticSortRef::Builtin(builtin) => format!("k::builtin::{}", builtin.marker_name()),
         SemanticSortRef::Declared(id) => format!("dyn {}Sort", id.item_name()),
-        SemanticSortRef::Cell(_) | SemanticSortRef::Parameter(_) => {
-            super::overload::sort_name(sort)
-        }
+        SemanticSortRef::Cell(_)
+        | SemanticSortRef::LeafCell(_)
+        | SemanticSortRef::CellCollection(_)
+        | SemanticSortRef::Parameter(_) => super::overload::sort_name(sort),
     }
 }
 

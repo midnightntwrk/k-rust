@@ -12,6 +12,8 @@ impl StableText for SemanticSortRef {
             Self::Declared(id) => format!("Declared({})", id.stable_text()),
             Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
             Self::Cell(id) => format!("Cell({})", id.stable_text()),
+            Self::LeafCell(id) => format!("LeafCell({:?})", id.as_str()),
+            Self::CellCollection(id) => format!("CellCollection({:?})", id.as_str()),
             Self::Parameter(name) => format!("Parameter({:?})", name.as_str()),
         })
     }
@@ -29,6 +31,8 @@ impl StableText for DefinitionSortRef {
             Self::Declared(id) => format!("Declared({})", id.stable_text()),
             Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
             Self::Cell(id) => format!("Cell({})", id.stable_text()),
+            Self::LeafCell(id) => format!("LeafCell({})", id.stable_text()),
+            Self::CellCollection(id) => format!("CellCollection({})", id.stable_text()),
             Self::Parameter(name) => format!("Parameter({:?})", name.as_str()),
         })
     }
@@ -65,6 +69,19 @@ mod tests {
         assert_eq!(
             DefinitionSortRef::Builtin(BuiltinSort::Bool).stable_text(),
             "Builtin(Bool)"
+        );
+        assert_eq!(
+            SemanticSortRef::LeafCell(krs_ir::SemanticId::new("cell.O.0123456789abcdef").unwrap())
+                .stable_text(),
+            "LeafCell(\"cell.O.0123456789abcdef\")"
+        );
+        assert_eq!(
+            DefinitionSortRef::LeafCell(SymbolId::new("cell.oo").unwrap()).stable_text(),
+            "LeafCell(SymbolId(\"cell.oo\"))"
+        );
+        assert_eq!(
+            DefinitionSortRef::CellCollection(SymbolId::new("cell.acct").unwrap()).stable_text(),
+            "CellCollection(SymbolId(\"cell.acct\"))"
         );
     }
 }

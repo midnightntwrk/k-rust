@@ -4,12 +4,14 @@ use std::fmt;
 
 use crate::{IrSortRef, LabelId, SymbolId, SymbolKind};
 
-impl<D: fmt::Display> fmt::Display for IrSortRef<D> {
+impl<D: fmt::Display, C: fmt::Display> fmt::Display for IrSortRef<D, C> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Declared(id) => id.fmt(formatter),
             Self::Builtin(sort) => sort.fmt(formatter),
             Self::Cell(id) => write!(formatter, "cell sort of {id}"),
+            Self::LeafCell(id) => write!(formatter, "cell sort of the leaf {id}"),
+            Self::CellCollection(id) => write!(formatter, "collection sort of the cell {id}"),
             Self::Parameter(name) => write!(formatter, "sort parameter {name}"),
         }
     }

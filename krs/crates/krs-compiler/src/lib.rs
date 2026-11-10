@@ -30,6 +30,14 @@ mod spec_tokens;
 pub mod testing;
 mod token_values;
 
+/// How a message names a leaf cell's generated sort (`IrSortRef::LeafCell`): a Semantic leaf
+/// cell is named by its cell id, which carries no name an author wrote.
+pub(crate) const LEAF_CELL_SORT: &str = "the sort of a leaf cell";
+
+/// How a message names a collection cell's generated instances sort
+/// (`IrSortRef::CellCollection`), named by its cell id as a leaf's is.
+pub(crate) const CELL_COLLECTION_SORT: &str = "the sort of a cell collection";
+
 pub use artifacts::*;
 pub use coverage::coverage_warnings;
 pub use edit_origin::{

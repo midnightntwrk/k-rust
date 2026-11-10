@@ -216,6 +216,7 @@ fn accepts(filter: Option<&str>, value: &str) -> bool {
 struct Context<'a> {
     names: BTreeMap<&'a SymbolId, &'a str>,
     cells: BTreeMap<&'a SymbolId, &'a str>,
+    collections: BTreeMap<&'a SymbolId, krs_ir::CellCollectionType>,
     hooks: BTreeMap<&'a SymbolId, String>,
 }
 impl<'a> Context<'a> {
@@ -223,6 +224,7 @@ impl<'a> Context<'a> {
         let mut context = Self {
             names: BTreeMap::new(),
             cells: BTreeMap::new(),
+            collections: BTreeMap::new(),
             hooks: BTreeMap::new(),
         };
         for module in definition.modules() {
@@ -253,6 +255,9 @@ impl<'a> Context<'a> {
     fn cell_names(&mut self, cells: &'a [FixedCell<DefinitionSortRef, SymbolId>]) {
         for cell in cells {
             self.cells.insert(cell.id(), cell.name());
+            if let Some(collection) = cell.collection_type() {
+                self.collections.insert(cell.id(), collection);
+            }
             if let FixedCellContent::Children { children } = cell.content() {
                 self.cell_names(children);
             }
@@ -262,7 +267,12 @@ impl<'a> Context<'a> {
         match sort {
             DefinitionSortRef::Declared(id) => self.names[id].to_owned(),
             DefinitionSortRef::Builtin(sort) => sort.k_name().to_owned(),
-            DefinitionSortRef::Cell(id) => krs_ir_levels::k_surface::cell_sort_name(self.cells[id]),
+            DefinitionSortRef::Cell(id) | DefinitionSortRef::LeafCell(id) => {
+                krs_ir_levels::k_surface::cell_sort_name(self.cells[id])
+            }
+            DefinitionSortRef::CellCollection(id) => {
+                krs_ir_levels::k_surface::collection_sort_name(self.cells[id], self.collections[id])
+            }
             DefinitionSortRef::Parameter(name) => name.to_string(),
         }
     }

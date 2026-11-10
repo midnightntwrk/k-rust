@@ -210,6 +210,8 @@ impl Validation for SemanticLevel {
             SemanticSortRef::Declared(id) => Some(id),
             SemanticSortRef::Builtin(_)
             | SemanticSortRef::Cell(_)
+            | SemanticSortRef::LeafCell(_)
+            | SemanticSortRef::CellCollection(_)
             | SemanticSortRef::Parameter(_) => None,
         }
     }
@@ -230,7 +232,16 @@ impl Validation for SemanticLevel {
             SemanticSortRef::Cell(id) => Some(id),
             SemanticSortRef::Declared(_)
             | SemanticSortRef::Builtin(_)
+            | SemanticSortRef::LeafCell(_)
+            | SemanticSortRef::CellCollection(_)
             | SemanticSortRef::Parameter(_) => None,
+        }
+    }
+
+    fn cell_identity_sort(sort: &Self::Sort) -> Option<&Self::Cell> {
+        match sort {
+            SemanticSortRef::LeafCell(id) | SemanticSortRef::CellCollection(id) => Some(id),
+            _ => None,
         }
     }
 
@@ -364,6 +375,8 @@ impl Validation for DefinitionLevel {
             DefinitionSortRef::Declared(id) => Some(id),
             DefinitionSortRef::Builtin(_)
             | DefinitionSortRef::Cell(_)
+            | DefinitionSortRef::LeafCell(_)
+            | DefinitionSortRef::CellCollection(_)
             | DefinitionSortRef::Parameter(_) => None,
         }
     }
@@ -384,7 +397,16 @@ impl Validation for DefinitionLevel {
             DefinitionSortRef::Cell(id) => Some(id),
             DefinitionSortRef::Declared(_)
             | DefinitionSortRef::Builtin(_)
+            | DefinitionSortRef::LeafCell(_)
+            | DefinitionSortRef::CellCollection(_)
             | DefinitionSortRef::Parameter(_) => None,
+        }
+    }
+
+    fn cell_identity_sort(sort: &Self::Sort) -> Option<&Self::Cell> {
+        match sort {
+            DefinitionSortRef::LeafCell(id) | DefinitionSortRef::CellCollection(id) => Some(id),
+            _ => None,
         }
     }
 

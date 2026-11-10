@@ -1597,6 +1597,9 @@ fn render_reference_term_type(
             Ok(quote!(k::Term<dyn #path>))
         }
         krs_ir::DescriptorSortRef::Cell(id) => render_declared_path(id, package),
+        krs_ir::DescriptorSortRef::LeafCell(_) | krs_ir::DescriptorSortRef::CellCollection(_) => {
+            Err(unprintable_cell_place_sort())
+        }
         krs_ir::DescriptorSortRef::Parameter(name) => {
             let name = rust_ident(name)?;
             Ok(quote!(k::Term<#name>))
@@ -2509,6 +2512,8 @@ fn sort_snake_name(sort: &krs_ir::DescriptorSortRef) -> String {
             id.item_name()
         }
         krs_ir::DescriptorSortRef::Builtin(sort) => sort.marker_name(),
+        krs_ir::DescriptorSortRef::LeafCell(cell)
+        | krs_ir::DescriptorSortRef::CellCollection(cell) => cell.field.as_str(),
         krs_ir::DescriptorSortRef::Parameter(name) => name.as_str(),
     };
     let mut snake = String::new();
@@ -3692,6 +3697,9 @@ fn render_sort_type(
         SemanticSortRef::Declared(id) => render_sort_path(id, package),
         // A whole-group binder is typed by its nested `#[k::cell]` struct (KF-016).
         SemanticSortRef::Cell(id) => render_declared_path(id, package),
+        SemanticSortRef::LeafCell(_) | SemanticSortRef::CellCollection(_) => {
+            Err(unprintable_cell_place_sort())
+        }
         SemanticSortRef::Builtin(sort) => {
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))
@@ -3710,12 +3718,25 @@ fn render_descriptor_sort(
     match sort {
         krs_ir::DescriptorSortRef::Declared(id) => render_sort_path(id, package),
         krs_ir::DescriptorSortRef::Cell(id) => render_declared_path(id, package),
+        krs_ir::DescriptorSortRef::LeafCell(_) | krs_ir::DescriptorSortRef::CellCollection(_) => {
+            Err(unprintable_cell_place_sort())
+        }
         krs_ir::DescriptorSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
         krs_ir::DescriptorSortRef::Parameter(name) => {
             let name = rust_ident(name)?;
             Ok(quote!(#name))
         }
     }
+}
+
+/// A leaf cell's generated sort, and a collection cell's instances sort, have no Rust spelling:
+/// no `#[k::cell]` struct is their type, as a group's is. Each is the sort of a long form's binder
+/// that holds a child's whole place (an update's hidden binder): a `?` leaf child, present or
+/// absent, or a `*` child's instances, which no `k::cells!` entry writes yet.
+fn unprintable_cell_place_sort() -> ReferenceExpansionError {
+    ReferenceExpansionError::IllegalEntry(
+        "a binder that holds a `?` leaf cell or a `*` cell's instances whole, which no `k::cells!` spelling writes yet",
+    )
 }
 
 /// Renders a sort path as an island or key argument names it: a local sort
@@ -3739,6 +3760,9 @@ fn render_result_sort(
     match sort {
         SemanticSortRef::Declared(id) => render_sort_path(id, package),
         SemanticSortRef::Cell(id) => render_declared_path(id, package),
+        SemanticSortRef::LeafCell(_) | SemanticSortRef::CellCollection(_) => {
+            Err(unprintable_cell_place_sort())
+        }
         SemanticSortRef::Builtin(sort) => Ok(render_builtin_sort(*sort)),
         SemanticSortRef::Parameter(name) => {
             let name = rust_ident(name.as_str())?;
@@ -4516,9 +4540,10 @@ fn render_sort_marker(
             let path = render_local_path(id, package, &[marker])?;
             Ok(quote!(dyn #path))
         }
-        krs_ir::DescriptorSortRef::Cell(_) | krs_ir::DescriptorSortRef::Parameter(_) => {
-            render_descriptor_sort(sort, package)
-        }
+        krs_ir::DescriptorSortRef::Cell(_)
+        | krs_ir::DescriptorSortRef::LeafCell(_)
+        | krs_ir::DescriptorSortRef::CellCollection(_)
+        | krs_ir::DescriptorSortRef::Parameter(_) => render_descriptor_sort(sort, package),
     }
 }
 

@@ -418,7 +418,7 @@ impl Elaborator<'_> {
                 let sort = self
                     .sorts
                     .get(&binding.name)
-                    .map(descriptor_sort)
+                    .and_then(|sort| descriptor_sort(sort, self.declarations))
                     .filter(|sort| !is_k_item(sort));
                 value_wildcards.insert(binding.name.clone(), sort);
                 continue;
@@ -440,7 +440,8 @@ impl Elaborator<'_> {
             );
             let sort = DescriptorSortReference {
                 key,
-                sort: descriptor_sort(sort),
+                sort: descriptor_sort(sort, self.declarations)
+                    .ok_or(Unelaborated("a cell sort of no group record's child"))?,
             };
             // A claim quantifies every variable it has, and lists each at the node that
             // declares it: a binder the author wrote, or an update's hidden binder at the node
@@ -1921,11 +1922,42 @@ impl<'a> NodeKeys<'a> {
     }
 }
 
-fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
-    match sort {
+/// The descriptor's spelling of `sort`. A leaf cell's sort and a collection cell's instances
+/// sort name the cell by its id, which is the descriptor's identity of a child of a `#[k::cell]`
+/// declaration in `declarations` (the only cell whose place a long form fills: a group record's
+/// child); `None` for another.
+fn descriptor_sort(
+    sort: &SemanticSortRef,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<DescriptorSortRef> {
+    Some(match sort {
         SemanticSortRef::Declared(id) => DescriptorSortRef::Declared(id.clone()),
         SemanticSortRef::Builtin(sort) => DescriptorSortRef::Builtin(*sort),
         SemanticSortRef::Cell(id) => DescriptorSortRef::Cell(id.clone()),
+        SemanticSortRef::LeafCell(cell) => {
+            DescriptorSortRef::LeafCell(group_child_identity(cell, declarations)?)
+        }
+        SemanticSortRef::CellCollection(cell) => {
+            DescriptorSortRef::CellCollection(group_child_identity(cell, declarations)?)
+        }
         SemanticSortRef::Parameter(name) => DescriptorSortRef::Parameter(name.as_str().to_owned()),
-    }
+    })
+}
+
+/// The descriptor's identity of the child of a `#[k::cell]` declaration in `declarations` whose
+/// cell id is `cell`.
+fn group_child_identity(
+    cell: &krs_ir::SemanticId,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<krs_ir::DescriptorCellIdentity> {
+    declarations.values().find_map(|descriptor| {
+        let DescriptorPayload::Cell(declaration) = descriptor.payload() else {
+            return None;
+        };
+        declaration.fields.iter().find_map(|field| {
+            let identity = &field.reference.cell;
+            (super::origin::semantic_cell_id(identity).ok().as_ref() == Some(cell))
+                .then(|| identity.clone())
+        })
+    })
 }

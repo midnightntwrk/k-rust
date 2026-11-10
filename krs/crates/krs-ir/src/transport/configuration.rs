@@ -1229,6 +1229,9 @@ impl ConfigurationValidationStage for DescriptorStage {
         };
         match &sort.sort {
             DescriptorSortRef::Cell(id) => return Err(invalid(id.item_kind())),
+            DescriptorSortRef::LeafCell(cell) | DescriptorSortRef::CellCollection(cell) => {
+                return Err(invalid(cell.owner.item_kind()));
+            }
             DescriptorSortRef::Parameter(_) => return Err(invalid(ItemKind::Sort)),
             DescriptorSortRef::Declared(id) => {
                 sort.sort.validate().map_err(|_| invalid(id.item_kind()))?;

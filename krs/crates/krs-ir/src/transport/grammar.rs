@@ -75,6 +75,15 @@ pub enum DescriptorSortRef {
     /// The generated sort of a nested `#[k::cell]` declaration, used only by
     /// whole-group rule binders (KF-016).
     Cell(StableItemId),
+    /// The generated sort of a leaf cell, by the cell's identity: what its place in its parent
+    /// holds, the cell and, for a `?` cell, its absence. No authored path names it; the compiler
+    /// writes it for a binder of a readable rule's long form that stands at a `?` leaf child's
+    /// place (an update's hidden binder).
+    LeafCell(crate::DescriptorCellIdentity),
+    /// The generated sort of a collection (`*`) cell's instances, by the cell's identity: what
+    /// its place in its parent holds. No authored path names it; the compiler writes it for a
+    /// binder of a readable rule's long form that stands at a `*` child's place.
+    CellCollection(crate::DescriptorCellIdentity),
     /// A sort parameter of the enclosing parametric production, by its
     /// declared name (`S` of `struct Choose<S: ?Sized>`, KF-027). It occurs
     /// only inside that production's own signature.
@@ -2414,7 +2423,22 @@ impl DescriptorSortRef {
             Self::Parameter(name) if !is_sort_parameter_name(name) => {
                 Err(GrammarTransportError::SortReferenceKind(ItemKind::Sort))
             }
-            Self::Declared(_) | Self::Builtin(_) | Self::Cell(_) | Self::Parameter(_) => Ok(()),
+            Self::LeafCell(cell) | Self::CellCollection(cell)
+                if !matches!(
+                    cell.owner.item_kind(),
+                    ItemKind::Cell | ItemKind::Configuration
+                ) =>
+            {
+                Err(GrammarTransportError::SortReferenceKind(
+                    cell.owner.item_kind(),
+                ))
+            }
+            Self::Declared(_)
+            | Self::Builtin(_)
+            | Self::Cell(_)
+            | Self::LeafCell(_)
+            | Self::CellCollection(_)
+            | Self::Parameter(_) => Ok(()),
         }
     }
 }

@@ -467,8 +467,18 @@ impl<'a> Adapter<'a> {
                 NativeSort::new(self.symbol_name(symbol, origin)?)
             }
             DefinitionSortRef::Builtin(sort) => NativeSort::new(sort.k_name()),
-            DefinitionSortRef::Cell(cell) => NativeSort::new(
+            DefinitionSortRef::Cell(cell) | DefinitionSortRef::LeafCell(cell) => NativeSort::new(
                 krs_ir_levels::k_surface::cell_sort_name(self.cell_name(cell, origin)?).as_str(),
+            ),
+            DefinitionSortRef::CellCollection(cell) => NativeSort::new(
+                self.index
+                    .cell_collection_sort_name(cell)
+                    .ok_or_else(|| AdapterError::MissingReference {
+                        key: origin.key().clone(),
+                        kind: "collection cell",
+                        target: cell.as_str().to_owned(),
+                    })?
+                    .as_str(),
             ),
             // A sort parameter occurs only in its production's signature,
             // where k-rust reads it by name (KF-027).

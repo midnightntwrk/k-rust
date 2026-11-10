@@ -328,6 +328,8 @@ fn sort_name(sort: &SemanticSortRef) -> String {
         SemanticSortRef::Declared(id) => id.item_name().to_owned(),
         SemanticSortRef::Builtin(sort) => sort.k_name().to_owned(),
         SemanticSortRef::Cell(id) => format!("{}Cell", id.item_name()),
+        SemanticSortRef::LeafCell(_) => crate::LEAF_CELL_SORT.to_owned(),
+        SemanticSortRef::CellCollection(_) => crate::CELL_COLLECTION_SORT.to_owned(),
         SemanticSortRef::Parameter(name) => name.as_str().to_owned(),
     }
 }

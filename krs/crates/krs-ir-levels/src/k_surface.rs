@@ -29,6 +29,7 @@ pub struct DefinitionIndex<'a> {
     symbols: BTreeMap<SymbolId, &'a str>,
     groups: BTreeMap<ProductionGroupId, &'a str>,
     cells: BTreeMap<SymbolId, &'a str>,
+    collections: BTreeMap<SymbolId, krs_ir::CellCollectionType>,
     cell_parents: BTreeMap<SymbolId, SymbolId>,
     instance_holders: BTreeMap<SymbolId, SymbolId>,
     context_aliases: BTreeMap<StableItemId, &'a str>,
@@ -239,6 +240,17 @@ impl<'a> DefinitionIndex<'a> {
         self.cell_name(id).map(cell_sort_name)
     }
 
+    /// Returns K's generated sort name of a collection cell's instances, such as `AcctCellMap`
+    /// for `<acct multiplicity="*" type="Map">` (see [`collection_sort_name`]); `None` for a
+    /// cell that is no typed collection.
+    #[must_use]
+    pub fn cell_collection_sort_name(&self, id: &SymbolId) -> Option<String> {
+        Some(collection_sort_name(
+            self.cell_name(id)?,
+            *self.collections.get(id)?,
+        ))
+    }
+
     /// Returns a context alias's authored name without backend escaping.
     #[must_use]
     pub fn context_alias_name(&self, id: &StableItemId) -> Option<&'a str> {
@@ -254,6 +266,9 @@ impl<'a> DefinitionIndex<'a> {
     ) {
         for cell in cells {
             self.cells.insert(cell.id().clone(), cell.name());
+            if let Some(collection) = cell.collection_type() {
+                self.collections.insert(cell.id().clone(), collection);
+            }
             if let Some(holder) = holder {
                 self.instance_holders
                     .insert(cell.id().clone(), holder.clone());
@@ -752,7 +767,10 @@ impl BuiltinRequirements {
             DefinitionSortRef::Declared(id) => {
                 self.declared.insert(id.clone());
             }
-            DefinitionSortRef::Cell(_) | DefinitionSortRef::Parameter(_) => {}
+            DefinitionSortRef::Cell(_)
+            | DefinitionSortRef::LeafCell(_)
+            | DefinitionSortRef::CellCollection(_)
+            | DefinitionSortRef::Parameter(_) => {}
         }
     }
 
@@ -885,15 +903,15 @@ impl BuiltinRequirements {
 /// configuration's lowering refuses another).
 #[must_use]
 pub fn main_cell<D, C, L>(
-    configuration: &FixedConfiguration<IrSortRef<D>, C, IrTerm<L>>,
-) -> krs_ir::MainCell<&FixedCell<IrSortRef<D>, C>>
+    configuration: &FixedConfiguration<IrSortRef<D, C>, C, IrTerm<L>>,
+) -> krs_ir::MainCell<&FixedCell<IrSortRef<D, C>, C>>
 where
     C: Clone + Ord,
     L: IrLevel,
 {
-    type Found<'a, D, C, L> = Vec<(&'a FixedCell<IrSortRef<D>, C>, Option<&'a IrTerm<L>>)>;
+    type Found<'a, D, C, L> = Vec<(&'a FixedCell<IrSortRef<D, C>, C>, Option<&'a IrTerm<L>>)>;
     fn computation_cells<'a, D, C: PartialEq, L: IrLevel>(
-        cells: &'a [FixedCell<IrSortRef<D>, C>],
+        cells: &'a [FixedCell<IrSortRef<D, C>, C>],
         values: &'a [FixedInitializerCell<C, IrTerm<L>>],
         found: &mut Found<'a, D, C, L>,
     ) {
@@ -975,6 +993,13 @@ pub fn initial_value_needs_cell_sort(term: &DefinitionTerm, cell_sort: &Definiti
             }
             _ => false,
         }
+}
+
+/// K's generated sort name of a collection cell's instances: the cell's sort name followed by
+/// its collection type (`<acct multiplicity="*" type="Map">` has sort `AcctCellMap`).
+#[must_use]
+pub fn collection_sort_name(cell_name: &str, collection: krs_ir::CellCollectionType) -> String {
+    format!("{}{}", cell_sort_name(cell_name), collection.as_str())
 }
 
 /// K's generated sort name of a cell: each hyphen-separated word of the cell

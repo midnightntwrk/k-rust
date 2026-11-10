@@ -1011,6 +1011,15 @@ impl NamingPass {
         })
     }
 
+    fn fixed_cell(&self, cell: &krs_ir::SemanticId) -> Result<SymbolId, LoweringError> {
+        self.fixed_cells.get(cell).cloned().ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "cell sort reference",
+                format!("{cell} is not a cell of the configuration"),
+            )
+        })
+    }
+
     fn production(&self, id: &StableItemId) -> Result<SymbolIdentity, LoweringError> {
         self.productions.get(id).cloned().ok_or_else(|| {
             LoweringError::unsupported_shape(
@@ -1262,6 +1271,8 @@ fn lower_module(
             SemanticSortRef::Declared(item) => Some(item),
             SemanticSortRef::Builtin(_)
             | SemanticSortRef::Cell(_)
+            | SemanticSortRef::LeafCell(_)
+            | SemanticSortRef::CellCollection(_)
             | SemanticSortRef::Parameter(_) => None,
         };
         sentences.push(DefinitionSentence::Subsort(SubsortSentence::new(
@@ -2737,6 +2748,10 @@ fn lower_sort_ref(
         SemanticSortRef::Builtin(sort) => Ok(DefinitionSortRef::Builtin(*sort)),
         SemanticSortRef::Cell(declaration) => {
             Ok(DefinitionSortRef::Cell(names.group_cell(declaration)?))
+        }
+        SemanticSortRef::LeafCell(cell) => Ok(DefinitionSortRef::LeafCell(names.fixed_cell(cell)?)),
+        SemanticSortRef::CellCollection(cell) => {
+            Ok(DefinitionSortRef::CellCollection(names.fixed_cell(cell)?))
         }
         SemanticSortRef::Parameter(name) => Ok(DefinitionSortRef::Parameter(name.clone())),
     }

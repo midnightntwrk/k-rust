@@ -115,7 +115,10 @@ fn emitted_name(index: &DefinitionIndex<'_>, sort: &DefinitionSortRef) -> Option
     match sort {
         DefinitionSortRef::Declared(symbol) => index.sort_name(symbol).map(str::to_owned),
         DefinitionSortRef::Builtin(builtin) => Some(builtin.k_name().to_owned()),
-        DefinitionSortRef::Cell(cell) => index.cell_sort_name(cell),
+        DefinitionSortRef::Cell(cell) | DefinitionSortRef::LeafCell(cell) => {
+            index.cell_sort_name(cell)
+        }
+        DefinitionSortRef::CellCollection(cell) => index.cell_collection_sort_name(cell),
         DefinitionSortRef::Parameter(_) => None,
     }
 }

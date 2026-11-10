@@ -1534,6 +1534,8 @@ impl<'i, 'a> Tree<'i, 'a> {
                 krs_ir::DescriptorSortRef::Builtin(builtin) => {
                     builtin.spec().marker_name.to_owned()
                 }
+                krs_ir::DescriptorSortRef::LeafCell(cell)
+                | krs_ir::DescriptorSortRef::CellCollection(cell) => cell.field.clone(),
                 krs_ir::DescriptorSortRef::Parameter(name) => name.clone(),
             }),
             ProtocolCellContent::Nested { .. } => None,
