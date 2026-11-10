@@ -586,6 +586,83 @@ impl<'g> ConfigurationAssembler<'g> {
         Ok(())
     }
 
+    /// Bind the configuration variable `name` (with or without its `$`) to `pattern`, a KORE
+    /// value over this definition's symbols that is already a ground term of exactly the
+    /// variable's declared sort: one a front end lowered with the definition (an input's declared
+    /// default), where [`Self::bind_term`] would type and lower it again. It is placed in the
+    /// configuration map as every bound value is, at `K` by the declared sort's placement, then
+    /// boxed; nothing in it is expanded or typed again, so its sort is the caller's statement. A
+    /// failed bind leaves the configuration unchanged.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::bind`] for the name: [`ConfigurationError::ProgramVariable`] for `$PGM` (bind
+    /// it with [`Self::program_pattern`]), [`ConfigurationError::Duplicate`] and
+    /// [`ConfigurationError::UnknownVariable`]; [`ConfigurationError::Unplaceable`] for a sort
+    /// with no placement at `K`.
+    pub fn bind_pattern(&mut self, name: &str, pattern: Pattern) -> Result<(), ConfigurationError> {
+        let (name, sort) = self.unbound_variable(name)?;
+        if self.injector.is_none() {
+            self.injector = Some(SortInjector::new(
+                self.grammar.resolved(),
+                &self.main_module,
+            )?);
+        }
+        let injector = self
+            .injector
+            .as_ref()
+            .expect("the injector was created above");
+        let variable = format!("${name}");
+        let value = ConfigurationValue::from_pattern_at(injector, pattern, &sort, &variable)?;
+        self.bound.insert(name);
+        self.bindings.push(ConfigurationBinding {
+            name: variable,
+            value,
+        });
+        Ok(())
+    }
+
+    /// Bind `$PGM` to `pattern`, a KORE value of exactly `$PGM`'s declared sort, as
+    /// [`Self::bind_pattern`] binds any other variable: [`Self::program_term`] without the
+    /// expansion and typing the caller already did.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigurationError::UnknownVariable`] when the definition declares no `$PGM`,
+    /// [`ConfigurationError::Duplicate`] when a program is already bound, and
+    /// [`ConfigurationError::Unplaceable`] for a sort with no placement at `K`.
+    pub fn program_pattern(&mut self, pattern: Pattern) -> Result<(), ConfigurationError> {
+        if self.program.is_some() {
+            return Err(ConfigurationError::Duplicate { name: "PGM".into() });
+        }
+        let Some(sort) = self.variables.get("PGM").cloned() else {
+            return Err(ConfigurationError::UnknownVariable {
+                name: "PGM".into(),
+                available: self
+                    .variables
+                    .keys()
+                    .map(|candidate| format!("${candidate}"))
+                    .collect(),
+            });
+        };
+        if self.program_injector.is_none() {
+            self.program_injector = Some(SortInjector::new(
+                self.grammar.resolved(),
+                &self.main_module,
+            )?);
+        }
+        let injector = self
+            .program_injector
+            .as_ref()
+            .expect("the program injector was created above");
+        let value = ConfigurationValue::from_pattern_at(injector, pattern, &sort, "$PGM")?;
+        self.program = Some(ConfigurationBinding {
+            name: "$PGM".to_owned(),
+            value,
+        });
+        Ok(())
+    }
+
     /// The module whose grammar reads the value of the variable `name` of sort `sort` first
     /// ([`Self::parser_modules_of`]), whose lexical hooks a term bound without the parser takes.
     fn parser_module(&mut self, name: &str, sort: &KastSort) -> Result<String, ConfigurationError> {
@@ -897,7 +974,8 @@ fn first_located_term(term: &Term) -> Option<(KastSort, String)> {
     found
 }
 
-// Only these builders can create a transport payload; neither takes an arbitrary pattern/sort pair.
+// Only these builders can create a transport payload. Each places a value of a known sort at `K`:
+// a term the assembler typed, a string, or a lowered value at its variable's declared sort.
 mod value {
     use super::*;
 
@@ -1008,6 +1086,26 @@ mod value {
                 &term,
             )?;
             Ok(Self { pattern })
+        }
+
+        /// A KORE value already of the variable's declared sort `declared`
+        /// ([`ConfigurationAssembler::bind_pattern`]), placed at `K` as [`Self::placed`] places
+        /// a typed term.
+        pub(super) fn from_pattern_at(
+            injector: &SortInjector<'_, '_>,
+            pattern: Pattern,
+            declared: &KastSort,
+            variable: &str,
+        ) -> Result<Self, ConfigurationError> {
+            let placement = injector
+                .placement(declared, &KastSort::builtin(BuiltinSort::K))
+                .ok_or_else(|| ConfigurationError::Unplaceable {
+                    variable: variable.into(),
+                    sort: declared.clone(),
+                })?;
+            Ok(Self {
+                pattern: placement.apply_kore(pattern, &[]),
+            })
         }
 
         pub(super) fn from_string(

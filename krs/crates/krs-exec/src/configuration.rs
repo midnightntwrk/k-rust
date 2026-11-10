@@ -174,6 +174,8 @@ pub struct Configuration {
     macro_definition: MacroExpansionDefinition,
     /// What [`Self::read_token_in`] read, by grammar, KORE sort name and text.
     token_reads: BTreeMap<(Reader, String, String), Option<Pattern>>,
+    /// Each defaulted input's default, by K name without `$` ([`Self::with_input_defaults`]).
+    input_defaults: BTreeMap<String, Pattern>,
 }
 
 /// What a parse of an ambiguous text gives.
@@ -245,7 +247,45 @@ impl Configuration {
             listing_ground_value_parser: None,
             macro_definition,
             token_reads: BTreeMap::new(),
+            input_defaults: BTreeMap::new(),
         })
+    }
+
+    /// This configuration with the inputs' declared defaults `defaults`, by K name without `$`:
+    /// the KORE value of each, lowered with the definition at the input's declared sort
+    /// ([`krs_k_rust::CompiledArtifacts::input_defaults`]). Every assembly binds a defaulted
+    /// variable it is given no value for to its default, as a value bound by name is bound, and
+    /// a given value replaces the default whole.
+    #[must_use]
+    pub fn with_input_defaults(mut self, defaults: BTreeMap<String, Pattern>) -> Self {
+        self.input_defaults = defaults;
+        self
+    }
+
+    /// Each defaulted input's default, by K name without `$` ([`Self::with_input_defaults`]).
+    #[must_use]
+    pub fn input_defaults(&self) -> &BTreeMap<String, Pattern> {
+        &self.input_defaults
+    }
+
+    /// Bind the default of each defaulted variable `given` does not name (a K name without
+    /// `$`), `$PGM`'s as the program: the assembly's last bindings by name, before the stream
+    /// defaults.
+    fn bind_input_defaults(
+        &mut self,
+        given: impl Fn(&str) -> bool,
+    ) -> Result<(), ConfigurationError> {
+        for (name, default) in &self.input_defaults {
+            if given(name) {
+                continue;
+            }
+            if name == "PGM" {
+                self.assembler.program_pattern(default.clone())?;
+            } else {
+                self.assembler.bind_pattern(name, default.clone())?;
+            }
+        }
+        Ok(())
     }
 
     fn parse_surface(
@@ -429,8 +469,9 @@ impl Configuration {
     ///
     /// [`ConfigurationAssembler`] binds `$PGM` first with the syntax module, and then the remaining names in lexical order.
     /// `$PGM` starts at its declared sort, or at `KItem` when it is declared `K`, as K's generated program parser does; krun takes this start sort from `--sort`.
+    /// A defaulted variable that is not supplied is bound to its default ([`Self::with_input_defaults`]).
     /// `$IO` and `$STDIN`, when declared and omitted, receive stream defaults with IO off and empty stdin.
-    /// Each supplied variable is also rendered on its own through the surface pipeline that cell expectations use, for routes that pass a value as KORE.
+    /// Each supplied variable is also rendered on its own through the surface pipeline that cell expectations use, for routes that pass a value as KORE; a default is no supplied text, so it is not rendered.
     ///
     /// # Errors
     ///
@@ -481,6 +522,7 @@ impl Configuration {
                 json!({"sort": sort.to_string(), "kore": value.to_string()}),
             );
         }
+        self.bind_input_defaults(|name| variables.contains_key(name))?;
         self.assembler
             .bind_stream_defaults(false, true, || Ok::<_, ConfigurationError>(Vec::new()))?;
         let pattern = self.assembler.finish()?;
@@ -505,6 +547,7 @@ impl Configuration {
     /// `program` binds `$PGM`, as text parsed as a program or as a term; `variables` holds K
     /// names without `$`.
     /// The caller has already checked every name against [`Self::variables`].
+    /// A defaulted variable that is not supplied is bound to its default ([`Self::with_input_defaults`]).
     /// Declared `$IO` and `$STDIN` that are not supplied receive the stream defaults with IO off;
     /// `$STDIN` is `stdin` (already buffered as krun buffers it) or empty.
     ///
@@ -560,6 +603,13 @@ impl Configuration {
                 }
             }
         }
+        self.bind_input_defaults(|name| {
+            if name == "PGM" {
+                program.is_some()
+            } else {
+                variables.contains_key(name)
+            }
+        })?;
         // `program_uses_input` true binds an empty `$STDIN`; false binds the supplied bytes.
         self.assembler
             .bind_stream_defaults(false, stdin.is_none(), || {

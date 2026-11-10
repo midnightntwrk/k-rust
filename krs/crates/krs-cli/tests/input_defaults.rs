@@ -513,3 +513,173 @@ fn a_cell_reading_a_defaulted_input_starts_present_as_before() {
         "{stderr}"
     );
 }
+
+/// Each input's value bound by hand, as `--input` documents: the value each of `DEFAULTS` gives.
+const BY_HAND: [(&str, &str); 7] = [
+    ("pgm", r#""Skip""#),
+    ("requests", "[]"),
+    ("booted", r#"{"$call": {"Boot": [3]}}"#),
+    ("one", r#"{"Irq": {"n": 7}}"#),
+    ("table", r#"{"1": {"Irq": [0]}, "2": {"Irq": [2]}}"#),
+    ("flag", "true"),
+    ("later", r#"{"Irq": [0]}"#),
+];
+
+/// `--input NAME=JSON` for each of `inputs`.
+fn input_arguments(inputs: &[(&str, &str)]) -> Vec<String> {
+    inputs
+        .iter()
+        .flat_map(|(name, document)| ["--input".to_owned(), format!("{name}={document}")])
+        .collect()
+}
+
+/// `krs <command> --depth 0 --output kore` (`--output kore` for `search`) with `extra`, which
+/// must succeed: its stdout.
+fn kore_end(target: &Path, manifest: &Path, command: &str, extra: &[String]) -> String {
+    let mut arguments = vec!["--output", "kore"];
+    if command == "run" {
+        arguments.extend(["--depth", "0"]);
+    }
+    arguments.extend(extra.iter().map(String::as_str));
+    let (success, stdout, stderr) = krs(target, manifest, command, &arguments, &[]);
+    assert!(success, "krs {command} {arguments:?}:\n{stderr}");
+    stdout
+}
+
+/// A run or a search that binds no input starts where binding each default by hand starts: every
+/// input, the main one included, takes its default, and a call default is evaluated when the
+/// configuration is built. A binding replaces its input's default whole.
+#[test]
+fn run_and_search_without_a_binding_take_each_default() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let defaulted = package(temporary.path(), "defaulted", &library(&DEFAULTS));
+    let by_hand = input_arguments(&BY_HAND);
+    for command in ["run", "search"] {
+        let unbound = kore_end(target.path(), &defaulted, command, &[]);
+        assert_eq!(
+            unbound,
+            kore_end(target.path(), &defaulted, command, &by_hand),
+            "krs {command}"
+        );
+        // `Boot(3)` is evaluated at init: its result is in `<booted>`, its application nowhere.
+        assert!(!unbound.contains("Lblboot{}"), "{unbound}");
+        assert!(
+            unbound.contains(r#"LblrequestSyntaxIrq{}(\dv{SortInt{}}("3"))"#),
+            "{unbound}"
+        );
+    }
+    // A binding replaces the default whole: nothing of `[]` is merged into `[Irq(5)]`, and every
+    // other input keeps its default.
+    let overridden = kore_end(
+        target.path(),
+        &defaulted,
+        "run",
+        &input_arguments(&[("requests", r#"[{"Irq": [5]}, {"Irq": [6]}]"#)]),
+    );
+    let mut by_hand_overridden = BY_HAND;
+    by_hand_overridden[1].1 = r#"[{"Irq": [5]}, {"Irq": [6]}]"#;
+    assert_eq!(
+        overridden,
+        kore_end(
+            target.path(),
+            &defaulted,
+            "run",
+            &input_arguments(&by_hand_overridden)
+        )
+    );
+    assert_ne!(overridden, kore_end(target.path(), &defaulted, "run", &[]));
+    // A main input bound by FILE or by name replaces its default too.
+    let (success, _, stderr) = krs(
+        target.path(),
+        &defaulted,
+        "run",
+        &["--depth", "0", "-c", "PGM=skip"],
+        &[],
+    );
+    assert!(success, "{stderr}");
+}
+
+/// An input without a default still needs a value, and the refusal names it: the main input
+/// without a default is the unbound main parameter, another input a missing variable, whatever
+/// the other inputs' defaults.
+#[test]
+fn an_input_without_a_default_is_still_refused_unbound() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // Every input but the main one and `one` has a default.
+    let partly = package(
+        temporary.path(),
+        "partly",
+        &library(
+            &DEFAULTS
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| ![0, 3].contains(index))
+                .map(|(_, default)| *default)
+                .collect::<Vec<_>>(),
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &partly, "run", &["--depth", "0"], &[]);
+    assert!(!success);
+    assert!(
+        stderr.contains("the main parameter `pgm` ($PGM: Stmt) is unbound"),
+        "{stderr}"
+    );
+    let (success, _, stderr) = krs(
+        target.path(),
+        &partly,
+        "run",
+        &["--depth", "0", "-c", "PGM=skip"],
+        &[],
+    );
+    assert!(!success);
+    let first = stderr.lines().next().unwrap_or_default();
+    assert!(
+        first.contains("missing configuration variables; pass -c one=VALUE"),
+        "{stderr}"
+    );
+    let (success, _, stderr) = krs(
+        target.path(),
+        &partly,
+        "run",
+        &[
+            "--depth",
+            "0",
+            "-c",
+            "PGM=skip",
+            "--input",
+            r#"one={"Irq": [1]}"#,
+        ],
+        &[],
+    );
+    assert!(success, "{stderr}");
+}
+
+/// A run from a warm stage cache binds what a cold one binds: the stage carries each input's
+/// default.
+#[test]
+fn a_warm_stage_binds_the_defaults_a_cold_compile_binds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let defaulted = package(temporary.path(), "warm", &library(&DEFAULTS));
+    let stages = temporary.path().join("stages");
+    let stages_text = stages.to_str().unwrap();
+    let run = || {
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &defaulted,
+            "run",
+            &["--depth", "0", "--output", "kore"],
+            &[("KRS_STAGE_CACHE_DIR", stages_text)],
+        );
+        assert!(success, "{stderr}");
+        stdout
+    };
+    let cold = run();
+    let entries = fs::read_dir(stages.join("entries"))
+        .map(Iterator::count)
+        .unwrap_or_default();
+    assert!(entries > 0, "the cold run stored its stage");
+    assert_eq!(run(), cold);
+}

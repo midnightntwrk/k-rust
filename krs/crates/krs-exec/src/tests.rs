@@ -364,6 +364,7 @@ fn configuration_variables_list_the_main_parameter_first_with_its_rust_names() {
         variable: variable.to_owned(),
         ty: crate::InputType::untyped(),
         main,
+        has_default: false,
     };
     // The main parameter is the IR's, whatever its K name, and a parameter's name is its Rust
     // binding, not a case of its K name.

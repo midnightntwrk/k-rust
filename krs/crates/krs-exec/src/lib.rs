@@ -100,8 +100,8 @@ pub use ends::{
 };
 pub use inputs::{
     Case, CaseDocument, CaseRun, Expectation, InputError, InputFiles, InputType, MainVariable,
-    NoFiles, Parameter, declares_variable, json_document, main_variable, toml_document,
-    toml_text_document,
+    NoFiles, Parameter, declares_variable, defaulted_variables, json_document, main_variable,
+    toml_document, toml_text_document,
 };
 pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT, SmtBudget,
@@ -667,7 +667,7 @@ pub enum ExecError {
         /// variant, and every `Result` that carries an `ExecError` would otherwise grow to fit it.
         parameter: Box<Parameter>,
     },
-    /// The main parameter was bound neither by FILE nor by name.
+    /// The main parameter, which has no default, was bound neither by FILE nor by name.
     MissingProgram {
         /// The main parameter.
         parameter: Parameter,
@@ -687,7 +687,7 @@ pub enum ExecError {
     },
     /// A variable was bound twice: by FILE and by name, or by two spellings of its name.
     DuplicateVariable(ConfigVariable),
-    /// Declared variables that were not bound.
+    /// Declared variables without a default that were not bound.
     MissingVariables(Vec<ConfigVariable>),
     /// Program or `-c` text that does not parse.
     Parse {
@@ -1358,12 +1358,14 @@ impl Semantics {
             frontend_definition,
             source_table: _,
             configuration_variables,
+            input_defaults,
         } = stage;
 
         let main_module = frontend_definition.main_module.clone();
         let declared_variables = configuration_variables.clone();
         let mut configuration = timings.try_span("exec.configuration", |_| {
             Configuration::new(&frontend_definition, configuration_variables)
+                .map(|configuration| configuration.with_input_defaults(input_defaults))
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let mut backend = timings.try_span("exec.backend", |_| {
@@ -1388,7 +1390,9 @@ impl Semantics {
             let cell_types = cell_types::CellTypes::new(definition, &backend_definition, &values);
             Ok::<_, ExecError>((Arc::new(values), cell_types))
         })?;
-        let parameters = inputs::parameters(definition, &values, &declared_variables);
+        let parameters = inputs::parameters(definition, &values, &declared_variables, |name| {
+            configuration.input_defaults().contains_key(name)
+        });
         let variables = config_variables(&declared_variables, &parameters);
         // The printer reverses the alias clauses `reversal` judges by the definition's reading
         // of their tokens' values, so it is built after the values.
@@ -1683,6 +1687,15 @@ impl Semantics {
     #[must_use]
     pub fn parameters(&self) -> &[Parameter] {
         &self.parameters
+    }
+
+    /// Each defaulted input's default, by its configuration variable's K name without `$`: the
+    /// KORE value [`Self::configure`] binds for the input when nothing binds it, lowered with the
+    /// definition at the input's declared sort ([`krs_k_rust::CompiledArtifacts::input_defaults`]),
+    /// for a front end that assembles configurations with its own grammar of the same definition.
+    #[must_use]
+    pub fn input_defaults(&self) -> &BTreeMap<String, Pattern> {
+        self.configuration.input_defaults()
     }
 
     /// The main parameter, which a program file binds; `None` when the `#[k::init]` marks none
@@ -2162,12 +2175,16 @@ impl Semantics {
     /// FILE binds the main parameter ([`Self::main_parameter`]): parsed as a program, with the
     /// syntax module at the start position of its sort, where that parameter is `$PGM`, and as
     /// `-c` text of the parameter otherwise. Any parameter, the main one included, may instead
-    /// be bound by name.
+    /// be bound by name. A parameter with a default ([`Parameter::has_default`]) that nothing
+    /// binds, the main one included, is bound to its default, the KORE value the compiled
+    /// definition carries for it ([`CompiledStage`]), placed as a value bound by name is; a
+    /// binding replaces the default whole.
     ///
     /// # Errors
     ///
-    /// Returns a typed error for a FILE without a main parameter, an unbound main parameter, an
-    /// unknown, duplicate, or missing variable, or text that does not parse.
+    /// Returns a typed error for a FILE without a main parameter, an unbound main parameter
+    /// without a default, an unknown, duplicate, or missing variable (one without a default), or
+    /// text that does not parse.
     pub fn configure(&mut self, inputs: &ConfigInputs) -> Result<State, ExecError> {
         let mut program: Option<configuration::Binding> = None;
         let mut bound = BTreeMap::new();
@@ -2214,8 +2231,11 @@ impl Semantics {
             }
             sources.insert(variable.name.clone(), source);
         }
+        // An input with a default needs no value: the assembly binds its default.
+        let defaulted = |variable: &str| self.configuration.input_defaults().contains_key(variable);
         if let Some(main) = self.main_parameter()
             && !sources.contains_key(&main.variable)
+            && !defaulted(&main.variable)
         {
             return Err(ExecError::MissingProgram {
                 parameter: main.clone(),
@@ -2227,6 +2247,7 @@ impl Semantics {
             .filter(|variable| {
                 !matches!(variable.name.as_str(), "IO" | "STDIN")
                     && !sources.contains_key(&variable.name)
+                    && !defaulted(&variable.name)
             })
             .cloned()
             .collect::<Vec<_>>();

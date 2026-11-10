@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 
 use k_rust::definition::json as definition_json;
 use k_rust::kast::Sort as KastSort;
+use k_rust::kore::ast::Pattern;
+use k_rust::kore::parser::parse_pattern;
 use k_rust::provenance::SourceTable;
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
@@ -18,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{ExecError, compile_definition, compile_spec_definition};
 
 /// The format name of [`CompiledStage::encode`]'s bytes; a change to the encoding or to what the stage holds changes it.
-pub const STAGE_FORMAT: &str = "krs-exec-stage/1";
+pub const STAGE_FORMAT: &str = "krs-exec-stage/2";
 
 /// The format name of [`SpecStage::encode`]'s bytes; a change to the encoding or to what the stage holds changes it.
 pub const SPEC_STAGE_FORMAT: &str = "krs-exec-spec-stage/1";
@@ -34,6 +36,10 @@ pub struct CompiledStage {
     /// Only for encoding: the frontend definition's origin receipts index it.
     pub(crate) source_table: SourceTable,
     pub(crate) configuration_variables: BTreeMap<String, KastSort>,
+    /// Each defaulted input's default, by K name without `$`
+    /// ([`CompiledArtifacts::input_defaults`]): the KORE value a configuration binds for the
+    /// input when it is given none.
+    pub(crate) input_defaults: BTreeMap<String, Pattern>,
 }
 
 impl CompiledStage {
@@ -58,6 +64,7 @@ impl CompiledStage {
             syntax_definition_kore,
             macros_kore,
             sentence_provenance,
+            input_defaults,
             ..
         } = artifacts;
         Self {
@@ -68,6 +75,7 @@ impl CompiledStage {
             frontend_definition: context.frontend_definition,
             source_table: context.source_table,
             configuration_variables: context.configuration_variables,
+            input_defaults,
         }
     }
 
@@ -101,6 +109,11 @@ impl CompiledStage {
                 .iter()
                 .map(|(name, sort)| (name.clone(), WireSort::from(sort)))
                 .collect(),
+            input_defaults: self
+                .input_defaults
+                .iter()
+                .map(|(name, pattern)| (name.clone(), pattern.to_string()))
+                .collect(),
         };
         let header = serde_json::to_vec(&header).ok()?;
         let mut bytes = Vec::with_capacity(
@@ -133,6 +146,7 @@ impl CompiledStage {
             && self.provenance == other.provenance
             && self.frontend_definition == other.frontend_definition
             && self.configuration_variables == other.configuration_variables
+            && self.input_defaults == other.input_defaults
     }
 
     /// Decode [`STAGE_FORMAT`] bytes written by [`Self::encode`].
@@ -163,6 +177,11 @@ impl CompiledStage {
             frontend,
         ] = <[String; 4]>::try_from(sections).ok()?;
         let frontend = definition_json::from_provenance_str(&frontend).ok()?;
+        let input_defaults = header
+            .input_defaults
+            .into_iter()
+            .map(|(name, pattern)| Some((name, parse_pattern(&pattern).ok()?)))
+            .collect::<Option<_>>()?;
         Some(Self {
             definition_kore,
             syntax_definition_kore,
@@ -175,6 +194,7 @@ impl CompiledStage {
                 .into_iter()
                 .map(|(name, sort)| (name, KastSort::from(sort)))
                 .collect(),
+            input_defaults,
         })
     }
 }
@@ -270,6 +290,8 @@ struct Header {
     sections: [usize; 4],
     provenance: SentenceProvenance,
     configuration_variables: BTreeMap<String, WireSort>,
+    /// Each input's default as KORE text, by K name without `$`.
+    input_defaults: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -330,6 +352,10 @@ mod tests {
                     ),
                 ),
             ]),
+            input_defaults: BTreeMap::from([(
+                "REQUESTS".to_owned(),
+                parse_pattern(r#"Lblboot{}(\dv{SortInt{}}("3"))"#).unwrap(),
+            )]),
         }
     }
 
@@ -339,6 +365,14 @@ mod tests {
         let bytes = stage.encode().expect("the stage has a faithful encoding");
         let decoded = CompiledStage::decode(&bytes).expect("its own encoding decodes");
         assert!(decoded.same_outputs(&stage));
+        // An input's default is an output a warm stage binds as a cold one does.
+        assert_eq!(decoded.input_defaults, stage.input_defaults);
+        let mut other = stage.clone();
+        other.input_defaults.insert(
+            "FLAG".to_owned(),
+            parse_pattern(r#"\dv{SortBool{}}("true")"#).unwrap(),
+        );
+        assert!(!decoded.same_outputs(&other));
         assert_eq!(decoded.encode(), Some(bytes));
     }
 

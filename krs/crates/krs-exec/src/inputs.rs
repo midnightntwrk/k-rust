@@ -4,6 +4,8 @@
 //! A case is an assignment of one value to each declared input, by the `#[k::init]` parameter's
 //! name. No input is special: the main parameter ([`Parameter::main`]) is the one a program file
 //! binds when a front end is given one, and it can be bound by name as every other parameter is.
+//! An input with a declared default ([`Parameter::has_default`]) that a case gives no value has
+//! its default, so the case assigns it the default.
 //! A value is written as K text parsed at the parameter's sort (`$text`, `$text-file`), or as
 //! typed data that this module decodes into a [`Value`] at the parameter's declared type, element
 //! types included. The encoding is the same for every front end: `krs run`'s inputs, a case
@@ -485,6 +487,10 @@ pub struct Parameter {
     /// Whether this is the main parameter, which a program file binds: the one marked
     /// `#[k::config_var(.., main)]`, or the one the computation cell reads when none is marked.
     pub main: bool,
+    /// Whether the input declares a default (`#[k::config_var(.., default = D)]`): the value it
+    /// has when a configuration binds none, so binding it is optional. A binding replaces the
+    /// default whole.
+    pub has_default: bool,
 }
 
 impl Parameter {
@@ -586,6 +592,17 @@ pub fn main_variable(definition: &DefinitionIr) -> Option<MainVariable> {
 #[must_use]
 pub fn declares_variable(definition: &DefinitionIr, variable: &str) -> bool {
     configuration_variables(definition).any(|declared| declared.external_name() == variable)
+}
+
+/// The K names (without `$`) of the configuration variables of `definition`'s `#[k::init]`
+/// that declare a default (`#[k::config_var(.., default = D)]`), in declaration order, from the
+/// Definition IR alone: the inputs a configuration need not bind.
+#[must_use]
+pub fn defaulted_variables(definition: &DefinitionIr) -> Vec<String> {
+    configuration_variables(definition)
+        .filter(|variable| variable.default().is_some())
+        .map(|variable| variable.external_name().to_owned())
+        .collect()
 }
 
 impl fmt::Display for Parameter {
@@ -2314,11 +2331,14 @@ impl<'de> serde::de::Visitor<'de> for UniqueKeys {
 
 /// The parameters of `definition`'s `#[k::init]`, in declaration order, with their types named
 /// by `values`; `declared` is the compiled definition's configuration variables, whose K sort
-/// types a parameter whose IR sort no KRS declaration names.
+/// types a parameter whose IR sort no KRS declaration names, and `defaulted` says by K name
+/// whether the compiled definition carries a variable's default, the value a configuration
+/// binds for it when it is given none.
 pub(crate) fn parameters(
     definition: &DefinitionIr,
     values: &ValueIndex,
     declared: &BTreeMap<String, KastSort>,
+    defaulted: impl Fn(&str) -> bool,
 ) -> Vec<Parameter> {
     let mut parameters = Vec::new();
     for sentence in definition
@@ -2348,6 +2368,7 @@ pub(crate) fn parameters(
                 variable: name.to_owned(),
                 ty,
                 main: variable.is_main(),
+                has_default: defaulted(name),
             });
         }
     }
