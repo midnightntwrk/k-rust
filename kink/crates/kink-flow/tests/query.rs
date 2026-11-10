@@ -2809,7 +2809,7 @@ fn list_items_between_list_parts_are_answered() {
     let unbound = row(&document, "requires-only", "log");
     assert_eq!(unbound["answer"], "unknown", "{unbound:#}");
     let cause = unbound["cause"].as_str().unwrap();
-    for part in ["requires-only variable", "W", "ListItem(write(49424, W))"] {
+    for part in ["requires-only variable", "W", "L1:List ListItem(E) L2:List"] {
         assert!(cause.contains(part), "{part:?} in {cause}");
     }
 }

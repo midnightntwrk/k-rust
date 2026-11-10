@@ -576,8 +576,10 @@ impl LoweredPattern {
     /// body does not bind, or an empty string. Such a variable is existential: the condition
     /// holds where some value of it makes it hold, so the matcher decides it only where the
     /// application holding the variable evaluates to a value, which it does not over an unknown
-    /// argument (`write(49424, W) in L`). The same element written in the cell
-    /// (`L1:List ListItem(write(49424, W)) L2:List`) binds the variable by matching instead.
+    /// argument (`f(W) in L`). The same term written in a cell pattern
+    /// (`L1:List ListItem(f(W)) L2:List`) binds the variable by matching instead. The note is
+    /// added to every cause such a condition can leave: an undecided match, and a solver query
+    /// it needs that failed or is unavailable (the portable profile).
     pub fn requires_only_note(&self) -> String {
         if self.requires_only.is_empty() {
             return String::new();
@@ -591,8 +593,9 @@ impl LoweredPattern {
         format!(
             "; the pattern's requires names {names}, which its cell patterns do not bind \
              (requires-only variable): such a condition is decided only when the application \
-             holding the variable evaluates, so write the element in the cell instead, as in \
-             `L1:List ListItem(write(49424, W)) L2:List`"
+             holding the variable evaluates, so write the term that holds {names} in a cell \
+             pattern instead (for an element of a list, `L1:List ListItem(E) L2:List` with E \
+             holding {names}), where matching binds it"
         )
     }
 }
@@ -2034,7 +2037,10 @@ fn incomplete_cause(
                  state's list and stopped at its bound of {bound} placements tried \
                  (placement-bound)"
             ),
-            I::Smt { .. } => "a solver query failed or was undecided".to_owned(),
+            I::Smt { .. } => format!(
+                "a solver query failed or was undecided{}",
+                lowered.requires_only_note()
+            ),
             I::ResultBound => "the search stopped at its result bound".to_owned(),
         });
     }
