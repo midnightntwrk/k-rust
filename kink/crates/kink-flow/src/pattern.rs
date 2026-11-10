@@ -11,7 +11,9 @@
 //! `query` discharges by a witness ([`crate::query`]). Decoding is strict, as for `FLOW.toml` and
 //! `MUTATIONS.toml`: an unknown key, a value of the wrong type, a duplicate or empty id or program
 //! id, `expect` beside `programs`, and a claimed program the manifest does not have are errors
-//! naming the key.
+//! naming the key. A corpus declares its lists in `FLOW.toml` (`[[patterns]]`), and the patterns
+//! a command asks are assembled from them, or from the one list the command line names
+//! ([`declared`]).
 //!
 //! **Chains** ([`chain`]): a `[[pattern]]` may write `steps = [{ pattern = "...", unless =
 //! "..." }, ...]` in place of `pattern`: some path of the run passes states matching each step in
@@ -316,10 +318,12 @@ use std::{
 use toml::{Table, Value as TomlValue};
 
 pub mod chain;
+pub mod declared;
 pub mod explain;
 pub use chain::{
     CHAIN_DOMAIN, CHAIN_LOWERING_VERSION, LoweredChain, LoweredStep, LoweredUnless, StepText,
 };
+pub use declared::{KrsPatterns, PatternSource, declared_patterns};
 
 /// The lowering of a pattern's K text to its KORE target ([`Lowering`]), a component of every
 /// cached answer's key: it changes whenever kink changes how a pattern's text becomes a target.
@@ -398,6 +402,10 @@ pub struct PatternEntry {
     pub expect: Option<PatternExpect>,
     /// Free text for the reader; it enters no digest.
     pub note: Option<String>,
+    /// Where the pattern is written ([`PatternSource`]), which the query document reports; `None`
+    /// for a list decoded from text that names no file ([`PatternList::decode`]). It enters no
+    /// digest, key or lock: moving a pattern between lists keeps its answers and its obligation.
+    pub source: Option<PatternSource>,
 }
 
 impl PatternEntry {
@@ -479,16 +487,26 @@ fn non_empty(value: &TomlValue, key: &str) -> Result<String, ManifestError> {
 }
 
 impl PatternList {
-    /// Read and decode the pattern list at `path`.
+    /// Read and decode the pattern list at `path`, each pattern's source the file as `path`
+    /// names it.
     pub fn read(path: &Path) -> Result<Self, ManifestError> {
-        let text = fs::read_to_string(path)
-            .map_err(|e| ManifestError::new("", format!("cannot read the pattern list: {e}")))?;
-        Self::decode(&text)
+        Self::read_as(path, &path.display().to_string())
     }
 
-    /// Decode a pattern list. Unknown keys, values of the wrong type, duplicate or empty ids, an
-    /// empty pattern, and an empty, duplicated or empty-named `programs` entry are errors naming
-    /// the key.
+    /// Read and decode the pattern list at `path`, each pattern's source the file `shown`.
+    pub fn read_as(path: &Path, shown: &str) -> Result<Self, ManifestError> {
+        let text = fs::read_to_string(path)
+            .map_err(|e| ManifestError::new("", format!("cannot read the pattern list: {e}")))?;
+        let mut list = Self::decode(&text)?;
+        for entry in &mut list.patterns {
+            entry.source = Some(PatternSource::File(shown.to_owned()));
+        }
+        Ok(list)
+    }
+
+    /// Decode a pattern list, with no source ([`PatternEntry::source`]). Unknown keys, values of
+    /// the wrong type, duplicate or empty ids, an empty pattern, and an empty, duplicated or
+    /// empty-named `programs` entry are errors naming the key.
     pub fn decode(text: &str) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
@@ -630,6 +648,7 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
         programs,
         expect,
         note,
+        source: None,
     })
 }
 

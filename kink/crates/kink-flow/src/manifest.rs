@@ -21,6 +21,11 @@
 //! inside the manifest's directory by the program-file rule, so the decoded programs are the
 //! whole corpus for both front ends.
 //!
+//! `[[patterns]]` declares where the corpus's patterns are written, as `[[program]]` declares its
+//! programs ([`PatternsEntry`]): kink pattern lists a glob matches (`files`), with the matching
+//! rules of a `cases` pattern, or a KRS patterns package (`krs`). Only `query` and `fuzz
+//! --pattern` read them (`crate::pattern::declared`), and they are in no digest or key.
+//!
 //! `[stop]` names where every program's run ends besides its own end ([`StopSection`]): rules to
 //! stop before or after, and a count, which a program may override (`stop_count`). A K corpus
 //! names each rule by its exact K label; a KRS corpus by KRS item or label, which the krs front
@@ -48,12 +53,14 @@
 mod case_document;
 mod case_pattern;
 mod implementation;
+mod pattern_sources;
 
 use crate::admit::InputDecoder;
 use crate::evidence::{EndRenderer, Renderer};
 use case_pattern::CasePattern;
 pub use implementation::{Given, IdentitySection, ImplementationSection, ViewSection};
 use kink_corpus::ProgramSource;
+pub use pattern_sources::PatternsEntry;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
@@ -101,6 +108,10 @@ pub struct FlowManifest {
     /// on every program and compares with the definition ([`ImplementationSection`]), in the
     /// order written. No run of the definition reads them, so they are in no digest or key.
     pub implementations: Vec<ImplementationSection>,
+    /// `[[patterns]]`: where the corpus's patterns are declared ([`PatternsEntry`]), in the
+    /// order written; empty when the manifest declares none. Only `query` and `fuzz --pattern`
+    /// read them (`crate::pattern::declared_patterns`), so they are in no digest or key.
+    pub patterns: Vec<PatternsEntry>,
     /// The front end's stop condition, which asks `[stop] when` at each arrival
     /// ([`Self::with_stop_when`]). A decoded `FLOW.toml` has none: kink-flow reads no values of
     /// the definition, so admission refuses a `when` without it (stage `stop`,
@@ -699,6 +710,8 @@ pub struct ManifestFile {
     pub coverage: CoverageSection,
     /// `[[implementation]]`, as [`FlowManifest::implementations`].
     pub implementations: Vec<ImplementationSection>,
+    /// `[[patterns]]`, as [`FlowManifest::patterns`].
+    pub patterns: Vec<PatternsEntry>,
 }
 
 /// How a manifest's `[spec]` declares its specification.
@@ -757,6 +770,7 @@ impl ManifestFile {
                 "coverage",
                 "program",
                 "implementation",
+                "patterns",
             ],
         )?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
@@ -775,6 +789,11 @@ impl ManifestFile {
         let implementations = top
             .get("implementation")
             .map(implementation::implementations)
+            .transpose()?
+            .unwrap_or_default();
+        let patterns = top
+            .get("patterns")
+            .map(|value| pattern_sources::entries(value, directory))
             .transpose()?
             .unwrap_or_default();
         let no_entries = Vec::new();
@@ -816,6 +835,7 @@ impl ManifestFile {
             observe,
             coverage,
             implementations,
+            patterns,
         })
     }
 
@@ -858,6 +878,7 @@ impl ManifestFile {
             observe: self.observe,
             coverage: self.coverage,
             implementations: self.implementations,
+            patterns: self.patterns,
             stop_when: StopWhenSlot::default(),
             observe_functions: ObserveFunctionsSlot::default(),
             input_decoder: Decoder::default(),
@@ -1986,11 +2007,25 @@ fn no_id(entry: &Table, position: &str) -> Result<(), ManifestError> {
     Ok(())
 }
 
-/// What a pattern's matches are: program texts (`files`) or case documents (`cases`).
+/// What a pattern's matches are: program texts (`[[program]] files`), case documents
+/// (`[[program]] cases`) or pattern lists (`[[patterns]] files`).
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Matches {
     Texts,
     CaseDocuments,
+    PatternLists,
+}
+
+impl Matches {
+    /// What the matches are, as an error names them; `None` for program texts, which may be
+    /// written in any format.
+    const fn toml_documents(self) -> Option<&'static str> {
+        match self {
+            Self::Texts => None,
+            Self::CaseDocuments => Some("case documents"),
+            Self::PatternLists => Some("pattern lists"),
+        }
+    }
 }
 
 /// The matches of the pattern `value` (the key `key`) under `directory`; none is an error.
@@ -2002,8 +2037,9 @@ fn pattern_matches(
 ) -> Result<Vec<String>, ManifestError> {
     let text = string(value, key)?;
     let pattern = CasePattern::parse(&text).map_err(|message| ManifestError::new(key, message))?;
-    // One program text is `file`; a `cases` entry is the one way to name a case document, so a
-    // `cases` pattern may name exactly one.
+    // One program text is `file`; a `cases` entry is the one way to name a case document, and a
+    // `[[patterns]] files` entry the one way to name a pattern list, so either may name exactly
+    // one.
     if kind == Matches::Texts && !pattern.has_wildcard() {
         return Err(ManifestError::new(
             key,
@@ -2013,14 +2049,14 @@ fn pattern_matches(
             ),
         ));
     }
-    let suffix = (kind == Matches::CaseDocuments).then_some(".toml");
-    if let Some(suffix) = suffix
+    let suffix = ".toml";
+    if let Some(documents) = kind.toml_documents()
         && !pattern.ends_with(suffix)
     {
         return Err(ManifestError::new(
             key,
             format!(
-                "pattern {text:?}: case documents are TOML, so the pattern's last component must \
+                "pattern {text:?}: {documents} are TOML, so the pattern's last component must \
                  end in `{suffix}`"
             ),
         ));
@@ -2029,11 +2065,15 @@ fn pattern_matches(
         .matches(directory)
         .map_err(|message| ManifestError::new(key, message))?;
     if matches.is_empty() {
+        let empty = match kind {
+            Matches::PatternLists => "an empty list of patterns",
+            Matches::Texts | Matches::CaseDocuments => "an empty corpus",
+        };
         return Err(ManifestError::new(
             key,
             format!(
                 "pattern {text:?} matches no file in the manifest's directory; a pattern that \
-                 matches nothing is an error, not an empty corpus"
+                 matches nothing is an error, not {empty}"
             ),
         ));
     }

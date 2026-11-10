@@ -69,6 +69,9 @@ file = "programs/add.calc"    # or: text = "1 + 2"; neither on a definition with
 start_sort = "Exp"            # optional; only with file or text
 variables = { N = "42" }      # optional; configuration variable $N = 42
 stop_count = 120              # optional; only with [stop]: this program's count
+
+[[patterns]]                  # optional; the patterns `query` and `fuzz --pattern` ask
+files = "patterns/*.toml"     # kink pattern lists, matched as a [[program]] glob matches cases
 ```
 
 A KRS corpus declares its specification as the K a KRS package emits, which the krs front end (`krs kink <verb>`) binds:
@@ -151,6 +154,29 @@ The paths a case document's inputs name are relative to the document's directory
 The document and its included files are read when the manifest is, inside the manifest's directory by the rule a program file is read by; a document that cannot be read, is no TOML, has another key, an `inputs` that is not a table, an unnamed case, a name given twice, an include that includes itself, directly or through others, or a list of no case is a manifest error naming its program and the position.
 The last component of a `cases` pattern must end in `.toml`: kink hands typed inputs to the front end's decoder as TOML values, so it reads case documents in TOML, and an included JSON file as TOML values, refusing JSON's `null` and an integer outside TOML's 64-bit range, which have none.
 At the K level, which has no decoder, each case with inputs is refused as a listed program with `inputs` is (`inputs`/`typed-inputs`).
+
+### Declared patterns
+
+A corpus declares the patterns `query` and `fuzz --pattern` ask ("Checking a pattern", below) in `[[patterns]]` entries, as it declares its programs in `[[program]]` entries:
+
+```toml
+[[patterns]]
+files = "patterns/*.toml"     # each match is a pattern list ([[pattern]] tables)
+
+[[patterns]]
+krs = "sm83-patterns"         # a KRS patterns package, which only the krs front end compiles
+```
+
+Each entry has exactly one of `files` and `krs`, and no other key; an entry with both, with neither, or with another key is an error naming it (`patterns[1]`, `patterns[1].id`).
+- `files` is a pattern with the grammar and the matching rules of a `[[program]]` glob ("Programs from a pattern", above), relative to the manifest's directory. As for `cases`, it may name one list by its path without a wildcard, and its last component must end in `.toml`, since a pattern list is a TOML document. A glob that matches nothing is an error, not an empty list of patterns, and a list two entries match is an error: a list is declared once.
+- `krs` names a KRS patterns package. Its patterns are compiled by the front end that compiles KRS (`krs kink query`), which hands them to kink-flow already decoded, each with the item, file and line it is written at. kink-flow compiles no KRS package, so its own commands refuse such an entry (``patterns[1].krs: a KRS patterns package, which only the krs front end compiles: run `krs kink query` ...``) rather than skip a declared obligation; so does `krs kink` until it builds patterns packages. A package two entries name is an error.
+
+The globs are matched when the manifest is read; the lists are read only by the commands that ask patterns, inside the manifest's directory by the rule a program file is read by.
+The corpus's patterns are, in order: the entries as written; within a `files` entry, the lists it matched, sorted by path; within a list, its `[[pattern]]` tables in file order; within a `krs` entry, the package's patterns as the front end gives them.
+So the order never depends on the order the file system lists a directory in.
+A pattern's id is the one its author wrote, with no prefix naming its list: moving a pattern from one list to another keeps its id, its cached answers and its `[query]` lock row.
+An id two patterns of the corpus give is an error naming both (``pattern "three": duplicate pattern id: patterns/a.toml pattern[0] and more/b.toml pattern[1] both give it``), and an error of a list's own names the list (`bad/c.toml pattern "a".label: unknown key`).
+`[[patterns]]` is in no digest or key: a pattern decides no result, outcome or verdict, so declaring or editing patterns reruns no program and moves no `run` or `coverage` record.
 
 ### Expectations
 
@@ -2167,13 +2193,19 @@ Under `--output json` that reason is the `kink-flow-report` document on stdout, 
 
 Exit status: the status the printed run document gives, as `run` exits on it ("Exit status"); 2 when there is none, it is unreadable, the manifest does not decode, or on a usage error.
 
-## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--no-explain] [--cache DIR]`
+## Checking a pattern: `kink-flow query FLOW.toml [PATTERNS.toml] [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--no-explain] [--cache DIR]`
 
 A pattern check asks, for one program of the corpus: does some run of this program, from its input, reach a configuration that matches this pattern?
 The initial configuration, every configuration a run reaches and the final ones all count.
 Use it to check a claim before relying on it: when you write a program meant to exercise a situation (a division by zero, a thread that writes before another reads, a loop that runs twice), write the situation as a pattern and claim the program hits it.
 kink-flow runs the program and confirms or refutes the claim, so a test whose purpose was imagined rather than reached is caught.
 "Every run hits" is not asked: when a program has several runs (thread interleavings, the evaluation order of `strict` operators), the answer is about some run.
+
+The patterns asked are the corpus's: those `FLOW.toml` declares (`[[patterns]]`, "Declared patterns", above).
+A pattern list named on the command line (`PATTERNS.toml`, the operand after `FLOW.toml`) replaces them, and `[[patterns]]` is then not read, as a verb's own flag replaces a front end's list; `fuzz --patterns` does the same for a pattern job.
+A corpus that declares no patterns, asked without a list, is refused (`patterns: the corpus declares no patterns: ...`, exit 2).
+The krs front end names its corpus's `PATTERNS.toml` as the list where `FLOW.toml` declares no `[[patterns]]`, so a corpus written before `[[patterns]]` keeps its patterns.
+`--only` names a pattern of the patterns asked; an id that is none is refused (`--only: no pattern of the corpus has the id ...`).
 
 ### `PATTERNS.toml`
 
@@ -2197,6 +2229,8 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 - `steps` in place of `pattern` writes a chain of patterns a run passes in order ("Chains", below).
 - An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, `expect` beside `programs`, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
 
+A pattern list is such a file, whatever its name: the one the command line names, or each list `[[patterns]] files` matches.
+
 `testdata/flow/calc/PATTERNS.toml`, `testdata/flow/loop/PATTERNS.toml`, `testdata/flow/witness/PATTERNS.toml`, `testdata/flow/chain/PATTERNS.toml` and `testdata/flow/explain/PATTERNS.toml` are complete examples.
 
 ### The obligation and its witness
@@ -2210,14 +2244,15 @@ A witness discharges it as a killer discharges a mutant: one program that hits i
 
 ### Answers
 
-The command prints one document, `{schema: "kink-flow-query", version: 10, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, explanations, baseline_runs, data, lock?}`.
+The command prints one document, `{schema: "kink-flow-query", version: 11, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, explanations, baseline_runs, data, lock?}`.
+Version 11 names where each pattern is written: each entry of `patterns` carries `source`, `{file}` for a pattern of a pattern list (its path relative to the manifest's directory, or as the command line names a list outside it) and `{krs, item, file, line}` for one a front end compiled from a KRS patterns package; every answer, exit status, lock row and key of version 10 is unchanged.
 Version 10 (FB50-EXPLAIN) explains a failed answer ("Explanations", below): every row and every obligation carries `explain`, the document carries `explanations`, and a `--verify` mismatch of a derived pattern's record names its part; every answer, exit status, lock row and key of version 9 is unchanged.
 Version 9 answers chains ("Chains", below): a chain's entry in `patterns` carries its `steps`, a chain's rows name the route `chain-run`, and a chain's witness lists its `steps`; a version 8 query refused a list holding a chain.
 Version 8 prints a hit's witness for a reader (below), where version 7 gave its state and bindings as KORE text cut to 4000 characters.
 Version 7 (FB54-WITNESS) adds `obligations`, `full`, `lock` and each row's `clock_stopped`, and asks a pattern without `programs` until its first hit where version 6 asked every program, so `rows` holds only the pairs asked:
 `programs` are the `coverage` rows (the result cache is brought up to date first),
 `data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). Version 6 (KINK-FINDING-NAMES) names its findings by kind, sentences and digest, where version 5 named them by generated-K positions. `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. Version 2 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"). Version 3 answers `no` under the Z3 profile where the search received no undecided solver answer, with a `cause` naming that count, and names the count in the `cause` of an `unknown` it withholds a `no` for (below). Version 4 adds `z3` under the Z3 profile, the Z3 build the answers were decided on, as the run document names it: whether the search's solver queries are decided within their units is a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too; the portable document has no such member. Version 5 answers a corpus with `[stop]` through each program's stopped run ("A corpus with `[stop]`", below) and admits one with `[observe]`, which it ignores ("What a run observes"): the refusals at stages `stop` and `observe` are gone, the document carries `stop` as `check`, `coverage` and `run` do and `observe` (`{declaration, ignored}`, the declaration and why the query ignores it) when the manifest has them, a refused one's too, and each row names its route (`route`: `search` or `stopped-run`). A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, z3?, pattern_list}`.
-`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus, expect}` (`kore` is the compiled target; `asked` says whether the pattern has `programs`); a chain's entry also carries `steps`, `[{pattern, unless, kore, unless_kore}]`, each step's text and its `unless`'s with their compiled targets, and has `pattern` and `kore` null and `digest` the chain's,
+`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus, expect, source}` (`kore` is the compiled target; `asked` says whether the pattern has `programs`; `source` says where it is written, `{file}` or `{krs, item, file, line}`, and is in no key); a chain's entry also carries `steps`, `[{pattern, unless, kore, unless_kore}]`, each step's text and its `unless`'s with their compiled targets, and has `pattern` and `kore` null and `digest` the chain's,
 `rows` one row per (pattern, program asked) `{pattern, program, claimed, route, answer, cause, witness, cached, wall_ms, claim, clock_stopped, explain}` (`clock_stopped`: `search` where the clock stopped the search the answer rests on, `baseline` where a completed exploration's `no` failed only for the baseline run the clock stopped, else null),
 `obligations` one per selected pattern `{id, status, witness, recorded_witness, witness_change, hitters, unanswered, expect, expectation, clock_stopped, explain}` ("The obligation and its witness"; `hitters` null without `--full`; `unanswered` the programs whose answer is neither a hit nor a final `no`; `clock_stopped` the stopped runs the obligation's value rests on, `{program, run}`),
 and, with `--lock`, `lock` as for the other sections ("The corpus record").
@@ -2466,7 +2501,7 @@ Exit status ("Exit status"): 0 when every asked (pattern, program) got its answe
 ## Killing a survivor with `fuzz`
 
 ```text
-kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | --pattern ID --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] [--no-filter]
+kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | --pattern ID [--patterns PATTERNS.toml]) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] [--no-filter]
 ```
 
 When a mutation survives or is unknown because no corpus program tells the two definitions apart, write (or pick) a program that matches the edited rule (a mutation's `witnesses` are such programs), mark its literals as holes, and let `fuzz` look for hole values that kill the mutation.
@@ -2511,11 +2546,11 @@ A flip that changes only sentences outside the coverage scope (claim helpers) is
 
 ### Covering a rule and hitting a pattern
 
-`--matched RULE`, `--fired RULE`, `--refuted RULE`, `--cover ITEM` and `--pattern ID --patterns PATTERNS.toml` replace `--kill`; every other option applies, and the job runs on the baseline alone (its exclusions, its assembly, its findings).
+`--matched RULE`, `--fired RULE`, `--refuted RULE`, `--cover ITEM` and `--pattern ID [--patterns PATTERNS.toml]` replace `--kill`; every other option applies, and the job runs on the baseline alone (its exclusions, its assembly, its findings).
 
 - **A rule job** looks for hole values whose program `coverage` would list in the rule's `matched_by` (`--matched`) or `fired_by` (`--fired`), each flag named by the predicate it targets ("Coverage predicates"); before document version 6 they were `--reach RULE` and `--reach RULE --fired`. `RULE` is `FILE:LINE` (any line of an authored rule of `FILE`, a source of the specification, or a suffix of its path after a `/`), the rule's label (bare, or `MODULE.x` when the bare label names several rules), or a 64-hex compiled id. The rule's ids that k-rust's run coverage can name (the coverage domain `coverage` reads) must hold exactly one rewrite axiom, the target; equation ids of the same sentence are listed as `untargeted_ids`. Refusals before any case: `no-rule-at-line` (its detail lists the five rules of the file written nearest the line, or the files that hold rules), `unknown-label` (the labels that contain the reference or that it contains, at most five), `ambiguous-label`, `ambiguous-rule-position` (the rules named), each listed rule with its position, label and the ids a rule job can target, `unknown-rule-id`, `no-authored-rule` (a compiled id that no authored rule of the specification wrote, such as a prelude rule's: `coverage` lists programs under authored rules only), `no-coverage-signal` (a macro, alias, smt-lemma or non-executable rule), `equation-target` (a function rule) and `several-rewrite-ids`. kink counts a program in `matched_by` and `fired_by` only when its all-paths baseline run is comparable, so the hit's run of every path must be comparable too (k-rust-fuzz's `comparable` option: complete, clean, data ends); the program must end naturally. A definition with a finding no name assumes makes the job `not-comparable`, as for a kill.
 - **A coverage-gap job** looks for hole values whose program covers one open obligation of `coverage`'s tier-1 families: `--cover ITEM` names it by its id (a target's `item`: `requirement:<rule>:<node>:<truth>`, `requirement:<rule>:held` or `:refuted`, `syntax:<production>`, a front end's field value, `rule:<rule>` or a heating rule's `rule:<production>:heat:<position>`), and `--refuted RULE` names `RULE` as a rule job does and covers its requirement `requirement:<name>:refuted`, the run that refutes its condition on some entry. Every open obligation's target spells its job in `fuzz`, except a unique-cause requirement (a pair of entries covers it, which no one run states) and a field value whose item names no binder. The obligation is looked up among the specification's obligations with no program (each family's universe is a function of the definition), and stated as the facts of a run's records that cover it, any one of which suffices: for a requirement, its node reached with the truth at the node's path in the written `requires`, or the condition's `held` or a refutation as the guard outcome (where a front end groups the guard, the author's condition: its last authored conjunct `true`, or an authored conjunct `false`); for a production, an operand head of a fired instance of a counted sentence, or the firing of an axiom alternative that inspects or builds it; for a field value, a fired instance's binding of the item's `binder` to one of its encodings; for a rule or a heating rule, its firing (a rewrite rule's committed step, an equation's applied instance). The campaign is a k-rust-fuzz coverage target over those facts, judged from the guard outcomes, bindings and committed transitions k-rust records, the records `coverage` reads; as for a rule job, the hit's run of every path must be comparable. Its distance is how near those records come to a fact: the guard's recorded truths against the valuation that reaches the node (the branch distance of the condition records), the bound values against the encodings, and the rule-graph distance to the fact's rule otherwise, which k-rust-fuzz's climb follows beside blind sampling (the other jobs sample blind alone). The confirmation is `coverage` on the fragment, read as the front end names the obligation: the program is comparable and the item lists it as covering (status `covered`, `not-covered` or `not-comparable`). Refusals before any case, at stage `item`: `unknown-item` (with the ids that contain the reference or that it contains), `mcdc-requirement`, `no-requirement` (`--refuted` of a rule whose condition states none), `no-obligation`, `no-binder`, `no-skeleton`, `no-syntax-facts`, `no-fact`; `--refuted`'s rule refusals are the rule job's. The document's `job.item` is `{id, family, kind, file, line, facts}`.
-- **Pattern** looks for hole values whose program reaches a configuration matching the pattern of `PATTERNS.toml` named `ID`, as a `query` `hit`: matched at every configuration of every path (k-rust-fuzz's `at: any-state`), with every fact on which a complete search could stop refused (`query-confirmable`). The pattern is first lowered exactly as `query` lowers it; an invalid one is refused (`invalid-pattern`, with k-rust's message) before any campaign. A pattern reads no data end, so it takes no assumed name: `--assume-joined` is a usage error, and the flow's own names are not passed.
+- **Pattern** looks for hole values whose program reaches a configuration matching the pattern named `ID`, of the list `--patterns` names, else of the patterns `FLOW.toml` declares ("Declared patterns"), as a `query` `hit`: matched at every configuration of every path (k-rust-fuzz's `at: any-state`), with every fact on which a complete search could stop refused (`query-confirmable`). The pattern is first lowered exactly as `query` lowers it; an invalid one is refused (`invalid-pattern`, with k-rust's message) before any campaign. A pattern reads no data end, so it takes no assumed name: `--assume-joined` is a usage error, and the flow's own names are not passed.
 - The action names kink's confirming command: `kink-flow coverage` for a rule or coverage-gap job, and for a pattern, adding the fragment's id to the pattern's `programs` and running `kink-flow query --only ID`.
 
 ### What it runs

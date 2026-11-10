@@ -2370,6 +2370,78 @@ fn assert_witness_names_its_k_cell(row: &Value) {
     );
 }
 
+/// A corpus that declares its patterns in FLOW.toml (`[[patterns]] files`) is queried on them,
+/// not on the layout's PATTERNS.toml, and keeps their obligations in its lock; `--patterns`
+/// still names another list. A `[[patterns]] krs` package is refused, not skipped: krs does not
+/// build a patterns package yet.
+#[test]
+fn query_asks_the_patterns_flow_toml_declares() {
+    let project = counter();
+    let corpus = "corpora/declared-patterns";
+    let flow = "[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"c3\"\nfile = \
+                \"cases/c3.cnt\"\n\n[[patterns]]\nfiles = \"patterns/*.toml\"\n";
+    project.write(&format!("{corpus}/FLOW.toml"), flow);
+    project.write(&format!("{corpus}/cases/c3.cnt"), "count(3)\n");
+    project.write(
+        &format!("{corpus}/patterns/done.toml"),
+        "[[pattern]]\nid = \"done\"\npattern = \"<k> done </k>\"\nprograms = [\"c3\"]\n",
+    );
+    project.write(
+        &format!("{corpus}/PATTERNS.toml"),
+        "[[pattern]]\nid = \"legacy\"\npattern = \"<k> done </k>\"\nprograms = [\"c3\"]\n",
+    );
+    let output = project.kink("query", &["--corpus", corpus]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let patterns = document["patterns"].as_array().unwrap();
+    assert_eq!(patterns.len(), 1, "{document:#}");
+    assert_eq!(patterns[0]["id"], "done", "{document:#}");
+    assert_eq!(
+        patterns[0]["source"],
+        json!({"file": "patterns/done.toml"}),
+        "{document:#}"
+    );
+    assert_eq!(document["rows"][0]["answer"], "hit", "{document:#}");
+    // The declared patterns are the corpus's own: the query keeps its lock.
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    let lock = project.read(&format!("{corpus}/kink.lock"));
+    assert!(lock.contains("id = \"done\""), "{lock}");
+
+    // `--patterns` replaces the declared patterns, and keeps no lock.
+    let output = project.kink(
+        "query",
+        &[
+            "--corpus",
+            corpus,
+            "--patterns",
+            &format!("{corpus}/PATTERNS.toml"),
+        ],
+    );
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert_eq!(document["rows"][0]["pattern"], "legacy", "{document:#}");
+    assert_eq!(
+        document["patterns"][0]["source"],
+        json!({"file": "PATTERNS.toml"}),
+        "{document:#}"
+    );
+    assert_eq!(document.get("lock"), None, "{document:#}");
+
+    project.write(
+        &format!("{corpus}/FLOW.toml"),
+        format!("{flow}\n[[patterns]]\nkrs = \"counter-patterns\"\n"),
+    );
+    let output = project.kink("query", &["--corpus", corpus]);
+    assert_status(&output, 2);
+    let document = json(&output);
+    let detail = document["pattern_list"]["detail"].as_str().unwrap();
+    assert!(detail.starts_with("patterns[1].krs: "), "{document:#}");
+    assert!(
+        detail.contains("krs kink does not build KRS patterns packages yet"),
+        "{document:#}"
+    );
+}
+
 /// `query` and `fuzz` run through the front end and print kink-flow's documents, with the
 /// rules they name named by their Rust items.
 #[test]

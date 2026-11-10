@@ -267,12 +267,16 @@ The corpus is <package>/kink (or --corpus DIR):
                     the corpus directory; [result] cells names cells by Rust path
                     (cpu.regs), as krs compare does; each [[implementation]] is another
                     implementation of the system, which compare runs on every case and
-                    compares with the definition under its views
+                    compares with the definition under its views; [[patterns]] declares
+                    the patterns query and fuzz --pattern ask: files = \"GLOB\" matches
+                    kink pattern lists, as [[program]] files matches cases (krs = \"PACKAGE\",
+                    a KRS patterns package, is refused: krs does not build one yet)
   cases/            the cases' program files and typed-input documents; a program file
                     binds the main parameter, as krs run FILE does
   mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or
                     suffix>` (else MUTATIONS.toml)
-  PATTERNS.toml     patterns of interest, for query
+  PATTERNS.toml     patterns of interest, for query, where FLOW.toml declares no
+                    [[patterns]]
   TEMPLATES.toml    case templates with holes, for fuzz
   definition.k      the package's emitted K, which kink judges; written by krs kink
   kink.lock         kink's record of the corpus, one section per command: [run], each
@@ -306,7 +310,7 @@ The loop:
   4. commit definition.k and kink.lock with the corpus; CI runs krs kink
      emit --check, krs kink run --locked and krs kink coverage --locked (and krs kink
      compare --locked where FLOW.toml declares an [[implementation]], and krs kink query
-     --locked where the corpus has a PATTERNS.toml)
+     --locked where the corpus has patterns)
 
 A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
   [[mutation]]
@@ -342,11 +346,12 @@ implementation (not under --only); under --locked it is left unwritten, a verdic
 from its row exits 1, and a run of an implementation that gave no answer (it failed, or its
 time_ms cancelled it) leaves its rows as recorded, not decided on this host (3). An
 implementation that declares identity has its answers cached in .kink-flow/: the same binary,
-given the same request, gives the same answer. query of the corpus's own pattern list (no
---patterns) keeps the [query] section (--lock FILE names another): each pattern's obligation,
-open, undecided or hit with its one recorded witness, which the next query asks first and keeps
-while it still hits; it is rewritten after a query of the whole list (not under --only or
---verify), and under --locked it is left unwritten and a query that would change it exits 1.
+given the same request, gives the same answer. query of the corpus's own patterns
+(FLOW.toml's [[patterns]], else PATTERNS.toml; no --patterns) keeps the [query] section
+(--lock FILE names another): each pattern's obligation, open, undecided or hit with its one
+recorded witness, which the next query asks first and keeps while it still hits; it is
+rewritten after a query of the whole list (not under --only or --verify), and under --locked it
+is left unwritten and a query that would change it exits 1.
 Each keeps the others' sections as they are.
 A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
 command that kept it, which moves them into kink.lock and says to delete the old file; under
@@ -616,7 +621,8 @@ fn kink_verb_help(verb: &str) -> String {
         Some(kink_flow::Verb::Run) => own.push(option("--mutations PATH", layout_mutations)),
         Some(kink_flow::Verb::Query) => own.push(option(
             "--patterns PATH",
-            "the pattern list (default: the corpus's PATTERNS.toml)",
+            "the pattern list, in place of the patterns FLOW.toml declares (default: those, else \
+             the corpus's PATTERNS.toml)",
         )),
         Some(kink_flow::Verb::Fuzz) => own.push(option(
             "--templates PATH",
@@ -648,7 +654,8 @@ fn kink_verb_help(verb: &str) -> String {
         if flow == kink_flow::Verb::Fuzz {
             let _ = writeln!(
                 text,
-                "  (--patterns defaults to the corpus's PATTERNS.toml, when it exists)"
+                "  (--patterns defaults to the patterns FLOW.toml declares, else the corpus's \
+                 PATTERNS.toml, when it exists)"
             );
         }
     }
@@ -3051,7 +3058,10 @@ mod tests {
             assert!(fuzz.contains(&format!("  {option} ")), "{fuzz}");
         }
         assert!(
-            fuzz.contains("--patterns defaults to the corpus's PATTERNS.toml"),
+            fuzz.contains(
+                "--patterns defaults to the patterns FLOW.toml declares, else the corpus's \
+                 PATTERNS.toml"
+            ),
             "{fuzz}"
         );
         assert!(!kink_verb_help("emit").contains("--locked"));

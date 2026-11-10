@@ -267,6 +267,7 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
         job(&["--pattern", "q", "--patterns", patterns]),
         EXIT_UNASKED
     );
+    // Without --patterns the job asks the patterns FLOW.toml declares, and this one declares none.
     assert_eq!(job(&["--pattern", "p"]), EXIT_UNASKED);
     assert_eq!(
         job(&["--fired", "imp.k:47", "--mutations", mutations]),
@@ -281,6 +282,84 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
     unknown[6] = "no-such-mutation";
     unknown.push("--no-confirm");
     assert_eq!(run_cli(&unknown), EXIT_UNASKED);
+}
+
+/// `fuzz --pattern ID` without `--patterns` resolves the id through the patterns the manifest
+/// declares (`[[patterns]]`), as `query` does; `--patterns` replaces them; and a corpus that
+/// declares none, asked without a list, is refused as an input. Each answer here is a refusal
+/// made before anything is admitted.
+#[test]
+fn a_pattern_job_reads_the_declared_patterns() {
+    fn copy(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &to.join(entry.file_name()));
+            } else {
+                fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+            }
+        }
+    }
+    let dir = scratch("declared-patterns");
+    copy(&flow("fuzz/imp"), &dir);
+    let manifest = dir.join("FLOW.toml");
+    let templates = dir.join("TEMPLATES.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    fs::create_dir_all(dir.join("chains")).unwrap();
+    fs::write(
+        dir.join("chains/c.toml"),
+        "[[pattern]]\nid = \"twice\"\nsteps = [{ pattern = \"<k> _:Int / 0 ~> _ </k>\" }, \
+         { pattern = \"<k> _:Int / 0 ~> _ </k>\" }]\n",
+    )
+    .unwrap();
+    let ask = |id: &str, patterns: Option<PathBuf>| {
+        let request = kink_flow::cli::FuzzRequest {
+            template: "primes-holes".into(),
+            job: kink_flow::cli::FuzzJobRequest::Pattern {
+                id: id.into(),
+                patterns,
+            },
+            options: FuzzOptions::default(),
+        };
+        let (manifest, templates) = (manifest.clone(), templates.clone());
+        std::thread::Builder::new()
+            .stack_size(DEFINITION_STACK_BYTES)
+            .spawn(move || kink_flow::cli::fuzz(&manifest, &templates, &request))
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    fs::write(
+        &manifest,
+        format!(
+            "{original}\n[[patterns]]\nfiles = \"PATTERNS.toml\"\n\n[[patterns]]\nfiles = \
+             \"chains/*.toml\"\n"
+        ),
+    )
+    .unwrap();
+    // The chain is found in the second declared list, and refused as a fuzz goal.
+    let (document, status) = ask("twice", None);
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["job"]["refusal"]["reason"], "chain-pattern",
+        "{document:#}"
+    );
+    // A named list replaces the declared ones, so the chain is no pattern of it.
+    let (document, status) = ask("twice", Some(dir.join("PATTERNS.toml")));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["job"]["refusal"]["reason"], "unknown-pattern",
+        "{document:#}"
+    );
+    fs::write(&manifest, &original).unwrap();
+    let (document, status) = ask("divzero", None);
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["spec"]["detail"],
+        format!("patterns: {}", kink_flow::pattern::declared::NO_PATTERNS),
+        "{document:#}"
+    );
 }
 
 /// R2-REFRESH's M2 probe: every end holds a non-ASCII string, a domain value kink's end check

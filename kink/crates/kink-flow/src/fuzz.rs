@@ -874,6 +874,21 @@ impl Instance {
     }
 }
 
+/// Where the pattern `id` of `list` is written, as an action names it: its pattern list's path,
+/// its KRS item, or, for a list with no source, `PATTERNS.toml`.
+fn written_in(list: &PatternList, id: &str) -> String {
+    match list
+        .patterns
+        .iter()
+        .find(|entry| entry.id == id)
+        .and_then(|entry| entry.source.as_ref())
+    {
+        Some(crate::pattern::PatternSource::File(file)) => file.clone(),
+        Some(crate::pattern::PatternSource::Krs { item, .. }) => format!("its KRS item {item}"),
+        None => "PATTERNS.toml".to_owned(),
+    }
+}
+
 fn read_inside(root: &Path, name: &str) -> Result<Vec<u8>, String> {
     let root = fs::canonicalize(root).map_err(|_| "the templates' directory is unavailable")?;
     let path = fs::canonicalize(root.join(name)).map_err(|e| format!("cannot read {name}: {e}"))?;
@@ -2344,7 +2359,7 @@ pub fn fuzz_front(
             let Some(entry) = list.patterns.iter().find(|p| p.id == id) else {
                 let refusal =
                     Refusal::new("pattern", "unknown-pattern", format!("no pattern {id:?}"));
-                return refuse(document, refusal, "name a pattern of PATTERNS.toml");
+                return refuse(document, refusal, "name a pattern of the pattern list");
             };
             if entry.single().is_none() {
                 let refusal = Refusal::new(
@@ -3435,10 +3450,10 @@ pub fn fuzz_front(
                         spelling.command(Verb::Coverage),
                         if fired { "fired_by" } else { "matched_by" }
                     ),
-                    FuzzJob::Pattern { id: pattern, .. } => format!(
-                        "{append}, add {id:?} to the `programs` of pattern {pattern:?} in \
-                         PATTERNS.toml, then run `{} --only {pattern}`: kink's own search \
-                         confirms the claim",
+                    FuzzJob::Pattern { id: pattern, list } => format!(
+                        "{append}, add {id:?} to the `programs` of pattern {pattern:?} in {}, \
+                         then run `{} --only {pattern}`: kink's own search confirms the claim",
+                        written_in(list, pattern),
                         spelling.command(Verb::Query)
                     ),
                     FuzzJob::Refuted { .. } | FuzzJob::Cover { .. } => format!(

@@ -73,14 +73,15 @@ macro_rules! usage_line {
          FLOW.toml MUTATIONS [--only ID]... [--verify] \
          [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
-         FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
+         FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml [PATTERNS.toml] \
          [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--no-explain] [--cache DIR] | kink-flow fuzz FLOW.toml \
          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
          | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | --pattern ID \
-         --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
+         [--patterns PATTERNS.toml]) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
          [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
          [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
-         <topic>.toml files | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
+         <topic>.toml files; PATTERNS.toml replaces the patterns FLOW.toml declares \
+         ([[patterns]]) | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
          [--locked]] [--cache DIR] [--output json|text|verdicts]; --help (or -h), anywhere, \
          prints the loop, the mutation format and the exit statuses"
     };
@@ -261,8 +262,10 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     status
 }
 
-/// A `kink-flow` command line's verb, manifest, operand files and options: `run`, `query` and
-/// `fuzz` take one more operand (the mutation list, the patterns, the templates).
+/// A `kink-flow` command line's verb, manifest, operand files and options: `run` and `fuzz` take
+/// one more operand (the mutation list, the templates), and `query` may (the pattern list, which
+/// replaces the patterns the manifest declares): an argument after the manifest that is no option
+/// (no leading `-`) is the list.
 fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])> {
     let [command, manifest, rest @ ..] = args else {
         return None;
@@ -270,13 +273,20 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
     let verb = Verb::parse(command)?;
     let mut files = CommandFiles::default();
     let rest = match verb {
-        Verb::Run | Verb::Query | Verb::Fuzz => {
+        Verb::Query => match rest.split_first() {
+            Some((file, rest)) if !file.starts_with('-') => {
+                files.patterns = Some(PathBuf::from(file));
+                rest
+            }
+            _ => rest,
+        },
+        Verb::Run | Verb::Fuzz => {
             let (file, rest) = rest.split_first()?;
             let file = Some(PathBuf::from(file));
-            match verb {
-                Verb::Run => files.mutations = file,
-                Verb::Query => files.patterns = file,
-                _ => files.templates = file,
+            if verb == Verb::Run {
+                files.mutations = file;
+            } else {
+                files.templates = file;
             }
             rest
         }
@@ -503,11 +513,13 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
     ),
     option(
         "--pattern ID",
-        "the job: hole values whose program hits this pattern of --patterns",
+        "the job: hole values whose program hits this pattern of --patterns, else of the \
+         patterns FLOW.toml declares ([[patterns]])",
     ),
     option(
         "--patterns PATTERNS.toml",
-        "the pattern list --pattern names a pattern of",
+        "the pattern list --pattern names a pattern of, in place of the patterns FLOW.toml \
+         declares",
     ),
     option("--cases N", "try N cases (default: 1000)"),
     option(
@@ -697,13 +709,13 @@ impl Verb {
             }
             Self::Report => "report FLOW.toml [--cache DIR] [--output json|verdicts]",
             Self::Query => {
-                "query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE \
+                "query FLOW.toml [PATTERNS.toml] [--only ID]... [--verify] [--full] [--lock FILE \
                  [--locked]] [--no-explain] [--cache DIR]"
             }
             Self::Fuzz => {
                 "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
                  MUTATIONS | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | \
-                 --pattern ID --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] \
+                 --pattern ID [--patterns PATTERNS.toml]) [--cases N | --work W] [--seed S] [--max-work N] \
                  [--time-limit-ms T] [--stack-stops N] [--open-stops N] \
                  [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
                  [--no-filter]"
@@ -736,8 +748,9 @@ impl Verb {
                 "The last run's stored document (or its verdicts), as that run printed it."
             }
             Self::Query => {
-                "Whether each program reaches a state that matches each pattern of the list. \
-                 PATTERNS.toml holds [[pattern]] tables, each an `id`, a `pattern` written as a \
+                "Whether each program reaches a state that matches each pattern of the corpus: \
+                 the pattern lists FLOW.toml declares ([[patterns]] files = \"GLOB\"), or the \
+                 list PATTERNS.toml names in their place. A list holds [[pattern]] tables, each an `id`, a `pattern` written as a \
                  rule's left-hand side (pattern = \"<k> s ( s ( zero ) ) ~> _ </k>\") and \
                  optionally `programs`, the programs claimed to hit it, or `expect = \"no\"`, \
                  the claim that none does. Each row of a pattern and a program is `hit` (a run \
@@ -794,7 +807,7 @@ impl Verb {
         match self {
             Self::Check | Self::Coverage | Self::Report | Self::Compare => "FLOW.toml",
             Self::Run => "FLOW.toml MUTATIONS.toml",
-            Self::Query => "FLOW.toml PATTERNS.toml",
+            Self::Query => "FLOW.toml [PATTERNS.toml]",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
         }
     }
@@ -930,7 +943,8 @@ pub enum OutputFormat {
 /// The files a verb reads besides the manifest, as the front end finds them: kink-flow's
 /// operands (`run`'s mutation list, `query`'s patterns, `fuzz`'s templates), or a front end's
 /// layout. A verb's own flag (`--mutations`, `--patterns`) takes precedence over a file given
-/// here.
+/// here. A pattern list given here or by `--patterns` replaces the patterns the manifest declares
+/// (`[[patterns]]`, [`crate::pattern::declared_patterns`]); `None` asks those.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CommandFiles {
     pub mutations: Option<PathBuf>,
@@ -976,7 +990,9 @@ pub enum FlowCommand {
         output: OutputFormat,
     },
     Query {
-        patterns: PathBuf,
+        /// The pattern list the command line names, which replaces the patterns the manifest
+        /// declares; `None` asks those ([`crate::pattern::declared_patterns`]).
+        patterns: Option<PathBuf>,
         options: QueryOptions,
     },
     Fuzz {
@@ -1044,12 +1060,15 @@ impl FlowCommand {
                 Ok(Self::Report { options, output })
             }
             Verb::Query => {
-                let patterns = files.patterns.ok_or("query needs a pattern list")?;
-                if !patterns.is_file() {
-                    return Err(not_file(&patterns));
+                let patterns = files.patterns;
+                if let Some(path) = patterns.as_ref().filter(|path| !path.is_file()) {
+                    return Err(not_file(path));
                 }
                 let options = query_options(options)?;
-                if let Ok(list) = PatternList::read(&patterns)
+                // The manifest's patterns are read when the command runs, which checks `--only`
+                // against them ([`only_refused`]).
+                if let Some(patterns) = &patterns
+                    && let Ok(list) = PatternList::read(patterns)
                     && let Some(id) = options
                         .only
                         .iter()
@@ -1076,7 +1095,10 @@ impl FlowCommand {
                     FuzzJobRequest::Kill {
                         mutations: list, ..
                     } if !list.exists() => return Err(not_found(list)),
-                    FuzzJobRequest::Pattern { patterns: file, .. } if !file.is_file() => {
+                    FuzzJobRequest::Pattern {
+                        patterns: Some(file),
+                        ..
+                    } if !file.is_file() => {
                         return Err(not_file(file));
                     }
                     _ => {}
@@ -1107,7 +1129,10 @@ impl FlowCommand {
                         ids(list.mutations.iter().map(|m| m.id.as_str()))
                     ));
                 }
-                if let FuzzJobRequest::Pattern { id, patterns } = &request.job
+                if let FuzzJobRequest::Pattern {
+                    id,
+                    patterns: Some(patterns),
+                } = &request.job
                     && let Ok(list) = PatternList::read(patterns)
                     && !list.patterns.iter().any(|p| &p.id == id)
                 {
@@ -1253,6 +1278,12 @@ pub struct FrontEnd<'a> {
     /// `implementation`, reason `unsupported-front-end`). kink-flow's own front end reads K
     /// terms, which have no such vocabulary.
     pub implementations: Option<&'a (dyn crate::compare::Vocabulary + Sync)>,
+    /// The patterns of each `[[patterns]] krs` package of the manifest, which a front end that
+    /// compiles KRS provides ([`crate::pattern::KrsPatterns`]), and which `query` and a `fuzz`
+    /// pattern job ask in that entry's place ([`crate::pattern::declared_patterns`]); `None` for
+    /// a front end that compiles none, whose corpus with such an entry those commands refuse.
+    /// kink-flow's own front end reads K pattern lists only.
+    pub krs_patterns: Option<&'a crate::pattern::KrsPatterns>,
 }
 
 impl Default for FrontEnd<'_> {
@@ -1266,6 +1297,7 @@ impl Default for FrontEnd<'_> {
             derived: Derived::default(),
             invariants: Some(&crate::coverage::KInvariants),
             implementations: None,
+            krs_patterns: None,
         }
     }
 }
@@ -1280,6 +1312,7 @@ impl std::fmt::Debug for FrontEnd<'_> {
             .field("derived", &self.derived)
             .field("invariants", &self.invariants.map(|_| ".."))
             .field("implementations", &self.implementations.map(|_| ".."))
+            .field("krs_patterns", &self.krs_patterns)
             .finish()
     }
 }
@@ -1383,7 +1416,13 @@ pub fn run_command(
             };
             (document, status)
         }
-        FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
+        FlowCommand::Query { patterns, options } => match crate::pattern::declared_patterns(
+            manifest,
+            patterns.as_deref(),
+            front.krs_patterns,
+        )
+        .and_then(|list| only_refused(&list, &options.only).map(|()| list))
+        {
             Err(error) => {
                 let mut document = crate::query::named(manifest, pattern_list_refused(&error));
                 if let Some(path) = &options.lock {
@@ -1890,7 +1929,11 @@ fn fuzz_command(
             front,
         ),
         FuzzJobRequest::Pattern { id, patterns } => {
-            let list = match PatternList::read(patterns) {
+            let list = match crate::pattern::declared_patterns(
+                manifest,
+                patterns.as_deref(),
+                front.krs_patterns,
+            ) {
                 Ok(list) => list,
                 Err(error) => {
                     return (
@@ -2212,8 +2255,12 @@ pub enum FuzzJobRequest {
     Refuted { rule: String },
     /// `--cover ITEM`: the coverage obligation whose id is `ITEM`.
     Cover { item: String },
-    /// `--pattern ID --patterns PATTERNS.toml`.
-    Pattern { id: String, patterns: PathBuf },
+    /// `--pattern ID [--patterns PATTERNS.toml]`: the list `--patterns` names, or the front
+    /// end's, else (`None`) the patterns the manifest declares.
+    Pattern {
+        id: String,
+        patterns: Option<PathBuf>,
+    },
 }
 
 fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
@@ -2428,16 +2475,14 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
                         .into(),
                 );
             }
-            let patterns = patterns
-                .or_else(|| files.patterns.clone())
-                .ok_or("--pattern needs --patterns PATTERNS.toml")?;
+            let patterns = patterns.or_else(|| files.patterns.clone());
             FuzzJobRequest::Pattern { id, patterns }
         }
         (None, None, None) => {
             return Err(
                 "give the job: --kill MUTATION --mutations MUTATIONS.toml, --matched RULE, \
-                        --fired RULE, --refuted RULE, --cover ITEM, or --pattern ID --patterns \
-                        PATTERNS.toml"
+                        --fired RULE, --refuted RULE, --cover ITEM, or --pattern ID [--patterns \
+                        PATTERNS.toml]"
                     .into(),
             );
         }
@@ -2486,7 +2531,7 @@ fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), Stri
 }
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
-/// MUTATIONS.toml | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) [options]
+/// MUTATIONS.toml | --matched RULE | --fired RULE | --pattern ID [--patterns PATTERNS.toml]) [options]
 /// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit status of
 /// its `stopped` ([`fuzz_status`]): [`EXIT_YES`] for a witness or `equivalent`, [`EXIT_NO`] for a
 /// confirmed witness, needing no premise `FLOW.toml` lacks, of a mutation expected to survive;
@@ -2506,7 +2551,8 @@ pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value,
 }
 
 /// `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE
-/// [--locked]] [--cache DIR]`: the query document (flow F-18, [`crate::query`]) and the exit
+/// [--locked]] [--cache DIR]`, the list `patterns` in place of the patterns the manifest declares
+/// ([`query_declared`] asks those): the query document (flow F-18, [`crate::query`]) and the exit
 /// status ([`query_status`]): the join of every asked (pattern, program)'s answer, `hit` or `no`
 /// [`EXIT_YES`], a refuted claim, an unmet `expect`, a stale lock and a `--verify` mismatch
 /// [`EXIT_NO`], `unknown`, an inconclusive `expect` and an undecided lock [`EXIT_UNANSWERED`],
@@ -2517,10 +2563,40 @@ pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value
     on_manifest(
         manifest,
         &FlowCommand::Query {
-            patterns: patterns.to_path_buf(),
+            patterns: Some(patterns.to_path_buf()),
             options: options.clone(),
         },
     )
+}
+
+/// `kink-flow query FLOW.toml [--only ID]... [...]`: [`query`] of the patterns the manifest
+/// declares (`[[patterns]]`, [`crate::pattern::declared_patterns`]), with kink-flow's own front
+/// end, which compiles no KRS package.
+pub fn query_declared(manifest: &Path, options: &QueryOptions) -> (Value, u8) {
+    on_manifest(
+        manifest,
+        &FlowCommand::Query {
+            patterns: None,
+            options: options.clone(),
+        },
+    )
+}
+
+/// The refusal of an `--only` id that names no pattern of `list`.
+fn only_refused(list: &PatternList, only: &[String]) -> Result<(), ManifestError> {
+    match only
+        .iter()
+        .find(|id| !list.patterns.iter().any(|p| &p.id == *id))
+    {
+        None => Ok(()),
+        Some(id) => Err(ManifestError::new(
+            "--only",
+            format!(
+                "no pattern of the corpus has the id {id:?} ({})",
+                ids(list.patterns.iter().map(|p| p.id.as_str()))
+            ),
+        )),
+    }
 }
 
 /// `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`: the run document the last

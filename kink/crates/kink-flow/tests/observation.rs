@@ -983,7 +983,7 @@ fn fuzz_ignores_the_observations_of_a_single_definition_job() {
         &dir,
         FuzzJobRequest::Pattern {
             id: "two".into(),
-            patterns: dir.join("PATTERNS.toml"),
+            patterns: Some(dir.join("PATTERNS.toml")),
         },
     );
     assert_eq!(status, EXIT_YES, "{fuzz:#}");
@@ -1071,7 +1071,7 @@ fn query_ignores_the_observations() {
     };
     let (observed, status) = ask("FLOW.toml");
     assert_eq!(status, EXIT_UNANSWERED, "{observed:#}");
-    assert_eq!(observed["version"], 10, "{observed:#}");
+    assert_eq!(observed["version"], 11, "{observed:#}");
     assert_eq!(
         observed["observe"]["ignored"],
         kink_flow::query::OBSERVE_IGNORED,

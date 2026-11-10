@@ -428,7 +428,7 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
     let patterns = dir.join("PATTERNS.toml");
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 10);
+    assert_eq!(document["version"], 11);
     assert_eq!(
         answers(&document),
         expect(&[
@@ -1276,7 +1276,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 10, "{document:#}");
+    assert_eq!(document["version"], 11, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1791,7 +1791,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 10);
+    assert_eq!(document["version"], 11);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -2058,7 +2058,7 @@ fn a_refuted_claim_is_explained_by_the_parts_of_its_pattern() {
     let dir = fixture("explain", "explain-claims");
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, REFUTED_STATUS, "{document:#}");
-    assert_eq!(document["version"], 10);
+    assert_eq!(document["version"], 11);
     let conjunct = "requires conjunct 1: C:Int <=Int size ( L:List )";
 
     let one = explained(&document, "request-during-write", "boot");
@@ -2763,7 +2763,7 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_YES, "{document:#}");
-        assert_eq!(document["version"], 10);
+        assert_eq!(document["version"], 11);
         let hit = row(&document, "filled", "twelve");
         assert_eq!(hit["answer"], "hit", "{hit:#}");
         let witness = &hit["witness"];
@@ -2913,7 +2913,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 10);
+        assert_eq!(document["version"], 11);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -3779,4 +3779,278 @@ fn list_items_between_list_parts_are_answered() {
     for part in ["requires-only variable", "W", "L1:List ListItem(E) L2:List"] {
         assert!(cause.contains(part), "{part:?} in {cause}");
     }
+}
+
+/// `kink-flow query FLOW.toml`: the patterns the manifest declares (`[[patterns]]`).
+fn declared(manifest: &Path) -> (Value, u8) {
+    let manifest = manifest.to_path_buf();
+    std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || kink_flow::cli::query_declared(&manifest, &QueryOptions::default()))
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// `manifest` with `tables` appended.
+fn declaring(manifest: &Path, tables: &str) {
+    let text = fs::read_to_string(manifest).unwrap();
+    fs::write(manifest, format!("{text}\n{tables}")).unwrap();
+}
+
+/// `(id, source)` of every entry of the document's `patterns`.
+fn sources(document: &Value) -> Vec<(String, Value)> {
+    document["patterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| (p["id"].as_str().unwrap().to_owned(), p["source"].clone()))
+        .collect()
+}
+
+/// A corpus that declares its patterns in FLOW.toml, two pattern lists matched by one glob,
+/// asks what the one list held asks, in the same order: the same rows, answers and
+/// obligations. `[[patterns]]` enters no digest: the specification digest is the same, no case
+/// reruns, and every answer is read from the records the one list's query wrote. Each pattern's
+/// entry names its list (`source`).
+#[test]
+fn declared_pattern_lists_answer_as_the_one_list() {
+    let dir = fixture("calc", "declared");
+    let manifest = dir.join("FLOW.toml");
+    let list = dir.join("PATTERNS.toml");
+    let (one, status) = plain(&manifest, &list);
+    assert_eq!(status, REFUTED_STATUS, "{one:#}");
+    for (id, source) in sources(&one) {
+        assert_eq!(source, json!({"file": "PATTERNS.toml"}), "{id}");
+    }
+
+    let text = fs::read_to_string(&list).unwrap();
+    let at = text.find("# The corpus form").unwrap();
+    write(&dir.join("patterns/results.toml"), &text[..at]);
+    write(&dir.join("patterns/steps.toml"), &text[at..]);
+    fs::remove_file(&list).unwrap();
+    declaring(&manifest, "[[patterns]]\nfiles = \"patterns/*.toml\"\n");
+    let (two, status) = declared(&manifest);
+    assert_eq!(status, REFUTED_STATUS, "{two:#}");
+    assert_eq!(answers(&two), answers(&one));
+    assert_eq!(obligations(&two), obligations(&one));
+    assert_eq!(two["refuted_claims"], one["refuted_claims"]);
+    assert_eq!(two["spec"]["digest"], one["spec"]["digest"], "{two:#}");
+    assert_eq!(two["baseline_runs"]["live"], 0, "{two:#}");
+    assert!(cached(&two).iter().all(|cached| *cached), "{two:#}");
+    let file = |name: &str| json!({ "file": format!("patterns/{name}.toml") });
+    assert_eq!(
+        sources(&two),
+        [
+            ("result-three".to_owned(), file("results")),
+            ("result-four".to_owned(), file("results")),
+            ("result-above-five".to_owned(), file("steps")),
+            ("adding-one-and-two".to_owned(), file("steps")),
+        ]
+    );
+}
+
+/// A list the command line names replaces the patterns the manifest declares, as `--patterns`
+/// replaces a front end's list: the manifest's `[[patterns]]` is not read, so its `krs` entry,
+/// which kink-flow refuses, is not refused.
+#[test]
+fn a_named_list_replaces_the_declared_patterns() {
+    let dir = fixture("calc", "named-list");
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &dir.join("patterns/one.toml"),
+        "[[pattern]]\nid = \"declared\"\npattern = \"<k> 3 </k>\"\n",
+    );
+    declaring(
+        &manifest,
+        "[[patterns]]\nfiles = \"patterns/*.toml\"\n\n[[patterns]]\nkrs = \"calc-patterns\"\n",
+    );
+    let named = dir.join("named.toml");
+    write(
+        &named,
+        "[[pattern]]\nid = \"named\"\npattern = \"<k> 3 </k>\"\nprograms = [\"add\"]\n",
+    );
+    let (document, status) = plain(&manifest, &named);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(
+        sources(&document),
+        [("named".to_owned(), json!({"file": "named.toml"}))]
+    );
+    assert_eq!(row(&document, "named", "add")["answer"], "hit");
+}
+
+/// The declared patterns are refused whole, before anything runs, by an error naming the key:
+/// an id two lists give (both named, file and entry), a `krs` entry kink-flow cannot compile
+/// (naming `krs kink query`), a declared list's own error (naming the list), an `--only` that
+/// names no declared pattern, and a corpus that declares none and is asked with no list.
+#[test]
+fn the_declared_patterns_are_refused_whole() {
+    let dir = fixture("calc", "declared-refusals");
+    let manifest = dir.join("FLOW.toml");
+    let original = fs::read_to_string(&manifest).unwrap();
+    let detail = |tables: &str| {
+        fs::write(&manifest, format!("{original}\n{tables}")).unwrap();
+        let (document, status) = declared(&manifest);
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
+        assert_eq!(
+            document["pattern_list"]["outcome"], "refused",
+            "{document:#}"
+        );
+        assert!(document.get("rows").is_none(), "{document:#}");
+        document["pattern_list"]["detail"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let three = "[[pattern]]\nid = \"three\"\npattern = \"<k> 3 </k>\"\n";
+    write(
+        &dir.join("patterns/a.toml"),
+        &format!("{three}\n[[pattern]]\nid = \"four\"\npattern = \"<k> 4 </k>\"\n"),
+    );
+    write(
+        &dir.join("more/b.toml"),
+        &format!("[[pattern]]\nid = \"five\"\npattern = \"<k> 5 </k>\"\n\n{three}"),
+    );
+    assert_eq!(
+        detail(
+            "[[patterns]]\nfiles = \"patterns/*.toml\"\n\n[[patterns]]\nfiles = \"more/*.toml\"\n"
+        ),
+        "pattern \"three\": duplicate pattern id: patterns/a.toml pattern[0] and more/b.toml \
+         pattern[1] both give it"
+    );
+    let krs = detail("[[patterns]]\nkrs = \"calc-patterns\"\n");
+    assert!(krs.starts_with("patterns[0].krs: "), "{krs}");
+    assert!(krs.contains("`krs kink query`"), "{krs}");
+    write(
+        &dir.join("bad/c.toml"),
+        "[[pattern]]\nid = \"a\"\npattern = \"<k> 3 </k>\"\nlabel = 1\n",
+    );
+    assert_eq!(
+        detail("[[patterns]]\nfiles = \"bad/*.toml\"\n"),
+        "bad/c.toml pattern \"a\".label: unknown key"
+    );
+    assert_eq!(
+        detail(""),
+        format!("patterns: {}", kink_flow::pattern::declared::NO_PATTERNS)
+    );
+    fs::write(
+        &manifest,
+        format!("{original}\n[[patterns]]\nfiles = \"patterns/*.toml\"\n"),
+    )
+    .unwrap();
+    let only = |id: &str| {
+        let manifest = manifest.clone();
+        let options = QueryOptions {
+            only: vec![id.to_owned()],
+            ..QueryOptions::default()
+        };
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(move || kink_flow::cli::query_declared(&manifest, &options))
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    let (document, status) = only("five");
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["pattern_list"]["detail"],
+        "--only: no pattern of the corpus has the id \"five\" (it has three, four)"
+    );
+    // The binary takes the list as an optional operand.
+    let output = Command::new(env!("CARGO_BIN_EXE_kink-flow"))
+        .arg("query")
+        .arg(&manifest)
+        .args(["--only", "three"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(i32::from(UNREACHED_STATUS)));
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        sources(&document),
+        [("three".to_owned(), json!({"file": "patterns/a.toml"}))]
+    );
+}
+
+/// A front end that compiles KRS provides each `[[patterns]] krs` package's patterns
+/// (`FrontEnd::krs_patterns`), which the query asks in the entry's place, in declaration order,
+/// each with its KRS source; why it provides none refuses the list; and an id a package and a
+/// list both give is a duplicate naming both.
+#[test]
+fn a_front_end_provides_the_patterns_of_a_krs_entry() {
+    use kink_flow::pattern::{KrsPatterns, PatternEntry, PatternForm, PatternSource};
+    let dir = fixture("calc", "krs-entry");
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &dir.join("patterns/a.toml"),
+        "[[pattern]]\nid = \"four\"\npattern = \"<k> 4 </k>\"\n",
+    );
+    declaring(
+        &manifest,
+        "[[patterns]]\nkrs = \"calc-patterns\"\n\n[[patterns]]\nfiles = \"patterns/*.toml\"\n",
+    );
+    let source = PatternSource::Krs {
+        package: "calc-patterns".into(),
+        item: "calc_patterns::three".into(),
+        file: "src/lib.rs".into(),
+        line: 7,
+    };
+    let entry = |id: &str| PatternEntry {
+        id: id.into(),
+        form: PatternForm::Single("<k> 3 </k>".into()),
+        programs: Some(vec!["add".into()]),
+        expect: None,
+        note: None,
+        source: Some(source.clone()),
+    };
+    let ask = |provided: KrsPatterns| {
+        let flow = kink_flow::FlowManifest::read(&manifest).unwrap();
+        let command = kink_flow::FlowCommand::Query {
+            patterns: None,
+            options: QueryOptions::default(),
+        };
+        let front = kink_flow::FrontEnd {
+            krs_patterns: Some(&provided),
+            ..kink_flow::FrontEnd::default()
+        };
+        kink_flow::dispatch(flow, command, front).unwrap()
+    };
+    let (document, status) = ask(KrsPatterns::from([(
+        "calc-patterns".to_owned(),
+        Ok(vec![entry("three")]),
+    )]));
+    assert_eq!(status, UNREACHED_STATUS, "{document:#}");
+    assert_eq!(
+        sources(&document),
+        [
+            (
+                "three".to_owned(),
+                json!({"krs": "calc-patterns", "item": "calc_patterns::three", "file": "src/lib.rs", "line": 7})
+            ),
+            ("four".to_owned(), json!({"file": "patterns/a.toml"})),
+        ]
+    );
+    assert_eq!(row(&document, "three", "add")["answer"], "hit");
+    assert_eq!(row(&document, "three", "add")["claim"], "confirmed");
+
+    let (document, status) = ask(KrsPatterns::from([(
+        "calc-patterns".to_owned(),
+        Err("the package does not compile".to_owned()),
+    )]));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["pattern_list"]["detail"],
+        "patterns[0].krs: the package does not compile"
+    );
+
+    let (document, status) = ask(KrsPatterns::from([(
+        "calc-patterns".to_owned(),
+        Ok(vec![entry("four")]),
+    )]));
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["pattern_list"]["detail"],
+        "pattern \"four\": duplicate pattern id: KRS package \"calc-patterns\" item \
+         calc_patterns::three (src/lib.rs:7) and patterns/a.toml pattern[0] both give it"
+    );
 }

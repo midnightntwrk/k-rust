@@ -96,9 +96,9 @@ pub use kink_campaign::{StopOracle, StopWhen};
 pub use kink_native::data::SentenceNames;
 pub use manifest::{
     Budget, Decoder, FlowManifest, Given, IdentitySection, ImplementationSection, KrsSpec,
-    LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot, ObserveSection, PointSection,
-    Program, ResultSection, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot,
-    ViewSection,
+    LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot, ObserveSection, PatternsEntry,
+    PointSection, Program, ResultSection, SpecDecl, SpecSection, StopSection, StopWhenSection,
+    StopWhenSlot, ViewSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, Expect, InvalidMutation, InvalidReason, LabelMatch, Mutation,

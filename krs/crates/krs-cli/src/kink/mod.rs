@@ -68,8 +68,13 @@
 //! unwritten, and under krs's `--locked` kink-flow's `--locked` compares it. So a corpus with
 //! `[[implementation]]`s also runs `krs kink compare --locked` in CI.
 //!
+//! `query` and a `fuzz` pattern job ask the patterns the corpus manifest declares (`[[patterns]]`,
+//! kink-flow's `pattern::declared_patterns`), else, for a corpus that declares none, the layout's
+//! `PATTERNS.toml`; `--patterns` names another list in place of either. A `[[patterns]] krs`
+//! package is refused for now: krs does not build KRS patterns packages yet.
+//!
 //! `query` keeps the `[query]` section (each pattern's obligation and its one recorded witness,
-//! kept while it still hits) when it reads the corpus's own pattern list, unless the command
+//! kept while it still hits) when it reads the corpus's own patterns, unless the command
 //! names a lock or another list (`--patterns`): a query of the whole list rewrites it, `--only`
 //! and `--verify` leave it unwritten, and under krs's `--locked` kink-flow's `--locked` compares
 //! it. Each command keeps the others' sections as they are.
@@ -1016,6 +1021,7 @@ fn bound_manifest(
     let implementations =
         implementations::KrsImplementations::new(Arc::clone(&decoder), Arc::clone(&observers));
     let invariants = invariant::KrsInvariants::new(decoder);
+    let krs_patterns = krs_patterns(&manifest);
     Ok((
         manifest,
         BoundNames {
@@ -1026,16 +1032,19 @@ fn bound_manifest(
         Resolvers {
             invariants,
             implementations,
+            krs_patterns,
         },
     ))
 }
 
 /// The resolvers of a corpus's KRS spellings over the decoder's compile: of
 /// `[[coverage.invariant]]` ([`invariant`]), and `compare`'s cell vocabulary
-/// ([`implementations`]).
+/// ([`implementations`]); and the patterns of the corpus's KRS patterns packages
+/// ([`krs_patterns`]).
 struct Resolvers {
     invariants: invariant::KrsInvariants,
     implementations: implementations::KrsImplementations,
+    krs_patterns: kink_flow::pattern::KrsPatterns,
 }
 
 impl Resolvers {
@@ -1044,6 +1053,7 @@ impl Resolvers {
         FrontEnd {
             invariants: Some(&self.invariants),
             implementations: Some(&self.implementations),
+            krs_patterns: Some(&self.krs_patterns),
             ..FrontEnd::default()
         }
     }
@@ -1297,6 +1307,10 @@ fn legacy_lock(corpus: &Path, verb: Verb, options: &[String]) -> Option<PathBuf>
 /// layout path even when it is missing, so that kink-flow's refusal names the file the layout
 /// expects; a verb that only may read one gets it only when it exists. A verb's own flag
 /// (`--mutations`, `--patterns`, `--templates`) takes precedence ([`command_files`]).
+///
+/// A corpus whose manifest declares its patterns (`[[patterns]]`) has no layout pattern list:
+/// kink-flow then asks the declared patterns, and `PATTERNS.toml` is read only where `--patterns`
+/// names it. The layout's `PATTERNS.toml` is the default of a corpus that declares none.
 fn layout_files(corpus: &Path, verb: Verb) -> CommandFiles {
     let directory = corpus.join("mutations");
     let single = corpus.join("MUTATIONS.toml");
@@ -1313,11 +1327,43 @@ fn layout_files(corpus: &Path, verb: Verb) -> CommandFiles {
     CommandFiles {
         mutations,
         patterns: match verb {
+            _ if declares_patterns(corpus) => None,
             Verb::Query => Some(corpus.join("PATTERNS.toml")),
             _ => optional(corpus.join("PATTERNS.toml")),
         },
         templates: Some(corpus.join("TEMPLATES.toml")),
     }
+}
+
+/// Whether the corpus manifest declares its patterns: its top level has the key `patterns`. A
+/// manifest that cannot be read or is no TOML declares none here; the command refuses it when it
+/// decodes the manifest, as it refuses a `patterns` that is no array of `[[patterns]]` tables.
+fn declares_patterns(corpus: &Path) -> bool {
+    std::fs::read_to_string(corpus.join(MANIFEST_FILE))
+        .ok()
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .is_some_and(|top| top.contains_key("patterns"))
+}
+
+/// The patterns krs provides for each `[[patterns]] krs` package of `manifest`
+/// ([`kink_flow::pattern::KrsPatterns`]): none yet, since krs does not build a patterns package,
+/// so each entry is refused with that reason rather than skipped.
+fn krs_patterns(manifest: &kink_flow::FlowManifest) -> kink_flow::pattern::KrsPatterns {
+    manifest
+        .patterns
+        .iter()
+        .filter_map(|entry| match entry {
+            kink_flow::PatternsEntry::Krs { package } => Some((
+                package.clone(),
+                Err(format!(
+                    "the KRS patterns package {package:?}: krs kink does not build KRS patterns \
+                     packages yet; declare the patterns as kink pattern lists (`[[patterns]] \
+                     files = \"GLOB\"`) until it does"
+                )),
+            )),
+            kink_flow::PatternsEntry::Files { .. } => None,
+        })
+        .collect()
 }
 
 /// The corpus manifest at `path`, decoded by kink-flow, when it declares a KRS corpus for the
@@ -1488,7 +1534,7 @@ fn finish(
 
 #[cfg(test)]
 mod tests {
-    use super::{Verb, command_files, shown_lock};
+    use super::{MANIFEST_FILE, Verb, command_files, layout_files, shown_lock};
     use serde_json::json;
     use std::path::{Path, PathBuf};
 
@@ -1571,5 +1617,42 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// A corpus whose manifest declares its patterns (`[[patterns]]`) has no layout pattern
+    /// list, so kink-flow asks the declared patterns; one that declares none keeps the layout's
+    /// `PATTERNS.toml`; `--patterns` names the list in either case.
+    #[test]
+    fn declared_patterns_replace_the_layouts_pattern_list() {
+        let corpus =
+            std::env::temp_dir().join(format!("krs-cli-declared-patterns-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&corpus);
+        std::fs::create_dir_all(&corpus).unwrap();
+        std::fs::write(corpus.join("PATTERNS.toml"), "").unwrap();
+        let spec = "[spec]\nkrs = { definition = \"main\" }\n";
+        std::fs::write(corpus.join(MANIFEST_FILE), spec).unwrap();
+        assert_eq!(
+            layout_files(&corpus, Verb::Query).patterns,
+            Some(corpus.join("PATTERNS.toml"))
+        );
+        assert_eq!(
+            layout_files(&corpus, Verb::Fuzz).patterns,
+            Some(corpus.join("PATTERNS.toml"))
+        );
+        std::fs::write(
+            corpus.join(MANIFEST_FILE),
+            format!("{spec}\n[[patterns]]\nfiles = \"patterns/*.toml\"\n"),
+        )
+        .unwrap();
+        for verb in [Verb::Query, Verb::Fuzz] {
+            assert_eq!(layout_files(&corpus, verb).patterns, None, "{verb:?}");
+            let (files, _) = command_files(&corpus, verb, &[]).unwrap();
+            assert_eq!(files.patterns, None, "{verb:?}");
+        }
+        let (files, rest) =
+            command_files(&corpus, Verb::Query, &strings(&["--patterns", "p.toml"])).unwrap();
+        assert_eq!(files.patterns, Some(PathBuf::from("p.toml")));
+        assert!(rest.is_empty());
+        let _ = std::fs::remove_dir_all(&corpus);
     }
 }

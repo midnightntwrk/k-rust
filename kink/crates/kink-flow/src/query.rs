@@ -1,5 +1,7 @@
-//! `kink-flow query FLOW.toml PATTERNS.toml` (flow F-18): the per-input pattern checks of
-//! [`crate::pattern`], with a cache of their definitive answers.
+//! `kink-flow query FLOW.toml [PATTERNS.toml]` (flow F-18): the per-input pattern checks of
+//! [`crate::pattern`], with a cache of their definitive answers. The patterns are those the
+//! manifest declares, or the list the command line names in their place
+//! ([`crate::pattern::declared_patterns`]).
 //!
 //! The command admits the specification, brings the result cache up to date (`coverage` without
 //! `--verify`, or with it under `query --verify`), lowers every selected pattern once, and asks
@@ -132,8 +134,9 @@ use crate::{
     manifest::{FlowManifest, ManifestError},
     pattern::{
         Answer, CHAIN_LOWERING_VERSION, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredChain,
-        LoweredPattern, Lowering, PatternEntry, PatternExpect, PatternForm, PatternList, Route,
-        SearchOutcome, Searcher, chain_modality, judge, search_modality, stopped_modality,
+        LoweredPattern, Lowering, PatternEntry, PatternExpect, PatternForm, PatternList,
+        PatternSource, Route, SearchOutcome, Searcher, chain_modality, judge, search_modality,
+        stopped_modality,
     },
     results::{
         BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
@@ -207,7 +210,16 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// from_cache, records_written}`), and a `--verify` mismatch of a derived pattern's record names
 /// the part (`explain`). Every answer, exit status, lock row and key of a version 9 document is
 /// unchanged.
-pub const QUERY_VERSION: u64 = 10;
+/// Version 11 names where each pattern is written: every entry of `patterns` carries `source`,
+/// `{file}` for a pattern of a kink pattern list (its path relative to the manifest's directory,
+/// as `[[patterns]] files` matched it or as the command line names a list inside that directory,
+/// else as the command line names it), `{krs, item, file, line}` for one a front end compiled
+/// from a KRS patterns package (`[[patterns]] krs`), and null for a list given to the library as
+/// text ([`crate::pattern::PatternSource`]). The patterns asked are the list the command line
+/// names, else the patterns the manifest declares ([`crate::pattern::declared_patterns`]); a
+/// refusal of the declared patterns is the `pattern_list` refusal a list's is. Every answer, exit
+/// status, lock row and key of a version 10 document is unchanged.
+pub const QUERY_VERSION: u64 = 11;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -615,6 +627,7 @@ fn query_unnamed(
             },
             "asked": if claimed { "claimed" } else { "corpus" },
             "expect": entry.expect.map(PatternExpect::as_str),
+            "source": entry.source.as_ref().map(PatternSource::value),
         });
         if let PatternForm::Chain(steps) = &entry.form {
             described["steps"] = chain_steps(
@@ -1621,6 +1634,7 @@ mod tests {
             programs: None,
             expect,
             note: None,
+            source: None,
         }
     }
 

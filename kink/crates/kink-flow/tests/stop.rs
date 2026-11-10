@@ -903,7 +903,7 @@ fn fuzz_covers_and_hits_only_before_the_stop() {
     fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
     let pattern = |id: &str| FuzzJobRequest::Pattern {
         id: id.into(),
-        patterns: dir.join("PATTERNS.toml"),
+        patterns: Some(dir.join("PATTERNS.toml")),
     };
     let (document, status) = fuzz(&flow, "t", pattern("at-stop"));
     assert_eq!(status, EXIT_YES, "{document:#}");
@@ -1037,7 +1037,7 @@ fn query_answers_through_the_stopped_run() {
     fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
     let (document, status) = query(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 10, "{document:#}");
+    assert_eq!(document["version"], 11, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),
