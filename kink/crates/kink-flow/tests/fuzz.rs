@@ -3191,7 +3191,13 @@ endmodule
                 .unwrap()
                 .starts_with("[[template]]\n")
         );
-        assert_eq!(warning_kinds(&document), ["template-not-a-witness"]);
+        // primes's mutant run is cut by the work budget (the row's reason is `work-budget`), so
+        // the last run also warns that the mutant may only be told apart by more work.
+        assert_eq!(row["reason"], "work-budget", "{row:#}");
+        assert_eq!(
+            warning_kinds(&document),
+            ["work-budget", "template-not-a-witness"]
+        );
         let path = cache.join("report.json");
         let mut stored: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         // A run of other programs than the corpus's says nothing about the mutation, whose
@@ -3251,7 +3257,7 @@ endmodule
         );
         assert_eq!(
             warning_kinds(&document),
-            ["time-limit-scope", "unusable-template"],
+            ["time-limit-scope", "unusable-template", "work-budget"],
             "{document:#}"
         );
         // A row for which the last run had no compiled edit (it compiled no mutant for the row and
@@ -3283,7 +3289,7 @@ endmodule
         );
         assert_eq!(
             warning_kinds(&document),
-            ["witnesses-not-computed"],
+            ["work-budget", "witnesses-not-computed"],
             "{document:#}"
         );
     }
