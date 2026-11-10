@@ -2540,3 +2540,101 @@ fn a_left_out_optional_leaf_child_is_a_variable_of_its_cell_sort_at_its_place() 
     expect_test::expect!["error[krs::reference::unsupported-state]: no `k::cells!` entry: a binder that holds a `?` leaf cell or a `*` cell's instances whole, which no `k::cells!` spelling writes yet"]
         .assert_eq(stderr.lines().find(|line| line.starts_with("error")).unwrap());
 }
+
+/// [`CREATED`] with a `look` command, its `acct` collection starting with one instance when
+/// `initial`.
+fn collection_base(initial: bool) -> String {
+    let base = CREATED.replace(
+        "    #[k::syntax(\"make({x})\")]\n    Make { x: Int },\n",
+        "    #[k::syntax(\"make({x})\")]\n    Make { x: Int },\n    #[k::syntax(\"look\")]\n    Look(),\n",
+    );
+    if initial {
+        base.replace(
+            "cell_type = \"Map\", nested)]",
+            "cell_type = \"Map\", nested, initial)]",
+        )
+    } else {
+        base
+    }
+}
+
+/// A `*` cell is its parent's only child, and the parent's content is the collection of the
+/// cell's instances, `.AcctCellMap` or one `<acct>` or several: values of K's generated sort
+/// `AcctCellMap`. So a group record that leaves the `*` child out matches it by a variable of
+/// that sort at its place, and a base alias's hidden binder there is `BAcct:AcctCellMap`. Each
+/// rule steps with no instance, one and two (`make` creates one first), where the instance's
+/// sort `AcctCell` matched exactly one. The left-out child's `_` stays bare in K, the parent's
+/// whole content.
+#[test]
+fn a_left_out_collection_child_is_a_variable_of_its_collection_sort_at_its_place() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "left-out",
+            "    look: { k: [Look(), ..], bank: Bank { .. } } => { k: [..] };\n",
+            r"rule [look]:
+    <k> look => .K ... </k>
+    <bank> _ </bank>",
+        ),
+        (
+            "alias",
+            "    look: { k: [Look(), ..], bank: b @ Bank { .. } } => { k: [..], bank: Bank { ..b } };\n",
+            r"rule [look]:
+    <k> look => .K ... </k>
+    (<bank> BAcct:AcctCellMap </bank> => <bank> BAcct:AcctCellMap </bank>)",
+        ),
+    ];
+    let instance = |id: u8| {
+        format!("<acct> <id> {id} </id> <aframe> <aa> 0 </aa> <ab> 0 </ab> </aframe> </acct>")
+    };
+    for (name, look, expected) in cases {
+        for initial in [false, true] {
+            let source = format!(
+                "{}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    make: {{ k: [Make {{ x }}, ..], acct: {{ .. }} }} => {{ k: [Look(), ..], acct: {{ Acct {{ id: x, .. }}, .. }} }};\n{look}}}\n",
+                collection_base(initial)
+            );
+            let manifest = library_package(
+                temporary.path(),
+                &format!("collection-{name}-{initial}"),
+                &source,
+            );
+            assert_eq!(
+                rule(&emitted_k(target.path(), &manifest), "look"),
+                expected,
+                "{name}"
+            );
+            for (program, instances) in [
+                (
+                    "look",
+                    if initial {
+                        instance(0)
+                    } else {
+                        ".AcctCellMap".to_owned()
+                    },
+                ),
+                (
+                    "make(5)",
+                    if initial {
+                        format!("{} {}", instance(0), instance(5))
+                    } else {
+                        instance(5)
+                    },
+                ),
+            ] {
+                let file = manifest.with_file_name("program.txt");
+                fs::write(&file, program).unwrap();
+                let (success, stdout, stderr) =
+                    krs(target.path(), &manifest, "run", &[file.to_str().unwrap()]);
+                assert!(success, "{stdout}\n{stderr}");
+                assert_eq!(
+                    stdout.split_whitespace().collect::<Vec<_>>().join(" "),
+                    format!(
+                        "<generatedTop> <k> .K </k> .OgroupCell .OhcellCell <bank> {instances} </bank> </generatedTop>"
+                    ),
+                    "{name} {initial} {program}"
+                );
+            }
+        }
+    }
+}
