@@ -375,6 +375,112 @@ fn a_built_record_outside_an_entry_holds_no_bare_rest_in_either_spelling() {
     }
 }
 
+/// Terms a result's entry builds, for DOTS: `{record}` is the `Frame` record each one holds, as a
+/// list element, a constructor's argument in one, and a computation's item in a readable rule,
+/// and as a list element in a `cells!` rule; the cell is the entry's.
+const BUILT_IN_ENTRIES: [(&str, &str, &str); 4] = [
+    (
+        "element",
+        "stack",
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    save: { k: [Save(), ..], stack: s } => { k: [..], stack: [{record}, ..s] };\n}\n",
+    ),
+    (
+        "argument",
+        "stack",
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    save: { k: [Save(), ..], stack: s } => { k: [..], stack: [Held { saved: {record} }, ..s] };\n}\n",
+    ),
+    (
+        "item",
+        "k",
+        "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    save: { k: [Save(), ..] } => { k: [{record}, ..] };\n}\n",
+    ),
+    (
+        "cells",
+        "stack",
+        "#[k::rule(label = \"save\")]\npub fn save(\n    s: k::Term<List>,\n    k::cells! { k: k::configuration::KCell(Cmd::Save(), tail @ ..), stack: k::configuration::Cell(s), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), stack: k::configuration::Cell(list::concat(list::item({record}), s)), ..state }\n}\n",
+    ),
+];
+
+/// `..` means that the fields a record leaves unnamed are what they would otherwise be: in a
+/// pattern anything, and in the record a result's entry writes for its cell what the cell holds
+/// (or a created instance's template). A term a result's entry builds is made from nothing, so
+/// there is no otherwise: its record's `..` is refused even with every field named, bare or in
+/// `k::fragment!`, with the one class and text an equation's result gets, at the record (DOTS:
+/// the all-named `..` passed there while its twin in an equation was refused). Where `..` has a
+/// meaning an all-named `..` stays the exact record: at the entry's own record and in a pattern.
+#[test]
+fn a_term_a_result_entry_builds_holds_no_bare_rest_in_either_spelling() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (label, cell, template) in BUILT_IN_ENTRIES {
+        let head = if label == "cells" {
+            "crate::Frame"
+        } else {
+            "Frame"
+        };
+        let refusals = ["pc: 1, gas: 2, ..", "pc: 1, .."].map(|fields| {
+            ["bare", "fragment"].map(|spelling| {
+                let record = if spelling == "bare" {
+                    format!("{head} {{ {fields} }}")
+                } else {
+                    format!("k::fragment![{head} {{ {fields} }}]")
+                };
+                let named = if fields.contains("gas") {
+                    "all"
+                } else {
+                    "some"
+                };
+                let manifest = package(
+                    temporary.path(),
+                    &format!("in-entry-{label}-{spelling}-{named}"),
+                    &template.replace("{record}", &record),
+                );
+                check_errors(target.path(), &manifest)
+            })
+        });
+        let first = &refusals[0][0];
+        for (named, spellings) in ["all", "some"].iter().zip(&refusals) {
+            for (spelling, errors) in ["bare", "fragment"].iter().zip(spellings) {
+                assert_eq!(
+                    errors, first,
+                    "{label}, {named} named, {spelling}: one class and text"
+                );
+            }
+        }
+        assert!(
+            first.starts_with("error[krs::syntax::invalid-record-update]: ")
+                && first.contains(&format!(
+                    "so it holds no `..`, even with every field named; here it stands in a term the entry of the cell `{cell}` builds"
+                )),
+            "{label}: {first}"
+        );
+    }
+    // Where `..` has a meaning, after every field it is the exact record: the record the entry
+    // writes for its cell, and a pattern.
+    for (label, exact, open) in [
+        (
+            "entry",
+            "save: { k: [Save(), ..], frame: _ } => { k: [..], frame: Frame { pc: 1, gas: 2 } };",
+            "save: { k: [Save(), ..], frame: _ } => { k: [..], frame: Frame { pc: 1, gas: 2, .. } };",
+        ),
+        (
+            "pattern",
+            "save: { k: [Save(), ..], stack: [Frame { pc: p, gas: g }, ..] } => { k: [int::add(p, g), ..], stack: [..] };",
+            "save: { k: [Save(), ..], stack: [Frame { pc: p, gas: g, .. }, ..] } => { k: [int::add(p, g), ..], stack: [..] };",
+        ),
+    ] {
+        let [exact, open] = [("exact", exact), ("open", open)].map(|(kind, sentence)| {
+            let manifest = package(
+                temporary.path(),
+                &format!("in-entry-{label}-{kind}"),
+                &format!("k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    {sentence}\n}}\n"),
+            );
+            rule(&emitted_k(target.path(), &manifest), "save").to_owned()
+        });
+        assert_eq!(open, exact, "{label}");
+    }
+}
+
 /// A `TWO_LEVEL` `cells!` rule writing `outer` whole in its result as `outer`.
 fn cells_outer_rule(outer: &str) -> String {
     format!(

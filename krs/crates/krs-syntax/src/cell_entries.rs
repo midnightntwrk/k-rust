@@ -144,11 +144,18 @@ pub enum Refusal {
     AbsenceTestWithoutCreation,
     /// A result rest that is not its subject's.
     RestMismatch,
-    /// A result's record whose bare `..` leaves a child unnamed, of a group that exists (matched
-    /// or overwritten) or in a built term: a bare `..` in a result is Rust's default fields,
-    /// which only a created instance has (its template). A `..` after every child defaults
-    /// none, and the record is the exact one.
+    /// A result's group record, the one its entry writes for a cell or a group child, whose bare
+    /// `..` leaves a child unnamed, of a group that exists (matched or overwritten): a bare `..`
+    /// there is Rust's default fields, which only a created instance has (its template). A `..`
+    /// after every child defaults none, and the record is the exact one.
     OpenRecordOutsidePattern,
+    /// A record with a bare `..` in a term a result's entry builds, a value of the cell's
+    /// content rather than the record the entry writes for a cell: the term is built from
+    /// nothing, so no fields are there to be left as they were or taken from a template, and
+    /// `..` names no value for any field, even after every field is named: the class of a
+    /// built term's `..` anywhere outside a pattern and a cell's entry
+    /// ([`crate::positions::Class::OpenRecordOutsidePattern`]).
+    OpenRecordInBuiltTerm,
     /// A computation's rest before an item, in any form (`[.., x]`, `KCell(x, .., y)`): the
     /// computation is read from its front, where the next step is (the class matrix's E1).
     ComputationBackItem,
@@ -212,7 +219,9 @@ impl Refusal {
             Self::ContinuationInReadable => "continuation-in-readable",
             Self::AbsenceTestWithoutCreation => "absence-test-without-creation",
             Self::RestMismatch => "rest-mismatch",
-            Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
+            Self::OpenRecordOutsidePattern | Self::OpenRecordInBuiltTerm => {
+                "open-record-outside-pattern"
+            }
             Self::ComputationBackItem => "computation-back-item",
             Self::ConsListBackItem => "cons-list-back-item",
             Self::RecordUpdateBase => "record-update-base",
@@ -272,7 +281,9 @@ impl Refusal {
             Self::ContinuationInReadable => analysis::CONTINUATION_IN_READABLE,
             Self::MapReadInResult | Self::MapReadValueBinder => syntax::RUST_SYNTAX,
             Self::RestMismatch => syntax::INVALID_LIST_NOTATION,
-            Self::OpenRecordOutsidePattern => syntax::INVALID_RECORD_UPDATE,
+            Self::OpenRecordOutsidePattern | Self::OpenRecordInBuiltTerm => {
+                syntax::INVALID_RECORD_UPDATE
+            }
             Self::ComputationBackItem => collect::INVALID_CONFIGURATION,
             Self::RecordUpdateBase | Self::RecordRemainderInCellsTerm => {
                 analysis::INVALID_RECORD_UPDATE
@@ -285,7 +296,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -309,6 +320,7 @@ impl Refusal {
         Self::AbsenceTestWithoutCreation,
         Self::RestMismatch,
         Self::OpenRecordOutsidePattern,
+        Self::OpenRecordInBuiltTerm,
         Self::ComputationBackItem,
         Self::ConsListBackItem,
         Self::RecordUpdateBase,
@@ -451,6 +463,10 @@ impl Refusal {
             ),
             Self::OpenRecordOutsidePattern => format!(
                 "the entry of the cell `{cell}` leaves a record open (`..`) outside a pattern, over a group that exists: in a built term `..` stands for Rust's default fields, which only a created instance has (its template), so the record names every child or updates the record its subject matched"
+            ),
+            Self::OpenRecordInBuiltTerm => format!(
+                "{}; here it stands in a term the entry of the cell `{cell}` builds",
+                crate::positions::Class::OpenRecordOutsidePattern.summary()
             ),
             Self::ComputationBackItem => format!(
                 "the entry of the computation cell `{cell}` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it"
@@ -944,7 +960,6 @@ struct Admission<'b> {
     form: EntryForm,
     side: EntrySide,
     bound: &'b dyn Fn(&str) -> Option<Bound>,
-    groups: &'b [GroupKind],
     sorted: bool,
     /// Where the spelling being judged stands inside the entry ([`Located::at`]). A step is
     /// pushed before the spelling it leads to is judged and popped once that spelling is
@@ -960,17 +975,15 @@ struct Admission<'b> {
 }
 
 impl Admission<'_> {
-    fn new<'b>(
+    fn new(
         form: EntryForm,
         side: EntrySide,
-        bound: &'b dyn Fn(&str) -> Option<Bound>,
-        groups: &'b [GroupKind],
-    ) -> Admission<'b> {
+        bound: &dyn Fn(&str) -> Option<Bound>,
+    ) -> Admission<'_> {
         Admission {
             form,
             side,
             bound,
-            groups,
             sorted: false,
             path: Vec::new(),
             in_term: false,
@@ -1312,10 +1325,8 @@ impl Admission<'_> {
     }
 
     /// A value position: `_` and a fresh readable name take the position's sort. In a result
-    /// the value is a built term, and a record in it whose bare `..` leaves a field open is
-    /// refused, at that record: a bare `..` in a result is Rust's default fields, which only a
-    /// created instance has, and a term's record is no instance. A `..` after every field
-    /// defaults none.
+    /// the value is a built term, and a record in it with a bare `..` is refused, at that
+    /// record ([`Self::term`]).
     fn value(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         match spelling {
             EntrySpelling::Wild => {}
@@ -1333,12 +1344,16 @@ impl Admission<'_> {
         Ok(())
     }
 
-    /// A built term takes no record whose bare `..` leaves a field open: refused at the first
-    /// such record ([`open_record`]).
+    /// A built term takes no record with a bare `..`: refused at the first such record
+    /// ([`open_record`]). `..` means that the fields a record does not name are what they
+    /// would otherwise be: in a pattern anything, and in the record a result's entry writes for
+    /// a cell, what the cell holds or a created instance's template. A term built here has no
+    /// such otherwise: it is a value made from nothing, a group's cell term as much as a
+    /// constructor's record, so its `..` names no value even after every field.
     fn term(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
-        if let Some(at) = open_record(spelling, self.groups) {
+        if let Some(at) = open_record(spelling) {
             self.path.extend(at);
-            return Err(Refusal::OpenRecordOutsidePattern);
+            return Err(Refusal::OpenRecordInBuiltTerm);
         }
         Ok(())
     }
@@ -1349,8 +1364,10 @@ impl Admission<'_> {
 /// outermost first). An initializer's value of a `*` cell is one instance's template, judged below the
 /// instances layer. `bound` tells what each name the rule binds outside the entry binds (`None`:
 /// the rule binds it nowhere there); `groups` are the
-/// configuration's groups, whose children are the fields of a record a term writes by the
-/// group's name.
+/// configuration's groups. No step reads them: a group record the entry writes for a cell is
+/// judged by the group the cell's layers hold, and a record in a built term holds no bare `..`
+/// whatever its head ([`open_record`]); the callers that pass them are the collector and the
+/// cells oracle's checks.
 ///
 /// # Errors
 ///
@@ -1380,9 +1397,9 @@ pub fn admit_located(
     stack: &[Layer],
     spelling: &EntrySpelling,
     bound: &dyn Fn(&str) -> Option<Bound>,
-    groups: &[GroupKind],
+    _groups: &[GroupKind],
 ) -> Result<Admitted, Located> {
-    let mut admission = Admission::new(form, side, bound, groups);
+    let mut admission = Admission::new(form, side, bound);
     admission
         .form(spelling)
         .map_err(|refusal| admission.located(refusal))?;
@@ -1522,29 +1539,19 @@ enum Other<'s> {
     Created,
 }
 
-/// Where `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
-/// open ([`leaves_open`]): the path to the first such record, in reading order. A record's
-/// fields are those of the group of `groups` its head names; a head that names none has no
-/// fields the record is known to name, so its `..` is open.
-fn open_record(spelling: &EntrySpelling, groups: &[GroupKind]) -> Option<Vec<usize>> {
-    let open = match spelling {
-        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
-            record.tail == RecordTail::Open
-                && groups
-                    .iter()
-                    .find(|group| group.name == record.head)
-                    .is_none_or(|group| leaves_open(record, group))
-        }
-        _ => false,
-    };
-    if open {
+/// Where `spelling`, a term, holds a record (itself included) with a bare `..`, whatever its
+/// head and however many fields it names: the path to the first such record, in reading order.
+fn open_record(spelling: &EntrySpelling) -> Option<Vec<usize>> {
+    if let EntrySpelling::Record(record) | EntrySpelling::Fragment(record) = spelling
+        && record.tail == RecordTail::Open
+    {
         return Some(Vec::new());
     }
     inner(spelling)
         .into_iter()
         .enumerate()
         .find_map(|(step, one)| {
-            open_record(one, groups).map(|mut at| {
+            open_record(one).map(|mut at| {
                 at.insert(0, step);
                 at
             })
@@ -2181,7 +2188,7 @@ pub fn admit_form_located(
     side: EntrySide,
     spelling: &EntrySpelling,
 ) -> Result<(), Located> {
-    let mut admission = Admission::new(form, side, &|_| None, &[]);
+    let mut admission = Admission::new(form, side, &|_| None);
     admission
         .form(spelling)
         .map_err(|refusal| admission.located(refusal))
@@ -3016,10 +3023,16 @@ mod tests {
         );
     }
 
+    /// `..` means that the fields a record leaves unnamed are what they would otherwise be. In
+    /// the record a result's entry writes for its cell that is the cell's content or a created
+    /// instance's template, so a `..` after every child leaves nothing open; in a term the entry
+    /// builds there is nothing they would otherwise be, so its `..` is refused however many
+    /// fields the record names and whatever its head names, at the record.
     #[test]
-    fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
+    fn a_bare_rest_is_refused_in_a_built_term_and_in_a_records_open_child_only() {
         let readable = EntryForm::Readable;
         let open = Err(Refusal::OpenRecordOutsidePattern);
+        let built = Err(Refusal::OpenRecordInBuiltTerm);
         let set = [Layer::Leaf(Notation::Set)];
         let job = [Layer::Group(GroupKind {
             name: "Job".to_owned(),
@@ -3048,23 +3061,51 @@ mod tests {
             result(readable, &job, "Job { payload: x, .. }", None),
             Ok(None)
         );
-        // A term, on a leaf and where the missing layer's advice makes it one.
+        // A term, on a leaf and where the missing layer's advice makes it one, at any depth, in
+        // both spellings, with every field named or not.
+        for record in [
+            "Frame { ret: x, .. }",
+            "Frame { ret: x, aux: y, .. }",
+            "Held { saved: Frame { ret: x, aux: y, .. } }",
+            "k::fragment![Frame { ret: x, aux: y, .. }]",
+        ] {
+            assert_eq!(
+                result(readable, &set, record, Some("old")),
+                built,
+                "{record}"
+            );
+        }
         assert_eq!(
-            result(readable, &set, "Frame { ret: x, .. }", Some("old")),
-            open
-        );
-        assert_eq!(
-            result(readable, &set, "Frame { ret: x, aux: y, .. }", Some("old")),
-            Ok(None)
+            result(
+                EntryForm::Cells,
+                &set,
+                "k::fragment![crate::Frame { ret: x, aux: y, .. }]",
+                Some("old"),
+            ),
+            built
         );
         let code = [Layer::Computation];
-        assert_eq!(result(readable, &code, "Frame { ret: x, .. }", None), open);
+        assert_eq!(result(readable, &code, "Frame { ret: x, .. }", None), built);
         assert_eq!(
             result(readable, &code, "Frame { ret: x, aux: y, .. }", None),
+            built
+        );
+        assert_eq!(
+            result(readable, &code, "Frame { ret: x, aux: y }", None),
             Err(Refusal::CellWrapper)
         );
-        // A head no group names.
-        assert_eq!(result(readable, &set, "Q { a: x, .. }", Some("old")), open);
+        // A head no group names, a constructor's record.
+        assert_eq!(result(readable, &set, "Q { a: x, .. }", Some("old")), built);
+        // A pattern leaves fields unconstrained.
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Subject,
+                &set,
+                "Frame { ret: x, aux: y, .. }"
+            ),
+            Ok(())
+        );
     }
 
     #[test]

@@ -911,7 +911,7 @@ at = "entry"
 
 # computation-back-item
 [[refuse]]
-match = '{claim,readable}/{result,subject}/k/[..\, Job \{ payload: 0\, .. \}]'
+match = '{claim,readable}/subject/k/[..\, Job \{ payload: 0\, .. \}]'
 class = "computation-back-item"
 at = "entry"
 
@@ -1163,7 +1163,7 @@ class = "rest-mismatch"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/stack/{[..\, Job \{ payload: 0\, .. \}],[..],[Job \{ payload: x\, .. \}\, ..],[x\, ..]}'
+match = '{claim,readable}/result/stack/{[..],[x\, ..]}'
 class = "rest-mismatch"
 at = "entry"
 
@@ -1692,6 +1692,15 @@ at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/result/kinds/{code,olist,set,stack}/G \{ a: x\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+# DOTS: an item a result builds in a computation or a list is a term made from nothing, so its
+# record's `..` has no fields to leave as they were, even after every field (`Job` has one child):
+# the entry's kind step refuses it at the record, before the computation's back item and the
+# list's rest are paired.
+[[refuse]]
+match = '{claim,readable}/result/{k,stack}/{[..\, Job \{ payload: 0\, .. \}],[Job \{ payload: x\, .. \}\, ..]}'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -2517,7 +2526,7 @@ class = "content-sort"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/{env,pc,seq,set,stack}/{G \{ a: x \},G \{ a: x\, b: y\, .. \}}'
+match = 'sweep/{claim,readable}/overwrite/{env,pc,seq,set,stack}/G \{ a: x \}'
 class = "content-sort"
 at = "spelling"
 
@@ -2732,11 +2741,6 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/prog/G \{ a: x\, b: y\, .. \}'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
 match = 'sweep/cells/overwrite/ogroup/Some(k::configuration::Cell(x))'
 class = "cell-wrapper"
 at = "entry"
@@ -2782,11 +2786,6 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/cells/overwrite/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
 match = 'sweep/cells/overwrite/{env,pc,seq,set,stack}/x'
 class = "cell-wrapper"
 at = "entry"
@@ -2803,11 +2802,6 @@ at = "entry"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/result/prog/G \{ a: x \}'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/prog/G \{ a: x\, b: y\, .. \}'
 class = "cell-wrapper"
 at = "entry"
 
@@ -2853,11 +2847,6 @@ at = "entry"
 
 [[refuse]]
 match = 'sweep/cells/result/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x \}]'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/cells/result/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
 class = "cell-wrapper"
 at = "entry"
 
@@ -3498,11 +3487,6 @@ at = "spelling"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/result/{pc,set}/G \{ a: x \}'
-class = "content-sort"
-at = "spelling"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/{pc,set}/G \{ a: x\, b: y\, .. \}'
 class = "content-sort"
 at = "spelling"
 
@@ -4293,6 +4277,20 @@ match = 'sweep/cells/result/{counter,env,frame,olist,omap,pc,prog,seq,stack}/k::
 class = "open-record-outside-pattern"
 at = "spelling"
 
+# DOTS: a group record a result writes on a leaf, an optional leaf or the computation is a term it
+# builds from nothing, so its `..` has no fields to leave as they were even after every child; the
+# kind step refuses it at the record, so the missing layer, the record's sort and the pairing are not
+# reached (the frame's own record stays the exact one).
+[[refuse]]
+match = 'sweep/{claim,readable}/{overwrite,result}/{counter,env,olist,omap,pc,prog,seq,set,stack}/G \{ a: x\, b: y\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/{overwrite,result}/{counter,env,olist,omap,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
 [[refuse]]
 match = 'sweep/init/init/{counter,olist,omap}/G \{ a: 0 \}'
 class = "optional-without-presence"
@@ -4330,11 +4328,6 @@ at = "entry"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/overwrite/{counter,olist,omap}/G \{ a: x \}'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/overwrite/{counter,olist,omap}/G \{ a: x\, b: y\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -4389,11 +4382,6 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/cells/overwrite/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
 match = 'sweep/cells/overwrite/ogroup/k::fragment![crate::Gp \{ pa: x\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
@@ -4415,11 +4403,6 @@ at = "entry"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/result/{counter,olist,omap}/G \{ a: x \}'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/{counter,olist,omap}/G \{ a: x\, b: y\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -4470,11 +4453,6 @@ at = "entry"
 
 [[refuse]]
 match = 'sweep/cells/result/{counter,olist,omap}/k::fragment![crate::G \{ a: x \}]'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/cells/result/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
 
@@ -5289,11 +5267,6 @@ class = "rest-mismatch"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/result/{env,seq,stack}/G \{ a: x\, b: y\, .. \}'
-class = "rest-mismatch"
-at = "entry"
-
-[[refuse]]
 match = 'sweep/{claim,readable}/result/{c02-hcell,f10-hcell,f13-hcell}/H \{ hl: [x\, ..]\, hb: 0 \}'
 class = "rest-mismatch"
 at = "entry"
@@ -5617,7 +5590,7 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lprog,qprog}/G \{ a: x\, b: y\, .. \}'
+match = 'sweep-paths/{claim,readable}/subject/{lprog,qprog}/G \{ a: x\, b: y\, .. \}'
 class = "cell-wrapper"
 at = "entry"
 
@@ -5692,7 +5665,7 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'sweep-paths/cells/{overwrite,result,subject}/{lenv,lpc,lprog,lseq,lset,lstack,qenv,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+match = 'sweep-paths/cells/subject/{lenv,lpc,lprog,lseq,lset,lstack,qenv,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
 class = "cell-wrapper"
 at = "entry"
 
@@ -5722,7 +5695,7 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lenv,lpc,lseq,lset,lstack}/G \{ a: x\, b: y\, .. \}'
+match = 'sweep-paths/{claim,readable}/subject/{lenv,lpc,lseq,lset,lstack}/G \{ a: x\, b: y\, .. \}'
 class = "collection-without-instances"
 at = "entry"
 
@@ -6339,7 +6312,7 @@ class = "map-read-in-result"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/G \{ a: x\, .. \}'
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/{G \{ a: x\, .. \},G \{ a: x\, b: y\, .. \}}'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -6354,7 +6327,7 @@ class = "open-record-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep-paths/cells/{overwrite,result}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x\, .. \}]'
+match = 'sweep-paths/cells/{overwrite,result}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/{k::fragment![crate::G \{ a: x\, .. \}],k::fragment![crate::G \{ a: x\, b: y\, .. \}]}'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -6374,7 +6347,7 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/G \{ a: x\, b: y\, .. \}'
+match = 'sweep-paths/{claim,readable}/subject/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/G \{ a: x\, b: y\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -6539,7 +6512,7 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qolist,qomap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+match = 'sweep-paths/cells/subject/{lcounter,lolist,lomap,qcounter,qolist,qomap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
 
@@ -8121,14 +8094,6 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
-
-syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."claim/result/k/[Job { payload: x, .. }, ..]"]
-k = """
-claim [case-TAG]:
-<k> cTAG ( V0:Int , V1:Int ) => <job> <payload> V0:Int </payload> </job> ... </k>
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -11883,14 +11848,6 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 same_k_as = ["cells/result/k/rest/k::configuration::KCell(..)"]
 
-[accept."readable/result/k/[Job { payload: x, .. }, ..]"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:Int , V1:Int ) => <job> <payload> V0:Int </payload> </job> ... </k>
-
-syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept."readable/result/k/[x, ..]"]
 k = """
 rule [case-TAG]:
@@ -13335,14 +13292,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 same_k_as = ["cells-run/result/k/rest/k::configuration::KCell(..)"]
-
-[accept."readable-run/result/k/[Job { payload: x, .. }, ..]"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:Int , V1:Int ) => <job> <payload> V0:Int </payload> </job> ... </k>
-
-syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
 
 [accept."readable-run/result/k/[x, ..]"]
 k = """
