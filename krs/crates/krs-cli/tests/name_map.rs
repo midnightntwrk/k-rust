@@ -376,18 +376,37 @@ fn context_alias_names_k_spells_alike_are_refused() {
     );
 }
 
-/// A `k::rules!` clause is labelled by its name, so a name no K label spells (a non-ASCII
-/// letter) is refused at the name, as the same label written `label = ".."` is, where it
-/// was an internal error.
+/// A `k::rules!` clause's name is the rule's identifier, as a row's or a rule fn's is, not label
+/// text: it gives the label its spelling with `_` written `-` where a K label spells that, and
+/// otherwise the rule takes the hash label of its identity, as a row of that name does. A clause
+/// whose name is spellable keeps its label.
 #[test]
-fn a_clause_name_no_k_label_spells_is_refused_at_the_name() {
+fn a_clause_name_no_k_label_spells_takes_the_hash_label() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let source = library(&[("unwrap: {", "dérouler: {")], "");
     assert_eq!(
-        check_headline(target.path(), temporary.path(), "clause-name", &source).as_deref(),
-        Some(
-            "error[krs::syntax::invalid-argument-value]: `label` must be a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter; a clause is labelled by its name unless `#[k::rule(label = \"..\")]` names it otherwise"
-        )
+        check_headline(target.path(), temporary.path(), "clause-name", &source),
+        None
     );
+    let manifest = temporary.path().join("clause-name/Cargo.toml");
+    let emitted = emitted_k(
+        target.path(),
+        &manifest,
+        "name_map_clause_name",
+        &temporary.path().join("clause-out"),
+    );
+    let label = emitted
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("rule [krsRule_"))
+        .unwrap_or_else(|| panic!("no hash label:\n{emitted}"));
+    assert!(label.ends_with("]:"), "{label}");
+    let plain = package(temporary.path(), "plain", "name_map_plain", LIBRARY);
+    let plain_k = emitted_k(
+        target.path(),
+        &plain,
+        "name_map_plain",
+        &temporary.path().join("plain-out"),
+    );
+    assert!(plain_k.contains("rule [unwrap]:"), "{plain_k}");
 }

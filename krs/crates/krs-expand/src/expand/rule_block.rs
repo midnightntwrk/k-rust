@@ -613,38 +613,31 @@ fn expand_head_rule(
 
     // A claim clause is labelled by its name, which its `#[k::claim(..)]`
     // carries (F7).
-    let label = Some(match clause.claim() {
-        Some(claim) => krs_ir::DescriptorRuleLabel {
+    let label = match clause.claim() {
+        Some(claim) => Some(krs_ir::DescriptorRuleLabel {
             key: ledger.define(claim.label_key())?,
             name: claim.label().value(),
-        },
-        // The clause's name, or its `#[k::rule(label = ..)]`. A name is its K label, so one
-        // that no K label spells (a non-ASCII letter) is refused at the name, as an authored
-        // label would be.
-        None => krs_ir::DescriptorRuleLabel {
-            key: ledger.define(
-                clause
-                    .label_key()
-                    .or_else(|| clause.attribute().label_key()),
-            )?,
-            name: if let Some(label) = clause.attribute().label() {
-                label.value()
-            } else {
-                let name = rule.item().sig.ident.unraw().to_string().replace('_', "-");
-                if !krs_ir::transport::grammar::valid_rule_label_name(&name) {
-                    return Err(krs_syntax::SyntaxError::new(
-                        krs_syntax::SyntaxErrorKind::InvalidArgumentValue {
-                            name: "label",
-                            expected: "a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter; a clause is labelled by its name unless `#[k::rule(label = \"..\")]` names it otherwise",
-                        },
-                        rule.item().sig.ident.span(),
-                    )
-                    .into());
-                }
-                name
-            },
-        },
-    });
+        }),
+        // The clause's `#[k::rule(label = ..)]`, or the label its name derives
+        // (`RuleClause::derived_label`); a name that derives none leaves the rule to the hash
+        // label.
+        None => clause
+            .attribute()
+            .label()
+            .map(syn::LitStr::value)
+            .or_else(|| clause.derived_label())
+            .map(|name| {
+                Ok::<_, crate::ExpandError>(krs_ir::DescriptorRuleLabel {
+                    key: ledger.define(
+                        clause
+                            .label_key()
+                            .or_else(|| clause.attribute().label_key()),
+                    )?,
+                    name,
+                })
+            })
+            .transpose()?,
+    };
     let (sentence_kind, item_kind, claim) = match clause.claim() {
         Some(claim) => (
             krs_ir::SentenceKind::Claim,

@@ -668,8 +668,13 @@ impl RuleClause {
             crate::state_rule::allocate_claim_node_keys(keys, [(nodes, term_keys)])
         })?;
         // A claim clause's name, its label, is anchored by its
-        // `#[k::claim(..)]` (F7).
-        if self.claim.is_none() && self.attribute.label().is_none() {
+        // `#[k::claim(..)]` (F7). A rule clause's name gives its label, the
+        // name with `_` written `-`, when a K label spells that (see
+        // [`Self::derived_label`]); otherwise the rule takes the hash label.
+        if self.claim.is_none()
+            && self.attribute.label().is_none()
+            && self.derived_label().is_some()
+        {
             self.keys.label = Some(keys.key(
                 ProvenanceRole::RuleLabel,
                 TokenRange::for_tokens(&self.rule.item.sig.ident)?,
@@ -886,6 +891,24 @@ impl RuleClause {
             visit_term(ensures, visit)?;
         }
         Ok(())
+    }
+
+    /// The label a rule clause's name derives, the name with `_` written `-`
+    /// (`load_word` is `load-word`), when a K label spells it. A name is an
+    /// item's identifier, not label text, so one with a non-ASCII letter
+    /// derives none: the rule is then labelled by the hash of its identity, as
+    /// an equation row of that name is.
+    #[must_use]
+    pub fn derived_label(&self) -> Option<String> {
+        let name = self
+            .rule
+            .item
+            .sig
+            .ident
+            .unraw()
+            .to_string()
+            .replace('_', "-");
+        krs_ir::transport::grammar::valid_rule_label_name(&name).then_some(name)
     }
 
     /// The key of the clause's name when it is the rule's label: a rule

@@ -1043,16 +1043,29 @@ impl NamingPass {
                     || match rule.relational_body() {
                         // A context's label (KF-021) defaults to its fn
                         // name with `_` written `-`; K derives the labels of
-                        // its heat and cool rules from it.
+                        // its heat and cool rules from it. Here and for a
+                        // configuration rule, an item name no K label spells
+                        // (a non-ASCII letter) takes the hash label, as a
+                        // term rule's does: a name is an identifier, not label text.
                         _ if rule.kind() == SentenceKind::Context => {
-                            rule.id().item_name().replace('_', "-")
+                            Some(rule.id().item_name().replace('_', "-"))
+                                .filter(|name| validate_label_name("rule label", name).is_ok())
+                                .unwrap_or_else(|| {
+                                    LabelIdentity::fallback_name(&short_hash(&owner))
+                                })
                         }
                         RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => {
                             readable_rule_label(rule.id()).unwrap_or_else(|| {
                                 LabelIdentity::fallback_name(&short_hash(&owner))
                             })
                         }
-                        RuleBodyRef::Configuration { .. } => lower_camel(rule.id().item_name()),
+                        RuleBodyRef::Configuration { .. } => {
+                            Some(lower_camel(rule.id().item_name()))
+                                .filter(|name| validate_label_name("rule label", name).is_ok())
+                                .unwrap_or_else(|| {
+                                    LabelIdentity::fallback_name(&short_hash(&owner))
+                                })
+                        }
                     },
                     |label| label.name().to_owned(),
                 );
