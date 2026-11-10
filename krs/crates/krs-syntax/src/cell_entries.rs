@@ -753,48 +753,76 @@ enum Mark {
     Value,
 }
 
-fn mark(form: EntryForm, spelling: &EntrySpelling) -> Mark {
-    let readable = form.is_readable();
-    match spelling {
-        EntrySpelling::Present(_) | EntrySpelling::Missing | EntrySpelling::Absent(_) => {
-            Mark::Presence
-        }
-        EntrySpelling::Cell(_) => Mark::Leaf,
-        EntrySpelling::KCell(_) => Mark::Computation,
-        EntrySpelling::InstanceList(_) => Mark::InstanceList,
-        EntrySpelling::InstanceSet(_) => Mark::InstanceSet,
-        EntrySpelling::KMacro(_) if form == EntryForm::Initializer => Mark::Computation,
-        EntrySpelling::Brackets(_) if form != EntryForm::Cells => Mark::Sequence,
-        EntrySpelling::Braces(_) if readable => Mark::InstanceSet,
-        EntrySpelling::MapRead(_) if readable => Mark::Map,
-        EntrySpelling::MapLiteral(_) if form == EntryForm::Initializer => Mark::Map,
-        _ => Mark::Value,
-    }
+/// The marks a spelling is read by: its form's, and whether it stands in a record's or a
+/// fragment's child. A child is written as its content, so `cells!`'s marks of a whole entry
+/// (the `Cell(..)` and `KCell(..)` wrappers, an instance list's brackets and an instance set's
+/// braces at the entry's head) are not a child's: a leaf child is its value, a computation
+/// child's brackets or `k::k![..]` are its items (`cc: [y, ..]`), and a collection child's
+/// brackets or braces are its instances, as a readable record's child reads them. A `k::k![..]`
+/// where the child holds no computation is a term, whose sort the term's own judgement answers.
+/// Every other form writes a record's child as it writes a whole entry.
+#[derive(Clone, Copy)]
+struct Marks {
+    form: EntryForm,
+    child: bool,
 }
 
-/// Whether `layer` reads `mark` in `form`.
-fn reads(form: EntryForm, layer: &Layer, mark: Mark) -> bool {
-    let cells = form == EntryForm::Cells;
-    match layer {
-        Layer::Optional => mark == Mark::Presence,
-        Layer::Instances(Order::List) if cells => mark == Mark::InstanceList,
-        Layer::Leaf(_) if cells => mark == Mark::Leaf,
-        Layer::Instances(Order::List) | Layer::Leaf(Notation::List | Notation::Cons) => {
-            mark == Mark::Sequence
-        }
-        Layer::Instances(Order::Set | Order::Map) => mark == Mark::InstanceSet,
-        Layer::Computation => mark == Mark::Computation || (!cells && mark == Mark::Sequence),
-        Layer::Leaf(Notation::Map) => mark == Mark::Map,
-        Layer::Leaf(Notation::Plain | Notation::Set) | Layer::Group(_) => false,
+impl Marks {
+    /// Whether `cells!`'s marks of a whole entry are read.
+    fn whole_cells_entry(self) -> bool {
+        self.form == EntryForm::Cells && !self.child
     }
-}
 
-/// Whether `layer` has a mark of its own in `form`, which a value at its position lacks.
-const fn marked(form: EntryForm, layer: &Layer) -> bool {
-    match layer {
-        Layer::Optional | Layer::Instances(_) | Layer::Computation => true,
-        Layer::Leaf(_) => matches!(form, EntryForm::Cells),
-        Layer::Group(_) => false,
+    /// The mark `spelling` carries at a cell of `stack`.
+    fn of(self, spelling: &EntrySpelling, stack: &[Layer]) -> Mark {
+        let readable = self.form.is_readable();
+        let cells_child = self.form == EntryForm::Cells && self.child;
+        let computation = stack.contains(&Layer::Computation);
+        match spelling {
+            EntrySpelling::Present(_) | EntrySpelling::Missing | EntrySpelling::Absent(_) => {
+                Mark::Presence
+            }
+            EntrySpelling::Cell(_) => Mark::Leaf,
+            EntrySpelling::KCell(_) => Mark::Computation,
+            EntrySpelling::InstanceList(_) => Mark::InstanceList,
+            EntrySpelling::InstanceSet(_) => Mark::InstanceSet,
+            EntrySpelling::KMacro(_)
+                if self.form == EntryForm::Initializer || (cells_child && computation) =>
+            {
+                Mark::Computation
+            }
+            EntrySpelling::Brackets(_) if !self.whole_cells_entry() => Mark::Sequence,
+            EntrySpelling::Braces(_) if readable || cells_child => Mark::InstanceSet,
+            EntrySpelling::MapRead(_) if readable => Mark::Map,
+            EntrySpelling::MapLiteral(_) if self.form == EntryForm::Initializer => Mark::Map,
+            _ => Mark::Value,
+        }
+    }
+
+    /// Whether `layer` reads `mark`.
+    fn read(self, layer: &Layer, mark: Mark) -> bool {
+        let cells = self.whole_cells_entry();
+        match layer {
+            Layer::Optional => mark == Mark::Presence,
+            Layer::Instances(Order::List) if cells => mark == Mark::InstanceList,
+            Layer::Leaf(_) if cells => mark == Mark::Leaf,
+            Layer::Instances(Order::List) | Layer::Leaf(Notation::List | Notation::Cons) => {
+                mark == Mark::Sequence
+            }
+            Layer::Instances(Order::Set | Order::Map) => mark == Mark::InstanceSet,
+            Layer::Computation => mark == Mark::Computation || (!cells && mark == Mark::Sequence),
+            Layer::Leaf(Notation::Map) => mark == Mark::Map,
+            Layer::Leaf(Notation::Plain | Notation::Set) | Layer::Group(_) => false,
+        }
+    }
+
+    /// Whether `layer` has a mark of its own, which a value at its position lacks.
+    fn marked(self, layer: &Layer) -> bool {
+        match layer {
+            Layer::Optional | Layer::Instances(_) | Layer::Computation => true,
+            Layer::Leaf(_) => self.whole_cells_entry(),
+            Layer::Group(_) => false,
+        }
     }
 }
 
@@ -903,6 +931,9 @@ struct Admission<'b> {
     /// `Cell(..)`, a `KCell(..)`, a computation's or a map's literal. A record's, a fragment's
     /// and `Some(..)`'s children, and what brackets and braces hold, stand where they do.
     in_term: bool,
+    /// Whether the spelling being judged stands in a record's or a fragment's child, which is
+    /// written as the child's content ([`Marks`]).
+    child: bool,
 }
 
 impl Admission<'_> {
@@ -920,6 +951,15 @@ impl Admission<'_> {
             sorted: false,
             path: Vec::new(),
             in_term: false,
+            child: false,
+        }
+    }
+
+    /// The marks the spelling being judged is read by.
+    const fn marks(&self) -> Marks {
+        Marks {
+            form: self.form,
+            child: self.child,
         }
     }
 
@@ -1031,7 +1071,7 @@ impl Admission<'_> {
         if self.side == EntrySide::Initializer && matches!(outer, Layer::Instances(_)) {
             return self.kind(below, spelling, head);
         }
-        let mark = mark(self.form, spelling);
+        let mark = self.marks().of(spelling, stack);
         if self.lacks(outer, below, mark) {
             return self.missing_layer(stack, spelling, head);
         }
@@ -1041,7 +1081,7 @@ impl Admission<'_> {
             }
             return self.value(spelling);
         }
-        if !reads(self.form, outer, mark) {
+        if !self.marks().read(outer, mark) {
             return Err(foreign(mark, stack));
         }
         match (outer, spelling) {
@@ -1095,10 +1135,10 @@ impl Admission<'_> {
     /// where `outer` has a mark, or a mark of a layer below it.
     fn lacks(&self, outer: &Layer, below: &[Layer], mark: Mark) -> bool {
         if mark == Mark::Value {
-            marked(self.form, outer)
+            self.marks().marked(outer)
         } else {
-            !reads(self.form, outer, mark)
-                && below.iter().any(|layer| reads(self.form, layer, mark))
+            !self.marks().read(outer, mark)
+                && below.iter().any(|layer| self.marks().read(layer, mark))
         }
     }
 
@@ -1112,7 +1152,7 @@ impl Admission<'_> {
         spelling: &EntrySpelling,
         head: bool,
     ) -> Result<(), Refusal> {
-        let mark = mark(self.form, spelling);
+        let mark = self.marks().of(spelling, stack);
         let mut inside = &stack[1..];
         while let Some((outer, below)) = inside.split_first()
             && self.lacks(outer, below, mark)
@@ -1213,24 +1253,30 @@ impl Admission<'_> {
         Ok(())
     }
 
-    /// A value at a group's position: a record of the group names its children's entries;
-    /// a fragment of the group is a term, which names the children as the record it
-    /// abbreviates does, its own `..` and its children's records paired as the record's are;
-    /// any other value is a term.
+    /// A value at a group's position: a record of the group, or the fragment it abbreviates,
+    /// names its children's entries, each that child cell's entry read by the child's declared
+    /// kind as if the child were its own cell, on both sides, in its content's marks
+    /// ([`Marks`]); a fragment is a term besides; any other value is a term.
     fn group(&mut self, group: &GroupKind, spelling: &EntrySpelling) -> Result<(), Refusal> {
         let record = match spelling {
             EntrySpelling::Record(record) if record.head == group.name => record,
             EntrySpelling::Fragment(record) if record.head == group.name => {
                 self.sorted = true;
-                self.fragment_terms(group, record)?;
-                return names_every_child(record, group);
+                record
             }
             _ => return self.value(spelling),
         };
-        for (step, (name, value)) in record.fields.iter().enumerate() {
-            let child = group.child(name).map_or(&[][..], |kind| &kind.layers[..]);
-            self.within(step, |admission| admission.kind(child, value, false))?;
-        }
+        let child = std::mem::replace(&mut self.child, true);
+        let children = record
+            .fields
+            .iter()
+            .enumerate()
+            .try_for_each(|(step, (name, value))| {
+                let child = group.child(name).map_or(&[][..], |kind| &kind.layers[..]);
+                self.within(step, |admission| admission.kind(child, value, false))
+            });
+        self.child = child;
+        children?;
         names_every_child(record, group)
     }
 
@@ -1272,63 +1318,6 @@ impl Admission<'_> {
             return Err(Refusal::OpenRecordOutsidePattern);
         }
         Ok(())
-    }
-
-    /// The terms inside a result's fragment of `group`: a child's own group record (or
-    /// fragment), a `?` child's `Some(..)` and a collection child's instance records are its
-    /// cell's records, whose `..` pairing judges; every other value is a term, which takes no
-    /// bare `..` that leaves a field open ([`Self::term`]).
-    fn fragment_terms(&mut self, group: &GroupKind, record: &EntryRecord) -> Result<(), Refusal> {
-        if self.side != EntrySide::Result {
-            return Ok(());
-        }
-        for (step, (name, value)) in record.fields.iter().enumerate() {
-            if let Some(kind) = group.child(name) {
-                self.within(step, |admission| admission.cell_terms(&kind.layers, value))?;
-            }
-        }
-        Ok(())
-    }
-
-    fn cell_terms(&mut self, stack: &[Layer], spelling: &EntrySpelling) -> Result<(), Refusal> {
-        if let EntrySpelling::Alias(_, pattern) = spelling {
-            return self.within(0, |admission| admission.cell_terms(stack, pattern));
-        }
-        match (stack, spelling) {
-            ([Layer::Group(group), ..], _) => match record_of(spelling, group) {
-                Some(record) => self.fragment_terms(group, record),
-                None => self.term(spelling),
-            },
-            ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
-                self.within(0, |admission| admission.cell_terms(below, content))
-            }
-            ([Layer::Instances(_), Layer::Group(group), ..], _) => match sequence(spelling) {
-                Some(seq) => {
-                    for (step, item) in seq.items.iter().enumerate() {
-                        self.within(step, |admission| {
-                            let (item, aliased) = match item {
-                                EntrySpelling::Alias(_, pattern) => (&**pattern, true),
-                                other => (other, false),
-                            };
-                            if aliased {
-                                admission.path.push(0);
-                            }
-                            match record_of(item, group) {
-                                Some(record) => admission.fragment_terms(group, record)?,
-                                None => admission.term(item)?,
-                            }
-                            if aliased {
-                                admission.path.pop();
-                            }
-                            Ok(())
-                        })?;
-                    }
-                    Ok(())
-                }
-                None => self.term(spelling),
-            },
-            _ => self.term(spelling),
-        }
     }
 }
 

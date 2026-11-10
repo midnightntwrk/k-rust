@@ -1485,6 +1485,10 @@ fn cells_written(result: &str) -> String {
 
 /// The witnesses [`a_group_records_presence_child_waits_for_its_entry_on_every_route`] checks: a
 /// name, a library, and the spelling its refusal starts at.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of witnesses, each route beside its twin."
+)]
 fn presence_witnesses() -> Vec<(&'static str, String, &'static str)> {
     vec![
         (
@@ -1556,6 +1560,44 @@ fn presence_witnesses() -> Vec<(&'static str, String, &'static str)> {
             "Some(1)",
         ),
         (
+            "bare-subject-readable",
+            readable_presence("ocell: O { oo: x, .. }", "x, "),
+            "x, ..",
+        ),
+        (
+            "bare-subject-cells",
+            cells_presence("ocell: k::fragment![crate::O { oo: x, .. }]", true),
+            "x, ..",
+        ),
+        (
+            "bare-result-readable",
+            readable_written("ocell: O { oo: 1, op: None, on: 0 }"),
+            "1, op",
+        ),
+        (
+            "bare-result-cells",
+            cells_written("ocell: k::fragment![crate::O { oo: 1, op: None, on: 0 }]"),
+            "1, op",
+        ),
+        (
+            "plain-presence-readable",
+            readable_presence("ocell: O { on: Some(x), .. }", "x, "),
+            "Some(x)",
+        ),
+        (
+            "plain-presence-cells",
+            cells_presence("ocell: k::fragment![crate::O { on: Some(x), .. }]", true),
+            "Some(x)",
+        ),
+        (
+            "depth-2-bare-cells",
+            cells_presence(
+                "wcell: k::fragment![crate::W { wg: crate::Gw { wo: x, .. }, .. }]",
+                true,
+            ),
+            "x, ..",
+        ),
+        (
             "leaf-readable",
             readable_presence("stack: Core { fpu: Some(_), .. }", ""),
             "Some(_)",
@@ -1577,7 +1619,11 @@ fn presence_witnesses() -> Vec<(&'static str, String, &'static str)> {
 /// with any number of such children and at any depth: the limit where the entries are admitted
 /// (P2a-c), a principle first where one refuses the whole (the result writes an optional cell its
 /// subject does not match, P1b; the subject's `None` is not created), and a subject's presence
-/// keeps the names it binds for the result that reads them (P2b). On a leaf a `cells!` fragment
+/// keeps the names it binds for the result that reads them (P2b). A fragment's children are
+/// entries as a record's are, judged by each child's kind on both routes: a `?` child written
+/// as a bare term lacks its presence, and a plain child's `Some(..)` is a presence it has none
+/// of (TABLE item 1: a `cells!` subject's `oo: x` passed and matched a present `oo` only, and
+/// `on: Some(x)` met the limit). On a leaf a `cells!` fragment
 /// meets the leaf's refusal, its wrapper (`cell-wrapper`), before the limit. The readable record
 /// on a leaf still meets the limit: the table reads that record as a term of the leaf, which the
 /// compiler's sort inference refuses only after the collector raised it (RDRB, open).
@@ -1617,6 +1663,13 @@ fn a_group_records_presence_child_waits_for_its_entry_on_every_route() {
             "depth-2-subject-cells: error[krs::analysis::collection-entry]",
             "depth-2-result-readable: error[krs::analysis::optional-presence]",
             "depth-2-result-cells: error[krs::analysis::optional-presence]",
+            "bare-subject-readable: error[krs::analysis::optional-presence]",
+            "bare-subject-cells: error[krs::analysis::optional-presence]",
+            "bare-result-readable: error[krs::analysis::optional-presence]",
+            "bare-result-cells: error[krs::analysis::optional-presence]",
+            "plain-presence-readable: error[krs::analysis::optional-presence]",
+            "plain-presence-cells: error[krs::analysis::optional-presence]",
+            "depth-2-bare-cells: error[krs::analysis::optional-presence]",
             "leaf-readable: error[krs::analysis::collection-entry]",
             "leaf-cells: error[krs::analysis::cell-wrapper]",
         ]
