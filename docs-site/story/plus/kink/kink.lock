@@ -8,10 +8,11 @@ schema = "kink-flow-verdicts"
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 25
+version = 26
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
+work_factor = 5
 
 [run.spec]
 outcome = "admitted"
@@ -40,7 +41,7 @@ killer = "t4"
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # next run tries each flip's `killer` first, a run without --locked rewrites this section, and
 # `coverage --locked` checks that it is current.
-version = 25
+version = 26
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -53,6 +54,7 @@ outcome = "admitted"
 depth = 1
 mcdc = [
 ]
+work_factor = 5
 
 # Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
 # argument of FLOW.toml ([[coverage.argued]]) stands in for, each with the `standing` it rests
