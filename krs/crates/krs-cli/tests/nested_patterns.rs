@@ -2377,3 +2377,166 @@ fn a_records_mistake_has_one_refusal_on_every_route() {
         ]
     "#]].assert_debug_eq(&outcomes);
 }
+
+/// [`PRESENCES`] without its `KItem` input, so a program runs with no input bound, started with
+/// its `?` leaves absent, or with `oo` and `wo` present when `present`.
+fn places(present: bool) -> String {
+    let base = PRESENCES
+        .replace("    #[k::cell]\n    pub slot: k::KItem,\n", "")
+        .replace("pgm: Stmt, item: k::KItem", "pgm: Stmt")
+        .replace("            slot: item,\n", "");
+    if present {
+        base.replace("oo: k::absent!(0)", "oo: Some(5)")
+            .replace("wo: k::absent!(0)", "wo: Some(6)")
+    } else {
+        base
+    }
+}
+
+/// The final configuration of `go`'s run, on one line.
+fn run_go(target: &Path, manifest: &Path) -> String {
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "go").unwrap();
+    let (success, stdout, stderr) = krs(target, manifest, "run", &[program.to_str().unwrap()]);
+    assert!(success, "{stdout}\n{stderr}");
+    stdout.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A `?` leaf child's place holds the cell or its absence (`<oo> 5 </oo>` or `.OoCell`), both
+/// values of the cell's generated sort `OoCell`. So a group record that leaves the child out
+/// matches it by `_:OoCell` at its place, a base alias's hidden binder there is `OOo:OoCell`,
+/// and the update that takes the child from the base writes that binder back: each rule steps
+/// whether the child is absent or present, on every route and at every depth, at a configuration
+/// position and in a value (`stack`). `<oo> _ </oo>` there matched the present cell only, so
+/// every rule below was stuck with `oo` absent. A plain leaf left out stays `<wn> _ </wn>`: its
+/// place always holds the cell, which that matches exactly. The print of a rule that leaves the
+/// child out re-checks with the same K; a hidden binder at the place has no `k::cells!`
+/// spelling, so `krs expand` refuses to print the rule that holds one.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of places and spellings, each run absent and present."
+)]
+fn a_left_out_optional_leaf_child_is_a_variable_of_its_cell_sort_at_its_place() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |rules: &str, present: bool| {
+        format!(
+            "{}k::rules! {{\n    for Machine;\n    use Cmd::*;\n{rules}}}\n",
+            places(present)
+        )
+    };
+    let cases = [
+        (
+            "readable",
+            "    go: { k: [Go(), ..], ocell: O { on: x, .. } } => { k: [..] };\n",
+            "go",
+            r"rule [go]:
+    <k> go => .K ... </k>
+    <ocell> _:OoCell _:OpCell <on> X:Int </on> </ocell>",
+            "<ocell> {oo} .OpCell <on> 0 </on> </ocell>",
+        ),
+        (
+            "depth-2",
+            "    go: { k: [Go(), ..], wcell: W { wg: Gw { wa: x, .. }, .. } } => { k: [..] };\n",
+            "go",
+            r"rule [go]:
+    <k> go => .K ... </k>
+    <wcell> <wg> _:WoCell <wa> X:Int </wa> </wg> <wn> _ </wn> </wcell>",
+            "<wg> {wo} <wa> 0 </wa> </wg>",
+        ),
+        (
+            "alias",
+            "    go: { k: [Go(), ..], ocell: o @ O { on: x, .. } } => { k: [..], ocell: O { on: x + 1, ..o } };\n",
+            "go",
+            r"rule [go]:
+    <k> go => .K ... </k>
+    (<ocell> OOo:OoCell OOp:OpCell <on> X:Int </on> </ocell> => <ocell> OOo:OoCell OOp:OpCell <on> X:Int +Int 1 </on> </ocell>)",
+            "<ocell> {oo} .OpCell <on> 1 </on> </ocell>",
+        ),
+        (
+            "value",
+            "    go: { k: [Go(), ..], ocell: o, stack: s } => { k: [Hold { s: 0 }, ..], stack: [o, ..s] };\n    hold: { k: [Hold { s: _ }, ..], stack: [v @ O { on: x, .. }, r @ ..] } => { k: [..], stack: [O { on: x + 1, ..v }, ..r] };\n",
+            "hold",
+            r"rule [hold]:
+    <k> hold ( _ ) => .K ... </k>
+    <stack> ListItem(<ocell> VOo:OoCell VOp:OpCell <on> X:Int </on> </ocell>) R:List => ListItem(<ocell> VOo:OoCell VOp:OpCell <on> X:Int +Int 1 </on> </ocell>) R:List </stack>",
+            "<stack> ListItem ( <ocell> {oo} .OpCell <on> 1 </on> </ocell> ) </stack>",
+        ),
+    ];
+    for (name, rules, label, expected, after) in cases {
+        for present in [false, true] {
+            let manifest = library_package(
+                temporary.path(),
+                &format!("place-{name}-{present}"),
+                &readable(rules, present),
+            );
+            assert_eq!(
+                rule(&emitted_k(target.path(), &manifest), label),
+                expected,
+                "{name} {present}"
+            );
+            let (oo, wo) = if present {
+                ("<oo> 5 </oo>", "<wo> 6 </wo>")
+            } else {
+                (".OoCell", ".WoCell")
+            };
+            let run = run_go(target.path(), &manifest);
+            let after = after.replace("{oo}", oo).replace("{wo}", wo);
+            assert!(
+                run.starts_with("<generatedTop> <k> .K </k>") && run.contains(&after),
+                "{name} {present}: {run}"
+            );
+        }
+    }
+
+    // The `cells!` twin of the readable rule: the fragment's `..` leaves the children out.
+    let cells = format!(
+        "{}#[k::rule(label = \"go\")]\nfn go(x: Term<Int>, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), ocell: k::fragment![crate::O {{ on: x, .. }}], state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(x, ..tail), ..state }}\n}}\n",
+        places(false)
+    );
+    let manifest = library_package(temporary.path(), "place-cells", &cells);
+    expect_test::expect![[r"
+        rule [go]:
+            <k> go ~> Tail:K => X:Int ~> Tail:K </k>
+            <ocell> _:OoCell _:OpCell <on> X:Int </on> </ocell>"]]
+    .assert_eq(rule(&emitted_k(target.path(), &manifest), "go"));
+    assert!(run_go(target.path(), &manifest).starts_with("<generatedTop> <k> 0 ~> .K </k>"));
+
+    // The readable rule's print leaves the children out with the fragment's `..` and re-checks
+    // with the same K.
+    let manifest = library_package(
+        temporary.path(),
+        "place-printed",
+        &readable(
+            "    go: { k: [Go(), ..], ocell: O { on: x, .. } } => { k: [..] };\n",
+            false,
+        ),
+    );
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    assert!(
+        expanded
+            .split_whitespace()
+            .collect::<String>()
+            .contains("ocell:k::fragment![crate::O{on:x,..}]"),
+        "{expanded}"
+    );
+    let reprinted = library_package(temporary.path(), "place-reprinted", &expanded);
+    assert_eq!(
+        rule(&emitted_k(target.path(), &reprinted), "go"),
+        rule(&emitted_k(target.path(), &manifest), "go")
+    );
+
+    // A hidden binder holds the `?` child whole, present or absent, which no `cells!` entry
+    // writes yet: the print is refused, where it printed a bare binder the table refuses.
+    let manifest = library_package(
+        temporary.path(),
+        "place-alias-printed",
+        &readable(cases[2].1, false),
+    );
+    let (success, _, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(!success);
+    expect_test::expect!["error[krs::reference::unsupported-state]: no `k::cells!` entry: a binder that holds a `?` leaf cell or a `*` cell's instances whole, which no `k::cells!` spelling writes yet"]
+        .assert_eq(stderr.lines().find(|line| line.starts_with("error")).unwrap());
+}
