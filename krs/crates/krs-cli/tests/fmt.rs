@@ -90,9 +90,8 @@ fn rule_bodies_wrap_at_the_rustfmt_max_width_of_the_file_directory() {
         k::equations! {
             for Width;
             short: Bool() => 1;
-            long:
-                (types, Pointer(pointee) | Reference(pointee))
-                => int::mul(Width(types), Words(pointee));
+            long:  (types, Pointer(pointee) | Reference(pointee))
+                   => int::mul(Width(types), Words(pointee));
         }
     "]]
     .assert_eq(&formatted.output);

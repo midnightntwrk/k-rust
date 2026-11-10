@@ -371,7 +371,7 @@ fn the_flips_and_their_coverage_are_byte_stable() {
         String::from_utf8_lossy(&warm.stdout)
     );
     assert!(
-        String::from_utf8_lossy(&warm.stdout).contains("[[flip]]"),
+        String::from_utf8_lossy(&warm.stdout).contains("[[coverage.flip]]"),
         "{}",
         String::from_utf8_lossy(&warm.stdout)
     );
