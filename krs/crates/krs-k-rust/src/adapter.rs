@@ -141,6 +141,21 @@ pub struct AdaptedDefinition {
     pub(super) definition: NativeDefinition,
     pub(super) origins: Vec<OriginMapping>,
     pub(super) omitted_claims: usize,
+    /// Each defaulted input's default, by the input's K name without `$`, adapted as the
+    /// initializer's terms are ([`InputDefault`]); no node of [`Self::definition`].
+    pub(super) input_defaults: BTreeMap<String, InputDefault>,
+}
+
+/// An input's declared default, adapted as an initializer's term is, with the input's declared
+/// sort: the value a run binds the input to when it binds none. K's configuration declares no
+/// defaults, so it is no node of the native definition; the compile result lowers it to KORE
+/// over the prepared definition ([`crate::CompiledArtifacts::input_defaults`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct InputDefault {
+    /// The default's native term.
+    pub(crate) term: k_rust::kast::Term,
+    /// The input's declared sort, at which the default is bound.
+    pub(crate) sort: NativeSort,
 }
 
 impl AdaptedDefinition {
@@ -311,6 +326,8 @@ struct Adapter<'a> {
     /// [`group_member_labels`]).
     group_members: BTreeMap<ProductionGroupId, BTreeSet<String>>,
     initializer_variables: BTreeMap<SemanticId, String>,
+    /// The defaults of the configuration's inputs, by K name ([`AdaptedDefinition::input_defaults`]).
+    input_defaults: BTreeMap<String, InputDefault>,
     context_here: Option<SemanticId>,
     naming: VariableNaming,
     /// K spellings of the variables of the sentence being adapted.
@@ -328,6 +345,7 @@ impl<'a> Adapter<'a> {
             index: DefinitionIndex::new(ir),
             group_members: group_member_labels(ir),
             initializer_variables: BTreeMap::new(),
+            input_defaults: BTreeMap::new(),
             context_here: None,
             naming: VariableNaming::new(ir),
             variable_names: SentenceVariables::default(),
@@ -387,6 +405,7 @@ impl<'a> Adapter<'a> {
             },
             origins: self.origins,
             omitted_claims: self.omitted_claims,
+            input_defaults: self.input_defaults,
         })
     }
 

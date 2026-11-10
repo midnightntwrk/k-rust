@@ -414,7 +414,7 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
     );
 }
 
-fn variable<S>(sort: S) -> ProtocolConfigurationVariable<S> {
+fn variable<S, T>(sort: S) -> ProtocolConfigurationVariable<S, T> {
     ProtocolConfigurationVariable {
         binding_key: key(ProvenanceRole::ConfigurationVariable),
         binding: "input".into(),
@@ -424,6 +424,7 @@ fn variable<S>(sort: S) -> ProtocolConfigurationVariable<S> {
         arguments: Vec::new(),
         main_key: None,
         main_candidate: false,
+        default: None,
     }
 }
 

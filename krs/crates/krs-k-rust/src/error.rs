@@ -401,6 +401,14 @@ pub enum DefinitionCompileError {
         /// Complete pinned parser error, including its byte offset.
         error: k_rust::kore::parser::ParseError,
     },
+    /// An input's default did not lower to KORE over the prepared definition. The compiler
+    /// admits only defaults that lower, so this is a KRS bug.
+    InputDefault {
+        /// The input's K name, without `$`.
+        variable: String,
+        /// Why the lowering failed.
+        reason: String,
+    },
 }
 
 impl DefinitionCompileError {
@@ -410,7 +418,10 @@ impl DefinitionCompileError {
         match self {
             Self::Preparation(error) => error.diagnostics(),
             Self::Compile(error) => error.diagnostics(),
-            Self::Adapter(_) | Self::Provenance(_) | Self::KoreReparse { .. } => &[],
+            Self::Adapter(_)
+            | Self::Provenance(_)
+            | Self::KoreReparse { .. }
+            | Self::InputDefault { .. } => &[],
         }
     }
 }
@@ -422,7 +433,8 @@ impl ToDiagnostic for DefinitionCompileError {
             Self::Provenance(error) => return error.to_diagnostic(),
             Self::Preparation(PreparationError::MissingPrelude) => codes::native::MISSING_PRELUDE,
             Self::Preparation(PreparationError::Loader { .. }) => codes::native::PREPARATION,
-            Self::Compile(_) => codes::native::COMPILE,
+            // An input's default the frontend's conversion refuses is a compile failure too.
+            Self::Compile(_) | Self::InputDefault { .. } => codes::native::COMPILE,
             Self::KoreReparse { .. } => codes::native::KORE_REPARSE,
         };
         Diagnostic::error(code, self.to_string(), Location::None)
@@ -439,6 +451,10 @@ impl fmt::Display for DefinitionCompileError {
             Self::KoreReparse { artifact, error } => {
                 write!(formatter, "pinned parser rejected {artifact}: {error}")
             }
+            Self::InputDefault { variable, reason } => write!(
+                formatter,
+                "internal error (a KRS bug): the default of the input `${variable}` does not lower to KORE: {reason}"
+            ),
         }
     }
 }
@@ -451,6 +467,7 @@ impl Error for DefinitionCompileError {
             Self::Provenance(error) => Some(error),
             Self::Compile(error) => Some(error),
             Self::KoreReparse { error, .. } => Some(error),
+            Self::InputDefault { .. } => None,
         }
     }
 }

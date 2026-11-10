@@ -523,10 +523,18 @@ pub struct CellSortArgument<S> {
     pub arguments: Vec<CellSortArgument<S>>,
 }
 
-/// One ordered external configuration variable.
+/// The term type of the IR level whose sort references are `Self`: what a configuration
+/// variable's default is at that level ([`FixedConfigurationVariable::default`]), so that
+/// `FixedConfigurationVariable<S>` names the variable of the level whose sorts are `S`.
+pub trait LevelTerm {
+    /// The level's term.
+    type Term;
+}
+
+/// One ordered external configuration variable: an input of the definition.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FixedConfigurationVariable<S> {
+pub struct FixedConfigurationVariable<S, T = <S as LevelTerm>::Term> {
     origin: NodeOrigin,
     id: SemanticId,
     external_name: String,
@@ -538,9 +546,17 @@ pub struct FixedConfigurationVariable<S> {
     #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
     arguments: Vec<CellSortArgument<S>>,
     main: bool,
+    /// The input's declared default (`#[k::config_var(.., default = D)]`): its value when a run
+    /// binds none, a closed term of the variable's sort or a subsort, which an explicit binding
+    /// replaces. It belongs to the input, not to a cell: every cell that reads the variable
+    /// starts from its value, bound or default. K's configuration declares no defaults, so the
+    /// emitted K reads the variable as before, and a route that builds the initial configuration
+    /// applies it.
+    #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+    default: Option<T>,
 }
 
-impl<S> FixedConfigurationVariable<S> {
+impl<S, T> FixedConfigurationVariable<S, T> {
     /// Creates configuration-variable metadata.
     ///
     /// # Errors
@@ -563,7 +579,22 @@ impl<S> FixedConfigurationVariable<S> {
             sort,
             arguments: Vec::new(),
             main,
+            default: None,
         })
+    }
+
+    /// Records the input's declared default, its value when a run binds none.
+    #[must_use]
+    pub fn with_default(mut self, default: T) -> Self {
+        self.default = Some(default);
+        self
+    }
+
+    /// Returns the input's declared default, its value when a run binds none; `None` for an
+    /// input every run binds.
+    #[must_use]
+    pub const fn default(&self) -> Option<&T> {
+        self.default.as_ref()
     }
 
     /// Records the element types of a collection-typed variable
@@ -699,7 +730,7 @@ pub struct FixedConfiguration<S, C, T> {
     cells: Vec<FixedCell<S, C>>,
     initializer_origin: NodeOrigin,
     initializer_id: SemanticId,
-    variables: Vec<FixedConfigurationVariable<S>>,
+    variables: Vec<FixedConfigurationVariable<S, T>>,
     initializer: Vec<FixedInitializerCell<C, T>>,
 }
 
@@ -726,7 +757,7 @@ where
         cells: Vec<FixedCell<S, C>>,
         initializer_origin: NodeOrigin,
         initializer_id: SemanticId,
-        variables: Vec<FixedConfigurationVariable<S>>,
+        variables: Vec<FixedConfigurationVariable<S, T>>,
         initializer: Vec<FixedInitializerCell<C, T>>,
     ) -> Result<Self, StateShapeError> {
         if let ConfigurationRoot::Named { name, .. } = &root {
@@ -807,7 +838,7 @@ where
 
     /// Returns ordered external variables.
     #[must_use]
-    pub fn variables(&self) -> &[FixedConfigurationVariable<S>] {
+    pub fn variables(&self) -> &[FixedConfigurationVariable<S, T>] {
         &self.variables
     }
 

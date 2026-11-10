@@ -416,7 +416,7 @@ protocol_shape! {
     /// One ordered external configuration variable.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
-    pub struct ProtocolConfigurationVariable<S => sort_map => S2> {
+    pub struct ProtocolConfigurationVariable<S => sort_map => S2, T => term_map => T2> {
         /// Exact Rust binding provenance.
         pub binding_key: ProvenanceKey => [keep],
         /// Authored Rust binding name used by initializer terms.
@@ -441,6 +441,11 @@ protocol_shape! {
         /// host descriptor holds one.
         #[serde(default, skip_serializing_if = "is_false")]
         pub main_candidate: bool => [keep],
+        /// The input's declared default (`#[k::config_var(.., default = D)]`), read as a leaf
+        /// cell's value is, without the cell forms: the input's value when a run binds none.
+        /// It reads no configuration variable.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub default: Option<T> => [option term_map],
     }
 }
 
@@ -453,10 +458,12 @@ const fn is_false(value: &bool) -> bool {
 }
 
 /// Stable configuration-variable metadata.
-pub type DescriptorConfigurationVariable = ProtocolConfigurationVariable<DescriptorSortReference>;
+pub type DescriptorConfigurationVariable =
+    ProtocolConfigurationVariable<DescriptorSortReference, DescriptorInitializerStateTerm>;
 
 /// Host configuration-variable metadata.
-pub type HostConfigurationVariable = ProtocolConfigurationVariable<HostSortReference>;
+pub type HostConfigurationVariable =
+    ProtocolConfigurationVariable<HostSortReference, HostInitializerStateTerm>;
 
 /// Surface notation retained for an exact K sequence.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1582,7 +1589,7 @@ fn validate_initializer<S: ConfigurationValidationStage>(
 }
 
 fn validate_variables<S: ConfigurationValidationStage>(
-    variables: &[ProtocolConfigurationVariable<S::Sort>],
+    variables: &[ProtocolConfigurationVariable<S::Sort, ProtocolInitializerStateTerm<Term<S>>>],
     keys: &mut WireKeys,
 ) -> Result<BTreeSet<String>, StateTransportError> {
     let mut bindings = BTreeSet::new();
@@ -1637,6 +1644,13 @@ fn validate_variables<S: ConfigurationValidationStage>(
     }
     if main_count > 1 {
         return Err(StateTransportError::MultipleMainVariables);
+    }
+    // A default is the input's value when a run binds none, so it reads no input: it is an
+    // initializer state whose names are its own local binders alone.
+    for variable in variables {
+        if let Some(default) = &variable.default {
+            validate_state_term::<S>(default, &BTreeSet::new(), keys)?;
+        }
     }
     Ok(bindings)
 }
@@ -2354,7 +2368,10 @@ pub type StageCellDeclaration<S> = ProtocolCellDeclaration<
 /// Paired initializer expressed through one reference stage.
 pub type StageConfigurationInitializer<S> = ProtocolConfigurationInitializer<
     <S as Stage>::InitializerOwner,
-    ProtocolConfigurationVariable<<S as Stage>::Sort>,
+    ProtocolConfigurationVariable<
+        <S as Stage>::Sort,
+        ProtocolInitializerStateTerm<crate::transport::grammar::Term<S>>,
+    >,
     ProtocolInitializerCell<
         <S as Stage>::Cell,
         <S as Stage>::CellDeclaration,
@@ -2391,7 +2408,11 @@ pub fn map_initializer<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
     value.try_map_refs(
         map,
         &mut |owner, map| map.initializer_owner(owner),
-        &mut |variable, map| variable.try_map_refs(map, &mut |sort, map| map.sort(sort)),
+        &mut |variable, map| {
+            variable.try_map_refs(map, &mut |sort, map| map.sort(sort), &mut |value, map| {
+                value.try_map_refs(map, &mut |term, map| term.try_map_refs(map))
+            })
+        },
         &mut |cell, map| {
             cell.try_map_refs(
                 map,

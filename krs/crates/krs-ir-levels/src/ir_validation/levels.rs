@@ -56,6 +56,7 @@ macro_rules! validation_error {
                 $public::ExistentialScopeViolation(id)
             }
             ValidationError::InitializerLeafSortMismatch => $public::InitializerLeafSortMismatch,
+            ValidationError::InputDefaultSortMismatch => $public::InputDefaultSortMismatch,
             ValidationError::CellArgumentArity => $public::CellArgumentArity,
             ValidationError::ProductionArgumentField(id) => {
                 $public::ProductionArgumentField($identity(id))

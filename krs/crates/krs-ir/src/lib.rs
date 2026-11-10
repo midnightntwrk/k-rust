@@ -118,7 +118,7 @@ pub use state::{
     ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
     FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, InstanceChild,
-    InstanceClause, InstanceOrdering, InstancesClause, ListOperation, MapOperation,
+    InstanceClause, InstanceOrdering, InstancesClause, LevelTerm, ListOperation, MapOperation,
     OptionalCellClause, PartPost, Presence, SetOperation, StateShapeError, TermMapOperation,
 };
 pub use transport::configuration::{
@@ -221,7 +221,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(83);
+    pub const CURRENT: Self = Self(84);
 }
 
 impl Default for SchemaVersion {

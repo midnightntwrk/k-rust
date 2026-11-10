@@ -937,6 +937,7 @@ mod tests {
                 arguments: Vec::new(),
                 main_key: None,
                 main_candidate: false,
+                default: None,
             }],
             cells: vec![ProtocolInitializerCell {
                 absent: None,
@@ -985,6 +986,7 @@ mod tests {
                 arguments: Vec::new(),
                 main_key: None,
                 main_candidate: false,
+                default: None,
             }],
             cells: vec![ProtocolInitializerCell {
                 absent: None,

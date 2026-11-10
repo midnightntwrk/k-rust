@@ -12,6 +12,7 @@ mod provenance;
 
 use std::collections::BTreeMap;
 
+use k_rust::kore::ast::Pattern;
 use k_rust::{
     builtin,
     definition::{CheckMode as NativeCheckMode, Sentence as NativeSentence},
@@ -326,6 +327,23 @@ pub struct CompiledArtifacts {
     pub sentence_provenance: SentenceProvenance,
     /// Claims left out because the backend does not prove them.
     pub omitted_claims: usize,
+    /// Each defaulted input's default ([`Self::input_defaults`]).
+    pub input_defaults: BTreeMap<String, Pattern>,
+}
+
+impl CompiledArtifacts {
+    /// The declared default of each input that has one (`#[k::config_var(name = "N", default =
+    /// D)]`), keyed by the input's K name without `$` (`N`): the KORE pattern a run binds `$N` to
+    /// when it binds no value for it. Each is the default's term lowered by the lowering the
+    /// initializer's terms get: adapted as an initializer's term, then sort-injected and
+    /// converted over the prepared definition, at the input's declared sort (an injection where
+    /// the default's own sort is a strict subsort of it). A function application stays an
+    /// application, which the backend's initialization evaluates. The emitted K is unchanged:
+    /// K's configuration declares no defaults.
+    #[must_use]
+    pub const fn input_defaults(&self) -> &BTreeMap<String, Pattern> {
+        &self.input_defaults
+    }
 }
 
 /// Textual KORE artifacts with the native, unjoined input relation.
@@ -501,6 +519,7 @@ fn compile_ir(
         join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
             .map_err(DefinitionCompileError::Provenance)
     })?;
+    let input_defaults = lower_input_defaults(&loaded, &adapted.input_defaults)?;
     let loaded = loaded.into_parts();
     let context = ConfigurationContext {
         frontend_definition: loaded.definition,
@@ -515,9 +534,48 @@ fn compile_ir(
             diagnostics: artifacts.diagnostics,
             sentence_provenance,
             omitted_claims: adapted.omitted_claims,
+            input_defaults,
         },
         context,
     ))
+}
+
+/// The KORE of each input's default ([`CompiledArtifacts::input_defaults`]): the adapted term,
+/// with the injections its positions need at the input's declared sort, converted over the
+/// prepared definition's main module, as the initializer's terms are once compiled. The compiler
+/// admits only defaults built from the definition's constructors, functions, collection
+/// operations and tokens, which this conversion lowers; a failure is KRS's own.
+fn lower_input_defaults(
+    loaded: &LoadedDefinition,
+    defaults: &BTreeMap<String, adapter::InputDefault>,
+) -> Result<BTreeMap<String, Pattern>, DefinitionCompileError> {
+    if defaults.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let resolved = loaded.resolved();
+    let main = loaded.definition().main_module.as_str();
+    let failure = |variable: &str, reason: String| DefinitionCompileError::InputDefault {
+        variable: variable.to_owned(),
+        reason,
+    };
+    let injector = kompile::SortInjector::new(resolved, main).map_err(|error| {
+        failure(
+            defaults.keys().next().map_or("", String::as_str),
+            error.to_string(),
+        )
+    })?;
+    defaults
+        .iter()
+        .map(|(variable, default)| {
+            let term = injector
+                .inject(&default.term, &default.sort)
+                .map_err(|error| failure(variable, error.to_string()))?;
+            let pattern =
+                kompile::term_to_kore_from_resolved_with_token_module(resolved, main, main, &term)
+                    .map_err(|error| failure(variable, error.to_string()))?;
+            Ok((variable.clone(), pattern))
+        })
+        .collect()
 }
 
 /// Compile an already-prepared native definition to textual KORE and its raw

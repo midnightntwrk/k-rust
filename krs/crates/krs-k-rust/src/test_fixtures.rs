@@ -14,11 +14,24 @@ pub(crate) fn smoke_definition() -> DefinitionIr {
     smoke_definition_with_cell(SentenceKind::Transition, "k")
 }
 
+pub(crate) fn smoke_definition_with_cell(rule_kind: SentenceKind, cell_name: &str) -> DefinitionIr {
+    smoke_definition_of(rule_kind, cell_name, false)
+}
+
+/// The smoke definition whose program input `$PGM` declares the default `foo`.
+pub(crate) fn smoke_definition_with_program_default() -> DefinitionIr {
+    smoke_definition_of(SentenceKind::Transition, "k", true)
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Builds the complete adapter smoke definition with shared cell configuration."
 )]
-pub(crate) fn smoke_definition_with_cell(rule_kind: SentenceKind, cell_name: &str) -> DefinitionIr {
+fn smoke_definition_of(
+    rule_kind: SentenceKind,
+    cell_name: &str,
+    program_default: bool,
+) -> DefinitionIr {
     let k_item = SymbolId::new("sort.kitem").unwrap();
     let k_result = SymbolId::new("sort.kresult").unwrap();
     let value = SymbolId::new("sort.value").unwrap();
@@ -118,16 +131,26 @@ pub(crate) fn smoke_definition_with_cell(rule_kind: SentenceKind, cell_name: &st
                 ],
                 node("def.initializer"),
                 semantic_id("initializer.machine"),
-                vec![
-                    FixedConfigurationVariable::new(
+                vec![{
+                    let variable = FixedConfigurationVariable::new(
                         node("def.initializer.program"),
                         program,
                         "PGM",
                         DefinitionSortRef::declared(value.clone()),
                         true,
                     )
-                    .unwrap(),
-                ],
+                    .unwrap();
+                    if program_default {
+                        variable.with_default(DefinitionTerm::application(
+                            node("def.initializer.program.default"),
+                            DefinitionSortRef::declared(value.clone()),
+                            ApplicationRef::Declared(foo.clone()),
+                            Vec::new(),
+                        ))
+                    } else {
+                        variable
+                    }
+                }],
                 vec![FixedInitializerCell::term(
                     node("def.initializer.cell"),
                     cell,

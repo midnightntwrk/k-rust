@@ -114,6 +114,28 @@ fn permanent_structured_compile_uses_the_pinned_compatibility_layer() {
     assert!(!artifacts.syntax_definition_kore.is_empty());
 }
 
+/// An input's default is lowered to KORE in the compile result, keyed by the input's K name, and
+/// the compiled definition is the one without the default: K's configuration declares none.
+#[test]
+fn an_input_s_default_is_in_the_compile_result_and_not_in_the_definition() {
+    let plain = compile_definition(&smoke_definition(), CompileOptions::default()).unwrap();
+    assert!(plain.input_defaults().is_empty());
+    let defaulted = compile_definition(
+        &crate::test_fixtures::smoke_definition_with_program_default(),
+        CompileOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(defaulted.definition_kore, plain.definition_kore);
+    let defaults = defaulted
+        .input_defaults()
+        .iter()
+        .map(|(name, pattern)| (name.as_str(), pattern.to_string()))
+        .collect::<Vec<_>>();
+    // The production's own symbol, which the compiled definition declares.
+    assert_eq!(defaults, [("PGM", "LblLblfoo{}()".to_owned())]);
+    assert!(defaulted.definition_kore.contains("symbol LblLblfoo{}()"));
+}
+
 #[test]
 fn only_the_haskell_backend_proves_claims() {
     for backend in Backend::ALL {

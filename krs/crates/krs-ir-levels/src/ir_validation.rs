@@ -202,6 +202,7 @@ pub(crate) enum ValidationError<L: Validation> {
     EmptyText(krs_ir::IrField),
     ExistentialScopeViolation(SemanticId),
     InitializerLeafSortMismatch,
+    InputDefaultSortMismatch,
     CellArgumentArity,
     ProductionArgumentField(L::Declaration),
     InitializerTreeMismatch,
@@ -433,6 +434,26 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
         cell_ids,
         nodes,
     )?;
+    // An input's default is its value when a run binds none: a closed term, which reads no
+    // variable, of the variable's sort or a subsort, as an initializer leaf is of its cell's.
+    for variable in configuration.variables() {
+        let Some(default) = variable.default() else {
+            continue;
+        };
+        validate_term::<L>(
+            default,
+            &BTreeMap::new(),
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        )?;
+        if !is_subsort::<L>(default.sort(), variable.sort(), sort_parents) {
+            crate::failure_site::report(default.origin());
+            return Err(L::error(ValidationError::InputDefaultSortMismatch));
+        }
+    }
     let mut used = BTreeSet::new();
     collect_initializer_variables::<L>(configuration.initializer(), &mut used);
     used.retain(|variable| !locals.contains_key(variable));

@@ -954,9 +954,13 @@ impl<F: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolCellDe
         }]
     }
 }
-impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolConfigurationVariable<S> {
+impl<
+    S: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for ProtocolConfigurationVariable<S, T>
+{
     fn samples() -> Vec<Self> {
-        vec![Self {
+        let variable = Self {
             binding_key: sample::<ProvenanceKey>(),
             binding: sample::<String>(),
             external_name_key: sample::<ProvenanceKey>(),
@@ -965,7 +969,16 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolConfig
             arguments: sample::<Vec<ProtocolSortArgument<S>>>(),
             main_key: sample::<Option<ProvenanceKey>>(),
             main_candidate: sample::<bool>(),
-        }]
+            default: None,
+        };
+        vec![
+            variable.clone(),
+            // An input with a declared default.
+            Self {
+                default: Some(sample::<T>()),
+                ..variable
+            },
+        ]
     }
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolInitializerTerm<T> {
@@ -3987,7 +4000,11 @@ impl<
         )]
     }
 }
-impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigurationVariable<S> {
+impl<
+    S: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for FixedConfigurationVariable<S, T>
+{
     fn samples() -> Vec<Self> {
         let variable = || {
             Self::new(
@@ -4003,6 +4020,8 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigura
             variable(),
             // A collection-typed variable, `xs: Map<Int, Set<Int>>`.
             variable().with_arguments(sample::<Vec<CellSortArgument<S>>>()),
+            // An input with a declared default.
+            variable().with_default(sample::<T>()),
         ]
     }
 }

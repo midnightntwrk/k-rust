@@ -1988,6 +1988,11 @@ impl SemanticRule {
 /// A typed semantic term whose nested nodes retain their own origins and keys.
 pub type SemanticTerm = crate::IrTerm<crate::SemanticLevel>;
 
+/// A Semantic IR configuration variable's default is a Semantic IR term.
+impl krs_ir::LevelTerm for SemanticSortRef {
+    type Term = SemanticTerm;
+}
+
 /// Structured target-neutral semantic term forms.
 pub type SemanticTermKind = crate::IrTermKind<crate::SemanticLevel>;
 
@@ -2195,6 +2200,8 @@ pub enum SemanticValidationError {
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
     InitializerLeafSortMismatch,
+    /// An input's default has neither its variable's sort nor a subsort.
+    InputDefaultSortMismatch,
     /// A leaf cell's, a configuration variable's, or a production position's
     /// element types do not fit its sort: a `Map` takes two, a `List` or
     /// `Set` one, and any other sort none.
@@ -2511,6 +2518,9 @@ impl fmt::Display for SemanticValidationError {
             Self::InitializerLeafSortMismatch => {
                 formatter.write_str("initializer leaf term must match its cell content sort")
             }
+            Self::InputDefaultSortMismatch => formatter.write_str(
+                "a configuration variable's default must have the variable's sort or a subsort",
+            ),
             Self::CellArgumentArity => formatter.write_str(
                 "the element types of a cell, a configuration variable, or a production's field or result must be two for a Map, one for a List or Set, and none for any other sort",
             ),

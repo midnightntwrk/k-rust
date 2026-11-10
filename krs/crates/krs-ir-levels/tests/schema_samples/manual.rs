@@ -293,7 +293,7 @@ impl<
                 sample::<Vec<FixedCell<S, C>>>(),
                 sample::<NodeOrigin>(),
                 sample::<SemanticId>(),
-                sample::<Vec<FixedConfigurationVariable<S>>>(),
+                sample::<Vec<FixedConfigurationVariable<S, T>>>(),
                 sample::<Vec<FixedInitializerCell<C, T>>>(),
             )
             .unwrap(),

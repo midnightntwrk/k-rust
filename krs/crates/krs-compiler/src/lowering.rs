@@ -1802,7 +1802,13 @@ fn lower_fixed_configuration(
                 )
                 .map_err(state_shape_error)
                 .and_then(|lowered| {
-                    Ok(lowered.with_arguments(lower_cell_arguments(variable.arguments(), names)?))
+                    let lowered =
+                        lowered.with_arguments(lower_cell_arguments(variable.arguments(), names)?);
+                    // An input's default is lowered as the initializer's terms are.
+                    Ok(match variable.default() {
+                        Some(default) => lowered.with_default(lower_term(default, names, origins)?),
+                        None => lowered,
+                    })
                 })
             })
             .collect::<Result<Vec<_>, _>>()?,

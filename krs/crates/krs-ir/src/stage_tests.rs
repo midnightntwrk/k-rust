@@ -141,6 +141,7 @@ fn variable() -> DescriptorConfigurationVariable {
         arguments: Vec::new(),
         main_key: Some(key(3)),
         main_candidate: false,
+        default: None,
     }
 }
 
@@ -148,7 +149,7 @@ fn map_variable(
     value: DescriptorConfigurationVariable,
     map: &mut CountingMap,
 ) -> Result<DescriptorConfigurationVariable, &'static str> {
-    value.try_map_refs(map, &mut map_sort)
+    value.try_map_refs(map, &mut map_sort, &mut map_initializer_state)
 }
 
 fn initializer_term(ordinal: u32) -> cfg::ProtocolInitializerTerm<DescriptorTerm> {
@@ -307,7 +308,17 @@ fn configuration_declaration_traversal_maps_fields_and_generic_arguments() {
         [map_field],
         ["sort", "sort", "sort", "cell", "cell_declaration", "cell"]
     );
-    assert_mapping!(variable(), [map_sort], ["sort"]);
+    assert_mapping!(variable(), [map_sort, map_initializer_state], ["sort"]);
+    // A default is mapped after the variable's sort, as the term it is.
+    let defaulted = DescriptorConfigurationVariable {
+        default: Some(cfg::ProtocolInitializerStateTerm::Term(initializer_term(4))),
+        ..variable()
+    };
+    assert_mapping!(
+        defaulted,
+        [map_sort, map_initializer_state],
+        ["sort", "sort"]
+    );
 }
 
 #[test]

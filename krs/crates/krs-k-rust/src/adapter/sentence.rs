@@ -514,6 +514,27 @@ impl Adapter<'_> {
             SentenceNodeRole::ConfigurationInitializer,
         );
         let body = self.fixed_configuration(configuration, module, sentence_index)?;
+        for variable in configuration.variables() {
+            let Some(default) = variable.default() else {
+                continue;
+            };
+            // A default is adapted as the initializer's terms are, and is no node of the native
+            // definition, so it maps no origin there.
+            let mapped = self.origins.len();
+            let term = self.term(
+                default,
+                module,
+                sentence_index,
+                Vec::new(),
+                TermContext::ConfigurationInitializer,
+            )?;
+            self.origins.truncate(mapped);
+            let sort = self.sort(variable.sort(), variable.origin())?;
+            self.input_defaults.insert(
+                variable.external_name().to_owned(),
+                super::InputDefault { term, sort },
+            );
+        }
         self.initializer_variables.clear();
         Ok(NativeSentence::Configuration {
             body,

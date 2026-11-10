@@ -141,6 +141,7 @@ pub fn initializer_variable(
         arguments: Vec::new(),
         main_key: main.then(|| key(ProvenanceRole::ConfigurationVariableMain, ordinal)),
         main_candidate: false,
+        default: None,
     }
 }
 

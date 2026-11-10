@@ -154,6 +154,7 @@ fn init_inner(
             arguments,
             main_key,
             main_candidate: variable.attribute().is_main_candidate(),
+            default: None,
         });
     }
     let cells = builder.expand_cells(initializer.cells(), &quote!(Self))?;

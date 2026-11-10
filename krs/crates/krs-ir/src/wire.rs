@@ -109,7 +109,8 @@ pub type WireCellDeclaration = StageCellDeclaration<WireStage>;
 /// Static wire-stage configuration declaration.
 pub type WireConfigurationDeclaration = StageCellDeclaration<WireStage>;
 /// Static wire-stage configuration variable.
-pub type WireConfigurationVariable = ProtocolConfigurationVariable<WireSortReference>;
+pub type WireConfigurationVariable =
+    ProtocolConfigurationVariable<WireSortReference, WireInitializerStateTerm>;
 /// Static wire-stage initializer state.
 pub type WireInitializerStateTerm = ProtocolInitializerStateTerm<WireTerm>;
 /// Static wire-stage initializer cell.

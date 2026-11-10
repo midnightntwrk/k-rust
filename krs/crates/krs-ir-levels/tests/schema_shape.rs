@@ -842,7 +842,7 @@ fn registry() -> Registry {
     trace!(wire WireSortReference: WireSortReference);
     trace!(wire WireTypeReference: WireTypeReference);
     trace!(ProtocolCellDeclaration: ProtocolCellDeclaration<String>);
-    trace!(ProtocolConfigurationVariable: ProtocolConfigurationVariable<String>);
+    trace!(ProtocolConfigurationVariable: ProtocolConfigurationVariable<String, String>);
     trace!(ProtocolInitializerTerm: ProtocolInitializerTerm<String>);
     trace!(ProtocolKSequenceItem: ProtocolKSequenceItem<String>);
     trace!(ProtocolKSequence: ProtocolKSequence<String>);
@@ -1056,7 +1056,7 @@ fn registry() -> Registry {
     unsupported!(ProductionAttribute: ProductionAttribute<String, String>);
     unsupported!(FixedCell: FixedCell<String,String>);
     unsupported!(FixedCellContent: FixedCellContent<String,String>);
-    unsupported!(FixedConfigurationVariable: FixedConfigurationVariable<String>);
+    unsupported!(FixedConfigurationVariable: FixedConfigurationVariable<String, String>);
     unsupported!(FixedInitializerCell: FixedInitializerCell<String,String>);
     unsupported!(FixedInitializerContent: FixedInitializerContent<String,String>);
     unsupported!(FixedConfiguration: FixedConfiguration<String,String,String>);
