@@ -20,6 +20,10 @@
 //! pattern is, and the variables the parts share are checked ([`Lowering::lower_chain`]). A
 //! `steps` of one step without `unless` is that step's `pattern`.
 //!
+//! **Explanations** ([`explain`]): the parts of a lowered pattern (the cells it names, the
+//! conjuncts of its condition) and the weaker patterns that each leave one out, which `query`
+//! asks to explain a refuted claim or an open obligation ([`crate::query`], "Explanations").
+//!
 //! **The chain route** ([`Route::ChainRun`], [`Searcher::run_chain`]): a chain is asked of a
 //! program by the program's run as the stopped route makes it, with the corpus's stop, or with no
 //! stop on a corpus without `[stop]` (every path then ends where the definition's run ends), the
@@ -312,6 +316,7 @@ use std::{
 use toml::{Table, Value as TomlValue};
 
 pub mod chain;
+pub mod explain;
 pub use chain::{
     CHAIN_DOMAIN, CHAIN_LOWERING_VERSION, LoweredChain, LoweredStep, LoweredUnless, StepText,
 };
@@ -810,28 +815,13 @@ impl Lowering {
             }
             message
         })?;
-        // The target is checked as the search admits it ([`Searcher::search`]): as a match
-        // target, whose variables are existential, so a set variable matching binds (`@_`
-        // compiles to one) is admitted and others are refused, by k-rust's one admission
-        // (`Admitted::as_match_target`). The lowering and the search then refuse the same
-        // patterns.
-        definition
-            .verify_standalone_pattern(&compiled.pattern, &[])
-            .map_err(|e| format!("the compiled pattern is not a pattern of the baseline: {e}"))?
-            .as_match_target()
-            .internalize_pattern()
-            .map_err(|e| format!("the compiled pattern does not internalize: {e:?}"))?;
+        admit_target(definition, &compiled.pattern)?;
         let generated = compiled
             .generated_anonymous_variables
             .iter()
             .map(|identity| identity.name.clone())
             .collect::<BTreeSet<_>>();
-        let target_json = kore_json::to_value(&compiled.pattern)
-            .map_err(|e| format!("cannot encode the compiled pattern: {e}"))?;
-        let digest = payload_digest(
-            PATTERN_DOMAIN,
-            canonical_json(&json!({"target": target_json, "generated": generated})).as_bytes(),
-        );
+        let digest = pattern_digest(&compiled.pattern, &generated)?;
         let minted = generated
             .iter()
             .cloned()
@@ -852,6 +842,33 @@ impl Lowering {
             requires_only,
         })
     }
+}
+
+/// Check a pattern's compiled `target` as the search admits it ([`Searcher::search`]): as a
+/// match target, whose variables are existential, so a set variable matching binds (`@_`
+/// compiles to one) is admitted and others are refused, by k-rust's one admission
+/// (`Admitted::as_match_target`) on `definition`, the baseline definition every search runs on.
+/// The lowering and the search then refuse the same patterns, and so do the patterns an
+/// explanation derives ([`explain`]).
+fn admit_target(definition: &BackendDefinition, target: &Pattern) -> Result<(), String> {
+    definition
+        .verify_standalone_pattern(target, &[])
+        .map_err(|e| format!("the compiled pattern is not a pattern of the baseline: {e}"))?
+        .as_match_target()
+        .internalize_pattern()
+        .map_err(|e| format!("the compiled pattern does not internalize: {e:?}"))?;
+    Ok(())
+}
+
+/// The [`PATTERN_DOMAIN`] digest of a target and the variables generated for it
+/// ([`LoweredPattern::digest`]).
+fn pattern_digest(target: &Pattern, generated: &BTreeSet<String>) -> Result<Sha256Digest, String> {
+    let target_json = kore_json::to_value(target)
+        .map_err(|e| format!("cannot encode the compiled pattern: {e}"))?;
+    Ok(payload_digest(
+        PATTERN_DOMAIN,
+        canonical_json(&json!({"target": target_json, "generated": generated})).as_bytes(),
+    ))
 }
 
 /// The K name of the top cell a configuration's expansion declares (k-rust `declared_cells`).
@@ -2300,7 +2317,7 @@ fn decided(found: &SearchMatchOutput<Pattern>) -> Result<(), String> {
 /// own record ([`LoweredPattern::minted`]), never by its spelling: a variable the author wrote is
 /// the author's whatever its name. A witness's bindings leave such a variable out, and a chain
 /// does not share it between its parts ([`chain`]): each part's minted variables are its own.
-fn generated(lowered: &LoweredPattern, name: &str) -> bool {
+pub(crate) fn generated(lowered: &LoweredPattern, name: &str) -> bool {
     lowered.minted.contains(name)
 }
 
@@ -2412,7 +2429,7 @@ pub fn rendered_chain_witness(facts: &Value, chain: &LoweredChain, reader: &EndR
 
 /// A witness's KORE text `text` parsed, or, where it does not parse (a forged record), the text
 /// as KORE cut at [`VALUE_CAP`] with the parser's error.
-fn parsed_witness_text(text: &Value) -> Result<Pattern, Value> {
+pub(crate) fn parsed_witness_text(text: &Value) -> Result<Pattern, Value> {
     let text = text.as_str().unwrap_or_default();
     parse_pattern(text).map_err(|error| {
         json!({
@@ -2434,7 +2451,7 @@ fn rendered_state(text: &Value, named: &BTreeSet<String>, reader: &EndReader) ->
 
 /// A witness's bindings `bindings` printed, each variable by its name; `{absent: reason}` as it
 /// is.
-fn rendered_bindings(bindings: &Value, reader: &EndReader) -> Value {
+pub(crate) fn rendered_bindings(bindings: &Value, reader: &EndReader) -> Value {
     match bindings {
         Value::Array(bindings) => Value::Array(
             bindings

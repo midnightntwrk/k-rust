@@ -1,0 +1,20 @@
+# kink-flow corpus manifest for the explanations fixture (FB50-EXPLAIN; crates/kink-flow/README.md,
+# "Explanations"): three programs in corpus order. `boot` writes a byte (write(1, 2), then
+# write(0, 2)) and only then files request 5; `mismatch` writes 8 at 7 and reads 9 from 7;
+# `chain` writes a byte, then writes 9 at 9, then files request 5.
+[spec]
+entry = "explain.k"
+main_module = "EXPLAIN"
+syntax_module = "EXPLAIN-SYNTAX"
+
+[[program]]
+id = "boot"
+text = "wb(1, 2) ; rq(5)"
+
+[[program]]
+id = "mismatch"
+text = "wr(7, 8) ; rd(7, 9)"
+
+[[program]]
+id = "chain"
+text = "wb(1, 2) ; wr(9, 9) ; rq(5)"

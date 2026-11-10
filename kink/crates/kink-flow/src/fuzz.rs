@@ -4316,6 +4316,8 @@ fn confirm(
                 &crate::query::QueryOptions {
                     only: vec![pattern.to_owned()],
                     cache,
+                    // The job reads the claim's answer alone, which no explanation changes.
+                    no_explain: true,
                     ..crate::query::QueryOptions::default()
                 },
             );

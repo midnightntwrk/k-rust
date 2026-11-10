@@ -74,7 +74,7 @@ macro_rules! usage_line {
          [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output \
          json|verdicts] | kink-flow report \
          FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
-         [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--cache DIR] | kink-flow fuzz FLOW.toml \
+         [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--no-explain] [--cache DIR] | kink-flow fuzz FLOW.toml \
          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
          | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | --pattern ID \
          --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
@@ -464,6 +464,10 @@ const QUERY_OPTIONS: &[VerbOption] = &[
         "--locked",
         "with --lock: leave FILE unwritten, and exit 1 when the query would change it",
     ),
+    option(
+        "--no-explain",
+        "explain no refuted claim and no open obligation by the parts of its pattern",
+    ),
     CACHE,
 ];
 
@@ -694,7 +698,7 @@ impl Verb {
             Self::Report => "report FLOW.toml [--cache DIR] [--output json|verdicts]",
             Self::Query => {
                 "query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE \
-                 [--locked]] [--cache DIR]"
+                 [--locked]] [--no-explain] [--cache DIR]"
             }
             Self::Fuzz => {
                 "fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations \
@@ -2108,6 +2112,7 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
                 options.lock = Some(PathBuf::from(file));
             }
             "--locked" if !options.locked => options.locked = true,
+            "--no-explain" if !options.no_explain => options.no_explain = true,
             _ => return Err(repeated(arg)),
         }
     }

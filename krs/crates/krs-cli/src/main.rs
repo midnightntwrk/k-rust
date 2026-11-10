@@ -253,7 +253,7 @@ Usage:
   krs kink report  --package P --definition D [--corpus DIR] [--cache DIR]
                    [--output json|verdicts]
   krs kink query   --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]...
-                   [--verify] [--full] [--lock FILE] [--cache DIR] [--locked]
+                   [--verify] [--full] [--lock FILE] [--no-explain] [--cache DIR] [--locked]
   krs kink fuzz    --package P --definition D [--corpus DIR] [--templates PATH] --template ID
                    (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE
                    | --cover ITEM | --pattern ID) [kink-flow's fuzz options] [--locked]
@@ -419,7 +419,7 @@ const KINK_VERB_USAGE: [(&str, &str); 8] = [
     (
         "query",
         "krs kink query --package P --definition D [--corpus DIR] [--patterns PATH] [--only ID]... \
-         [--verify] [--cache DIR] [--locked]",
+         [--verify] [--full] [--lock FILE] [--no-explain] [--cache DIR] [--locked]",
     ),
     (
         "fuzz",

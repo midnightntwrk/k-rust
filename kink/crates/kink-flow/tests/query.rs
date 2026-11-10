@@ -428,7 +428,7 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
     let patterns = dir.join("PATTERNS.toml");
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 9);
+    assert_eq!(document["version"], 10);
     assert_eq!(
         answers(&document),
         expect(&[
@@ -596,11 +596,27 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
     let (mismatched, status) = verify(&manifest, &patterns);
     assert_eq!(status, EXIT_NO, "{mismatched:#}");
     let mismatches = mismatched["mismatches"].as_array().unwrap();
-    assert_eq!(mismatches.len(), 1, "{mismatched:#}");
+    assert_eq!(mismatches.len(), 2, "{mismatched:#}");
     assert_eq!(
         (&mismatches[0]["pattern"], &mismatches[0]["program"]),
         (&json!("doubled-after-pick"), &json!("fork"))
     );
+    // doubled-unless-alarm's obligation is open, and its explanation's chain without step 2's
+    // `unless` is doubled-after-pick itself: the same target, so the same record, which
+    // `--verify` checks for the explanation too.
+    assert_eq!(
+        (
+            &mismatches[1]["pattern"],
+            &mismatches[1]["program"],
+            &mismatches[1]["explain"]
+        ),
+        (
+            &json!("doubled-unless-alarm"),
+            &json!("fork"),
+            &json!("step 2's unless")
+        )
+    );
+    assert_eq!(mismatches[1]["record"], mismatches[0]["record"]);
 }
 
 /// A chain is one `[[pattern]]`, so one obligation and one `[query]` row whose
@@ -1260,7 +1276,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 9, "{document:#}");
+    assert_eq!(document["version"], 10, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1775,7 +1791,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 9);
+    assert_eq!(document["version"], 10);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -1980,6 +1996,522 @@ fn an_expected_no_is_unmet_on_a_hit_and_only_leaves_the_lock_unwritten() {
         );
         assert!(!dir.join("kink.lock").exists());
     }
+}
+
+/// The explanation of the row (`pattern`, `program`).
+#[track_caller]
+fn explained<'a>(document: &'a Value, pattern: &str, program: &str) -> &'a Value {
+    let explanation = &row(document, pattern, program)["explain"];
+    assert!(
+        explanation.is_object(),
+        "({pattern}, {program}) is explained: {document:#}"
+    );
+    explanation
+}
+
+/// `(part, outcome, program)` of each part of an explanation, in order.
+fn outcomes(explanation: &Value) -> Vec<(String, String, Option<String>)> {
+    explanation["parts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("an explanation lists its parts: {explanation:#}"))
+        .iter()
+        .map(|part| {
+            (
+                part["part"].as_str().unwrap().to_owned(),
+                part["outcome"].as_str().unwrap().to_owned(),
+                part["program"].as_str().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// `(part, outcome, program)` as [`outcomes`] gives it.
+fn parted(parts: &[(&str, &str, Option<&str>)]) -> Vec<(String, String, Option<String>)> {
+    owed(parts)
+}
+
+/// The part labelled `label` of an explanation.
+#[track_caller]
+fn part<'a>(explanation: &'a Value, label: &str) -> &'a Value {
+    explanation["parts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|part| part["part"] == label)
+        .unwrap_or_else(|| panic!("no part {label} in {explanation:#}"))
+}
+
+/// The explanations fixture's acceptance analogs (FB50-EXPLAIN): a refuted claim is explained on
+/// its program by the parts of its pattern.
+/// - Acceptance 1 (`request-during-write`): without `<requests>`, and the conjunct that names C,
+///   which only `<requests>` binds, the pattern hits where boot writes its byte, and the cell's
+///   content there is `.List`; leaving out `<k>`, `<bus>` or the conjunct is still a `no`.
+/// - Acceptance 2 (`read-after-write`): without its condition the pattern hits, with V = 9 and L
+///   holding write(7, 8); `<bus>` with the conjunct that goes with it is the whole pattern, so it
+///   is vacuous and not asked.
+/// - A condition of three conjuncts (`first-write`) is three parts, numbered as written, the sort
+///   tests of its casts none: only `V ==Int 9` fails.
+/// - A confirmed claim, an unclaimed program's row and an obligation a program hits are not
+///   explained.
+#[test]
+fn a_refuted_claim_is_explained_by_the_parts_of_its_pattern() {
+    let dir = fixture("explain", "explain-claims");
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, REFUTED_STATUS, "{document:#}");
+    assert_eq!(document["version"], 10);
+    let conjunct = "requires conjunct 1: C:Int <=Int size ( L:List )";
+
+    let one = explained(&document, "request-during-write", "boot");
+    assert_eq!(one["form"], "pattern");
+    assert_eq!(
+        outcomes(one),
+        parted(&[
+            ("cell <k>", NO, None),
+            ("cell <requests>", "hit", Some("boot")),
+            ("cell <bus>", NO, None),
+            (conjunct, NO, None),
+        ])
+    );
+    assert_eq!(one["leads"], json!(["cell <requests>"]));
+    let requests = part(one, "cell <requests>");
+    assert_eq!(requests["kind"], "cell");
+    assert_eq!(requests["cell"], "<requests>");
+    assert_eq!(requests["dropped_conjuncts"], json!([conjunct]));
+    assert_eq!(
+        part(one, "cell <bus>")["dropped_conjuncts"],
+        json!([conjunct])
+    );
+    assert_eq!(part(one, "cell <k>")["dropped_conjuncts"], json!([]));
+    // The witness shows the part left out: <requests> at the matching state, in full.
+    let witness = &requests["witness"];
+    assert_eq!(witness["depth"], 2, "{witness:#}");
+    assert_eq!(witness["rendering"], "k");
+    assert_eq!(witness["state"]["cells"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        printed_cell(&witness["state"], "<requests>"),
+        (".List".into(), true)
+    );
+    assert_eq!(witness["bindings"], json!([]));
+    assert_eq!(part(one, conjunct)["kind"], "conjunct");
+    assert_eq!(
+        part(one, conjunct)["conjunct"]["text"],
+        "C:Int <=Int size ( L:List )"
+    );
+    assert!(part(one, "cell <k>")["witness"].is_null());
+
+    let read = "requires conjunct 1: write ( 7 , V:Int ) in L:List";
+    let two = explained(&document, "read-after-write", "mismatch");
+    assert_eq!(
+        outcomes(two),
+        parted(&[
+            ("cell <bus>", "vacuous", None),
+            (read, "hit", Some("mismatch")),
+        ])
+    );
+    assert_eq!(two["leads"], json!([read]));
+    let bus = part(two, "cell <bus>");
+    assert_eq!(bus["dropped_conjuncts"], json!([read]));
+    assert!(
+        bus["cause"]
+            .as_str()
+            .unwrap()
+            .contains("every configuration matches"),
+        "{bus:#}"
+    );
+    assert!(
+        bus["digest"].is_null() && bus["cached"].is_null(),
+        "{bus:#}"
+    );
+    let dropped = &part(two, read)["witness"];
+    assert_eq!(
+        printed_bindings(&dropped["bindings"]),
+        [
+            ("V".into(), "9".into()),
+            ("L".into(), "ListItem ( write ( 7 , 8 ) )".into())
+        ]
+    );
+    assert_eq!(dropped["state"]["cells"], json!([]));
+
+    let three = explained(&document, "first-write", "mismatch");
+    assert_eq!(
+        outcomes(three),
+        parted(&[
+            ("cell <bus>", "vacuous", None),
+            ("requires conjunct 1: A:Int ==Int 7", NO, None),
+            (
+                "requires conjunct 2: V:Int ==Int 9",
+                "hit",
+                Some("mismatch")
+            ),
+            ("requires conjunct 3: A:Int >Int 0", NO, None),
+        ])
+    );
+    assert_eq!(
+        printed_bindings(&part(three, "requires conjunct 2: V:Int ==Int 9")["witness"]["bindings"]),
+        [("V".into(), "8".into())]
+    );
+
+    // A confirmed claim, the rows of the walk and an obligation with a witness: no explanation.
+    let confirmed = row(&document, "low-write", "boot");
+    assert_eq!(confirmed["claim"], "confirmed");
+    assert!(confirmed["explain"].is_null(), "{confirmed:#}");
+    assert!(obligation(&document, "low-write")["explain"].is_null());
+    let walked = row(&document, "request-during-write", "mismatch");
+    assert_eq!(
+        (&walked["answer"], &walked["claim"]),
+        (&json!(NO), &Value::Null)
+    );
+    assert!(walked["explain"].is_null(), "{walked:#}");
+    let chain = obligation(&document, "request-after-low-write");
+    assert_eq!(
+        (&chain["status"], &chain["witness"]),
+        (&json!("hit"), &json!("boot"))
+    );
+    assert!(chain["explain"].is_null(), "{chain:#}");
+    // Only explanations asked derived patterns: the pattern's own counts are its rows'.
+    assert_eq!(document["explanations"]["enabled"], true);
+    assert_eq!(
+        document["counts"]["no"].as_u64().unwrap() + document["counts"]["hit"].as_u64().unwrap(),
+        document["rows"].as_array().unwrap().len() as u64
+    );
+}
+
+/// An open obligation (every program a final `no`) is explained over the corpus: each derived
+/// pattern is asked in corpus order up to its first hit. seven-two without `A ==Int 7` is first
+/// hit by boot (its first write is write(1, 2)), without `V ==Int 2` by mismatch (write(7, 8)).
+/// A pattern whose claim is refuted and whose obligation is open is explained on both. An open
+/// obligation whose pattern expects no hit meets its expectation and is not explained.
+#[test]
+fn an_open_obligation_is_explained_over_the_corpus() {
+    let dir = fixture("explain", "explain-obligation");
+    let patterns = dir.join("PATTERNS.toml");
+    let mut text = fs::read_to_string(&patterns).unwrap();
+    text.push_str(
+        "\n[[pattern]]\nid = \"seven-two-expected\"\npattern = \"<bus> ListItem(write(A:Int, \
+         V:Int)) _:List </bus> requires A ==Int 7 andBool V ==Int 2\"\nexpect = \"no\"\n",
+    );
+    write(&patterns, &text);
+    let (document, _) = plain(&dir.join("FLOW.toml"), &patterns);
+    let seven = obligation(&document, "seven-two");
+    assert_eq!(seven["status"], "open", "{seven:#}");
+    let explanation = &seven["explain"];
+    assert_eq!(
+        outcomes(explanation),
+        parted(&[
+            ("cell <bus>", "vacuous", None),
+            ("requires conjunct 1: A:Int ==Int 7", "hit", Some("boot")),
+            (
+                "requires conjunct 2: V:Int ==Int 2",
+                "hit",
+                Some("mismatch")
+            ),
+        ])
+    );
+    assert_eq!(
+        printed_bindings(
+            &part(explanation, "requires conjunct 1: A:Int ==Int 7")["witness"]["bindings"]
+        ),
+        [("A".into(), "1".into())]
+    );
+    assert_eq!(
+        printed_bindings(
+            &part(explanation, "requires conjunct 2: V:Int ==Int 2")["witness"]["bindings"]
+        ),
+        [("V".into(), "8".into())]
+    );
+    for program in ["boot", "mismatch", "chain"] {
+        assert!(row(&document, "seven-two", program)["explain"].is_null());
+    }
+    // Claimed and open: the row on its program, the obligation over the corpus.
+    let claimed = obligation(&document, "request-during-write");
+    assert_eq!(claimed["status"], "open");
+    assert_eq!(claimed["explain"]["leads"], json!(["cell <requests>"]));
+    assert_eq!(
+        part(&claimed["explain"], "cell <requests>")["program"],
+        "boot"
+    );
+    // Expected open: met, so not explained.
+    let expected = obligation(&document, "seven-two-expected");
+    assert_eq!(expected["status"], "open");
+    assert_eq!(expected["expectation"]["verdict"], "met");
+    assert!(expected["explain"].is_null(), "{expected:#}");
+}
+
+/// A chain is explained by the longest prefix of its steps the program reaches, then the parts of
+/// the next step. chain's run reaches steps 1 and 2 (its writeByte, then pushLow's write(0, 2)) but
+/// writes write(9, 9) before its request, so step 3 is refuted by its `unless`: without the
+/// `unless` the chain hits, without `C ==Int 5` it does not, and without `<requests>` (which takes
+/// the conjunct) step 3 constrains nothing.
+#[test]
+fn a_chain_is_explained_by_its_longest_prefix_and_the_next_step() {
+    let dir = fixture("explain", "explain-chain");
+    let (document, _) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    let chain = explained(&document, "request-after-low-write", "chain");
+    assert_eq!(chain["form"], "chain");
+    assert_eq!(
+        (
+            &chain["prefix"]["steps"],
+            &chain["prefix"]["of"],
+            &chain["prefix"]["program"]
+        ),
+        (&json!(2), &json!(3), &json!("chain")),
+        "{chain:#}"
+    );
+    assert_eq!(chain["prefix"]["depth"], 4, "{chain:#}");
+    assert!(chain["prefix"]["undecided"].is_null());
+    assert_eq!(chain["step"], 3);
+    assert_eq!(
+        outcomes(chain),
+        parted(&[
+            ("step 3: cell <requests>", "vacuous", None),
+            ("step 3: requires conjunct 1: C:Int ==Int 5", NO, None),
+            ("step 3's unless", "hit", Some("chain")),
+        ])
+    );
+    assert_eq!(chain["leads"], json!(["step 3's unless"]));
+    assert_eq!(
+        part(chain, "step 3: cell <requests>")["dropped_conjuncts"],
+        json!(["step 3: requires conjunct 1: C:Int ==Int 5"])
+    );
+    let unless = part(chain, "step 3's unless");
+    assert_eq!(unless["kind"], "unless");
+    assert_eq!(unless["witness"]["depth"], 7, "{unless:#}");
+}
+
+/// An `unknown` has its cause and is not explained. Under a depth bound of 2 every program's run is
+/// cut, so no answer is a `no`, every obligation is undecided, and nothing is asked.
+#[test]
+fn an_unknown_is_not_explained() {
+    let dir = fixture("explain", "explain-unknown");
+    let manifest = dir.join("FLOW.toml");
+    let text = fs::read_to_string(&manifest).unwrap().replace(
+        "[[program]]\nid = \"boot\"",
+        "[budget]\nmax_depth = 2\n\n[[program]]\nid = \"boot\"",
+    );
+    write(&manifest, &text);
+    let (document, status) = plain(&manifest, &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    let claim = row(&document, "request-during-write", "boot");
+    assert_eq!(claim["answer"], "unknown", "{claim:#}");
+    for row in document["rows"].as_array().unwrap() {
+        assert!(row["explain"].is_null(), "{row:#}");
+    }
+    for obligation in document["obligations"].as_array().unwrap() {
+        assert_ne!(obligation["status"], "open", "{obligation:#}");
+        assert!(obligation["explain"].is_null(), "{obligation:#}");
+    }
+    assert_eq!(document["explanations"]["asked"], 0);
+}
+
+/// `value` without the members that differ between two queries of the same answers: each row's
+/// `wall_ms` and `cached`, each part's and prefix's `cached`.
+fn timeless(value: &Value) -> Value {
+    let mut value = value.clone();
+    match &mut value {
+        Value::Object(object) => {
+            for key in ["wall_ms", "cached"] {
+                object.remove(key);
+            }
+            for member in object.values_mut() {
+                *member = timeless(member);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                *item = timeless(item);
+            }
+        }
+        _ => {}
+    }
+    value
+}
+
+/// Every explanation of a query document: `{rows: {"PATTERN PROGRAM": explain}, obligations:
+/// {ID: explain}}`, those not null.
+fn explanations(document: &Value) -> Value {
+    let mut rows = serde_json::Map::new();
+    for row in document["rows"].as_array().unwrap() {
+        if !row["explain"].is_null() {
+            rows.insert(
+                format!(
+                    "{} {}",
+                    row["pattern"].as_str().unwrap(),
+                    row["program"].as_str().unwrap()
+                ),
+                row["explain"].clone(),
+            );
+        }
+    }
+    let mut obligations = serde_json::Map::new();
+    for obligation in document["obligations"].as_array().unwrap() {
+        if !obligation["explain"].is_null() {
+            obligations.insert(
+                obligation["id"].as_str().unwrap().to_owned(),
+                obligation["explain"].clone(),
+            );
+        }
+    }
+    json!({"rows": rows, "obligations": obligations})
+}
+
+/// `value`, a list of rows or of obligations, without their explanations.
+fn unexplained(value: &Value) -> Value {
+    let mut value = timeless(value);
+    for item in value.as_array_mut().unwrap() {
+        item.as_object_mut().unwrap().remove("explain");
+    }
+    value
+}
+
+/// Explanations change nothing of the explained patterns: a query with them and one with
+/// `--no-explain` give the same rows, obligations, counts, exit status, `[query]` section and
+/// pattern records. A second query reads every derived answer from the cache, with no new run.
+/// `--verify` asks every derived pattern live, and a record of one that differs is a mismatch
+/// naming the part.
+#[test]
+fn explanations_change_no_answer_and_are_read_from_the_cache() {
+    let with = fixture("explain", "explain-with");
+    let without = fixture("explain", "explain-without");
+    let ask = |dir: &Path, no_explain: bool, verify: bool| {
+        query(
+            &dir.join("FLOW.toml"),
+            &dir.join("PATTERNS.toml"),
+            QueryOptions {
+                lock: (!verify).then(|| dir.join("kink.lock")),
+                no_explain,
+                verify,
+                ..QueryOptions::default()
+            },
+        )
+    };
+    let (explaining, status) = ask(&with, false, false);
+    let (plain_document, plain_status) = ask(&without, true, false);
+    assert_eq!(status, plain_status);
+    assert_eq!(status, REFUTED_STATUS, "{explaining:#}");
+    for key in ["rows", "obligations"] {
+        assert_eq!(
+            unexplained(&explaining[key]),
+            unexplained(&plain_document[key]),
+            "{key}"
+        );
+    }
+    for key in ["counts", "refuted_claims", "pattern_cache", "mismatches"] {
+        assert_eq!(explaining[key], plain_document[key], "{key}");
+    }
+    assert_eq!(
+        explaining["lock"]["status"], "created",
+        "{:#}",
+        explaining["lock"]
+    );
+    assert_eq!(
+        fs::read(with.join("kink.lock")).unwrap(),
+        fs::read(without.join("kink.lock")).unwrap()
+    );
+    for row in explaining["rows"].as_array().unwrap() {
+        if cacheable(row) {
+            let (pattern, program) = (
+                row["pattern"].as_str().unwrap(),
+                row["program"].as_str().unwrap(),
+            );
+            assert_eq!(
+                fs::read(pattern_record(&with, &explaining, pattern, program)).unwrap(),
+                fs::read(pattern_record(&without, &plain_document, pattern, program)).unwrap(),
+                "({pattern}, {program})"
+            );
+        }
+    }
+    for row in plain_document["rows"].as_array().unwrap() {
+        assert!(row["explain"].is_null(), "{row:#}");
+    }
+    assert_eq!(
+        plain_document["explanations"],
+        json!({"enabled": false, "asked": 0, "from_cache": 0, "records_written": 0})
+    );
+    let accounting = &explaining["explanations"];
+    let asked = accounting["asked"].as_u64().unwrap();
+    assert!(asked > 0, "{accounting:#}");
+    assert_eq!(accounting["from_cache"], 0);
+    // Every derived answer of the fixture is a hit or a final no, so each is recorded.
+    assert_eq!(accounting["records_written"], asked);
+
+    // The second query reads every derived answer from the cache.
+    let (again, again_status) = ask(&with, false, false);
+    assert_eq!(again_status, status);
+    assert_eq!(
+        again["explanations"],
+        json!({"enabled": true, "asked": asked, "from_cache": asked, "records_written": 0})
+    );
+    // The same explanations (the lock now records each witness, which the walk asks first).
+    assert_eq!(
+        timeless(&explanations(&again)),
+        timeless(&explanations(&explaining))
+    );
+    let explanation = explained(&again, "request-during-write", "boot");
+    for part in explanation["parts"].as_array().unwrap() {
+        assert_eq!(part["cached"], true, "{part:#}");
+    }
+    let chain = explained(&again, "request-after-low-write", "chain");
+    assert_eq!(chain["prefix"]["cached"], true, "{chain:#}");
+
+    // --verify asks every derived pattern live and agrees with its records.
+    let (verified, _) = ask(&with, false, true);
+    assert_eq!(verified["mismatches"], json!([]), "{verified:#}");
+    assert_eq!(verified["explanations"]["from_cache"], 0);
+    assert_eq!(verified["explanations"]["asked"], asked);
+    // A derived pattern's record whose witness differs is a mismatch naming the part.
+    let requests = part(explanation, "cell <requests>");
+    let path = with
+        .join(CACHE_DIRECTORY)
+        .join("patterns")
+        .join(
+            again["spec"]["execution_digest"]["digest"]
+                .as_str()
+                .unwrap(),
+        )
+        .join(requests["digest"].as_str().unwrap())
+        .join(format!(
+            "{}.json",
+            again["programs"][0]["digest"].as_str().unwrap()
+        ));
+    assert_eq!(again["programs"][0]["id"], "boot");
+    let mut forged = read_json(&path);
+    assert_eq!(forged["answer"], "hit", "{forged:#}");
+    forged["witness"]["depth"] = json!(1);
+    forged["record_sha256"] = json!(
+        record_sha256(
+            &forged["key"],
+            "hit",
+            &forged["witness"],
+            &forged["baseline_run_sha256"]
+        )
+        .to_string()
+    );
+    fs::write(&path, serde_json::to_string(&forged).unwrap()).unwrap();
+    // Without --verify the forged record is read, as every record is.
+    let (forged_document, _) = ask(&with, false, false);
+    assert_eq!(
+        part(
+            explained(&forged_document, "request-during-write", "boot"),
+            "cell <requests>"
+        )["witness"]["depth"],
+        1
+    );
+    let (mismatched, mismatched_status) = ask(&with, false, true);
+    assert_eq!(mismatched_status, EXIT_NO);
+    let mismatches = mismatched["mismatches"].as_array().unwrap();
+    assert_eq!(mismatches.len(), 1, "{mismatched:#}");
+    assert_eq!(
+        (
+            &mismatches[0]["pattern"],
+            &mismatches[0]["program"],
+            &mismatches[0]["explain"]
+        ),
+        (
+            &json!("request-during-write"),
+            &json!("boot"),
+            &json!("cell <requests>")
+        )
+    );
 }
 
 mod kink_tier {
@@ -2231,7 +2763,7 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_YES, "{document:#}");
-        assert_eq!(document["version"], 9);
+        assert_eq!(document["version"], 10);
         let hit = row(&document, "filled", "twelve");
         assert_eq!(hit["answer"], "hit", "{hit:#}");
         let witness = &hit["witness"];
@@ -2381,7 +2913,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 9);
+        assert_eq!(document["version"], 10);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

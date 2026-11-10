@@ -88,6 +88,37 @@
 //! ([`Lock::settle`]); an obligation whose value rests on a run the clock stopped keeps its
 //! recorded value ([`keep`]).
 //!
+//! **Explanations** (FB50-EXPLAIN, `query::explain`). A refuted claim says that the program never
+//! reaches the pattern, not which part of the pattern it never reaches together with the rest. An
+//! explanation is the answers of patterns derived from the pattern by leaving out one of its parts
+//! (`crate::pattern::explain`): each cell the pattern names (with the conjuncts of its `requires`
+//! that name a variable only that cell binds), and each conjunct of its `requires`. Each derived
+//! pattern matches every state the pattern matches, so where it hits and the pattern is refuted,
+//! some reached state satisfies everything but the part left out, and the witness shows that
+//! part's value there (the cell's content, or the dropped conjunct's variables). Each derived
+//! pattern is asked as a pattern is: on the command's route, by the same matcher and judge, and
+//! cached under its own digest and key, so a second query reads it from the cache; within one
+//! command each (derived pattern, program) is asked once. A chain's explanation first finds the
+//! longest prefix of its steps that is reached (steps 1 to k asked as a chain, one step as a single
+//! pattern), then leaves out each part of step k + 1, and its `unless`, each asked as the prefix
+//! followed by that step without the part. A derived pattern that matches every configuration is
+//! `vacuous` and is not asked.
+//! - A refuted claim (`claim` `refuted`, a final `no`) is explained on its program: the row's
+//!   `explain`.
+//! - An open obligation, every program a final `no`, is explained over the corpus: each derived
+//!   pattern is asked in corpus order up to its first hit, the existential and the order of the
+//!   obligation's witness; the obligation's `explain`. One whose pattern states `expect = "no"`
+//!   is not explained, since its expectation is met.
+//! - An `unknown` has its cause, and a hit, an undecided obligation and an invalid pattern are
+//!   not failures of a pattern: none is explained.
+//!
+//! An explanation changes no answer, row, count, obligation status, exit status, lock row, key or
+//! record of the explained pattern: it is computed after them, and its answers enter only `explain`
+//! and the derived patterns' own records. Under `--verify` the derived patterns are asked live and
+//! a difference from a record is a mismatch, as for every record a command without `--verify`
+//! would use. It is on by default, since it runs only where an answer failed and costs at most one
+//! answer per part (`--no-explain` turns it off).
+//!
 //! No answer enters a result record, an outcome record, a run document or the `[run]` and
 //! `[coverage]` sections of a lock: pattern answers feed no kill and no mutation verdict. The
 //! `[query]` section records each obligation, which only `query` reads.
@@ -119,6 +150,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+mod explain;
 
 /// The query document's schema and version. Version 2 adds the refusal at stage `stop` (reason
 /// `unsupported-verb`) of a corpus with `[stop]`. Added to 2 without a new version, since a
@@ -167,7 +200,14 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// with `bindings` every variable of the chain's steps once and `rules` null. A version 8 list
 /// holding a chain was refused (`pattern_list`); a single pattern's entry, rows and witness are
 /// as in version 8.
-pub const QUERY_VERSION: u64 = 9;
+/// Version 10 (FB50-EXPLAIN) explains a failed answer (module docs, "Explanations"): every row
+/// and every obligation carries `explain`, null except on a refuted claim's row and on an open
+/// obligation whose pattern does not `expect = "no"`, where it is `{form, parts, leads}` (a
+/// chain's also `prefix` and `step`); the document carries `explanations` (`{enabled, asked,
+/// from_cache, records_written}`), and a `--verify` mismatch of a derived pattern's record names
+/// the part (`explain`). Every answer, exit status, lock row and key of a version 9 document is
+/// unchanged.
+pub const QUERY_VERSION: u64 = 10;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -220,6 +260,9 @@ pub struct QueryOptions {
     pub lock: Option<PathBuf>,
     /// `--locked`: compare the section the query would write with the file's, and write nothing.
     pub locked: bool,
+    /// `--no-explain`: explain no failed answer ("Explanations", module docs), where a query
+    /// without it explains each refuted claim and each open obligation.
+    pub no_explain: bool,
 }
 
 /// The key of a cached answer (module docs); `stop` is the program's stop on the stopped route
@@ -529,6 +572,9 @@ fn query_unnamed(
     let mut patterns = Vec::new();
     let mut rows = Vec::new();
     let mut obligations = Vec::new();
+    let cells = lowering.cell_table();
+    let mut explained = BTreeMap::new();
+    let mut explain_accounting = json!({"asked": 0, "from_cache": 0, "records_written": 0});
     let context = Context {
         manifest,
         update: &update,
@@ -588,6 +634,8 @@ fn query_unnamed(
         // claims first, then the obligation's walk, which reuses every answer a claim gave and,
         // without `--full`, stops at its first hit.
         let mut answered: Vec<(usize, Value)> = Vec::new();
+        // Where each claimed program's row is in `rows`, by corpus index.
+        let mut claimed_rows: Vec<(usize, usize)> = Vec::new();
         let claims = entry
             .programs
             .iter()
@@ -648,8 +696,13 @@ fn query_unnamed(
                         }
                     };
                     ok &= row_ok;
+                    let mut row = row;
+                    row["explain"] = Value::Null;
                     let answer = row["answer"].clone();
                     answered.push((index, row.clone()));
+                    if claim {
+                        claimed_rows.push((index, rows.len()));
+                    }
                     rows.push(row);
                     answer
                 }
@@ -658,13 +711,32 @@ fn query_unnamed(
                 break;
             }
         }
-        obligations.push(obligation(
-            manifest,
-            entry,
-            recorded_witness,
-            &answered,
-            options.full,
-        ));
+        let mut obligation = obligation(manifest, entry, recorded_witness, &answered, options.full);
+        obligation["explain"] = Value::Null;
+        if !options.no_explain
+            && let Ok(lowered) = &lowered
+        {
+            let mut asker = explain::Asker {
+                context: &context,
+                inputs: &mut inputs,
+                spec: &spec,
+                searcher: &mut searcher,
+                mismatches: &mut mismatches,
+                cells: &cells,
+                answers: &mut explained,
+                accounting: &mut explain_accounting,
+            };
+            for (index, at) in claimed_rows {
+                if rows[at]["claim"] == "refuted" {
+                    rows[at]["explain"] = asker.explain(&entry.id, lowered, &[index]);
+                }
+            }
+            if obligation["status"] == "open" && entry.expect.is_none() {
+                let corpus = (0..manifest.programs.len()).collect::<Vec<_>>();
+                obligation["explain"] = asker.explain(&entry.id, lowered, &corpus);
+            }
+        }
+        obligations.push(obligation);
     }
     ok &= mismatches.is_empty();
     let pattern_cache = json!({
@@ -692,6 +764,12 @@ fn query_unnamed(
     document["data"] = spec.data.value();
     document["obligations"] = json!(obligations);
     document["full"] = json!(options.full);
+    document["explanations"] = json!({
+        "enabled": !options.no_explain,
+        "asked": explain_accounting["asked"],
+        "from_cache": explain_accounting["from_cache"],
+        "records_written": explain_accounting["records_written"],
+    });
     (document, ok)
 }
 
@@ -1042,9 +1120,32 @@ struct Context<'a> {
     partial_cap: usize,
 }
 
-/// One (pattern, program) row and whether it found no error.
+/// One (pattern, program) row and whether it found no error, its witness printed for the reader
+/// ([`rendered`]).
 #[allow(clippy::too_many_arguments)]
 fn ask(
+    context: &Context<'_>,
+    inputs: &mut crate::admit::InputSession<'_>,
+    spec: &crate::admit::AdmittedSpec,
+    searcher: &mut Searcher,
+    index: usize,
+    pattern_id: &str,
+    asked: Asked<'_>,
+    row: Map<String, Value>,
+    claimed: bool,
+    mismatches: &mut Vec<Value>,
+    accounting: &mut Value,
+) -> (Value, bool) {
+    let (row, ok) = ask_facts(
+        context, inputs, spec, searcher, index, pattern_id, asked, row, claimed, mismatches,
+        accounting,
+    );
+    (rendered(row, asked, context.reader), ok)
+}
+
+/// [`ask`] with a hit's witness kept as its facts, as the record stores them.
+#[allow(clippy::too_many_arguments)]
+fn ask_facts(
     context: &Context<'_>,
     inputs: &mut crate::admit::InputSession<'_>,
     spec: &crate::admit::AdmittedSpec,
@@ -1165,11 +1266,7 @@ fn ask(
         let answer = judge(&stored.outcome(), &facts);
         accounting["from_cache"] = json!(accounting["from_cache"].as_u64().unwrap_or(0) + 1);
         return (
-            unstopped(rendered(
-                finish_row(row, &answer, true, None, claimed),
-                asked,
-                context.reader,
-            )),
+            unstopped(finish_row(row, &answer, true, None, claimed)),
             true,
         );
     }
@@ -1229,11 +1326,7 @@ fn ask(
     } else {
         None
     };
-    let mut row = rendered(
-        finish_row(row, &answer, false, Some(wall_ms), claimed),
-        asked,
-        context.reader,
-    );
+    let mut row = finish_row(row, &answer, false, Some(wall_ms), claimed);
     row["clock_stopped"] = json!(clock);
     if context.verify {
         if let (Some(stored), Some((_, path))) = (&stored, &keyed)

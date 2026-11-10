@@ -264,8 +264,20 @@ impl Lowering {
                 Ok((pattern, unless))
             })
             .collect::<Result<Vec<_>, String>>()?;
+        LoweredChain::from_parts(parts)
+    }
+}
+
+impl LoweredChain {
+    /// The chain of the lowered parts `parts`, each a step and its `unless`, in order: the rules
+    /// on the variables the parts share ([`chain_variables`]), each step's imports and exports,
+    /// and the digest. [`Lowering::lower_chain`] builds every chain so, and an explanation builds
+    /// a chain's prefixes and the chains it derives from them so ([`super::explain`]).
+    pub fn from_parts(
+        parts: Vec<(LoweredPattern, Option<LoweredPattern>)>,
+    ) -> Result<Self, String> {
         let variables = chain_variables(&parts)?;
-        let digest = LoweredChain::digest_of(&parts)?;
+        let digest = Self::digest_of(&parts)?;
         let steps = parts
             .into_iter()
             .zip(variables)
@@ -279,7 +291,23 @@ impl Lowering {
                 }),
             })
             .collect();
-        Ok(LoweredChain { steps, digest })
+        Ok(Self { steps, digest })
+    }
+
+    /// The parts of the first `count` steps, each a step's lowering and its `unless`'s, in
+    /// order: what [`Self::from_parts`] builds a prefix of the chain from.
+    #[must_use]
+    pub fn parts(&self, count: usize) -> Vec<(LoweredPattern, Option<LoweredPattern>)> {
+        self.steps
+            .iter()
+            .take(count)
+            .map(|step| {
+                (
+                    step.pattern.clone(),
+                    step.unless.as_ref().map(|unless| unless.pattern.clone()),
+                )
+            })
+            .collect()
     }
 }
 

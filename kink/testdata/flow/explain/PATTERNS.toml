@@ -1,0 +1,47 @@
+# Patterns of the explanations fixture (FB50-EXPLAIN; crates/kink-flow/README.md, "Explanations").
+# Each claim but the last is refuted, and each refutation is explained by the parts of its pattern.
+
+# A request filed while the byte is written: boot files its request only after both writes, so
+# the claim is refuted, and the pattern without <requests> (and the condition, which names C)
+# hits where the byte is written, with <requests> empty there.
+[[pattern]]
+id = "request-during-write"
+pattern = "<k> writeByte(_:Int, _:Int) ~> pushLow(_:Int, _:Int) ... </k> <requests> ListItem(request(C:Int, _:Int)) _:List </requests> <bus> L:List </bus> requires C <=Int size(L)"
+programs = ["boot"]
+
+# A read of what was written: mismatch reads 9 where it wrote 8, so the claim is refuted, and the
+# pattern without its condition hits, with V = 9 and L holding write(7, 8).
+[[pattern]]
+id = "read-after-write"
+pattern = "<bus> L:List ListItem(read(7, V:Int)) </bus> requires write(7, V) in L"
+programs = ["mismatch"]
+
+# A condition of three conjuncts: mismatch's first write is write(7, 8), so only V ==Int 9 fails.
+[[pattern]]
+id = "first-write"
+pattern = "<bus> ListItem(write(A:Int, V:Int)) _:List </bus> requires A ==Int 7 andBool V ==Int 9 andBool A >Int 0"
+programs = ["mismatch"]
+
+# No program's first write is write(7, 2), so the obligation is open: without A ==Int 7 boot is
+# the first program that hits, without V ==Int 2 mismatch is.
+[[pattern]]
+id = "seven-two"
+pattern = "<bus> ListItem(write(A:Int, V:Int)) _:List </bus> requires A ==Int 7 andBool V ==Int 2"
+
+# A chain: chain writes write(1, 2) and write(0, 2), then write(9, 9) before its request, so its
+# first two steps are reached and the third is refuted by its `unless`; boot files its request
+# right after its writes, so it hits the chain, the obligation's witness.
+[[pattern]]
+id = "request-after-low-write"
+steps = [
+  { pattern = "<k> writeByte(A:Int, _:Int) ... </k>" },
+  { pattern = "<bus> _:List ListItem(write(B:Int, _:Int)) </bus> requires B ==Int A -Int 1" },
+  { pattern = "<requests> ListItem(request(C:Int, _:Int)) </requests> requires C ==Int 5", unless = "<bus> _:List ListItem(write(9, _:Int)) </bus>" },
+]
+programs = ["chain"]
+
+# Confirmed: boot writes write(0, 2), so nothing is explained.
+[[pattern]]
+id = "low-write"
+pattern = "<bus> _:List ListItem(write(0, V:Int)) </bus>"
+programs = ["boot"]

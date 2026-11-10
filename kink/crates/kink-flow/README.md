@@ -2167,7 +2167,7 @@ Under `--output json` that reason is the `kink-flow-report` document on stdout, 
 
 Exit status: the status the printed run document gives, as `run` exits on it ("Exit status"); 2 when there is none, it is unreadable, the manifest does not decode, or on a usage error.
 
-## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--cache DIR]`
+## Checking a pattern: `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--no-explain] [--cache DIR]`
 
 A pattern check asks, for one program of the corpus: does some run of this program, from its input, reach a configuration that matches this pattern?
 The initial configuration, every configuration a run reaches and the final ones all count.
@@ -2197,7 +2197,7 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 - `steps` in place of `pattern` writes a chain of patterns a run passes in order ("Chains", below).
 - An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, `expect` beside `programs`, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
 
-`testdata/flow/calc/PATTERNS.toml`, `testdata/flow/loop/PATTERNS.toml`, `testdata/flow/witness/PATTERNS.toml` and `testdata/flow/chain/PATTERNS.toml` are complete examples.
+`testdata/flow/calc/PATTERNS.toml`, `testdata/flow/loop/PATTERNS.toml`, `testdata/flow/witness/PATTERNS.toml`, `testdata/flow/chain/PATTERNS.toml` and `testdata/flow/explain/PATTERNS.toml` are complete examples.
 
 ### The obligation and its witness
 
@@ -2210,15 +2210,16 @@ A witness discharges it as a killer discharges a mutant: one program that hits i
 
 ### Answers
 
-The command prints one document, `{schema: "kink-flow-query", version: 9, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data, lock?}`.
+The command prints one document, `{schema: "kink-flow-query", version: 10, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, explanations, baseline_runs, data, lock?}`.
+Version 10 (FB50-EXPLAIN) explains a failed answer ("Explanations", below): every row and every obligation carries `explain`, the document carries `explanations`, and a `--verify` mismatch of a derived pattern's record names its part; every answer, exit status, lock row and key of version 9 is unchanged.
 Version 9 answers chains ("Chains", below): a chain's entry in `patterns` carries its `steps`, a chain's rows name the route `chain-run`, and a chain's witness lists its `steps`; a version 8 query refused a list holding a chain.
 Version 8 prints a hit's witness for a reader (below), where version 7 gave its state and bindings as KORE text cut to 4000 characters.
 Version 7 (FB54-WITNESS) adds `obligations`, `full`, `lock` and each row's `clock_stopped`, and asks a pattern without `programs` until its first hit where version 6 asked every program, so `rows` holds only the pairs asked:
 `programs` are the `coverage` rows (the result cache is brought up to date first),
 `data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). Version 6 (KINK-FINDING-NAMES) names its findings by kind, sentences and digest, where version 5 named them by generated-K positions. `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. Version 2 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"). Version 3 answers `no` under the Z3 profile where the search received no undecided solver answer, with a `cause` naming that count, and names the count in the `cause` of an `unknown` it withholds a `no` for (below). Version 4 adds `z3` under the Z3 profile, the Z3 build the answers were decided on, as the run document names it: whether the search's solver queries are decided within their units is a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too; the portable document has no such member. Version 5 answers a corpus with `[stop]` through each program's stopped run ("A corpus with `[stop]`", below) and admits one with `[observe]`, which it ignores ("What a run observes"): the refusals at stages `stop` and `observe` are gone, the document carries `stop` as `check`, `coverage` and `run` do and `observe` (`{declaration, ignored}`, the declaration and why the query ignores it) when the manifest has them, a refused one's too, and each row names its route (`route`: `search` or `stopped-run`). A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, z3?, pattern_list}`.
 `patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus, expect}` (`kore` is the compiled target; `asked` says whether the pattern has `programs`); a chain's entry also carries `steps`, `[{pattern, unless, kore, unless_kore}]`, each step's text and its `unless`'s with their compiled targets, and has `pattern` and `kore` null and `digest` the chain's,
-`rows` one row per (pattern, program asked) `{pattern, program, claimed, route, answer, cause, witness, cached, wall_ms, claim, clock_stopped}` (`clock_stopped`: `search` where the clock stopped the search the answer rests on, `baseline` where a completed exploration's `no` failed only for the baseline run the clock stopped, else null),
-`obligations` one per selected pattern `{id, status, witness, recorded_witness, witness_change, hitters, unanswered, expect, expectation, clock_stopped}` ("The obligation and its witness"; `hitters` null without `--full`; `unanswered` the programs whose answer is neither a hit nor a final `no`; `clock_stopped` the stopped runs the obligation's value rests on, `{program, run}`),
+`rows` one row per (pattern, program asked) `{pattern, program, claimed, route, answer, cause, witness, cached, wall_ms, claim, clock_stopped, explain}` (`clock_stopped`: `search` where the clock stopped the search the answer rests on, `baseline` where a completed exploration's `no` failed only for the baseline run the clock stopped, else null),
+`obligations` one per selected pattern `{id, status, witness, recorded_witness, witness_change, hitters, unanswered, expect, expectation, clock_stopped, explain}` ("The obligation and its witness"; `hitters` null without `--full`; `unanswered` the programs whose answer is neither a hit nor a final `no`; `clock_stopped` the stopped runs the obligation's value rests on, `{program, run}`),
 and, with `--lock`, `lock` as for the other sections ("The corpus record").
 
 | `answer` | Meaning | What to do |
@@ -2278,6 +2279,66 @@ A match is a hit only when it is decided, and the search stops at its first matc
 The `undefined-state` case is a configuration holding an application of a function the definition does not declare `total` that no equation reduced, such as `f(3)` for a function with an equation for `f(0)` only. Wherever that application is undefined, such a configuration denotes nothing: there is no run to it, although k-rust's search lists it; its match states the undecided `\ceil(f(3))` as a condition (k-rust `docs/compatibility.md`, "Search results"), so it is not a decided match, and kink also checks the configuration itself. kink therefore requires the matched configuration, and with it every binding, to be shown defined by k-rust's one existence predicate, `BackendDefinition::ground_defined` (since fz26 KRUST-ANYWHERE-HEAD; it was the stored `ceil_free` attribute, every configuration of which it still accepts): the configuration is ground and k-rust's definedness walk owes nothing. Every application must be of a constructor, of a function declared total, of a `value-production` symbol (a production with `anywhere` rules, such as SIMPLE's `_[_]`) that no equation of its head can reach, which that declaration makes a value of its sort (a ceil lemma decides its application first), or of a partial function whose `\ceil` k-rust shows `\top`. k-rust shows it in two ways: by an unconditional ceil equation of the definition whose condition simplifies to `\top`; or, since k-rust 68e362935 and fdb3ac1a5 (re-read at kink27 R1-TRUST), from its source-checked observation catalog, for a compiler sort projection `project:S(E[v])` of a term on its exact image and for a field `f(p)` of a sort with one constructor `c` whose one equation `f(c(X1, ..., Xn)) = Xi` covers every element (kink-native `tests/data.rs` pins both and records why each holds). A hooked map lookup or list access k-rust leaves unevaluated owes its key membership or length bound, which `ground_defined` never discharges. Every map or set must have keys k-rust shows apart. The configuration must also hold no term-level `\and`, at its root or below: `\and(a, b)` denotes a configuration only where `a` and `b` are equal, and nothing where they differ, which kink does not decide (k-rust's `ceil_free` counts a conjunction defined only when its two sides are one defined term) (no K rule writes one on a right-hand side, so this refuses no configuration known to be reached). A configuration whose definedness kink cannot read (it does not verify or internalize on the searched definition, k-rust provides no stack for it, or k-rust panics) is not a hit either: the answer is `unknown`.
 A hooked partial operation that k-rust evaluates is not such a case. k-rust evaluates `7 /Int 0`, or a lookup of a key a map does not hold, to bottom, so the step to it is undefined and has no successor: the configuration is never reached, and the answer is a correct `no`.
 Constructors, functions declared total (a `total` helper with no equation for its argument included), lists, and maps or sets over domain values such as IMP's `<state>` and IMP++'s `<store>` pass. So does SIMPLE's stored `a[4]`, which neither `anywhere` rule of `_[_]` matches. A configuration holding a partial function's unevaluated call does not, unless k-rust shows that call defined in one of the two ways above, nor does an application an `anywhere` rule of its head still matches, nor a map whose keys k-rust cannot show apart. Then the claim is `unconfirmed`, never confirmed; usually the program calls a function outside the cases its equations cover.
+
+### Explanations
+
+A refuted claim says that the program never reaches a configuration matching the pattern, not which part of the pattern it never reaches together with the rest.
+A pattern written for a program is usually off by a step or a term, not by a situation, so the query explains each failed answer by the parts of its pattern.
+It asks the patterns that leave one part out, one at a time, and lists each part whose removal gives a match, with the value the part left out has where it matches.
+
+**The parts** are read on the compiled pattern, the constraints the matcher applies, not on its text:
+- each cell the pattern names, as a witness lists cells: one written with a content of its own, `<requests> ListItem(request(C, _)) _ </requests>` or `<bus> L </bus>`, but not one left out or written `...`, and not one written only around other cells, whose inner cells are the parts. A cell of multiplicity `*` is held in a collection, so the cell holding the collection is the part;
+- each conjunct of the `requires`: each operand of its top-level `andBool`s, left to right, numbered from 1. The sort test the compiler adds for a cast `X:Int` holds for every value of `X`, so it is no part and is not numbered.
+
+**Leaving a part out.**
+A cell is replaced by a fresh variable, as if the pattern did not write it, and every conjunct that names a variable only that cell binds goes with it (`dropped_conjuncts`): kept, such a variable would occur in the condition alone, which the matcher cannot decide.
+A conjunct is dropped, and the others stay conjoined.
+Either way the result matches every configuration the pattern matches, so where it hits and the pattern does not, the configuration it hits satisfies everything but the part left out.
+A result that constrains nothing (every cell's content a variable, no condition) matches every configuration: its part is `vacuous`, not asked, and never a lead.
+
+**A chain** is explained step by step.
+Its longest reached prefix comes first: steps 1 to k asked as a chain (one step as a single pattern), for k = 1, 2, ... until one is refuted, reported as `prefix`.
+Then each part of step k + 1 is left out, and so is its `unless`, each asked as the prefix followed by that step without the part.
+A variable an earlier step binds is carried into the step, so no conjunct naming it goes with a cell, and the steps after k + 1 are not asked, so no variable they share is broken.
+
+**When.**
+- A refuted claim (a claimed program's final `no`) is explained on its program, in its row's `explain`.
+- An open obligation (every program a final `no`) is explained over the corpus, in the obligation's `explain`: each part's pattern is asked in corpus order up to its first hit, the obligation's own existential and order. An obligation whose pattern states `expect = "no"` meets its expectation and is not explained.
+- An `unknown` already has its cause, and a hit, an undecided obligation and an invalid pattern are not failures of a pattern: their `explain` is null.
+
+Explanations are on by default, since they run only where an answer failed and their answers are cached; `--no-explain` turns them off.
+They change no answer, row, count, obligation, exit status, `[query]` row, key or record of the pattern: they are computed after its answers and enter only `explain`, `explanations` and the derived patterns' own records.
+
+**The answer.**
+`explain` is `{form, parts, leads}`, `form` `pattern` or `chain`; a chain's also has `prefix`, `{steps, of, program, depth, cached, undecided}` (the longest reached prefix, the program that reaches it first and the depth of its last step; `undecided` is `{step, answer, program, cause}` where a prefix's answer is neither a hit nor a final `no`, which leaves the next step unknown and no part asked), and `step`, the number of the step whose parts are listed.
+Each part is `{part, kind, cell, conjunct, dropped_conjuncts, digest, outcome, cause, program, cached, witness}`:
+`part` its label (`cell <requests>`, `requires conjunct 1: C:Int <=Int size ( L:List )`, `step 3's unless`, a chain's parts prefixed with their step), `kind` `cell`, `conjunct` or `unless`, `cell` the cell's label, `conjunct` the conjunct printed, `dropped_conjuncts` the labels of the conjuncts that go with a cell, and `digest` the derived pattern's digest.
+`outcome` is `hit` (the first program that hits, in `program`), `no` (every program a final `no`), `unknown`, `error` or `invalid-pattern` (with the first such program and its `cause`), or `vacuous`.
+A part that is `unknown` is no lead: its `cause` says why.
+`witness`, on a hit, is the part's value where the derived pattern matches, `{depth, state, bindings, rendering}`: for a cell, `state.cells` holds that cell's entry, printed in full as a witness prints a cell its pattern names; for a conjunct, `bindings` holds the values of its variables.
+`leads` lists the parts that hit.
+`explanations` is `{enabled, asked, from_cache, records_written}`: the (derived pattern, program) pairs this command asked, how many the cache answered and the records written.
+
+For example, a claim of
+
+```toml
+pattern = "<k> writeByte(_:Int, _:Int) ~> pushLow(_:Int, _:Int) ... </k> <requests> ListItem(request(C:Int, _:Int)) _:List </requests> <bus> L:List </bus> requires C <=Int size(L)"
+```
+
+on a program that files its request only after the byte is written leads with `cell <requests>`, whose witness shows `<requests>` holding `.List` where the rest matches, and `cell <k>`, `cell <bus>` and `requires conjunct 1` answer `no`.
+A claim of `<bus> L:List ListItem(read(7, V:Int)) </bus> requires write(7, V) in L` on a program that reads 9 where it wrote 8 leads with `requires conjunct 1`, with V = 9 and L holding `write(7, 8)`; its `cell <bus>` takes the conjunct with it and is vacuous.
+`testdata/flow/explain` holds both.
+
+**How it is asked.**
+Each derived pattern is a pattern: it is asked on the command's route, by the same matcher and judge, keyed by its own digest and the key every answer has, and its `hit` or `no` is cached as every answer is, so a second query reads it from the cache.
+Within a command each (derived pattern, program) is asked once, so a part shared by a claim's explanation and its obligation's is asked once.
+`--verify` asks every derived pattern live too, and a record that differs is a mismatch naming the part (`explain`), exit 1, as for every record a query without `--verify` would use.
+
+**What it costs.**
+A refuted claim's explanation of a pattern of C cells and R conjuncts asks at most C + R answers, one per part (a vacuous part none).
+An open obligation's asks each part over the corpus up to its first hit: at most (C + R) × N answers for N programs.
+A chain of n steps adds at most n − 1 answers for its prefix on one program (n − 1 per program over the corpus), and its step's parts at most C + R + 1, its `unless` included, per program.
+Each answer is a search or a run of the program, as the pattern's own is, and a cached one costs none.
 
 ### A corpus with `[stop]`
 
