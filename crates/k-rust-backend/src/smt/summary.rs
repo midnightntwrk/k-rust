@@ -90,12 +90,117 @@ pub(super) fn reading<'a>(
         sort_arguments: sort_arguments.to_vec(),
         argument_sorts: arguments.iter().map(Term::sort).collect(),
         result: call.sort(),
-        static_arguments: arguments
-            .iter()
-            .map(|a| (!scalar(a.sort())).then(|| a.clone()))
-            .collect(),
+        static_arguments: shape(arguments).static_arguments,
     };
     readings.get(&key)
+}
+
+/// The terms a reading's parameters stand for at the call whose arguments are `arguments`, in
+/// the order of the summary's parameters: each scalar argument, and each hole of the shape of a
+/// static one ([`shape`]).
+pub(super) fn parameter_arguments(arguments: &[Term]) -> Vec<Term> {
+    shape(arguments).actuals
+}
+
+/// How deep [`shape`] reads below a static argument's root; below, a subterm is static as it is.
+const SHAPE_DEPTH: usize = 64;
+
+/// The specialization a summary's key states for a call's `arguments`.
+struct Shape {
+    /// `None` for a scalar argument, which is a parameter; otherwise the argument with each hole
+    /// replaced by its parameter.
+    static_arguments: Vec<Option<Term>>,
+    /// The parameters, in order: a scalar argument's, then each hole's in preorder.
+    parameters: Vec<Variable>,
+    /// The term each parameter stands for at this call.
+    actuals: Vec<Term>,
+}
+
+/// The shape of a call's `arguments`. A scalar argument is the parameter `KRUST-SCALAR-i`. Any
+/// other argument is static: its free constructors and injections are read down to their
+/// scalar-sorted subterms, and each such subterm that is not a literal is a hole, the parameter
+/// `KRUST-SCALAR-i-k` (the `k`-th hole of argument `i`, in preorder). So `f(V, flags(W, S, H, C))`
+/// is specialized at the shape `f(P0, flags(P1-0, P1-1, P1-2, P1-3))` and the summary states `f`
+/// on every instance of that shape: a free constructor's applications are pairwise distinct, so
+/// an equation matches the shape exactly where it matches each of its instances. Every other node
+/// (a variable or function call of a non-scalar sort, a collection) is kept as it is, and the
+/// catalog refuses a static argument holding one with a variable (`Catalog::signature`).
+fn shape(arguments: &[Term]) -> Shape {
+    fn holes(
+        term: &Term,
+        index: usize,
+        depth: usize,
+        parameters: &mut Vec<Variable>,
+        actuals: &mut Vec<Term>,
+        count: &mut usize,
+    ) -> Term {
+        if depth >= SHAPE_DEPTH {
+            return term.clone();
+        }
+        match term.kind() {
+            TermKind::DomainValue { .. } => term.clone(),
+            _ if scalar(term.sort()) => {
+                let parameter = Variable::new(format!("KRUST-SCALAR-{index}-{count}"), term.sort());
+                *count += 1;
+                parameters.push(parameter.clone());
+                actuals.push(term.clone());
+                Term::variable(parameter)
+            }
+            TermKind::Application {
+                symbol,
+                sort_arguments,
+                arguments,
+            } if symbol.attributes.head_role() == HeadRole::FreeConstructor => Term::application(
+                symbol.clone(),
+                sort_arguments.to_vec(),
+                arguments
+                    .iter()
+                    .map(|argument| holes(argument, index, depth + 1, parameters, actuals, count))
+                    .collect(),
+            ),
+            TermKind::Injection {
+                source,
+                target,
+                term: inner,
+            } => Term::injection(
+                *source,
+                *target,
+                holes(inner, index, depth + 1, parameters, actuals, count),
+            ),
+            TermKind::Application { .. }
+            | TermKind::Variable(_)
+            | TermKind::And(..)
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. } => term.clone(),
+        }
+    }
+    let mut shape = Shape {
+        static_arguments: Vec::with_capacity(arguments.len()),
+        parameters: Vec::new(),
+        actuals: Vec::new(),
+    };
+    for (index, argument) in arguments.iter().enumerate() {
+        if scalar(argument.sort()) {
+            shape.parameters.push(Variable::new(
+                format!("KRUST-SCALAR-{index}"),
+                argument.sort(),
+            ));
+            shape.actuals.push(argument.clone());
+            shape.static_arguments.push(None);
+        } else {
+            let mut count = 0;
+            shape.static_arguments.push(Some(holes(
+                argument,
+                index,
+                0,
+                &mut shape.parameters,
+                &mut shape.actuals,
+                &mut count,
+            )));
+        }
+    }
+    shape
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -104,6 +209,7 @@ pub(super) struct Key {
     pub sort_arguments: Vec<Sort>,
     pub argument_sorts: Vec<Sort>,
     pub result: Sort,
+    /// Each non-scalar argument's shape, its holes the summary's parameters ([`shape`]).
     pub static_arguments: Vec<Option<Term>>,
 }
 
@@ -283,51 +389,57 @@ impl<'d> Catalog<'d> {
         if !eligible {
             return Ok(Err(Rejected::Unsupported));
         }
-        let mut static_arguments = Vec::new();
-        let mut parameters = Vec::new();
-        let mut formals = Vec::new();
         if arguments.len() > self.remaining {
             return Ok(Err(Rejected::Limit));
         }
-        for (index, arg) in arguments.iter().enumerate() {
+        let Shape {
+            static_arguments,
+            parameters,
+            ..
+        } = shape(arguments);
+        if parameters
+            .iter()
+            .any(|parameter| !standard_scalar(self.definition, parameter.sort))
+        {
+            return Ok(Err(Rejected::Unsupported));
+        }
+        let mut formals = Vec::new();
+        for (index, (argument, fixed)) in arguments.iter().zip(&static_arguments).enumerate() {
             admitted!(self.work());
-            if scalar(arg.sort()) {
-                if !standard_scalar(self.definition, arg.sort()) {
-                    return Ok(Err(Rejected::Unsupported));
-                }
-                let var = Variable::new(format!("KRUST-SCALAR-{index}"), arg.sort());
-                formals.push(Term::variable(var.clone()));
-                parameters.push(var);
-                static_arguments.push(None);
-            } else {
-                if !arg.attributes().variables.is_empty() {
-                    return Ok(Err(Rejected::Unsupported));
-                }
-                let mut pending = vec![arg];
-                while let Some(node) = pending.pop() {
-                    admitted!(self.work());
-                    match node.kind() {
-                        TermKind::Application {
-                            symbol, arguments, ..
-                        } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
-                            if arguments.len() > self.remaining {
-                                return Ok(Err(Rejected::Limit));
-                            }
-                            pending.extend(arguments.iter());
+            let Some(fixed) = fixed else {
+                formals.push(Term::variable(Variable::new(
+                    format!("KRUST-SCALAR-{index}"),
+                    argument.sort(),
+                )));
+                continue;
+            };
+            // A static argument is free constructors, injections and literals down to its holes,
+            // each a parameter; a free constructor's applications are pairwise distinct, so the
+            // shape's instances are exactly the arguments it stands for.
+            let mut pending = vec![fixed];
+            while let Some(node) = pending.pop() {
+                admitted!(self.work());
+                match node.kind() {
+                    TermKind::Application {
+                        symbol, arguments, ..
+                    } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
+                        if arguments.len() > self.remaining {
+                            return Ok(Err(Rejected::Limit));
                         }
-                        TermKind::DomainValue { .. } => {}
-                        TermKind::Injection { term, .. } => pending.push(term),
-                        TermKind::Application { .. }
-                        | TermKind::Variable(_)
-                        | TermKind::And(..)
-                        | TermKind::Map { .. }
-                        | TermKind::List { .. }
-                        | TermKind::Set { .. } => return Ok(Err(Rejected::Unsupported)),
+                        pending.extend(arguments.iter());
                     }
+                    TermKind::DomainValue { .. } => {}
+                    TermKind::Variable(variable) if parameters.contains(variable) => {}
+                    TermKind::Injection { term, .. } => pending.push(term),
+                    TermKind::Application { .. }
+                    | TermKind::Variable(_)
+                    | TermKind::And(..)
+                    | TermKind::Map { .. }
+                    | TermKind::List { .. }
+                    | TermKind::Set { .. } => return Ok(Err(Rejected::Unsupported)),
                 }
-                formals.push(arg.clone());
-                static_arguments.push(Some(arg.clone()));
             }
+            formals.push(fixed.clone());
         }
         let key = Key {
             name: symbol.name.clone(),
@@ -669,8 +781,9 @@ impl<'d> Catalog<'d> {
                             return Ok(Err(Rejected::Partial));
                         }
                         dependencies.insert(summary.key.clone());
-                        // Static constructor operands are already validated by signature().
-                        pending.extend(arguments.iter().filter(|a| scalar(a.sort())).cloned());
+                        // The static shape is validated by signature(); the terms its parameters
+                        // stand for, a scalar argument or a hole of a static one, are checked here.
+                        pending.extend(parameter_arguments(arguments));
                     } else {
                         if !matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
                             || !arguments.iter().all(|a| scalar(a.sort()))
@@ -767,6 +880,23 @@ impl<'d> Catalog<'d> {
                 Ok(obligations) => obligations,
                 Err(_) => return Ok(Err(Rejected::Partial)),
             };
+        // The obligations are read as stated (`with_stated_ceil_conditions`): the ceil condition
+        // of `X /Int 16` keeps the conjuncts `16 =/=Int 0`, `\ceil(X)` and `\ceil(16)`. A
+        // conjunct that builtin hooks alone decide true (`deferred::hooks_establish`: a ground
+        // hook condition; the `\ceil` of a `ceil_free` term, whose definedness walk is empty in
+        // every definition) holds on every input, so dropping it states the same domain, and no
+        // equation is applied. A literal is no call whose summary the domain would need.
+        let mut stated = Vec::with_capacity(obligations.len());
+        for predicate in obligations {
+            if !crate::deferred::hooks_establish(
+                self.definition,
+                std::slice::from_ref(&predicate),
+                &[],
+            )? {
+                stated.push(predicate);
+            }
+        }
+        let obligations = stated;
         let mut pending = obligations.iter().collect::<Vec<_>>();
         while let Some(predicate) = pending.pop() {
             admitted!(self.work());
@@ -779,6 +909,10 @@ impl<'d> Catalog<'d> {
                     admitted!(self.check_body(a, parameters, seen, dependencies, true));
                     admitted!(self.check_body(b, parameters, seen, dependencies, true));
                 }
+                // The `\ceil` of a `ceil_free` term holds on every input, as above, also below a
+                // connective: no call to summarize.
+                Predicate::Ceil(call) | Predicate::Defined(call)
+                    if call.attributes().ceil_free() => {}
                 Predicate::Ceil(call) | Predicate::Defined(call) => {
                     // A dependency's complete decision graph supplies its domain. An
                     // unresolved primitive domain is not evidence of bottom or totality.

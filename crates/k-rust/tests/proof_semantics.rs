@@ -4145,3 +4145,137 @@ endmodule
             })
     );
 }
+
+/// Total functions whose bodies divide by a nonzero literal (`F /Int 16`, `V modInt 256`) and
+/// whose equations are chosen by guards on a symbolic argument, so no equation applies to their
+/// applications in a claim's final state, against a second spelling of the same function. A
+/// binary-coded-decimal adjustment (`unaryResult(daa, V, F)`), after Foldiboy's SM83 `DAA`, with
+/// the flags as an integer and, as Foldiboy now writes them, as a constructor of four Booleans
+/// (`daaOf(V, flags(_, S, H, C))`).
+const LITERAL_DIVISOR: &str = r#"
+module DIVISOR-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= "runHigh" | "runDaa" | "runDaaOf"
+endmodule
+
+module DIVISOR
+  imports DIVISOR-SYNTAX
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax UnaryOp ::= "daa" [symbol(unaryDaa)] | "inc" [symbol(unaryInc)]
+  syntax Int ::= high(Int) [function, total, symbol(high)]
+               | byte(Int) [function, total, symbol(byte)]
+               | flagBit(Bool) [function, total, symbol(flagBit)]
+               | daaCorrection(Int, Int) [function, total, symbol(daaCorrection)]
+               | unaryResult(UnaryOp, Int, Int) [function, total, symbol(unaryResult)]
+               | expectedDaaByte(Int, Int) [function, total, symbol(expectedDaaByte)]
+               | expectedDaaCorrection(Int, Int) [function, total, symbol(expectedDaaCorrection)]
+               | expectedDaaHigh(Int, Int) [function, total, symbol(expectedDaaHigh)]
+               | expectedDaaLow(Int, Int) [function, total, symbol(expectedDaaLow)]
+  syntax Bool ::= subtractSet(Int) [function, total, symbol(subtractSet)]
+                | halfCarrySet(Int) [function, total, symbol(halfCarrySet)]
+                | carrySet(Int) [function, total, symbol(carrySet)]
+                | daaHigh(Int, Int) [function, total, symbol(daaHigh)]
+                | daaLow(Int, Int) [function, total, symbol(daaLow)]
+  rule high(F) => F /Int 16 requires F >=Int 0
+  rule high(F) => 0 requires F <Int 0
+  rule byte(V) => V modInt 256
+  rule flagBit(true) => 1
+  rule flagBit(false) => 0
+  rule subtractSet(F) => (F &Int 64) =/=Int 0
+  rule halfCarrySet(F) => (F &Int 32) =/=Int 0
+  rule carrySet(F) => (F &Int 16) =/=Int 0
+  rule daaHigh(_, F) => carrySet(F) requires subtractSet(F)
+  rule daaHigh(V, F) => carrySet(F) orElseBool V >Int 153 requires notBool subtractSet(F)
+  rule daaLow(_, F) => halfCarrySet(F) requires subtractSet(F)
+  rule daaLow(V, F) => halfCarrySet(F) orElseBool (V &Int 15) >Int 9 requires notBool subtractSet(F)
+  rule daaCorrection(V, F) => flagBit(daaHigh(V, F)) *Int 96 +Int flagBit(daaLow(V, F)) *Int 6
+  rule unaryResult(daa, V, F) => byte(V +Int daaCorrection(V, F)) requires notBool subtractSet(F)
+  rule unaryResult(daa, V, F) => byte(V -Int daaCorrection(V, F)) requires subtractSet(F)
+  rule unaryResult(inc, V, _) => byte(V +Int 1)
+  rule expectedDaaHigh(A, F) => #if (((F /Int 16) %Int 2) ==Int 1) orElseBool ((((F /Int 64) %Int 2) ==Int 0) andThenBool (A >Int 153)) #then 96 #else 0 #fi
+  rule expectedDaaLow(A, F) => #if (((F /Int 32) %Int 2) ==Int 1) orElseBool ((((F /Int 64) %Int 2) ==Int 0) andThenBool ((A %Int 16) >Int 9)) #then 6 #else 0 #fi
+  rule expectedDaaCorrection(A, F) => #if (((F /Int 64) %Int 2) ==Int 0) #then (expectedDaaHigh(A, F) +Int expectedDaaLow(A, F)) #else (0 -Int (expectedDaaHigh(A, F) +Int expectedDaaLow(A, F))) #fi
+  rule expectedDaaByte(A, F) => ((A +Int 256) +Int expectedDaaCorrection(A, F)) %Int 256
+  syntax FlagSet ::= flags(Bool, Bool, Bool, Bool) [symbol(flags)]
+  syntax Bool ::= subtractOf(FlagSet) [function, total, symbol(subtractOf)]
+                | halfCarryOf(FlagSet) [function, total, symbol(halfCarryOf)]
+                | carryOf(FlagSet) [function, total, symbol(carryOf)]
+                | daaHighOf(Int, FlagSet) [function, total, symbol(daaHighOf)]
+                | daaLowOf(Int, FlagSet) [function, total, symbol(daaLowOf)]
+  syntax Int ::= daaCorrectionOf(Int, FlagSet) [function, total, symbol(daaCorrectionOf)]
+               | daaOf(Int, FlagSet) [function, total, symbol(daaOf)]
+               | expectedByteOf(Int, Bool, Bool, Bool) [function, total, symbol(expectedByteOf)]
+               | expectedCorrectionOf(Int, Bool, Bool, Bool) [function, total, symbol(expectedCorrectionOf)]
+               | expectedHighOf(Int, Bool, Bool) [function, total, symbol(expectedHighOf)]
+               | expectedLowOf(Int, Bool, Bool) [function, total, symbol(expectedLowOf)]
+  rule subtractOf(flags(_, N, _, _)) => N
+  rule halfCarryOf(flags(_, _, H, _)) => H
+  rule carryOf(flags(_, _, _, C)) => C
+  rule daaHighOf(_, F) => carryOf(F) requires subtractOf(F)
+  rule daaHighOf(V, F) => carryOf(F) orElseBool V >Int 153 requires notBool subtractOf(F)
+  rule daaLowOf(_, F) => halfCarryOf(F) requires subtractOf(F)
+  rule daaLowOf(V, F) => halfCarryOf(F) orElseBool (V &Int 15) >Int 9 requires notBool subtractOf(F)
+  rule daaCorrectionOf(V, F) => flagBit(daaHighOf(V, F)) *Int 96 +Int flagBit(daaLowOf(V, F)) *Int 6
+  rule daaOf(V, F) => byte(V +Int daaCorrectionOf(V, F)) requires notBool subtractOf(F)
+  rule daaOf(V, F) => byte(V -Int daaCorrectionOf(V, F)) requires subtractOf(F)
+  rule expectedHighOf(A, S, C) => #if C orElseBool ((notBool S) andThenBool (A >Int 153)) #then 96 #else 0 #fi
+  rule expectedLowOf(A, S, H) => #if H orElseBool ((notBool S) andThenBool ((A %Int 16) >Int 9)) #then 6 #else 0 #fi
+  rule expectedCorrectionOf(A, S, H, C) => #if notBool S #then expectedHighOf(A, S, C) +Int expectedLowOf(A, S, H) #else 0 -Int (expectedHighOf(A, S, C) +Int expectedLowOf(A, S, H)) #fi
+  rule expectedByteOf(A, S, H, C) => ((A +Int 256) +Int expectedCorrectionOf(A, S, H, C)) %Int 256
+  configuration <k> $PGM:Pgm </k> <z> 0 </z> <f> 0 </f> <g> flags(false, false, false, false) </g>
+  rule <k> runDaaOf => .K ... </k> <z> V => daaOf(V, F) </z>
+    <g> F => flags(daaOf(V, F) ==Int 0, subtractOf(F), false, daaHighOf(V, F)) </g>
+  rule <k> runHigh => .K ... </k> <z> _ => high(F) </z> <f> F </f>
+  rule <k> runDaa => .K ... </k> <z> V => unaryResult(daa, V, F) </z> <f> F </f>
+endmodule
+
+module DIVISOR-SPEC
+  imports DIVISOR
+  claim [high]: <k> runHigh => .K </k> <z> _ => maxInt(F, 0) /Int 16 </z> <f> F </f>
+  claim [high-wrong]: <k> runHigh => .K </k> <z> _ => maxInt(F, 0) /Int 8 </z> <f> F </f>
+  claim [daa]: <k> runDaa => .K </k> <z> A => expectedDaaByte(A, F) </z> <f> F </f>
+    requires 0 <=Int A andBool A <Int 256 andBool 0 <=Int F andBool F <Int 256
+     andBool F %Int 16 ==Int 0
+  claim [daa-flags]: <k> runDaaOf => .K </k> <z> A => expectedByteOf(A, S, H, C) </z>
+    <g> flags(_, S, H, C)
+     => flags(expectedByteOf(A, S, H, C) ==Int 0, S, false, expectedHighOf(A, S, C) =/=Int 0) </g>
+    requires 0 <=Int A andBool A <Int 256
+  claim [daa-flags-wrong]: <k> runDaaOf => .K </k> <z> A => expectedByteOf(A, S, C, H) </z>
+    <g> flags(_, S, H, C) => ?_ </g>
+    requires 0 <=Int A andBool A <Int 256
+endmodule
+"#;
+
+/// A claim relating two spellings of a total function is decided by the solver's summaries of
+/// the functions, whose admission reads ceil conditions as stated: the stated condition of
+/// `F /Int 16` is `16 =/=Int 0`, `\ceil(F)` and `\ceil(16)`, each of which builtin hooks decide
+/// true, so the body is defined on every input and no equation is applied to decide it. A call
+/// whose argument is a constructor application with symbolic fields is read through the summary
+/// at that argument's shape, the fields its parameters. `high`, `daa` and `daa-flags` are proven;
+/// `high-wrong` and `daa-flags-wrong`, different functions, are not.
+#[test]
+fn total_functions_dividing_by_a_literal_are_compared_through_their_summaries() {
+    let kore = compile(LITERAL_DIVISOR, "DIVISOR-SPEC", "DIVISOR");
+    for (claim, proven) in [
+        ("high", true),
+        ("high-wrong", false),
+        ("daa", true),
+        ("daa-flags", true),
+        ("daa-flags-wrong", false),
+    ] {
+        let result = prove(
+            &kore,
+            "DIVISOR-SPEC",
+            &format!("DIVISOR-SPEC.{claim}"),
+            ProveRequest::default(),
+        );
+        assert_eq!(
+            result.status == "proven",
+            proven,
+            "{claim}: {:#?}",
+            leaf_text(&result)
+        );
+    }
+}

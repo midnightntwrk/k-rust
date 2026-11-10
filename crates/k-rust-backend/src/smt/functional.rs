@@ -153,7 +153,15 @@ impl TranslationState {
                 else {
                     unreachable!();
                 };
-                if arguments.len() != key.static_arguments.len() {
+                // A case at a static shape with holes stands for every instance of the shape,
+                // not for one call; it is not instantiated at an opaque occurrence.
+                if arguments.len() != key.static_arguments.len()
+                    || key
+                        .static_arguments
+                        .iter()
+                        .flatten()
+                        .any(|fixed| !fixed.attributes().variables.is_empty())
+                {
                     continue;
                 }
                 let actual = arguments
@@ -461,11 +469,9 @@ impl TranslationState {
             && let Some(domain_name) = &reading.domain_name
         {
             self.approximate(reading.exactness);
-            let arguments = arguments
+            let arguments = super::summary::parameter_arguments(arguments)
                 .iter()
-                .zip(&reading.summary.key.static_arguments)
-                .filter(|(_, fixed)| fixed.is_none())
-                .map(|(argument, _)| self.translate_term(argument))
+                .map(|argument| self.translate_term(argument))
                 .collect::<Result<Vec<_>, _>>()?;
             domains.push(if arguments.is_empty() {
                 SExpr::atom(domain_name.clone())

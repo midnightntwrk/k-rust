@@ -575,13 +575,11 @@ impl Planner<'_> {
             unreachable!()
         };
         let mut ids = Vec::new();
-        for (argument, static_argument) in arguments.iter().zip(&source.key.static_arguments) {
-            if static_argument.is_none() {
-                let Some(id) = self.term(argument, depth + 1)? else {
-                    return Ok(None);
-                };
-                ids.push(id);
-            }
+        for argument in &summary::parameter_arguments(arguments) {
+            let Some(id) = self.term(argument, depth + 1)? else {
+                return Ok(None);
+            };
+            ids.push(id);
         }
         let ranges = ids
             .iter()
