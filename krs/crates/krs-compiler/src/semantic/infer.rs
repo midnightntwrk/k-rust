@@ -750,6 +750,7 @@ impl StructuredTermBuilder<'_> {
                 }
             }
             DescriptorTerm::Cell {
+                key,
                 declaration,
                 fields,
                 open,
@@ -786,7 +787,7 @@ impl StructuredTermBuilder<'_> {
                 // value for a child it leaves out: no group was matched there
                 // to keep it from (a `?` group a result creates with `Some(..)`).
                 let partial = (*open && subject) || update.is_some();
-                self.infer_cell_fields(declaration, fields, subject, partial)?;
+                self.infer_cell_fields(key, declaration, fields, subject, partial)?;
             }
             DescriptorTerm::SortTest {
                 key,
@@ -3225,6 +3226,7 @@ impl StructuredTermBuilder<'_> {
 
     fn infer_cell_fields(
         &mut self,
+        key: &ProvenanceKey,
         owner: &StableItemId,
         fields: &[krs_ir::DescriptorCellTermField],
         subject: bool,
@@ -3264,7 +3266,7 @@ impl StructuredTermBuilder<'_> {
                     declared.rust_field
                 )));
             };
-            self.check_child_presence(declared, field)?;
+            self.check_child_presence(key, declared, field)?;
             match &declared.content {
                 ProtocolCellContent::Leaf { sort, .. } => {
                     self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
@@ -3348,13 +3350,22 @@ impl StructuredTermBuilder<'_> {
     /// states its presence, at a configuration position and in a value alike
     /// ([`super::cell_states::optional_child_without_presence`]). A child's `Some(..)` or `None`
     /// is refused before lowering (a stated limit), so every such value that reaches here is bare.
+    ///
+    /// Only a child the author wrote states anything. A child the record's long form adds (an
+    /// update's fill from its base, a base alias's hidden binder, `_` for a child its pattern
+    /// leaves out) is what the base or the pattern leaves, whatever it holds: it is not judged
+    /// here, and the record's other mistakes (the update's own) are told as they would be
+    /// without it. Such a child stands at a node of the record's own role (`record`'s), where a
+    /// written child stands at its field name.
     fn check_child_presence(
         &self,
+        record: &ProvenanceKey,
         declared: &krs_ir::DescriptorCellField,
         field: &krs_ir::DescriptorCellTermField,
     ) -> Result<(), DescriptorLoweringError> {
-        if super::references::declared_multiplicity(declared, self.declarations)
-            == krs_ir::cell_kind::Multiplicity::Optional
+        if field.key.role() != record.role()
+            && super::references::declared_multiplicity(declared, self.declarations)
+                == krs_ir::cell_kind::Multiplicity::Optional
         {
             return Err(super::cell_states::optional_child_without_presence(
                 self.descriptor,

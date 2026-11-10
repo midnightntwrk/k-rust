@@ -1902,6 +1902,18 @@ fn a_value_records_presence_child_states_its_presence_as_an_entry_does() {
         assert_eq!(headline, &entry, "{name}");
     }
     expect_test::expect![[r#"error[krs::analysis::optional-presence]: the cell `CELL` is optional (`multiplicity = "?"`), so its entry states whether it is there: `Some(..)` holds its content when it is, and `None` stands for its absence; write its entry inside `Some(..)`, or as `None` for its absence"#]].assert_eq(&entry);
+    // Only a child the author writes states a presence: an update keeps what its base holds
+    // there, and a base alias's pattern leaves out what it does not name, so `oo` and `op`,
+    // which neither record writes, ask nothing.
+    let kept = library_package(
+        temporary.path(),
+        "value-update-kept",
+        &format!(
+            "{PRESENCES}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [Go(), ..], stack: [o @ O {{ on: x, .. }}, s @ ..] }} => {{ k: [..], stack: [O {{ on: 1, ..o }}, ..s] }};\n}}\n"
+        ),
+    );
+    let kept = first_error(target.path(), &kept);
+    assert!(kept.starts_with("passed"), "{kept}");
 }
 
 /// Groups a result may create with every child unmatched: an optional group `ogroup` of two
@@ -2243,6 +2255,9 @@ fn records_cells(subject: &str) -> String {
 /// and the spelling its refusal starts at.
 fn record_witnesses() -> Vec<(&'static str, String, &'static str)> {
     vec![
+        // On a leaf that is no `KItem` the table answers first: a group's cell term is no term of
+        // the leaf's sort, whatever its children. A `KItem` leaf holds a cell term, so there the
+        // record's map child is the mistake (`leaf-kitem`).
         (
             "leaf-list",
             records_rule("stack: Mg { mm: { 1 -> v, .. }, .. }", ""),
@@ -2317,8 +2332,9 @@ fn record_witnesses() -> Vec<(&'static str, String, &'static str)> {
 }
 
 /// A record's mistakes each have one refusal, whichever spelling or position reads the record:
-/// a record on a leaf whose child is a map's entries is no term (a `List` leaf and a `KItem`
-/// leaf alike); a record of another struct is a term of another cell sort than its cell's, at
+/// a record on a leaf is refused at the record (the table's sort refusal on a leaf that is no
+/// `KItem`, and on a `KItem` leaf the record's map child, which no term spells); a record of
+/// another struct is a term of another cell sort than its cell's, at
 /// the cell, at a group child, through an alias, and beside a map child; a field that names no
 /// child is told before how many children the record names; and a call of another sort than a
 /// typed Map cell's is a term of another sort, not an untyped map.
@@ -2345,7 +2361,7 @@ fn a_records_mistake_has_one_refusal_on_every_route() {
     }
     expect_test::expect![[r#"
         [
-            "leaf-list: error[krs::analysis::invalid-term]: `stack` is a leaf cell, whose content is a term, and this record writes a child as a map's entries or a map read (`{ k -> v, .. }`, `k::map![..]`), which no term spells, so it is no term: such a child is the entry of its own cell, which only the group's cell holds",
+            "leaf-list: error[krs::analysis::invalid-term]: the cell `stack` holds a `List` leaf, and the entry gives it a `Mg` record, the `Mg` group's cell term, whose sort is not below the leaf's: a group's cell sort is below `KItem` only, so a leaf holds a group's record only where its sort is `KItem`",
             "leaf-kitem: error[krs::analysis::invalid-term]: `slot` is a leaf cell, whose content is a term, and this record writes a child as a map's entries or a map read (`{ k -> v, .. }`, `k::map![..]`), which no term spells, so it is no term: such a child is the entry of its own cell, which only the group's cell holds",
             "foreign-cell: error[krs::analysis::invalid-term]: the record names `Gw`, and `fpu` holds `Fpu`",
             "foreign-cell-cells: error[krs::analysis::invalid-term]: the record names `Gw`, and `fpu` holds `Fpu`",
