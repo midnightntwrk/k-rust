@@ -190,8 +190,8 @@ use crate::{
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, RunPolls, cacheable, slot_name},
     report::{
-        MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, action, action_spelled,
-        claims_value, executed_cause, horizon_reason, matrix, observation_slot,
+        MutantCensus, OPEN_APPLICATION_REASON, RUN_SCHEMA, RUN_VERSION, WORK_BUDGET_REASON, action,
+        action_spelled, claims_value, executed_cause, horizon_reason, matrix, observation_slot,
         observation_verdict, open_application_cause, refused_action, rules_value, slots_value,
         specification_diagnostics_value, survivor_horizons, survivors, typing_diagnostics_value,
         untargeted_rules, unusable_programs, with_observation,
@@ -1278,7 +1278,7 @@ impl Search<'_, '_> {
         run: &MutantRun,
         differences: &BTreeMap<String, Value>,
         causes: &BTreeMap<String, String>,
-        opens: &BTreeMap<String, bool>,
+        opens: &BTreeMap<String, Undecided>,
     ) -> Vec<(String, OutcomeRecord)> {
         if run.plan.mutant_failure.is_some() {
             return Vec::new();
@@ -1316,7 +1316,7 @@ impl Search<'_, '_> {
                             CachedOutcome::Agree | CachedOutcome::Unknown => Value::Null,
                         },
                         open_application: outcome == CachedOutcome::Unknown
-                            && opens.get(&test.test_id) == Some(&true),
+                            && opens.get(&test.test_id) == Some(&Undecided::Open),
                         cause,
                         smt_unknowns: notes.map_or(0, |notes| count(notes.smt_unknowns)),
                         decider_smt_unknowns: notes
@@ -1710,7 +1710,7 @@ impl Search<'_, '_> {
             Vec<usize>,
             MutantRun,
             BTreeMap<String, String>,
-            BTreeMap<String, bool>,
+            BTreeMap<String, Undecided>,
         )>::new();
         // The kill evidence of the live calls, by program; a later call's replaces an earlier's,
         // as its record does (step 7).
@@ -2347,7 +2347,7 @@ impl Search<'_, '_> {
         &self,
         run: &MutantRun,
         causes: &BTreeMap<String, String>,
-        opens: &BTreeMap<String, bool>,
+        opens: &BTreeMap<String, Undecided>,
         live: &mut BTreeMap<usize, Live>,
     ) {
         for test in &run.plan.tests {
@@ -2366,7 +2366,7 @@ impl Search<'_, '_> {
             let unknown = outcome.is_some_and(|(outcome, _)| outcome == CachedOutcome::Unknown);
             let mut report = OutcomeRecord::report_of(
                 causes.get(&test.test_id).filter(|_| unknown),
-                unknown && opens.get(&test.test_id) == Some(&true),
+                unknown && opens.get(&test.test_id) == Some(&Undecided::Open),
                 notes.map_or(0, |notes| count(notes.smt_unknowns)),
                 notes.map_or(0, |notes| count(notes.decider_smt_unknowns)),
             );
@@ -3761,22 +3761,39 @@ fn exclusion_reason<'r>(
         })
 }
 
+/// Why a program left a mutant undecided, as a row's reason is folded from it ([`open_reason`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Undecided {
+    /// The ends of the mutant's run hold open applications of edited functions
+    /// (`report::open_application_cause`; `OutcomeRecord::open_application`).
+    Open,
+    /// The work budget cut the mutant's run (FB45-KINK: its last leaf is `poll-bound`;
+    /// `RunNotes::poll_bound`, `OutcomeRecord::polls.cut`).
+    Cut,
+    /// Any other reason (a failed run among them).
+    Other,
+}
+
 /// Each program a live call left undecided (some slot neither `agree` nor `distinguish`, or a
-/// failed run), by id, with whether it is undecided because the ends of the mutant's run hold
-/// open applications of edited functions (`report::open_application_cause`); a failed run is
-/// undecided for another reason. What an `unknown` record of the call keeps
-/// (`OutcomeRecord::open_application`), and what the row's reason is folded from
-/// ([`open_reason`]).
-fn entry_opens(live: &LiveCall) -> BTreeMap<String, bool> {
+/// failed run), by id, with why ([`Undecided`]): open applications of edited functions at the
+/// ends of the mutant's run (`report::open_application_cause`), the work budget's cut, or another
+/// reason, a failed run's among them. What an `unknown` record of the call keeps
+/// (`OutcomeRecord::open_application`; the cut is the record's `polls`), and what the row's
+/// reason is folded from ([`open_reason`]).
+fn entry_opens(live: &LiveCall) -> BTreeMap<String, Undecided> {
     let mutant = &live.mutant;
     mutant
         .plan
         .tests
         .iter()
         .filter_map(|test| {
+            let evidence = mutant
+                .evidence
+                .iter()
+                .find(|evidence| evidence.test_id == test.test_id);
             let open = match &test.run {
                 TestRun::SkippedAfterKill => return None,
-                TestRun::Failed(_) => false,
+                TestRun::Failed(_) => Undecided::Other,
                 TestRun::Compared(outcomes) => {
                     if outcomes.contains(&OracleOutcome::Distinguish)
                         || outcomes
@@ -3785,17 +3802,20 @@ fn entry_opens(live: &LiveCall) -> BTreeMap<String, bool> {
                     {
                         return None;
                     }
-                    open_application_cause(
+                    if open_application_cause(
                         &test.run,
-                        mutant
-                            .evidence
-                            .iter()
-                            .find(|evidence| evidence.test_id == test.test_id),
+                        evidence,
                         live.recording
                             .mutant_run(mutant.plan.mutant_id, &test.test_id)
                             .map(|run| &run.census),
                         &live.edited,
-                    )
+                    ) {
+                        Undecided::Open
+                    } else if evidence.is_some_and(|evidence| evidence.notes.poll_bound) {
+                        Undecided::Cut
+                    } else {
+                        Undecided::Other
+                    }
                 }
             };
             Some((test.test_id.clone(), open))
@@ -3804,27 +3824,44 @@ fn entry_opens(live: &LiveCall) -> BTreeMap<String, bool> {
 }
 
 /// The undecided programs of cached records, by id, as [`entry_opens`] gives them for a live
-/// call: each `unknown` record's `open_application`.
+/// call: each `unknown` record's `open_application`, else its run's cut by the work budget.
 fn cached_opens<'c>(
     records: &[(usize, OutcomeRecord)],
     id: impl Fn(usize) -> &'c str,
-) -> BTreeMap<String, bool> {
+) -> BTreeMap<String, Undecided> {
     records
         .iter()
         .filter(|(_, record)| record.outcome == CachedOutcome::Unknown)
-        .map(|(c, record)| (id(*c).to_owned(), record.open_application))
+        .map(|(c, record)| {
+            let undecided = if record.open_application {
+                Undecided::Open
+            } else if record.polls.cut {
+                Undecided::Cut
+            } else {
+                Undecided::Other
+            };
+            (id(*c).to_owned(), undecided)
+        })
         .collect()
 }
 
-/// The reason [`OPEN_APPLICATION_REASON`] of an `unknown` row every undecided program of which,
-/// live or cached, is undecided because the ends of the mutant's run hold open applications of
-/// edited functions (`opens`, from [`entry_opens`] and [`cached_opens`]); none when no program is
-/// undecided or one is undecided for another reason.
-fn open_reason(report: &MutantReport, opens: &BTreeMap<String, bool>) -> Option<String> {
-    (report.status == MutantStatus::Unknown
-        && !opens.is_empty()
-        && opens.values().all(|open| *open))
-    .then(|| OPEN_APPLICATION_REASON.to_owned())
+/// The reason of an `unknown` row every undecided program of which, live or cached, is undecided
+/// for one reason (`opens`, from [`entry_opens`] and [`cached_opens`]): [`OPEN_APPLICATION_REASON`]
+/// when the ends of the mutant's run hold open applications of edited functions,
+/// [`WORK_BUDGET_REASON`] when the work budget cut the mutant's run (FB45-KINK); none when no
+/// program is undecided or they are undecided for different reasons or another.
+fn open_reason(report: &MutantReport, opens: &BTreeMap<String, Undecided>) -> Option<String> {
+    if report.status != MutantStatus::Unknown || opens.is_empty() {
+        return None;
+    }
+    let all = |reason| opens.values().all(|undecided| *undecided == reason);
+    if all(Undecided::Open) {
+        Some(OPEN_APPLICATION_REASON.to_owned())
+    } else if all(Undecided::Cut) {
+        Some(WORK_BUDGET_REASON.to_owned())
+    } else {
+        None
+    }
 }
 
 /// A row's `calls` and `call_wall_ms` (the same order).

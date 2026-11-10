@@ -1052,10 +1052,10 @@ mod kink_tier {
     /// changes, whatever the mutant then does. `no-decrease` edits only `plus_succ`'s result, into
     /// one that reuses its left-hand side's `s(M)` (an alias of the left-hand side in the compiled
     /// rule), and its mutant recurses without end: its witnesses are `t3` and `t4`, never `t1` or
-    /// `t2`, which apply only `plus_zero`, and it stays `unknown`, cut by kink's work budget (FB45-KINK:
-    /// a bound of polls, inside the step too, stops the recursion at the same poll on every host,
-    /// where the native stack's bound stopped it before, reason `stack-stop`, an exclusion of the
-    /// host), so with no reason of the whole row and each run's cause naming the polls.
+    /// `t2`, which apply only `plus_zero`, and it stays `unknown` with the reason `work-budget`:
+    /// kink's work budget (FB45-KINK: a bound of polls, inside the step too) stops the recursion at
+    /// the same poll on every host, where the native stack's bound stopped it before (reason
+    /// `stack-stop`, an exclusion of the host), and each run's cause names the polls.
     /// `shifted` edits `plus_succ`'s pattern, which can match terms no baseline run tried, so
     /// every program witnesses it (`witnesses_global`); its result is `plus`'s own value on the
     /// narrowed instances, but not the old result's instance, so it runs, and on `t4` the mutant
@@ -1116,7 +1116,14 @@ note = "narrows the pattern to a nonzero second argument"
         };
         let no_decrease = row("no-decrease");
         assert_eq!(no_decrease["status"], "unknown", "{no_decrease:#}");
-        assert_eq!(no_decrease["reason"], Value::Null, "{no_decrease:#}");
+        assert_eq!(no_decrease["reason"], "work-budget", "{no_decrease:#}");
+        assert!(
+            no_decrease["action"]
+                .as_str()
+                .unwrap()
+                .starts_with("raise [budget] work_factor if the mutant may end after more work"),
+            "{no_decrease:#}"
+        );
         for entry in no_decrease["executed"].as_array().unwrap() {
             if entry["outcome"] == "unknown" {
                 assert!(
@@ -1214,11 +1221,12 @@ note = "narrows the pattern to a nonzero second argument"
     /// `requires isNat ( N:Nat )`, which holds of every `Nat`, keeps `plus_succ`'s axiom, so the
     /// mutant is the specification: `equivalent`, reason `valid-condition`, kind
     /// `valid-condition`. `run --verify` gives each row the reason `run` gives it, the
-    /// `open-application` of `shifted` included, and none to `no-decrease`, which kink's work
-    /// budget cuts (FB45-KINK; the native stack's bound cut it before, reason `stack-stop`).
-    /// `no-decrease` recurses without end on every case that reaches `plus_succ`: `fuzz` ends the
-    /// search after `--stack-stops` such cases in a row (it warned `stack-stop` before any case
-    /// from the last run's reason, which kink's work budget leaves it no more, FB45-KINK) (`stopped: stack-stops`, exit 3) with the advice of the reason, never a larger budget.
+    /// `open-application` of `shifted` and the `work-budget` of `no-decrease`, which kink's work
+    /// budget cuts, included (FB45-KINK; the native stack's bound cut it before, reason
+    /// `stack-stop`).
+    /// `no-decrease` recurses without end on every case that reaches `plus_succ`: `fuzz` warns
+    /// `work-budget` before any case (the last run's reason, FB45-KINK, where it was `stack-stop`),
+    /// and ends the search after `--stack-stops` such cases in a row (`stopped: stack-stops`, exit 3) with the advice of the reason, never a larger budget.
     /// `shifted`'s cases whose second argument is `zero` end on an application of `plus` its
     /// equations leave open, which the campaign cannot judge (`not-ceil-free`): the document
     /// names `plus` in a `not-ceil-free` warning, as its action says; on a template every case of
@@ -1315,7 +1323,7 @@ note = "narrows the pattern to a nonzero second argument"
             ("false", "unkillable", Value::from("weakening")),
             ("guide-pattern", "unkillable", Value::from("weakening")),
             ("isnat", "equivalent", Value::from("valid-condition")),
-            ("no-decrease", "unknown", Value::Null),
+            ("no-decrease", "unknown", Value::from("work-budget")),
             ("shifted", "unknown", Value::from("open-application")),
         ] {
             for document in [&run, &verified] {
@@ -1398,9 +1406,13 @@ note = "narrows the pattern to a nonzero second argument"
             },
         );
         assert!(ok, "{document:#}");
-        // FB45-KINK: the last run's row has no reason `stack-stop` to warn by before any case, since
-        // kink's work budget cuts the mutant's runs (a decided `unknown`); the fuzz's own runs, which
-        // the budget does not bound, still stop for lack of stack, and end the search.
+        // FB45-KINK: the last run's reason is `work-budget`, kink's work budget having cut the
+        // mutant's runs (a decided `unknown`); the fuzz's own runs, which the budget does not
+        // bound, still stop for lack of stack, and end the search.
+        assert!(
+            warning_kinds(&document).contains(&"work-budget"),
+            "{document:#}"
+        );
         assert!(
             !warning_kinds(&document).contains(&"stack-stop"),
             "{document:#}"

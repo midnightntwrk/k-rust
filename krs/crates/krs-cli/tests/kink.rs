@@ -3436,7 +3436,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 22);
+    assert_eq!(document["version"], 23);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
@@ -6420,8 +6420,8 @@ fn a_narrowing_written_without_sorts_gets_the_sorted_narrowings_status() {
 /// reuses its left-hand side's `s(M)` (which k-rust's compiler writes as an alias of the
 /// left-hand side), and its mutant recurses without end: its witnesses are the cases that apply
 /// `plus_succ`, `t3` and `t4`, never `t1` or `t2`, which apply only `plus_zero`, and it stays
-/// `unknown`, cut by kink's work budget (FB45-KINK; the native stack's bound stopped it before,
-/// reason `stack-stop`). `shifted` edits `plus_succ`'s pattern: an equation
+/// `unknown` with the reason `work-budget`, cut by kink's work budget (FB45-KINK; the native
+/// stack's bound stopped it before, reason `stack-stop`). `shifted` edits `plus_succ`'s pattern: an equation
 /// whose pattern changes can match terms no baseline run tried, so every case witnesses it
 /// (`witnesses_global`), and `fuzz --kill` says so. Its mutant also narrows `plus_succ` through
 /// a result the syntactic narrowing test does not read as an instance, so on `t4`,
@@ -6488,8 +6488,9 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
     assert_eq!(no_decrease["status"], "unknown", "{no_decrease:#}");
     // FB45-KINK: kink's work budget, a bound of polls inside the step too, cuts the recursion at
     // the same poll on every host, where the native stack's bound stopped it before (reason
-    // `stack-stop`, an exclusion of the host): a decided `unknown`, whose causes name the polls.
-    assert_eq!(no_decrease["reason"], Value::Null, "{no_decrease:#}");
+    // `stack-stop`, an exclusion of the host): a decided `unknown`, reason `work-budget`, whose
+    // causes name the polls.
+    assert_eq!(no_decrease["reason"], "work-budget", "{no_decrease:#}");
     for entry in no_decrease["executed"].as_array().unwrap() {
         if entry["outcome"] == "unknown" {
             assert!(
@@ -6511,7 +6512,7 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
         no_decrease["action"]
             .as_str()
             .unwrap()
-            .contains("the cause of each executed program says what stopped the comparison"),
+            .starts_with("raise [budget] work_factor if the mutant may end after more work"),
         "{no_decrease:#}"
     );
     let shifted = row("shifted");

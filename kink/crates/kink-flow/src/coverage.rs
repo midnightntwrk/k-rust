@@ -469,7 +469,9 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// (FB45-KINK): `settings` names `work_factor`, each program row its baseline's `polls`, and a
 /// flip whose mutant run the bound cut is `unknown`, with the program's cause naming the polls and
 /// the bound, where a flip that never ends was `unknown` by a timeout.
-pub const COVERAGE_VERSION: u64 = 22;
+/// 23 since such a flip, every undecided program of which the work budget cut, has the reason
+/// `work-budget` (the run row's, `report::WORK_BUDGET_REASON`).
+pub const COVERAGE_VERSION: u64 = 23;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";

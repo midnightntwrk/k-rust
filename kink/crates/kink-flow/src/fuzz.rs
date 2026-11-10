@@ -1827,6 +1827,29 @@ fn last_run(
             ),
         ));
     }
+    if status == "unknown" && entry["reason"] == crate::report::WORK_BUDGET_REASON {
+        // Every program the last run left undecided was cut by kink's work budget on the mutant
+        // (FB45-KINK): a case whose run does that much work is no witness either. The fuzz's own
+        // runs are not bounded by the budget, so a case that recurses without end stops for lack
+        // of native stack, and the search ends after `--stack-stops` of them in a row.
+        warnings.push(warning(
+            crate::report::WORK_BUDGET_REASON,
+            format!(
+                "the last run left this mutation unknown with reason {}: {}; a case on which \
+                 the mutant does not end is no witness either, and one that recurses without \
+                 end stops for lack of stack, so the search ends after {} such cases in a row \
+                 (--stack-stops)",
+                crate::report::WORK_BUDGET_REASON,
+                crate::report::action_spelled(
+                    status,
+                    Some(crate::report::WORK_BUDGET_REASON),
+                    spelling
+                )
+                .unwrap_or_default(),
+                options.stack_stops,
+            ),
+        ));
+    }
     if status == "unknown" && entry["reason"] == crate::report::OPEN_APPLICATION_REASON {
         // Every program the last run left undecided holds an application of an edited function
         // that no equation of the mutant reduces: a case whose run reaches it is undecided too.

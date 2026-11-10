@@ -273,7 +273,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// the document names `work_factor` and `poll_floor`, each program row its baseline's `polls`, and
 /// a program whose mutant run the bound cut is `unknown` with a cause naming the polls and the
 /// bound, where a mutant that never ends was a `timeout`.
-pub const RUN_VERSION: u64 = 40;
+/// 41 since an `unknown` row every undecided program of which, live or cached, the work budget
+/// cut has the reason `work-budget` ([`WORK_BUDGET_REASON`]), with its own `action`, as
+/// `open-application` has, where it had none and the generic action (FB45-KINK).
+pub const RUN_VERSION: u64 = 41;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.
@@ -612,6 +615,15 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              native stack, which no budget bounds, so a program on which it does not end cannot \
              kill it; when it recurses without end on every input that reaches the edit, write \
              the misunderstanding as a mutant that ends, or drop the mutation"
+        }
+        "unknown" if reason == Some(WORK_BUDGET_REASON) => {
+            "raise [budget] work_factor if the mutant may end after more work, which runs again \
+             only the programs the budget cut: every program the mutant did not judge was cut by \
+             its work budget (each cause names the polls and the bound), so the program is not \
+             what stopped the comparison, the mutant did more than work_factor times the \
+             baseline's work; when it recurses without end on every input that reaches the edit, \
+             no program can tell it apart by its end: accept it as unknown, write the \
+             misunderstanding as a mutant that ends, or drop the mutation"
         }
         "unknown" if reason == Some(OPEN_APPLICATION_REASON) => {
             "write a program on which the mutant reduces every application it builds of the \
@@ -1029,6 +1041,12 @@ pub fn open_application_cause(
 /// mutant, with an application of a function the mutation edits that no equation of the mutant
 /// reduces ([`open_application_cause`]): the end is no value, so kink cannot compare it.
 pub const OPEN_APPLICATION_REASON: &str = "open-application";
+
+/// The reason of an `unknown` row every undecided program of which, live or from the outcome
+/// cache, is undecided because kink's work budget cut the mutant's run (FB45-KINK: its last leaf
+/// is `poll-bound`, after `max(work_factor × P, P_max)` polls): the program did not stop the
+/// comparison, the mutant's work did, so the row's action names the budget.
+pub const WORK_BUDGET_REASON: &str = "work-budget";
 
 /// A mutant run its work budget cut (FB45-KINK, `[budget] work_factor`): the run ended at its
 /// bound of polls `bound`, `max(factor × baseline, floor)`, where `baseline` is the polls of the

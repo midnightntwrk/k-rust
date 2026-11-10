@@ -949,7 +949,7 @@ note = "right-hand side"
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`; version 32
         // names the Z3 build and a compared lock's `header_changes`.
-        assert_eq!(document["version"], 40);
+        assert_eq!(document["version"], 41);
         // Under the Z3 profile the document names the Z3 build its verdicts were decided on,
         // k-rust's; the portable document has no such member.
         let z3 = k_rust::backend::z3_build().filter(|_| cfg!(feature = "z3"));

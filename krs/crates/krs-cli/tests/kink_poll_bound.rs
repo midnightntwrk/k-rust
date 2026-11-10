@@ -210,6 +210,8 @@ fn a_flip_whose_recursion_grows_for_ever_is_unknown_by_the_poll_bound_whatever_t
     assert_eq!(status, Some(3), "{:#}", first["lock"]);
     let climbing = flip(&first, "reach");
     assert_eq!(climbing["status"], "unknown", "{:#}", summary(climbing));
+    // Every program the flip left undecided was cut by the work budget: the row's reason.
+    assert_eq!(climbing["reason"], "work-budget", "{:#}", summary(climbing));
     let [cause] = climbing["causes"].as_array().unwrap().as_slice() else {
         panic!("one program's cause: {:#}", summary(climbing))
     };
