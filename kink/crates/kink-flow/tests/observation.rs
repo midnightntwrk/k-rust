@@ -1071,7 +1071,7 @@ fn query_ignores_the_observations() {
     };
     let (observed, status) = ask("FLOW.toml");
     assert_eq!(status, EXIT_UNANSWERED, "{observed:#}");
-    assert_eq!(observed["version"], 7, "{observed:#}");
+    assert_eq!(observed["version"], 8, "{observed:#}");
     assert_eq!(
         observed["observe"]["ignored"],
         kink_flow::query::OBSERVE_IGNORED,

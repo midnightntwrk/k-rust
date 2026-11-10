@@ -62,6 +62,14 @@
 //! match of the pattern against that state (a search of depth 0 from it, bounded work under no
 //! clock), or `{absent: reason}`, and `rules` null: the run reports no path to the state.
 //!
+//! **A witness** is kept as facts, `{depth, state, bindings, rules}`, the state and every
+//! binding's variable and value as whole KORE text: what the cache record stores and `--verify`
+//! compares. A document prints it for a reader when it is written ([`rendered_witness`]): the
+//! state listed by its cells, those the pattern names printed in full as K text and every other
+//! shortened by its structure, and each binding printed likewise (`crate::evidence`, "A query
+//! witness"), so a cached hit is printed as a live one is, and how a witness is printed is in no
+//! key.
+//!
 //! **Answers** ([`judge`]):
 //! - `hit`: the search returned a decided match: no condition (`constraints` empty), no diagnostic
 //!   of the match or of the matching state's path, a state that carries no predicate, a state whose
@@ -230,6 +238,7 @@
 
 use crate::{
     admit::AdmittedSpec,
+    evidence::{EndReader, VALUE_CAP},
     manifest::{Budget, FlowManifest, ManifestError},
     results::{SIMPLIFICATION_ITERATIONS, execution_budget, sentence_value},
 };
@@ -240,16 +249,16 @@ use k_rust::{
         KorePatternSearchResponse, SearchFailureOutput, SearchMatchOutput, SearchPatternRequest,
         SearchTypeArg,
     },
-    definition::{AttributeKey, Attributes, ResolvedDefinition},
+    definition::{AttributeKey, Attributes, ResolvedDefinition, configuration::declared_cells},
     k_rust_backend::{
         definition::{BackendDefinition, DefinitionError},
         stop::{CancellationToken, StopCause, with_operation_record},
     },
-    kompile::{ProgramGrammar, compile_search_pattern},
+    kompile::{CompileSearchPatternError, ProgramGrammar, compile_search_pattern},
     kore::{
         ast::{Associativity, Pattern},
         json as kore_json,
-        parser::parse_definition,
+        parser::{parse_definition, parse_pattern},
     },
 };
 use kink_campaign::{MatchAnswer, MatchUnknown};
@@ -284,9 +293,6 @@ pub const LOWERING_VERSION: &str = "kink-flow/pattern-lowering/v1";
 pub const PATTERN_DOMAIN: &str = "kink-flow/pattern/v1";
 /// The answer of a refused pattern.
 pub const INVALID_PATTERN: &str = "invalid-pattern";
-/// Characters of a witness state's KORE text kept in a document (as the run document cuts a
-/// killer's final configurations).
-pub const WITNESS_CUT: usize = 4000;
 /// The search every check of a corpus without `[stop]` makes, as the cache key names it.
 pub fn search_modality() -> Value {
     json!({"search_type": "all", "result_modality": "state-set", "max_results": 1})
@@ -587,6 +593,43 @@ impl Lowering {
         })
     }
 
+    /// The cells of the configuration by K name, in configuration pre-order (a cell before the
+    /// cells it holds, those in argument order), the top cell and `generatedCounter` left out, then
+    /// any cell no cell of the tree holds, in sentence order: the cells a refusal of a pattern
+    /// names as declared ([`unknown_cells`]). A cell holds the cell whose argument sort (its cell
+    /// sort, or a `*` cell's collection sort) is one of its own argument sorts.
+    fn configuration_cells(&self) -> Vec<String> {
+        let module = self
+            .execution
+            .module_id(&self.module)
+            .unwrap_or_else(|| self.execution.main_module_id());
+        let cells = declared_cells(&self.execution, module);
+        let mut order = Vec::new();
+        let mut pending = cells
+            .iter()
+            .filter(|cell| cell.name == GENERATED_TOP)
+            .collect::<Vec<_>>();
+        while let Some(cell) = pending.pop() {
+            if order.contains(&cell.name) {
+                continue;
+            }
+            order.push(cell.name.clone());
+            let held = cell
+                .child_kore_sorts
+                .iter()
+                .filter_map(|sort| cells.iter().find(|child| child.position_kore_sort == *sort))
+                .collect::<Vec<_>>();
+            pending.extend(held.into_iter().rev());
+        }
+        for cell in &cells {
+            if !order.contains(&cell.name) {
+                order.push(cell.name.clone());
+            }
+        }
+        order.retain(|name| name != GENERATED_TOP && name != GENERATED_COUNTER);
+        order
+    }
+
     /// Lower `text` (module docs), checking the target against `definition`, the baseline
     /// definition every search runs on. The error is k-rust's message; a position in it is a
     /// line and column of the pattern's own text, its surrounding whitespace removed, under the
@@ -609,11 +652,18 @@ impl Lowering {
         }))
         .map_err(|_| "k-rust panicked while compiling the pattern".to_owned())?
         .map_err(|e| {
-            format!(
+            let mut message = format!(
                 "{e} (a position `{PATTERN_SOURCE}:LINE:COLUMN` is a line and column of the \
                  pattern's text, its surrounding whitespace removed, not of the pattern list's \
                  file)"
-            )
+            );
+            if matches!(e, CompileSearchPatternError::Rule(_))
+                && let Some(unknown) = unknown_cells(contents, &self.configuration_cells())
+            {
+                message.push_str("; ");
+                message.push_str(&unknown);
+            }
+            message
         })?;
         // The target is checked as the search admits it ([`Searcher::search`]): as a match
         // target, whose variables are existential, so a set variable matching binds (`@_`
@@ -645,6 +695,56 @@ impl Lowering {
     }
 }
 
+/// The K name of the top cell a configuration's expansion declares (k-rust `declared_cells`).
+const GENERATED_TOP: &str = "generatedTop";
+/// The K name of the counter cell compilation adds beside the declared ones.
+const GENERATED_COUNTER: &str = "generatedCounter";
+
+/// What a pattern that does not parse says of its cell tags (FB-53): each name written as a
+/// tag `<name>` or `</name>` in `text` that is no cell of `cells` (the configuration's, by K
+/// name), in the order first written, and the cells the configuration declares; `None` when every
+/// tag names one. k-rust's rule grammar scans each cell's tags as one terminal, so an unknown tag
+/// is refused as an unexpected character sequence, which names no cell; this names it. It reads
+/// the text alone, after the parse refused it, and changes nothing about what parses.
+fn unknown_cells(text: &str, cells: &[String]) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut unknown: Vec<&str> = Vec::new();
+    for (at, _) in text.match_indices('<') {
+        let start = at + 1 + usize::from(bytes.get(at + 1) == Some(&b'/'));
+        let length = bytes[start..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_' || **byte == b'-')
+            .count();
+        let name = &text[start..start + length];
+        if length > 0
+            && bytes.get(start + length) == Some(&b'>')
+            && !cells.iter().any(|cell| cell == name)
+            && !unknown.contains(&name)
+        {
+            unknown.push(name);
+        }
+    }
+    if unknown.is_empty() {
+        return None;
+    }
+    let tags = |names: &mut dyn Iterator<Item = &str>| {
+        names
+            .map(|name| format!("<{name}>"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Some(format!(
+        "the pattern names {}, which {} of the configuration; the configuration declares: {}",
+        tags(&mut unknown.iter().copied()),
+        if unknown.len() == 1 {
+            "is no cell"
+        } else {
+            "are no cells"
+        },
+        tags(&mut cells.iter().map(String::as_str)),
+    ))
+}
+
 /// The source name of a pattern's text in k-rust's messages: a pattern list can come from any
 /// file, and the text's positions are its own, not that file's.
 pub const PATTERN_SOURCE: &str = "pattern";
@@ -673,8 +773,9 @@ fn pattern_attributes(contents: &str) -> Attributes {
 /// What one search found, before the answer rules ([`judge`]).
 #[derive(Clone, Debug, PartialEq)]
 pub enum SearchOutcome {
-    /// A decided match: the witness (`{depth, state: {kore, truncated}, bindings, rules,
-    /// rendering, note}`).
+    /// A decided match: the witness's facts (`{depth, state, bindings, rules}`, the state and
+    /// the bindings as whole KORE text, [`witness`]), which a document prints through
+    /// [`rendered_witness`].
     Hit(Value),
     /// The exploration completed and no state matched: with the undecided solver answers the
     /// search received (its operation record's `unknown_answers`, module docs), always zero
@@ -1092,18 +1193,16 @@ impl Searcher {
         (outcome, state, wall_ms)
     }
 
-    /// The witness of a stopped run's reach (module docs, the stopped route): its depth and
-    /// state as the run reported them, `rules` null, and the bindings of an unconditional match
+    /// The facts of a stopped run's witness (module docs, the stopped route; [`witness`]): its
+    /// depth and state as the run reported them, `rules` null, and the bindings of an unconditional match
     /// of the pattern against the reached state ([`Self::stopped_bindings`]).
     fn stopped_witness(&mut self, reach: &MatchedState, lowered: &LoweredPattern) -> Value {
         let bindings = self.stopped_bindings(&reach.state, lowered);
         json!({
             "depth": reach.depth,
-            "state": cut(reach.state.to_string()),
+            "state": reach.state.to_string(),
             "bindings": bindings,
             "rules": null,
-            "rendering": "kore",
-            "note": STOPPED_WITNESS_NOTE,
         })
     }
 
@@ -1153,10 +1252,19 @@ impl Searcher {
     }
 }
 
-/// The note of a stopped run's witness ([`Searcher::stopped_witness`]).
-const STOPPED_WITNESS_NOTE: &str = "the state and the bindings are KORE text (query does not \
-     print them through krs-unparse, the K-text printer kill evidence uses); rules is null: the \
-     stopped run reports the depth and the state of the first state it reached that matches, not \
+/// The note of a witness on the search route ([`rendered_witness`]).
+const SEARCH_WITNESS_NOTE: &str = "the state is listed by its cells: a cell the pattern names is \
+     printed in full, every other cell shortened (a collection of more than a few elements by its \
+     length and its last elements for a list, its first entries for a map or a set; any other \
+     content cut), each value as K text or, where the K printer refused it, as KORE; a binding is \
+     printed in full, a long collection shortened likewise; rules name the rewrite steps of one \
+     path from the initial state to the matching state, each by its label, else by the file and \
+     line of the rule written for it, else by its compiled id; the cache record keeps the state \
+     and the bindings whole, as KORE";
+
+/// The note of a stopped run's witness ([`Searcher::stopped_witness`], [`rendered_witness`]).
+const STOPPED_WITNESS_NOTE: &str = "the state and the bindings are printed as a search's witness \
+     prints them; rules is null: the stopped run reports the depth and the state of the first state it reached that matches, not \
      the rewrite steps of the path to it, and a search for that path could find another path, \
      past a stop; the bindings are those of a match of the pattern against that state without a \
      condition, or {absent: reason} where none was produced";
@@ -1343,14 +1451,6 @@ fn watchdog<T>(time: Duration, body: impl FnOnce() -> T) -> (T, bool) {
     drop(done);
     guard.join().expect("the watchdog thread does not panic");
     (value, fired.load(Ordering::Acquire))
-}
-
-fn cut(text: String) -> Value {
-    if text.chars().count() > WITNESS_CUT {
-        json!({"kore": text.chars().take(WITNESS_CUT).collect::<String>(), "truncated": true})
-    } else {
-        json!({"kore": text, "truncated": false})
-    }
 }
 
 /// The tag KORE JSON writes for the root of `pattern` (`App`, `And`, `DV`, ...), which names
@@ -1732,7 +1832,9 @@ fn generated(lowered: &LoweredPattern, name: &str) -> bool {
     })
 }
 
-/// A hit's witness for the reader (module docs).
+/// A hit's witness as facts (module docs): `{depth, state, bindings, rules}`, the state and each
+/// binding's variable and value as whole KORE text, which the cache record keeps and `--verify`
+/// compares; [`rendered_witness`] prints it for the reader.
 fn witness(
     found: &SearchMatchOutput<Pattern>,
     lowered: &LoweredPattern,
@@ -1749,7 +1851,7 @@ fn witness(
         .map(|binding| {
             json!({
                 "variable": binding.variable.to_string(),
-                "value": cut(binding.value.to_string()),
+                "value": binding.value.to_string(),
             })
         })
         .collect::<Vec<_>>();
@@ -1768,15 +1870,76 @@ fn witness(
         .collect::<Vec<_>>();
     json!({
         "depth": state.depth,
-        "state": cut(state.state.to_string()),
+        "state": state.state.to_string(),
         "bindings": bindings,
         "rules": rules,
-        "rendering": "kore",
-        "note": "the state and the bindings are KORE text (query does not print them through \
-                 krs-unparse, the K-text printer kill evidence uses); rules name the rewrite steps \
-                 of one path from the initial state to the matching state, each by its label, else \
-                 by the file and line of the rule written for it, else by its compiled id",
     })
+}
+
+/// A hit's witness for the reader (module docs), derived from its facts `facts` (the form a
+/// search gives and the cache record keeps, [`witness`]) when a document is written, so a cached
+/// hit is printed as a live one is: `{depth, state, bindings, rules, rendering, note}`, the state
+/// listed by its cells and each binding printed (`crate::evidence`, "A query witness"), the cells
+/// `lowered` names printed in full. A KORE text of the facts that does not parse (a forged
+/// record) is shown as KORE, cut at [`VALUE_CAP`], with the parser's error.
+pub fn rendered_witness(facts: &Value, lowered: &LoweredPattern, reader: &EndReader) -> Value {
+    let parsed = |text: &Value| -> Result<Pattern, Value> {
+        let text = text.as_str().unwrap_or_default();
+        parse_pattern(text).map_err(|error| {
+            json!({
+                "text": text.chars().take(VALUE_CAP).collect::<String>(),
+                "rendering": "kore",
+                "truncated": text.chars().count() > VALUE_CAP,
+                "note": format!("the witness's KORE text does not parse: {error}"),
+            })
+        })
+    };
+    let named = reader.named_cells(&lowered.target, &|name| generated(lowered, name));
+    let state = parsed(&facts["state"]).map_or_else(
+        |unreadable| json!({ "unreadable": unreadable }),
+        |state| reader.witness_state(&state, &named),
+    );
+    let bindings = match &facts["bindings"] {
+        Value::Array(bindings) => Value::Array(
+            bindings
+                .iter()
+                .map(|binding| {
+                    json!({
+                        "variable": variable_name(&binding["variable"]),
+                        "value": parsed(&binding["value"])
+                            .map_or_else(|unreadable| unreadable, |value| reader.witness_value(&value)),
+                    })
+                })
+                .collect(),
+        ),
+        absent => absent.clone(),
+    };
+    json!({
+        "depth": facts["depth"],
+        "state": state,
+        "bindings": bindings,
+        "rules": facts["rules"],
+        "rendering": "k",
+        "note": if facts["rules"].is_null() { STOPPED_WITNESS_NOTE } else { SEARCH_WITNESS_NOTE },
+    })
+}
+
+/// The name the author wrote for a binding's variable, its KORE text `variable`
+/// (`VarN:SortInt{}` is `N`, a set variable keeps its `@`); the text itself where it is no
+/// variable whose name decodes.
+fn variable_name(variable: &Value) -> Value {
+    let text = variable.as_str().unwrap_or_default();
+    let name = parse_pattern(text).ok().and_then(|pattern| match &pattern {
+        Pattern::Variable(variable) => {
+            let (kind, decoded) = k_rust::kast::identifier::decode_variable(&variable.name);
+            decoded.ok().map(|name| match kind {
+                k_rust::kore::ast::VariableKind::Set => format!("@{name}"),
+                k_rust::kore::ast::VariableKind::Element => name,
+            })
+        }
+        _ => None,
+    });
+    json!(name.unwrap_or_else(|| text.to_owned()))
 }
 
 /// The cause of an incomplete exploration, from k-rust's incomplete entries.
@@ -1926,9 +2089,9 @@ mod tests {
         assert_eq!(asked.get(), 1, "the state's definedness is asked once");
     }
 
-    /// A hit's witness names the state and the bindings as KORE text and the path's rewrite
-    /// steps by label, else by the rule name kink knows for the id, else by the id; a binding of
-    /// a generated variable is left out.
+    /// A hit's witness keeps the state and the bindings as whole KORE text (its facts) and names
+    /// the path's rewrite steps by label, else by the rule name kink knows for the id, else by
+    /// the id; a binding of a generated variable is left out.
     #[test]
     fn a_hit_witness_prints_the_state_bindings_and_rules() {
         use k_rust::backend::{BindingOutput, TraceEntry};
@@ -1972,18 +2135,86 @@ mod tests {
             panic!("a hit: {outcome:?}");
         };
         assert_eq!(witness["depth"], 2);
-        assert_eq!(
-            witness["state"],
-            json!({"kore": "Lbl'-LT-'k'-GT-'{}()", "truncated": false})
-        );
+        assert_eq!(witness["state"], json!("Lbl'-LT-'k'-GT-'{}()"));
         assert_eq!(
             witness["bindings"],
-            json!([{
-                "variable": "VarN:SortInt{}",
-                "value": {"kore": r#"\dv{SortInt{}}("3")"#, "truncated": false},
-            }])
+            json!([{"variable": "VarN:SortInt{}", "value": r#"\dv{SortInt{}}("3")"#}])
         );
         assert_eq!(witness["rules"], json!(["M.labelled", "lib.rs:7", "c"]));
+        assert_eq!(witness.get("rendering"), None, "facts carry no rendering");
+    }
+
+    /// FB-53: a pattern that does not parse and writes a tag naming no cell of the configuration
+    /// names it and the configuration's cells; a known tag, a closing tag of a known cell and a
+    /// `<` that opens no tag name nothing.
+    #[test]
+    fn an_unknown_cell_tag_is_named_with_the_declared_cells() {
+        let cells = ["k".to_owned(), "regs".to_owned()];
+        assert_eq!(
+            unknown_cells("<IF> 5 </IF> <k> X <Int 3 </k> <JP>", &cells).as_deref(),
+            Some(
+                "the pattern names <IF>, <JP>, which are no cells of the configuration; the \
+                 configuration declares: <k>, <regs>"
+            )
+        );
+        assert_eq!(
+            unknown_cells("</IF>", &cells).as_deref(),
+            Some(
+                "the pattern names <IF>, which is no cell of the configuration; the configuration \
+                 declares: <k>, <regs>"
+            )
+        );
+        assert_eq!(
+            unknown_cells("<k> 1 +* </k> <regs> R </regs>", &cells),
+            None
+        );
+    }
+
+    /// FB-51: the rendered witness names the author's variables by name, keeps depth and rules,
+    /// says it is printed (`rendering`), and shows a forged KORE text that does not parse as
+    /// KORE with the parser's error rather than refusing the document.
+    #[test]
+    fn a_rendered_witness_prints_its_facts() {
+        let k = "Lbl'-LT-'k'-GT-'";
+        let reader = EndReader::with_symbols(
+            &[k],
+            &[k],
+            [
+                "Lbl'Unds'Map'Unds'",
+                "Lbl'UndsPipe'-'-GT-Unds'",
+                "Lbl'Stop'Map",
+            ],
+            ["Lbl'Unds'List'Unds'", "LblListItem", "Lbl'Stop'List"],
+        );
+        let facts = json!({
+            "depth": 2,
+            "state": "Lbl'-LT-'k'-GT-'{}(\\dv{SortInt{}}(\"1\"))",
+            "bindings": [{"variable": "VarN:SortInt{}", "value": "not kore ("}],
+            "rules": ["M.labelled"],
+        });
+        let rendered = rendered_witness(&facts, &lowered(), &reader);
+        assert_eq!(rendered["depth"], 2);
+        assert_eq!(rendered["rules"], json!(["M.labelled"]));
+        assert_eq!(rendered["rendering"], "k");
+        assert_eq!(rendered["note"], SEARCH_WITNESS_NOTE);
+        assert_eq!(rendered["bindings"][0]["variable"], "N");
+        let value = &rendered["bindings"][0]["value"];
+        assert_eq!(value["rendering"], "kore", "{rendered:#}");
+        assert!(
+            value["note"].as_str().unwrap().contains("does not parse"),
+            "{rendered:#}"
+        );
+        let cells = rendered["state"]["cells"].as_array().unwrap();
+        assert_eq!(cells.len(), 1, "{rendered:#}");
+        assert_eq!(cells[0]["path"], json!(["<k>"]));
+        let absent = json!({"absent": "why"});
+        let stopped = rendered_witness(
+            &json!({"depth": 0, "state": "Lbl'-LT-'k'-GT-'{}()", "bindings": absent, "rules": null}),
+            &lowered(),
+            &reader,
+        );
+        assert_eq!(stopped["bindings"], absent);
+        assert_eq!(stopped["note"], STOPPED_WITNESS_NOTE);
     }
 
     #[test]

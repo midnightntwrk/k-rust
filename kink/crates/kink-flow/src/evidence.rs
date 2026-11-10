@@ -112,6 +112,29 @@
 //! ([`EndRenderer::observation_format`]) gives its own document of the same difference in its
 //! format; where it shows none, kink's own is given with `note` saying why, as for ends.
 //!
+//! # A query witness
+//!
+//! A hit's witness (`query`, [`crate::pattern::rendered_witness`]) is printed for a reader with the
+//! same printer, shortened by structure rather than cut at a character count, so the cells the
+//! pattern is about are never lost behind a large cell it says nothing about. The cells a pattern
+//! names are those its compiled target gives a content of its own: a cell application with an
+//! argument that is neither a cell nor a variable the compiler generated (k-rust completes the
+//! cells a pattern leaves out, and the contents it leaves open, with such variables), so `<k>
+//! done </k>`, `<mem> 7 |-> V </mem>` and `<regs> R </regs>` name their cells, while `<regs> <a>
+//! 1 </a> </regs>` names `<a>` and not `<regs>`, whose other cells it leaves out.
+//!
+//! The state is listed by its cells, in pre-order, each `{path, named, value}`, `path` the cell
+//! labels from the top cell to it. A cell the pattern names is one entry, its content printed in
+//! full (`value` is `{text, rendering, truncated}` as above, never cut). A cell whose arguments
+//! are all cells is entered. Every other cell is one entry, shortened: a concrete collection of
+//! more than [`WITNESS_ITEMS`] elements is `{collection, length, last}` for a list (its last
+//! [`WITNESS_ITEMS`] elements, in order: a list a run appends to shows what it appended last) or
+//! `{collection, length, first}` for a map or a set (its first [`WITNESS_ITEMS`] entries in printed
+//! order, by their printed keys, a map's entry `{key, value}`), each element printed and cut at
+//! [`HEAD_CAP`]; any other content is printed and cut at [`HEAD_CAP`]. A binding's value is a
+//! long collection shortened so, and otherwise printed in full: the author wrote the variable.
+//! The rendering is a function of the state and the pattern alone.
+//!
 //! # The format of the evidence
 //!
 //! Every kill evidence object names its format, `format`. kink's own evidence, above, is
@@ -176,6 +199,9 @@ pub const HEAD_CAP: usize = 200;
 /// The most nodes of a term printed as K text; a larger one is printed as KORE (the printer is
 /// recursive, and the text would be cut anyway).
 pub const PRINT_NODES: usize = 100_000;
+/// The most elements of a long collection a query witness shows (module documentation, "A query
+/// witness").
+pub const WITNESS_ITEMS: usize = 8;
 /// The KORE names of K's computation sequence.
 const KSEQ: &str = "kseq";
 /// The format of kink's own kill evidence (module documentation, "The format of the evidence"):
@@ -369,6 +395,7 @@ pub struct EndReader {
     main_cells: BTreeSet<String>,
     map: Collection,
     list: Collection,
+    set: Collection,
 }
 
 /// The KORE names of one collection's hooked symbols: its concatenation, element and unit.
@@ -440,6 +467,7 @@ impl EndReader {
             main_cells: BTreeSet::new(),
             map: Collection::default(),
             list: Collection::default(),
+            set: Collection::default(),
         };
         for module in &artifacts.execution_definition.modules {
             for sentence in &module.local_sentences {
@@ -461,6 +489,7 @@ impl EndReader {
                 if let Some(hook) = attributes.string(AttributeKey::Hook) {
                     reader.map.read(hook, "MAP", &symbol);
                     reader.list.read(hook, "LIST", &symbol);
+                    reader.set.read(hook, "SET", &symbol);
                 }
             }
         }
@@ -488,7 +517,12 @@ impl EndReader {
     /// A reader with no printer and the given cell, main cell, map and list symbols (KORE names;
     /// each collection's concatenation, element and unit), for tests.
     #[cfg(test)]
-    fn with_symbols(cells: &[&str], main_cells: &[&str], map: [&str; 3], list: [&str; 3]) -> Self {
+    pub(crate) fn with_symbols(
+        cells: &[&str],
+        main_cells: &[&str],
+        map: [&str; 3],
+        list: [&str; 3],
+    ) -> Self {
         let collection = |[concat, element, unit]: [&str; 3]| Collection {
             concat: BTreeSet::from([concat.to_owned()]),
             element: BTreeSet::from([element.to_owned()]),
@@ -503,6 +537,7 @@ impl EndReader {
             main_cells: main_cells.iter().map(|cell| (*cell).to_owned()).collect(),
             map: collection(map),
             list: collection(list),
+            set: Collection::default(),
         }
     }
 
@@ -633,6 +668,140 @@ impl EndReader {
             Some(projection) => projection.project(end).into_owned(),
             None => counter_erased(end).into_owned(),
         }
+    }
+
+    /// The cells of `target`, a pattern's compiled target, that it names: each cell an application
+    /// in `target` gives a content of its own, an argument that is neither a cell nor a variable
+    /// `generated` holds (module documentation, "A query witness").
+    pub fn named_cells(
+        &self,
+        target: &Pattern,
+        generated: &dyn Fn(&str) -> bool,
+    ) -> BTreeSet<String> {
+        let mut named = BTreeSet::new();
+        let mut pending = vec![target];
+        while let Some(term) = pending.pop() {
+            if let Some((symbol, arguments)) = self.is_cell(term)
+                && arguments.iter().any(|argument| {
+                    self.is_cell(argument).is_none()
+                        && !matches!(argument, Pattern::Variable(variable)
+                            if generated(&variable.name))
+                })
+            {
+                named.insert(symbol.to_owned());
+            }
+            pending.extend(walk::children(term));
+        }
+        named
+    }
+
+    /// A query witness's state for a reader (module documentation, "A query witness"):
+    /// `{cells: [{path, named, value}]}`, a cell of `named` printed in full and every other cell
+    /// shortened.
+    pub fn witness_state(&self, state: &Pattern, named: &BTreeSet<String>) -> Value {
+        let mut cells = Vec::new();
+        let mut pending = vec![(state, Vec::new())];
+        while let Some((term, mut path)) = pending.pop() {
+            let Some((symbol, arguments)) = self.is_cell(term) else {
+                cells.push(json!({"path": path, "named": false, "value": self.shortened(term)}));
+                continue;
+            };
+            path.push(label_or_name(symbol));
+            let content = match arguments {
+                [content] => content,
+                _ => term,
+            };
+            if named.contains(symbol) {
+                cells.push(json!({
+                    "path": path,
+                    "named": true,
+                    "value": self.print(content, usize::MAX),
+                }));
+            } else if !arguments.is_empty()
+                && arguments
+                    .iter()
+                    .all(|argument| self.is_cell(argument).is_some())
+            {
+                pending.extend(arguments.iter().rev().map(|child| (child, path.clone())));
+            } else {
+                cells.push(json!({
+                    "path": path,
+                    "named": false,
+                    "value": self.shortened(content),
+                }));
+            }
+        }
+        json!({ "cells": cells })
+    }
+
+    /// A query witness's binding value for a reader (module documentation, "A query witness"): a
+    /// long collection by its length and some elements, any other value printed in full.
+    pub fn witness_value(&self, value: &Pattern) -> Value {
+        self.long_collection(value)
+            .unwrap_or_else(|| self.print(value, usize::MAX))
+    }
+
+    /// A cell the pattern does not name, shortened: a long collection by its length and some
+    /// elements, any other content cut at [`HEAD_CAP`].
+    fn shortened(&self, content: &Pattern) -> Value {
+        self.long_collection(content)
+            .unwrap_or_else(|| self.print(content, HEAD_CAP))
+    }
+
+    /// A concrete collection of more than [`WITNESS_ITEMS`] elements, as `{collection, length,
+    /// last}` for a list (its last elements, in order) or `{collection, length, first}` for a map
+    /// or a set (its first entries in printed order, the order of their printed keys, as K prints
+    /// a map), each element printed and cut at [`HEAD_CAP`]; `None` for any other term.
+    fn long_collection(&self, term: &Pattern) -> Option<Value> {
+        let printed = |term: &Pattern| self.print(term, HEAD_CAP);
+        if let Some(items) = self.list_items(term) {
+            return (items.len() > WITNESS_ITEMS).then(|| {
+                json!({
+                    "collection": "list",
+                    "length": items.len(),
+                    "last": items[items.len() - WITNESS_ITEMS..]
+                        .iter()
+                        .map(|item| printed(item))
+                        .collect::<Vec<_>>(),
+                })
+            });
+        }
+        for (name, collection) in [("map", &self.map), ("set", &self.set)] {
+            let Some(elements) = collection.elements(term) else {
+                continue;
+            };
+            if elements.len() <= WITNESS_ITEMS {
+                return None;
+            }
+            let mut entries = elements
+                .iter()
+                .map(|arguments| {
+                    let key = arguments.first().map(printed);
+                    let text = key
+                        .as_ref()
+                        .and_then(|key| key["text"].as_str())
+                        .unwrap_or_default()
+                        .to_owned();
+                    (text, *arguments)
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by(|(left, a), (right, b)| left.cmp(right).then_with(|| a.cmp(b)));
+            let first = entries
+                .iter()
+                .take(WITNESS_ITEMS)
+                .map(|(_, arguments)| match *arguments {
+                    [key, value] => json!({"key": printed(key), "value": printed(value)}),
+                    [element] => printed(element),
+                    _ => Value::Null,
+                })
+                .collect::<Vec<_>>();
+            return Some(json!({
+                "collection": name,
+                "length": elements.len(),
+                "first": first,
+            }));
+        }
+        None
     }
 
     /// The kill evidence of two end sets (module documentation): the front end's document when
@@ -1041,7 +1210,7 @@ impl Printed {
     /// of the text (`chars`) from character `start`; `truncated` when any is left out.
     fn window(&self, chars: &[char], start: usize, cap: usize) -> Value {
         let start = start.min(chars.len());
-        let end = chars.len().min(start + cap);
+        let end = chars.len().min(start.saturating_add(cap));
         let mut value = json!({
             "text": chars[start..end].iter().collect::<String>(),
             "rendering": self.rendering,
@@ -1158,6 +1327,90 @@ mod tests {
     }
 
     const LOCKED: &str = "LblstepLocked{}()";
+
+    /// FB-51: a witness prints the cells the pattern names in full and shortens every other by
+    /// its structure: a long map by its length and its first entries in printed order, a long
+    /// list by its length and its last elements, any other content cut at [`HEAD_CAP`]. A binding
+    /// of a long list is shortened so too, and a short value is printed whole.
+    #[test]
+    fn a_witness_prints_the_named_cells_and_shortens_the_rest() {
+        let reader = reader();
+        let generated = |name: &str| name.starts_with("Var'Unds'");
+        let target = parse_pattern(&format!(
+            "{TOP}{{}}({K}{{}}(kseq{{}}(VarX:SortKItem{{}}, Var'Unds'DotVar0:SortK{{}})), \
+             Var'Unds'DotVar1:SortGeneratedCounterCell{{}})"
+        ))
+        .unwrap();
+        let named = reader.named_cells(&target, &generated);
+        assert_eq!(named, BTreeSet::from([K.to_owned()]));
+        let [concat, element, unit] = LIST;
+        let list = (1..=12).fold(format!("{unit}{{}}()"), |list, item| {
+            format!("{concat}{{}}({list}, {element}{{}}({}))", int(item))
+        });
+        let regs = (1..=10).map(|key| (key, key * 100)).collect::<Vec<_>>();
+        let state = config(LOCKED, &regs, 7);
+        let Pattern::Application { symbol, arguments } = &state else {
+            panic!("a configuration");
+        };
+        let (symbol, mut arguments) = (symbol.clone(), arguments.clone());
+        arguments.insert(2, parse_pattern(&format!("{BUS}{{}}({list})")).unwrap());
+        let state = Pattern::Application { symbol, arguments };
+        let witness = reader.witness_state(&state, &named);
+        let cells = witness["cells"].as_array().unwrap();
+        let paths = cells
+            .iter()
+            .map(|cell| cell["path"].as_array().unwrap().last().unwrap().clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            [
+                json!("<k>"),
+                json!("<regs>"),
+                json!("<bus>"),
+                json!("<generatedCounter>")
+            ],
+            "{witness:#}"
+        );
+        assert_eq!(cells[0]["path"], json!(["<generatedTop>", "<k>"]));
+        assert_eq!(cells[0]["named"], true);
+        assert_eq!(cells[0]["value"]["truncated"], false);
+        assert!(
+            cells[0]["value"]["text"].as_str().unwrap().contains(LOCKED),
+            "{witness:#}"
+        );
+        let map = &cells[1]["value"];
+        assert_eq!(
+            (&map["collection"], &map["length"]),
+            (&json!("map"), &json!(10))
+        );
+        let first = map["first"].as_array().unwrap();
+        assert_eq!(first.len(), WITNESS_ITEMS);
+        // Printed order: the key printed `...("10")` comes before `...("2")`.
+        assert_eq!(first[0]["key"]["text"], int(1));
+        assert_eq!(first[1]["key"]["text"], int(10));
+        assert_eq!(first[1]["value"]["text"], int(1000));
+        let rom = &cells[2]["value"];
+        assert_eq!(
+            (&rom["collection"], &rom["length"]),
+            (&json!("list"), &json!(12))
+        );
+        let last = rom["last"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["text"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(last, (5..=12).map(int).collect::<Vec<_>>());
+        assert_eq!(cells[3]["named"], false);
+        assert_eq!(cells[3]["value"]["text"], int(7));
+        let binding = reader.witness_value(&parse_pattern(&list).unwrap());
+        assert_eq!(binding["length"], 12, "{binding:#}");
+        assert_eq!(binding["last"].as_array().unwrap().len(), WITNESS_ITEMS);
+        assert_eq!(
+            reader.witness_value(&parse_pattern(&int(3)).unwrap())["text"],
+            int(3)
+        );
+    }
 
     fn set(ends: &[Pattern]) -> BTreeSet<Pattern> {
         ends.iter().cloned().collect()

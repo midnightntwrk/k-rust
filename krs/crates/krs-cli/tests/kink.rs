@@ -2386,6 +2386,25 @@ fn query_and_fuzz_name_rules_by_their_items() {
         ["crate::step", "crate::step", "crate::step", "crate::stop"],
         "{row:#}"
     );
+    // FB-51: the witness's state by its cells, the `<k>` the pattern names printed in full,
+    // each cell named by its Rust path too.
+    let k = row["witness"]["state"]["cells"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the witness lists its cells: {row:#}"))
+        .iter()
+        .find(|cell| cell["krs_cell"] == "k")
+        .unwrap_or_else(|| panic!("the cell `k` by its Rust path: {row:#}"));
+    assert_eq!(
+        k["path"].as_array().unwrap().last(),
+        Some(&json!("<k>")),
+        "{row:#}"
+    );
+    assert_eq!(k["named"], true, "{row:#}");
+    assert_eq!(
+        (&k["value"]["text"], &k["value"]["rendering"]),
+        (&json!("done ~> .K"), &json!("k")),
+        "{row:#}"
+    );
     // `--patterns PATH` names another list than the layout's PATTERNS.toml.
     project.write(
         "kink/other-patterns.toml",

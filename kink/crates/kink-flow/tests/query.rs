@@ -825,7 +825,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 7, "{document:#}");
+    assert_eq!(document["version"], 8, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1097,6 +1097,25 @@ module CELLS
 endmodule
 "#;
 
+/// FB-51's fixture: `<rom>` and `<out>` grow by one element per step, and the last step writes
+/// one entry of `<mem>`.
+const ROM_SPEC: &str = r#"
+module ROM-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= "fill" "(" Int ")" [symbol(fill)] | "done" [symbol(done)]
+endmodule
+module ROM
+  imports ROM-SYNTAX
+  imports INT
+  imports LIST
+  imports MAP
+  configuration <T> <k> $PGM:Exp </k> <rom> .List </rom> <out> .List </out> <mem> .Map </mem> </T>
+  rule <k> fill(I) => fill(I -Int 1) </k> <rom> ... .List => ListItem(I) </rom>
+       <out> ... .List => ListItem(I *Int 2) </out> requires I >Int 0
+  rule <k> fill(0) => done </k> <mem> M => M[7 <- 42] </mem>
+endmodule
+"#;
+
 /// The F-18 review's repro (scratch-F-18-review/repro-partial2): `f` is partial, and no
 /// equation covers `f(3)`.
 const PARTIAL_SPEC: &str = r#"
@@ -1216,6 +1235,16 @@ fn forge(path: &Path, field: &str, value: Value) {
 
 /// The obligation of `pattern` in a query document.
 #[track_caller]
+/// The entry of a witness's state for the cell whose label is `label` (the last of its path).
+fn witness_cell<'a>(witness: &'a Value, label: &str) -> &'a Value {
+    witness["state"]["cells"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a witness lists its cells: {witness:#}"))
+        .iter()
+        .find(|cell| cell["path"].as_array().and_then(|path| path.last()) == Some(&json!(label)))
+        .unwrap_or_else(|| panic!("no cell {label}: {witness:#}"))
+}
+
 fn obligation<'a>(document: &'a Value, pattern: &str) -> &'a Value {
     document["obligations"]
         .as_array()
@@ -1311,7 +1340,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 7);
+    assert_eq!(document["version"], 8);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -1672,7 +1701,11 @@ programs = ["add"]
                 "a search pattern cannot have an `ensures` clause",
             ),
             ("right-only", "occurs only on the right side of a rewrite"),
-            ("cell", "could not parse rule in module \"CALC\""),
+            (
+                "cell",
+                "the pattern names <state>, which is no cell of the configuration; the \
+                 configuration declares: <k>",
+            ),
         ] {
             let invalid = row(&document, id, "add");
             assert_eq!(invalid["answer"], "invalid-pattern", "{id}");
@@ -1708,6 +1741,128 @@ programs = ["add"]
         );
     }
 
+    /// FB-53: a pattern whose tag is no cell of the configuration does not parse (k-rust scans a
+    /// cell's tags as one terminal), and its cause names the tag and lists the configuration's
+    /// cells, the top cell and `generatedCounter` left out. It stays `invalid-pattern`.
+    #[test]
+    #[ignore = "kink"]
+    fn an_unknown_cell_is_named_with_the_configurations_cells() {
+        let dir = scratch("unknown-cell");
+        write(&dir.join("cells.k"), CELLS_SPEC);
+        write(
+            &dir.join("FLOW.toml"),
+            "[spec]\nentry = \"cells.k\"\nmain_module = \"CELLS\"\nsyntax_module = \
+             \"CELLS-SYNTAX\"\n\n[[program]]\nid = \"three\"\ntext = \"tick(3)\"\n",
+        );
+        write(
+            &dir.join("PATTERNS.toml"),
+            "[[pattern]]\nid = \"if\"\npattern = \"<IF> 5 </IF>\"\nprograms = [\"three\"]\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_UNASKED, "{document:#}");
+        let invalid = row(&document, "if", "three");
+        assert_eq!(invalid["answer"], "invalid-pattern", "{invalid:#}");
+        let cause = invalid["cause"].as_str().unwrap();
+        assert!(
+            cause.contains("could not parse rule in module \"CELLS\""),
+            "{cause}"
+        );
+        assert!(
+            cause.ends_with(
+                "the pattern names <IF>, which is no cell of the configuration; the configuration \
+                 declares: <T>, <k>, <out>, <count>"
+            ),
+            "{cause}"
+        );
+    }
+
+    /// FB-51: a witness a reader can check. The pattern names `<k>`, `<mem>` (by a map entry) and
+    /// `<out>` (by a list variable), and leaves out `<rom>`, a list of twelve elements: the
+    /// witness lists the state by its cells, prints the named ones in full as K text, shortens
+    /// `<rom>` to its length and its last elements, and shows the list binding the same way. The
+    /// cache record keeps the facts, the state as whole KORE text, and a cached hit is printed as
+    /// the live one was.
+    #[test]
+    #[ignore = "kink"]
+    fn a_witness_prints_the_named_cells_in_full_and_shortens_the_rest() {
+        let dir = spec_dir(
+            "readable",
+            "rom.k",
+            "ROM",
+            ROM_SPEC,
+            "[[program]]\nid = \"twelve\"\ntext = \"fill(12)\"\n",
+            "[[pattern]]\nid = \"filled\"\npattern = \"<k> done </k> <mem> 7 |-> V:Int </mem> \
+             <out> L:List </out>\"\nprograms = [\"twelve\"]\n",
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_YES, "{document:#}");
+        assert_eq!(document["version"], 8);
+        let hit = row(&document, "filled", "twelve");
+        assert_eq!(hit["answer"], "hit", "{hit:#}");
+        let witness = &hit["witness"];
+        assert_eq!(witness["depth"], 13, "{witness:#}");
+        assert_eq!(witness["rendering"], "k");
+        let full = |label: &str| {
+            let cell = witness_cell(witness, label);
+            assert_eq!(cell["named"], true, "{label}: {witness:#}");
+            assert_eq!(cell["value"]["rendering"], "k", "{label}: {witness:#}");
+            assert_eq!(cell["value"]["truncated"], false, "{label}: {witness:#}");
+            cell["value"]["text"].as_str().unwrap().to_owned()
+        };
+        assert_eq!(full("<k>"), "done ~> .K");
+        let mem = full("<mem>");
+        assert!(mem.contains("7 |-> 42"), "{mem}");
+        let out = full("<out>");
+        assert_eq!(out.matches("ListItem").count(), 12, "{out}");
+        let rom = witness_cell(witness, "<rom>");
+        assert_eq!(rom["named"], false, "{witness:#}");
+        assert_eq!(rom["path"], json!(["<generatedTop>", "<T>", "<rom>"]));
+        let last = |value: &Value| {
+            assert_eq!(
+                (&value["collection"], &value["length"]),
+                (&json!("list"), &json!(12)),
+                "{value:#}"
+            );
+            value["last"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["text"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            last(&rom["value"]),
+            ["8", "7", "6", "5", "4", "3", "2", "1"]
+        );
+        let bindings = witness["bindings"].as_array().unwrap();
+        let binding = |name: &str| {
+            &bindings
+                .iter()
+                .find(|binding| binding["variable"] == name)
+                .unwrap_or_else(|| panic!("{name}: {witness:#}"))["value"]
+        };
+        assert_eq!(binding("V")["text"], "42", "{witness:#}");
+        assert_eq!(
+            last(binding("L")),
+            ["16", "14", "12", "10", "8", "6", "4", "2"]
+        );
+
+        // The record keeps the facts; a second query reads it and prints the same witness.
+        let record = records(&dir)
+            .into_iter()
+            .map(|path| serde_json::from_str::<Value>(&fs::read_to_string(path).unwrap()).unwrap())
+            .find(|record| record["pattern_id"] == "filled")
+            .unwrap();
+        let state = record["witness"]["state"].as_str().unwrap();
+        assert!(state.starts_with("Lbl'-LT-'generatedTop'-GT-'"), "{state}");
+        assert_eq!(state.matches("LblListItem").count(), 24, "{state}");
+        let (again, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_YES, "{again:#}");
+        let cached = row(&again, "filled", "twelve");
+        assert_eq!(cached["cached"], true, "{cached:#}");
+        assert_eq!(cached["witness"], *witness);
+    }
+
     /// Flow F-18 deliverable 3: a witness reports the bindings of the variables the author wrote
     /// only. k-rust's compiler completes the omitted sibling cells of `<count>` with variables
     /// (`_Gen<n>`) its list of generated variables does not name at 501f18b9, so kink also leaves
@@ -1739,7 +1894,7 @@ programs = ["add"]
         assert_eq!(hit["witness"]["depth"], 2);
         assert_eq!(
             hit["witness"]["bindings"],
-            json!([{"variable": "VarN:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"2\")", "truncated": false}}])
+            json!([{"variable": "N", "value": {"text": "2", "rendering": "k", "truncated": false}}])
         );
     }
 
@@ -1791,7 +1946,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 7);
+        assert_eq!(document["version"], 8);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1804,20 +1959,21 @@ programs = ["add"]
         assert_eq!(hit["cached"], false);
         let witness = &hit["witness"];
         assert_eq!(witness["depth"], 1);
-        assert_eq!(witness["rendering"], "kore");
+        assert_eq!(witness["rendering"], "k");
         assert_eq!(witness["rules"], json!(["CALC.add"]));
-        assert_eq!(witness["state"]["truncated"], false);
-        assert!(
-            witness["state"]["kore"]
-                .as_str()
-                .unwrap()
-                .contains("\\dv{SortInt{}}(\"3\")")
+        // FB-51: the state by its cells, the `<k>` the pattern names printed in full as K text.
+        let k = witness_cell(witness, "<k>");
+        assert_eq!(k["named"], true, "{witness:#}");
+        assert_eq!(
+            k["value"],
+            json!({"text": "3 ~> .K", "rendering": "k", "truncated": false}),
+            "{witness:#}"
         );
         // The only binding is the author's I; the cell completion's generated variables are not
         // reported.
         assert_eq!(
             witness["bindings"],
-            json!([{"variable": "VarI:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"3\")", "truncated": false}}])
+            json!([{"variable": "I", "value": {"text": "3", "rendering": "k", "truncated": false}}])
         );
         // The pattern's own row: its KORE target, with the condition as an equation.
         let pattern = &document["patterns"][0];
@@ -2076,10 +2232,10 @@ programs = ["add"]
         let total = row(&document, "g-any", "total");
         assert_eq!(total["answer"], "hit", "{total:#}");
         assert!(
-            total["witness"]["state"]["kore"]
+            witness_cell(&total["witness"], "<k>")["value"]["text"]
                 .as_str()
                 .unwrap()
-                .contains("Lblh{}"),
+                .contains('h'),
             "{total:#}"
         );
         let partial = row(&document, "g-any", "partial");
@@ -2106,7 +2262,7 @@ programs = ["add"]
         assert_eq!(store["answer"], "hit", "{store:#}");
         assert_eq!(
             store["witness"]["bindings"],
-            json!([{"variable": "VarV:SortInt{}", "value": {"kore": "\\dv{SortInt{}}(\"20\")", "truncated": false}}])
+            json!([{"variable": "V", "value": {"text": "20", "rendering": "k", "truncated": false}}])
         );
     }
 
@@ -2134,8 +2290,13 @@ programs = ["add"]
             .unwrap();
         let mut record: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(record["answer"], "hit");
-        assert_eq!(record["witness"], live_witness);
-        let mut witness = live_witness.clone();
+        // FB-51: the record keeps the witness's facts, the state as whole KORE text; the document
+        // prints them.
+        let live_facts = record["witness"].clone();
+        assert_eq!(live_facts["depth"], live_witness["depth"]);
+        assert!(live_facts["state"].is_string(), "{live_facts:#}");
+        assert_eq!(live_facts.get("rendering"), None, "{live_facts:#}");
+        let mut witness = live_facts.clone();
         witness["depth"] = json!(99);
         witness["rules"] = json!(["forged"]);
         record["witness"] = witness.clone();
@@ -2157,7 +2318,18 @@ programs = ["add"]
         let cached = row(&trusted, "result-three", "add");
         assert_eq!(cached["answer"], "hit");
         assert_eq!(cached["cached"], true);
-        assert_eq!(cached["witness"], witness);
+        assert_eq!(
+            (&cached["witness"]["depth"], &cached["witness"]["rules"]),
+            (&json!(99), &json!(["forged"])),
+            "{cached:#}"
+        );
+        let mut printed = live_witness.clone();
+        printed["depth"] = json!(99);
+        printed["rules"] = json!(["forged"]);
+        assert_eq!(
+            cached["witness"], printed,
+            "a cached hit is printed as a live one"
+        );
 
         let (verified, status) = verify(&manifest, &patterns);
         assert_eq!(status, EXIT_NO, "{verified:#}");
@@ -2173,7 +2345,7 @@ programs = ["add"]
         assert_eq!(mismatches[0]["cached"]["answer"], "hit");
         assert_eq!(mismatches[0]["cached"]["witness"], witness);
         assert_eq!(mismatches[0]["live"]["answer"], "hit");
-        assert_eq!(mismatches[0]["live"]["witness"], live_witness);
+        assert_eq!(mismatches[0]["live"]["witness"], live_facts);
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
             forged,

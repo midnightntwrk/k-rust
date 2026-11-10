@@ -165,6 +165,11 @@ impl ResultNames {
         Self { names, readings }
     }
 
+    /// The declared path of the cell whose K name is `name`.
+    pub(crate) fn path_of(&self, name: &str) -> Option<&str> {
+        self.names.path_of(name)
+    }
+
     /// `document` with `result.krs` added, and a refusal at stage `result` of a cell the corpus
     /// named by another spelling than its K name told that spelling. Applying it twice gives what
     /// applying it once does.

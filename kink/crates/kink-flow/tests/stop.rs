@@ -1037,7 +1037,7 @@ fn query_answers_through_the_stopped_run() {
     fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
     let (document, status) = query(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 7, "{document:#}");
+    assert_eq!(document["version"], 8, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),
@@ -1061,10 +1061,7 @@ fn query_answers_through_the_stopped_run() {
     let bindings = bound["witness"]["bindings"].as_array().unwrap();
     assert_eq!(bindings.len(), 1, "{bound:#}");
     assert!(
-        bindings[0]["value"]["kore"]
-            .as_str()
-            .unwrap()
-            .contains("\"3\""),
+        bindings[0]["value"]["text"].as_str().unwrap().contains('3'),
         "{bound:#}"
     );
     // A second command reads every answer from the cache.

@@ -27,7 +27,11 @@
 //! carries the authored sentence's label (K's compile keeps it), so where that label is one of
 //! the table's the front end names it too: `krs_rule` and `krs_observing_rule` beside the two
 //! labels, `krs` inside a reading's `rule`, and `krs_rules` beside a witness's steps (`null` for
-//! a step it does not name). A compiled rule with no label, or with one that
+//! a step it does not name). A query witness's state lists its cells by their K labels (kink-flow's
+//! `evidence`, "A query witness"), and each entry whose cell the configuration declares gains
+//! `krs_cell`, the cell's Rust path ([`super::cells`]); its values are printed by krs-unparse over
+//! the emitted K, the printer `krs run` prints configurations with (without reversing aliases), so
+//! they already spell constructors as KRS does. A compiled rule with no label, or with one that
 //! is not in the table, was written by no rule KRS emitted (K generates it from a production or
 //! a configuration), so no Rust item is its author, and it is left as kink-flow names it; the
 //! embedded k-rust-fuzz reports of a `fuzz` document are kink-flow's evidence and are left so.
@@ -530,6 +534,29 @@ impl Annotator {
                 })
                 .collect::<Vec<_>>();
             object.insert("krs_rules".into(), Value::Array(named));
+        }
+        // A query witness's cells (kink-flow's `evidence`, "A query witness"), each listed by its
+        // K labels: the cell by its Rust path, where the configuration declares it.
+        if object.contains_key("depth")
+            && object.contains_key("rendering")
+            && let Some(names) = &self.result_names
+            && let Some(Value::Array(cells)) = object
+                .get_mut("state")
+                .and_then(|state| state.get_mut("cells"))
+        {
+            for cell in cells.iter_mut().filter_map(Value::as_object_mut) {
+                let path = cell
+                    .get("path")
+                    .and_then(Value::as_array)
+                    .and_then(|path| path.last())
+                    .and_then(Value::as_str)
+                    .and_then(|label| label.strip_prefix('<')?.strip_suffix('>'))
+                    .and_then(|name| names.path_of(name))
+                    .map(str::to_owned);
+                if let Some(path) = path {
+                    cell.insert("krs_cell".into(), json!(path));
+                }
+            }
         }
     }
 }

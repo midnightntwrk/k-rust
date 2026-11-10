@@ -26,7 +26,10 @@
 //! **The cache** holds only `hit` and a final `no`, one record per (pattern, program):
 //! `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory,
 //! written atomically, `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness,
-//! baseline_run_sha256, record_sha256}`. The key ([`answer_key`]) names every input an answer
+//! baseline_run_sha256, record_sha256}`, a hit's `witness` its facts (`{depth, state, bindings,
+//! rules}`, the state and the bindings as whole KORE text; `crate::pattern`, "A witness"): the
+//! document prints it when it is written, a cached hit as a live one, so the printing is in no
+//! key. The key ([`answer_key`]) names every input an answer
 //! depends on: the record's schema, the lowering version, the k-rust revision, kink's build
 //! (`kink_build`, the executable's SHA-256, so any rebuild starts a new key: packet CACHE-ID-fix-1)
 //! and its semantics identity (`kink`), the execution digest (`digest::execution_digest`: the
@@ -85,6 +88,7 @@ use crate::{
     admit::admit_spec,
     clock::Kept,
     digest::ExecutionDigest,
+    evidence::EndReader,
     lock::{Lock, LockKind, Settle},
     manifest::{FlowManifest, ManifestError},
     pattern::{
@@ -138,7 +142,16 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// (its recorded witness first, then corpus order) unless `--full`, where version 6 asked every
 /// program, so `rows` holds only the pairs asked; a pattern with `programs` is also asked for
 /// its obligation.
-pub const QUERY_VERSION: u64 = 7;
+/// Version 8 (FB-51) prints a hit's witness for a reader (`crate::pattern::rendered_witness`): the
+/// state `{cells: [{path, named, value}]}`, the cells the pattern names in full as K text and every
+/// other shortened by its structure (`crate::evidence`, "A query witness"), each binding's
+/// `variable` by its name and its `value` printed likewise, `rendering` `k`, where version 7 gave
+/// the state and the bindings as KORE text cut to 4000 characters (`{kore, truncated}`). A
+/// `--verify` mismatch keeps the witnesses' facts, KORE text in full, since two witnesses may
+/// differ in a cell the printing shortens. A pattern that does not parse and writes a cell tag
+/// that is no cell of the configuration names it, and the configuration's cells, in its `cause`
+/// (FB-53).
+pub const QUERY_VERSION: u64 = 8;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -161,8 +174,11 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// KINK-query-no-z3: a `no` is given under the Z3 profile too, on a completed search that received
 /// no undecided solver answer, so a `no` may now be given where a v7 answer was `unknown`, and a
 /// stored `no` stands for a search that counted none; the stopped route's records are v8 too:
-/// their key holds a `stop`, which no earlier record's does, so no stored answer changes meaning).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v8";
+/// their key holds a `stop`, which no earlier record's does, so no stored answer changes meaning;
+/// v9, FB-51: a hit's witness is kept as facts, `{depth, state, bindings, rules}`, the state and
+/// each binding as whole KORE text, where a v8 witness held the text cut to 4000 characters and a
+/// rendering; the answers mean what they meant).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v9";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.
@@ -474,6 +490,7 @@ fn query_unnamed(
         verify: options.verify,
         exclusions: &exclusions,
         route,
+        reader: runner.end_reader(),
     };
     for entry in list
         .patterns
@@ -889,6 +906,8 @@ struct Context<'a> {
     exclusions: &'a kink_native::exclusion::DefinitionExclusions,
     /// How every (pattern, program) of the command is asked.
     route: Route,
+    /// The printer of a hit's witness ([`rendered`]).
+    reader: &'a EndReader,
 }
 
 /// One (pattern, program) row and whether it found no error.
@@ -994,7 +1013,11 @@ fn ask(
         let answer = judge(&stored.outcome(), &facts);
         accounting["from_cache"] = json!(accounting["from_cache"].as_u64().unwrap_or(0) + 1);
         return (
-            unstopped(finish_row(row, &answer, true, None, claimed)),
+            unstopped(rendered(
+                finish_row(row, &answer, true, None, claimed),
+                lowered,
+                context.reader,
+            )),
             true,
         );
     }
@@ -1042,7 +1065,11 @@ fn ask(
     } else {
         None
     };
-    let mut row = finish_row(row, &answer, false, Some(wall_ms), claimed);
+    let mut row = rendered(
+        finish_row(row, &answer, false, Some(wall_ms), claimed),
+        lowered,
+        context.reader,
+    );
     row["clock_stopped"] = json!(clock);
     if context.verify {
         if let (Some(stored), Some((_, path))) = (&stored, &keyed)
@@ -1101,6 +1128,16 @@ fn ask(
     (row, ok)
 }
 
+/// `row` with its witness, a hit's facts, printed for the reader
+/// ([`crate::pattern::rendered_witness`]); the answer's own witness keeps the facts, which the
+/// record stores and `--verify` compares.
+fn rendered(mut row: Value, lowered: &LoweredPattern, reader: &EndReader) -> Value {
+    if row["witness"].is_object() {
+        row["witness"] = crate::pattern::rendered_witness(&row["witness"], lowered, reader);
+    }
+    row
+}
+
 /// `row` with `clock_stopped` null: an answer no run the clock stopped decided (a cached one, a
 /// program that is not admitted).
 fn unstopped(mut row: Value) -> Value {
@@ -1108,11 +1145,12 @@ fn unstopped(mut row: Value) -> Value {
     row
 }
 
-/// Whether a live hit's witness (`live`) and a stored one agree on what is a fact of the answer:
-/// the matching state's depth and state, and the bindings and the rules wherever both sides carry
-/// them as arrays. Bindings one side could not produce (`{absent: reason}`, a stopped route's) and
-/// the rules the stopped route never reports (null) are left out, and the note and the rendering
-/// are display only, so `--verify` reports a difference only where two answers differ.
+/// Whether a live hit's witness (`live`) and a stored one agree on what is a fact of the answer,
+/// both as facts (`crate::pattern::rendered_witness` prints a document's, and is compared never):
+/// the matching state's depth and whole state, and the bindings and the rules wherever both sides
+/// carry them as arrays. Bindings one side could not produce (`{absent: reason}`, a stopped
+/// route's) and the rules the stopped route never reports (null) are left out, so `--verify`
+/// reports a difference only where two answers differ.
 fn same_witness(live: Option<&Value>, stored: &Value) -> bool {
     let Some(live) = live else {
         return false;
