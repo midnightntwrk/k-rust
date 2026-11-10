@@ -25,6 +25,10 @@ use super::catalog::{ProductionSignature, semantic_sort_ref};
 use super::error::DescriptorLoweringError;
 use super::infer::StructuredTermBuilder;
 
+/// The label of the frame each substituted node's origin gains, naming the constant whose use
+/// it was substituted at: the emitter reads it to name the constant beside a literal.
+pub(crate) const CONSTANT_FRAME_LABEL: &str = "constant";
+
 /// The bundle's descriptors with every use of a constant substituted, and
 /// the constants themselves, with the constants they use substituted.
 pub(super) struct Inlined<'a> {
@@ -373,7 +377,7 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
         origin.push(OriginFrame::Transformation {
             kind: TransformationOriginKind::SemanticIr,
             item: Some(id.clone()),
-            label: Some("constant".to_owned()),
+            label: Some(CONSTANT_FRAME_LABEL.to_owned()),
         });
         self.rekey(value, &origin)
     }

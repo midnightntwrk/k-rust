@@ -27,6 +27,7 @@ mod list_patterns;
 mod lists;
 mod local_functions;
 mod map_literals;
+pub(crate) use constants::CONSTANT_FRAME_LABEL;
 pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;

@@ -1,7 +1,8 @@
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperationNotation, CollectionNotation,
-    CollectionOperationSpec, GeneratedOperation, GrammarProductionItemKind, MapOperation,
-    ProductionAttribute, ProductionGroupId, SemanticId, SemanticIdKind, SetOperation, SourceMapKey,
+    CollectionOperationSpec, GeneratedOperation, GrammarProductionItemKind, ItemKind, MapOperation,
+    OriginFrame, ProductionAttribute, ProductionGroupId, SemanticId, SemanticIdKind, SetOperation,
+    SourceMapKey, StableItemId, TransformationOriginKind,
 };
 use krs_ir_levels::{
     DefinitionMlPredicate, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, IrMlKind,
@@ -98,7 +99,7 @@ pub(super) fn render_term(
     names: &SentenceVariables,
     root_rewrite: bool,
 ) -> Result<Rendered, EmitError> {
-    render_term_with_binders(term, context, root_rewrite, names)
+    render_term_with_binders(term, context, root_rewrite, names, None)
 }
 
 pub(super) fn render_rewrite(
@@ -108,13 +109,28 @@ pub(super) fn render_rewrite(
     root_rewrite: bool,
     names: &SentenceVariables,
 ) -> Result<Rendered, EmitError> {
+    render_rewrite_within(from, to, context, root_rewrite, names, None)
+}
+
+fn render_rewrite_within<'t>(
+    from: &'t DefinitionTerm,
+    to: &'t DefinitionTerm,
+    context: &EmitContext<'_>,
+    root_rewrite: bool,
+    names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
+) -> Result<Rendered, EmitError> {
     let mut output = Rendered::default();
     if !root_rewrite {
         output.push("(");
     }
-    output.append(render_term_with_binders(from, context, false, names)?);
+    output.append(render_term_with_binders(
+        from, context, false, names, enclosing,
+    )?);
     output.push(" => ");
-    output.append(render_term_with_binders(to, context, false, names)?);
+    output.append(render_term_with_binders(
+        to, context, false, names, enclosing,
+    )?);
     if !root_rewrite {
         output.push(")");
     }
@@ -125,14 +141,16 @@ pub(super) fn render_rewrite(
     clippy::too_many_lines,
     reason = "Keeps exhaustive term rendering and binder handling together."
 )]
-fn render_term_with_binders(
-    term: &DefinitionTerm,
+fn render_term_with_binders<'t>(
+    term: &'t DefinitionTerm,
     context: &EmitContext<'_>,
     root_rewrite: bool,
     names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
 ) -> Result<Rendered, EmitError> {
     let mut output = Rendered::default();
     let start = 0;
+    let within = within(term, enclosing);
     match term.kind() {
         DefinitionTermKind::Variable { variable } => {
             // A wildcard at a `?` leaf cell's place names the cell's sort, whose values are the
@@ -164,10 +182,24 @@ fn render_term_with_binders(
             ..
         } => match application {
             ApplicationRef::Builtin(operation) => {
-                render_builtin_application(*operation, arguments, context, names, &mut output)?;
+                render_builtin_application(
+                    *operation,
+                    arguments,
+                    context,
+                    names,
+                    within,
+                    &mut output,
+                )?;
             }
             ApplicationRef::Generated(operation) => {
-                render_generated_application(operation, arguments, context, names, &mut output)?;
+                render_generated_application(
+                    operation,
+                    arguments,
+                    context,
+                    names,
+                    within,
+                    &mut output,
+                )?;
             }
             ApplicationRef::Declared(symbol) => {
                 let production = context.production(symbol)?;
@@ -231,7 +263,7 @@ fn render_term_with_binders(
                                 output.append(wildcard.finish(argument.origin().key(), 0));
                             } else {
                                 output.append(render_term_with_binders(
-                                    argument, context, false, names,
+                                    argument, context, false, names, within,
                                 )?);
                             }
                             if parenthesize {
@@ -256,6 +288,19 @@ fn render_term_with_binders(
         },
         DefinitionTermKind::Token { value } => {
             output.push(&context.token(value, term.sort())?);
+            // A literal that is the whole value of a constant the author wrote here names the
+            // constant after it, `65295 /* IF */`, so a reader of the K finds the Rust. A K
+            // comment is layout: the token, its range and every K reading of the sentence stay
+            // as they were.
+            if let Some((frames, constant)) = constant_use(term)
+                && enclosing != Some(frames)
+            {
+                let mut output = output.finish(term.origin().key(), start);
+                output.push(" /* ");
+                output.push(constant.item_name());
+                output.push(" */");
+                return Ok(output);
+            }
         }
         DefinitionTermKind::KSequence { items, .. } => {
             if items.is_empty() {
@@ -268,13 +313,15 @@ fn render_term_with_binders(
                     if is_wildcard(item) {
                         output.append(render_sequence_wildcard(item, context)?);
                     } else {
-                        output.append(render_term_with_binders(item, context, false, names)?);
+                        output.append(render_term_with_binders(
+                            item, context, false, names, within,
+                        )?);
                     }
                 }
             }
         }
         DefinitionTermKind::Map(operands) => {
-            render_map(term.sort(), operands, context, names, &mut output)?;
+            render_map(term.sort(), operands, context, names, within, &mut output)?;
         }
         DefinitionTermKind::List(operands) => render_collection(
             term.sort(),
@@ -282,6 +329,7 @@ fn render_term_with_binders(
             operands.operands(),
             context,
             names,
+            within,
             &mut output,
         )?,
         DefinitionTermKind::Set(operands) => render_collection(
@@ -290,6 +338,7 @@ fn render_term_with_binders(
             operands.operands(),
             context,
             names,
+            within,
             &mut output,
         )?,
         DefinitionTermKind::Cell { cell, children } => {
@@ -304,7 +353,9 @@ fn render_term_with_binders(
                 if index != 0 {
                     output.push(" ");
                 }
-                output.append(render_term_with_binders(child, context, false, names)?);
+                output.append(render_term_with_binders(
+                    child, context, false, names, within,
+                )?);
             }
             if !children.is_empty() {
                 output.push(" ");
@@ -314,13 +365,22 @@ fn render_term_with_binders(
             output.push(">");
         }
         DefinitionTermKind::Rewrite { from, to } => {
-            output.append(render_rewrite(from, to, context, root_rewrite, names)?);
+            output.append(render_rewrite_within(
+                from,
+                to,
+                context,
+                root_rewrite,
+                names,
+                within,
+            )?);
         }
         // `name @ pattern` is K's `( PATTERN #as Name:Sort )`, always
         // parenthesised (X13).
         DefinitionTermKind::As { alias, pattern } => {
             output.push("( ");
-            output.append(render_term_with_binders(pattern, context, false, names)?);
+            output.append(render_term_with_binders(
+                pattern, context, false, names, within,
+            )?);
             output.push(" #as ");
             output.push(names.name(alias).ok_or_else(|| {
                 EmitError::InvalidReference(format!(
@@ -345,6 +405,7 @@ fn render_term_with_binders(
                     context,
                     false,
                     names,
+                    within,
                 )?);
             }
             output.push(" )");
@@ -355,9 +416,13 @@ fn render_term_with_binders(
             subject, pattern, ..
         } => {
             output.push("( ");
-            output.append(render_term_with_binders(pattern, context, false, names)?);
+            output.append(render_term_with_binders(
+                pattern, context, false, names, within,
+            )?);
             output.push(" :=K ");
-            output.append(render_term_with_binders(subject, context, false, names)?);
+            output.append(render_term_with_binders(
+                subject, context, false, names, within,
+            )?);
             output.push(" )");
         }
         // A `let` statement is K's `( #let PATTERN = VALUE #in BODY )`,
@@ -369,11 +434,17 @@ fn render_term_with_binders(
             ..
         } => {
             output.push("( #let ");
-            output.append(render_term_with_binders(pattern, context, false, names)?);
+            output.append(render_term_with_binders(
+                pattern, context, false, names, within,
+            )?);
             output.push(" = ");
-            output.append(render_term_with_binders(value, context, false, names)?);
+            output.append(render_term_with_binders(
+                value, context, false, names, within,
+            )?);
             output.push(" #in ");
-            output.append(render_term_with_binders(body, context, false, names)?);
+            output.append(render_term_with_binders(
+                body, context, false, names, within,
+            )?);
             output.push(" )");
         }
     }
@@ -422,14 +493,16 @@ pub(super) fn render_predicate(
         IrMlKind::Implies { left, right } => binary("#Implies", left, right, &mut output)?,
         IrMlKind::Equals { left, right, .. } => {
             output.push("{ ");
-            output.append(render_term_with_binders(left, context, false, names)?);
+            output.append(render_term_with_binders(left, context, false, names, None)?);
             output.push(" #Equals ");
-            output.append(render_term_with_binders(right, context, false, names)?);
+            output.append(render_term_with_binders(
+                right, context, false, names, None,
+            )?);
             output.push(" }");
         }
         IrMlKind::Ceil { term, .. } => {
             output.push("#Ceil ( ");
-            output.append(render_term_with_binders(term, context, false, names)?);
+            output.append(render_term_with_binders(term, context, false, names, None)?);
             output.push(" )");
         }
         IrMlKind::Exists { binder, body } => {
@@ -460,6 +533,51 @@ pub(super) fn render_predicate(
         }
     }
     Ok(output.finish(predicate.origin().key(), 0))
+}
+
+/// The use of a constant that the term being rendered stands inside: the frames of that use's
+/// origin up to and including the one naming the constant ([`constant_use`]).
+type Enclosing<'t> = Option<&'t [OriginFrame]>;
+
+/// The constant `term` was substituted from, with the frames of its origin up to and including
+/// the one frame naming it: the use the author wrote, which every node of the substituted value
+/// shares. `None` when no frame names a constant, or more than one does, which leaves the
+/// literal unnamed rather than naming one constant of several.
+fn constant_use(term: &DefinitionTerm) -> Option<(&[OriginFrame], &StableItemId)> {
+    let frames = term.origin().origin().frames();
+    let mut found = None;
+    for (index, frame) in frames.iter().enumerate() {
+        if let OriginFrame::Transformation {
+            kind: TransformationOriginKind::SemanticIr,
+            item: Some(item),
+            label: Some(label),
+        } = frame
+            && label == crate::semantic::CONSTANT_FRAME_LABEL
+            && item.item_kind() == ItemKind::Constant
+        {
+            if found.is_some() {
+                return None;
+            }
+            found = Some((&frames[..=index], item));
+        }
+    }
+    found
+}
+
+/// What the children of `term` stand inside, `term` itself standing inside `enclosing`: the
+/// constant use `term` is part of, so that a literal below it is a part of that value and not
+/// the whole of it; for a node KRS inserted that is part of no constant's value (a test's
+/// connective), what `term` stands inside; otherwise nothing.
+///
+/// A node KRS inserted with a constant use's frames, a copy of a node of the value, encloses its
+/// children in that use too: the frames do not tell such a copy from a node inserted around the
+/// value, so a literal below it is left unnamed rather than named as a whole value it may not be.
+fn within<'t>(term: &'t DefinitionTerm, enclosing: Enclosing<'t>) -> Enclosing<'t> {
+    match constant_use(term) {
+        Some((frames, _)) => Some(frames),
+        None if term.origin().origin().inserted().is_some() => enclosing,
+        None => None,
+    }
 }
 
 fn is_wildcard(term: &DefinitionTerm) -> bool {
@@ -528,11 +646,12 @@ fn production_group(production: &ProductionSentence) -> Option<&ProductionGroupI
         })
 }
 
-fn render_builtin_application(
+fn render_builtin_application<'t>(
     operation: BuiltinOperation,
-    arguments: &[DefinitionTerm],
+    arguments: &'t [DefinitionTerm],
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
     let spec = operation.spec();
@@ -546,7 +665,9 @@ fn render_builtin_application(
         BuiltinOperationNotation::Mixfix { pieces } => {
             output.push(pieces[0]);
             for (argument, piece) in arguments.iter().zip(&pieces[1..]) {
-                output.append(render_builtin_argument(argument, context, names)?);
+                output.append(render_builtin_argument(
+                    argument, context, names, enclosing,
+                )?);
                 output.push(piece);
             }
         }
@@ -557,7 +678,9 @@ fn render_builtin_application(
                 if index > 0 {
                     output.push(", ");
                 }
-                output.append(render_term_with_binders(argument, context, false, names)?);
+                output.append(render_term_with_binders(
+                    argument, context, false, names, enclosing,
+                )?);
             }
             output.push(")");
         }
@@ -566,11 +689,12 @@ fn render_builtin_application(
 }
 
 /// Renders K's generated sort predicate `isS(T)` or projection `{T}:>S`.
-fn render_generated_application(
+fn render_generated_application<'t>(
     operation: &GeneratedOperation<DefinitionSortRef>,
-    arguments: &[DefinitionTerm],
+    arguments: &'t [DefinitionTerm],
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
     let [argument] = arguments else {
@@ -579,7 +703,7 @@ fn render_generated_application(
             arguments.len()
         )));
     };
-    let operand = render_generated_operand(argument, context, names)?;
+    let operand = render_generated_operand(argument, context, names, enclosing)?;
     match operation {
         GeneratedOperation::SortPredicate(sort) => {
             output.push("is");
@@ -602,12 +726,14 @@ fn render_generated_application(
 /// of sort `K`, so a projected collection lookup is rendered at its declared
 /// result sort, without its own projection, and the term has exactly one
 /// cast.
-fn render_generated_operand(
-    argument: &DefinitionTerm,
+fn render_generated_operand<'t>(
+    argument: &'t DefinitionTerm,
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
 ) -> Result<Rendered, EmitError> {
     let mut output = Rendered::default();
+    let within = within(argument, enclosing);
     match argument.kind() {
         DefinitionTermKind::Map(operands) if operands.operation().spec().is_projected() => {
             render_collection_projected(
@@ -616,6 +742,7 @@ fn render_generated_operand(
                 operands.operands(),
                 context,
                 names,
+                within,
                 &mut output,
                 false,
             )?;
@@ -627,6 +754,7 @@ fn render_generated_operand(
                 operands.operands(),
                 context,
                 names,
+                within,
                 &mut output,
                 false,
             )?;
@@ -638,19 +766,21 @@ fn render_generated_operand(
                 operands.operands(),
                 context,
                 names,
+                within,
                 &mut output,
                 false,
             )?;
         }
-        _ => return render_term_with_binders(argument, context, false, names),
+        _ => return render_term_with_binders(argument, context, false, names, enclosing),
     }
     Ok(output.finish(argument.origin().key(), 0))
 }
 
-fn render_builtin_argument(
-    argument: &DefinitionTerm,
+fn render_builtin_argument<'t>(
+    argument: &'t DefinitionTerm,
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
 ) -> Result<Rendered, EmitError> {
     let parenthesize = matches!(
         argument.kind(),
@@ -663,7 +793,9 @@ fn render_builtin_argument(
     if parenthesize {
         output.push("(");
     }
-    output.append(render_term_with_binders(argument, context, false, names)?);
+    output.append(render_term_with_binders(
+        argument, context, false, names, enclosing,
+    )?);
     if parenthesize {
         output.push(")");
     }
@@ -756,11 +888,12 @@ fn encloses_right(piece: &str) -> bool {
         .any(|delimiter| piece.starts_with(delimiter))
 }
 
-fn render_map(
+fn render_map<'t>(
     result_sort: &DefinitionSortRef,
-    operands: &MapOperands<DefinitionTerm>,
+    operands: &'t MapOperands<DefinitionTerm>,
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'t>,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
     // Items, and a pattern's rest after them, are juxtaposed: K's associative `_Map_`.
@@ -774,6 +907,7 @@ fn render_map(
                 operands.operands(),
                 context,
                 names,
+                enclosing,
                 output,
             );
         }
@@ -797,7 +931,9 @@ fn render_map(
             if parenthesize {
                 output.push("(");
             }
-            output.append(render_term_with_binders(&entry.key, context, false, names)?);
+            output.append(render_term_with_binders(
+                &entry.key, context, false, names, enclosing,
+            )?);
             if parenthesize {
                 output.push(")");
             }
@@ -812,12 +948,15 @@ fn render_map(
             [&entry.key, &entry.value].into_iter(),
             context,
             names,
+            enclosing,
             output,
         )?;
     }
     if let Some(rest) = rest {
         output.push(MapOperation::CONCATENATION.separator);
-        output.append(render_term_with_binders(rest, context, false, names)?);
+        output.append(render_term_with_binders(
+            rest, context, false, names, enclosing,
+        )?);
     }
     Ok(())
 }
@@ -828,9 +967,19 @@ fn render_collection<'a>(
     operands: impl Iterator<Item = &'a DefinitionTerm>,
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'a>,
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
-    render_collection_projected(result_sort, spec, operands, context, names, output, true)
+    render_collection_projected(
+        result_sort,
+        spec,
+        operands,
+        context,
+        names,
+        enclosing,
+        output,
+        true,
+    )
 }
 
 /// Renders a collection operation; `project` is false only for the operand
@@ -838,12 +987,17 @@ fn render_collection<'a>(
 /// projected lookup read at `KItem`, the sort K's lookup already has, is the
 /// lookup itself: its projection would be the identity, so it is written in
 /// parentheses, which keep it one closed term as the braces do.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The operands' rendering needs the sentence's names and the constant use they stand in."
+)]
 fn render_collection_projected<'a>(
     result_sort: &DefinitionSortRef,
     spec: &CollectionOperationSpec,
     operands: impl Iterator<Item = &'a DefinitionTerm>,
     context: &EmitContext<'_>,
     names: &SentenceVariables,
+    enclosing: Enclosing<'a>,
     output: &mut Rendered,
     project: bool,
 ) -> Result<(), EmitError> {
@@ -863,7 +1017,9 @@ fn render_collection_projected<'a>(
                 if parenthesize {
                     output.push("(");
                 }
-                output.append(render_term_with_binders(operand, context, false, names)?);
+                output.append(render_term_with_binders(
+                    operand, context, false, names, enclosing,
+                )?);
                 if parenthesize {
                     output.push(")");
                 }
@@ -877,7 +1033,9 @@ fn render_collection_projected<'a>(
                 if index > 0 {
                     output.push(", ");
                 }
-                output.append(render_term_with_binders(operand, context, false, names)?);
+                output.append(render_term_with_binders(
+                    operand, context, false, names, enclosing,
+                )?);
             }
             output.push(")");
         }
