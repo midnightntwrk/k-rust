@@ -851,6 +851,7 @@ impl NamingPass {
         let mut production_symbols = Vec::<(String, String, OriginStack)>::new();
         let mut sort_names = Vec::<(String, String, OriginStack)>::new();
         let mut cells = Vec::<(String, Option<krs_ir::CellCollectionType>)>::new();
+        let mut alias_spellings = Claims::new();
 
         for module in theory.modules() {
             validate_module_name(module.id().as_str())?;
@@ -1022,6 +1023,15 @@ impl NamingPass {
                     &mut labels,
                     alias.name().to_owned(),
                     stable_item_text(alias.id()),
+                    CollisionNamespace::EmittedLabel,
+                    alias.origin(),
+                )?;
+                // K spells the name without `_` (`before_any` is `beforeAny`), so two names that
+                // differ only there would be one K name and one evaluation strategy.
+                claim(
+                    &mut alias_spellings,
+                    crate::emit::k_label_name(alias.name()),
+                    format!("context alias `{}`", alias.name()),
                     CollisionNamespace::EmittedLabel,
                     alias.origin(),
                 )?;

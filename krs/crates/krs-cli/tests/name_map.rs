@@ -343,3 +343,35 @@ fn a_name_k_gives_a_meaning_is_refused_at_the_declaration() {
         );
     }
 }
+
+/// K spells a context alias's name without `_` (`before_any` is `beforeAny`), and aliases of one
+/// K name are one evaluation strategy, so two aliases whose names differ only there are refused,
+/// naming both, where K would join them.
+#[test]
+fn context_alias_names_k_spells_alike_are_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let alias = |name: &str, function: &str| {
+        format!(
+            "\n#[k::context_alias(name = {name}, here = site)]\nfn {function}(\n    k::cells! {{ k: k::configuration::KCell(site, _, tail @ ..), state @ .. }}: Machine,\n) {{\n}}\n"
+        )
+    };
+    let alike = library(
+        &[],
+        &(alias("before_any", "before_any") + &alias("beforeAny", "before_any2")),
+    );
+    assert_eq!(
+        check_headline(target.path(), temporary.path(), "alias-alike", &alike).as_deref(),
+        Some(
+            "error[krs::analysis::name-collision]: emitted label name collision for \"beforeAny\" between context alias `before_any` and context alias `beforeAny`"
+        )
+    );
+    let distinct = library(
+        &[],
+        &(alias("before_any", "before_any") + &alias("before_all", "before_all")),
+    );
+    assert_eq!(
+        check_headline(target.path(), temporary.path(), "alias-distinct", &distinct),
+        None
+    );
+}

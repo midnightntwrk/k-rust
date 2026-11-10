@@ -28,6 +28,7 @@ use crate::{
 use annotation::{HeaderArtifact, header};
 pub use annotation::{SentenceSource, SentenceSources};
 use sentence::emit_sentence;
+pub(crate) use sentence::k_label_name;
 use term::Rendered;
 use token::TokenLexicon;
 

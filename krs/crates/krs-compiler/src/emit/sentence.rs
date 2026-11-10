@@ -1923,7 +1923,9 @@ fn emit_label(label: &LabelIdentity, writer: &mut Writer) {
     writer.push(label.emitted_name());
 }
 
-fn k_label_name(value: &str) -> String {
+/// The K spelling of a context alias's authored name: each `_` dropped and the letter after it
+/// raised (`before_any` is `beforeAny`).
+pub(crate) fn k_label_name(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut uppercase_next = false;
     for character in value.chars() {
