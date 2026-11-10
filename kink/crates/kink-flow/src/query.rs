@@ -359,7 +359,7 @@ pub(crate) fn query_with(
             }
         },
     };
-    let recorded = lock.as_ref().map(Lock::killers).unwrap_or_default();
+    let recorded = lock.as_ref().map(Lock::witnesses).unwrap_or_default();
     let (mut document, mut ok) = query_unnamed(manifest, list, options, &recorded, adjust);
     if let Some(lock) = &lock {
         document["lock"] = if document["spec"]["outcome"] == "admitted" {
@@ -821,20 +821,20 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         let keepable = matches!(status, "hit" | "open" | "undecided")
             && (status == "hit")
                 == record
-                    .killer
+                    .witness
                     .as_deref()
                     .is_some_and(|witness| programs.contains(&witness));
         if !keepable || (obligation["status"] == "hit" && status != "hit") {
             continue;
         }
-        let before = json!({"status": record.status, "witness": record.killer});
+        let before = json!({"status": record.status, "witness": record.witness});
         let now = json!({"status": obligation["status"], "witness": obligation["witness"]});
         if now != before {
             kept.kept
                 .push(json!({"pattern": id, "recorded": before, "now": now}));
         }
         obligation["status"] = json!(record.status);
-        obligation["witness"] = json!(record.killer);
+        obligation["witness"] = json!(record.witness);
     }
     kept
 }
@@ -1016,18 +1016,18 @@ fn ask(
     };
     let answer = judge(&outcome, &facts);
     let mut ok = answer.answer != "error";
-    // Which run the clock stopped that this answer rests on: the search itself, when its own
-    // cause is the answer's (it could have hit, or completed, on a faster host), or the baseline
-    // run, when the exploration completed with no match and the baseline's class is the one
-    // premise of a `no` that failed (a faster host could have given the `no`).
+    // Which run the clock stopped that this answer rests on, as the search and the baseline
+    // runner state it: the search itself, when the clock stopped it and its cause is the answer's
+    // (no exclusion of the load overrides it; it could have hit, or completed, on a faster host),
+    // or the baseline run, when the exploration completed with no match and the baseline's class
+    // is the one premise of a `no` that failed (a faster host could have given the `no`).
     let clock = if answer.answer != "unknown" {
         None
-    } else if crate::pattern::clock_stopped(&outcome)
-        && matches!(&outcome, SearchOutcome::Incomplete(cause) if answer.cause.as_ref() == Some(cause))
+    } else if matches!(&outcome, SearchOutcome::ClockStopped(cause) if answer.cause.as_ref() == Some(cause))
     {
         Some("search")
     } else if matches!(outcome, SearchOutcome::Complete { .. })
-        && crate::clock::baseline_stopped(&result.row)
+        && result.clock_stopped
         && judge(
             &outcome,
             &Facts {
@@ -1403,7 +1403,8 @@ mod tests {
         let (written, _) = lock.settle(&store, &document, write);
         assert_eq!(written["status"], "written", "{written:#}");
         let lock = Lock::read_kind(&path, LockKind::Query).unwrap();
-        assert_eq!(lock.killers()["p"], "B");
+        assert_eq!(lock.witnesses()["p"], "B");
+        assert!(lock.killers().is_empty());
         let (value, _) = lock.settle(&store, &document, settle);
         assert_eq!(value["status"], "undecided", "{value:#}");
         assert_eq!(

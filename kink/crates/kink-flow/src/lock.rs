@@ -337,9 +337,11 @@ pub struct Legacy {
 pub struct LockRow {
     /// The row's `id`; a compare row's [`compare_row_id`].
     pub id: String,
-    /// The recorded killer, the one fact a run reads; for a query row its recorded `witness`, the
-    /// one fact a query reads; none in a compare row.
+    /// The recorded killer of a run or coverage row, the one fact a run reads; none in a compare
+    /// or a query row.
     pub killer: Option<String>,
+    /// The recorded witness of a query row, the one fact a query reads; none in every other row.
+    pub witness: Option<String>,
     /// The recorded status (a compare row's `verdict`) and reason, read only to report what
     /// changed.
     pub status: Option<String>,
@@ -356,7 +358,7 @@ impl LockRow {
             LockKind::Run | LockKind::Coverage => {
                 json!({"status": self.status, "killer": self.killer, "reason": self.reason})
             }
-            LockKind::Query => json!({"status": self.status, "witness": self.killer}),
+            LockKind::Query => json!({"status": self.status, "witness": self.witness}),
             LockKind::Compare => {
                 json!({"verdict": self.status, "reason": self.reason,
                        "difference": self.difference})
@@ -515,17 +517,15 @@ impl Lock {
                 };
                 return Err(refused(format!("the {noun} {shown} is listed twice")));
             }
-            // A query row's recorded fact is its witness, a run's and a flip's its killer.
-            let fact = if kind == LockKind::Query {
-                "witness"
-            } else {
-                "killer"
+            // A query row's recorded fact is its witness, a run's and a flip's its killer; a row
+            // holds only its own section's.
+            let fact = |key: &str, applies: bool| match row.get(key) {
+                Some(toml::Value::String(value)) if applies => Ok(Some(value.clone())),
+                Some(_) if applies => Err(refused(format!("the {key} of {id:?} is not a string"))),
+                _ => Ok(None),
             };
-            let killer = match row.get(fact) {
-                None => None,
-                Some(toml::Value::String(killer)) => Some(killer.clone()),
-                Some(_) => return Err(refused(format!("the {fact} of {id:?} is not a string"))),
-            };
+            let killer = fact("killer", matches!(kind, LockKind::Run | LockKind::Coverage))?;
+            let witness = fact("witness", kind == LockKind::Query)?;
             let string = |key: &str| {
                 row.get(key)
                     .and_then(toml::Value::as_str)
@@ -534,6 +534,7 @@ impl Lock {
             rows.push(LockRow {
                 id: id.to_owned(),
                 killer,
+                witness,
                 status: string(if kind == LockKind::Compare {
                     "verdict"
                 } else {
@@ -718,13 +719,23 @@ impl Lock {
         ))
     }
 
-    /// Each mutation id with its recorded killer (a flip's, and a pattern id with its recorded
-    /// witness for a query section).
+    /// Each mutation (or flip) id with its recorded killer; empty for a compare or query section,
+    /// whose rows record none ([`Lock::witnesses`]).
     #[must_use]
     pub fn killers(&self) -> BTreeMap<String, String> {
         self.rows
             .iter()
             .filter_map(|row| Some((row.id.clone(), row.killer.clone()?)))
+            .collect()
+    }
+
+    /// Each pattern id of a query section with its recorded witness; empty for every other
+    /// section, whose rows record none.
+    #[must_use]
+    pub fn witnesses(&self) -> BTreeMap<String, String> {
+        self.rows
+            .iter()
+            .filter_map(|row| Some((row.id.clone(), row.witness.clone()?)))
             .collect()
     }
 

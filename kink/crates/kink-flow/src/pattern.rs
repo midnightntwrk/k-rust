@@ -682,21 +682,13 @@ pub enum SearchOutcome {
     Complete { smt_unknowns: usize },
     /// The search found no decided answer: the cause.
     Incomplete(String),
+    /// The clock (`budget.time_ms`) stopped the search before it found a decided answer: the
+    /// watchdog cancelled the search or the stopped run, or the exploration has a cancelled
+    /// entry. The cause is the reader's text; this variant is the fact a lock reads: on a faster
+    /// host the search could have hit or completed ([`crate::query`]).
+    ClockStopped(String),
     /// k-rust refused the search: its message.
     Failed(String),
-}
-
-/// The words of every cause the clock (`budget.time_ms`) gives a search, on either route: a
-/// search or a stopped run the watchdog cancelled, or an exploration with a cancelled entry
-/// ([`clock_stopped`]).
-pub const CLOCK_STOPPED: &str = "did not finish within time_ms";
-
-/// Whether the clock stopped the search whose outcome is `outcome`: it is incomplete, and its
-/// cause names the clock ([`CLOCK_STOPPED`]). Such a search has no answer on this host: on a
-/// faster one it could have ended with a hit or a completed exploration.
-#[must_use]
-pub fn clock_stopped(outcome: &SearchOutcome) -> bool {
-    matches!(outcome, SearchOutcome::Incomplete(cause) if cause.contains(CLOCK_STOPPED))
 }
 
 /// What the answer rules read besides the search ([`judge`]).
@@ -839,7 +831,9 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
             witness: Some(witness.clone()),
         },
         SearchOutcome::Failed(message) => Answer::error(message.clone()),
-        SearchOutcome::Incomplete(cause) => Answer::unknown(cause.clone()),
+        SearchOutcome::Incomplete(cause) | SearchOutcome::ClockStopped(cause) => {
+            Answer::unknown(cause.clone())
+        }
         SearchOutcome::Complete { smt_unknowns } => {
             let would = "the exploration completed with no match, but a no is not given";
             // The short-circuit reading is judged on the search's own list ([`outcome`]).
@@ -1082,11 +1076,14 @@ impl Searcher {
                         SearchOutcome::Hit(self.stopped_witness(reach, lowered))
                     }
                     MatchAnswer::No => SearchOutcome::Complete { smt_unknowns: 0 },
-                    MatchAnswer::Unknown(unknown) => SearchOutcome::Incomplete(stopped_cause(
-                        unknown,
-                        matched.execution.as_ref(),
-                        self.budget,
-                    )),
+                    MatchAnswer::Unknown(unknown) => {
+                        let cause = stopped_cause(unknown, matched.execution.as_ref(), self.budget);
+                        if matches!(unknown, MatchUnknown::Clock) {
+                            SearchOutcome::ClockStopped(cause)
+                        } else {
+                            SearchOutcome::Incomplete(cause)
+                        }
+                    }
                 };
                 (outcome, state)
             }
@@ -1181,8 +1178,8 @@ fn stopped_cause(
     let would = "the stopped run reached no state that matches, but a no is not given";
     match unknown {
         MatchUnknown::Clock => format!(
-            "the stopped run {CLOCK_STOPPED} = {}, so its states are not read ({name}: the clock \
-             is no answer)",
+            "the stopped run did not finish within time_ms = {}, so its states are not read \
+             ({name}: the clock is no answer)",
             budget.time_ms
         ),
         MatchUnknown::StopConditionRefused(reason) => format!(
@@ -1493,9 +1490,9 @@ fn outcome(
     readings: &dyn Fn(Vec<ShortCircuitReadingOutput<Pattern>>) -> Option<String>,
 ) -> SearchOutcome {
     let clock = || {
-        SearchOutcome::Incomplete(format!(
-            "the search {CLOCK_STOPPED} = {} (a search has no work budget at this k-rust pin, so \
-             the clock bounds it)",
+        SearchOutcome::ClockStopped(format!(
+            "the search did not finish within time_ms = {} (a search has no work budget at this \
+             k-rust pin, so the clock bounds it)",
             budget.time_ms
         ))
     };
@@ -1535,7 +1532,17 @@ fn outcome(
         };
     }
     if !response.incomplete.is_empty() {
-        return SearchOutcome::Incomplete(incomplete_cause(&response.incomplete, budget));
+        let cause = incomplete_cause(&response.incomplete, budget);
+        // A cancelled entry is the clock's: without it the exploration could have completed.
+        return if response
+            .incomplete
+            .iter()
+            .any(|entry| matches!(entry, IncompleteSearchOutput::Cancelled { .. }))
+        {
+            SearchOutcome::ClockStopped(cause)
+        } else {
+            SearchOutcome::Incomplete(cause)
+        };
     }
     // KINK-R4 review N2: an exploration that left a hook application unevaluated is not shown to
     // have explored the reachable configurations. Where the hook is undefined at its arguments
@@ -1780,7 +1787,10 @@ fn incomplete_cause(incomplete: &[IncompleteSearchOutput<Pattern>], budget: Budg
         kinds.insert(match entry {
             I::DepthBound { .. } => format!("a path reached max_depth = {}", budget.max_depth),
             I::BreadthBound { .. } => "the frontier exceeded the breadth bound".to_owned(),
-            I::Cancelled { .. } => format!("the search {CLOCK_STOPPED} = {}", budget.time_ms),
+            I::Cancelled { .. } => format!(
+                "the search did not finish within time_ms = {}",
+                budget.time_ms
+            ),
             I::Indeterminate { .. } => "a step k-rust could not decide (indeterminate)".to_owned(),
             I::Simplification {
                 error: SearchFailureOutput::StackExhausted,
@@ -1894,7 +1904,9 @@ mod tests {
     #[track_caller]
     fn incomplete(outcome: &SearchOutcome, cause: &str) {
         match outcome {
-            SearchOutcome::Incomplete(why) => assert!(why.contains(cause), "{why}"),
+            SearchOutcome::Incomplete(why) | SearchOutcome::ClockStopped(why) => {
+                assert!(why.contains(cause), "{why}");
+            }
             other => panic!("expected an unknown with {cause:?}, got {other:?}"),
         }
     }
@@ -2190,6 +2202,8 @@ mod tests {
             &|_| None,
         );
         incomplete(&fired, "time_ms");
+        // The clock's stop is stated as such, not read from the cause's words.
+        assert!(matches!(fired, SearchOutcome::ClockStopped(_)), "{fired:?}");
     }
 
     /// CF-03: a completed exploration of a definition whose short-circuit analysis flags a rule

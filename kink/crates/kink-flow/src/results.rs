@@ -2330,6 +2330,11 @@ pub struct ProgramRow {
     pub inputs: Option<CaseInputs>,
     /// The program's admitted test case (no oracles), when this command assembled it.
     pub test: Option<TestCase>,
+    /// Whether the clock stopped this command's baseline run of the program: the watchdog
+    /// stopped it at `budget.time_ms` ([`HostDependence::Time`]), or its class is `timeout`.
+    /// False for a stored record, which never holds a run the clock stopped, and for a program
+    /// that did not run.
+    pub clock_stopped: bool,
 }
 
 impl ProgramRow {
@@ -2577,6 +2582,7 @@ fn program_row(
             digest,
             inputs: None,
             test: None,
+            clock_stopped: false,
         }
     };
     let case = match inputs.read(program) {
@@ -2629,6 +2635,7 @@ fn program_row(
             digest: Some(digest),
             inputs: Some(case),
             test: None,
+            clock_stopped: false,
         };
     }
     let test = match inputs.test_case(program, &case) {
@@ -2676,6 +2683,7 @@ fn program_row(
             )),
             digest: Some(digest),
             inputs: Some(case),
+            clock_stopped: result_clock_stopped(&result),
             test: Some(test),
         };
     }
@@ -2713,8 +2721,14 @@ fn program_row(
         failed,
         digest: Some(digest),
         inputs: Some(case),
+        clock_stopped: result_clock_stopped(&result),
         test: Some(test),
     }
+}
+
+/// Whether the clock stopped the baseline run that gave `result` ([`ProgramRow::clock_stopped`]).
+fn result_clock_stopped(result: &ProgramResult) -> bool {
+    result.host == Some(HostDependence::Time) || result.class == ResultClass::Timeout
 }
 
 /// The authored rules none of whose compiled ids k-rust's run coverage can name (status

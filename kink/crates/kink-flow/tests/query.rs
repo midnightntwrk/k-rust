@@ -1277,10 +1277,11 @@ fn locked_rows(dir: &Path) -> Vec<(String, String, Option<String>)> {
     lock.rows
         .iter()
         .map(|row| {
+            assert_eq!(row.killer, None, "a query row records no killer");
             (
                 row.id.clone(),
                 row.status.clone().unwrap(),
-                row.killer.clone(),
+                row.witness.clone(),
             )
         })
         .collect()
