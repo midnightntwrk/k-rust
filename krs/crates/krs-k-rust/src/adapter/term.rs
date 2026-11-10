@@ -177,6 +177,15 @@ impl Adapter<'_> {
                         self.term(child, module, sentence_index, child_path, context)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                // A cell holding a collection (`*`) cell holds nothing else, and k-rust reads
+                // its content as a cell sequence, which a term of the collection's sort is:
+                // the incomplete cell's closed form, as a collection clause's parent is.
+                if let [child] = children.as_slice()
+                    && matches!(child.sort(), DefinitionSortRef::CellCollection(_))
+                {
+                    let instances = arguments.into_iter().next().expect("one child");
+                    return Ok(super::sentence::incomplete_cell(&name, instances, false));
+                }
                 Ok(NativeTerm::apply(format!("<{name}>"), arguments))
             }
             DefinitionTermKind::Rewrite { from, to } => {

@@ -697,6 +697,17 @@ fn field_sort(
                         )?)
                     }
                     ProtocolCellContent::Leaf { sort, .. } => semantic_sort_ref(&sort.sort),
+                    // A `*` child's place holds the collection of its instances.
+                    ProtocolCellContent::Nested { .. }
+                        if matches!(
+                            super::references::declared_multiplicity(declared, declarations),
+                            krs_ir::cell_kind::Multiplicity::Many(_)
+                        ) =>
+                    {
+                        SemanticSortRef::CellCollection(super::origin::semantic_cell_id(
+                            &declared.reference.cell,
+                        )?)
+                    }
                     ProtocolCellContent::Nested { declaration } => {
                         SemanticSortRef::Cell(declaration.declaration.clone())
                     }

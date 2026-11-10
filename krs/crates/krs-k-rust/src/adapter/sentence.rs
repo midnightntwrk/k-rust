@@ -1866,7 +1866,7 @@ fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTer
     )
 }
 
-fn incomplete_cell(name: &str, content: NativeTerm, open_right: bool) -> NativeTerm {
+pub(super) fn incomplete_cell(name: &str, content: NativeTerm, open_right: bool) -> NativeTerm {
     NativeTerm::apply(
         format!("<{name}>"),
         vec![

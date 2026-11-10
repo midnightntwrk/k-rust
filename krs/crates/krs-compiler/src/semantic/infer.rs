@@ -3345,11 +3345,8 @@ impl StructuredTermBuilder<'_> {
             }
             self.infer(&field.value, Some(&self.k_item_sort.clone()), subject)
         } else {
-            self.infer(
-                &field.value,
-                Some(&SemanticSortRef::Cell(nested.clone())),
-                subject,
-            )
+            let place = self.group_child_place(declared, nested)?;
+            self.infer(&field.value, Some(&place), subject)
         }
     }
 
@@ -3400,6 +3397,24 @@ impl StructuredTermBuilder<'_> {
         Ok(Some(SemanticSortRef::LeafCell(semantic_cell_id(
             &declared.reference.cell,
         )?)))
+    }
+
+    /// The sort of what the place of the cell term's group child `declared`, of the group
+    /// `nested`, holds: the group's generated cell sort, or for a `*` child the collection of its
+    /// instances (`AcctCellMap`), which its place holds whatever the number of instances.
+    fn group_child_place(
+        &self,
+        declared: &krs_ir::DescriptorCellField,
+        nested: &StableItemId,
+    ) -> Result<SemanticSortRef, DescriptorLoweringError> {
+        Ok(
+            match super::references::declared_multiplicity(declared, self.declarations) {
+                krs_ir::cell_kind::Multiplicity::Many(_) => {
+                    SemanticSortRef::CellCollection(semantic_cell_id(&declared.reference.cell)?)
+                }
+                _ => SemanticSortRef::Cell(nested.clone()),
+            },
+        )
     }
 
     /// The refusal of a cell term's group child `declared` that is a `*` cell, written as `field`
@@ -3497,7 +3512,8 @@ impl StructuredTermBuilder<'_> {
                     )
                 }
                 // A nested group child left out is matched or written whole,
-                // by a variable of its generated cell sort.
+                // by a variable of its generated cell sort; a `*` child, by one of
+                // its instances' collection sort.
                 ProtocolCellContent::Nested {
                     declaration: nested,
                 } => match value {
@@ -3517,20 +3533,13 @@ impl StructuredTermBuilder<'_> {
                             record.subject,
                         )?
                     }
-                    // A binder or `_` is matched or written at the child's
-                    // cell sort, as a child the term leaves out is.
-                    Some(value) => self.lower_record_field(
-                        Some(value),
-                        &field_id,
-                        Some(&SemanticSortRef::Cell(nested.declaration.clone())),
-                        record,
-                    )?,
-                    None => self.lower_record_field(
-                        None,
-                        &field_id,
-                        Some(&SemanticSortRef::Cell(nested.declaration.clone())),
-                        record,
-                    )?,
+                    // A binder or `_` is matched or written at the sort of what the
+                    // child's place holds, as a child the term leaves out is: the
+                    // group's cell sort, or a `*` child's collection sort.
+                    value => {
+                        let place = self.group_child_place(declared, &nested.declaration)?;
+                        self.lower_record_field(value, &field_id, Some(&place), record)?
+                    }
                 },
             };
             children.push(child);
