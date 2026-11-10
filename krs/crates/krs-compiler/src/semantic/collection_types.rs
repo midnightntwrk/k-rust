@@ -1499,6 +1499,13 @@ impl<'a> Walker<'a> {
                     self.walk(update, None, subject)?;
                 }
             }
+            // A projection to its typed operand's sort is that operand, standing where it does.
+            DescriptorTerm::SortTest { .. }
+                if !subject && self.projected_operand(term).is_some() =>
+            {
+                let operand = self.projected_operand(term).expect("checked above");
+                self.walk(operand, at, subject)?;
+            }
             DescriptorTerm::SortTest { kind, operand, .. } => {
                 if let Some(at) = at
                     && !subject
@@ -1996,8 +2003,30 @@ impl<'a> Walker<'a> {
                     _ => None,
                 }
             }
+            DescriptorTerm::SortTest { .. } => {
+                let operand = self.projected_operand(term)?;
+                self.typed_source(operand)
+            }
             _ => None,
         }
+    }
+
+    /// The operand of `term` when `term` is a projection `k::project!(S, t)` to the collection
+    /// sort `S` of the typed collection `t`: the projection denotes `t`'s value where `t` has
+    /// the sort `S`, and `t` always has it, so the projection is `t`, with `t`'s type. A
+    /// projection of a term of another sort (a `KItem`) tests only the sort, and is none.
+    fn projected_operand<'t>(&self, term: &'t DescriptorTerm) -> Option<&'t DescriptorTerm> {
+        let DescriptorTerm::SortTest {
+            kind: krs_ir::SortTestKind::Projection,
+            sort,
+            operand,
+            ..
+        } = term
+        else {
+            return None;
+        };
+        let (ty, _) = self.typed_source(operand)?;
+        (ty.sort == semantic_sort_ref(&sort.sort)).then_some(&**operand)
     }
 
     /// The type of a collection operation's result, from its operands.

@@ -967,6 +967,78 @@ fn an_untyped_value_keeps_its_verdict_through_a_local() {
     }
 }
 
+/// A projection `k::project!(S, t)` to the collection sort `S` that a typed `t`
+/// already has denotes `t`'s value, so it has `t`'s type: written where `t` would
+/// be, directly or through a local, it gets `t`'s verdict there, accepted where
+/// `t` fits and refused with `t`'s element mistake, at `t`, where it does not. A
+/// projection of a term that is no typed collection of that sort tests only the
+/// sort, and stays untyped.
+#[test]
+fn a_projection_to_its_typed_operand_s_sort_has_its_type() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let function = |parameter: &str, result: &str, body: &str| {
+        format!(
+            "{PREAMBLE}#[k::function(total, internal)]\npub fn Narrow(x: Term<{parameter}>) -> Term<{result}> {{\n    {body}\n}}\n"
+        )
+    };
+    let verdict = |name: &str, source: &str| {
+        let manifest = package(temporary.path(), name, source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        if success {
+            ("accepted".to_owned(), String::new())
+        } else {
+            diagnostics(&stderr)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| (format!("no diagnostic: {stderr}"), String::new()))
+        }
+    };
+    let collections = [
+        (
+            "Map",
+            ("Map<Id, Int>", "Map<Id, Value>"),
+            ("Map<Id, Value>", "Map<Id, Int>"),
+        ),
+        (
+            "List",
+            ("List<Int>", "List<Value>"),
+            ("List<Value>", "List<Int>"),
+        ),
+        ("Set", ("Set<Int>", "Set<Int>"), ("Set<Value>", "Set<Int>")),
+    ];
+    for (sort, fits, breaks) in collections {
+        for (case, (parameter, result)) in [("fits", fits), ("breaks", breaks)] {
+            let name = format!("project-{}-{case}", sort.to_lowercase());
+            for (form, around) in [("direct", "VALUE"), ("local", "{ let b = VALUE; b }")] {
+                let plain = verdict(
+                    &format!("{name}-{form}-x"),
+                    &function(parameter, result, &around.replace("VALUE", "x")),
+                );
+                assert_eq!(plain.0 == "accepted", case == "fits", "{name}: {plain:?}");
+                let body = around.replace("VALUE", &format!("k::project!({sort}, x)"));
+                let projected = verdict(
+                    &format!("{name}-{form}"),
+                    &function(parameter, result, &body),
+                );
+                assert_eq!(projected, plain, "{name}: `{body}`");
+            }
+        }
+    }
+    // A projection of a `KItem`, and of a collection to another collection sort: only the sort.
+    for (name, parameter, body) in [
+        ("project-item", "k::KItem", "k::project!(Map, x)"),
+        ("project-other-sort", "List<Int>", "k::project!(Map, x)"),
+    ] {
+        let (headline, marked) = verdict(name, &function(parameter, "Map<Id, Value>", body));
+        assert!(
+            headline.starts_with("error[krs::analysis::untyped-collection]: `k::project!(Map, ..)` is a projection, which tests only the sort"),
+            "{name}: {headline}"
+        );
+        assert_eq!(marked, body, "{name}");
+    }
+}
+
 /// A local names its value, so a collection the sentence builds keeps, through
 /// a local, the typing it has where it is used: `let b = map::update(map::empty(),
 /// name, s); b` at the cell `env` checks `s` against `env`'s values, as

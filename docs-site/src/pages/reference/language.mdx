@@ -686,7 +686,7 @@ pub fn MarkStorageAccess(
 A rule then writes `accessed_storage: MarkStorageAccess { accessed, account, index }` into a `Map<Int, Set<Int>>` cell with nothing left unchecked, and an equation that stored a `Stmt` there would be rejected at the stored term.
 `krs expand` writes the types into the long form, `#[k::function(sort = Map<Int, Set<Int>>, ..)]`, and its equations as `k::Term<Map>`.
 
-A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell, field, or parameter, a function's untyped result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)`.
+A collection whose elements nothing declares is untyped: a binder matched in a bare `Map` cell, field, or parameter, a function's untyped result (`-> k::Term<Map>`), or a projection `k::project!(Map, t)` of a term `t` that is no typed `Map` (a `KItem`). A projection to the sort a typed collection already has denotes that collection's value, so it has its type: `k::project!(Map, m)` of an `m: Map<Id, Int>` is checked where it is written as `m` is.
 A collection the sentence builds, such as `map::update(map::empty(), 1, s)`, is not untyped: it has no type of its own and is checked where it is written.
 Writing one into a typed position is an error, since nothing would check its elements:
 
