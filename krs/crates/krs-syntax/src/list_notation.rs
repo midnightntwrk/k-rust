@@ -49,10 +49,16 @@ thread_local! {
 /// set of states and holds when some split of the list matches, so the one-rest rule's
 /// reason, that a result uses one binding, does not apply to it.
 pub fn with_pattern_steps<T>(read: impl FnOnce() -> T) -> T {
-    let outer = PATTERN_STEP.with(|step| step.replace(true));
-    let read = read();
-    PATTERN_STEP.with(|step| step.set(outer));
-    read
+    /// Restores the outer reading when dropped, so a read that unwinds (a proc-macro server
+    /// reuses its threads) leaves no later bracket read as a pattern step's.
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PATTERN_STEP.with(|step| step.set(self.0));
+        }
+    }
+    let _restore = Restore(PATTERN_STEP.with(|step| step.replace(true)));
+    read()
 }
 
 /// Whether `group`, a bracketed value, holds two or more rests (`..` or `name @ ..`).
