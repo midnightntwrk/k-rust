@@ -28,6 +28,9 @@ pub enum EntryForm {
     Readable,
     /// A readable claim.
     Claim,
+    /// A `k::patterns!` step or `unless` (FB-49): a claim's subject, whose lists may hold
+    /// several rests.
+    Pattern,
     /// A `cells!` entry.
     Cells,
     /// An initializer's field.
@@ -38,7 +41,13 @@ impl EntryForm {
     /// Whether the form is a readable record or claim.
     #[must_use]
     pub const fn is_readable(self) -> bool {
-        matches!(self, Self::Readable | Self::Claim)
+        matches!(self, Self::Readable | Self::Claim | Self::Pattern)
+    }
+
+    /// Whether the form is a claim's, whose subject a pattern's step is too.
+    #[must_use]
+    pub const fn is_claim(self) -> bool {
+        matches!(self, Self::Claim | Self::Pattern)
     }
 }
 
@@ -69,6 +78,9 @@ pub struct EntrySeq {
     pub items: Vec<EntrySpelling>,
     /// The rest and its place; `None` for an exact sequence.
     pub rest: Option<(EntryRest, RestPlace)>,
+    /// The rests after the first, which only a pattern step's list holds (FB-49 R-2): its
+    /// items then occur in order, with any list between and around them.
+    pub more_rests: usize,
 }
 
 impl EntrySeq {
@@ -434,12 +446,21 @@ impl<'a> EntryReading<'a> {
         Ok(EntrySpelling::Call(Vec::new()))
     }
 
-    /// Comma-separated items with at most one rest.
+    /// Comma-separated items with at most one rest, or, in a pattern step, any number.
     fn seq(self, content: ParseStream<'_>) -> syn::Result<EntrySeq> {
         let mut items = Vec::new();
         let mut rest = None;
+        let mut more_rests = 0;
         while !content.is_empty() {
             if let Some(found) = Self::rest(content)? {
+                if rest.is_some() && self.form == EntryForm::Pattern {
+                    more_rests += 1;
+                    if content.is_empty() {
+                        break;
+                    }
+                    content.parse::<Token![,]>()?;
+                    continue;
+                }
                 if rest.is_some() {
                     return Err(content.error("a sequence has at most one rest"));
                 }
@@ -462,7 +483,11 @@ impl<'a> EntryReading<'a> {
             }
             content.parse::<Token![,]>()?;
         }
-        Ok(EntrySeq { items, rest })
+        Ok(EntrySeq {
+            items,
+            rest,
+            more_rests,
+        })
     }
 
     /// `key -> value` entries with at most one rest, last.
@@ -1004,6 +1029,7 @@ mod cells_fields_tests {
             Some(EntrySpelling::KCell(super::EntrySeq {
                 items: vec![EntrySpelling::Call(Vec::new())],
                 rest: Some((super::EntryRest::Anonymous, super::RestPlace::Back)),
+                more_rests: 0,
             }))
         );
         assert!(!fields[2].anonymous_rest);
@@ -1059,6 +1085,7 @@ mod cells_fields_tests {
             Some(EntrySpelling::Brackets(super::EntrySeq {
                 items: vec![term(), EntrySpelling::Binder("x".to_owned())],
                 rest: None,
+                more_rests: 0,
             }))
         );
         assert_eq!(
@@ -1072,6 +1099,7 @@ mod cells_fields_tests {
                         EntrySpelling::Brackets(super::EntrySeq {
                             items: vec![EntrySpelling::Call(vec![term()])],
                             rest: None,
+                            more_rests: 0,
                         })
                     ),
                 ],

@@ -38,6 +38,53 @@ fn list_error(reason: impl Into<String>, span: Span) -> SyntaxError {
     )
 }
 
+thread_local! {
+    /// Whether the brackets being read are a `k::patterns!` step's, where a list may hold
+    /// several rests (FB-49 R-2).
+    static PATTERN_STEP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `read` with the brackets it reads taken as a `k::patterns!` step's: a list there may
+/// hold several rests, `[.., a, .., b, ..]`, the items occurring in that order. A step is a
+/// set of states and holds when some split of the list matches, so the one-rest rule's
+/// reason, that a result uses one binding, does not apply to it.
+pub fn with_pattern_steps<T>(read: impl FnOnce() -> T) -> T {
+    let outer = PATTERN_STEP.with(|step| step.replace(true));
+    let read = read();
+    PATTERN_STEP.with(|step| step.set(outer));
+    read
+}
+
+/// Whether `group`, a bracketed value, holds two or more rests (`..` or `name @ ..`).
+pub(crate) fn holds_several_rests(group: &proc_macro2::Group) -> bool {
+    use proc_macro2::TokenTree;
+    let items = group.stream().into_iter().collect::<Vec<_>>();
+    items
+        .split(|token| matches!(token, TokenTree::Punct(comma) if comma.as_char() == ','))
+        .filter(|item| {
+            let rest = match item {
+                [TokenTree::Ident(_), TokenTree::Punct(at), rest @ ..] if at.as_char() == '@' => {
+                    rest
+                }
+                rest => rest,
+            };
+            matches!(rest, [TokenTree::Punct(a), TokenTree::Punct(b)]
+                if a.as_char() == '.' && b.as_char() == '.')
+        })
+        .count()
+        > 1
+}
+
+/// Whether the brackets being read are a pattern step's ([`with_pattern_steps`]).
+pub(crate) fn in_pattern_step() -> bool {
+    PATTERN_STEP.with(std::cell::Cell::get)
+}
+
+/// The marker path of a pattern step's level `__list::join(rest, remaining)`, at its rest.
+fn join_head(rest: Span, brackets: Span) -> Path {
+    marker_path("join", rest, brackets)
+}
+
 /// The reason given for a second rest in one bracket.
 pub(crate) const TWO_RESTS: &str = "a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`";
 
@@ -88,7 +135,7 @@ pub(crate) fn is_level_head(head: &Path) -> bool {
     head.leading_colon.is_none()
         && head.segments.len() == 2
         && head.segments[0].ident == "__list"
-        && ["cons", "snoc", "empty"]
+        && ["cons", "snoc", "empty", "join"]
             .iter()
             .any(|name| head.segments[1].ident == name)
 }
@@ -236,6 +283,37 @@ pub(crate) fn pattern_level(slice: &PatSlice) -> Result<(Path, Vec<Pat>), Syntax
     crate::term::reject_attributes(&slice.attrs, slice.span())?;
     let close = slice.bracket_token.span.join();
     let elements = slice.elems.iter().collect::<Vec<_>>();
+    let several = in_pattern_step()
+        && elements
+            .iter()
+            .filter(|element| rest_of(element).is_some())
+            .count()
+            > 1;
+    if several {
+        // A step's list with several rests: a rest first is `join(rest, remaining)`, an item
+        // first `cons(item, remaining)`, so the levels spell the items in order between rests.
+        if elements.iter().all(|element| rest_of(element).is_some()) {
+            return Err(list_error(
+                "`[.., ..]` names no element: it matches any list, so write `_`",
+                slice.span(),
+            ));
+        }
+        let first = elements[0];
+        return Ok(if rest_of(first).is_some() {
+            (
+                join_head(first_span(first), close),
+                vec![
+                    pattern_remainder(&[first], close),
+                    pattern_remainder(&elements[1..], close),
+                ],
+            )
+        } else {
+            (
+                level_head(Some(first_span(first)), close),
+                vec![first.clone(), pattern_remainder(&elements[1..], close)],
+            )
+        });
+    }
     let mut rest_index = None;
     for (index, element) in elements.iter().enumerate() {
         let Some(rest) = rest_of(element) else {

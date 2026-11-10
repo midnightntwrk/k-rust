@@ -130,6 +130,19 @@ fn builtin_list_term(
     list.unwrap_or_else(|| SemanticTerm::list(empty, BUILTIN_LIST, ListOperands::Empty))
 }
 
+/// A join level's two operands: the rest, and the remaining brackets.
+fn join_operands(
+    arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
+) -> Option<(&krs_ir::DescriptorTerm, &krs_ir::DescriptorTerm)> {
+    match arguments {
+        krs_ir::Arguments::Positional(values) => match values.as_slice() {
+            [left, right] => Some((left.as_ref(), right.as_ref())),
+            _ => None,
+        },
+        krs_ir::Arguments::Named(_) => None,
+    }
+}
+
 /// One level of a bracket list's spine (see `list_spine`).
 struct SpineLevel<'t> {
     /// The cons constructor, at the level's key.
@@ -266,10 +279,10 @@ impl StructuredTermBuilder<'_> {
         };
         let application = match (notation, list.cons, list.empty) {
             (ListNotation::Cons, Some(cons), _) => DescriptorApplicationRef::Declared(cons),
-            (ListNotation::Snoc, Some(_), _) => {
+            (ListNotation::Snoc | ListNotation::Join, Some(_), _) => {
                 return Err(self.invalid_list_notation(&reference.key, CONS_LIST_BACK.to_owned()));
             }
-            (ListNotation::Cons | ListNotation::Snoc, None, _) => {
+            (ListNotation::Cons | ListNotation::Snoc | ListNotation::Join, None, _) => {
                 return Err(self.invalid_term(
                     "a bracket level at the builtin `List` is lowered as one list, never alone",
                 ));
@@ -296,9 +309,13 @@ impl StructuredTermBuilder<'_> {
         arguments: &'t krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
     ) -> Result<ListSpine<'t>, DescriptorLoweringError> {
-        if reference.application == DescriptorApplicationRef::ListNotation(ListNotation::Snoc) {
-            // A level taken from the back denotes nothing at a cons list.
-            self.list_constructor(reference, ListNotation::Snoc, expected_sort)?;
+        if let DescriptorApplicationRef::ListNotation(
+            notation @ (ListNotation::Snoc | ListNotation::Join),
+        ) = reference.application
+        {
+            // A level taken from the back, or a rest with items after it, denotes nothing at a
+            // cons list.
+            self.list_constructor(reference, notation, expected_sort)?;
             return Err(self.invalid_term("a cons list has no level taken from its back"));
         }
         let mut levels = Vec::new();
@@ -371,6 +388,14 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
+        if is_builtin_list(expected_sort)
+            && reference.application == DescriptorApplicationRef::ListNotation(ListNotation::Join)
+        {
+            let (left, right) = join_operands(arguments)
+                .ok_or_else(|| self.invalid_term("a join has a rest and the remaining brackets"))?;
+            self.infer(left, Some(&BUILTIN_LIST), subject)?;
+            return self.infer(right, Some(&BUILTIN_LIST), subject);
+        }
         if is_builtin_list(expected_sort) {
             let list = self.builtin_list(reference, arguments)?;
             for (_, element) in list.front.iter().chain(&list.back) {
@@ -400,6 +425,25 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if is_builtin_list(expected_sort)
+            && reference.application == DescriptorApplicationRef::ListNotation(ListNotation::Join)
+        {
+            // `[.., x, ..]` in a pattern step: its rest, then the remaining brackets, `L R` in K.
+            let (left, right) = join_operands(arguments)
+                .ok_or_else(|| self.invalid_term("a join has a rest and the remaining brackets"))?;
+            let left = self.lower(left, Some(&BUILTIN_LIST), subject)?;
+            let right = self.lower(right, Some(&BUILTIN_LIST), subject)?;
+            let origin = semantic_origin(
+                self.descriptor,
+                reference.key.clone(),
+                "list-notation-concat",
+            )?;
+            return Ok(SemanticTerm::list(
+                origin,
+                BUILTIN_LIST,
+                ListOperands::Concat { left, right },
+            ));
+        }
         if is_builtin_list(expected_sort) {
             return self.lower_builtin_list(reference, arguments, subject);
         }
@@ -484,8 +528,10 @@ impl StructuredTermBuilder<'_> {
                     list.front.push((key, first));
                     match level(second) {
                         Some((_, ListNotation::Empty, _)) => break,
-                        Some(next) => next,
-                        None => {
+                        // A pattern step's rest with items after it is the list's rest, the
+                        // concatenation a join denotes, lowered at the builtin `List` alone.
+                        Some(next) if next.1 != ListNotation::Join => next,
+                        _ => {
                             list.rest = Some(second);
                             break;
                         }
@@ -502,6 +548,11 @@ impl StructuredTermBuilder<'_> {
                 }
                 ListNotation::Empty => {
                     return Err(self.invalid_term("the empty list is no level of a list"));
+                }
+                ListNotation::Join => {
+                    return Err(
+                        self.invalid_term("a join is a builtin list's rest, never its level")
+                    );
                 }
             };
             key = next.0.key.clone();

@@ -71,7 +71,7 @@ fn marker_rest_argument(path: &str) -> Option<usize> {
     let segments = path.split("::").map(str::trim).collect::<Vec<_>>();
     match segments.as_slice() {
         ["__list", "cons"] => Some(1),
-        ["__list", "snoc"] => Some(0),
+        ["__list", "snoc" | "join"] => Some(0),
         _ => None,
     }
 }
@@ -187,7 +187,9 @@ impl ValidationStage for DescriptorStage {
     fn list_rest_argument(application: &Self::Application) -> Option<usize> {
         match application.application {
             crate::DescriptorApplicationRef::ListNotation(crate::ListNotation::Cons) => Some(1),
-            crate::DescriptorApplicationRef::ListNotation(crate::ListNotation::Snoc) => Some(0),
+            crate::DescriptorApplicationRef::ListNotation(
+                crate::ListNotation::Snoc | crate::ListNotation::Join,
+            ) => Some(0),
             _ => None,
         }
     }

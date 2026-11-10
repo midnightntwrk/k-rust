@@ -707,6 +707,7 @@ fn product_of(spelling: &Spelling) -> EntrySpelling {
                 },
             )
         }),
+        more_rests: 0,
     };
     let map = |entries: &Entries| EntryMap {
         entries: entries

@@ -117,6 +117,9 @@ pub enum Refusal {
     /// cell out) or updated through its label (a stated limitation: the back is created or
     /// removed, and read and updated at the front).
     ListBackKept,
+    /// A pattern step's List collection instances with several rests (FB-49): instances that
+    /// occur in order, with any between, are not supported yet (a stated limitation).
+    SeveralRestsInstances,
     /// Map notation where no layer is a map.
     MapNotationAtNonMap,
     /// A missing or misplaced leaf or computation wrapper.
@@ -203,9 +206,10 @@ impl Refusal {
             Self::PresenceOnPlainCell => "presence-on-plain-cell",
             Self::BracketReading => "bracket-reading",
             Self::InstancesOnPlainCell => "instances-on-plain-cell",
-            Self::InstanceListShape | Self::ListBothEnds | Self::ListBackKept => {
-                "instance-list-shape"
-            }
+            Self::InstanceListShape
+            | Self::ListBothEnds
+            | Self::ListBackKept
+            | Self::SeveralRestsInstances => "instance-list-shape",
             Self::MapNotationAtNonMap => "map-notation-at-non-map",
             Self::CellWrapper => "cell-wrapper",
             Self::OptionalWithoutPresence | Self::BelowOptionalAncestor => {
@@ -273,6 +277,7 @@ impl Refusal {
             | Self::InstanceListShape
             | Self::ListBothEnds
             | Self::ListBackKept
+            | Self::SeveralRestsInstances
             | Self::CollectionWithoutInstances
             | Self::BelowCollectionAncestor => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
@@ -296,7 +301,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 32] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -308,6 +313,7 @@ impl Refusal {
         Self::InstanceListShape,
         Self::ListBothEnds,
         Self::ListBackKept,
+        Self::SeveralRestsInstances,
         Self::MapNotationAtNonMap,
         Self::CellWrapper,
         Self::OptionalWithoutPresence,
@@ -392,6 +398,9 @@ impl Refusal {
                     "the entry of the cell `{cell}` writes instances in a shape its collection does not have"
                 ),
             },
+            Self::SeveralRestsInstances => format!(
+                "this step's brackets on the List collection `{cell}` hold several rests: instances that occur in order with any instances between them are not supported yet; a step names its instances with one rest"
+            ),
             Self::ListBothEnds => format!(
                 "this entry names instances at both ends of the List collection `{cell}`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
             ),
@@ -425,7 +434,7 @@ impl Refusal {
                             "`k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort"
                         }
                     },
-                    EntryForm::Readable | EntryForm::Claim => {
+                    EntryForm::Readable | EntryForm::Claim | EntryForm::Pattern => {
                         "a computation's entry is its items in brackets, read from the front, and a value alone is no computation"
                     }
                 },
@@ -1230,6 +1239,9 @@ impl Admission<'_> {
         spelling: &EntrySpelling,
     ) -> Result<(), Refusal> {
         let seq = sequence(spelling).expect("an instance mark is a sequence");
+        if seq.more_rests > 0 {
+            return Err(Refusal::SeveralRestsInstances);
+        }
         // A List collection's items after its rest are its back instances (P2): which ends a
         // rule changes is the pairing's ([`list_ends`]).
         for (step, item) in seq.items.iter().enumerate() {

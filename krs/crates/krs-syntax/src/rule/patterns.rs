@@ -149,7 +149,7 @@ impl PatternBlock {
 
 impl KrsSyntax for PatternBlock {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
-        structured(tokens, parse_block)
+        crate::with_pattern_steps(|| structured(tokens, parse_block))
     }
 }
 
@@ -542,45 +542,6 @@ fn helper_in(tokens: TokenStream) -> Option<Span> {
     None
 }
 
-/// The reason several rests in one list of a pattern are refused: a limit, not the one-rest rule
-/// of every other position, whose reason (a result that uses one binding) does not hold for a
-/// step, which holds when some split of the list matches.
-pub(crate) const SEVERAL_RESTS: &str = "several rests in one list of a pattern, items that occur in this order, are not supported yet; a list holds one rest `..` or `name @ ..`, and `list::contains(l, x)` in a condition, over a rest `l @ ..`, tests that `x` is in it";
-
-/// The first bracket group in `tokens` that holds two or more rests (`..` or `name @ ..`).
-fn several_rests_in(tokens: TokenStream) -> Option<Span> {
-    for token in tokens {
-        let TokenTree::Group(group) = token else {
-            continue;
-        };
-        if group.delimiter() == Delimiter::Bracket {
-            let items = group.stream().into_iter().collect::<Vec<_>>();
-            let rests = items
-                .split(|token| matches!(token, TokenTree::Punct(comma) if comma.as_char() == ','))
-                .filter(|item| {
-                    let rest = match item {
-                        [TokenTree::Ident(_), TokenTree::Punct(at), rest @ ..]
-                            if at.as_char() == '@' =>
-                        {
-                            rest
-                        }
-                        rest => rest,
-                    };
-                    matches!(rest, [TokenTree::Punct(a), TokenTree::Punct(b)]
-                        if a.as_char() == '.' && b.as_char() == '.')
-                })
-                .count();
-            if rests >= 2 {
-                return Some(group.span());
-            }
-        }
-        if let Some(span) = several_rests_in(group.stream()) {
-            return Some(span);
-        }
-    }
-    None
-}
-
 /// A record-level rest `..` or `name @ ..` among a record's top-level entries: the anonymous
 /// one is dropped (a cell the record does not name is unconstrained already), the named one is
 /// refused.
@@ -698,9 +659,6 @@ fn clause_parts(
     written: &[WrittenPart],
 ) -> Result<(PatternClause, Vec<RuleClause>), ParseError> {
     for part in written {
-        if let Some(span) = several_rests_in(part.record.stream()) {
-            return Err(invalid(SEVERAL_RESTS, span).into());
-        }
         if let Some(span) = helper_in(part.record.stream()) {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::PatternHelper {

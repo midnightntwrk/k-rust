@@ -185,6 +185,7 @@ fn builtin_spelling(application: &DescriptorApplicationRef) -> String {
             krs_ir::ListNotation::Cons => "[head, ..tail]",
             krs_ir::ListNotation::Empty => "[]",
             krs_ir::ListNotation::Snoc => "[..init, last]",
+            krs_ir::ListNotation::Join => "[.., item, ..]",
         }
         .to_owned(),
         DescriptorApplicationRef::Builtin(operation) => {

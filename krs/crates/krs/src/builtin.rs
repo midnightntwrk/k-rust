@@ -1099,9 +1099,12 @@ pub mod __list {
     pub struct Empty();
     /// Marker for `[..init, last]`.
     pub struct Snoc<A = (), B = ()>(pub A, pub B);
+    /// Marker for `[.., x, ..]` in a `k::patterns!` step: a rest, then the remaining brackets.
+    pub struct Join<A = (), B = ()>(pub A, pub B);
 
     pub use Cons as cons;
     pub use Empty as empty;
+    pub use Join as join;
     pub use Snoc as snoc;
 }
 

@@ -1673,6 +1673,10 @@ impl<'a> Walker<'a> {
                         self.walk(init, carried, subject)?;
                         self.element(last, operated, Step::Element, subject)
                     }
+                    (ListNotation::Join, [rest, remaining]) => {
+                        self.walk(rest, carried, subject)?;
+                        self.walk(remaining, carried, subject)
+                    }
                     _ => {
                         for value in values {
                             self.walk(value, None, subject)?;

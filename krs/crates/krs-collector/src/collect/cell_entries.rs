@@ -514,7 +514,7 @@ pub(super) fn judge_readable(
                 entry,
                 side,
                 Rewrite::Result,
-                authored.form == EntryForm::Claim,
+                authored.form.is_claim(),
                 &refusal,
                 target.groups(),
             ))

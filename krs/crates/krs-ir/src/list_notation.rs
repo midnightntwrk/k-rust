@@ -29,18 +29,23 @@ pub enum ListNotation {
     /// `[..init, last]`: at `List`, `init ListItem(last)`. A cons list is
     /// built from its front, so it has no such level.
     Snoc,
+    /// `[.., x, ..]` in a `k::patterns!` step only (FB-49): at `List`, the concatenation of
+    /// its left operand, a rest, and its right operand, the remaining brackets, so the items
+    /// occur in that order somewhere in the list. A cons list is built from its front, so it
+    /// has no such level.
+    Join,
 }
 
 impl ListNotation {
     /// Every level, in stable semantic order.
-    pub const ALL: [Self; 3] = [Self::Cons, Self::Empty, Self::Snoc];
+    pub const ALL: [Self; 4] = [Self::Cons, Self::Empty, Self::Snoc, Self::Join];
 
     /// The number of operands: the head and the tail of a cons, the init
     /// and the last element of a snoc, none for the empty list.
     #[must_use]
     pub const fn arity(self) -> usize {
         match self {
-            Self::Cons | Self::Snoc => 2,
+            Self::Cons | Self::Snoc | Self::Join => 2,
             Self::Empty => 0,
         }
     }
@@ -55,6 +60,7 @@ impl ListNotation {
                 Self::Cons => "cons",
                 Self::Empty => "empty",
                 Self::Snoc => "snoc",
+                Self::Join => "join",
             },
         }
     }

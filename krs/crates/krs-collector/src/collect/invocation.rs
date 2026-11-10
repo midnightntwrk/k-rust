@@ -1258,7 +1258,9 @@ fn collect_rule_block(
             .partition(|(kind, _)| kind == "have");
         extras.extend(writes);
         let anchors = clause.descriptor_provenance().map_err(source_syntax)?;
-        let form = if declaration == ProvenanceRole::ClaimDeclaration {
+        let form = if clause.pattern().is_some() {
+            krs_syntax::cell_entry::EntryForm::Pattern
+        } else if declaration == ProvenanceRole::ClaimDeclaration {
             krs_syntax::cell_entry::EntryForm::Claim
         } else {
             krs_syntax::cell_entry::EntryForm::Readable

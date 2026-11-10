@@ -291,6 +291,7 @@ fn list_notation_registry() -> [HostTypeKey; krs_ir::ListNotation::ALL.len()] {
         HostTypeKey(TypeId::of::<builtin::__list::Cons>),
         HostTypeKey(TypeId::of::<builtin::__list::Empty>),
         HostTypeKey(TypeId::of::<builtin::__list::Snoc>),
+        HostTypeKey(TypeId::of::<builtin::__list::Join>),
     ]
 }
 

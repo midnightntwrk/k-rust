@@ -853,6 +853,20 @@ fn parse_machine_pattern_record(
         let looks_up = sentence == ReadableSentence::Rule;
         let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {
             MachinePatternCell::State(Box::new(state))
+        } else if content.peek(syn::token::Bracket)
+            && crate::list_notation::in_pattern_step()
+            && matches!(content.fork().parse::<TokenTree>(), Ok(TokenTree::Group(group))
+                if crate::list_notation::holds_several_rests(&group))
+        {
+            // A pattern step's list with several rests is the term its list notation denotes,
+            // the concatenation of its rests and items at the cell's list (FB-49 R-2); the cell's
+            // kind admits it at a builtin `List` leaf only ([`crate::cell_entries`]).
+            let (pattern, signs) = parse_pattern_with_signs(&content)?;
+            let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
+            MachinePatternCell::Term {
+                pattern: Box::new(pattern),
+                tree: Box::new(tree),
+            }
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
         } else if content.peek(syn::token::Brace) {
@@ -1391,6 +1405,7 @@ fn readable_form_step(
     };
     let form = match sentence {
         ReadableSentence::Rule => EntryForm::Readable,
+        ReadableSentence::Claim if crate::list_notation::in_pattern_step() => EntryForm::Pattern,
         ReadableSentence::Claim => EntryForm::Claim,
     };
     for (side, tokens) in [(EntrySide::Subject, &subject), (EntrySide::Result, &result)] {

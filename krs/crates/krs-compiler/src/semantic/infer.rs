@@ -1929,7 +1929,9 @@ impl StructuredTermBuilder<'_> {
                     subject,
                 );
             }
-            DescriptorApplicationRef::ListNotation(ListNotation::Cons | ListNotation::Snoc) => {
+            DescriptorApplicationRef::ListNotation(
+                ListNotation::Cons | ListNotation::Snoc | ListNotation::Join,
+            ) => {
                 return self.infer_list_spine(reference, arguments, expected_sort, subject);
             }
             DescriptorApplicationRef::ListNotation(notation) => {
@@ -3152,9 +3154,9 @@ impl StructuredTermBuilder<'_> {
                     head,
                 );
             }
-            DescriptorApplicationRef::ListNotation(ListNotation::Cons | ListNotation::Snoc)
-                if !head || super::cons_lists::is_builtin_list(expected_sort) =>
-            {
+            DescriptorApplicationRef::ListNotation(
+                ListNotation::Cons | ListNotation::Snoc | ListNotation::Join,
+            ) if !head || super::cons_lists::is_builtin_list(expected_sort) => {
                 return self.lower_list_spine(reference, arguments, expected_sort, subject);
             }
             DescriptorApplicationRef::ListNotation(notation) => {

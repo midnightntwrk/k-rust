@@ -442,6 +442,13 @@ impl SemanticTheory {
             for layout in &module.layouts {
                 insert_node::<SemanticLevel>(&mut node_keys, layout.origin().key())?;
             }
+            // A deserialized module is not partitioned by its constructor: its rules never hold
+            // a `k::patterns!` part, and its parts are parts (the Definition IR's check).
+            if module.rules.iter().any(is_pattern_part)
+                || !module.patterns.iter().all(is_pattern_part)
+            {
+                return Err(SemanticValidationError::InvalidPatternParts(module.id.clone()).into());
+            }
             for rule in module.rules.iter().chain(&module.patterns) {
                 in_item(Some(&rule.id), || {
                     let expected = rule.kind().item_kind();
@@ -2025,6 +2032,8 @@ pub type SemanticTermKind = crate::IrTermKind<crate::SemanticLevel>;
 pub enum SemanticValidationError {
     /// No module was supplied.
     EmptyTheory,
+    /// A module's rules hold a `k::patterns!` part, or its parts hold another rule.
+    InvalidPatternParts(ModuleId),
     /// A textual field was blank.
     EmptyText(krs_ir::IrField),
     /// A set-like identity was repeated.
@@ -2270,6 +2279,10 @@ impl fmt::Display for SemanticValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyTheory => formatter.write_str("semantic theory must contain a module"),
+            Self::InvalidPatternParts(id) => write!(
+                formatter,
+                "module {id} holds a pattern part among its rules, or a rule among its pattern parts"
+            ),
             Self::EmptyText(field) => write!(formatter, "{field} must not be empty"),
             Self::DuplicateId { kind, id } => write!(formatter, "duplicate {kind} ID {id}"),
             Self::DuplicateSourceMapKey(key) => write!(formatter, "duplicate source-map key {key}"),

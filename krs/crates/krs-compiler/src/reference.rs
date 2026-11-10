@@ -1656,6 +1656,10 @@ fn render_builtin_list_level(
             let (init, last) = (render(first)?, render(second)?);
             quote!(#concat(#init, #item(#last)))
         }
+        ListNotation::Join => {
+            let (rest, remaining) = (render(first)?, render(second)?);
+            quote!(#concat(#rest, #remaining))
+        }
         ListNotation::Empty => return Err(ReferenceExpansionError::UnresolvedListNotation),
     })
 }

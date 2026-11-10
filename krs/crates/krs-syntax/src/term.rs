@@ -537,7 +537,7 @@ impl TermApplication {
         }
         match self.head.segments.last()?.ident.to_string().as_str() {
             "cons" => Some(1),
-            "snoc" => Some(0),
+            "snoc" | "join" => Some(0),
             _ => None,
         }
     }

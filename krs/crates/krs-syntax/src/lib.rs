@@ -24,6 +24,7 @@ mod keyed_nodes;
 pub mod keyword;
 mod lexical;
 mod list_notation;
+pub use list_notation::with_pattern_steps;
 mod notation;
 pub mod parse;
 mod path;

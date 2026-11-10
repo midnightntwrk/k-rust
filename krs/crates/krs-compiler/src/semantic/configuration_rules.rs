@@ -517,7 +517,9 @@ fn list_spine_end(term: &mut DescriptorTerm) -> &mut DescriptorTerm {
             ..
         } => match reference.application {
             krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Cons) => Some(1),
-            krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Snoc) => Some(0),
+            krs_ir::DescriptorApplicationRef::ListNotation(
+                krs_ir::ListNotation::Snoc | krs_ir::ListNotation::Join,
+            ) => Some(0),
             _ => None,
         }
         .filter(|at| *at < arguments.len()),
