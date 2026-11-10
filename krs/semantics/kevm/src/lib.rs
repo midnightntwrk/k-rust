@@ -5724,7 +5724,7 @@ mod tests {
         assert_eq!(
             recoverable,
             [format!(
-                "# kevmEcrecRecoverable ( V:Int , R:Int , S:Int ) => ((((((V:Int ==Int 27) orElseBool (V:Int ==Int 28)) andThenBool (0 <Int R:Int)) andThenBool (R:Int <Int {n})) andThenBool (0 <Int S:Int)) andThenBool (S:Int <Int {n})) andThenBool (((((R:Int *Int R:Int) *Int R:Int) +Int 7) ^%Int (({p} -Int 1) /Int 2) {p}) ==Int 1)"
+                "# kevmEcrecRecoverable ( V:Int , R:Int , S:Int ) => ((((((V:Int ==Int 27) orElseBool (V:Int ==Int 28)) andThenBool (0 <Int R:Int)) andThenBool (R:Int <Int {n} /* SECP256K1_N */)) andThenBool (0 <Int S:Int)) andThenBool (S:Int <Int {n} /* SECP256K1_N */)) andThenBool (((((R:Int *Int R:Int) *Int R:Int) +Int 7) ^%Int (({p} /* SECP256K1_P */ -Int 1) /Int 2) {p} /* SECP256K1_P */) ==Int 1)"
             )],
         );
     }

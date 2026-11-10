@@ -24,7 +24,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
     "outcome": "refused",
     "refusals": [
       {
-        "detail": "\"s ( plus ( N:Nat , M:Nat ) )\" does not occur in nat--plus_succ (definition.k:36)",
+        "detail": "\"s ( plus ( N:Nat , M:Nat ) )\" does not occur in nat--plus_succ (definition.k:39)",
         "edit": 0,
         "next": "the rule's text changed or `find` is misspelt: copy `find` from the rule's current K text, or drop the mutation if what it changed is gone",
         "reason": "find-not-found",
@@ -49,7 +49,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
     "warnings": []
   },
   {
-    "digest": "c741b93818cdacb160407d6e7f8d8506cb6e4eba3e4dbb573fbf5ef2cbbf67bb",
+    "digest": "3798f9407f60e04c730e6d96014d5b3384a64990a76196cdf6e802244e40294c",
     "id": "renamed-variables",
     "krs": {
       "edits": [
@@ -110,7 +110,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
         "edits": [
           0
         ],
-        "end_line": 38,
+        "end_line": 41,
         "file": "definition.k",
         "index": 2,
         "krs": {
@@ -125,13 +125,13 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
         },
         "label": "nat--plus_zero",
         "module": "NAT",
-        "start_line": 38
+        "start_line": 41
       }
     ],
     "warnings": []
   },
   {
-    "digest": "f92366d17ee3602c13e7e1754c93cad208bbcb0fd1c43fa7c4aaad673d806320",
+    "digest": "edc6f5bde0882f34a2f7f217db39b65de76cf32698cbe0a6ae8b91c42e65a010",
     "id": "overlap",
     "krs": {
       "edits": [
@@ -185,7 +185,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
         "edits": [
           0
         ],
-        "end_line": 38,
+        "end_line": 41,
         "file": "definition.k",
         "index": 2,
         "krs": {
@@ -200,7 +200,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
         },
         "label": "nat--plus_zero",
         "module": "NAT",
-        "start_line": 38
+        "start_line": 41
       }
     ],
     "warnings": []

@@ -2,7 +2,7 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
 [
   {
     "covered": true,
-    "end_line": 36,
+    "end_line": 39,
     "file": "definition.k",
     "fired_by": [
       "t3",
@@ -30,7 +30,7 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
     "obligation": true,
     "pattern": null,
     "rewrite": false,
-    "start_line": 36,
+    "start_line": 39,
     "status": "fired",
     "touched_only_by": [],
     "uncounted": {
@@ -40,7 +40,7 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
   },
   {
     "covered": true,
-    "end_line": 38,
+    "end_line": 41,
     "file": "definition.k",
     "fired_by": [
       "t1",
@@ -72,7 +72,7 @@ $ krs kink --package story-plus --definition main coverage --locked  # the docum
     "obligation": true,
     "pattern": null,
     "rewrite": false,
-    "start_line": 38,
+    "start_line": 41,
     "status": "fired",
     "touched_only_by": [],
     "uncounted": {

@@ -6,15 +6,15 @@
   },
   "emitted": {
     "krs-sorts-algebra-functions": {
-      "definition.k": "f953123c13687db287bfcaf9eac99a0ef66b553d1fd795b0d4613f3f2d79ef49"
+      "definition.k": "5ed75e1b151b952f0c4f1567d77fcf102e6328f26da149f80ab4987706672741"
     },
     "krs-sorts-algebra-constructors": {
-      "definition.k": "cbbfd2969648e1f1117f06386f0aa7c8c5f3b472d0f5d4b77d5c09fe01096eba"
+      "definition.k": "dc3fe42d9828194838a4fad09fef2df57c93c0a274dcd3687566f5bf5444d025"
     }
   },
   "reference_sha256": {
-    "krs-sorts-algebra-functions-haskell": "24b9126c9df7f1fd90fdf7ebb358a561b01d8fa52b1f9454902e6fab1b774fd4",
-    "krs-sorts-algebra-constructors": "402aecdc573deac5ed495b74ceb44eec788e091e8d3ee9b7edfd17e835290433"
+    "krs-sorts-algebra-functions-haskell": "326862d22eb855232efae2c5823e031313623d1755acbcb667da48efed396de5",
+    "krs-sorts-algebra-constructors": "cabb83ff50fc7f1fd1a58453738ca9419bcf63e0651f1780eb49624ee4b951f9"
   },
   "outcomes": {
     "krs-sorts-algebra-functions": {

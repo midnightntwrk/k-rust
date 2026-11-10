@@ -5,7 +5,7 @@
   },
   "definitions-compile-into-tools-emit-k": {
     "inputs": "44797d61aab2b21642af807c219dafef3e737f27dc182a11ffc2750526f068cc",
-    "output": "02fadff29adad97fe21a1b1d6291617c1602f64d1be1a579335c3365d25aaf22"
+    "output": "9cd2108cf12cc68eb83dbece40ea63dbba2d3ee3e3b8495550e305e52ee1aa68"
   },
   "definitions-compile-into-tools-parse-blue": {
     "inputs": "bf358c462c2530af5d11cf7211d1eedb0fdc056dd7a59b9837e59562e60d88a8",
@@ -33,7 +33,7 @@
   },
   "functions-defined-by-rules-emit-k": {
     "inputs": "4128ae601a8a7e120ce611672a6fc1526fc17cdfece51d7f9fdc5957094ec5ab",
-    "output": "e31c32ee56b9f737de99fcefa179a2cf682fb26d9c83162aa39a92047a41b284"
+    "output": "db131665de13bdc9097f13df818a88e3b93409a7c23e6fcfc839168c3be57457"
   },
   "functions-defined-by-rules-parse": {
     "inputs": "3761958842df66525c7090ffb824f76c7dd89e90e719de167bd38eaa8b6ca5fa",
@@ -52,44 +52,44 @@
     "output": "b15fcaaa3fcd07e2b556091bd0c18895fb2bf9bf4e79484c3bf31518a7134f11"
   },
   "mutation-testing-check": {
-    "inputs": "53e99c98eac0d24b6b852fc7c22a8c741c486badb2091b459f883850ac69c51e",
-    "output": "accc0848bb7d4cbfb88630a05e9235d72c36df9e73f1a97abd24396741ba254d"
+    "inputs": "f234fd51e91c9786ee9f8851082afee74a997fe53105c0463620750c9f12879b",
+    "output": "7762cbc57a4e2b7c32830fbbfc95b620952edc397f4286977487ca357a6a57e4"
   },
   "mutation-testing-check-refused": {
-    "inputs": "4dc2836985e17f8e4ee6af583e2355b96ffcda24b2e3f564c3b100064064bde0",
-    "output": "9427b81c694dc74bc07fef259f8b8b8bd0ae99f5124ac7c682f709cff678ca31"
+    "inputs": "25fb998a4d0dba4646e810c2100c50cc0154d6fc3ec4d0f3f0de2d115f7e73f3",
+    "output": "f7ceae2dc4e932e5488d2d09581605a7c67680de08dcfdb872862f2d96011edc"
   },
   "mutation-testing-coverage": {
-    "inputs": "f9481e4dbb203ee2f3900d6a2ba731da407b227ccbba13ee5b332dbcc9cfaa7a",
+    "inputs": "a85028cabfa95f820b3b4cd608bceeab621005ad7fef93687992f8e8eba63f76",
     "output": "bc418a43f3a3da1b1d0aa869d71c090aea4a3992898bff8f73fa84c1a3079aa1"
   },
   "mutation-testing-emit-check": {
-    "inputs": "8e5e3b59a42d4936cd279c90eb20c1ff6b065323e7c83c58209d7e21c6fb9492",
+    "inputs": "616bea68768677c6faa0b799903583fbd9ae42309bbb9ddc46a6b970ac55ea3c",
     "output": "9876fb332bdbcc489aae3f86633fad02d8e421e25f53536cfdc2133c34b8703b"
   },
   "mutation-testing-fuzz": {
-    "inputs": "ab85b1ea81fc7f36275ac58a6df5cc5538af3357b59e76c015927617a928bfdd",
+    "inputs": "e9a8e2368006d8e9c24ece4a6e3587f5863669bf4de8c64c2fa58042614d4fc5",
     "output": "8eddb741e31411c50a8d0bee7ef12a313e9f4d86494c968c6e2a05268661cbc8"
   },
   "mutation-testing-run-after": {
-    "inputs": "65c5d340ca295d6b1e66ed4f1d0e25b1281ccf36b010893b5c080f8efc35572c",
+    "inputs": "ed759321a13bb493bf494e3ab8428fed3ec057df37634d79d31ec86182d85996",
     "output": "bed4c0da885c324b407dbcefdcd6e47ef98f402b939f33c8748c7ca9aaa75071"
   },
   "mutation-testing-run-before": {
-    "inputs": "e182d0bbbabacbe784a357b2b581419204e6b67e3627304d31742f9d56b05632",
+    "inputs": "861bf6429c4de3f683132705b1eb649c303cafd10e4bf90db5b95252d1e98ffa",
     "output": "81136eee1f06a99573938ff3d896ed32b6e6174f9055c862d1a71fd9861ed180"
   },
   "mutation-testing-run-locked": {
-    "inputs": "4b1d7ccb55e9b5afcb751e5a123faac475105052bb3d6329430da658f236f87f",
+    "inputs": "d53e21ffd988f35a7f1430b119b5cfb265d20d95ceb6f569afa23ad979689a74",
     "output": "a259e589b0ed0ea4218290abeb19efc8c403b51536f8d052ec73ac89a8bede74"
   },
   "mutation-testing-run-refused": {
-    "inputs": "942d9f0ef0d21f5fbf462f4845bd35d051d2536b2b9f22f4612ba6cb3a150423",
-    "output": "ffbc465cf2806622daea55438c1b7758c0939a360430393856da91aff999aa41"
+    "inputs": "75fdc09eafa41171a4189e80f588d1697a2f05b23c357b7fca3b9cb20082cdcd",
+    "output": "7c686c348cebde532a29bd4c65dae2427cf9b84fe2c01bc04a53317e4b457f62"
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",
-    "output": "8e22ae397434f4439c5f98656a17422fe74dd57e8aaa9bce2077db79229125d6"
+    "output": "d5c868e7706570ab2a85a5b136566dc56543ce34180a355a9c7904ffab6ca706"
   },
   "patterns-and-substitution-run-differ": {
     "inputs": "74eb791baa48f116acf1a38aa89f7124101b6ad280dc30a2d08c27ba235b849a",
@@ -105,7 +105,7 @@
   },
   "sorts-and-constructors-emit-k": {
     "inputs": "7fabbc6bf84d74c4f66f3a2ae3167db069ade6edd5fcb5e675283fe5ddaa9f27",
-    "output": "2afbc008a52b87fe7d9fd13def3391a5506bfbf337334c2395162c9db327c9a0"
+    "output": "5bd34f881568801fe102bab0422d280cef0da604903d3050db9302d8d6dc1131"
   },
   "sorts-and-constructors-parse": {
     "inputs": "a4bfd572dad3c9410ca2c87de1e01b65771361eb1bf71ba64946cf475189217d",
@@ -152,19 +152,19 @@
     "output": "109a73ae914de407bccc610f7945de7e5c976689712b8f47e993de3b49c74d74"
   },
   "story-base-t1": {
-    "inputs": "1a038c7e361d02d31c7538fcbea1291725c120ef5a16e892966ed341c3712f21",
+    "inputs": "2864048b6403f6546cea352d768e85d5281906cfcc9266c5d92ae86ec5535d30",
     "output": "020f7f0dcbc6b34f64b043b5c8c2606b8f195ad197c39691fe91e2e2476e5e3f"
   },
   "story-base-t2": {
-    "inputs": "6150d8bbe8c8cc33021ebbb5b01bee55a0841b948bc5f205cf0bb6959a3e13cf",
+    "inputs": "aafa80e100c9bf3fddcaa0cebe41c060b1146e5023aec3364bb84b4e24e30691",
     "output": "efe4d427eba16c2cb97499acb62e7de3873eeb2984c52a4b1aac9a533cec9d33"
   },
   "story-base-t3": {
-    "inputs": "e879534fbf8fb470b4cae34db8b7d06ce22e3b69d86422c8efc069319bec1d0a",
+    "inputs": "7760c38aefe9baf3b5b9bb1d0e61cba8f9f3876e7fae1b0df830823b816daa11",
     "output": "789c9b32c47d89ba2d980bff534a92004e2cfb9bebdbcf652719b346267b4512"
   },
   "story-base-t4": {
-    "inputs": "de653320397bfbb960fad405392eebd246173f21bf546a9cdf5db7b7fdd1cd29",
+    "inputs": "add1ceed896ea60aafe48fc37ce77d18d5fccd9a1c2a71e4bcc6413a069be478",
     "output": "c2581d9c46f1abf6ce3c2b61afe791aed567e71ca8d9bcca89c28621d69fb99d"
   },
   "story-c-t1": {
@@ -184,51 +184,51 @@
     "output": "fd4cdeec7d1f7d67317605bfe3c67cefe9ec794a3c8c7e0e3acb228ce603ee58"
   },
   "story-check": {
-    "inputs": "ac719d8fd7cc747bbdc3215553f6f5637dcf5285980ffce8e87726f29e03e4cf",
+    "inputs": "959d7f7bc3f31bebb9656e327b599d6fc10e3a66b0895b5f00f46844bd4be991",
     "output": "24cd61b9680e34d74ce4c1c1c11e91b94c313e8b19046f5ffb04fb164f7bab33"
   },
   "story-emit-k": {
-    "inputs": "28ecd7878a534eedae39bbbbbb815e2308693e881c4ec5dc959e92a3ab41dfd1",
-    "output": "dfd33881eb602c5feb331adaceeae2ecefcc4206116d07406d1fb9f1b74e7286"
+    "inputs": "db7602ee4e5f9b72e0179114c5f168530bdcc2994d5cc341d637839cf1387d5c",
+    "output": "51c71e63c494e7ea7f8c07240c8823209c0d3b3c8206a590834ca6619f5ea871"
   },
   "story-emit-k-a": {
     "inputs": "c9c9b35c97350bc7649554c3644bdb70630acb8fde14e55035bd84c554cdcff5",
-    "output": "95ccc7292f6b9984021769d747edb11a6740c3a9f63396b5a65b226ab99c1967"
+    "output": "05ab5ad4deaad6dcb70f17027341c508cf1c01347d7330d4b203c398c3a0b385"
   },
   "story-emit-k-b": {
     "inputs": "8819ba6c4fb2e320075b986eef5b45dcbf20e0c1ceae9c493fb095a41621ca18",
-    "output": "bdeab54c8f923c62c93cc8b1da74cb1235edf448a7a8570ff26f9854868cc543"
+    "output": "497d5f4a663cf7629b9d56983505a8f6f41dd7ae85c70f1c9b3f124e86d732e8"
   },
   "story-emit-k-c": {
     "inputs": "3fff09da9980e88559feea93fef10798f81f8a53918c01992a4b2bd6f9ea0aba",
-    "output": "ec47a5a4d37b155facc81d1f445f66a7a24bd094530e308c488d4724079af2bf"
+    "output": "2db52db7453ae73782801444dd3421c9402294624fca20f74cab3eb3259c45a4"
   },
   "story-kink-check": {
-    "inputs": "1cb0b11b3ecb5e955cf8499ed53e5ba00ba1ea64d2e811bedf55227e2f2af24b",
-    "output": "f6179270dfbb9581b5eb0a74d935b0753417b6407658a08a9b7881c1fcdf0fe0"
+    "inputs": "d3527576f0512c1d08aa4f388ff8690bdb5d12f0e6257f1c8c894a21b08ba917",
+    "output": "67b01427669feb9f2c451c712dc1e960fba061a64ded5425b63c485916f45c97"
   },
   "story-kink-coverage": {
-    "inputs": "bc8d5c5ba442272319a04f892e5f45083e5222c4f0424a98820d5ec2073f02b6",
+    "inputs": "b620856e111529fa4215a25490fc5b9827ce69cb174b7e9af421b9261d66a6ca",
     "output": "1f6bd3f1737c36fc19dc33c5b440acf93c18120ca7b3e820f7e7d06d04e8e7bf"
   },
   "story-kink-coverage-rules": {
-    "inputs": "f09a4fa54ea0db9c7fa042ace78472ba06f4d1862af387cfeb9ecc995843dd00",
-    "output": "f969e7cacc74ad30b5d68ecaafbf72e6cc7f09c3428a388333e1c9befc4d5d14"
+    "inputs": "bea82f1810c5d43253d8fe996cbec789fafe5586380603ecf32f7e2a709ac2cf",
+    "output": "e01a167833107a8abef72e5e9be78082a5aa191865a2ef638288cf68e876d194"
   },
   "story-kink-run": {
-    "inputs": "71bd5bd28228da25bee2555fe49f83a72b1cda020fd39c4f4c5b6a885f4ac0f7",
+    "inputs": "da7507490c35602b13fc03c474793f9da805e98cffad198724153dd4e493b493",
     "output": "7dd2dd72a5cdbb201bea9201f974fb48b4270c3b8a20b63f0fff0aff4c454f7a"
   },
   "story-parse": {
-    "inputs": "c92e75f30c0549af007fc8800cf6a1b4b868c8f0ec65eb2a3db869bf525119e4",
+    "inputs": "fa906bce16ae2a17ba39408987e5545c9a93b3bcd14436ef1b54dd383b1950ec",
     "output": "e2a7d6b8346bb96906c20bb15e2043962d8ed85aea0c741821a952852358b296"
   },
   "story-prove": {
-    "inputs": "95fa6f6fd10dc9b05a8b50a1beeab321875145f28177e2d55455fc22a1db0f43",
+    "inputs": "3ed3848a1fc84d942627f4d6df1f3bc40ced0cbb5db225e4b393b4ca30e8b02f",
     "output": "8c98514144063d2433a5e958200e77bd2b290f2df5d3e271635d37b25c2fa1a4"
   },
   "story-search": {
-    "inputs": "53058abf5dbaeafe5b09130b3fb2bbe624183f2f1adafbdc792441e2ac57dfee",
+    "inputs": "377947ad3af4232c58a0b60a337461556c851de743ba0fc2c8ab8515a7511b44",
     "output": "a93378b39088e12b88415d89bf6336a155727ef1b1a6a04422cc8092c3fea12f"
   },
   "tour-minimal-depth-0": {

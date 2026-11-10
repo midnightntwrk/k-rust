@@ -19,7 +19,9 @@ module NAT-SYNTAX
 
   syntax Nat
 
+  // KRS tour-nat/src/lib.rs: NatSyntax::Succ { n }
   syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), format(%1%2%3%4)]
+  // KRS tour-nat/src/lib.rs: NatSyntax::Zero
   syntax Nat ::= "zero" [symbol(natSyntaxZero), format(%1)]
 endmodule
 

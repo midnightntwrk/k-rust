@@ -19,8 +19,11 @@ module NAT-SYNTAX
 
   syntax Nat
 
+  // KRS story-plus-mutant-a/src/lib.rs: NatSyntax::Succ { n }
   syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
+  // KRS story-plus-mutant-a/src/lib.rs: NatSyntax::Zero
   syntax Nat ::= "zero" [symbol(natSyntaxZero), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1)]
+  // KRS story-plus-mutant-a/src/lib.rs: Plus
   syntax Nat ::= "plus" "(" Nat "," Nat ")" [symbol(plus), function, total]
 endmodule
 

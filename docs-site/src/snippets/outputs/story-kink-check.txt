@@ -1,7 +1,7 @@
 $ krs kink --package story-plus --definition main check --locked  # the document's "mutations"
 [
   {
-    "digest": "1b2c1628dd9ea389c4f3b6be4dee7e4a9e6dacf852e356d286f0392b3ffb9de7",
+    "digest": "fdcb8412de1bc9808b2f14018156802500148889241de531dd3b7d93e4cbc421",
     "id": "plus/a",
     "krs": {
       "edits": [
@@ -33,7 +33,7 @@ $ krs kink --package story-plus --definition main check --locked  # the document
         "edits": [
           0
         ],
-        "end_line": 38,
+        "end_line": 41,
         "file": "definition.k",
         "index": 2,
         "krs": {
@@ -48,13 +48,13 @@ $ krs kink --package story-plus --definition main check --locked  # the document
         },
         "label": "nat--plus_zero",
         "module": "NAT",
-        "start_line": 38
+        "start_line": 41
       }
     ],
     "warnings": []
   },
   {
-    "digest": "bd93a3b218a2a7aa0300af8c5904a45fe008a0ac4797d8ce19c9e28e6c7153f0",
+    "digest": "de0d6a2b000233994fe19dcb05710061500e4a61186956d92b258f94ba780827",
     "id": "plus/b",
     "krs": {
       "edits": [
@@ -86,7 +86,7 @@ $ krs kink --package story-plus --definition main check --locked  # the document
         "edits": [
           0
         ],
-        "end_line": 36,
+        "end_line": 39,
         "file": "definition.k",
         "index": 1,
         "krs": {
@@ -101,13 +101,13 @@ $ krs kink --package story-plus --definition main check --locked  # the document
         },
         "label": "nat--plus_succ",
         "module": "NAT",
-        "start_line": 36
+        "start_line": 39
       }
     ],
     "warnings": []
   },
   {
-    "digest": "c98dcb06cd2e7569ef5d06e53695c7452f97c2c919ff5a5fa77d4242b2025b3d",
+    "digest": "01d0f34fcedb3fdddd4170141b1ee2edb0f620429d91f8b8940399d5d45d1065",
     "id": "plus/c",
     "krs": {
       "edits": [
@@ -139,7 +139,7 @@ $ krs kink --package story-plus --definition main check --locked  # the document
         "edits": [
           0
         ],
-        "end_line": 36,
+        "end_line": 39,
         "file": "definition.k",
         "index": 1,
         "krs": {
@@ -154,7 +154,7 @@ $ krs kink --package story-plus --definition main check --locked  # the document
         },
         "label": "nat--plus_succ",
         "module": "NAT",
-        "start_line": 36
+        "start_line": 39
       }
     ],
     "warnings": []

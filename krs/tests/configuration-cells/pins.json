@@ -18,63 +18,63 @@
   },
   "emitted": {
     "krs-configuration-cells-framing": {
-      "definition.k": "e1b5ea10563d94c811a92ba8c20803b0f88f2a54546ab9b0ee1d24c48e2d3bd9"
+      "definition.k": "dd555562ddc7c54225745590f11e27f379396cd668deef068920139b5666930a"
     },
     "krs-configuration-cells-groups": {
-      "definition.k": "42fffd009ec6c2808929a80a70ae2e2e314e033cafebf3bdf1d650645b7e007b"
+      "definition.k": "68d1b921f02c3736a81ba1e1f7f1d907716f95ee179981d4ab5554ad49e1b205"
     },
     "krs-configuration-cells-optional": {
-      "definition.k": "c9221b67523fba84fde974fac4a9d19ad8dfd3eb7c28714be76b25e6698acb9e"
+      "definition.k": "a77f557ebc9db0f67f3491d0af062bf89900568114629bf91b3bdccc237bfc1f"
     },
     "krs-configuration-cells-threads": {
-      "definition.k": "578e679960057c0118c18be563049248a6b9d429ddc58edfde2a0df6a3507452"
+      "definition.k": "b59476b0c65747b1c3aba0f3ae6b82b445078b3a0823ec702a2c5b41c730df96"
     },
     "krs-configuration-cells-objects": {
-      "definition.k": "9cfebbfd5b5037c25bf1bef2c8db6fdab2983feda623f72754ac6914b1861d56"
+      "definition.k": "3b16256fc919508bbfe3b05999fa991d480ec719ff487eadddb3de5fa687f267"
     },
     "krs-configuration-cells-queue": {
-      "definition.k": "6b158522df61d63ad01890b7120e644f4f61126d66c144c81447fce70f207fa7"
+      "definition.k": "98552793042b9482239510b2879949849ba1e146a584b6c377173bf61df4e1bc"
     },
     "krs-configuration-cells-optional-config-var-initial": {
-      "definition.k": "33659ea87236bd3c84848178172f4f6dd57edbcc872d006915a08d0372133490"
+      "definition.k": "f027db4e3e11a0d85e5ef3430819041280cf4ddeb5a03bd72e74ba272e193c3b"
     },
     "krs-configuration-cells-set-instances": {
-      "definition.k": "2c2ba2dfcac6e6c93915fd98d07f0e315d5fce9e4d09eed0be9153d59c712c24"
+      "definition.k": "3dc775303b7967351c61ec6cdf1ccbb8d32e36bf3070d60bbb39976185972e77"
     },
     "krs-configuration-cells-group-small": {
-      "definition.k": "fef7b477a929f9ea9914220d5cf2989202a9302a23add8a38a2b6dcee55bbd55"
+      "definition.k": "18767df7233f3fc1f24dd3f336add8fafed56b82de1d26a1d84a12dfc8022401"
     },
     "krs-configuration-cells-group-board": {
-      "definition.k": "8e5bb34e9f19a5eb03220dc326d15fbaeb2c2e839cbaba05dd7cd7351173fe16"
+      "definition.k": "cb8e4b26d9349e944bde0325d614364abccbc5b1e8f1db32ac9983802c6d663e"
     },
     "krs-configuration-cells-group-harts-smp": {
-      "definition.k": "58e0c6e176e28a08aa34134746a672a3afe8a05e45ba65f1ddd1f7852bc41650"
+      "definition.k": "0049860869c09f91c91837cd2382b9d40c07b46592443c6704ac4dc82b450352"
     },
     "krs-configuration-cells-group-harts-nested": {
-      "definition.k": "fec6e129e4bbee02ae768198649b58455785f694cf0157762601e39543fecd1f"
+      "definition.k": "746d3161e10c34b5f7ff99d2532ddaf59e3934d0af466e1c5dce0716f5362859"
     },
     "krs-configuration-cells-group-harts-opt": {
-      "definition.k": "d75b4bb735dcd08e0390838fac55c49bf4c2385e6ac050a137e1a45465c9e555"
+      "definition.k": "5f9062bb5426034b15abb231f736b66c360cf92ad1d743fc2349c1ecb262e14f"
     },
     "krs-configuration-cells-shared-memory": {
-      "definition.k": "d920110cff90e55655c03e9d0bb6e7a3259f037d50b33eeda49f0350c0bf68ac"
+      "definition.k": "92637b808b6628f6100cba97800de462039a4c354ffbfd15d7c54f6756c6e6a4"
     }
   },
   "reference_sha256": {
-    "krs-configuration-cells-framing": "b0b684746f20fd6306e23f4bba3a7efd1b7d9ee23dc9f4329d04824ca545c73b",
-    "krs-configuration-cells-groups": "68559ff18fe53c518fede0d8b7b55999931b1ac5639c032c4a79041efb4ac71d",
-    "krs-configuration-cells-optional": "1bd06bfcc5ad4ae2af317a634fcea3b3fcfbc2488640862ee91decc3e2d762fe",
-    "krs-configuration-cells-objects": "4aac5938a7efe2a189713b86c550e96f47fdbd2a741fd0e6b6cccb3cb7909be3",
-    "krs-configuration-cells-queue": "306b6225b14c5ba803309cd6b06e100e8b0b603c73d205c9c59483e6db816ef1",
-    "krs-configuration-cells-optional-config-var-initial": "4a679a831d570fe133394d0e5e2e407800259ed081cb415b7891a1e2bbedea51",
-    "krs-configuration-cells-set-instances": "901454e080095a71ff56dcc70f98b73bee5df5b0ad9219431cb4f83924609b19",
-    "krs-configuration-cells-threads": "c808cd973c6f5b851e7b2a40f5749d4e658e3486049632a8207634a5db24d6ff",
-    "krs-configuration-cells-group-small": "930714e37c5de194ef331bc600729a9dfbbe9e6f93be2309a6912496e142164e",
-    "krs-configuration-cells-group-board": "11f1e07e6ec9c002645d74e9c23fd434f72ca9837b47648cd2b396fd7d3c63fa",
-    "krs-configuration-cells-group-harts-smp": "2e41e6e5073e5037bc5c91ebcca12ed18e5dec3bbdbcb5337b09495341a60761",
-    "krs-configuration-cells-group-harts-nested": "acb0ddd22230d5ef2177183b4daa57381587369f5baf6804574c0ca031138f07",
-    "krs-configuration-cells-group-harts-opt": "a8f55a0409fbd50073517b851e7c6607237a051b4710672850b2c3cc39999fa3",
-    "krs-configuration-cells-shared-memory": "521b594e2cc583075ec2f1be132cb1e9ba1d54e5f36419873a748cacec517b34"
+    "krs-configuration-cells-framing": "41dbee78961f771f3a4b11f357ae5199dc1b90bf608eef866a3fb7a8ccdf9333",
+    "krs-configuration-cells-groups": "f57aa8724ec840665e18f0570bc0d055210662344c4e38c7823d11ab3ca8a22b",
+    "krs-configuration-cells-optional": "7d891a60714e0a5d2cbab93471541431575389468bb9545ae7c10ffaf6d869e2",
+    "krs-configuration-cells-objects": "28038a6ab77511c8c116981cd4e7ff24781d914eae11b63ba924a2be7f37d3b3",
+    "krs-configuration-cells-queue": "4bf0544e1af8313d8b2f2c988ba6751cbd1263c964fd7794d656ea5602684a3d",
+    "krs-configuration-cells-optional-config-var-initial": "158b35c1e423a89c9a1ebc361863b026e26c8af395096e7b7158b32c05516d3b",
+    "krs-configuration-cells-set-instances": "3dd08f3eeeee6db674c5acf23b2bacecc5d2e2251c47a27ec52c23365de69004",
+    "krs-configuration-cells-threads": "950fe699f2d28429dd62ccd98a0ba4974b65ced8a7aa5d4d1299c77556cdad1b",
+    "krs-configuration-cells-group-small": "0d0333ce2b3d0b51f92fb914e78356806e6526c96d640595bdbc0be1fb6c6bfe",
+    "krs-configuration-cells-group-board": "6b945abff9835781adc94113aad0f305682cd19ea5a130823ee9e7a4da720c8d",
+    "krs-configuration-cells-group-harts-smp": "6c4e912f54d88a7e18ffede691df59f735817e1e006bc9846dd528a45038afff",
+    "krs-configuration-cells-group-harts-nested": "0a5968396c65bea2ff443f25c897617de6add477f091d561aecad5132f67246d",
+    "krs-configuration-cells-group-harts-opt": "d392076ea60cff51e41e2e72c635bd8bd6556f3091db8d7a688d90333ff723bd",
+    "krs-configuration-cells-shared-memory": "f4a02b3393a1059a4a70a024f18cac967ab4523c82f637347ae7573eb876a1f8"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {

@@ -1,7 +1,7 @@
 $ krs kink --package story-plus --definition main check --mutations guide/mutations --locked  # the document's "mutations"
 [
   {
-    "digest": "1523ad4032bd7866e8aed3caf45b6002e6219308a060471c1c84b0cfbfbff8e9",
+    "digest": "da387674212988033d99dda4069c17e76bf30755dba7fbd76ef323ceb1bd535b",
     "id": "correlated/off-by-one",
     "krs": {
       "edits": [
@@ -49,7 +49,7 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         "edits": [
           1
         ],
-        "end_line": 36,
+        "end_line": 39,
         "file": "definition.k",
         "index": 1,
         "krs": {
@@ -64,7 +64,7 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         },
         "label": "nat--plus_succ",
         "module": "NAT",
-        "start_line": 36
+        "start_line": 39
       },
       {
         "after": "rule plus ( zero , N:Nat ) => s ( N:Nat ) [label(nat--plus_zero)]",
@@ -72,7 +72,7 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         "edits": [
           0
         ],
-        "end_line": 38,
+        "end_line": 41,
         "file": "definition.k",
         "index": 2,
         "krs": {
@@ -87,13 +87,13 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         },
         "label": "nat--plus_zero",
         "module": "NAT",
-        "start_line": 38
+        "start_line": 41
       }
     ],
     "warnings": []
   },
   {
-    "digest": "7f6857487c062127352fa4b9d26c732b0fe9fe480b30dbb5714bd1a9e107928c",
+    "digest": "42f98e6dba345b4ef93a6104c696d2260946eff166cdb888c4f8ed02f1e11251",
     "id": "survivors/one",
     "krs": {
       "edits": [
@@ -125,7 +125,7 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         "edits": [
           0
         ],
-        "end_line": 36,
+        "end_line": 39,
         "file": "definition.k",
         "index": 1,
         "krs": {
@@ -140,13 +140,13 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         },
         "label": "nat--plus_succ",
         "module": "NAT",
-        "start_line": 36
+        "start_line": 39
       }
     ],
     "warnings": []
   },
   {
-    "digest": "03de9c543f35ebaec43f43ce3f55b294a0e5ebfa57b567d77dc26fab4f3a8f7b",
+    "digest": "80c12693280aa8b2dd59ad9497df26a2773e3bc298bafb26cc4f781c2dd7fef6",
     "id": "survivors/swap",
     "krs": {
       "edits": [
@@ -178,7 +178,7 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         "edits": [
           0
         ],
-        "end_line": 36,
+        "end_line": 39,
         "file": "definition.k",
         "index": 1,
         "krs": {
@@ -193,7 +193,7 @@ $ krs kink --package story-plus --definition main check --mutations guide/mutati
         },
         "label": "nat--plus_succ",
         "module": "NAT",
-        "start_line": 36
+        "start_line": 39
       }
     ],
     "warnings": []

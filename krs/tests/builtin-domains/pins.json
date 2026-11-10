@@ -21,76 +21,76 @@
   },
   "emitted": {
     "krs-builtin-int-ops": {
-      "definition.k": "1b4d9762de448f8d08a906e9cab08b79aaacdd731cc652c079594a829d94927f"
+      "definition.k": "436de7399698c1438e1fa31f9cb6f034e8ceec2d3bc1a9c33518c84cf3fc3db7"
     },
     "krs-builtin-bool-ops": {
-      "definition.k": "9093bfcc052e3213f74fe43cfa75176a9d26bee199bf9af8268a7cedb1affebb"
+      "definition.k": "20b2ffb4ed8e5a871fe8fa27e6a6380a7adbc8a57889552b5bcbe930a7a98a5d"
     },
     "krs-builtin-bytes-ops": {
-      "definition.k": "61e93b3e77ba32569b7b0f0654a04c0f91bf5e2b3ffd3cd272d20be0c1b53fef"
+      "definition.k": "08425cd0c26d1d2c3c739c6d873cdc6da18d1e463ff10e1bd92839a2f23dadc0"
     },
     "krs-builtin-set-ops": {
-      "definition.k": "64dc291f8bd248b7362f0a48c53dfac9ff92c3880df60b4da5e87baea10a702e"
+      "definition.k": "3a0602e7d3fec4eac36e7672716532fef029e88969d021ebd9320ab2aaca2714"
     },
     "krs-builtin-map-ops": {
-      "definition.k": "08f0652e39458c6cab6902350463b7fe3b86db9e5f41948a9d927d771810bd6f"
+      "definition.k": "23c7f4ffa353a7bbeae1ed46cdf59e0ab0f08db085d8580ca9ed83d9f84a4f8e"
     },
     "krs-builtin-int-sign": {
-      "definition.k": "d643f75f756c869d20a8311573ea4edd409874151e2f61d61f07e9321feb0114"
+      "definition.k": "20e7d4f9083048e0a9526e14ca084c9d01a513970b0c9214c40040b598dac2ea"
     },
     "krs-builtin-int-sign-unsigned": {
-      "definition.k": "5cfd72d59fe4962223014397c5a808f4292e569c99415242433e98fc71756632"
+      "definition.k": "d2f9a893b6c14e9ae2b7b97e2921d129b3262fbfca9e6952d3c0d1377ebbce06"
     },
     "krs-builtin-strings": {
-      "definition.k": "ad79695aedc9c5566535429b20620256eb21d4174d294b4c07fb7381fffff2be"
+      "definition.k": "dc06a552e2754bb64641352bffc02ae9c2e21fdfd6505930b47ae25573adec4e"
     },
     "krs-builtin-k-equal": {
-      "definition.k": "808f59e34e72cf4be16382736c9c27908782877e4e3a8e62092d4d7ad577104c"
+      "definition.k": "6f229384be9203b18b297e7c1b5cf020f6e7243048511acd49caed93f7495609"
     },
     "krs-builtin-floats": {
-      "definition.k": "b70ca71bb3d2bbab138a29e317830108d8ab45c1c682dfeb891ae83ff3db6dd1"
+      "definition.k": "010a3f30d9c7447b0ca61372c2b98558436464bb85f222d5cb2fb1e0f9c30bb1"
     },
     "krs-builtin-float-java-only": {
-      "definition.k": "e4f5c9e84b596bdc6061f80de6306a61e3f6394fde285bd34334f57ec2992912"
+      "definition.k": "399d59e64b5ba45c3fb04c18ca62ed8ec75275dc4e1ae338369e258cf019d47a"
     },
     "krs-builtin-io": {
-      "definition.k": "b4f7a1b83fad866155c82267be3408c02ccc994914f04c58b111750127d4497f"
+      "definition.k": "85174fc1c11d6ae9bd40bf394b977de11ce39d595938426cf9c63fc43afab542"
     },
     "krs-builtin-raw-k": {
-      "definition.k": "dec0a8545ffc0330d64e5d2163bcabb23e2a04877453bd0943d24b8ba9c80d88"
+      "definition.k": "f22399e458a24a073a9d29ca2dabbfb1a39126da9c2a87c326fb5c95bd9b2ce4"
     },
     "krs-builtin-raw-hook": {
-      "definition.k": "77e4019337be40a39807d933d4c9164b36853dfd0a2642639bf18b3cf7965753"
+      "definition.k": "98a02c95484a50d087443c61cf3521ffb5ba9bbba5d663ef47c4b7b81032e505"
     },
     "krs-builtin-sort-tests": {
-      "definition.k": "541e2cb54a56a6c60cecd3a566ccc3804173cd6eac5e64ce23c55cb3f39928da"
+      "definition.k": "6c81a8014bb3cbeb293fb5fca4022cfc3753370a901edecb4078d30940db9001"
     },
     "krs-builtin-io-hooks": {
-      "definition.k": "1a475b807117ff4198838fdb63194d0a8b676bd40aae542d568610ecee3a0a62"
+      "definition.k": "45735e97d0eb96c9ee77efb52b656b2a191980a411c92b5b61d161de501774c4"
     },
     "krs-builtin-io-log": {
-      "definition.k": "8a841c0a5e7fa5cd6608164e71945292b19aef7f0c9d6b373ef8992b07eef9a5"
+      "definition.k": "81292c66b9fd897b1547f2834dd51f7000f5a498146a0f3801d5bd429f528b9b"
     }
   },
   "reference_sha256": {
-    "krs-builtin-int-ops": "ddb4ae18631738e593d9c5d5cccf1cd78cbfb008db5a60647552a3bd9bef099a",
-    "krs-builtin-bool-ops": "6cd548e79019decfe1d2977e73a5b6b6764755379e2bfab890be025ddcdb86bc",
-    "krs-builtin-bytes-ops": "9700185dc0cd6cbdc015f1dea92a06c5b1a78f78bb26f96d7ff805c1e7bdc8f9",
-    "krs-builtin-set-ops": "64e75720f4f443da66622157532e614dcfb96e6186d25c913e623345550b59c6",
-    "krs-builtin-map-ops": "70559b95919b51229d798daafc138950f54838b4ca6cf8e007a40c8f3994986c",
-    "krs-builtin-int-sign": "014992f3525a812a06731d703fcf7b667610bf75951754359c0000d77f1d11da",
-    "krs-builtin-int-sign-unsigned": "faf803e94970f2ce19b52438a84b96581aa9f93d9056bafe1b567a09c717b039",
-    "krs-builtin-strings": "5802243a8947f947c92576d92e34a1fa51e0d3158d90329e381bc855d0d5d68e",
-    "krs-builtin-k-equal": "3e32983e4ae92f14ff2de879c1afc53aaa90eaa21bf17b2654afcff880f2e3f1",
-    "krs-builtin-floats": "01c8f3b17afb778487445e637afa4e1a9af07c6ab352c1e2312440a115629ce1",
-    "krs-builtin-float-java-only": "2a683bcb83fa9cd91bcdcd167f68ed69fa06521e425fcfc8e6914dabba5579e7",
-    "krs-builtin-io": "670c1a68a575f2c0a60e6ba2e807eb150cf95accedeae083c7f4387aa951ade2",
-    "krs-builtin-raw-k": "3169449cc8b3a0080b71a268d5a5331f2b2ae9474682907a88f8d5aa78c5d122",
-    "krs-builtin-raw-hook-haskell": "d58a80edd12e539fb8058331381ed68307abeb58131804dac2ba7348166515a8",
-    "krs-builtin-sort-tests": "c1fda64c7d0b3ea4d586a2ec730b5c345b073157ce80f680f57ec7945a72c8f5",
-    "krs-builtin-io-hooks": "761f4e324192ab62c20beb95e62ba45606a89c4c5a3d11a9673335b4fd387c8b",
-    "krs-builtin-io-log": "aa5b1d5ba9c353efcdd227b05cb7325d2fda4c632bf8ebb889e54171ee503753",
-    "krs-builtin-floats-outputs": "7bd6ea8d45ed94ca4e64d4821c9393676c917c9c3d464df6dfcf1fbb57272662"
+    "krs-builtin-int-ops": "5cde76dd5bf6e45e5f73d90a953c74a9fa3cb05cd7c52625724ce5ca4e6d6a74",
+    "krs-builtin-bool-ops": "78bdabaf972dfbd64524c28c94b0f4f9ebb058424220e130fc6bc78ccbabf486",
+    "krs-builtin-bytes-ops": "5e39523f6f1e132ba8cd0b703bdc2cf7ae2d75334cb59d1c9d4cb59f96aee101",
+    "krs-builtin-set-ops": "f6f43542b1a935d6a761943da51911eea1f74fab848fd3b9161eb935114c23df",
+    "krs-builtin-map-ops": "dde33a5202b856bf9f1ca9497be0a889eceeadd5a75fbb57c2f4233f21a9ad04",
+    "krs-builtin-int-sign": "8f163a5ec5573c03ed2fa0635b2038fa95927303cbaf1fadaff6429a9783adbb",
+    "krs-builtin-int-sign-unsigned": "000653e04c443789481c5772b8548e04a161d498ef7b830c2de1a24113e72406",
+    "krs-builtin-strings": "0d56ef2144404521e745fe38a9aee18bcbe2e26482173b995b15cd2d2ac6c297",
+    "krs-builtin-k-equal": "274316502715b1bd0375c0e5470b533404d6d19b36e3b38393b4f544184afe4d",
+    "krs-builtin-floats": "2480ba3554e05690955c9dc446fe8c4c34a9f09ba834a2e73b97f2c110f9abe3",
+    "krs-builtin-float-java-only": "9cbc90d74f1ff59d707516ce1b6f3b82782f9a34cd529d9c8fadf5e590690f25",
+    "krs-builtin-io": "1c382bca5cecf08434e405d5b27a30bb7b87062a01ac1044847a6f33cbe12649",
+    "krs-builtin-raw-k": "adefa2987bcf0b0f359058eb47837bb171acc5a72f82ecfc150b07ced4e5a700",
+    "krs-builtin-raw-hook-haskell": "74f0a8081268710d9f8030f1a6a4f6fd4ca39bc8df49ca926a5b4416705c2f11",
+    "krs-builtin-sort-tests": "f377068851b34a25a25299934028cade7e75974c4813b4cd33b8eacbd9bbefa6",
+    "krs-builtin-io-hooks": "152164877ce3dcc0c6c74f9b42cec0feb2fac2322e09dc5f42020315b7279dd4",
+    "krs-builtin-io-log": "b534f0ee59bda513d0538710148cddb9ef8805a80b061aaf0a33991fe860b242",
+    "krs-builtin-floats-outputs": "32db3d4273e774ba1c7036e7795b5d39b725689a4b83ea98e55c1f0f15d02cf1"
   },
   "outcomes": {
     "krs-builtin-int-ops": {
