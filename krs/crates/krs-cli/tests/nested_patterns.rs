@@ -2132,3 +2132,232 @@ fn a_record_of_a_group_no_subject_matched_names_every_child() {
         );
     }
 }
+
+/// Groups for the record witnesses: `Mg` holds a typed Map child, a group child and a leaf;
+/// `stack` is a List leaf, `slot` a `KItem` leaf, `tmem` a typed Map leaf.
+const RECORDS: &str = r#"
+use k::builtin::{Int, KSequence, List, Map, int, list, map};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence((Go, Hold))]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+    #[k::syntax("hold({s})")]
+    Hold { s: Int },
+}
+
+#[k::cell]
+pub struct Gw {
+    #[k::cell]
+    pub wa: Int,
+    #[k::cell]
+    pub wb: Int,
+}
+
+#[k::cell]
+pub struct Fpu {
+    #[k::cell]
+    pub fx: Int,
+}
+
+#[k::cell]
+pub struct Mg {
+    #[k::cell]
+    pub mm: Map<Int, Int>,
+    #[k::cell(nested)]
+    pub mg: Gw,
+    #[k::cell]
+    pub mn: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell]
+    pub slot: KItem,
+    #[k::cell]
+    pub mem: Map,
+    #[k::cell]
+    pub tmem: Map<Int, Int>,
+    #[k::cell(nested)]
+    pub mcell: Mg,
+    #[k::cell(nested)]
+    pub fpu: Fpu,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt, #[k::config_var(name = "SLOT")] slot: KItem) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            slot,
+            mem: map::empty(),
+            tmem: map::empty(),
+            mcell: Mg { mm: map::empty(), mg: Gw { wa: 0, wb: 0 }, mn: 0 },
+            fpu: Fpu { fx: 0 },
+        }
+    }
+}
+"#;
+
+/// The readable rule `{ subject } => { result }` over [`RECORDS`].
+fn records_rule(subject: &str, result: &str) -> String {
+    let command = if result.is_empty() {
+        "Go()"
+    } else {
+        "Hold { s: x }"
+    };
+    let entry = |entry: &str| {
+        if entry.is_empty() {
+            String::new()
+        } else {
+            format!(", {entry}")
+        }
+    };
+    let (subject, result) = (entry(subject), entry(result));
+    format!(
+        "{RECORDS}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [{command}, ..]{subject} }} => {{ k: [..]{result} }};\n}}\n"
+    )
+}
+
+/// The `cells!` rule matching `subject` over [`RECORDS`].
+fn records_cells(subject: &str) -> String {
+    format!(
+        "{RECORDS}#[k::rule(label = \"go\")]\nfn go(k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {subject}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+    )
+}
+
+/// The witnesses [`a_records_mistake_has_one_refusal_on_every_route`] checks: a name, a library,
+/// and the spelling its refusal starts at.
+fn record_witnesses() -> Vec<(&'static str, String, &'static str)> {
+    vec![
+        (
+            "leaf-list",
+            records_rule("stack: Mg { mm: { 1 -> v, .. }, .. }", ""),
+            "Mg {",
+        ),
+        (
+            "leaf-kitem",
+            records_rule("slot: Mg { mm: { 1 -> v, .. }, .. }", ""),
+            "Mg {",
+        ),
+        (
+            "foreign-cell",
+            records_rule("fpu: Gw { wa: 1, .. }", ""),
+            "Gw {",
+        ),
+        (
+            "foreign-cell-cells",
+            records_cells("fpu: k::fragment![crate::Gw { wa: 1, .. }]"),
+            "crate::Gw",
+        ),
+        (
+            "foreign-child",
+            records_rule("mcell: Mg { mn: 1, mg: Fpu { fx: 1 }, .. }", ""),
+            "Fpu {",
+        ),
+        (
+            "foreign-child-entries",
+            records_rule(
+                "mcell: Mg { mm: { 1 -> v, .. }, mg: Fpu { fx: 1 }, .. }",
+                "",
+            ),
+            "Fpu {",
+        ),
+        (
+            "foreign-child-cells-entries",
+            records_cells(
+                "mcell: k::fragment![crate::Mg { mm: k::map![1 -> _, ..], mg: crate::Fpu { fx: 1 }, .. }]",
+            ),
+            "crate::Fpu",
+        ),
+        (
+            "foreign-child-alias",
+            records_rule("mcell: Mg { mg: g @ Fpu { fx: 1 }, .. }", ""),
+            "Fpu {",
+        ),
+        (
+            "foreign-child-value",
+            records_rule("slot: Mg { mg: Fpu { fx: 1 }, .. }", ""),
+            "Fpu {",
+        ),
+        (
+            "no-child-closed",
+            records_rule("slot: Mg { mm: m, mg: g, mn: 1, zz: 2 }", ""),
+            "zz:",
+        ),
+        (
+            "no-child-before-map",
+            records_rule("mcell: Mg { mm: { true -> v, .. }, zz: 1, .. }", ""),
+            "zz:",
+        ),
+        (
+            "call-at-typed-map",
+            records_rule("", "tmem: int::add(x, 1)"),
+            "int::add",
+        ),
+        (
+            "constructor-at-typed-map",
+            records_rule("", "tmem: Hold { s: x }"),
+            "Hold {",
+        ),
+    ]
+}
+
+/// A record's mistakes each have one refusal, whichever spelling or position reads the record:
+/// a record on a leaf whose child is a map's entries is no term (a `List` leaf and a `KItem`
+/// leaf alike); a record of another struct is a term of another cell sort than its cell's, at
+/// the cell, at a group child, through an alias, and beside a map child; a field that names no
+/// child is told before how many children the record names; and a call of another sort than a
+/// typed Map cell's is a term of another sort, not an untyped map.
+#[test]
+fn a_records_mistake_has_one_refusal_on_every_route() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = record_witnesses();
+    let mut outcomes = Vec::new();
+    for (name, source, at) in &cases {
+        let manifest = library_package(temporary.path(), &format!("records-{name}"), source);
+        let error = first_error(target.path(), &manifest);
+        let (headline, location) = error.split_once(" @ ").expect("refused");
+        let library = fs::read_to_string(manifest.with_file_name("src/lib.rs")).unwrap();
+        let (line, column) = location.split_once(':').unwrap();
+        let line: usize = line.parse().unwrap();
+        let column: usize = column.parse().unwrap();
+        let written = &library.lines().nth(line - 1).unwrap()[column - 1..];
+        assert!(
+            written.starts_with(at),
+            "{name}: at `{at}`, found `{written}`:\n{error}"
+        );
+        outcomes.push(format!("{name}: {headline}"));
+    }
+    expect_test::expect![[r#"
+        [
+            "leaf-list: error[krs::analysis::invalid-term]: `stack` is a leaf cell, whose content is a term, and this record writes a child as a map's entries or a map read (`{ k -> v, .. }`, `k::map![..]`), which no term spells, so it is no term: such a child is the entry of its own cell, which only the group's cell holds",
+            "leaf-kitem: error[krs::analysis::invalid-term]: `slot` is a leaf cell, whose content is a term, and this record writes a child as a map's entries or a map read (`{ k -> v, .. }`, `k::map![..]`), which no term spells, so it is no term: such a child is the entry of its own cell, which only the group's cell holds",
+            "foreign-cell: error[krs::analysis::invalid-term]: the record names `Gw`, and `fpu` holds `Fpu`",
+            "foreign-cell-cells: error[krs::analysis::invalid-term]: the record names `Gw`, and `fpu` holds `Fpu`",
+            "foreign-child: error[krs::analysis::invalid-term]: the record names `Fpu`, and `mg` holds `Gw`",
+            "foreign-child-entries: error[krs::analysis::invalid-term]: the record names `Fpu`, and `mg` holds `Gw`",
+            "foreign-child-cells-entries: error[krs::analysis::invalid-term]: the record names `Fpu`, and `mg` holds `Gw`",
+            "foreign-child-alias: error[krs::analysis::invalid-term]: the record names `Fpu`, and `mg` holds `Gw`",
+            "foreign-child-value: error[krs::analysis::invalid-term]: the record names `Fpu`, and `mg` holds `Gw`",
+            "no-child-closed: error[krs::analysis::invalid-term]: the group `Mg` has no child `zz`",
+            "no-child-before-map: error[krs::analysis::invalid-term]: the group `Mg` has no child `zz`",
+            "call-at-typed-map: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::go (rule): application result sort Int is not admissible at sort Map",
+            "constructor-at-typed-map: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::go (rule): application result sort ORG-KRS-NESTED::Stmt (sort) is not admissible at sort Map",
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}

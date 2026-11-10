@@ -592,14 +592,20 @@ impl Patterns<'_> {
                         };
                         Some(&declarations.cell(&declaration.declaration).ok()?.fields)
                     });
-                record.fields.iter().try_for_each(|field| {
-                    let child = children.and_then(|children| {
-                        children
-                            .iter()
-                            .find(|child| child.rust_field == field.field)
-                            .map(|child| &child.reference.cell)
-                    });
-                    self.state(child, &field.value)
+                let Some(children) = children else {
+                    return record
+                        .fields
+                        .iter()
+                        .try_for_each(|field| self.state(None, &field.value));
+                };
+                // A record with a field that names no child is no record of its struct, which
+                // the sentence's lowering refuses, and that refusal is told before this check's
+                // ([`super::cell_states::record_children`]): its fields are not read here.
+                let Ok(named) = super::cell_states::named_children(children, &record.fields) else {
+                    return Ok(());
+                };
+                named.into_iter().try_for_each(|(field, child)| {
+                    self.state(Some(&child.reference.cell), &field.value)
                 })
             }
             ProtocolRuleStateTerm::Instances(instances) => self.instances(cell, instances),

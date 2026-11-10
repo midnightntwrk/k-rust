@@ -999,14 +999,16 @@ impl<'a> Walker<'a> {
                 else {
                     return Ok(());
                 };
-                let children = &declarations.cell(&declaration.declaration)?.fields;
-                for child in &record.fields {
-                    if let Some(declared) = children
-                        .iter()
-                        .find(|candidate| candidate.rust_field == child.field)
-                    {
-                        self.state_roots(&child.value, declared, subject, roots)?;
-                    }
+                let group = &declaration.declaration;
+                for (child, declared) in super::cell_states::record_children(
+                    self.descriptor,
+                    super::cell_states::RecordOf::Group,
+                    group.item_name(),
+                    &declarations.cell(group)?.fields,
+                    &record.fields,
+                    declarations,
+                )? {
+                    self.state_roots(&child.value, declared, subject, roots)?;
                 }
             }
             ProtocolRuleStateTerm::Instances(instances) => {
@@ -1015,15 +1017,18 @@ impl<'a> Walker<'a> {
                 else {
                     return Ok(());
                 };
-                let children = &declarations.cell(&declaration.declaration)?.fields;
+                let group = &declaration.declaration;
+                let children = &declarations.cell(group)?.fields;
                 for instance in instances.front.iter().chain(&instances.back) {
-                    for child in &instance.fields {
-                        if let Some(declared) = children
-                            .iter()
-                            .find(|candidate| candidate.rust_field == child.field)
-                        {
-                            self.state_roots(&child.value, declared, subject, roots)?;
-                        }
+                    for (child, declared) in super::cell_states::record_children(
+                        self.descriptor,
+                        super::cell_states::RecordOf::Instance,
+                        group.item_name(),
+                        children,
+                        &instance.fields,
+                        declarations,
+                    )? {
+                        self.state_roots(&child.value, declared, subject, roots)?;
                     }
                 }
             }
@@ -1525,21 +1530,26 @@ impl<'a> Walker<'a> {
                 update,
                 ..
             } => {
-                let children = match self.declarations {
-                    Some(declarations) => Some(declarations.cell(declaration)?.fields.clone()),
-                    None => None,
-                };
-                for field in fields {
-                    let declared = children.as_ref().and_then(|children| {
-                        children
-                            .iter()
-                            .find(|child| child.rust_field == field.field.as_str())
-                    });
-                    let ty = match declared {
-                        Some(declared) => self.cell_type(declared)?,
-                        None => None,
-                    };
-                    self.walk(&field.value, ty.as_ref(), subject)?;
+                match self.declarations {
+                    Some(declarations) => {
+                        let children = declarations.cell(declaration)?.fields.clone();
+                        for (field, declared) in super::cell_states::record_children(
+                            self.descriptor,
+                            super::cell_states::RecordOf::Group,
+                            declaration.item_name(),
+                            &children,
+                            fields,
+                            declarations,
+                        )? {
+                            let ty = self.cell_type(declared)?;
+                            self.walk(&field.value, ty.as_ref(), subject)?;
+                        }
+                    }
+                    None => {
+                        for field in fields {
+                            self.walk(&field.value, None, subject)?;
+                        }
+                    }
                 }
                 if let Some(update) = update {
                     self.walk(update, None, subject)?;
@@ -1612,9 +1622,17 @@ impl<'a> Walker<'a> {
             DescriptorApplicationRef::Declared(id) => {
                 self.declared_application(term, id, arguments, at, subject)
             }
-            DescriptorApplicationRef::Builtin(_) => {
+            // A builtin whose result is the position's collection (or `K`, which may hold one)
+            // writes elements nothing types. One whose result is another fixed sort writes no
+            // collection at all: that is the sort check's mistake, a term of another sort than
+            // its position's, and no element is written to tell untyped.
+            DescriptorApplicationRef::Builtin(operation) => {
                 if let Some(at) = at
                     && !subject
+                    && operation
+                        .result_sort()
+                        .builtin()
+                        .is_none_or(|result| at.0.sort == SemanticSortRef::Builtin(result))
                 {
                     let source = Source::Untyped(format!(
                         "`{}` returns an untyped `{}`",
@@ -1756,8 +1774,11 @@ impl<'a> Walker<'a> {
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
         let types = self.production_types(id);
+        // A production of no collection sort writes no collection at the position: that is the
+        // sort check's mistake, as for a builtin ([`Self::walk`]).
         if let Some(at) = at
             && !subject
+            && !self.returns_no_collection(id)
         {
             let source = match types.as_ref().and_then(|types| types.result.as_ref()) {
                 Some((ty, _)) if ty.is_typed() => {
@@ -2074,6 +2095,18 @@ impl<'a> Walker<'a> {
             },
             _ => Source::Unknown,
         }
+    }
+
+    /// Whether the production `id`'s declared result is of no collection sort (`false` when the
+    /// declarations do not tell its result).
+    fn returns_no_collection(&self, id: &StableItemId) -> bool {
+        self.declarations
+            .and_then(|declarations| declarations.constructor(id).ok())
+            .is_some_and(|constructor| {
+                SortType::of_production(&constructor.sort, &constructor.arguments)
+                    .kind()
+                    .is_none()
+            })
     }
 
     /// The collection types of a production's fields and result, as its

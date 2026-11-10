@@ -165,15 +165,17 @@ fn read_children_brackets(
     let Ok(declaration) = declarations.cell(group) else {
         return false;
     };
+    // A record with a field that names no child is no record of `group`: its children are not
+    // read anew, and the record's lowering refuses it ([`super::cell_states::record_children`]).
+    let Ok(named) = super::cell_states::named_children(&declaration.fields, fields) else {
+        return false;
+    };
+    let children = named
+        .into_iter()
+        .map(|(_, child)| child)
+        .collect::<Vec<_>>();
     let mut changed = false;
-    for field in fields {
-        let Some(child) = declaration
-            .fields
-            .iter()
-            .find(|child| child.rust_field == field.field)
-        else {
-            continue;
-        };
+    for (field, child) in fields.iter_mut().zip(children) {
         let computation = matches!(
             child.content,
             ProtocolCellContent::Leaf {
@@ -436,7 +438,8 @@ fn cell_mut(
     }
 }
 
-/// The group a record's cell holds, or the refusal of a record on a cell that holds none.
+/// The group a record's cell holds, or the refusal of a record on a leaf, which holds none
+/// ([`super::cell_states::record_on_leaf`]).
 fn group_of(
     descriptor: &Descriptor,
     declared: &DescriptorCellField,
@@ -445,19 +448,19 @@ fn group_of(
     if let ProtocolCellContent::Nested { declaration } = &declared.content {
         return Ok(declaration.declaration.clone());
     }
-    let cell = cells
+    let record = cells
         .into_iter()
         .flatten()
-        .find(|cell| matches!(cell.value, State::Record(_)))
+        .find_map(|cell| match &cell.value {
+            State::Record(record) => Some(record),
+            _ => None,
+        })
         .expect("a record was found");
-    Err(DescriptorLoweringError::invalid_term(
-        descriptor.id(),
-        format!(
-            "`{}` is a leaf cell, whose content is a term, and a record whose field is written as a map entry, `{{ k -> v, .. }}`, is no term: a map is the entry of a Map cell",
-            declared.rust_field
-        ),
-    )
-    .within(descriptor.id(), key_range(descriptor, &cell.field.key).as_ref()))
+    Err(super::cell_states::record_on_leaf(
+        descriptor,
+        declared,
+        &record.key,
+    ))
 }
 
 /// Refuses a record whose head names another struct than the cell's group
@@ -490,25 +493,16 @@ fn children(
         return Ok(vec![cell.clone()]);
     };
     let declaration = declarations.cell(group)?;
-    record
-        .fields
-        .iter()
-        .map(|field| {
-            let Some(child) = declaration
-                .fields
-                .iter()
-                .find(|child| child.rust_field == field.field)
-            else {
-                return Err(super::cell_states::no_child(
-                    descriptor,
-                    super::cell_states::RecordOf::Group,
-                    group.item_name(),
-                    &declaration.fields,
-                    &field.field,
-                    &field.key,
-                    declarations,
-                ));
-            };
+    super::cell_states::record_children(
+        descriptor,
+        super::cell_states::RecordOf::Group,
+        group.item_name(),
+        &declaration.fields,
+        &record.fields,
+        declarations,
+    )?
+    .into_iter()
+    .map(|(field, child)| {
             let presence = matches!(field.value, State::Present { .. } | State::Absent);
             if presence
                 || declared_multiplicity(child, declarations) != krs_ir::cell_kind::Multiplicity::One
@@ -524,6 +518,14 @@ fn children(
                         krs_syntax::INSTANCE_CHILD_MULTIPLICITY
                     ),
                 ));
+            }
+            // A group child's cell term of another struct is a term of another cell sort than
+            // the child's, as a record of another struct is at the record's own level.
+            if let State::Term(term) = &field.value
+                && let Some(refusal) =
+                    super::cell_states::foreign_group_term(descriptor, child, term)
+            {
+                return Err(refusal);
             }
             let nested = matches!(child.content, ProtocolCellContent::Nested { .. });
             let (wrapper, value) = match (&field.value, nested) {

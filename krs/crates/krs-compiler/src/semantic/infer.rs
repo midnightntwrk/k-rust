@@ -15,7 +15,7 @@ use krs_ir_levels::{
 use super::catalog::{
     ProductionSignature, semantic_is_subsort, semantic_sort_closure, semantic_sort_ref,
 };
-use super::cell_states::{RecordOf, no_child};
+use super::cell_states::{RecordOf, record_children};
 use super::collection_types::{CollectionTyping, share_a_sort};
 use super::denotation::denotation;
 use super::error::DescriptorLoweringError;
@@ -760,6 +760,19 @@ impl StructuredTermBuilder<'_> {
                 let whole_group = expected_sort.is_some_and(|expected| {
                     *expected == SemanticSortRef::Cell(declaration.clone())
                 });
+                // At a group cell's own position a record of another struct is the record's
+                // mistake ([`super::cell_states::foreign_group_term`]), as it is told where the
+                // record is read as the cell's entry, before it is a term of another sort.
+                if let Some(SemanticSortRef::Cell(group)) = expected_sort
+                    && !whole_group
+                    && let Ok(identity) = self.cell_identity_for_declaration(group)
+                    && let Ok(cell) =
+                        super::references::require_cell_field(identity, self.declarations)
+                    && let Some(refusal) =
+                        super::cell_states::foreign_group_term(self.descriptor, cell, term)
+                {
+                    return Err(refusal);
+                }
                 if let Some(expected) = expected_sort
                     && !whole_group
                     && !semantic_is_subsort(&k_item, expected, self.sort_parents)
@@ -3222,6 +3235,16 @@ impl StructuredTermBuilder<'_> {
             .iter()
             .map(|field| (field.field.clone(), field))
             .collect::<BTreeMap<_, _>>();
+        // A field that names no child makes the record no record of its struct, whatever the
+        // others say, so it is told before how many children the record names.
+        record_children(
+            self.descriptor,
+            RecordOf::Group,
+            owner.item_name(),
+            &declaration.fields,
+            fields,
+            self.declarations,
+        )?;
         if supplied.len() != fields.len()
             || (!partial && supplied.len() != declaration.fields.len())
         {
@@ -3229,19 +3252,6 @@ impl StructuredTermBuilder<'_> {
                 "the cell term for {:?} (a `k::fragment!` or a group record) must name every child field exactly once; a pattern ends in `..` to leave the others unconstrained, and a result takes them from a matched group with `..base`",
                 owner.item_name()
             )));
-        }
-        if let Some(field) = fields.iter().find(|field| {
-            (declaration.fields.iter()).all(|declared| declared.rust_field != field.field.as_str())
-        }) {
-            return Err(no_child(
-                self.descriptor,
-                RecordOf::Group,
-                owner.item_name(),
-                &declaration.fields,
-                field.field.as_str(),
-                &field.key,
-                self.declarations,
-            ));
         }
         for declared in &declaration.fields {
             let Some(field) = supplied.get(&ProductionFieldId::new(&declared.rust_field)?) else {
@@ -3259,67 +3269,79 @@ impl StructuredTermBuilder<'_> {
                 ProtocolCellContent::Leaf { sort, .. } => {
                     self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
                 }
-                // A group child is a value of its cell sort: a group record
-                // or fragment, a binder, `_`, or an alias over a group record,
-                // which the record updates rebuild where it is used (N7).
                 ProtocolCellContent::Nested {
                     declaration: nested,
                 } => {
-                    super::cell_alternatives::reject_cell_alternatives(
-                        self.descriptor,
-                        &field.value,
-                        &declared.rust_field,
-                        &nested.declaration,
-                        self.cell_declaration(&nested.declaration)?,
-                    )?;
-                    let record = match field.value.as_ref() {
-                        DescriptorTerm::Cell { declaration, .. } => Some(declaration),
-                        DescriptorTerm::As { name, pattern, .. } => {
-                            let DescriptorTerm::Cell { declaration, .. } = pattern.as_ref() else {
-                                return Err(self.invalid_term(format!(
-                                    "the alias `{name}` over the group child {:?} must alias a group record",
-                                    declared.rust_field
-                                )));
-                            };
-                            if !self.record_updates.updates.is_dropped(name) {
-                                return Err(self.invalid_term(format!(
-                                    "the alias `{name}` over the group child {:?} names one matched cell, so it must be bound once and outside `|`",
-                                    declared.rust_field
-                                )));
-                            }
-                            Some(declaration)
-                        }
-                        DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. } => None,
-                        _ => {
-                            return Err(self.repeated_child(owner, declared, field).unwrap_or_else(
-                                || {
-                                    self.invalid_term(format!(
-                                        "the group child {:?} is a group record, `k::fragment!`, a binder, or `_`",
-                                        declared.rust_field
-                                    ))
-                                },
-                            ));
-                        }
-                    };
-                    if let Some(declaration) = record {
-                        if declaration != &nested.declaration {
-                            return Err(self.invalid_term(format!(
-                                "nested child {:?} uses the wrong cell declaration",
-                                declared.rust_field
-                            )));
-                        }
-                        self.infer(&field.value, Some(&self.k_item_sort.clone()), subject)?;
-                    } else {
-                        self.infer(
-                            &field.value,
-                            Some(&SemanticSortRef::Cell(nested.declaration.clone())),
-                            subject,
-                        )?;
-                    }
+                    self.infer_group_child(owner, declared, &nested.declaration, field, subject)?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// Infers a cell term's group child `declared`, of the group `nested`, written as `field`.
+    /// A group child is a value of its cell sort: a group record or fragment, a binder, `_`, or
+    /// an alias over a group record, which the record updates rebuild where it is used (N7). A
+    /// record of another struct is a term of another cell sort than the child's
+    /// ([`super::cell_states::foreign_record`]), as at the record's own level.
+    fn infer_group_child(
+        &mut self,
+        owner: &StableItemId,
+        declared: &krs_ir::DescriptorCellField,
+        nested: &StableItemId,
+        field: &krs_ir::DescriptorCellTermField,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        super::cell_alternatives::reject_cell_alternatives(
+            self.descriptor,
+            &field.value,
+            &declared.rust_field,
+            nested,
+            self.cell_declaration(nested)?,
+        )?;
+        let record = match field.value.as_ref() {
+            DescriptorTerm::Cell { .. } => true,
+            DescriptorTerm::As { name, pattern, .. } => {
+                if !matches!(pattern.as_ref(), DescriptorTerm::Cell { .. }) {
+                    return Err(self.invalid_term(format!(
+                        "the alias `{name}` over the group child {:?} must alias a group record",
+                        declared.rust_field
+                    )));
+                }
+                if !self.record_updates.updates.is_dropped(name) {
+                    return Err(self.invalid_term(format!(
+                        "the alias `{name}` over the group child {:?} names one matched cell, so it must be bound once and outside `|`",
+                        declared.rust_field
+                    )));
+                }
+                true
+            }
+            DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. } => false,
+            _ => {
+                return Err(self
+                    .repeated_child(owner, declared, field)
+                    .unwrap_or_else(|| {
+                        self.invalid_term(format!(
+                            "the group child {:?} is a group record, `k::fragment!`, a binder, or `_`",
+                            declared.rust_field
+                        ))
+                    }));
+            }
+        };
+        if record {
+            if let Some(refusal) =
+                super::cell_states::foreign_group_term(self.descriptor, declared, &field.value)
+            {
+                return Err(refusal);
+            }
+            self.infer(&field.value, Some(&self.k_item_sort.clone()), subject)
+        } else {
+            self.infer(
+                &field.value,
+                Some(&SemanticSortRef::Cell(nested.clone())),
+                subject,
+            )
+        }
     }
 
     /// Refuses a cell term's child `declared` written as `field` when it is a `?` cell: its value
@@ -3344,25 +3366,27 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
-    /// The refusal of a cell term's group child `declared` that is a `?` or `*` cell, written as
-    /// `field` holds it, neither a record, a binder nor `_`: its presence or its instances would
-    /// say whether, or which, cells the record holds there, which no lowering writes yet. `None`
-    /// for a child that is neither.
+    /// The refusal of a cell term's group child `declared` that is a `*` cell, written as `field`
+    /// holds it, neither a record, a binder nor `_`: its instances would say which cells the
+    /// record holds there, which no lowering writes yet. `None` for a child that is none. A `?`
+    /// child never reaches here: [`Self::check_child_presence`] refuses it first.
     fn repeated_child(
         &self,
         owner: &StableItemId,
         declared: &krs_ir::DescriptorCellField,
         field: &krs_ir::DescriptorCellTermField,
     ) -> Option<DescriptorLoweringError> {
-        (super::references::declared_multiplicity(declared, self.declarations)
-            != krs_ir::cell_kind::Multiplicity::One)
-            .then(|| {
-                super::cell_states::collection_error(
-                    self.descriptor,
-                    krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
-                    &field.key,
-                    format!(
-                        "the child `{}` of `{}` is a `?` or `*` cell, which a group record does not name yet, as {}",
+        matches!(
+            super::references::declared_multiplicity(declared, self.declarations),
+            krs_ir::cell_kind::Multiplicity::Many(_)
+        )
+        .then(|| {
+            super::cell_states::collection_error(
+                self.descriptor,
+                krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                &field.key,
+                format!(
+                        "the child `{}` of `{}` is a `*` cell, whose instances a group record does not name yet, as {}",
                         declared.rust_field,
                         owner.item_name(),
                         krs_syntax::INSTANCE_CHILD_MULTIPLICITY

@@ -803,8 +803,6 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?;
     let bracketed = super::group_records::with_computation_brackets(rule, declarations)?;
     let rule = bracketed.as_ref().unwrap_or(rule);
-    let bracketed = super::group_records::with_computation_brackets(rule, declarations)?;
-    let rule = bracketed.as_ref().unwrap_or(rule);
     let grouped = super::group_records::with_group_records(descriptor, rule, declarations)?;
     let rule = grouped.as_ref().unwrap_or(rule);
     let overwritten = with_overwritten_cells(rule, declarations)?;

@@ -192,6 +192,78 @@ pub(super) enum RecordOf {
     Instance,
 }
 
+/// A field of a record at a configuration position or of a group's cell term: the child it
+/// names and where it is written.
+pub(super) trait RecordField {
+    /// The Rust field name of the child the field names.
+    fn child_name(&self) -> &str;
+    /// The field's provenance.
+    fn child_key(&self) -> &ProvenanceKey;
+}
+
+impl RecordField for krs_ir::ProtocolRuleInstanceField<DescriptorTerm> {
+    fn child_name(&self) -> &str {
+        &self.field
+    }
+    fn child_key(&self) -> &ProvenanceKey {
+        &self.key
+    }
+}
+
+impl RecordField for krs_ir::DescriptorCellTermField {
+    fn child_name(&self) -> &str {
+        self.field.as_str()
+    }
+    fn child_key(&self) -> &ProvenanceKey {
+        &self.key
+    }
+}
+
+/// Each of a record's `fields` with the declared child of `children` it names, in written
+/// order, or the first field that names none.
+///
+/// A field that names no child makes the record no record of its struct ([`no_child`]), so
+/// every reader of a record's children reads them through this, and none reads the fields of a
+/// record that is not one.
+pub(super) fn named_children<'f, 'd, F: RecordField>(
+    children: &'d [DescriptorCellField],
+    fields: &'f [F],
+) -> Result<Vec<(&'f F, &'d DescriptorCellField)>, &'f F> {
+    fields
+        .iter()
+        .map(|field| {
+            children
+                .iter()
+                .find(|child| child.rust_field == field.child_name())
+                .map(|child| (field, child))
+                .ok_or(field)
+        })
+        .collect()
+}
+
+/// [`named_children`] of a record of the struct `group`, declared `children`, refusing the
+/// first field that names none ([`no_child`]) before any field is read.
+pub(super) fn record_children<'f, 'd, F: RecordField>(
+    descriptor: &Descriptor,
+    of: RecordOf,
+    group: &str,
+    children: &'d [DescriptorCellField],
+    fields: &'f [F],
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Vec<(&'f F, &'d DescriptorCellField)>, DescriptorLoweringError> {
+    named_children(children, fields).map_err(|field| {
+        no_child(
+            descriptor,
+            of,
+            group,
+            children,
+            field.child_name(),
+            field.child_key(),
+            declarations,
+        )
+    })
+}
+
 /// The refusal of a record's field `field` that names none of the children of the struct
 /// `group`, declared `children`, whose record it is.
 ///
@@ -219,6 +291,29 @@ pub(super) fn no_child(
         format!(
             "{record} has no child `{field}`{}",
             descendant_reason(group, children, field, declarations)
+        ),
+    )
+}
+
+/// The refusal of a group record at `key` written as the entry of the leaf cell `declared`.
+///
+/// A leaf holds a term of its sort. A record reaches lowering as a record, not as the group's
+/// cell term, only when it writes a child as a map's entries or a map read, which no term
+/// spells: such a child is the entry of the child's own cell, which only the group's cell holds,
+/// so the record is no term and no leaf's content, whatever the leaf's sort
+/// (`krs::analysis::invalid-term`).
+pub(super) fn record_on_leaf(
+    descriptor: &Descriptor,
+    declared: &DescriptorCellField,
+    key: &ProvenanceKey,
+) -> DescriptorLoweringError {
+    collection_error(
+        descriptor,
+        codes::analysis::INVALID_TERM,
+        key,
+        format!(
+            "`{}` is a leaf cell, whose content is a term, and this record writes a child as a map's entries or a map read (`{{ k -> v, .. }}`, `k::map![..]`), which no term spells, so it is no term: such a child is the entry of its own cell, which only the group's cell holds",
+            declared.rust_field
         ),
     )
 }
@@ -252,6 +347,35 @@ pub(super) fn optional_child_without_presence(
         codes::analysis::OPTIONAL_PRESENCE,
         key,
         format!("{reason}; write its entry inside `Some(..)`, or as `None` for its absence"),
+    )
+}
+
+/// The refusal of the term `term` written for the group cell `declared` when it is a group
+/// record (or an alias over one) of another struct than the cell's group ([`foreign_record`]);
+/// `None` for any other term or cell. A record whose children are all terms reaches the cell as
+/// its cell term, so this is the record's own refusal in that spelling.
+pub(super) fn foreign_group_term(
+    descriptor: &Descriptor,
+    declared: &DescriptorCellField,
+    term: &DescriptorTerm,
+) -> Option<DescriptorLoweringError> {
+    let ProtocolCellContent::Nested { declaration } = &declared.content else {
+        return None;
+    };
+    let record = match term {
+        DescriptorTerm::As { pattern, .. } => pattern.as_ref(),
+        _ => term,
+    };
+    let DescriptorTerm::Cell { key, .. } = record else {
+        return None;
+    };
+    foreign_record(
+        descriptor,
+        RecordOf::Group,
+        &declared.rust_field,
+        record,
+        key,
+        &declaration.declaration,
     )
 }
 

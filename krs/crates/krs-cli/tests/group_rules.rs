@@ -6339,7 +6339,7 @@ pub fn go(
             ],
             [
                 "group-record-other-struct",
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-GROUPS-SMT::go (rule): complete cell term is not admissible at the expected sort",
+                "error[krs::analysis::invalid-term]: the record names `Regs`, and `core` holds `Core`",
                 "--> smt/src/lib.rs: `Regs { r0: v },`",
             ],
         ]
