@@ -80,7 +80,8 @@ macro_rules! usage_line {
          --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
          [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
          [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
-         <topic>.toml files; --help (or -h), anywhere, prints the loop, the mutation format and \
+         <topic>.toml files | kink-flow compare FLOW.toml [--only NAME]... [--cache DIR] \
+         [--output json|text]; --help (or -h), anywhere, prints the loop, the mutation format and \
          the exit statuses"
     };
 }
@@ -135,7 +136,7 @@ Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-
 /// What a usage error prints on stderr after its message when the command line names no verb:
 /// the shape of every command line, and where the rest is.
 const GENERAL_USAGE: &str = "usage: kink-flow --version | kink-flow VERB FLOW.toml [OPERAND] \
-     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz\n`kink-flow --help` \
+     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare\n`kink-flow --help` \
      explains the loop; `kink-flow VERB --help` lists a verb's options";
 
 /// Run one command; returns the process exit status.
@@ -232,7 +233,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     }
     let text = match output {
         OutputFormat::Json => format!("{}\n", render(&document)),
-        OutputFormat::Text => match crate::coverage::text(&document) {
+        OutputFormat::Text => match text(&document) {
             Ok(text) => text,
             Err(message) => {
                 eprintln!("kink-flow: {message}");
@@ -279,7 +280,7 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
             }
             rest
         }
-        Verb::Check | Verb::Coverage | Verb::Report => rest,
+        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare => rest,
     };
     Some((verb, PathBuf::from(manifest), files, rest))
 }
@@ -537,6 +538,21 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
     ),
 ];
 
+const COMPARE_OPTIONS: &[VerbOption] = &[
+    option(
+        "--only NAME",
+        "compare only this implementation of the manifest (repeatable)",
+    ),
+    option(
+        "--cache DIR",
+        "the cache of the definition's baseline runs (default: .kink-flow beside FLOW.toml)",
+    ),
+    option(
+        "--output json|text",
+        "print the JSON document (default) or one line per verdict and a summary",
+    ),
+];
+
 /// `kink-flow VERB --help`: the verb's usage line, what it asks, and its options.
 #[must_use]
 pub fn verb_help(verb: Verb) -> String {
@@ -592,17 +608,19 @@ pub enum Verb {
     Report,
     Query,
     Fuzz,
+    Compare,
 }
 
 impl Verb {
     /// Every verb, in the order the usage lists them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Check,
         Self::Coverage,
         Self::Run,
         Self::Report,
         Self::Query,
         Self::Fuzz,
+        Self::Compare,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -613,6 +631,7 @@ impl Verb {
             Self::Report => "report",
             Self::Query => "query",
             Self::Fuzz => "fuzz",
+            Self::Compare => "compare",
         }
     }
 
@@ -657,6 +676,9 @@ impl Verb {
                  [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
                  [--no-filter]"
             }
+            Self::Compare => {
+                "compare FLOW.toml [--only NAME]... [--cache DIR] [--output json|text]"
+            }
         }
     }
 
@@ -693,6 +715,12 @@ impl Verb {
                 "Hole values of a template whose program is a witness of the job: it kills a \
                  mutation, matches or fires a rule, or hits a pattern; kink confirms it."
             }
+            Self::Compare => {
+                "Whether each [[implementation]] of the manifest ends as the definition does on \
+                 every program, under each of its views: equal, different (with the first \
+                 difference), could-not-apply or not-compared; only a required view decides the \
+                 exit status."
+            }
         }
     }
 
@@ -706,6 +734,7 @@ impl Verb {
             Self::Report => REPORT_OPTIONS,
             Self::Query => QUERY_OPTIONS,
             Self::Fuzz => FUZZ_OPTIONS,
+            Self::Compare => COMPARE_OPTIONS,
         }
     }
 
@@ -718,13 +747,14 @@ impl Verb {
             Self::Report => "kink-flow report",
             Self::Query => "Checking a pattern",
             Self::Fuzz => "Killing a survivor with fuzz",
+            Self::Compare => "Comparing implementations: kink-flow compare",
         }
     }
 
     /// The operands `kink-flow <verb>` takes before its options.
     pub const fn operands(self) -> &'static str {
         match self {
-            Self::Check | Self::Coverage | Self::Report => "FLOW.toml",
+            Self::Check | Self::Coverage | Self::Report | Self::Compare => "FLOW.toml",
             Self::Run => "FLOW.toml MUTATIONS.toml",
             Self::Query => "FLOW.toml PATTERNS.toml",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
@@ -744,6 +774,7 @@ impl Verb {
             Self::Run => crate::report::RUN_SCHEMA,
             Self::Report => crate::report::MISSING_SCHEMA,
             Self::Query => crate::query::QUERY_SCHEMA,
+            Self::Compare => crate::compare::COMPARE_SCHEMA,
         };
         // Under the Z3 profile the document names the build (`crate::with_z3_build`), as every
         // document of every verb does; a refused `coverage` or `run` document is also rendered
@@ -762,6 +793,7 @@ impl Verb {
             Self::Report => "report",
             Self::Query => "query",
             Self::Fuzz => "fuzz",
+            Self::Compare => "compare",
         }
     }
 }
@@ -913,6 +945,10 @@ pub enum FlowCommand {
         templates: PathBuf,
         request: FuzzRequest,
     },
+    Compare {
+        options: crate::compare::CompareOptions,
+        output: OutputFormat,
+    },
 }
 
 impl FlowCommand {
@@ -1045,6 +1081,10 @@ impl FlowCommand {
                 }
                 Ok(Self::Fuzz { templates, request })
             }
+            Verb::Compare => {
+                let (options, output) = compare_options(options)?;
+                Ok(Self::Compare { options, output })
+            }
         }
     }
 
@@ -1058,6 +1098,7 @@ impl FlowCommand {
             Self::Report { .. } => Verb::Report,
             Self::Query { .. } => Verb::Query,
             Self::Fuzz { .. } => Verb::Fuzz,
+            Self::Compare { .. } => Verb::Compare,
         }
     }
 
@@ -1110,7 +1151,8 @@ impl FlowCommand {
         match self {
             Self::Coverage { output, .. }
             | Self::Run { output, .. }
-            | Self::Report { output, .. } => *output,
+            | Self::Report { output, .. }
+            | Self::Compare { output, .. } => *output,
             _ => OutputFormat::Json,
         }
     }
@@ -1166,6 +1208,12 @@ pub struct FrontEnd<'a> {
     /// function by its K label and the cells by their K names
     /// ([`crate::coverage::KInvariants`]).
     pub invariants: Option<&'a (dyn crate::coverage::InvariantResolver + Sync)>,
+    /// The front end's cell vocabulary, in which `compare` gives an implementation the start and
+    /// reads its end, and the comparison of an end under a view ([`crate::compare::Vocabulary`]);
+    /// `None` for a front end with none, whose corpus `compare` refuses (stage
+    /// `implementation`, reason `unsupported-front-end`). kink-flow's own front end reads K
+    /// terms, which have no such vocabulary.
+    pub implementations: Option<&'a (dyn crate::compare::Vocabulary + Sync)>,
 }
 
 impl Default for FrontEnd<'_> {
@@ -1178,6 +1226,7 @@ impl Default for FrontEnd<'_> {
             progress: None,
             derived: Derived::default(),
             invariants: Some(&crate::coverage::KInvariants),
+            implementations: None,
         }
     }
 }
@@ -1191,6 +1240,7 @@ impl std::fmt::Debug for FrontEnd<'_> {
             .field("progress", &self.progress.map(|_| ".."))
             .field("derived", &self.derived)
             .field("invariants", &self.invariants.map(|_| ".."))
+            .field("implementations", &self.implementations.map(|_| ".."))
             .finish()
     }
 }
@@ -1307,6 +1357,17 @@ pub fn run_command(
         },
         FlowCommand::Fuzz { templates, request } => {
             fuzz_command(manifest, templates, request, front)
+        }
+        FlowCommand::Compare { options, .. } => {
+            let document = crate::compare::command(
+                manifest,
+                options,
+                front
+                    .implementations
+                    .map(|vocabulary| vocabulary as &dyn crate::compare::Vocabulary),
+            );
+            let status = crate::compare::compare_status(&document);
+            (document, status)
         }
     };
     let mut document = front.annotated(document);
@@ -1985,6 +2046,53 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
         }
     }
     Ok(options)
+}
+
+fn compare_options(
+    args: &[String],
+) -> Result<(crate::compare::CompareOptions, OutputFormat), String> {
+    let mut options = crate::compare::CompareOptions::default();
+    let mut output = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        listed(Verb::Compare, arg)?;
+        match arg.as_str() {
+            "--only" => {
+                let name = args.next().ok_or("--only needs an implementation's name")?;
+                if !options.only.contains(name) {
+                    options.only.push(name.clone());
+                }
+            }
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            "--output" if output.is_none() => {
+                let value = args.next().ok_or("--output needs json or text")?;
+                output = Some(match value.as_str() {
+                    "json" => OutputFormat::Json,
+                    "text" => OutputFormat::Text,
+                    _ => return Err(format!("--output {value:?}: expected json or text")),
+                });
+            }
+            _ => return Err(repeated(arg)),
+        }
+    }
+    Ok((options, output.unwrap_or_default()))
+}
+
+/// The `--output text` rendering of a document: a `compare` document's lines
+/// ([`crate::compare::text`]), else a `coverage` document's summary ([`crate::coverage::text`]).
+///
+/// # Errors
+///
+/// When the document has no text rendering.
+pub fn text(document: &Value) -> Result<String, String> {
+    if document["schema"] == crate::compare::COMPARE_SCHEMA {
+        crate::compare::text(document)
+    } else {
+        crate::coverage::text(document)
+    }
 }
 
 /// A parsed `kink-flow fuzz` command line (after FLOW.toml and TEMPLATES.toml).
@@ -2864,7 +2972,7 @@ mod tests {
     fn value(name: &str) -> &'static str {
         match name {
             "cost|corpus" => "cost",
-            "json|verdicts" | "json|text|verdicts" => "json",
+            "json|verdicts" | "json|text|verdicts" | "json|text" => "json",
             "1|2" => "1",
             "N" | "W" | "S" | "T" => "1",
             _ => "value",
@@ -2890,6 +2998,7 @@ mod tests {
                     Verb::Report => report_options(&args).err(),
                     Verb::Query => query_options(&args).err(),
                     Verb::Fuzz => fuzz_options(&args, &CommandFiles::default()).err(),
+                    Verb::Compare => compare_options(&args).err(),
                 };
                 assert!(
                     !error.as_deref().is_some_and(|error| {
@@ -2908,6 +3017,7 @@ mod tests {
                 Verb::Report => report_options(&unlisted).err(),
                 Verb::Query => query_options(&unlisted).err(),
                 Verb::Fuzz => fuzz_options(&unlisted, &CommandFiles::default()).err(),
+                Verb::Compare => compare_options(&unlisted).err(),
             };
             assert_eq!(error.as_deref(), Some("invalid option '--unlisted'"));
         }
@@ -2927,6 +3037,7 @@ mod tests {
                 Verb::Report => report_options(&twice).err(),
                 Verb::Query => query_options(&twice).err(),
                 Verb::Fuzz => fuzz_options(&twice, &CommandFiles::default()).err(),
+                Verb::Compare => compare_options(&twice).err(),
             };
             assert_eq!(
                 error.as_deref(),

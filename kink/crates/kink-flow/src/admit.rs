@@ -899,6 +899,41 @@ impl<'a> InputSession<'a> {
         ))
     }
 
+    /// The definition's start for an admitted program (`compare`'s `given = "start"`): the one
+    /// state of the depth-0 run of `test`'s initial configuration, which admission's value check
+    /// runs too ([`Self::check_initial_value`]), so its functions are evaluated and it is the
+    /// configuration the first step applies to; `None` when the clock stopped the run, which
+    /// then has no answer on this host. `Err` says why there is none: the run failed, or it has
+    /// another number of states than one.
+    pub fn start(&mut self, test: &TestCase) -> Result<Option<k_rust::kore::ast::Pattern>, String> {
+        let budget = ExecutionBudget {
+            time: self.time,
+            max_simplification_iterations: crate::results::SIMPLIFICATION_ITERATIONS,
+            max_depth: Some(0),
+            max_breadth: None,
+        };
+        let adapter = ExecutionAdapter::new(SolverProfile::of(self.backend));
+        let run = adapter
+            .execute(self.backend, &test.initial_state, budget)
+            .map_err(|error| format!("the depth-0 run failed: {error:?}"))?;
+        if run.timed_out() {
+            return Ok(None);
+        }
+        match run.leaves() {
+            [leaf] if matches!(leaf.halt, HaltClass::DepthBound | HaltClass::Stuck) => {
+                Ok(Some(leaf.branch.state.clone()))
+            }
+            [leaf] => Err(format!(
+                "the depth-0 run halts {:?}, at no configuration the definition starts from",
+                leaf.halt
+            )),
+            leaves => Err(format!(
+                "the depth-0 run has {} states, not one",
+                leaves.len()
+            )),
+        }
+    }
+
     /// The specification's input grammar, built on first use.
     fn grammar(&self) -> Result<&'a InputGrammar, AdmissionRefusal> {
         let spec = self.spec;

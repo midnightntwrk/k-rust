@@ -33,6 +33,12 @@
 //! templates' field values with their encodings (`syntax`), and next steps spelled as `krs kink`
 //! commands (`spelling`).
 //!
+//! `compare` runs each `[[implementation]]` of the corpus on every case and compares its end with
+//! the definition's under each of its views; the front end gives kink-flow the cell vocabulary in
+//! which an implementation reads the definition's start and writes its end (the
+//! `implementations` submodule: cells by Rust field path, values as documents of the typed
+//! encoding, views resolved as an expectation's are).
+//!
 //! Every verb but `emit` prints one kink-flow document (or, with `--output verdicts`, its
 //! deterministic rendering) with one more key, `definition`: the path of `kink/definition.k`
 //! and whether the command that made the document found it `unchanged` or `written` it. A
@@ -82,6 +88,7 @@ mod condition;
 mod emit;
 mod flips;
 mod guards;
+mod implementations;
 mod inputs;
 mod invariant;
 mod observe;
@@ -703,7 +710,7 @@ fn run_flow(
     tell_progress(&command, "run: binding the corpus to the emitted K");
     let sources = outcome.sources.clone();
     let (guard_names, syntax) = front_syntax(emitted, &sources);
-    let (manifest, names, invariants) =
+    let (manifest, names, resolvers) =
         match bound_manifest(&command, declared, emitted, observers, &syntax) {
             Ok(bound) => bound,
             Err(mut document) => {
@@ -784,7 +791,7 @@ fn run_flow(
         annotate: Some(&annotate as &(dyn Fn(&mut Value) + Sync)),
         progress: command.shows_progress().then_some(&print_progress),
         derived: front_derived(derived.as_ref()),
-        invariants: Some(&invariants),
+        ..resolvers.front_end()
     };
     let span = format!("kink.{}", verb.as_str());
     let dispatched = measurement
@@ -913,6 +920,7 @@ fn command_cache(command: &FlowCommand) -> Option<&Path> {
         FlowCommand::Report { options, .. } => options.cache.as_deref(),
         FlowCommand::Query { options, .. } => options.cache.as_deref(),
         FlowCommand::Fuzz { request, .. } => request.options.cache.as_deref(),
+        FlowCommand::Compare { options, .. } => options.cache.as_deref(),
     }
 }
 
@@ -966,22 +974,15 @@ impl BoundNames {
 /// labels and its cells as K names, with the functions that give its elements
 /// ([`observe::bind`]); the labels each `[stop]` name selects, the labels and cells each
 /// `[observe]` name reads as, and the cells by path that the documents' `result` gains; and the
-/// resolver of `[[coverage.invariant]]`'s KRS spellings over the decoder's compile
-/// ([`invariant`]); or `command`'s document refusing the corpus.
+/// resolvers over the decoder's compile ([`Resolvers`]: `[[coverage.invariant]]`'s KRS spellings
+/// and `compare`'s cell vocabulary); or `command`'s document refusing the corpus.
 fn bound_manifest(
     command: &FlowCommand,
     declared: ManifestFile,
     emitted: &EmittedDefinition,
     observers: render::Observers,
     syntax: &syntax::KrsSyntax,
-) -> Result<
-    (
-        kink_flow::FlowManifest,
-        BoundNames,
-        invariant::KrsInvariants,
-    ),
-    Value,
-> {
+) -> Result<(kink_flow::FlowManifest, BoundNames, Resolvers), Value> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
         .map_err(|error| command.manifest_refused(&error))?;
@@ -1002,6 +1003,8 @@ fn bound_manifest(
         .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
     let (manifest, observe_items) = observe::bind(manifest, &decoder, &observers, &emitted.ir)
         .map_err(|unbound| refused(command, "observe", unbound.reason, &unbound.detail))?;
+    let implementations =
+        implementations::KrsImplementations::new(Arc::clone(&decoder), Arc::clone(&observers));
     let invariants = invariant::KrsInvariants::new(decoder);
     Ok((
         manifest,
@@ -1010,8 +1013,30 @@ fn bound_manifest(
             observe: observe_items,
             result: result_names,
         },
-        invariants,
+        Resolvers {
+            invariants,
+            implementations,
+        },
     ))
+}
+
+/// The resolvers of a corpus's KRS spellings over the decoder's compile: of
+/// `[[coverage.invariant]]` ([`invariant`]), and `compare`'s cell vocabulary
+/// ([`implementations`]).
+struct Resolvers {
+    invariants: invariant::KrsInvariants,
+    implementations: implementations::KrsImplementations,
+}
+
+impl Resolvers {
+    /// kink-flow's own front end with these resolvers.
+    fn front_end(&self) -> FrontEnd<'_> {
+        FrontEnd {
+            invariants: Some(&self.invariants),
+            implementations: Some(&self.implementations),
+            ..FrontEnd::default()
+        }
+    }
 }
 
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
@@ -1164,7 +1189,7 @@ const fn operand_flag(verb: Verb) -> Option<&'static str> {
         Verb::Run => Some("--mutations"),
         Verb::Query => Some("--patterns"),
         Verb::Fuzz => Some("--templates"),
-        Verb::Check | Verb::Coverage | Verb::Report => None,
+        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare => None,
     }
 }
 
@@ -1417,7 +1442,7 @@ fn finish(
     );
     match output {
         OutputFormat::Json => outcome.json(document, status),
-        OutputFormat::Text => match kink_flow::coverage::text(document) {
+        OutputFormat::Text => match kink_flow::cli::text(document) {
             Ok(text) => {
                 outcome.stdout = text.into_bytes();
                 outcome.status = status;

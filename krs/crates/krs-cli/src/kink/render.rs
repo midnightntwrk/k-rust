@@ -804,7 +804,7 @@ fn checked(
 }
 
 /// The cells of `cells` that `not_compared` (by K cell name) leaves out.
-fn unstated<'c>(cells: &'c [CellInfo], not_compared: &[String]) -> Vec<&'c CellInfo> {
+pub(super) fn unstated<'c>(cells: &'c [CellInfo], not_compared: &[String]) -> Vec<&'c CellInfo> {
     let labels = not_compared
         .iter()
         .map(|name| format!("<{name}>"))
@@ -817,7 +817,7 @@ fn unstated<'c>(cells: &'c [CellInfo], not_compared: &[String]) -> Vec<&'c CellI
 
 /// Each configuration of `set` read as an end of class `class`, the cells of `unstated` not
 /// stated.
-fn read_ends(
+pub(super) fn read_ends(
     semantics: &Semantics,
     set: &BTreeSet<Pattern>,
     class: &EndClass,

@@ -315,7 +315,14 @@ impl KrsSyntax {
     /// by both (`rule:crate::Exp::Add:heat:lhs`). A `context`'s heating rule is named by the
     /// context's own item, as its rules are. Applying it twice gives what applying it once does.
     pub(crate) fn name_heating(&self, document: &mut Value) {
-        let Some(items) = document["families"]["rules"]["items"].as_array_mut() else {
+        // Read without indexing mutably, which would add the members to a document of another
+        // verb.
+        let Some(items) = document
+            .get_mut("families")
+            .and_then(|families| families.get_mut("rules"))
+            .and_then(|rules| rules.get_mut("items"))
+            .and_then(Value::as_array_mut)
+        else {
             return;
         };
         for item in items {

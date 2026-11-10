@@ -55,8 +55,8 @@ Usage:
              [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
              [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
-  krs kink <emit|check|coverage|run|report|query|fuzz> --package P --definition D [OPTIONS]
-             (krs kink --help lists the corpus loop's options)
+  krs kink <emit|check|coverage|run|report|query|fuzz|compare> --package P --definition D
+             [OPTIONS] (krs kink --help lists the corpus loop's options)
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
 
@@ -257,13 +257,17 @@ Usage:
   krs kink fuzz    --package P --definition D [--corpus DIR] [--templates PATH] --template ID
                    (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE
                    | --cover ITEM | --pattern ID) [kink-flow's fuzz options] [--locked]
+  krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache DIR]
+                   [--output json|text] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
                     kink-flow's manifest: each case is a [[program]] entry, and kink's
                     documents list the cases under `programs`; a case's paths stay inside
                     the corpus directory; [result] cells names cells by Rust path
-                    (cpu.regs), as krs compare does
+                    (cpu.regs), as krs compare does; each [[implementation]] is another
+                    implementation of the system, which compare runs on every case and
+                    compares with the definition under its views
   cases/            the cases' program files and typed-input documents; a program file
                     binds the main parameter, as krs run FILE does
   mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or
@@ -370,7 +374,7 @@ command that builds the package builds it in process, so krs kink takes no --no-
 
 /// Each verb of `krs kink` with its usage line, as [`KINK_USAGE`] lists it.
 #[cfg(feature = "kink")]
-const KINK_VERB_USAGE: [(&str, &str); 7] = [
+const KINK_VERB_USAGE: [(&str, &str); 8] = [
     (
         "emit",
         "krs kink emit --package P --definition D [--corpus DIR] [--check]",
@@ -406,6 +410,11 @@ const KINK_VERB_USAGE: [(&str, &str); 7] = [
         "krs kink fuzz --package P --definition D [--corpus DIR] [--templates PATH] --template ID \
          (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE | --cover ITEM | \
          --pattern ID) [kink-flow's fuzz options] [--locked]",
+    ),
+    (
+        "compare",
+        "krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache \
+         DIR] [--output json|text] [--locked]",
     ),
 ];
 
@@ -2392,7 +2401,10 @@ fn unlisted_option(verb: kink_flow::Verb, args: &[String]) -> Option<&str> {
         kink_flow::Verb::Run => Some("--mutations"),
         kink_flow::Verb::Query => Some("--patterns"),
         kink_flow::Verb::Fuzz => Some("--templates"),
-        kink_flow::Verb::Check | kink_flow::Verb::Coverage | kink_flow::Verb::Report => None,
+        kink_flow::Verb::Check
+        | kink_flow::Verb::Coverage
+        | kink_flow::Verb::Report
+        | kink_flow::Verb::Compare => None,
     };
     let mut args = args.iter();
     while let Some(argument) = args.next() {

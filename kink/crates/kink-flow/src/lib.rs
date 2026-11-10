@@ -47,6 +47,7 @@ pub mod admit;
 pub mod check;
 pub mod cli;
 pub mod clock;
+pub mod compare;
 pub mod coverage;
 pub mod digest;
 pub mod evidence;
@@ -82,6 +83,7 @@ pub use cli::{
     CommandFiles, CommandSpelling, FlowCommand, FrontEnd, KinkFlowSpelling, OutputFormat, Verb,
     dispatch, on_stack,
 };
+pub use compare::{Answer, CompareOptions, EndWord, Judged, NotCompared, Question, Vocabulary};
 pub use evidence::{EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
 /// A front end's functions of an observer for `[observe]`
@@ -93,9 +95,10 @@ pub use kink_campaign::{
 pub use kink_campaign::{StopOracle, StopWhen};
 pub use kink_native::data::SentenceNames;
 pub use manifest::{
-    Budget, Decoder, FlowManifest, KrsSpec, LogSection, ManifestError, ManifestFile,
-    ObserveFunctionsSlot, ObserveSection, PointSection, Program, ResultSection, SpecDecl,
-    SpecSection, StopSection, StopWhenSection, StopWhenSlot,
+    Budget, Decoder, FlowManifest, Given, IdentitySection, ImplementationSection, KrsSpec,
+    LogSection, ManifestError, ManifestFile, ObserveFunctionsSlot, ObserveSection, PointSection,
+    Program, ResultSection, SpecDecl, SpecSection, StopSection, StopWhenSection, StopWhenSlot,
+    ViewSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, Expect, InvalidMutation, InvalidReason, LabelMatch, Mutation,

@@ -47,10 +47,12 @@
 
 mod case_document;
 mod case_pattern;
+mod implementation;
 
 use crate::admit::InputDecoder;
 use crate::evidence::{EndRenderer, Renderer};
 use case_pattern::CasePattern;
+pub use implementation::{Given, IdentitySection, ImplementationSection, ViewSection};
 use kink_corpus::ProgramSource;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -95,6 +97,10 @@ pub struct FlowManifest {
     /// `[coverage]`: what `coverage` asks of the corpus ([`CoverageSection`]); its defaults
     /// without the section.
     pub coverage: CoverageSection,
+    /// `[[implementation]]`: other implementations of the corpus's system, which `compare` runs
+    /// on every program and compares with the definition ([`ImplementationSection`]), in the
+    /// order written. No run of the definition reads them, so they are in no digest or key.
+    pub implementations: Vec<ImplementationSection>,
     /// The front end's stop condition, which asks `[stop] when` at each arrival
     /// ([`Self::with_stop_when`]). A decoded `FLOW.toml` has none: kink-flow reads no values of
     /// the definition, so admission refuses a `when` without it (stage `stop`,
@@ -677,6 +683,8 @@ pub struct ManifestFile {
     pub observe: Option<ObserveSection>,
     /// `[coverage]`, as [`FlowManifest::coverage`].
     pub coverage: CoverageSection,
+    /// `[[implementation]]`, as [`FlowManifest::implementations`].
+    pub implementations: Vec<ImplementationSection>,
 }
 
 /// How a manifest's `[spec]` declares its specification.
@@ -727,7 +735,14 @@ impl ManifestFile {
             &top,
             "",
             &[
-                "spec", "budget", "result", "stop", "observe", "coverage", "program",
+                "spec",
+                "budget",
+                "result",
+                "stop",
+                "observe",
+                "coverage",
+                "program",
+                "implementation",
             ],
         )?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
@@ -741,6 +756,11 @@ impl ManifestFile {
         let coverage = top
             .get("coverage")
             .map(coverage)
+            .transpose()?
+            .unwrap_or_default();
+        let implementations = top
+            .get("implementation")
+            .map(implementation::implementations)
             .transpose()?
             .unwrap_or_default();
         let no_entries = Vec::new();
@@ -781,6 +801,7 @@ impl ManifestFile {
             stop,
             observe,
             coverage,
+            implementations,
         })
     }
 
@@ -822,6 +843,7 @@ impl ManifestFile {
             stop: self.stop,
             observe: self.observe,
             coverage: self.coverage,
+            implementations: self.implementations,
             stop_when: StopWhenSlot::default(),
             observe_functions: ObserveFunctionsSlot::default(),
             input_decoder: Decoder::default(),

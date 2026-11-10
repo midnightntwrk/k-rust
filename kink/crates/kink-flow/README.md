@@ -21,6 +21,7 @@ the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking
 the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below),
 the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below),
 the corpus record, a `kink.lock` with one section per command that `run --lock` and `coverage --lock` read and rewrite, each its own: `[run]`, one recorded killer per killed mutation, kept while it still kills, and `[coverage]`, the same for the condition flips with each family's open and argued obligations ("The corpus record" below),
+the comparison of other implementations of a corpus's system with the definition, over its programs, inputs and `[stop]`, under declared views, with `compare` (FB-47; "Comparing implementations" below),
 and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
@@ -381,6 +382,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | `run` | each selected mutation's verdict, and whether it is the verdict the mutation expects | an `unmet` expectation (`expect`, "`MUTATIONS.toml`"), with or without `--locked`; under `--locked`, a lock the run would change (a stored record that differs from the live value, as a `--verify` mismatch is); a verdict alone is no finding: `killed`, `survived`, `equivalent` and `unkillable` are answers | a mutation that is `timeout` or `unknown`; an `inconclusive` expectation |
 | `report` | what the last `run` answered | as that run | as that run |
 | `query` | whether each program reaches a state matching each pattern | a refuted claim (`no` for a program the pattern claims) | an `unknown` answer |
+| `compare` | whether each implementation ends as the definition does on every program, under each required view ("Comparing implementations") | a `different` verdict of a required view | a required view `not-compared` with no answer (`several-ends`, `undecided`, a baseline `timeout` or `unknown`); a `timeout` of an implementation with a required view |
 | `fuzz` | which hole values of the template are a witness of the job | a witness of a kill job whose mutation expects to survive (it refutes the expectation); otherwise none: a witness and `equivalent` are answers | a search that ended without a witness kink accepts (table under "The document") |
 
 `check`'s warnings, and a case's expectation in `check` and `run`, decide no status: `check` runs nothing and asks only whether verdicts are possible, and `run` asks about the mutations.
@@ -2352,6 +2354,97 @@ Version 14 adds a kill job's `job.expect` and the warning `expected-to-survive`,
 Version 15 runs a corpus with `[stop]` and one with `[observe]` ("A corpus with `[stop]` or `[observe]`"): `stop` and `observe` are the manifest's, as the `check`, `coverage` and `run` documents carry them, the refusals at stages `stop` and `observe` are narrowed to a stop condition and to a kill job, `template.stop_count`, `job.observe`, the refusal `stop-unresolved` at stage `mutant` and the warning `stop-hides-edit` are new, and the embedded k-rust-fuzz report is version 11, whose identity records the stop.
 Version 16 (KINK-FINDING-NAMES) names every finding (`findings`, `assumed`, `spec.unnamed_findings`, a witness's premises) by its kind, sentences and digest, refuses a genuine finding's name given with `--assume-joined` (`decided`), and embeds k-rust-fuzz reports of version 12.
 `tests/formats.rs` ties the version to the document's keys and enumerated values and to the report version it embeds.
+
+## Comparing implementations: `kink-flow compare FLOW.toml [--only NAME]... [--cache DIR] [--output json|text]`
+
+A corpus states what its system does on each of its programs.
+Another implementation of the system (an emulator, a hardware model, a port) is compared with the definition over the same programs, inputs and `[stop]` by declaring it in `FLOW.toml`; a program added to the corpus is compared with no other edit.
+
+```toml
+[[implementation]]
+name = "rust-cpu"                       # unique among the implementations
+command = ["bin/cpu", "--kink"]         # argv: a first word with a `/` is relative to FLOW.toml's directory, else looked up on PATH
+given = "start"                         # "start": the definition's start besides the inputs; "inputs": the inputs alone
+omits = ["k", "ei_pending"]             # optional: the cells the implementation does not state
+identity = { file = "bin/cpu" }         # optional: the file whose digest names its build
+time_ms = 30000                         # optional; default budget.time_ms
+views = [
+  { name = "writes", views = { bus = "WritesView" }, observer = "pkg:views", required = true },
+  { name = "accesses", views = { bus = "AccessesView" }, observer = "pkg:views" },
+]
+```
+
+| Key | Meaning |
+| --- | --- |
+| `name` | The implementation's name, which rows, `--only` and the documents use; nonempty and unique. |
+| `command` | A nonempty array of nonempty strings: the executable and its arguments. It runs in the manifest's directory. |
+| `given` | `start` or `inputs` (below, "The protocol"). Required. |
+| `omits` | The cells the implementation does not state, by the front end's cell names (krs: Rust field paths). Every other observable cell must be in each answer, or the answer is malformed, naming the cell. A view that compares an omitted cell is `not-compared` (`omitted`). Default: none. |
+| `identity` | `{ file }`, relative to the manifest's directory: the document names its SHA-256 (`implementations[].identity.sha256`), the identity a later cache of verdicts is keyed by. Absent: the verdicts are never cached. A file that cannot be read refuses the command (stage `implementation`, reason `identity`). |
+| `time_ms` | The wall clock that cancels one run of the implementation; positive. It decides no verdict (below). Default `budget.time_ms`. |
+| `views` | A nonempty array of views, each `{name, required, compare, views, observer}`: `name` unique among the implementation's views; `required` a boolean, default false (a view that is reported only); `compare` the cells it compares (default: every observable cell the implementation states); `views` a function by cell, applied to both sides' values before they are compared; `observer` the definition the functions are evaluated in (default: the definition). `compare`, `views` and `observer` are the front end's, resolved as an expectation's are ("Expectations"); a view that does not resolve refuses the command (stage `implementation`, reason `declaration`). `views = [{ name = "end", required = true }]` compares every cell the implementation states. |
+
+No run of the definition reads an implementation, so `[[implementation]]` is in no digest or cache key, and every other command ignores it.
+
+### The protocol
+
+The protocol is `kink-implementation/1`, a stable contract between kink and an implementation.
+kink runs the implementation's `command` once per program (in the manifest's directory), writes one JSON request on its stdin and closes it, and reads one JSON answer from its stdout.
+
+The request is an object:
+
+| Key | Meaning |
+| --- | --- |
+| `protocol` | `"kink-implementation/1"`. |
+| `program` | The program's id, as every document names it. |
+| `inputs` | The program's inputs as typed values, by input name: under krs, each typed input decoded at its parameter's declared type and written as its canonical document by the parameter's Rust name, and a program file bound to the main parameter as its value (a `Bytes` document, or `{"$text": ..}` for a text program), so the request is a function of the values, never of the files that hold them. |
+| `stop` | `{count}`, the program's stop count (its `stop_count`, else `[stop] count`), when the corpus has a `[stop]`: the implementation stops where the corpus's stop is, by its own meaning of it. |
+| `start` | Where `given = "start"`: the definition's start for the program, the state of its depth-0 run (its initializer evaluated), every cell stated, in the definition's cell vocabulary (krs: an end document's `cells`, by Rust field path, values as documents of the typed encoding). |
+
+The answer is an object of `end`, and `cells` or `reason`, and no other key:
+
+| `end` | Meaning | Also |
+| --- | --- | --- |
+| `stopped` | the run reached the corpus's `[stop]` | `cells`: its end's cells, in the definition's cell vocabulary |
+| `final` | the run ended on its own | `cells`, as for `stopped` |
+| `could-not-apply` | the implementation cannot apply the program as given | `reason`, a nonempty string |
+
+An implementation never names a rule label or states the computation (the `k` cell): those are the definition's internals, which no other implementation knows.
+kink names the definition's own end by the same words: an end some path of the program's baseline run reached at its last stop event is `stopped`, one every path reached on its own is `final`; without `[stop]` every end is `final`.
+The request and the answer are extensible by new keys under a new protocol version (traces at `[observe]` points, inclusion for nondeterministic definitions, hardware logs); version 1's answer refuses every other key, so an implementation that writes one is told so rather than silently half-read.
+
+One process runs per program: a failure is then a fact of one program, the protocol needs no framing, and the cost is one process start per program (milliseconds, against the definition's own run of the program).
+The programs run one after another, in corpus order, each implementation in manifest order.
+
+A run that does not give an answer is a failure of the implementation, not a verdict: its row has `failure`, `{kind, detail, exit_code, stderr}` (the last 2000 bytes of its stderr), and no view verdicts.
+`kind` is `spawn` (the command cannot be started), `exit` (it exited with a status other than 0, or a signal ended it; an answer it printed is not read), `malformed` (its stdout is not one JSON answer, or `cells` names a cell the definition does not declare, holds a value of another type, or leaves out a cell `omits` does not name) or `timeout`.
+The clock only cancels: a run that has not closed its stdout and stderr when `time_ms` has passed is killed, and is `timeout`, no answer on this host (once it has closed them, its answer is complete, and kink waits for it to exit); the clock never decides a verdict, which only an answer does.
+
+### Verdicts
+
+Each (implementation, program, view) has one verdict:
+
+| Verdict | Meaning |
+| --- | --- |
+| `equal` | Every end of the definition agrees with the answer: the same word, and the same values of the compared cells (through the view's functions); `omitted` lists the cells left out because the implementation omits them. |
+| `different` | They differ, first at `difference`: the word (`{format: "kink-end/1", at: "end", definition, implementation}`), else the front end's first difference of the compared cells (krs: `krs-difference/3`, its sides `definition` and `implementation`). |
+| `could-not-apply` | The implementation's own answer; `detail` is its reason. |
+| `not-compared` | The view is not compared; `reason` says why: `definition` (the program's baseline is not `comparable`: it has no end), `omitted` (the view compares a cell the implementation omits), `left-out` (a cell the corpus's ends leave out, `[result]` or an unobservable cell), `several-ends` (the definition's run has several ends that the view tells apart, or ends both at the stop and on its own: one answer against several ends is inclusion, which this command does not decide), `undecided` (a view's evaluation stopped before it ended, or the clock stopped the depth-0 run that gives the start: no answer on this host), `unreadable` (the definition's start, an end or an input has no document). |
+
+### Exit status
+
+Only a required view decides the status; every other verdict is reported.
+Each (implementation, program) row joins its required views' statuses: `equal` and `could-not-apply` 0 (an answer: the implementation states that it does not apply the program), `different` 1, `not-compared` 3 for `several-ends`, `undecided` and a `definition` that is `timeout`, `unknown` or `comparable-prefix`, else 2; and, for an implementation with a required view, its failure: 3 for `timeout`, else 2.
+The command exits with the join of its rows ("Exit status"), 2 for a refusal: a front end with no cell vocabulary (`unsupported-front-end`: kink-flow's own, which reads K terms; run `krs kink compare`), a manifest with no `[[implementation]]` (`no-implementation`), an `--only` name it does not declare (`unknown-implementation`), a declaration the definition refutes (`declaration`), an unreadable `identity` file (`identity`), and a refused specification.
+
+### The document
+
+`schema` `kink-flow-compare`, `version` 1, `protocol`, the builds (`k_rust_revision`, `profile`, `kink_build`, `z3`), `spec`, `refusal` (`{stage, reason, detail}` or null), `implementations` (each declaration as written, its `identity` with `sha256`), `programs` (each program's baseline `{id, class, cause, cached, cache_error}`), `stop` and `result.not_compared` (the cells the ends leave out), `rows` and `summary`.
+Each row is one (implementation, program): `{implementation, program, required, request_sha256, answer: {end, reason}, failure, wall_ms, views}`, `request_sha256` the SHA-256 of the request's canonical JSON, and each entry of `views` `{view, required, verdict, difference, reason, detail, omitted, status}`.
+`summary` counts the verdicts (`verdicts`, and `required`, of the required views) and the `failures`.
+`--output text` prints one line per verdict (`IMPLEMENTATION PROGRAM VIEW (required|reported): VERDICT`, with where a difference is or why a view is not compared) and per failure, then the counts.
+
+A row of `views` with its row's `implementation`, `program`, `request_sha256` and the implementation's `identity.sha256` is what a lock section of the corpus record would hold per (implementation, program, view): the verdict is a function of the definition, the corpus and that request and build, except a `timeout`, which no record would hold.
 
 ## Front ends
 
