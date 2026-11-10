@@ -1090,22 +1090,64 @@ mod value {
 
         /// A KORE value already of the variable's declared sort `declared`
         /// ([`ConfigurationAssembler::bind_pattern`]), placed at `K` as [`Self::placed`] places
-        /// a typed term.
+        /// a typed term: from the value's own sort. A value at `K` is injected from its least
+        /// sort, as every bound value is ([`Self::placed`] places a typed term from the sort
+        /// its typing gives it), so where `pattern` is `inj{T, S}(inner)`, its declared sort `S`
+        /// reached from a strict subsort `T`, `inner` is placed from `T` and the outer
+        /// injection is not kept: the payload is `inj{T, KItem}(inner)`, the one the same value
+        /// bound by hand gives, not `inj{S, KItem}(inj{T, S}(inner))`, which only an injection
+        /// normalisation would make equal to it. Any other pattern is placed from `S`.
         pub(super) fn from_pattern_at(
             injector: &SortInjector<'_, '_>,
             pattern: Pattern,
             declared: &KastSort,
             variable: &str,
         ) -> Result<Self, ConfigurationError> {
-            let placement = injector
-                .placement(declared, &KastSort::builtin(BuiltinSort::K))
-                .ok_or_else(|| ConfigurationError::Unplaceable {
+            let k = KastSort::builtin(BuiltinSort::K);
+            if let Some((own, inner)) = Self::injected_from(injector, &pattern, declared)
+                && let Some(placement) = injector.placement(&own, &k)
+            {
+                return Ok(Self {
+                    pattern: placement.apply_kore(inner.clone(), &[]),
+                });
+            }
+            let placement = injector.placement(declared, &k).ok_or_else(|| {
+                ConfigurationError::Unplaceable {
                     variable: variable.into(),
                     sort: declared.clone(),
-                })?;
+                }
+            })?;
             Ok(Self {
                 pattern: placement.apply_kore(pattern, &[]),
             })
+        }
+
+        /// The sort `T` and the argument of `pattern` where it is `inj{T, S}(inner)` with `S`
+        /// the encoding of `declared` and `T` a sort whose encoding is `T` and that is at most
+        /// `declared`; `None` for any other pattern.
+        fn injected_from<'p>(
+            injector: &SortInjector<'_, '_>,
+            pattern: &'p Pattern,
+            declared: &KastSort,
+        ) -> Option<(KastSort, &'p Pattern)> {
+            let Pattern::Application { symbol, arguments } = pattern else {
+                return None;
+            };
+            let ([source, target], [inner]) =
+                (symbol.sort_parameters.as_slice(), arguments.as_slice())
+            else {
+                return None;
+            };
+            if symbol.name != crate::names::WellKnownSymbol::Inj.as_str()
+                || *target != crate::kompile::encode_kore_sort(declared)
+            {
+                return None;
+            }
+            let own = crate::kast::convert::convert_sort(source).ok()?;
+            (crate::kompile::encode_kore_sort(&own) == *source
+                && own != *declared
+                && injector.placement(&own, declared).is_some())
+            .then_some((own, inner))
         }
 
         pub(super) fn from_string(

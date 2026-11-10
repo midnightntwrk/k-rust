@@ -683,3 +683,117 @@ fn a_warm_stage_binds_the_defaults_a_cold_compile_binds() {
     assert!(entries > 0, "the cold run stored its stage");
     assert_eq!(run(), cold);
 }
+
+/// A definition whose one input is declared at `Shape` and defaults to a `Dot`, a strict subsort,
+/// which the computation cell holds and a rule rewrites.
+const SUBSORTED: &str = r#"
+use k::Term;
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Shape;
+    Dot: Shape;
+}
+
+#[k::constructors(sort = Shape, result = KResult)]
+pub enum ShapeSyntax {
+    #[k::syntax("box({n})")]
+    Boxed { n: Int },
+}
+
+#[k::constructors(sort = Dot, result = KResult)]
+pub enum DotSyntax {
+    #[k::syntax("dot({n})")]
+    At { n: Int },
+    #[k::syntax("seen({n})")]
+    Seen { n: Int },
+}
+
+#[k::rule]
+fn see(k::term![DotSyntax::At { n }]: Term<Dot>) -> Term<Dot> {
+    DotSyntax::Seen(n)
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "SHAPE", default = DotSyntax::At(1))] shape: Shape) -> Self {
+        Self { k: k::k![shape] }
+    }
+}
+"#;
+
+/// A default of a strict subsort of its input's declared sort is bound as the same value bound
+/// by hand is, from its own sort: the initial configuration is the same term, so a rule over the
+/// subsort's value matches it, and the run ends where the run that binds it by hand ends.
+#[test]
+fn a_subsort_default_is_bound_from_its_own_sort() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "subsorted", SUBSORTED);
+    let by_hand = input_arguments(&[("shape", r#"{"At": [1]}"#)]);
+    for command in ["run", "search"] {
+        let unbound = krs(
+            target.path(),
+            &manifest,
+            command,
+            &["--output", "kore"],
+            &[],
+        );
+        assert!(unbound.0, "{}", unbound.2);
+        let mut arguments = vec!["--output", "kore"];
+        arguments.extend(by_hand.iter().map(String::as_str));
+        let bound = krs(target.path(), &manifest, command, &arguments, &[]);
+        assert!(bound.0, "{}", bound.2);
+        assert_eq!(unbound.1, bound.1, "krs {command}");
+        assert!(
+            unbound
+                .1
+                .contains(r#"LbldotSyntaxSeen{}(\dv{SortInt{}}("1"))"#),
+            "{}",
+            unbound.1
+        );
+    }
+
+    // The bound configuration term itself is the by-hand one.
+    let output = temporary.path().join("subsorted-out");
+    emitted_k(target.path(), &manifest, &output);
+    let definition: DefinitionIr =
+        serde_json::from_slice(&fs::read(output.join("definition-ir.json")).unwrap()).unwrap();
+    let mut semantics = krs_exec::Semantics::compile(&definition).unwrap();
+    let default = semantics.input_defaults()["SHAPE"].to_string();
+    assert!(
+        default.starts_with("inj{SortDot{}, SortShape{}}("),
+        "{default}"
+    );
+    let unbound = semantics
+        .configure(&krs_exec::ConfigInputs::default())
+        .unwrap();
+    let value = semantics
+        .decode_input(
+            "shape",
+            &serde_json::json!({"At": [1]}),
+            &mut krs_exec::NoFiles,
+        )
+        .unwrap();
+    let bound = semantics
+        .configure(&krs_exec::ConfigInputs {
+            variables: vec![("shape".to_owned(), value)],
+            ..krs_exec::ConfigInputs::default()
+        })
+        .unwrap();
+    assert_eq!(unbound.kore(), bound.kore());
+    assert!(
+        unbound
+            .kore()
+            .to_string()
+            .contains(r#"inj{SortDot{}, SortKItem{}}(LbldotSyntaxAt{}(\dv{SortInt{}}("1")))"#),
+        "{}",
+        unbound.kore()
+    );
+}
