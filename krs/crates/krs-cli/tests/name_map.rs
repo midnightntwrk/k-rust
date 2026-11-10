@@ -578,6 +578,34 @@ fn a_function_k_beside_the_cell_k_is_another_name() {
     );
 }
 
+/// A function's name must be ASCII `UpperCamelCase`, since its symbol is the name with a lowercase
+/// first letter. A name with no such spelling (`Café`) is told why, not advised its own name; one
+/// that has one (`Pick_f`) is advised it.
+#[test]
+fn a_function_name_with_no_ascii_spelling_is_told_why() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let shorthand = "error[krs::syntax::invalid-function-shorthand]: a function symbol is named as its applications are written, ";
+    for (directory, name, reason) in [
+        (
+            "fn-cafe",
+            "Café",
+            "in ASCII UpperCamelCase: its K symbol is the name with a lowercase first letter, which KRS spells with ASCII letters and digits only, and `Café` holds another character",
+        ),
+        (
+            "fn-pick-f",
+            "Pick_f",
+            "in UpperCamelCase (`fn PickF`); its equation takes the snake_case name",
+        ),
+    ] {
+        assert_eq!(
+            check_headline(target.path(), temporary.path(), directory, &function(name)),
+            Some(format!("{shorthand}{reason}")),
+            "{directory}"
+        );
+    }
+}
+
 /// One prelude module: its imports, the sorts it declares and the symbols of its productions.
 #[derive(Default)]
 struct PreludeModule {

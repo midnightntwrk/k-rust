@@ -605,13 +605,25 @@ fn validate_signature(sig: &Signature) -> Result<(), SyntaxError> {
             .chars()
             .all(|character| character.is_ascii_alphanumeric());
     if !camel {
-        return Err(shorthand_error(
-            &format!(
-                "a function symbol is named as its applications are written, in UpperCamelCase (`fn {}`); its equation takes the snake_case name",
-                upper_camel(&name)
-            ),
-            sig.ident.span(),
-        ));
+        let suggestion = upper_camel(&name);
+        let reason = if suggestion
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_uppercase())
+            && suggestion
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+        {
+            format!(
+                "a function symbol is named as its applications are written, in UpperCamelCase (`fn {suggestion}`); its equation takes the snake_case name"
+            )
+        } else {
+            // No UpperCamelCase spelling of the name is ASCII, so none can be advised.
+            format!(
+                "a function symbol is named as its applications are written, in ASCII UpperCamelCase: its K symbol is the name with a lowercase first letter, which KRS spells with ASCII letters and digits only, and `{name}` holds another character"
+            )
+        };
+        return Err(shorthand_error(&reason, sig.ident.span()));
     }
     Ok(())
 }
