@@ -2274,7 +2274,7 @@ fn parse_unkeyed_cells(
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
                 let (wrapper, value) =
-                    parse_carried_entry_value(input, context, looks_up, &mut carried)?;
+                    parse_carried_entry_value(input, context, looks_up, &name, &mut carried)?;
                 entries.push(CellsEntry {
                     name,
                     owner,
@@ -2328,6 +2328,7 @@ fn parse_carried_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
     looks_up: bool,
+    cell: &Ident,
     carried: &mut Option<SyntaxError>,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
     let faults = PartFaults::new(context);
@@ -2342,11 +2343,11 @@ fn parse_carried_entry_value(
             presences.carry(&faults)?;
             structured_with(
                 presences.read,
-                |input| parse_entry_value(input, context, looks_up, &faults),
+                |input| parse_entry_value(input, context, looks_up, cell, &faults),
                 |error| state_error("cells", "malformed fragment", error.span()),
             )?
         }
-        None => parse_entry_value(input, context, looks_up, &faults)?,
+        None => parse_entry_value(input, context, looks_up, cell, &faults)?,
     };
     if let Some(fault) = faults.first() {
         carried.get_or_insert(fault);
@@ -2616,6 +2617,7 @@ fn parse_entry_value(
     input: ParseStream<'_>,
     context: StateMacroContext,
     looks_up: bool,
+    cell: &Ident,
     faults: &PartFaults,
 ) -> Result<(Option<Path>, StateTerm), SyntaxError> {
     if let Some(range) = parse_option_none(input)? {
@@ -2628,7 +2630,7 @@ fn parse_entry_value(
         let (wrapper, value) = structured_with(
             inner,
             move |inner| {
-                let parsed = parse_entry_value(inner, context, looks_up, faults)?;
+                let parsed = parse_entry_value(inner, context, looks_up, cell, faults)?;
                 if !inner.is_empty() {
                     return Err(state_error(
                         "cells",
@@ -2660,7 +2662,7 @@ fn parse_entry_value(
         ));
     }
     if !starts_wrapped_entry(input) {
-        return Ok((None, parse_group_entry(input, context)?));
+        return Ok((None, parse_group_entry(input, context, cell)?));
     }
     let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
     let Some(last) = plain_path_last(&wrapper) else {
@@ -3209,6 +3211,7 @@ fn starts_wrapped_entry(input: ParseStream<'_>) -> bool {
 fn parse_group_entry(
     input: ParseStream<'_>,
     context: StateMacroContext,
+    cell: &Ident,
 ) -> Result<StateTerm, SyntaxError> {
     let mut tokens = TokenStream::new();
     while !input.is_empty() && !input.peek(Token![,]) && !starts_remainder(input) {
@@ -3226,7 +3229,7 @@ fn parse_group_entry(
     }
     let span = tokens.span();
     if context == StateMacroContext::Expression
-        && let Some(refusal) = pattern_only_entry(&tokens)
+        && let Some(refusal) = pattern_only_entry(&tokens, cell)
     {
         return Err(refusal);
     }
@@ -3328,18 +3331,25 @@ fn fragment_record(
     )?))
 }
 
-/// The refusal of a whole nested-cell entry value that only a pattern holds, outside one: `_`,
-/// which matches any content and names none a result could build, and `name @ pattern` (K's
-/// `#as`), which names the content a pattern matched. Both are the form's own refusals (P4's
-/// placement), judged from the spelling and the side alone, whatever the cell's kind: the
-/// classes `wildcard-outside-pattern` and `alias-outside-pattern`, with the position table's
-/// reasons, as the same constructs inside a leaf's `Cell(..)` meet them.
-fn pattern_only_entry(tokens: &TokenStream) -> Option<SyntaxError> {
-    use crate::positions::Class;
+/// The refusal of a result's whole entry of `cell` that is `_` or `name @ pattern`, which only a
+/// pattern can hold: told as every route tells an entry root, naming the cell
+/// ([`crate::cell_entries::Refusal::reason`]).
+fn pattern_only_entry(tokens: &TokenStream, cell: &Ident) -> Option<SyntaxError> {
+    use crate::cell_entries::{EntryKind, Refusal};
+    use crate::cell_entry::EntryForm;
+    use syn::ext::IdentExt;
+    let reason = |refusal: Refusal| {
+        refusal.reason(
+            EntryForm::Cells,
+            &cell.unraw().to_string(),
+            &EntryKind::default(),
+            None,
+        )
+    };
     if syn::parse2::<Token![_]>(tokens.clone()).is_ok() {
         return Some(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: Class::WildcardOutsidePattern.summary().into(),
+                reason: reason(Refusal::WildcardOutsidePattern).into(),
             },
             tokens.span(),
         ));
@@ -3354,7 +3364,7 @@ fn pattern_only_entry(tokens: &TokenStream) -> Option<SyntaxError> {
         .then(|| {
             SyntaxError::new(
                 SyntaxErrorKind::InvalidPatternAs {
-                    reason: Class::AliasOutsidePattern.summary().to_owned(),
+                    reason: reason(Refusal::AliasOutsidePattern),
                 },
                 tokens.span(),
             )

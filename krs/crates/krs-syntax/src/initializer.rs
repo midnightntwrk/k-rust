@@ -766,17 +766,69 @@ fn alias_in_body(tokens: &TokenStream) -> Option<SyntaxError> {
         })
         .last()?;
     let span = value_alias(&body.stream())?;
-    let class = crate::positions::Class::AliasOutsidePattern;
-    let position = crate::positions::Position::root(
-        crate::positions::Form::Initializer,
-        crate::positions::Slot::InitializerValue,
-    );
+    // An alias that is a cell's whole entry is told as every route tells an entry root, naming
+    // the cell; one inside a value's term is told at its term position.
+    let reason = match entry_root_cell(&body.stream(), span) {
+        Some(cell) => crate::cell_entries::Refusal::AliasOutsidePattern.reason(
+            crate::cell_entry::EntryForm::Initializer,
+            &cell,
+            &crate::cell_entries::EntryKind::default(),
+            None,
+        ),
+        None => {
+            crate::positions::Class::AliasOutsidePattern.message(crate::positions::Position::root(
+                crate::positions::Form::Initializer,
+                crate::positions::Slot::InitializerValue,
+            ))
+        }
+    };
     Some(SyntaxError::new(
-        SyntaxErrorKind::InvalidPatternAs {
-            reason: class.message(position),
-        },
+        SyntaxErrorKind::InvalidPatternAs { reason },
         span,
     ))
+}
+
+/// The cell whose whole entry, `cell: name @ pattern` in the body's `Self { .. }`, is the alias
+/// whose name is at `at`; `None` where that alias stands inside a value.
+fn entry_root_cell(tokens: &TokenStream, at: proc_macro2::Span) -> Option<String> {
+    use proc_macro2::TokenTree;
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let fields = trees.windows(2).rev().find_map(|pair| match pair {
+        [TokenTree::Ident(head), TokenTree::Group(group)]
+            if head == "Self" && group.delimiter() == proc_macro2::Delimiter::Brace =>
+        {
+            Some(group.stream())
+        }
+        _ => None,
+    })?;
+    let mut item = Vec::new();
+    for tree in fields
+        .into_iter()
+        .chain([TokenTree::Punct(proc_macro2::Punct::new(
+            ',',
+            proc_macro2::Spacing::Alone,
+        ))])
+    {
+        if matches!(&tree, TokenTree::Punct(comma) if comma.as_char() == ',') {
+            if let [
+                TokenTree::Ident(cell),
+                TokenTree::Punct(colon),
+                TokenTree::Ident(name),
+                TokenTree::Punct(alias),
+                ..,
+            ] = item.as_slice()
+                && colon.as_char() == ':'
+                && alias.as_char() == '@'
+                && name.span().start() == at.start()
+            {
+                return Some(syn::ext::IdentExt::unraw(cell).to_string());
+            }
+            item.clear();
+        } else {
+            item.push(tree);
+        }
+    }
+    None
 }
 
 /// Where the first `name @ ..` or `name @ pattern` of `tokens` is, at its name: outside a macro's
