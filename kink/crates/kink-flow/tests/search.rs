@@ -218,7 +218,8 @@ fn killers(manifest: &Path, _document: &Value) -> Vec<(String, String)> {
         return Vec::new();
     };
     let lock: toml::Table = text.parse().unwrap();
-    lock.get("mutation")
+    lock.get("run")
+        .and_then(|run| run.get("mutation"))
         .and_then(toml::Value::as_array)
         .into_iter()
         .flatten()
@@ -242,10 +243,14 @@ fn killer_of(manifest: &Path, document: &Value, id: &str) -> Option<String> {
 fn set_killer(manifest: &Path, id: &str, program: &str) {
     let path = killers_file(manifest);
     let mut lock: toml::Table = fs::read_to_string(&path)
-        .unwrap_or_else(|_| "schema = \"kink-flow-verdicts\"\ndocument = \"run\"\n".to_owned())
+        .unwrap_or_else(|_| "schema = \"kink-flow-verdicts\"\n\n[run]\nversion = 24\n".to_owned())
         .parse()
         .unwrap();
+    // The record's `[run]` section, whose own line the serializer writes since it has `version`.
     let rows = lock
+        .get_mut("run")
+        .and_then(toml::Value::as_table_mut)
+        .unwrap()
         .entry("mutation")
         .or_insert_with(|| toml::Value::Array(Vec::new()))
         .as_array_mut()
@@ -944,7 +949,7 @@ note = "right-hand side"
         // Version 26 reads a left-hand side's aliases and adds `witnesses_global`; version 27 names
         // an open application of a stuck end and adds the reason `open-application`; version 32
         // names the Z3 build and a compared lock's `header_changes`.
-        assert_eq!(document["version"], 38);
+        assert_eq!(document["version"], 39);
         // Under the Z3 profile the document names the Z3 build its verdicts were decided on,
         // k-rust's; the portable document has no such member.
         let z3 = k_rust::backend::z3_build().filter(|_| cfg!(feature = "z3"));
@@ -1295,7 +1300,9 @@ note = "right-hand side"
             vec![strings(&["countdown-one"])]
         );
 
-        // A recorded killer that times out is replaced: the canonical call decides again.
+        // A recorded killer that times out is not replaced: its run says nothing on this host, so
+        // the canonical call decides the verdict (another program kills) and the lock keeps the
+        // recorded killer, unverified (README, "What decides a verdict").
         set_killer(&manifest, "countdown-escapes", "countdown");
         forget_outcomes(&manifest);
         let (fourth, ok) = search(&manifest, &mutations, &[]);
@@ -1313,12 +1320,13 @@ note = "right-hand side"
         );
         assert_eq!(
             mutation(&fourth, "countdown-escapes")["killer_change"],
-            "no-longer-kills"
+            "clock-stopped"
         );
         assert_eq!(
             killer_of(&manifest, &fourth, "countdown-escapes").as_deref(),
-            Some("countdown-one")
+            Some("countdown")
         );
+        assert_eq!(fourth["lock"]["kept"].as_array().map(Vec::len), Some(1));
     }
 
     #[test]

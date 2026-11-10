@@ -456,9 +456,31 @@ impl Lock {
         })
     }
 
+    /// The table of the command's recorded facts, as TOML: its section's table, the whole file of
+    /// a lock before version 24, or, where the record has no section of the command, the old file
+    /// [`Lock::adopt_legacy`] read; `None` where nothing is recorded or a file no longer reads.
+    /// [`crate::clock`] reads a kept row's `horizon` and the `undecided` ids from it, which
+    /// [`Lock`] does not decode.
+    #[must_use]
+    pub fn recorded_table(&self) -> Option<toml::Table> {
+        let text = match &self.legacy {
+            Some(legacy) if legacy.migrated => fs::read_to_string(&legacy.path).ok()?,
+            _ => self.text.clone()?,
+        };
+        let table = text.parse::<toml::Table>().ok()?;
+        if table.contains_key("document") {
+            return Some(table);
+        }
+        match table.get(self.kind.document()) {
+            Some(toml::Value::Table(section)) => Some(section.clone()),
+            _ => None,
+        }
+    }
+
     /// Whether the file records anything for the command: a section, or a lock before version 24
     /// of the command (an old file's, read by [`Lock::adopt_legacy`], included).
-    fn records(&self) -> bool {
+    #[must_use]
+    pub fn records(&self) -> bool {
         self.section.is_some() || !self.header.is_empty() || !self.rows.is_empty()
     }
 
@@ -585,9 +607,13 @@ impl Lock {
     /// Settle the command's section after a run whose document is `document`: compare the
     /// section the run would write with the file's, and write it after a run that judged every
     /// mutation of its list in search mode without `--locked`. The value is the document's
-    /// `lock`: `{path, status, reason, header, header_changes, changes, difference}` (README,
-    /// "The corpus record"), with `detail` when a write failed, and `legacy` where the command was
-    /// given an old file; the flag is false when a write failed.
+    /// `lock`: `{path, status, reason, header, header_changes, changes, difference, clock_stopped,
+    /// kept}` (README, "The corpus record"), with `detail` when a write failed, and `legacy` where
+    /// the command was given an old file; the flag is false when a write failed. An entry of the
+    /// command's section that a run the clock stopped could change keeps its recorded value
+    /// ([`crate::clock`]: `clock_stopped`, `kept`), so the section written holds it, and under
+    /// `--locked` a section that differs in nothing else is `undecided`; the other command's
+    /// section is untouched by it, as by every write.
     ///
     /// Under `--locked` a section that differs from the rendering only in its header is `stale`,
     /// like one whose rows differ. In particular a section recorded on another Z3 build (its
@@ -609,6 +635,11 @@ impl Lock {
             let reason = if refused { "refused" } else { "stopped" };
             return (self.not_written(reason), true);
         }
+        // An entry of the command's section that a run the clock stopped decided keeps its
+        // recorded value: the section compared and written is the rendering of the document with
+        // those values ([`crate::clock`]).
+        let clock = crate::clock::keep(self, document);
+        let document = &clock.document;
         let section = match lock_section(document) {
             Ok(section) if LockKind::of(document) == self.kind => section,
             _ => return (self.not_written("refused"), true),
@@ -646,6 +677,8 @@ impl Lock {
                 "header_changes": header_changes,
                 "changes": changes,
                 "difference": difference,
+                "clock_stopped": clock.stopped,
+                "kept": clock.kept,
             });
             if let Some(open) = &open {
                 value["open_changes"] = json!(open);
@@ -661,7 +694,15 @@ impl Lock {
             } else {
                 header || !changes.is_empty()
             };
-            let status = if differs { "stale" } else { "unchanged" };
+            // Not a difference, and not confirmed either: some entry rests on a run the clock
+            // stopped, so this host cannot decide it.
+            let status = if differs {
+                "stale"
+            } else if clock.stopped.is_empty() {
+                "unchanged"
+            } else {
+                "undecided"
+            };
             let mut locked = value(status, Some("locked"), header, changes);
             self.with_legacy(&mut locked, false);
             return (locked, true);
@@ -903,6 +944,7 @@ impl Lock {
         }
         changes
     }
+
     /// Each obligation of a coverage lock whose state differs between the lock and `document`:
     /// `{family, obligation, recorded, now}`, each side `"open"` or `"argued"` where that side
     /// lists it so and null where it lists it neither way (it is covered, or no longer an
@@ -993,6 +1035,8 @@ pub fn not_written(path: &Path, reason: &str) -> Value {
         "header_changes": [],
         "changes": [],
         "difference": null,
+        "clock_stopped": [],
+        "kept": [],
     })
 }
 

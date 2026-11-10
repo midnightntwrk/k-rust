@@ -1403,6 +1403,12 @@ fn finish(
             .chain(kink_flow::lock::lock_notes(document))
             .map(|line| format!("krs kink: {line}")),
     );
+    // What of the lock rests on a run the clock stopped, and each entry it kept unverified.
+    outcome.notes.extend(
+        kink_flow::clock::clock_lines(document)
+            .into_iter()
+            .map(|line| format!("krs kink: {line}")),
+    );
     // A mutation's expectation the run does not meet, or cannot confirm: one line each.
     outcome.notes.extend(
         kink_flow::report::expectation_lines(document)

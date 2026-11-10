@@ -1061,11 +1061,13 @@ impl Search<'_, '_> {
     }
 
     /// The row's `recorded_killer`, the lock's killer of the mutation or null, and its
-    /// `killer_change`, why the row's killer is not the recorded one (README, "The killer
+    /// `killer_change`, why the row's killer is not the recorded one (README, "The corpus
     /// record"): null when they are equal, else `no-record`, `not-in-corpus`, `not-comparable`
     /// (with the row's `unusable_killer`, `source: "record"`, unless it reports a cached kill's),
-    /// `no-longer-kills` (the recorded killer ran, live or cached, and did not distinguish) or
-    /// `not-run` (no program ran it: the status was decided before any run).
+    /// `clock-stopped` (the recorded killer's run was stopped by the clock, so whether it still
+    /// kills is not decided on this host; the lock keeps it, `crate::clock`), `no-longer-kills`
+    /// (the recorded killer ran, live or cached, and did not distinguish) or `not-run` (no program
+    /// ran it: the status was decided before any run).
     fn record_fields(&self, row: &mut Value, mutation: &Mutation) {
         let recorded = self.recorded.get(&mutation.id).cloned();
         let killer = row["killer"].as_str().map(str::to_owned);
@@ -1085,6 +1087,17 @@ impl Search<'_, '_> {
                             });
                         }
                         "not-comparable"
+                    }
+                    Some(_)
+                        if row["executed"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|entry| {
+                                entry["program"] == id.as_str() && entry["outcome"] == "timeout"
+                            }) =>
+                    {
+                        "clock-stopped"
                     }
                     Some(_)
                         if row["executed"]
@@ -3358,7 +3371,7 @@ impl Tier1 {
 /// What tier 1 decides, with no call, for a mutation whose comparable programs are `order` (O, in
 /// corpus order), whose valid tier-1 records are `records` (of programs of O), whose search order
 /// C is `search` when the outcome file keeps the compiled edit, and whose lock names the program
-/// `recorded` of O (README, "The killer record").
+/// `recorded` of O (README, "The corpus record").
 ///
 /// Under [`ScheduleMode::FirstKill`]: an empty O decides; a recorded killer with a valid `killed`
 /// record decides, as the killer; a recorded killer with no valid record does not (it must run);
@@ -4095,7 +4108,7 @@ pub fn mutation_list_refused(detail: &str, schedule: ScheduleMode) -> Value {
     }))
 }
 
-/// The run document of a run whose lock at `path` does not decode (README, "The killer record"):
+/// The run document of a run whose lock at `path` does not decode (README, "The corpus record"):
 /// it names the schedule and the refused lock (`lock: {path, outcome: "refused", detail}`), and has
 /// no specification and no mutation row, since the lock is read before admission.
 pub fn lock_refused(path: &Path, detail: &str, schedule: ScheduleMode) -> Value {

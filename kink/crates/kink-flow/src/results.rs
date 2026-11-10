@@ -321,10 +321,9 @@ impl HostDependence {
     /// The row's `not_cached`: the class, why it depends on the host, and what follows.
     fn reason(self, class: ResultClass, time_ms: u128) -> String {
         let why = match self {
-            Self::Time => format!(
-                "the watchdog stopped the run at time_ms = {time_ms}; a timeout depends on the \
-                 host's load"
-            ),
+            Self::Time => {
+                format!("{WATCHDOG_STOPPED} = {time_ms}; a timeout depends on the host's load")
+            }
             Self::Failure => "a run or runner failure can come from the host (a refused stack \
                               segment, a solver that could not be created), and kink cannot tell \
                               when"
@@ -345,6 +344,22 @@ impl HostDependence {
         )
     }
 }
+
+/// Why the campaign gave an evidence run no sides ([`BaselineRunner::evidence_of`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EvidenceRefusal {
+    /// What ended the run, or why it was refused.
+    pub reason: String,
+    /// Whether the watchdog stopped the run at `budget.time_ms` (kink-campaign
+    /// `RunStop::Time`, `ExecutionFailureKind::TimeLimit`): a cancellation, which a faster host
+    /// could have ended with any outcome, so what rests on it is not decided on this host
+    /// ([`crate::clock`]).
+    pub clock_stopped: bool,
+}
+
+/// How a program row's `not_cached` begins, after its class, where the watchdog stopped the run
+/// ([`HostDependence::Time`]); [`crate::clock::baseline_stopped`] reads it.
+pub const WATCHDOG_STOPPED: &str = "the watchdog stopped the run at time_ms";
 
 /// Whether an exclusion is a fact of the host rather than of the definition and the program: a
 /// stop for lack of native stack (the host's threads) and a refusal for the process's memory
@@ -872,8 +887,9 @@ impl<'a> BaselineRunner<'a> {
     /// and the campaign's evidence of it: what the run recorded (its observations included) and
     /// its ends. `Err` says why the campaign gave the run no sides (it refused the baseline, or
     /// the run failed), naming what ended the run where this command's live run of it says
-    /// ([`refused_run`]).
-    pub(crate) fn evidence_of(&self, mut test: TestCase) -> Result<TestEvidence, String> {
+    /// ([`refused_run`]), and whether the clock (`budget.time_ms`) stopped it
+    /// ([`EvidenceRefusal::clock_stopped`]).
+    pub(crate) fn evidence_of(&self, mut test: TestCase) -> Result<TestEvidence, EvidenceRefusal> {
         test.oracles = self.spec.result.oracles();
         let options = CampaignOptions {
             schedule: ScheduleMode::FirstKill,
@@ -889,16 +905,25 @@ impl<'a> BaselineRunner<'a> {
                 let live_stop = recording
                     .baseline_of(&test.id)
                     .map(|live| live.run.census.stop);
-                refused_run(&failure, live_stop, self.budget.time.as_millis())
+                EvidenceRefusal {
+                    reason: refused_run(&failure, live_stop, self.budget.time.as_millis()),
+                    clock_stopped: live_stop == Some(RunStop::Time),
+                }
             })?;
-        let [evidence] = <[TestEvidence; 1]>::try_from(run.baseline)
-            .map_err(|_| "the campaign gave no single baseline run".to_owned())?;
+        let [evidence] =
+            <[TestEvidence; 1]>::try_from(run.baseline).map_err(|_| EvidenceRefusal {
+                reason: "the campaign gave no single baseline run".to_owned(),
+                clock_stopped: false,
+            })?;
         match evidence.run {
             SideRun::Sides { .. } => Ok(evidence),
-            SideRun::Failed(kind) => Err(format!(
-                "the campaign gave the run no sides: {}",
-                kind.exclusion().map_or("a failed run", |e| e.name())
-            )),
+            SideRun::Failed(kind) => Err(EvidenceRefusal {
+                reason: format!(
+                    "the campaign gave the run no sides: {}",
+                    kind.exclusion().map_or("a failed run", |e| e.name())
+                ),
+                clock_stopped: kind == kink_campaign::ExecutionFailureKind::TimeLimit,
+            }),
         }
     }
 

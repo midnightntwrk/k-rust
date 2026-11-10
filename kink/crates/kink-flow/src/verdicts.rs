@@ -166,7 +166,7 @@
 //! each cell an outcome that does not depend on the other programs of the call, live or cached
 //! under a key that names every input. A killer is the recorded one while it kills, else the
 //! first killing program in the search's order, which is a function of the inputs (README, "The
-//! killer record"): so a first-kill and a full rendering state the same facts apart from the
+//! corpus record"): so a first-kill and a full rendering state the same facts apart from the
 //! `killed_by` lines, and a full rendering of a run with no kill is the first-kill rendering. A
 //! `timeout` class or status depends on the host by its nature.
 //!

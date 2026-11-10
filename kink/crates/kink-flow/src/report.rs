@@ -111,7 +111,8 @@
 //! "refused", detail}` and refuses the run. Every row carries `recorded_killer`, the lock's killer
 //! or null, and `killer_change`: null when the killer is the recorded one, else `no-record`,
 //! `not-in-corpus`, `not-comparable` (with `unusable_killer`, `source` `record`),
-//! `no-longer-kills` or `not-run`. The document's `order` leaves: the search order is fixed.
+//! `clock-stopped`, `no-longer-kills` or `not-run`. The document's `order` leaves: the search
+//! order is fixed.
 //!
 //! Version 23: an executed entry of a live run on which kink's own solver questions about
 //! it (its leaf feasibility and observation decider, kink-campaign
@@ -263,7 +264,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// and refuses a `[spec] assume_joined` name with one of the reasons `malformed`, `position-name`,
 /// `unnamed-sentence`, `no-digest`, `changed`, `no-finding`, `decided` or `ambiguous` where it
 /// refused `name-refused` (KINK-FINDING-NAMES).
-pub const RUN_VERSION: u64 = 38;
+/// 39 keeps a lock entry a run the clock (`budget.time_ms`) stopped could change, rather than
+/// rewriting it or reporting it as a difference ([`crate::clock`]): the lock has `kept` and
+/// `clock_stopped`, and `--locked` gives the status `undecided` where nothing else differs
+/// (FB45-LOCKED-TIMEOUT).
+pub const RUN_VERSION: u64 = 39;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.

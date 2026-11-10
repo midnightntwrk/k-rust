@@ -46,6 +46,7 @@
 pub mod admit;
 pub mod check;
 pub mod cli;
+pub mod clock;
 pub mod coverage;
 pub mod digest;
 pub mod evidence;

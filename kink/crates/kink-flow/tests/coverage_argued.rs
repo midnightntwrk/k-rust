@@ -405,7 +405,7 @@ mod kink_tier {
         argue(&dir, &argued);
         let (after, status) = coverage(&dir, &[], Derived::Flips(&list));
         assert_eq!(status, EXIT_YES, "{after:#}");
-        assert_eq!(after["version"], 20);
+        assert_eq!(after["version"], 21);
         for ((id, argument), (family, unargued)) in argued.iter().zip([
             ("rules", "matched"),
             ("requirements", "open"),
@@ -836,7 +836,7 @@ mod kink_tier {
         );
         let (document, status) = coverage(&dir, &["--tier", "1"], Derived::default());
         assert_eq!(status, EXIT_NO, "{document:#}");
-        assert_eq!(document["version"], 20);
+        assert_eq!(document["version"], 21);
         let check = |id: &str| &item(&document, "requirements", id)["argument_check"];
         let walk = check(READZ_ROM_HELD);
         assert_eq!(
@@ -1160,6 +1160,7 @@ mod kink_tier {
                 "failure": null,
                 "reason": null,
                 "cached": false,
+                "clock_stopped": [],
             }),
             "{walk:#}"
         );
@@ -1995,7 +1996,7 @@ mod kink_tier {
             ..DerivedList::default()
         };
         let (document, _) = coverage(&dir, &[], Derived::Flips(&list));
-        assert_eq!(document["version"], 20);
+        assert_eq!(document["version"], 21);
         for id in OUTSIDE_ROM_EQUATIONS {
             let equation = item(&document, "rules", id);
             assert_eq!(equation["status"], "invariant", "{equation:#}");
