@@ -821,7 +821,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 36] = [
+const CORPUS: [(&str, &[&str], Minimums); 37] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -916,6 +916,8 @@ const CORPUS: [(&str, &[&str], Minimums); 36] = [
     // kink27 R5-WEAKENING fix round 2: a weakening on a baseline with a finding (no minimum: it
     // is there for `tests/search.rs`, where the finding decides the verdict).
     ("weakening/findings", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    // FB-54: the pattern obligations' corpus (no minimum: it is there for `tests/query.rs`).
+    ("witness", &["FLOW.toml"], at_least(0, 0, 0, 0)),
 ];
 
 /// The specification directory of a flow manifest, relative to `testdata/flow`, and the
@@ -1185,6 +1187,12 @@ mod kink_tier {
     #[ignore = "kink"]
     fn modality_on_the_weakening_findings() {
         corpus_specification("weakening/findings", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_the_witness_corpus() {
+        corpus_specification("witness", &["FLOW.toml"]);
     }
 
     #[test]
