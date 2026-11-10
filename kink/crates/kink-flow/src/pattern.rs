@@ -561,6 +561,9 @@ pub struct LoweredPattern {
     /// [`PATTERN_DOMAIN`] digest of the canonical KORE JSON of the target and the generated
     /// variables.
     pub digest: Sha256Digest,
+    /// The KORE names of the variables the pattern's `requires` names that its configuration
+    /// body does not ([`requires_only_variables`]); derived from `target`, so not digested.
+    pub requires_only: BTreeSet<String>,
 }
 
 impl LoweredPattern {
@@ -568,6 +571,52 @@ impl LoweredPattern {
     pub fn kore(&self) -> String {
         self.target.to_string()
     }
+
+    /// The note an undecided match's cause carries when the `requires` names a variable the
+    /// body does not bind, or an empty string. Such a variable is existential: the condition
+    /// holds where some value of it makes it hold, so the matcher decides it only where the
+    /// application holding the variable evaluates to a value, which it does not over an unknown
+    /// argument (`write(49424, W) in L`). The same element written in the cell
+    /// (`L1:List ListItem(write(49424, W)) L2:List`) binds the variable by matching instead.
+    pub fn requires_only_note(&self) -> String {
+        if self.requires_only.is_empty() {
+            return String::new();
+        }
+        let names = self
+            .requires_only
+            .iter()
+            .map(|name| name.strip_prefix("Var").unwrap_or(name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "; the pattern's requires names {names}, which its cell patterns do not bind \
+             (requires-only variable): such a condition is decided only when the application \
+             holding the variable evaluates, so write the element in the cell instead, as in \
+             `L1:List ListItem(write(49424, W)) L2:List`"
+        )
+    }
+}
+
+/// The variables the `requires` of the lowered target `\and(body, P...)` names (free in some
+/// `P`) that `body` does not, by KORE name, leaving out those the compiler generated.
+fn requires_only_variables(target: &Pattern, generated: &BTreeSet<String>) -> BTreeSet<String> {
+    let Pattern::And { arguments, .. } = target else {
+        return BTreeSet::new();
+    };
+    let Some((body, predicates)) = arguments.split_first() else {
+        return BTreeSet::new();
+    };
+    let bound = body
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<BTreeSet<_>>();
+    predicates
+        .iter()
+        .flat_map(Pattern::free_variables)
+        .map(|variable| variable.name)
+        .filter(|name| !bound.contains(name) && !generated.contains(name))
+        .collect()
 }
 
 /// The lowering context of one admitted specification: its rule grammar and the execution
@@ -687,10 +736,12 @@ impl Lowering {
             PATTERN_DOMAIN,
             canonical_json(&json!({"target": target_json, "generated": generated})).as_bytes(),
         );
+        let requires_only = requires_only_variables(&compiled.pattern, &generated);
         Ok(LoweredPattern {
             target: compiled.pattern,
             generated,
             digest,
+            requires_only,
         })
     }
 }
@@ -1178,7 +1229,12 @@ impl Searcher {
                     }
                     MatchAnswer::No => SearchOutcome::Complete { smt_unknowns: 0 },
                     MatchAnswer::Unknown(unknown) => {
-                        let cause = stopped_cause(unknown, matched.execution.as_ref(), self.budget);
+                        let cause = stopped_cause(
+                            unknown,
+                            matched.execution.as_ref(),
+                            self.budget,
+                            lowered,
+                        );
                         if matches!(unknown, MatchUnknown::Clock) {
                             SearchOutcome::ClockStopped(cause)
                         } else {
@@ -1275,6 +1331,7 @@ fn stopped_cause(
     unknown: &MatchUnknown,
     execution: Option<&kink_native::execution::AdaptedExecution>,
     budget: Budget,
+    lowered: &LoweredPattern,
 ) -> String {
     let name = unknown.name();
     let reach = |what: &str, state: &MatchedState| {
@@ -1347,12 +1404,14 @@ fn stopped_cause(
             )
         }
         MatchUnknown::UndecidedMatch(undecided) => format!(
-            "{would}: the matcher left the verdict of some reached state undecided ({name}: {})",
+            "{would}: the matcher left the verdict of some reached state undecided ({name}: \
+             {}){}",
             undecided
                 .iter()
                 .map(|(reason, count)| format!("{} {count}", undecided_reason(*reason)))
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(", "),
+            lowered.requires_only_note()
         ),
         MatchUnknown::StopConditionUndecided(reason) => format!(
             "{would}: a path ended at an arrival at a stop where the condition was left \
@@ -1626,13 +1685,14 @@ fn outcome(
             Ok(()) => SearchOutcome::Hit(witness(found, lowered, rule_names)),
             Err(why) => SearchOutcome::Incomplete(format!(
                 "the first matching state the search found (depth {}) is not a decided match: \
-                 {why}; the search stops at its first match, so no other state was asked",
-                found.state.depth
+                 {why}; the search stops at its first match, so no other state was asked{}",
+                found.state.depth,
+                lowered.requires_only_note()
             )),
         };
     }
     if !response.incomplete.is_empty() {
-        let cause = incomplete_cause(&response.incomplete, budget);
+        let cause = incomplete_cause(&response.incomplete, budget, lowered);
         // A cancelled entry is the clock's: without it the exploration could have completed.
         return if response
             .incomplete
@@ -1943,7 +2003,11 @@ fn variable_name(variable: &Value) -> Value {
 }
 
 /// The cause of an incomplete exploration, from k-rust's incomplete entries.
-fn incomplete_cause(incomplete: &[IncompleteSearchOutput<Pattern>], budget: Budget) -> String {
+fn incomplete_cause(
+    incomplete: &[IncompleteSearchOutput<Pattern>],
+    budget: Budget,
+    lowered: &LoweredPattern,
+) -> String {
     use IncompleteSearchOutput as I;
     let mut kinds = BTreeSet::new();
     for entry in incomplete {
@@ -1961,7 +2025,15 @@ fn incomplete_cause(incomplete: &[IncompleteSearchOutput<Pattern>], budget: Budg
             } => "a state's simplification stopped for lack of native stack (stack-exhausted)"
                 .to_owned(),
             I::Simplification { .. } => "a state's simplification failed".to_owned(),
-            I::Match { .. } => "a state's match against the pattern was left undecided".to_owned(),
+            I::Match { .. } => format!(
+                "a state's match against the pattern was left undecided{}",
+                lowered.requires_only_note()
+            ),
+            I::PlacementBound { bound, .. } => format!(
+                "a state's match against the pattern placed a list pattern's items on the \
+                 state's list and stopped at its bound of {bound} placements tried \
+                 (placement-bound)"
+            ),
             I::Smt { .. } => "a solver query failed or was undecided".to_owned(),
             I::ResultBound => "the search stopped at its result bound".to_owned(),
         });
@@ -1995,6 +2067,7 @@ mod tests {
             target: kore(r"\top{SortInt{}}()"),
             generated: BTreeSet::new(),
             digest: payload_digest(PATTERN_DOMAIN, b"test"),
+            requires_only: BTreeSet::new(),
         }
     }
 

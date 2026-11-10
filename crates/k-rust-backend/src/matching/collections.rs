@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.matching.collections"
 //! name = "associative and associative-commutative collection matching"
-//! sites = ["solve_collection_pairs_in_definition", "solve_collection_pair", "solve_list_pair", "solve_map_pair", "solve_set_pair", "match_collection_remainders_all_in_definition", "cancel_common_opaque_chunks", "list_implication_expansion"]
+//! sites = ["solve_collection_pairs_in_definition", "solve_collection_pair", "solve_list_pair", "solve_map_pair", "solve_set_pair", "match_collection_remainders_all_in_definition", "cancel_common_opaque_chunks", "list_implication_expansion", "scan_list_pair"]
 //! variable = "k = pattern entries or elements left after common-key cancellation; n = subject entries or elements; h = list elements outside the frames; q = collection pairs in one call"
 //! counters = ["MatchingCollectionProblems"]
 //! span = "per problem"
@@ -32,6 +32,10 @@
 //! bound = "O(k n) item matches, each pattern item against each subject position at most once; at most C(n, k) branches, each O(k log n) nodes (one cut of the subject's trees per run of parts)"
 //!
 //! [[cost]]
+//! mode = "list item placements in pattern matching (scan_list_pair)"
+//! bound = "O(k n) item matches, each pattern item against each subject item at most once; at most MAX_LIST_PLACEMENTS block starts tried, each solution O(k log n) nodes (one cut of the subject's trees per run of parts)"
+//!
+//! [[cost]]
 //! mode = "deferred pair sweep (solve_collection_pairs_from_solution)"
 //! bound = "O(q^2) solve_collection_pair attempts per solution branch"
 //! ```
@@ -44,7 +48,10 @@
 //! assigned items removed, a list frame a cut of the closed side, so a frame costs the logarithm
 //! of the subject's size, not its size. In an implication remainder, a list pattern with an item
 //! between two parts is expanded into one branch per position of its items in the subject list
-//! (`list_implication_expansion`), each part a cut of the subject's trees;
+//! (`list_implication_expansion`), each part a cut of the subject's trees. In pattern matching (a
+//! search target, the state matcher), such a list pattern is solved by placing its items on the
+//! subject's (`scan_list_pair`), each solution binding its parts to cuts of the subject's trees;
+//! rule application keeps the frame split ([`ListPlacements`]);
 //! `Counter::MatchingCollectionProblems`. The per-pair rules (sorts, overloads,
 //! injections) stay in `solve_term_pair`, which is why no generic AC matcher replaces this.
 
@@ -106,6 +113,9 @@ enum PairSolution {
 struct Solved {
     found: Vec<CollectionSolution>,
     complete: bool,
+    /// Whether a list scan stopped at [`MAX_LIST_PLACEMENTS`] somewhere in the problem, which
+    /// leaves it incomplete for that counted reason.
+    bounded: bool,
 }
 
 impl Solved {
@@ -113,6 +123,7 @@ impl Solved {
         Self {
             found,
             complete: true,
+            bounded: false,
         }
     }
 
@@ -120,6 +131,7 @@ impl Solved {
         Self {
             found: Vec::new(),
             complete: false,
+            bounded: false,
         }
     }
 
@@ -137,6 +149,7 @@ impl Solved {
     fn extend(&mut self, other: Solved) {
         self.found.extend(other.found);
         self.complete &= other.complete;
+        self.bounded |= other.bounded;
     }
 }
 
@@ -151,6 +164,25 @@ pub(crate) enum DecidedSolutions {
     /// keeps exploring past an undecided alternative and returns the solutions it decides.
     Keep,
 }
+
+/// Which list problems the solver decides beyond those of a single frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ListPlacements {
+    /// A list pattern with at most one part, by the frame split (`solve_list_pair`); a pattern
+    /// with two or more parts is undecided. Rule application, equations, implication and
+    /// narrowing solve their list pairs so.
+    Framed,
+    /// Also a list pattern with two or more parts and an item, by placing its items on the
+    /// subject's (`scan_list_pair`). Only pattern matching (a search target, the state matcher)
+    /// asks for it.
+    Scanned,
+}
+
+/// The most placements one list scan tries (`scan_list_pair`): a block of a list pattern's items
+/// put at one start in the subject counts one. A scan that would try more stops there and leaves
+/// its problem undecided ([`CollectionWays::bounded`]), so whether it decides depends on this
+/// count only, never on a clock.
+pub const MAX_LIST_PLACEMENTS: usize = 1 << 16;
 
 const MAX_NESTED_COLLECTION_DEPTH: usize = 64;
 
@@ -174,6 +206,7 @@ pub(crate) fn solve_collection_pairs_in_definition(
         pairs,
         narrowing,
         DecidedSolutions::Discard,
+        ListPlacements::Framed,
     )
     .into_complete()
 }
@@ -187,6 +220,7 @@ fn solve_collection_pairs(
     pairs: &[(Term, Term)],
     mut narrowing: Option<&mut Narrowing<'_>>,
     decided: DecidedSolutions,
+    lists: ListPlacements,
 ) -> Solved {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingCollections);
     let initial = CollectionSolution {
@@ -201,6 +235,7 @@ fn solve_collection_pairs(
         pairs,
         &mut narrowing,
         decided,
+        lists,
         0,
     );
     let solutions = &mut solved.found;
@@ -224,6 +259,7 @@ fn solve_collection_pairs(
 /// its pairs was decided for some alternatives ([`Solved`]), the first such pair's decided
 /// solutions are continued with the other pairs, so the solutions of the whole they reach are
 /// kept beside the undecided rest.
+#[allow(clippy::too_many_arguments)]
 fn solve_collection_pairs_from_solution(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -231,6 +267,7 @@ fn solve_collection_pairs_from_solution(
     pairs: &[(Term, Term)],
     narrowing: &mut Option<&mut Narrowing<'_>>,
     decided: DecidedSolutions,
+    lists: ListPlacements,
     depth: usize,
 ) -> Solved {
     if depth > MAX_NESTED_COLLECTION_DEPTH {
@@ -244,6 +281,8 @@ fn solve_collection_pairs_from_solution(
     // The first pair decided only for some alternatives: its place in `deferred` and the
     // solutions decided for it.
     let mut partial = None;
+    // Whether a pair of the sweep left undecided stopped at the placement bound.
+    let mut bounded = false;
     for (index, (pattern, subject)) in pairs.iter().enumerate() {
         let found = solve_collection_pair(
             mode,
@@ -253,9 +292,11 @@ fn solve_collection_pairs_from_solution(
             solution.clone(),
             narrowing,
             decided,
+            lists,
             depth,
         );
         if !found.complete {
+            bounded |= found.bounded;
             if partial.is_none() && !found.found.is_empty() {
                 partial = Some((deferred.len(), found.found));
             }
@@ -274,21 +315,27 @@ fn solve_collection_pairs_from_solution(
             &deferred,
             narrowing,
             decided,
+            lists,
             depth,
         );
     }
     let Some((position, found)) = partial.filter(|_| decided == DecidedSolutions::Keep) else {
-        return Solved::undecided();
+        return Solved {
+            bounded,
+            ..Solved::undecided()
+        };
     };
     deferred.remove(position);
     let mut solved = continue_solutions(
-        mode, definition, found, &deferred, narrowing, decided, depth,
+        mode, definition, found, &deferred, narrowing, decided, lists, depth,
     );
     solved.complete = false;
+    solved.bounded |= bounded;
     solved
 }
 
 /// Solve `pairs` from each of the solutions `found` of the pairs solved before them.
+#[allow(clippy::too_many_arguments)]
 fn continue_solutions(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -296,12 +343,13 @@ fn continue_solutions(
     pairs: &[(Term, Term)],
     narrowing: &mut Option<&mut Narrowing<'_>>,
     decided: DecidedSolutions,
+    lists: ListPlacements,
     depth: usize,
 ) -> Solved {
     let mut solved = Solved::complete(Vec::new());
     for found in found {
         solved.extend(solve_collection_pairs_from_solution(
-            mode, definition, found, pairs, narrowing, decided, depth,
+            mode, definition, found, pairs, narrowing, decided, lists, depth,
         ));
         if !solved.complete && decided == DecidedSolutions::Discard {
             break;
@@ -322,11 +370,12 @@ fn solve_collection_pair(
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
     decided: DecidedSolutions,
+    lists: ListPlacements,
     depth: usize,
 ) -> Solved {
     let sufficient = solution.bindings == Bindings::Sufficient;
     let solved = solve_collection_pair_as_bound(
-        mode, definition, pattern, subject, solution, narrowing, decided, depth,
+        mode, definition, pattern, subject, solution, narrowing, decided, lists, depth,
     );
     if sufficient && solved.complete && solved.found.is_empty() {
         Solved::undecided()
@@ -345,10 +394,30 @@ fn solve_collection_pair_as_bound(
     solution: CollectionSolution,
     narrowing: &mut Option<&mut Narrowing<'_>>,
     decided: DecidedSolutions,
+    lists: ListPlacements,
     depth: usize,
 ) -> Solved {
     let pattern = substitute(pattern, solution.matched.substitution());
     let subject = substitute(subject, solution.matched.substitution());
+    if lists == ListPlacements::Scanned && narrowing.is_none() && is_list_scan(&pattern, &subject) {
+        // The frame split decides some such pairs (a refutation by an end item the matcher
+        // reads), and where it decides it is exact; the scan decides the rest it can.
+        if matches!(
+            (pattern.kind(), subject.kind()),
+            (TermKind::List { .. }, TermKind::List { .. })
+        ) && let Some(found) = solve_list_pair(
+            mode,
+            definition,
+            &pattern,
+            &subject,
+            solution.clone(),
+            narrowing,
+            depth,
+        ) {
+            return Solved::complete(found);
+        }
+        return scan_list_pair(mode, definition, &pattern, &subject, solution, depth);
+    }
     match (pattern.kind(), subject.kind()) {
         (TermKind::Map { .. }, TermKind::Map { .. }) => solve_map_pair(
             mode, definition, &pattern, &subject, solution, narrowing, decided, depth,
@@ -456,6 +525,7 @@ fn solve_term_pair_as_bound(
                     &collection_pairs,
                     narrowing,
                     DecidedSolutions::Discard,
+                    ListPlacements::Framed,
                     depth + 1,
                 )
                 .into_complete() else {
@@ -987,6 +1057,7 @@ fn solve_map_pair(
     Solved {
         found,
         complete: !indeterminate,
+        bounded: false,
     }
 }
 
@@ -1371,6 +1442,7 @@ fn solve_set_pair(
     Solved {
         found,
         complete: !indeterminate,
+        bounded: false,
     }
 }
 
@@ -1642,7 +1714,15 @@ pub(crate) fn match_collection_remainders_all_in_definition(
     remainder: &[(Term, Term)],
     decided: DecidedSolutions,
 ) -> CollectionMatches {
-    let solved = solve_collection_pairs(mode, definition, initial, remainder, None, decided);
+    let solved = solve_collection_pairs(
+        mode,
+        definition,
+        initial,
+        remainder,
+        None,
+        decided,
+        ListPlacements::Framed,
+    );
     let solutions = solved
         .found
         .into_iter()
@@ -2281,31 +2361,11 @@ fn list_implication_expansion(
     let mut head = None;
     let mut pattern_runs = Vec::new();
     flatten_list_runs(list, pattern, &mut pattern_runs, &mut head);
-    // The pattern as blocks of items between runs of parts: `blocks[0]` before the first run
-    // and `blocks[j]` after `parts[j - 1]`; the inner blocks are not empty.
-    let mut blocks = vec![Vec::new()];
-    let mut parts: Vec<Vec<ListRun>> = Vec::new();
-    let mut part_count = 0;
-    for run in pattern_runs {
-        match run {
-            ListRun::Items(items) => blocks
-                .last_mut()
-                .expect("the pattern's blocks start with one")
-                .extend(items.iter().cloned()),
-            ListRun::Part(part) => {
-                part_count += 1;
-                if blocks.last().is_some_and(Vec::is_empty) && !parts.is_empty() {
-                    parts
-                        .last_mut()
-                        .expect("a run of parts precedes an empty block")
-                        .push(ListRun::Part(part));
-                } else {
-                    parts.push(vec![ListRun::Part(part)]);
-                    blocks.push(Vec::new());
-                }
-            }
-        }
-    }
+    let ListBlocks {
+        blocks,
+        parts,
+        part_count,
+    } = ListBlocks::of(pattern_runs);
     if part_count < 2 || blocks.iter().all(Vec::is_empty) {
         return None;
     }
@@ -2329,6 +2389,49 @@ fn list_implication_expansion(
         branches.push(vec![(pattern.clone(), subject.clone())]);
     }
     Some(branches)
+}
+
+/// A list pattern as blocks of items between runs of parts: `blocks[0]` before the first run
+/// and `blocks[j]` after `parts[j - 1]`; the inner blocks are not empty, and there is one more
+/// block than runs of parts.
+struct ListBlocks {
+    blocks: Vec<Vec<Term>>,
+    parts: Vec<Vec<ListRun>>,
+    /// The number of parts in all runs.
+    part_count: usize,
+}
+
+impl ListBlocks {
+    fn of(runs: Vec<ListRun>) -> Self {
+        let mut blocks = vec![Vec::new()];
+        let mut parts: Vec<Vec<ListRun>> = Vec::new();
+        let mut part_count = 0;
+        for run in runs {
+            match run {
+                ListRun::Items(items) => blocks
+                    .last_mut()
+                    .expect("the pattern's blocks start with one")
+                    .extend(items.iter().cloned()),
+                ListRun::Part(part) => {
+                    part_count += 1;
+                    if blocks.last().is_some_and(Vec::is_empty) && !parts.is_empty() {
+                        parts
+                            .last_mut()
+                            .expect("a run of parts precedes an empty block")
+                            .push(ListRun::Part(part));
+                    } else {
+                        parts.push(vec![ListRun::Part(part)]);
+                        blocks.push(Vec::new());
+                    }
+                }
+            }
+        }
+        Self {
+            blocks,
+            parts,
+            part_count,
+        }
+    }
 }
 
 /// A current list as runs, indexed by item position: `n` items at positions `0 … n-1`, and each
@@ -2544,6 +2647,522 @@ impl ListImplicationProblem<'_> {
             }
         }
         equations
+    }
+}
+
+/// Whether `pattern` against `subject` is a problem for [`scan_list_pair`]: a list pattern with
+/// two or more parts and an item, against a list of its definition, the two sharing no variable
+/// (so that a binding of the pattern never mentions a variable it binds).
+fn is_list_scan(pattern: &Term, subject: &Term) -> bool {
+    let Some(list) = list_definition_of(pattern) else {
+        return false;
+    };
+    if list_definition_of(subject) != Some(list)
+        || !pattern
+            .attributes()
+            .variables
+            .is_disjoint(&subject.attributes().variables)
+    {
+        return false;
+    }
+    let mut runs = Vec::new();
+    flatten_list_runs(list, pattern, &mut runs, &mut None);
+    let parts = runs
+        .iter()
+        .filter(|run| matches!(run, ListRun::Part(_)))
+        .count();
+    parts >= 2 && runs.iter().any(|run| matches!(run, ListRun::Items(_)))
+}
+
+/// The ways a list `pattern` with two or more parts and an item is the list `subject`
+/// ([`is_list_scan`]).
+///
+/// A list value is a finite sequence and concatenation is associative with unit `.List`, so the
+/// pattern is the subject exactly when its items are elements of the subject at increasing
+/// positions and each run of parts between two items, or an end, is the subject between them.
+/// The pattern is read as blocks of consecutive items between runs of parts ([`ListBlocks`]); a
+/// block before the first part starts at the subject's first item and one after the last part
+/// ends at its last item. Each item pattern is matched against each subject item at most once
+/// (`ListScan::item_ways`), and the blocks are placed in order at the starts where every item
+/// matches, without overlap, merging the item bindings (`Way::merge`): a variable bound to two
+/// terms is a conflict where both are constructor-like (they denote different values) and
+/// undecided otherwise. Each placement whose merge holds binds each run of parts to the
+/// subject's cut between its neighbouring blocks, and is one solution: under it, the pattern is
+/// the subject by associativity, whatever else the subject's instances are, so each solution
+/// is exact.
+///
+/// On a subject without parts (closed), every element is at a known position, so the
+/// placements are every way the pattern can be the subject: the solutions are complete, and
+/// none refutes the pair. A subject part may hold a pattern item, or be empty and let a block
+/// straddle it, which no known placement states, so on a subject with a part the solutions are
+/// incomplete; the pair is still refuted where an end block's items fail at the subject's
+/// known end items, which every placement must use. An item or a run of parts whose match is
+/// undecided at a placement leaves that placement, and the result's completeness, undecided.
+///
+/// Placements are tried in order of their starts, and at most [`MAX_LIST_PLACEMENTS`] block
+/// starts are tried: a scan that would try more keeps the solutions it found and is incomplete
+/// and `bounded`.
+fn scan_list_pair(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    solution: CollectionSolution,
+    depth: usize,
+) -> Solved {
+    measure::bump(Counter::MatchingCollectionProblems);
+    let list = list_definition_of(pattern).expect("a list scan's pattern is a list");
+    let mut head = None;
+    let mut pattern_runs = Vec::new();
+    flatten_list_runs(list, pattern, &mut pattern_runs, &mut head);
+    let ListBlocks { blocks, parts, .. } = ListBlocks::of(pattern_runs);
+    let mut subject_runs = Vec::new();
+    flatten_list_runs(list, subject, &mut subject_runs, &mut head);
+    let subject = ListSubject::new(subject_runs);
+    let mut scan = ListScan {
+        mode,
+        definition,
+        depth,
+        list,
+        head: head.as_ref(),
+        blocks: &blocks,
+        parts: &parts,
+        subject: &subject,
+        base: &solution,
+        items: std::collections::HashMap::new(),
+        fits: vec![None; blocks.len()],
+        tried: 0,
+        stopped: false,
+        open: false,
+        nested_bounded: false,
+        found: Vec::new(),
+    };
+    if scan.refuted_at_an_end() {
+        return Solved::complete(Vec::new());
+    }
+    scan.place(0, &mut Vec::new(), Way::default());
+    let complete = !scan.open && !scan.stopped && !subject.has_part();
+    let bounded = scan.stopped || (scan.nested_bounded && !complete);
+    Solved {
+        found: scan.found,
+        complete,
+        bounded,
+    }
+}
+
+/// The decided matches of one pattern part against one subject part, each with how its
+/// bindings relate to the subject, and whether they are every match.
+struct Ways {
+    found: Vec<(Substitution, Bindings)>,
+    complete: bool,
+    bounded: bool,
+}
+
+impl Ways {
+    /// Whether the part is decided not to match.
+    fn refuted(&self) -> bool {
+        self.complete && self.found.is_empty()
+    }
+}
+
+/// Every decided match of `pattern` against `subject`: the matcher's, with the collection pairs
+/// it defers solved by placements too.
+fn match_ways(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+    depth: usize,
+) -> Ways {
+    let undecided = Ways {
+        found: Vec::new(),
+        complete: false,
+        bounded: false,
+    };
+    let (matched, bindings) = match_collection_part(mode, definition, pattern, subject);
+    match matched {
+        MatchResult::Success(found) => Ways {
+            found: vec![(found, bindings)],
+            complete: true,
+            bounded: false,
+        },
+        MatchResult::Failed(_) => Ways {
+            found: Vec::new(),
+            complete: true,
+            bounded: false,
+        },
+        MatchResult::Undecided(_) => undecided,
+        MatchResult::Indeterminate { .. } if depth >= MAX_NESTED_COLLECTION_DEPTH => undecided,
+        MatchResult::Indeterminate {
+            substitution,
+            remainder,
+        } => {
+            let start = CollectionSolution {
+                matched: MatchSolution::new(substitution),
+                fresh: BTreeSet::new(),
+                bindings,
+            };
+            let solved = solve_collection_pairs_from_solution(
+                mode,
+                definition,
+                start,
+                &remainder,
+                &mut None,
+                DecidedSolutions::Keep,
+                ListPlacements::Scanned,
+                depth + 1,
+            );
+            let mut complete = solved.complete;
+            let mut found = Vec::with_capacity(solved.found.len());
+            for solution in solved.found {
+                let (substitution, conditions) = solution.matched.into_parts();
+                // Without narrowing the solver keeps no equation; one would be a condition the
+                // way rests on, which this reading has no place for.
+                if conditions.is_empty() {
+                    found.push((substitution, solution.bindings));
+                } else {
+                    complete = false;
+                }
+            }
+            Ways {
+                found,
+                complete,
+                bounded: solved.bounded,
+            }
+        }
+    }
+}
+
+/// The bindings of a partial placement: those of the items placed so far, how they relate to
+/// the subject, and whether some binding was left undecided (`open`), in which case the
+/// placement decides nothing.
+#[derive(Clone, Default)]
+struct Way {
+    bindings: Substitution,
+    reading: Option<Bindings>,
+    open: bool,
+}
+
+impl Way {
+    /// This way with the bindings `found` of one more part, or `None` where a variable is bound
+    /// to two constructor-like terms that differ, which denote different values. A variable bound
+    /// to two other different terms may still be bound to one value, which the way leaves
+    /// `open`.
+    fn merge(&self, found: &Substitution, reading: Bindings) -> Option<Self> {
+        let mut next = self.clone();
+        for (variable, value) in found {
+            match next.bindings.get(variable) {
+                Some(old) if old == value => {}
+                Some(old)
+                    if old.attributes().constructor_like && value.attributes().constructor_like =>
+                {
+                    return None;
+                }
+                Some(_) => next.open = true,
+                None => {
+                    next.bindings.insert(variable.clone(), value.clone());
+                }
+            }
+        }
+        next.reading = Some(next.reading.map_or(reading, |old| old.max(reading)));
+        Some(next)
+    }
+
+    /// This way, left undecided by a part whose match is.
+    fn opened(&self) -> Self {
+        Self {
+            open: true,
+            ..self.clone()
+        }
+    }
+}
+
+/// One [`scan_list_pair`] problem: the pattern's blocks and runs of parts, the subject, and the
+/// state of the placement search.
+struct ListScan<'a> {
+    mode: MatchMode,
+    definition: &'a BackendDefinition,
+    depth: usize,
+    list: &'a Arc<ListDefinition>,
+    head: Option<&'a OpaqueConcatHead>,
+    blocks: &'a [Vec<Term>],
+    parts: &'a [Vec<ListRun>],
+    subject: &'a ListSubject,
+    /// The solution the pair is solved from; each placement extends it.
+    base: &'a CollectionSolution,
+    /// The matches of item `offset` of block `block` against the subject's item at a position,
+    /// by `(block, offset, position)`: each pair is matched at most once.
+    items: std::collections::HashMap<(usize, usize, usize), std::rc::Rc<Ways>>,
+    /// The starts at which each inner block fits, in increasing order, once asked.
+    fits: Vec<Option<Vec<usize>>>,
+    /// The block starts tried so far.
+    tried: usize,
+    /// Whether the scan stopped at [`MAX_LIST_PLACEMENTS`].
+    stopped: bool,
+    /// Whether some placement was left undecided.
+    open: bool,
+    /// Whether an item's own collection problem stopped at its placement bound.
+    nested_bounded: bool,
+    found: Vec<CollectionSolution>,
+}
+
+impl ListScan<'_> {
+    fn item_ways(&mut self, block: usize, offset: usize, position: usize) -> std::rc::Rc<Ways> {
+        if let Some(found) = self.items.get(&(block, offset, position)) {
+            return found.clone();
+        }
+        let found = std::rc::Rc::new(match_ways(
+            self.mode,
+            self.definition,
+            &self.blocks[block][offset],
+            self.subject.item(position),
+            self.depth,
+        ));
+        self.nested_bounded |= found.bounded;
+        self.items.insert((block, offset, position), found.clone());
+        found
+    }
+
+    /// Whether some item of block `block` started at `start` is decided not to match.
+    fn items_refuted(&mut self, block: usize, start: usize) -> bool {
+        (0..self.blocks[block].len())
+            .any(|offset| self.item_ways(block, offset, start + offset).refuted())
+    }
+
+    /// Whether block `block` may start at `start`: it fits, no subject part lies between its
+    /// items, and no item is refuted there.
+    fn fits_at(&mut self, block: usize, start: usize) -> bool {
+        let len = self.blocks[block].len();
+        if start + len > self.subject.len {
+            return false;
+        }
+        if len > 1 && self.subject.part_within(start + 1, start + len - 1) {
+            return false;
+        }
+        !self.items_refuted(block, start)
+    }
+
+    /// Whether an end block's items fail at the subject's end items, which are known (no subject
+    /// part before or among them), so that no placement exists whatever the subject's parts
+    /// hold.
+    fn refuted_at_an_end(&mut self) -> bool {
+        let n = self.subject.len;
+        let first = self.blocks[0].len();
+        if first > 0
+            && first <= n
+            && !self.subject.part_within(0, first - 1)
+            && self.items_refuted(0, 0)
+        {
+            return true;
+        }
+        let last_block = self.blocks.len() - 1;
+        let last = self.blocks[last_block].len();
+        last > 0
+            && last <= n
+            && !self.subject.part_within(n - last + 1, n)
+            && self.items_refuted(last_block, n - last)
+    }
+
+    /// The starts at which block `block` may be placed after the blocks in `starts`.
+    fn candidates(&mut self, block: usize, starts: &[usize]) -> Vec<usize> {
+        let last = self.blocks.len() - 1;
+        let len = self.blocks[block].len();
+        let n = self.subject.len;
+        let earliest = starts
+            .last()
+            .map_or(0, |start| start + self.blocks[block - 1].len());
+        if block == 0 {
+            // Before the pattern's first part: at the subject's first item, with no part ahead.
+            return if len > 0 && self.subject.part_within(0, 0) {
+                Vec::new()
+            } else {
+                vec![0]
+            };
+        }
+        if block == last {
+            // After the pattern's last part: at the subject's last item, with no part beyond.
+            return match n.checked_sub(len) {
+                Some(start)
+                    if start >= earliest
+                        && !(len > 0 && self.subject.part_within(start + 1, n)) =>
+                {
+                    vec![start]
+                }
+                _ => Vec::new(),
+            };
+        }
+        // An inner block (not empty): anywhere before the room the later blocks need.
+        let later = self.blocks[block + 1..].iter().map(Vec::len).sum::<usize>();
+        let Some(latest) = n.checked_sub(later + len) else {
+            return Vec::new();
+        };
+        if earliest > latest {
+            return Vec::new();
+        }
+        if self.fits[block].is_none() {
+            let fits = (0..=n - len)
+                .filter(|start| self.fits_at(block, *start))
+                .collect::<Vec<_>>();
+            self.fits[block] = Some(fits);
+        }
+        let fits = self.fits[block].as_ref().expect("computed above");
+        let from = fits.partition_point(|start| *start < earliest);
+        fits[from..]
+            .iter()
+            .copied()
+            .take_while(|start| *start <= latest)
+            .collect()
+    }
+
+    /// Place block `block` and the later ones after the blocks in `starts`, extending `way`.
+    ///
+    /// Each level places one block and recurses on the next, so the depth is the number of
+    /// blocks. Invariant: the blocks in `starts` are placed at increasing, non-overlapping
+    /// positions, each fits, and `way` merges their items' bindings.
+    fn place(&mut self, block: usize, starts: &mut Vec<usize>, way: Way) {
+        if block == self.blocks.len() {
+            self.bind_parts(0, starts, way);
+            return;
+        }
+        for start in self.candidates(block, starts) {
+            if self.stopped {
+                return;
+            }
+            // An inner block's candidates are the starts where it fits; an end block's one start
+            // is checked here.
+            if (block != 0 && block != self.blocks.len() - 1) || self.fits_at(block, start) {
+                if self.tried == MAX_LIST_PLACEMENTS {
+                    self.stopped = true;
+                    return;
+                }
+                self.tried += 1;
+                starts.push(start);
+                self.place_items(block, 0, starts, way.clone());
+                starts.pop();
+            }
+        }
+    }
+
+    /// Merge the items of block `block` (the last of `starts`) from `offset` on into `way`, one
+    /// decided match each, then place the next block.
+    fn place_items(&mut self, block: usize, offset: usize, starts: &mut Vec<usize>, way: Way) {
+        // A placement that is undecided already can only leave the result undecided, which it
+        // is once one such placement is complete.
+        if self.stopped || (way.open && self.open) {
+            return;
+        }
+        if offset == self.blocks[block].len() {
+            self.place(block + 1, starts, way);
+            return;
+        }
+        let start = *starts.last().expect("the block's start is pushed");
+        let ways = self.item_ways(block, offset, start + offset);
+        for (found, reading) in &ways.found {
+            if let Some(next) = way.merge(found, *reading) {
+                self.place_items(block, offset + 1, starts, next);
+            }
+        }
+        if !ways.complete {
+            self.place_items(block, offset + 1, starts, way.opened());
+        }
+    }
+
+    /// Bind run of parts `run` and the later ones to the subject's cuts between the blocks
+    /// placed at `starts`, extending `way`, and keep each complete placement.
+    fn bind_parts(&mut self, run: usize, starts: &[usize], way: Way) {
+        if self.stopped || (way.open && self.open) {
+            return;
+        }
+        let Some(parts) = self.parts.get(run) else {
+            if way.open {
+                self.open = true;
+            } else {
+                let mut solution = self.base.clone();
+                solution.matched.bind(&way.bindings);
+                if let Some(reading) = way.reading {
+                    solution.bindings = solution.bindings.max(reading);
+                }
+                self.found.push(solution);
+            }
+            return;
+        };
+        let from = starts[run] + self.blocks[run].len();
+        let to = starts[run + 1];
+        let cut = concat_list_runs(self.list, self.head, self.subject.cut(from, to));
+        if let [ListRun::Part(part)] = parts.as_slice()
+            && let TermKind::Variable(variable) = part.kind()
+            && variable.sort == cut.sort()
+        {
+            if let Some(next) = way.merge(
+                &Substitution::from([(variable.clone(), cut)]),
+                Bindings::Forced,
+            ) {
+                self.bind_parts(run + 1, starts, next);
+            }
+            return;
+        }
+        let pattern = concat_list_runs(self.list, self.head, parts.clone());
+        let ways = match_ways(self.mode, self.definition, &pattern, &cut, self.depth);
+        self.nested_bounded |= ways.bounded;
+        for (found, reading) in &ways.found {
+            if let Some(next) = way.merge(found, *reading) {
+                self.bind_parts(run + 1, starts, next);
+            }
+        }
+        if !ways.complete {
+            self.bind_parts(run + 1, starts, way.opened());
+        }
+    }
+}
+
+/// Every way the deferred pairs of a target pattern's match hold, as pattern matching reads
+/// them: decided solutions, each a way the subject is an instance of the target by itself.
+pub(crate) struct CollectionWays {
+    /// The decided solutions, in the solver's stable sorted order.
+    pub solutions: Vec<Substitution>,
+    /// Whether they are every solution: a problem the solver could not decide whole, for some
+    /// alternative, leaves this false and keeps the solutions it decided.
+    pub complete: bool,
+    /// Whether a list scan of the problem stopped at [`MAX_LIST_PLACEMENTS`]: the problem is
+    /// incomplete for that counted reason (possibly beside others).
+    pub bounded: bool,
+}
+
+/// The ways the deferred pairs `remainder` of a target pattern's `Implies` match hold from
+/// `initial`, with the collection solver's decided solutions kept past an undecided alternative
+/// ([`DecidedSolutions::Keep`]) and a list pattern with two or more parts placed on the subject
+/// ([`ListPlacements::Scanned`]); without narrowing, the solver places no pattern entry in an
+/// opaque part of the subject. Pattern matching (a search target, the state matcher) is the one
+/// caller: rule application keeps the frame split ([`ListPlacements::Framed`]).
+pub(crate) fn match_collection_ways_in_definition(
+    definition: &BackendDefinition,
+    initial: Substitution,
+    remainder: &[(Term, Term)],
+) -> CollectionWays {
+    let solved = solve_collection_pairs(
+        MatchMode::Implies,
+        definition,
+        initial,
+        remainder,
+        None,
+        DecidedSolutions::Keep,
+        ListPlacements::Scanned,
+    );
+    CollectionWays {
+        solutions: solved
+            .found
+            .into_iter()
+            .map(|solution| {
+                let (substitution, conditions) = solution.matched.into_parts();
+                debug_assert!(
+                    conditions.is_empty(),
+                    "without narrowing the solver keeps no equation"
+                );
+                substitution
+            })
+            .collect(),
+        complete: solved.complete,
+        bounded: solved.bounded,
     }
 }
 

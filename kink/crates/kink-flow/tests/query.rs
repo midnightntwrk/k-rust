@@ -2736,3 +2736,80 @@ programs = ["add"]
         assert_eq!(compared, 16 + 12 + 3 + 6);
     }
 }
+
+/// FB55-LIST-SCAN: a definition that appends `write(49424, N)`, then other writes, then
+/// `read(49424, N)` to a `<bus>` list, one step each.
+const BUS_SPEC: &str = r"module BUS-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= log(Int) [symbol(log)]
+endmodule
+
+module BUS
+  imports BUS-SYNTAX
+  imports INT
+  imports LIST
+  imports BOOL
+  syntax KItem ::= w(Int, Int) [symbol(w)] | r(Int, Int) [symbol(r)]
+  syntax KItem ::= write(Int, Int) [symbol(write)] | read(Int, Int) [symbol(read)]
+  configuration <k> $PGM:Pgm </k> <bus> .List </bus>
+  rule [log]: <k> log(N) => w(1, 0) ~> w(49424, N) ~> w(2, 0) ~> r(49424, N) ... </k>
+  rule [w]: <k> w(A, V) => .K ... </k> <bus> B => B ListItem(write(A, V)) </bus>
+  rule [r]: <k> r(A, V) => .K ... </k> <bus> B => B ListItem(read(A, V)) </bus>
+endmodule
+";
+
+const BUS_PATTERNS: &str = r#"
+[[pattern]]
+id = "between"
+pattern = "<bus> _:List ListItem(write(49424, _:Int)) _:List </bus>"
+
+[[pattern]]
+id = "write-then-read"
+pattern = "<bus> L1:List ListItem(write(A1, V1)) L2:List ListItem(read(A2, V2)) L3:List </bus> requires V1 ==Int V2 andBool A1 ==Int A2"
+
+[[pattern]]
+id = "read-then-write"
+pattern = "<bus> L1:List ListItem(read(A1, V1)) L2:List ListItem(write(A2, V2)) L3:List </bus> requires V1 ==Int V2"
+
+[[pattern]]
+id = "requires-only"
+pattern = "<bus> L:List </bus> requires write(49424, W) in L"
+"#;
+
+/// FB55-LIST-SCAN: k-rust decides a pattern with an item between two list parts, or two ordered
+/// items, on the closed `<bus>` lists a run reaches, so `kink-flow query` answers it: a write
+/// followed later by a read of the value written is a hit, and the reverse order, which no state
+/// has, a decided `no`. A `requires` naming a variable the cell patterns do not bind is left
+/// undecided, and its cause says how to write the element in the cell instead.
+#[test]
+fn list_items_between_list_parts_are_answered() {
+    let dir = spec_dir(
+        "list-scan",
+        "bus.k",
+        "BUS",
+        BUS_SPEC,
+        "[[program]]\nid = \"log\"\ntext = \"log(7)\"\n",
+        BUS_PATTERNS,
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    assert_eq!(
+        row(&document, "between", "log")["answer"],
+        "hit",
+        "{document:#}"
+    );
+    let written = row(&document, "write-then-read", "log");
+    assert_eq!(written["answer"], "hit", "{written:#}");
+    assert_eq!(written["witness"]["depth"], 5, "{written:#}");
+    assert_eq!(
+        row(&document, "read-then-write", "log")["answer"],
+        NO,
+        "{document:#}"
+    );
+    let unbound = row(&document, "requires-only", "log");
+    assert_eq!(unbound["answer"], "unknown", "{unbound:#}");
+    let cause = unbound["cause"].as_str().unwrap();
+    for part in ["requires-only variable", "W", "ListItem(write(49424, W))"] {
+        assert!(cause.contains(part), "{part:?} in {cause}");
+    }
+}

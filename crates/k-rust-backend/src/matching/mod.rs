@@ -61,11 +61,12 @@ mod contents;
 
 pub use contents::ContentsClash;
 
+pub use collections::MAX_LIST_PLACEMENTS;
 pub(crate) use collections::{
-    CollectionMatches, CollectionSolution, DecidedSolutions, Narrowing,
+    CollectionMatches, CollectionSolution, CollectionWays, DecidedSolutions, Narrowing,
     expand_implication_remainders, is_collection_term,
-    match_collection_remainders_all_in_definition, merge_free_parts,
-    solve_collection_pairs_in_definition,
+    match_collection_remainders_all_in_definition, match_collection_ways_in_definition,
+    merge_free_parts, solve_collection_pairs_in_definition,
 };
 // Named only by `src/tests/matching_oracle.rs`.
 #[cfg(test)]

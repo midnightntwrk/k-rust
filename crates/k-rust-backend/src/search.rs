@@ -116,8 +116,8 @@ use crate::{
     evaluation::{EvaluationMode, EvaluationScope, with_evaluation},
     fresh::{FreshCounter, RequestNames},
     matching::{
-        CollectionMatches, DecidedSolutions, MatchMode, MatchResult,
-        match_collection_remainders_all_in_definition, match_terms_in_definition,
+        CollectionWays, MAX_LIST_PLACEMENTS, MatchMode, MatchResult,
+        match_collection_ways_in_definition, match_terms_in_definition,
     },
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
@@ -329,6 +329,13 @@ pub enum IncompleteSearch {
         substitution: Substitution,
         remainder: Vec<(crate::term::Term, crate::term::Term)>,
     },
+    /// The target's match against the state placed a list pattern with two or more parts on the
+    /// state's list and stopped at `bound` placements tried ([`MAX_LIST_PLACEMENTS`]), so some
+    /// ways of the match are not known. The ways it decided are matches of their own.
+    PlacementBound {
+        state: SearchState,
+        bound: usize,
+    },
     Smt {
         state: SearchState,
         error: SmtError,
@@ -345,6 +352,7 @@ impl IncompleteSearch {
             | Self::Stopped { state, .. }
             | Self::Simplification { state, .. }
             | Self::Match { state, .. }
+            | Self::PlacementBound { state, .. }
             | Self::Smt { state, .. } => vec![state],
         }
     }
@@ -577,8 +585,38 @@ pub enum PatternMatchError {
         substitution: Substitution,
         remainder: Vec<(crate::term::Term, crate::term::Term)>,
     },
+    /// A list pattern with two or more parts was placed on the subject's items, and the scan
+    /// stopped at `bound` ([`MAX_LIST_PLACEMENTS`]) placements tried: the ways beyond them are
+    /// not known.
+    PlacementBound {
+        bound: usize,
+    },
     Simplification(SimplificationError),
     Smt(SmtError),
+}
+
+/// The ways a subject matches a target that a matching decided, and why some way was left
+/// undecided, if one was. Each match is a way the subject is an instance of the target by itself
+/// (under its condition), whatever the undecided ways turn out to be; `undecided` is `None`
+/// exactly when the matches are every way.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PatternMatches {
+    pub matches: Vec<PatternMatch>,
+    pub undecided: Option<PatternMatchError>,
+}
+
+/// Which ways of a target's match a caller asks for.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Ways {
+    /// Every way, or none: an undecided way stops the matching and is the answer
+    /// ([`match_disjunction`]).
+    Every,
+    /// Every way that is decided, and the first cause of an undecided one (a search target: each
+    /// decided way is a solution of its own, and an undecided one an incomplete entry).
+    Decided,
+    /// The decided ways up to the first whose condition is empty, which answers an existential
+    /// question by itself (the state matcher).
+    UntilUnconditional,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -702,11 +740,63 @@ fn match_disjunction_using(
     solver: &dyn SmtSolver,
     retain_unknown: bool,
 ) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
+    let found = match_disjunction_ways(
+        definition,
+        target,
+        subjects,
+        options,
+        solver,
+        retain_unknown,
+        Ways::Every,
+    )?;
+    Ok(match found.undecided {
+        Some(error) => Err(error),
+        None => Ok(found.matches),
+    })
+}
+
+/// Match a constrained pattern against each alternative using the supplied SMT solver, for an
+/// existential question: does some alternative have an instance that is an instance of the
+/// pattern? The matches are decided ways, up to the first whose condition is empty, which
+/// answers the question by itself; an undecided way of the pattern (an alternative of its
+/// collection matching, or a condition) is reported beside them, and does not stop the matching
+/// of the other ways. So the answer is yes when some match has an empty condition, whatever
+/// `undecided` says, no only when there is no match and `undecided` is `None`, and undecided
+/// otherwise. The conditions are relative to the subjects' instances, as for
+/// [`match_disjunction`].
+pub fn match_disjunction_existential_with_solver(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subjects: &[Pattern],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<PatternMatches> {
+    match_disjunction_ways(
+        definition,
+        target,
+        subjects,
+        options,
+        solver,
+        false,
+        Ways::UntilUnconditional,
+    )
+}
+
+fn match_disjunction_ways(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subjects: &[Pattern],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    retain_unknown: bool,
+    ways: Ways,
+) -> Stoppable<PatternMatches> {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let output_variables = pattern_variables(target);
     let mut matches = Vec::new();
+    let mut undecided = None;
     for subject in subjects {
-        let found = match match_pattern_with_variables(
+        let found = match_pattern_with_variables(
             definition,
             target,
             subject,
@@ -715,17 +805,29 @@ fn match_disjunction_using(
             solver,
             retain_unknown,
             SubjectFacts::Assumed,
-        )? {
-            Ok(found) => found,
-            Err(error) => return Ok(Err(error)),
-        };
-        for found in found {
+            ways,
+        )?;
+        for found in found.matches {
             if !matches.contains(&found) {
                 matches.push(found);
             }
         }
+        if undecided.is_none() {
+            undecided = found.undecided;
+        }
+        let answered = match ways {
+            Ways::Every => undecided.is_some(),
+            Ways::Decided => false,
+            Ways::UntilUnconditional => matches.iter().any(|found| found.constraints.is_empty()),
+        };
+        if answered {
+            break;
+        }
     }
-    Ok(Ok(matches))
+    if ways == Ways::Every && undecided.is_some() {
+        matches.clear();
+    }
+    Ok(PatternMatches { matches, undecided })
 }
 
 pub fn search_graph(
@@ -2867,14 +2969,7 @@ fn search_pattern_using(
             solver,
         );
         let found = match found {
-            Ok(Ok(found)) => found,
-            Ok(Err(error)) => {
-                match_incomplete.push(pattern_match_incomplete(
-                    undecided_match_state(state.clone(), &diagnostics),
-                    error,
-                ));
-                return false;
-            }
+            Ok(found) => found,
             // The next state's poll ends the search when the stop ends every remaining state.
             Err(stop) => {
                 match_incomplete.push(IncompleteSearch::Stopped {
@@ -2885,9 +2980,17 @@ fn search_pattern_using(
             }
         };
 
+        // A way left undecided leaves the state's matches incomplete, not the decided ways
+        // unmatched: each of those is a solution by itself.
+        if let Some(error) = found.undecided {
+            match_incomplete.push(pattern_match_incomplete(
+                undecided_match_state(state.clone(), &diagnostics),
+                error,
+            ));
+        }
         // Each way the state matches is a solution of its own; the match's diagnostics concern
         // every one of them.
-        found.into_iter().any(|found| {
+        found.matches.into_iter().any(|found| {
             let (bound_reached, index) = retain_pattern_match(
                 &mut matches,
                 &mut retained,
@@ -3052,14 +3155,7 @@ fn search_pattern_paths_using(
             solver,
         );
         let found = match found {
-            Ok(Ok(found)) => found,
-            Ok(Err(error)) => {
-                match_incomplete.push(pattern_match_incomplete(
-                    undecided_match_state(witness_search_state(witness.clone()), &diagnostics),
-                    error,
-                ));
-                return false;
-            }
+            Ok(found) => found,
             // The next path's poll ends the search when the stop ends every remaining path.
             Err(stop) => {
                 match_incomplete.push(IncompleteSearch::Stopped {
@@ -3072,8 +3168,15 @@ fn search_pattern_paths_using(
                 return false;
             }
         };
-
-        found.into_iter().any(|found| {
+        // As for a state search: an undecided way is an incomplete entry, and each decided way
+        // a match of its own.
+        if let Some(error) = found.undecided {
+            match_incomplete.push(pattern_match_incomplete(
+                undecided_match_state(witness_search_state(witness.clone()), &diagnostics),
+                error,
+            ));
+        }
+        found.matches.into_iter().any(|found| {
             matches.push(PathSearchMatch {
                 substitution: found.substitution,
                 constraints: found.constraints,
@@ -3121,10 +3224,7 @@ fn match_search_result(
     output_variables: &BTreeSet<crate::term::Variable>,
     options: &SearchOptions,
     solver: &dyn SmtSolver,
-) -> (
-    Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>,
-    Vec<BackendDiagnostic>,
-) {
+) -> (Stoppable<PatternMatches>, Vec<BackendDiagnostic>) {
     let (found, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         match_pattern_with_variables(
             definition,
@@ -3135,6 +3235,7 @@ fn match_search_result(
             solver,
             false,
             SubjectFacts::Reported,
+            Ways::Decided,
         )
     });
     let mut diagnostics = Vec::new();
@@ -3199,6 +3300,9 @@ fn pattern_match_incomplete(state: SearchState, error: PatternMatchError) -> Inc
             substitution,
             remainder,
         },
+        PatternMatchError::PlacementBound { bound } => {
+            IncompleteSearch::PlacementBound { state, bound }
+        }
         PatternMatchError::Smt(error) => IncompleteSearch::Smt { state, error },
     }
 }
@@ -3219,13 +3323,26 @@ fn pattern_variables(pattern: &Pattern) -> BTreeSet<crate::term::Variable> {
         .collect()
 }
 
-/// Every way `subject` is an instance of `target`, each with its match condition.
+/// The ways `subject` is an instance of `target` that `ways` asks for, each with its match
+/// condition.
 ///
 /// A target whose map or set pattern takes the subject's entries in several ways (a key,
-/// element or cell instance the rest of the pattern does not fix) denotes the disjunction of
-/// those ways: an instance of the subject is an instance of the target exactly when it is one
-/// under one of the substitutions. Each way is a match of its own, in the collection solver's
-/// stable order, and an undecided condition of any way leaves the whole match undecided.
+/// element or cell instance the rest of the pattern does not fix), or whose list pattern with
+/// two or more parts places its items on the subject's list in several ways, denotes the
+/// disjunction of those ways: an instance of the subject is an instance of the target exactly
+/// when it is one under one of the substitutions. Each way is a match of its own, in the
+/// collection solver's stable order.
+///
+/// A way the matching does not decide (an alternative of the collection matching, or a way's
+/// condition) says nothing of the other ways, which hold or fail by themselves. Under
+/// [`Ways::Every`] it stops the matching and is the answer, with no match, as a caller that reads
+/// the matches as every way needs. Otherwise it is kept as the `undecided` cause (the solver's
+/// first, then the first way's) and the other ways are matched: a decided way with an empty
+/// condition shows the subject has an instance of the target whatever the undecided ones turn
+/// out to be, and a decided failure of one way refutes only that way, so `undecided` stays set
+/// when no way matches. Where every way is decided (`undecided` is `None`), the matches are the
+/// ones [`Ways::Every`] gives: the solver's solutions do not depend on whether it keeps the
+/// decided ones past an undecided alternative.
 #[allow(clippy::too_many_arguments)]
 fn match_pattern_with_variables(
     definition: &BackendDefinition,
@@ -3236,7 +3353,15 @@ fn match_pattern_with_variables(
     solver: &dyn SmtSolver,
     retain_unknown: bool,
     subject_facts: SubjectFacts,
-) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
+    ways: Ways,
+) -> Stoppable<PatternMatches> {
+    let none = |undecided| {
+        Ok(PatternMatches {
+            matches: Vec::new(),
+            undecided,
+        })
+    };
+    let mut undecided = None;
     let substitutions = match match_terms_in_definition(
         MatchMode::Implies,
         definition,
@@ -3244,43 +3369,45 @@ fn match_pattern_with_variables(
         &subject.term,
     ) {
         MatchResult::Success(substitution) => vec![substitution],
-        MatchResult::Failed(_) => return Ok(Ok(Vec::new())),
+        MatchResult::Failed(_) => return none(None),
         // A question the matcher does not answer: the target may hold, so the match is
         // undecided, never "no match".
         MatchResult::Undecided(_) => {
-            return Ok(Err(PatternMatchError::Indeterminate {
+            return none(Some(PatternMatchError::Indeterminate {
                 substitution: Substitution::new(),
                 remainder: vec![(target.term.clone(), subject.term.clone())],
             }));
         }
         // The collection pairs the match deferred are solved for every way they hold; without
-        // narrowing, the solver gives up instead of placing a pattern entry in an opaque part of
-        // the subject, so the solutions it returns are every way there is.
+        // narrowing, the solver places no pattern entry in an opaque part of the subject, so
+        // where it leaves no alternative undecided the solutions it returns are every way there
+        // is. Implication reads every solution as a witness, which a sufficient one is.
         MatchResult::Indeterminate {
             substitution,
             remainder,
-        } => match match_collection_remainders_all_in_definition(
-            MatchMode::Implies,
-            definition,
-            substitution.clone(),
-            &remainder,
-            DecidedSolutions::Discard,
-        ) {
-            // Implication reads every solution as a witness, which a sufficient one is.
-            CollectionMatches::Solutions(solutions) => solutions
-                .into_iter()
-                .map(|(substitution, _bindings)| substitution)
-                .collect(),
-            CollectionMatches::NoSolution(_) => return Ok(Ok(Vec::new())),
-            // Implication needs every way the pattern holds, so a partly decided match is
-            // undecided.
-            CollectionMatches::Undecided(_) => {
-                return Ok(Err(PatternMatchError::Indeterminate {
-                    substitution,
-                    remainder,
-                }));
+        } => {
+            let CollectionWays {
+                solutions,
+                complete,
+                bounded,
+            } = match_collection_ways_in_definition(definition, substitution.clone(), &remainder);
+            if !complete {
+                undecided = Some(if bounded {
+                    PatternMatchError::PlacementBound {
+                        bound: MAX_LIST_PLACEMENTS,
+                    }
+                } else {
+                    PatternMatchError::Indeterminate {
+                        substitution,
+                        remainder,
+                    }
+                });
+                if ways == Ways::Every {
+                    return none(undecided);
+                }
             }
-        },
+            solutions
+        }
     };
     let mut matches = Vec::with_capacity(substitutions.len());
     for substitution in substitutions {
@@ -3295,12 +3422,21 @@ fn match_pattern_with_variables(
             retain_unknown,
             subject_facts,
         )? {
-            Ok(Some(found)) => matches.push(found),
+            Ok(Some(found)) => {
+                let unconditional = found.constraints.is_empty();
+                matches.push(found);
+                if unconditional && ways == Ways::UntilUnconditional {
+                    break;
+                }
+            }
             Ok(None) => {}
-            Err(error) => return Ok(Err(error)),
+            Err(error) if ways == Ways::Every => return none(Some(error)),
+            Err(error) => {
+                undecided.get_or_insert(error);
+            }
         }
     }
-    Ok(Ok(matches))
+    Ok(PatternMatches { matches, undecided })
 }
 
 /// What a match condition says of the facts of its subject: the definedness of the subject's
@@ -5386,6 +5522,7 @@ mod tests {
                     | IncompleteSearch::Stopped { state, .. }
                     | IncompleteSearch::Simplification { state, .. }
                     | IncompleteSearch::Match { state, .. }
+                    | IncompleteSearch::PlacementBound { state, .. }
                     | IncompleteSearch::Smt { state, .. } => clear(state),
                 }
             }

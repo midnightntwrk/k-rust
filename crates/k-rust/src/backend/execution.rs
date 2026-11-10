@@ -2100,6 +2100,7 @@ fn search_incomplete_disposition(incomplete: &IncompleteSearch) -> IncompleteDis
         | IncompleteSearch::Stopped { .. }
         | IncompleteSearch::Simplification { .. }
         | IncompleteSearch::Match { .. }
+        | IncompleteSearch::PlacementBound { .. }
         | IncompleteSearch::Smt { .. } => IncompleteDisposition::Failure,
     }
 }

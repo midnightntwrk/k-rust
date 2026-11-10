@@ -10,7 +10,10 @@ use crate::{
     definition::BackendDefinition,
     rewrite::Pattern,
     rule::Predicate,
-    search::{PatternMatchError, match_disjunction},
+    search::{
+        PatternMatchError, PatternMatches, match_disjunction,
+        match_disjunction_existential_with_solver,
+    },
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
     term::{Sort, Term, Variable},
@@ -30,6 +33,14 @@ const PRELUDE: &str = r#"
     symbol mk{}(SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
     symbol f{}(SortC{}) : SortS{} [function{}()]
     symbol g{}(SortC{}) : SortS{} [anywhere{}()]
+    hooked-sort SortL{} [hook{}("LIST.List"), unit{}(lUnit{}()), element{}(lItem{}()), concat{}(lConcat{}())]
+    hooked-symbol lUnit{}() : SortL{} [function{}(), total{}(), hook{}("LIST.unit")]
+    hooked-symbol lItem{}(SortS{}) : SortL{} [function{}(), total{}(), hook{}("LIST.element")]
+    hooked-symbol lConcat{}(SortL{}, SortL{}) : SortL{}
+        [function{}(), total{}(), hook{}("LIST.concat"), assoc{}(), unit{}(lUnit{}())]
+    hooked-symbol inL{}(SortS{}, SortL{}) : SortBool{} [function{}(), total{}(), hook{}("LIST.in")]
+    symbol wr{}(SortInt{}, SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
+    symbol rd{}(SortInt{}, SortInt{}) : SortS{} [constructor{}(), functional{}(), injective{}()]
 "#;
 
 const ENTRY: &str = r"cConcat{}(cItem{}(VarK:SortInt{}, VarV:SortInt{}), VarM:SortC{})";
@@ -242,4 +253,214 @@ fn target_pattern(target: &str, definition: &BackendDefinition) -> Pattern {
         term: term(definition, target),
         constraints: Vec::new(),
     }
+}
+
+/// The existential matches of `target` (with `constraints`) against `subject`, as the state
+/// matcher asks for them.
+fn existential(
+    definition: &BackendDefinition,
+    target: &str,
+    constraints: Vec<Predicate>,
+    subject: &str,
+) -> PatternMatches {
+    match_disjunction_existential_with_solver(
+        definition,
+        &Pattern {
+            term: term(definition, target),
+            constraints,
+        },
+        &[Pattern {
+            term: term(definition, subject),
+            constraints: Vec::new(),
+        }],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("no stop is armed")
+}
+
+/// Whether some decided way matches with an empty condition (the state matcher's `Matched`).
+fn hit(found: &PatternMatches) -> bool {
+    found
+        .matches
+        .iter()
+        .any(|found| found.constraints.is_empty())
+}
+
+/// Whether the match is decided not to hold: no way, none undecided.
+fn decided_no(found: &PatternMatches) -> bool {
+    found.matches.is_empty() && found.undecided.is_none()
+}
+
+/// The list `[e1, ..., en]` of `SortL` over the given element patterns.
+fn list(elements: &[String]) -> String {
+    elements
+        .iter()
+        .map(|element| format!("lItem{{}}({element})"))
+        .reduce(|left, right| format!("lConcat{{}}({left}, {right})"))
+        .unwrap_or_else(|| "lUnit{}()".to_owned())
+}
+
+fn write_to(address: &str, value: &str) -> String {
+    format!("wr{{}}({address}, {value})")
+}
+
+fn read_from(address: &str, value: &str) -> String {
+    format!("rd{{}}({address}, {value})")
+}
+
+/// `\equals(eqInt(left, right), true)`.
+fn int_equal(definition: &BackendDefinition, left: &str, right: &str) -> Predicate {
+    Predicate::Equals(
+        term(definition, &format!("eqInt{{}}({left}, {right})")),
+        term(definition, r#"\dv{SortBool{}}("true")"#),
+    )
+}
+
+/// FB55-LIST-SCAN: a target with an item between two list parts, `L1 ListItem(wr(49424, V)) L2`,
+/// is decided on a closed list: a hit where some element matches, a decided no where none does.
+#[test]
+fn a_list_item_between_two_parts_is_decided_on_a_closed_list() {
+    let definition = load(1);
+    let target = format!(
+        "lConcat{{}}(VarL1:SortL{{}}, lConcat{{}}(lItem{{}}({}), VarL2:SortL{{}}))",
+        write_to(&int(49424), "VarV:SortInt{}")
+    );
+    let found = existential(
+        &definition,
+        &target,
+        Vec::new(),
+        &list(&[
+            write_to(&int(1), &int(5)),
+            write_to(&int(49424), &int(7)),
+            read_from(&int(49424), &int(7)),
+        ]),
+    );
+    assert!(hit(&found) && found.undecided.is_none(), "{found:?}");
+    let found = existential(
+        &definition,
+        &target,
+        Vec::new(),
+        &list(&[write_to(&int(1), &int(5)), read_from(&int(49424), &int(7))]),
+    );
+    assert!(decided_no(&found), "{found:?}");
+    // The all-ways reading decides it too: every placement on a closed list is known.
+    let all = match_disjunction(
+        &definition,
+        &target_pattern(&target, &definition),
+        &[Pattern {
+            term: term(
+                &definition,
+                &list(&[
+                    write_to(&int(49424), &int(7)),
+                    write_to(&int(49424), &int(8)),
+                ]),
+            ),
+            constraints: Vec::new(),
+        }],
+    )
+    .expect("no stop is armed")
+    .expect("every way is decided");
+    assert_eq!(all.len(), 2, "{all:?}");
+}
+
+/// Two ordered items linked by a `requires`: `L1 wr(A1, V1) L2 rd(A2, V2) L3 requires
+/// V1 ==Int V2` holds where some write precedes a read of the same value, and is decided not to
+/// hold where every placement's condition is false or no placement exists.
+#[test]
+fn two_ordered_list_items_with_a_linking_requires() {
+    let definition = load(1);
+    let target = format!(
+        "lConcat{{}}(VarL1:SortL{{}}, lConcat{{}}(lItem{{}}({}), lConcat{{}}(VarL2:SortL{{}}, lConcat{{}}(lItem{{}}({}), VarL3:SortL{{}}))))",
+        write_to("VarA1:SortInt{}", "VarV1:SortInt{}"),
+        read_from("VarA2:SortInt{}", "VarV2:SortInt{}")
+    );
+    let linked = || vec![int_equal(&definition, "VarV1:SortInt{}", "VarV2:SortInt{}")];
+    let found = existential(
+        &definition,
+        &target,
+        linked(),
+        &list(&[
+            write_to(&int(1), &int(5)),
+            read_from(&int(1), &int(6)),
+            read_from(&int(2), &int(5)),
+        ]),
+    );
+    assert!(hit(&found), "{found:?}");
+    // The one placement's condition is false.
+    let found = existential(
+        &definition,
+        &target,
+        linked(),
+        &list(&[write_to(&int(1), &int(5)), read_from(&int(1), &int(6))]),
+    );
+    assert!(decided_no(&found), "{found:?}");
+    // The read precedes the write: no placement.
+    let found = existential(
+        &definition,
+        &target,
+        linked(),
+        &list(&[read_from(&int(1), &int(5)), write_to(&int(1), &int(5))]),
+    );
+    assert!(decided_no(&found), "{found:?}");
+}
+
+/// A `requires` naming a variable bound only there, inside an application
+/// (`requires wr(49424, W) in L`), is a valid existential that the matcher does not decide: it
+/// is no hit and no decided no.
+#[test]
+fn a_requires_only_variable_stays_undecided() {
+    let definition = load(1);
+    let requires = Predicate::Equals(
+        term(
+            &definition,
+            &format!(
+                "inL{{}}({}, VarL:SortL{{}})",
+                write_to(&int(49424), "VarW:SortInt{}")
+            ),
+        ),
+        term(&definition, r#"\dv{SortBool{}}("true")"#),
+    );
+    let found = existential(
+        &definition,
+        "VarL:SortL{}",
+        vec![requires],
+        &list(&[write_to(&int(49424), &int(5))]),
+    );
+    assert!(!hit(&found) && !decided_no(&found), "{found:?}");
+}
+
+/// One way decided and matched beside an undecided one: the entry `K |-> V` of `{1 |-> 10} N`
+/// is the known entry (a match) or may lie in `N` (undecided). The existential reading is a hit
+/// and reports the undecided way beside it; the all-ways reading stays undecided.
+#[test]
+fn an_undecided_way_beside_a_matched_way_is_a_hit() {
+    let definition = load(1);
+    let framed = format!(
+        r"cConcat{{}}(cItem{{}}({}, {}), VarN:SortC{{}})",
+        int(1),
+        int(10)
+    );
+    let found = existential(&definition, ENTRY, Vec::new(), &framed);
+    assert!(hit(&found), "{found:?}");
+    assert!(
+        matches!(
+            found.undecided,
+            Some(PatternMatchError::Indeterminate { .. })
+        ),
+        "{found:?}"
+    );
+    let all = match_disjunction(
+        &definition,
+        &target_pattern(ENTRY, &definition),
+        &[Pattern {
+            term: term(&definition, &framed),
+            constraints: Vec::new(),
+        }],
+    )
+    .expect("no stop is armed");
+    assert!(
+        matches!(all, Err(PatternMatchError::Indeterminate { .. })),
+        "{all:?}"
+    );
 }

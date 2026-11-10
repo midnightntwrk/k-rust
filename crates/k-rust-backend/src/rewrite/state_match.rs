@@ -31,7 +31,13 @@
 //! empty constraints, in execution mode and, when the
 //! request asks for proof agreement, in proof mode too, where a value the definition leaves to
 //! the implementation stays unevaluated. It is *refuted* when every required mode refutes it,
-//! and *undecided* otherwise. A state with constraints is first simplified once more as a leaf
+//! and *undecided* otherwise. The question is existential, so a pattern that matches the state
+//! in several ways (a map or set entry, a list item placed at several positions) matches when one
+//! way the matcher decides has empty constraints, whatever it leaves undecided of the others
+//! (`match_disjunction_existential_with_solver`); it is refuted only when every way is decided
+//! not to match. A list scan that stops at its counted bound of placements before then leaves
+//! the state undecided for that reason ([`UndecidedMatchReason::PlacementBound`]).
+//! A state with constraints is first simplified once more as a leaf
 //! would be (`execute::simplify_leaf_pattern`), which may drop a redundant constraint; a state
 //! without constraints is already in that form.
 //! A search match states the state's undecided facts in its condition; this module's matcher
@@ -51,7 +57,7 @@
 //! clean reach until such a later one replaces it. The run goes on unchanged.
 //!
 //! The summary keeps at most five matched states (the first clean reach, the first dirty
-//! reach, and the first undecided state of each of the three reasons), each with a copy of its
+//! reach, and the first undecided state of each of the four reasons), each with a copy of its
 //! path's diagnostics up to it; nothing else grows with the run.
 //!
 //! Matching is isolated from the run (`coverage::isolated_on_the_clock`): it reports to no
@@ -74,7 +80,7 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{BackendDiagnostic, PathDiagnostics},
     evaluation::{EvaluationMode, with_evaluation},
-    search::{PatternMatch, PatternMatchError, match_disjunction_with_solver},
+    search::{PatternMatchError, PatternMatches, match_disjunction_existential_with_solver},
     simplify::SimplificationOptions,
     smt::{SmtSolver, UndecidedCounting},
     stop::Stoppable,
@@ -113,6 +119,11 @@ pub enum UndecidedMatchReason {
     /// The matcher left the match undecided, matched only under constraints, the two required
     /// modes disagreed, or a stop interrupted the match.
     UndecidedMatch,
+    /// The pattern holds a list pattern with two or more parts, whose items the matcher placed
+    /// on the state's list, and it stopped at its bound of placements tried
+    /// ([`crate::matching::MAX_LIST_PLACEMENTS`]) before a way it decided matched: the ways
+    /// beyond the bound are not known. A count, never a clock, decides it.
+    PlacementBound,
 }
 
 /// One matched state: its depth (committed rewrite steps from the initial configuration), its
@@ -187,6 +198,8 @@ enum ModeVerdict {
     Matched,
     NotMatched,
     Undecided,
+    /// Undecided because a list scan stopped at its placement bound.
+    Bounded,
 }
 
 /// The matcher of one run: the target, the solver without the run's count, and the summary so
@@ -385,14 +398,18 @@ impl<'a> StateMatcher<'a> {
         }
         let execution = self.match_in(definition, pattern, EvaluationMode::Execution);
         // A second mode is asked only when it can change the verdict: agreement is required
-        // and the first mode decided.
-        let agreed = !self.proof_agreement
-            || execution == ModeVerdict::Undecided
-            || self.match_in(definition, pattern, EvaluationMode::Proof) == execution;
-        let answer = if agreed {
+        // and the first mode decided. A disagreement whose second mode stopped at the placement
+        // bound is undecided for that reason.
+        let answer = if !self.proof_agreement
+            || matches!(execution, ModeVerdict::Undecided | ModeVerdict::Bounded)
+        {
             execution
         } else {
-            ModeVerdict::Undecided
+            match self.match_in(definition, pattern, EvaluationMode::Proof) {
+                proof if proof == execution => execution,
+                ModeVerdict::Bounded => ModeVerdict::Bounded,
+                _ => ModeVerdict::Undecided,
+            }
         };
         match answer {
             ModeVerdict::Matched if definition.ground_defined(&pattern.term) => Verdict::Reach {
@@ -401,32 +418,44 @@ impl<'a> StateMatcher<'a> {
             ModeVerdict::Matched => Verdict::Undecided(UndecidedMatchReason::NotCeilFree),
             ModeVerdict::NotMatched => Verdict::Refuted,
             ModeVerdict::Undecided => Verdict::Undecided(UndecidedMatchReason::UndecidedMatch),
+            ModeVerdict::Bounded => Verdict::Undecided(UndecidedMatchReason::PlacementBound),
         }
     }
 
-    /// The pattern's verdict on `pattern` in `mode`: matched when some match has empty
-    /// constraints, refuted when there is no match, undecided otherwise.
+    /// The pattern's verdict on `pattern` in `mode`: matched when some way the matcher decided
+    /// has empty constraints, whatever the undecided ways are (the question is existential);
+    /// refuted when there is no match and no undecided way; undecided otherwise.
     fn match_in(
         &self,
         definition: &BackendDefinition,
         pattern: &Pattern,
         mode: EvaluationMode,
     ) -> ModeVerdict {
-        let outcome: Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> =
-            with_evaluation(mode, || {
-                match_disjunction_with_solver(
-                    definition,
-                    &self.target,
-                    std::slice::from_ref(pattern),
-                    self.options,
-                    &self.solver,
-                )
-            });
+        let outcome: Stoppable<PatternMatches> = with_evaluation(mode, || {
+            match_disjunction_existential_with_solver(
+                definition,
+                &self.target,
+                std::slice::from_ref(pattern),
+                self.options,
+                &self.solver,
+            )
+        });
         match outcome {
-            Ok(Ok(matches)) if matches.iter().any(|found| found.constraints.is_empty()) => {
+            Ok(found)
+                if found
+                    .matches
+                    .iter()
+                    .any(|found| found.constraints.is_empty()) =>
+            {
                 ModeVerdict::Matched
             }
-            Ok(Ok(matches)) if matches.is_empty() => ModeVerdict::NotMatched,
+            Ok(found) if found.matches.is_empty() && found.undecided.is_none() => {
+                ModeVerdict::NotMatched
+            }
+            Ok(PatternMatches {
+                undecided: Some(PatternMatchError::PlacementBound { .. }),
+                ..
+            }) => ModeVerdict::Bounded,
             // Matched only under constraints, or left undecided (a solver `unknown` among them).
             Ok(_) => ModeVerdict::Undecided,
             Err(stop) => {

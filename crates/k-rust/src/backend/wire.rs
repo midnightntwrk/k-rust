@@ -1030,6 +1030,13 @@ pub enum IncompleteSearchOutput<K = Value> {
         bindings: Vec<BindingOutput<K>>,
         remainder: Vec<TermPairOutput<K>>,
     },
+    /// The target's match placed a list pattern with two or more parts on the state's list and
+    /// stopped at `bound` placements tried, so some of its ways are not known; the ways it
+    /// decided are matches of their own.
+    PlacementBound {
+        state: SearchStateOutput<K>,
+        bound: usize,
+    },
     Smt {
         state: SearchStateOutput<K>,
         error: SmtFailureOutput<K>,
@@ -2017,6 +2024,12 @@ fn incomplete_search_output<K: WireKore>(
             bindings: bindings_output(substitution)?,
             remainder: term_pairs_output(remainder)?,
         },
+        IncompleteSearch::PlacementBound { state, bound } => {
+            IncompleteSearchOutput::PlacementBound {
+                state: search_state_output(state)?,
+                bound,
+            }
+        }
         IncompleteSearch::Smt { state, error } => {
             let result_sort = state.pattern.term.sort();
             IncompleteSearchOutput::Smt {
@@ -2276,6 +2289,9 @@ fn state_matches_output<K: WireKore>(
                         }
                         k_rust_backend::rewrite::UndecidedMatchReason::UndecidedMatch => {
                             super::UndecidedMatchReasonOutput::UndecidedMatch
+                        }
+                        k_rust_backend::rewrite::UndecidedMatchReason::PlacementBound => {
+                            super::UndecidedMatchReasonOutput::PlacementBound
                         }
                     },
                     count: entry.count,

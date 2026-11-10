@@ -713,3 +713,181 @@ fn the_wire_spells_collect_windows_in_camel_case() {
     }));
     assert!(serde_json::from_str::<ExecuteRequest>(&text(0)).is_err());
 }
+
+const BUS_SOURCE: &str = include_str!("fixtures/state-matches/bus.k");
+
+/// The KORE of `BUS_SOURCE`, compiled once per process.
+fn bus_definition_kore() -> std::sync::Arc<String> {
+    static KORE: shared::Shared<String> = shared::Shared::new();
+    KORE.get(|| {
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("bus.k", BUS_SOURCE),
+            "BUS",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        compile_loaded_definition(&loaded, CompileOptions::default())
+            .unwrap()
+            .definition_kore
+    })
+}
+
+fn bus_backend() -> Backend {
+    Backend::new(&bus_definition_kore(), "BUS", BackendOptions::DEFAULT).unwrap()
+}
+
+/// The initial configuration of `log(value)`.
+fn bus_initial(value: i64) -> String {
+    format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}(Lbllog{{}}({})), dotk{{}}())), Lbl'-LT-'bus'-GT-'{{}}(Lbl'Stop'List{{}}()), Lbl'-LT-'generatedCounter'-GT-'{{}}({}))",
+        int(value),
+        int(0)
+    )
+}
+
+/// A configuration pattern with `bus` in `<bus>`, any `<k>` and counter, and `requires` (a Bool
+/// term) when given.
+fn bus_pattern(bus: &str, requires: Option<&str>) -> String {
+    let term = format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(VarK:SortK{{}}), Lbl'-LT-'bus'-GT-'{{}}({bus}), VarGC:SortGeneratedCounterCell{{}})"
+    );
+    match requires {
+        None => term,
+        Some(requires) => format!(
+            "\\and{{SortGeneratedTopCell{{}}}}({term}, \\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}({requires}, \\dv{{SortBool{{}}}}(\"true\")))"
+        ),
+    }
+}
+
+/// `left right` of `List`.
+fn list_concat(left: &str, right: &str) -> String {
+    format!("Lbl'Unds'List'Unds'{{}}({left}, {right})")
+}
+
+fn list_item(element: &str) -> String {
+    format!("LblListItem{{}}({element})")
+}
+
+/// The patterns of the bus fixture, each with whether some state of `log(7)` matches it:
+/// `L1 ListItem(write(49424, V)) L2` (an item between two list parts), the same with address 5
+/// (no state), and `L1 ListItem(write(A1, V1)) L2 ListItem(read(A2, V2)) L3 requires
+/// V1 ==Int V2` (two ordered items linked by a condition), which holds after the read, and its
+/// order reversed, which no state holds.
+fn bus_patterns() -> Vec<(&'static str, String, bool)> {
+    let between = |address: i64| {
+        bus_pattern(
+            &list_concat(
+                "VarL1:SortList{}",
+                &list_concat(
+                    &list_item(&format!("Lblwrite{{}}({}, VarV:SortInt{{}})", int(address))),
+                    "VarL2:SortList{}",
+                ),
+            ),
+            None,
+        )
+    };
+    let ordered = |first: &str, second: &str| {
+        bus_pattern(
+            &list_concat(
+                "VarL1:SortList{}",
+                &list_concat(
+                    &list_item(&format!(
+                        "Lbl{first}{{}}(VarA1:SortInt{{}}, VarV1:SortInt{{}})"
+                    )),
+                    &list_concat(
+                        "VarL2:SortList{}",
+                        &list_concat(
+                            &list_item(&format!(
+                                "Lbl{second}{{}}(VarA2:SortInt{{}}, VarV2:SortInt{{}})"
+                            )),
+                            "VarL3:SortList{}",
+                        ),
+                    ),
+                ),
+            ),
+            Some("Lbl'UndsEqlsEqls'Int'Unds'{}(VarV1:SortInt{}, VarV2:SortInt{})"),
+        )
+    };
+    vec![
+        ("between", between(49424), true),
+        ("between-absent", between(5), false),
+        ("write-then-read", ordered("write", "read"), true),
+        ("read-then-write", ordered("read", "write"), false),
+    ]
+}
+
+/// FB55-LIST-SCAN, the search route: `search_pattern_kore` decides a pattern with an item
+/// between two list parts, or with two ordered items, on the closed `<bus>` lists of `log(7)`:
+/// a match with empty constraints where one holds, and a complete search without a match where
+/// none does.
+#[test]
+fn a_search_decides_list_items_between_list_parts() {
+    let mut backend = bus_backend();
+    for (name, pattern, reached) in bus_patterns() {
+        let search = backend
+            .search_pattern_kore(SearchPatternRequest {
+                search_type: SearchTypeArg::All,
+                max_depth: Some(50),
+                ..SearchPatternRequest::new(
+                    parse_pattern(&bus_initial(7)).unwrap(),
+                    parse_pattern(&pattern).unwrap(),
+                )
+            })
+            .unwrap();
+        assert!(search.incomplete.is_empty(), "{name}: {search:?}");
+        assert!(
+            search
+                .matches
+                .iter()
+                .all(|found| found.constraints.is_empty()),
+            "{name}: {search:?}"
+        );
+        assert_eq!(!search.matches.is_empty(), reached, "{name}: {search:?}");
+    }
+}
+
+/// FB55-LIST-SCAN, the state-matcher route: an execute request's `match_states` decides the same
+/// patterns on the same states, with proof agreement: a clean reach where one holds, every state
+/// refuted where none does, no state undecided.
+#[test]
+fn state_matches_decide_list_items_between_list_parts() {
+    let mut backend = bus_backend();
+    for (name, pattern, reached) in bus_patterns() {
+        for modality in MODALITIES {
+            let result = backend
+                .execute_kore(ExecuteRequest {
+                    result_modality: modality,
+                    max_depth: Some(50),
+                    match_states: Some(StateMatchRequest {
+                        pattern: parse_pattern(&pattern).unwrap(),
+                        proof_agreement: true,
+                    }),
+                    ..ExecuteRequest::new(parse_pattern(&bus_initial(7)).unwrap())
+                })
+                .unwrap();
+            let found = matches(&result);
+            assert!(found.undecided.is_empty(), "{name} {modality:?}: {found:?}");
+            assert_eq!(
+                found.first_clean_reach.is_some(),
+                reached,
+                "{name} {modality:?}: {found:?}"
+            );
+            if !reached {
+                assert_eq!(
+                    found.refuted, found.matched,
+                    "{name} {modality:?}: {found:?}"
+                );
+            }
+        }
+    }
+}

@@ -456,9 +456,15 @@ export interface UndecidedStateMatches {
 /**
  * 'undecided-state' (a constraint or a variable), 'not-ceil-free' (the pattern matches a term
  * that may denote nothing), 'undecided-match' (the matcher did not decide, matched only under
- * constraints, the modes disagreed, or a stop interrupted it).
+ * constraints, the modes disagreed, or a stop interrupted it), 'placement-bound' (the matcher
+ * placed a list pattern's items on the state's list and stopped at its counted bound of
+ * placements tried before a way it decided matched).
  */
-export type UndecidedMatchReason = 'undecided-state' | 'not-ceil-free' | 'undecided-match'
+export type UndecidedMatchReason =
+  | 'undecided-state'
+  | 'not-ceil-free'
+  | 'undecided-match'
+  | 'placement-bound'
 
 export interface BackendTraceEntry {
   depth: number
@@ -1272,6 +1278,8 @@ export type SearchIncomplete =
       bindings: BackendBinding[]
       remainder: BackendTermPair[]
     }
+  /** The target's list scan stopped at `bound` placements tried; the ways it decided are matches. */
+  | { kind: 'placement-bound'; state: SearchState; bound: number }
   | { kind: 'smt'; state: SearchState; error: SmtFailure }
 
 export interface SearchResult {

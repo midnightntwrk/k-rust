@@ -2775,3 +2775,236 @@ fn a_pair_failing_under_a_list_binding_that_only_suffices_is_undecided() {
         None
     );
 }
+
+/// The ways of the one deferred pair `(pattern, subject)` as pattern matching reads them
+/// (`match_collection_ways_in_definition`).
+fn list_ways(definition: &BackendDefinition, pattern: &Term, subject: &Term) -> CollectionWays {
+    match_collection_ways_in_definition(
+        definition,
+        Substitution::new(),
+        &[(pattern.clone(), subject.clone())],
+    )
+}
+
+/// FB55-LIST-SCAN: `A ListItem(X) C` against the closed list `a b c` has exactly three ways, one
+/// per position of `X`, each binding the parts to the slices around it; an item fixed to `b`
+/// has one, and an item no element matches none, a decided refutation (the scan is complete on
+/// a closed list).
+#[test]
+fn an_item_between_two_list_parts_is_scanned_on_a_closed_list() {
+    let definition = collection_definition();
+    let (a, b, c, d) = (
+        list_element("a"),
+        list_element("b"),
+        list_element("c"),
+        list_element("d"),
+    );
+    let subject = concat_list(&definition, &[&a, &b, &c]);
+    let list = |parts: &[&str]| concat_list(&definition, parts);
+    let sorted = |ways: CollectionWays| {
+        assert!(ways.complete && !ways.bounded);
+        let mut solutions = ways.solutions;
+        solutions.sort();
+        solutions
+    };
+    let (first, x, last) = (
+        variable("A", Sort::simple("SortList")),
+        variable("X", Sort::simple("SortElement")),
+        variable("C", Sort::simple("SortList")),
+    );
+    let pattern = list(&[
+        "A:SortList{}",
+        "listItem{}(X:SortElement{})",
+        "C:SortList{}",
+    ]);
+    let mut expected = vec![
+        Substitution::from([
+            (first.clone(), list(&[])),
+            (x.clone(), element_value("a")),
+            (last.clone(), list(&[&b, &c])),
+        ]),
+        Substitution::from([
+            (first.clone(), list(&[&a])),
+            (x.clone(), element_value("b")),
+            (last.clone(), list(&[&c])),
+        ]),
+        Substitution::from([
+            (first.clone(), list(&[&a, &b])),
+            (x, element_value("c")),
+            (last.clone(), list(&[])),
+        ]),
+    ];
+    expected.sort();
+    assert_eq!(sorted(list_ways(&definition, &pattern, &subject)), expected);
+
+    let fixed = list(&["A:SortList{}", &b, "C:SortList{}"]);
+    assert_eq!(
+        sorted(list_ways(&definition, &fixed, &subject)),
+        vec![Substitution::from([
+            (first, list(&[&a])),
+            (last, list(&[&c]))
+        ])]
+    );
+    let absent = list(&["A:SortList{}", &d, "C:SortList{}"]);
+    assert_eq!(
+        sorted(list_ways(&definition, &absent, &subject)),
+        Vec::<Substitution>::new()
+    );
+    assert_eq!(
+        sorted(list_ways(&definition, &absent, &list(&[]))),
+        Vec::<Substitution>::new()
+    );
+}
+
+/// Two items between list parts keep their order and do not overlap; a variable shared by both
+/// items binds one element value, and two differing values refute that placement.
+#[test]
+fn two_ordered_list_items_are_scanned_in_order() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let subject = concat_list(&definition, &[&a, &b, &c]);
+    let pattern = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "B:SortList{}",
+            "listItem{}(Y:SortElement{})",
+            "C:SortList{}",
+        ],
+    );
+    let ways = list_ways(&definition, &pattern, &subject);
+    assert!(ways.complete && !ways.bounded);
+    let mut pairs = ways
+        .solutions
+        .iter()
+        .map(|solution| {
+            (
+                solution[&variable("X", Sort::simple("SortElement"))].clone(),
+                solution[&variable("Y", Sort::simple("SortElement"))].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    pairs.sort();
+    let mut expected = [("a", "b"), ("a", "c"), ("b", "c")]
+        .map(|(x, y)| (element_value(x), element_value(y)))
+        .to_vec();
+    expected.sort();
+    assert_eq!(pairs, expected);
+
+    // One variable in both items: only equal elements, and the list has none.
+    let shared = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "B:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "C:SortList{}",
+        ],
+    );
+    let ways = list_ways(&definition, &shared, &subject);
+    assert!(
+        ways.complete && ways.solutions.is_empty(),
+        "{:?}",
+        ways.solutions
+    );
+    let twice = concat_list(&definition, &[&a, &b, &a]);
+    let ways = list_ways(&definition, &shared, &twice);
+    assert!(ways.complete);
+    assert_eq!(ways.solutions.len(), 1, "{:?}", ways.solutions);
+}
+
+/// A subject list with an opaque part: a placement on its known items is a way of its own, but a
+/// pattern item may lie in the part, so the ways are incomplete; an end block that fails at the
+/// subject's known first item refutes the pair whatever the part holds.
+#[test]
+fn a_list_scan_on_a_subject_with_a_part_keeps_its_known_ways() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let subject = concat_list(&definition, &[&a, "S:SortList{}", &b]);
+    let pattern = concat_list(&definition, &["A:SortList{}", &b, "C:SortList{}"]);
+    let ways = list_ways(&definition, &pattern, &subject);
+    assert!(!ways.complete && !ways.bounded);
+    assert_eq!(
+        ways.solutions,
+        vec![Substitution::from([
+            (
+                variable("A", Sort::simple("SortList")),
+                concat_list(&definition, &[&a, "S:SortList{}"])
+            ),
+            (
+                variable("C", Sort::simple("SortList")),
+                concat_list(&definition, &[])
+            ),
+        ])]
+    );
+    let anchored = concat_list(&definition, &[&c, "A:SortList{}", &b, "C:SortList{}"]);
+    let ways = list_ways(&definition, &anchored, &subject);
+    assert!(ways.complete && ways.solutions.is_empty());
+}
+
+/// A scan that would try more than `MAX_LIST_PLACEMENTS` block starts stops there: the ways it
+/// found are kept, and the problem is incomplete for the counted bound.
+#[test]
+fn a_list_scan_stops_at_its_placement_bound() {
+    let definition = collection_definition();
+    let elements = (0..400)
+        .map(|index| list_element(&index.to_string()))
+        .collect::<Vec<_>>();
+    let subject = concat_list(
+        &definition,
+        &elements.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    let pattern = concat_list(
+        &definition,
+        &[
+            "A:SortList{}",
+            "listItem{}(X:SortElement{})",
+            "B:SortList{}",
+            "listItem{}(Y:SortElement{})",
+            "C:SortList{}",
+        ],
+    );
+    let ways = list_ways(&definition, &pattern, &subject);
+    assert!(!ways.complete && ways.bounded);
+    assert!(!ways.solutions.is_empty() && ways.solutions.len() < MAX_LIST_PLACEMENTS);
+}
+
+/// Rule application keeps the frame split: the collection solver it uses
+/// (`solve_collection_pairs_in_definition`, `ListPlacements::Framed`) leaves a list pattern with
+/// an item between two parts undecided on a closed list, as before, in every mode, while
+/// pattern matching decides it.
+#[test]
+fn rule_application_does_not_scan_lists() {
+    let definition = collection_definition();
+    let (a, b, c) = (list_element("a"), list_element("b"), list_element("c"));
+    let subject = concat_list(&definition, &[&a, &b, &c]);
+    let pattern = concat_list(&definition, &["A:SortList{}", &b, "C:SortList{}"]);
+    let pairs = [(pattern.clone(), subject.clone())];
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        assert_eq!(
+            solve_collection_pairs_in_definition(
+                mode,
+                &definition,
+                Substitution::new(),
+                &pairs,
+                None
+            ),
+            None,
+            "{mode:?}"
+        );
+        assert!(matches!(
+            match_collection_remainders_all_in_definition(
+                mode,
+                &definition,
+                Substitution::new(),
+                &pairs,
+                DecidedSolutions::Discard,
+            ),
+            CollectionMatches::Undecided(_)
+        ));
+    }
+    assert!(solve_with_test_frames(&definition, &pairs).is_none());
+    assert!(list_ways(&definition, &pattern, &subject).complete);
+}

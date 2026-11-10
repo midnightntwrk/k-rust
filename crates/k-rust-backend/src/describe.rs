@@ -641,6 +641,11 @@ impl Display for AtSort<'_, PatternMatchError> {
                 "the match left an undecided remainder:{}",
                 equality_lines(remainder)
             ),
+            PatternMatchError::PlacementBound { bound } => write!(
+                formatter,
+                "the match placed a list pattern's items on the subject's list and stopped at its \
+                 bound of {bound} placements tried"
+            ),
             PatternMatchError::Simplification(error) => {
                 write!(formatter, "{}", error.at(self.sort))
             }
@@ -676,6 +681,13 @@ impl Display for IncompleteSearch {
                 format!(
                     "the match of the target pattern left an undecided remainder:{}",
                     equality_lines(remainder)
+                ),
+            ),
+            Self::PlacementBound { state, bound } => (
+                state,
+                format!(
+                    "the match of the target pattern placed a list pattern's items on the \
+                     state's list and stopped at its bound of {bound} placements tried"
                 ),
             ),
             Self::Smt { state, error } => (state, format!("the solver failed: {error}")),

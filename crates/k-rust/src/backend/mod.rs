@@ -1234,13 +1234,16 @@ pub struct UndecidedStateMatchesOutput<K = Value> {
 /// exists, and so does one holding an irreducible `value-production` application), or the
 /// matcher did not decide
 /// (`undecided-match`: undecided, matched under constraints, the modes disagreed, or a stop
-/// interrupted it).
+/// interrupted it), or the matcher placed a list pattern's items on the state's list and stopped
+/// at its counted bound of placements tried before a way it decided matched
+/// (`placement-bound`).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UndecidedMatchReasonOutput {
     UndecidedState,
     NotCeilFree,
     UndecidedMatch,
+    PlacementBound,
 }
 
 fn is_zero_u64(value: &u64) -> bool {
@@ -4910,6 +4913,7 @@ mod tests {
                 UndecidedMatchReasonOutput::UndecidedState,
                 UndecidedMatchReasonOutput::NotCeilFree,
                 UndecidedMatchReasonOutput::UndecidedMatch,
+                UndecidedMatchReasonOutput::PlacementBound,
             ] {
                 let spelling = serde_json::to_value(reason).unwrap();
                 let quoted = format!("'{}'", spelling.as_str().unwrap());
@@ -5900,6 +5904,10 @@ mod tests {
                 state: state.clone(),
                 bindings: Vec::new(),
                 remainder: Vec::new(),
+            },
+            IncompleteSearchOutput::PlacementBound {
+                state: state.clone(),
+                bound: 65536,
             },
             IncompleteSearchOutput::Smt {
                 state,

@@ -122,7 +122,10 @@ fn undecided_reason(reason: UndecidedMatchReasonOutput) -> UnjudgedReason {
     match reason {
         UndecidedMatchReasonOutput::UndecidedState => UnjudgedReason::UndecidedState,
         UndecidedMatchReasonOutput::NotCeilFree => UnjudgedReason::NotCeilFree,
-        UndecidedMatchReasonOutput::UndecidedMatch => UnjudgedReason::UndecidedMatch,
+        // A list scan stopped at its placement bound is an undecided match, by a counted cause.
+        UndecidedMatchReasonOutput::UndecidedMatch | UndecidedMatchReasonOutput::PlacementBound => {
+            UnjudgedReason::UndecidedMatch
+        }
     }
 }
 
