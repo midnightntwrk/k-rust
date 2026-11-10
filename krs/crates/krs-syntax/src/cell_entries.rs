@@ -484,18 +484,41 @@ impl Refusal {
     }
 }
 
+/// An entry of a context alias or an equation's function context whose cell's content those
+/// sentences' lowerings do not read ([`fixed_cells_only_reason`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnreadEntry {
+    /// A `?` cell's `Some(..)` or a collection's instance list: the present cell, or the
+    /// instances it names.
+    PresentOrInstances,
+    /// The entry of a fixed group cell (a binder, `_`, an alias or a record of the group): the
+    /// group's cell term, a value of its cell sort.
+    Group,
+}
+
 /// Why the entry of the cell `cell` in a context alias or an equation's function context, a `?`
-/// cell's `Some(..)` or a collection's instance list, is refused: the limit of those two
-/// sentences, whose lowerings read fixed cells only. The entry has a meaning, the same as in a
-/// rule's subject (the present cell, or the instances it names, matched and kept), and no
-/// lowering there yet. Every site that meets such an entry answers with this one reason, under
+/// cell's `Some(..)`, a collection's instance list or a group cell's entry (`entry`), is refused:
+/// the limit of those two sentences, whose lowerings read the content of fixed leaf cells only,
+/// one leaf's content each. The entry has a meaning, the same as in a rule's subject (the present
+/// cell, the instances it names, or the group's cell term, matched and kept), and no lowering
+/// there yet. Every site that meets such an entry answers with this one reason, under
 /// `krs::expand::cell-collection-placement`: the macro for a collection's named rest, which no
 /// context alias binding carries, the collector once the entry's kind admits it, and the
 /// compiler's lowerings of the two sentences.
 #[must_use]
-pub fn fixed_cells_only_reason(cell: &str) -> String {
+pub fn fixed_cells_only_reason(cell: &str, entry: UnreadEntry) -> String {
+    let (what, advice) = match entry {
+        UnreadEntry::PresentOrInstances => (
+            "a `?` cell's `Some(..)` or a collection's instance list",
+            "",
+        ),
+        UnreadEntry::Group => (
+            "which names the whole group cell",
+            "; name the leaf cells inside it, each with an entry of its own",
+        ),
+    };
     format!(
-        "a context alias and an equation's function context read fixed cells only; the entry of `{cell}`, a `?` cell's `Some(..)` or a collection's instance list, is not supported there yet"
+        "a context alias and an equation's function context read fixed leaf cells only; the entry of `{cell}`, {what}, is not supported there yet{advice}"
     )
 }
 

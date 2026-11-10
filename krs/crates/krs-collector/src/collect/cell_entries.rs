@@ -1086,24 +1086,30 @@ fn judge_sentence(
 }
 
 /// Refuses the first admitted entry of a context alias's or an equation's function context's
-/// pattern ([`Rewrite::Kept`], lowered as no rule's pattern is) that is a `?` cell's `Some(..)`
-/// or a collection's instance list. The entry means what it means in a rule's subject, the
-/// present cell or the instances it names, matched and kept, but those two sentences' lowerings
-/// read fixed cells only, so it is a limit, raised once the entries' kinds and pairing admit the
-/// pattern: a `None`, which tests absence without creating the cell, is refused as such before.
+/// pattern ([`Rewrite::Kept`], lowered as no rule's pattern is) that is a `?` cell's `Some(..)`,
+/// a collection's instance list, or the entry of a fixed group cell. The entry means what it
+/// means in a rule's subject, the present cell, the instances it names or the group's cell term,
+/// matched and kept, but those two sentences' lowerings read the content of fixed leaf cells
+/// only, so it is a limit, raised once the entries' kinds and pairing admit the pattern: a
+/// `None`, which tests absence without creating the cell, is refused as such before.
 fn fixed_cells_only(cells: &DescriptorCells, subject: &[Entry<'_>]) -> Result<(), CollectionError> {
-    let Some((_, entry)) = cells.iter().zip(subject).find(|(cell, _)| {
-        matches!(
-            cell.value,
-            krs_ir::ProtocolRuleStateTerm::Present { .. }
-                | krs_ir::ProtocolRuleStateTerm::Instances(_)
-        )
+    let Some((entry, unread)) = cells.iter().zip(subject).find_map(|(cell, entry)| {
+        let unread = match (&cell.value, entry.kind.own.layers.first()) {
+            (
+                krs_ir::ProtocolRuleStateTerm::Present { .. }
+                | krs_ir::ProtocolRuleStateTerm::Instances(_),
+                _,
+            ) => cell_entries::UnreadEntry::PresentOrInstances,
+            (_, Some(Layer::Group(_))) => cell_entries::UnreadEntry::Group,
+            _ => return None,
+        };
+        Some((entry, unread))
     }) else {
         return Ok(());
     };
     let error = CollectionError::new(
         CollectionErrorKind::FixedCellsOnly,
-        cell_entries::fixed_cells_only_reason(unraw(&entry.cell.field)),
+        cell_entries::fixed_cells_only_reason(unraw(&entry.cell.field), unread),
     );
     match &entry.field.range {
         Some(range) => Err(error.with_source_range(range.clone())),
@@ -1769,7 +1775,7 @@ fn below_ancestor(
 }
 
 /// The advice of a path refusal in a context alias or an equation's function context, which read
-/// fixed cells only ([`cell_entries::fixed_cells_only_reason`]): a sentence of either form reads
+/// fixed leaf cells only ([`cell_entries::fixed_cells_only_reason`]): a sentence of either form reads
 /// one instance's cells only where it is typed by the instance's group, which an optional cell
 /// and a Map collection admit (the instance it is evaluated in, the one present or the one its
 /// key names), and then names a cell of that group at its own level, unless the cell holds
@@ -1782,7 +1788,7 @@ fn read_fixed_cells_only(
     marked_below: bool,
 ) -> String {
     let limit = format!(
-        "{of}; a context alias and an equation's function context read fixed cells only, which a record of `{}` is not",
+        "{of}; a context alias and an equation's function context read fixed leaf cells only, which a record of `{}` is not",
         marked.name
     );
     let typed = matches!(marked.layer, Layer::Optional | Layer::Instances(Order::Map));

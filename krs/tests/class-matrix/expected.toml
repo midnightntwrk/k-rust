@@ -296,7 +296,7 @@ advice = "none"
 
 [class.fixed-cells-only]
 code = "krs::expand::cell-collection-placement"
-doc = "a `?` cell's `Some(..)` or a collection's instance list, with or without a named rest, in a context alias or an equation's function context (`counter: Some(Cell(x))`, `bag: { k::fragment![Obj { .. }], .. }`): it means there what it means in a rule's subject, the present cell or the instances it names, matched and kept, but those sentences' lowerings read fixed cells only, so it is not supported yet; a `#[k::context]` over `k::cells!`, lowered as a rule's subject is, admits it"
+doc = "a `?` cell's `Some(..)`, a collection's instance list, with or without a named rest, or a group cell's entry, in a context alias or an equation's function context (`counter: Some(Cell(x))`, `bag: { k::fragment![Obj { .. }], .. }`, `frame: x`): it means there what it means in a rule's subject, the present cell, the instances it names or the group's cell term, matched and kept, but those sentences' lowerings read fixed leaf cells only, one leaf's content each, so it is not supported yet; a `#[k::context]` over `k::cells!`, lowered as a rule's subject is, admits it"
 advice = "none"
 
 [class.fragment-in-initializer]
@@ -6910,6 +6910,13 @@ at = "entry"
 # the principles admit there as in a context
 [[refuse]]
 match = 'cells/{g6-function-context,g6-context-alias}/kinds/counter/Some(k::configuration::Cell(x))'
+class = "fixed-cells-only"
+at = "entry"
+
+# FIXG2 R1/R2: a group cell's entry there is the group's cell term, as in a context, and the
+# lowerings read one leaf's content per cell: the same limit
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/frame/x'
 class = "fixed-cells-only"
 at = "entry"
 
@@ -17785,8 +17792,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."cells/g6-context-alias/kinds/frame/x"]
-
 [accept."cells/g6-context-alias/kinds/prog/k::configuration::KCell(x, ..)"]
 k = """
 context alias [caseTAG]:
@@ -17922,8 +17927,6 @@ context [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."cells/g6-function-context/kinds/frame/x"]
 
 [accept."cells/g6-function-context/kinds/prog/k::configuration::KCell(x, ..)"]
 k = """
@@ -19057,7 +19060,7 @@ findings = ["S5-C2"]
 
 [limit.fixed-cells-only]
 code = "krs::expand::cell-collection-placement"
-docs = "A context alias and an equation's function context read fixed cells only"
+docs = "A context alias and an equation's function context read fixed leaf cells only"
 findings = ["S5-Z1"]
 
 [limit.instance-child-multiplicity]

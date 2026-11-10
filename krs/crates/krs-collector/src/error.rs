@@ -116,9 +116,9 @@ pub enum CollectionErrorKind {
     /// A readable result entry over a collection the subject does not match: Q1's overwrite of
     /// every instance, which the table admits and no lowering expresses yet.
     CollectionOverwrite,
-    /// A `?` cell's `Some(..)` or a collection's instance list in a context alias or an
-    /// equation's function context, which the table admits and those sentences' lowerings, which
-    /// read fixed cells only, do not express yet
+    /// A `?` cell's `Some(..)`, a collection's instance list or a group cell's entry in a
+    /// context alias or an equation's function context, which the table admits and those
+    /// sentences' lowerings, which read fixed leaf cells only, do not express yet
     /// ([`krs_syntax::cell_entries::fixed_cells_only_reason`]).
     FixedCellsOnly,
     /// A `?` cell's `Some(..)` or `None` naming a child of a collection's instance record, which

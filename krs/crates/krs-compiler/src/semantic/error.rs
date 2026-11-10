@@ -656,9 +656,10 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending rewrite or rule.
         range: Option<Box<SourceRange>>,
     },
-    /// A `?` cell's `Some(..)` or a collection's instance list in a context
-    /// alias or an equation's function context, whose lowerings read fixed
-    /// cells only ([`krs_syntax::cell_entries::fixed_cells_only_reason`]).
+    /// A `?` cell's `Some(..)`, a collection's instance list or a group
+    /// cell's entry in a context alias or an equation's function context,
+    /// whose lowerings read fixed leaf cells only
+    /// ([`krs_syntax::cell_entries::fixed_cells_only_reason`]).
     FixedCellsOnly {
         /// Item the diagnostic is about.
         item: Box<StableItemId>,

@@ -1588,7 +1588,10 @@ pub(super) fn collection_placement(
     ExpandError::new(
         expand::CELL_COLLECTION_PLACEMENT,
         binding.span(),
-        krs_syntax::cell_entries::fixed_cells_only_reason(&cell),
+        krs_syntax::cell_entries::fixed_cells_only_reason(
+            &cell,
+            krs_syntax::cell_entries::UnreadEntry::PresentOrInstances,
+        ),
     )
 }
 

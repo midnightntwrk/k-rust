@@ -1864,8 +1864,8 @@ fn lower_function_context_cell(
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<FixedCellPattern<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
-    fixed_cell_entry(descriptor, pattern)?;
     let declared = require_cell_field(&pattern.field.cell, terms.declarations)?;
+    let (wrapper, sort) = fixed_cell_entry(descriptor, pattern, declared)?;
     let invalid =
         |key: &ProvenanceKey, reason: String| DescriptorLoweringError::InvalidFunctionContext {
             item: Box::new(descriptor.id().clone()),
@@ -1876,15 +1876,6 @@ fn lower_function_context_cell(
                 .and_then(krs_ir::OriginStack::exact_authored_range)
                 .map(Box::new),
         };
-    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
-        return Err(invalid(
-            &pattern.field.key,
-            format!(
-                "a function context reads leaf cells, not the whole nested cell `{}`; name the cells inside it",
-                pattern.field.cell.field
-            ),
-        ));
-    };
     let cell_sort = semantic_sort_ref(&sort.sort);
     if let ProtocolRuleStateTerm::Term(DescriptorTerm::Variable { key, name, .. }) = &pattern.value
         && let Some(declared) = binding_sorts.get(name)
@@ -1909,7 +1900,7 @@ fn lower_function_context_cell(
             ),
         ));
     }
-    if pattern.wrapper != Some(*wrapper) {
+    if pattern.wrapper != Some(wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(pattern.field.cell.owner.clone()),
             detail: "function-context wrapper disagrees with its cell declaration".into(),
@@ -1955,28 +1946,36 @@ fn is_subsort_or_equal(
     false
 }
 
-/// Refuses an entry of a context alias or an equation's function context
-/// that is a `?` cell's `Some(..)` or a collection's instance list: both
-/// lowerings read fixed cells, one leaf content each, and match no present
-/// optional cell or instance yet, though the entry has its rule-subject
-/// meaning ([`krs_syntax::cell_entries::fixed_cells_only_reason`]). The
-/// collector raises the same limit once it admits the entry; this is that
-/// limit where the lowering meets it, before reading the cell's content.
-fn fixed_cell_entry(
+/// The wrapper and sort of the fixed leaf cell an entry of a context alias
+/// or an equation's function context names, or the refusal of an entry
+/// that is a `?` cell's `Some(..)`, a collection's instance list, or the
+/// entry of a group cell: both lowerings read fixed leaf cells, one leaf
+/// content each, and match no present optional cell, instance or whole
+/// group cell term yet, though the entry has its rule-subject meaning
+/// ([`krs_syntax::cell_entries::fixed_cells_only_reason`]). The collector
+/// raises the same limit once it admits the entry; this is that limit where
+/// the lowering meets it, before reading the cell's content.
+fn fixed_cell_entry<'a>(
     descriptor: &Descriptor,
     pattern: &DescriptorRuleCell,
-) -> Result<(), DescriptorLoweringError> {
-    if !matches!(
+    declared: &'a krs_ir::DescriptorCellField,
+) -> Result<(krs_ir::CellWrapper, &'a krs_ir::DescriptorSortReference), DescriptorLoweringError> {
+    let unread = if matches!(
         pattern.value,
         ProtocolRuleStateTerm::Present { .. } | ProtocolRuleStateTerm::Instances(_)
     ) {
-        return Ok(());
-    }
+        krs_syntax::cell_entries::UnreadEntry::PresentOrInstances
+    } else if let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content {
+        return Ok((*wrapper, sort));
+    } else {
+        krs_syntax::cell_entries::UnreadEntry::Group
+    };
     let cell = &pattern.field.cell.field;
     Err(DescriptorLoweringError::FixedCellsOnly {
         item: Box::new(descriptor.id().clone()),
         reason: krs_syntax::cell_entries::fixed_cells_only_reason(
             cell.strip_prefix("r#").unwrap_or(cell),
+            unread,
         ),
         range: descriptor
             .provenance()
@@ -1992,15 +1991,9 @@ fn lower_context_alias_cell(
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<FixedCellPattern<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
-    fixed_cell_entry(descriptor, pattern)?;
     let declared = require_cell_field(&pattern.field.cell, terms.declarations)?;
-    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
-        return Err(DescriptorLoweringError::unsupported_shape(
-            "context alias cell",
-            "context aliases select leaf cells only",
-        ));
-    };
-    if pattern.wrapper != Some(*wrapper) {
+    let (wrapper, sort) = fixed_cell_entry(descriptor, pattern, declared)?;
+    if pattern.wrapper != Some(wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(pattern.field.cell.owner.clone()),
             detail: "context-alias wrapper disagrees with its cell declaration".into(),

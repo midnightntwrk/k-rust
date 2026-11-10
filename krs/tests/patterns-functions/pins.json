@@ -430,7 +430,7 @@
       "error[krs::analysis::invalid-function-context]: the function-context binder `b` is declared `Bool`, but the cell `bar` holds `Int`"
     ],
     "context-group": [
-      "error[krs::analysis::invalid-function-context]: a function context reads leaf cells, not the whole nested cell `frame`; name the cells inside it"
+      "error[krs::expand::cell-collection-placement]: a context alias and an equation's function context read fixed leaf cells only; the entry of `frame`, which names the whole group cell, is not supported there yet; name the leaf cells inside it, each with an entry of its own"
     ],
     "context-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `bump` and `read` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
