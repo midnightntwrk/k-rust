@@ -547,7 +547,9 @@ fn assert_exact_source(source: &str) {
           syntax Stmt
           syntax Value
 
+          // KRS calc/src/calc.rs: Assign { name, expression }
           syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+          // KRS calc/src/calc.rs: Sequence { first, second }
           syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
 
           syntax Expr ::= Id

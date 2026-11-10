@@ -990,7 +990,9 @@ fn assert_exact_source(source: &str) {
           syntax Stmt
           syntax Value
 
+          // KRS imp/src/imp.rs: Assign { name, expression }
           syntax Stmt ::= Id "=" Expr ";" [symbol(assign), group(krsgroup-35f1322f2f4f01e6affff031), strict(2), result(KResult), format(%1 %2 %3%4)]
+          // KRS imp/src/imp.rs: Sequence { first, second }
           syntax Stmt ::= Stmt Stmt [symbol(sequence), group(krsgroup-ef11204726b39d86ee1fe653), format(%1%n%2)]
 
           syntax Expr ::= Id
@@ -1041,10 +1043,15 @@ fn assert_exact_source(source: &str) {
         module KRS-IMP-GRAMMAR-SYNTAX
           imports KRS-CALC-GRAMMAR-SYNTAX
 
+          // KRS imp/src/imp.rs: Block { body }
           syntax Stmt ::= "{" Stmt "}" [symbol(block), format(%1%i%n%2%d%n%3)]
+          // KRS imp/src/imp.rs: EmptyBlock
           syntax Stmt ::= "{" "}" [symbol(emptyBlock), format(%1%2)]
+          // KRS imp/src/imp.rs: IfThen { condition, body }
           syntax Stmt ::= "if" "(" Expr ")" Stmt [symbol(ifThen), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
+          // KRS imp/src/imp.rs: IfThenElse { condition, then_branch, else_branch }
           syntax Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt [symbol(ifThenElse), group(krsgroup-35f1322f2f4f01e6affff031), strict(1), result(KResult), avoid, format(%1 %2%3%4 %5 %6 %7)]
+          // KRS imp/src/imp.rs: While { condition, body }
           syntax Stmt ::= "while" "(" Expr ")" Stmt [symbol(while), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
         endmodule
 

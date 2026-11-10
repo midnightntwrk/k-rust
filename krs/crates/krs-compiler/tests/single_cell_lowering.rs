@@ -183,7 +183,9 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
         module KRS-FOO-BAR
           imports KRS-FOO-BAR-SYNTAX
 
+          // KRS foo-bar-semantics/src/lib.rs: Bar
           syntax Obj ::= "bar" [symbol(bar), private]
+          // KRS foo-bar-semantics/src/lib.rs: Foo
           syntax Obj ::= "foo" [symbol(foo), private]
 
           configuration
