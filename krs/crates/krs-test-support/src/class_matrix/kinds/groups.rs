@@ -14,11 +14,14 @@ use std::collections::BTreeSet;
 
 use super::super::cells_oracle::build::{bind, call, named, open, seq, splice};
 use super::super::cells_oracle::{
-    Context, EntryCase, Form, Sentence as TemplateSentence, Spelling, Template,
+    Context, EntryCase, Form, Outcome, Sentence as TemplateSentence, Spelling, Template,
+    sentence_outcome,
 };
 use super::super::sweep::{binder_types, bound_by, read, records_by, untexted};
 use super::super::{Base, CaseSpec, Command, Family, ItemBuilder, Packaging, Side};
-use super::{Generated, INT, entry, groups, key, stack};
+use super::{
+    CELLS, CELLS_MARKS, Generated, INT, RuleSide, cells_mark, entry, find, groups, key, stack,
+};
 
 /// An entry of a group's sentence: its cell, and its text in readable and in `cells!` (empty:
 /// the form has no such sentence).
@@ -984,8 +987,17 @@ enum Kept {
     Context,
 }
 
-/// The G6 case of `cell`'s entry `text` in the sentence `kept`.
+/// The G6 case of `cell`'s entry `text` in the sentence `kept`, its binders typed by their
+/// positions.
 fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
+    let mut parameters = Vec::new();
+    binder_types(&read(Form::Cells, text), &stack(cell), &mut parameters);
+    kept_case(kept, cell, text, &parameters)
+}
+
+/// The G6 case of `cell`'s entry `text` in the sentence `kept`, with the `cells!` parameters its
+/// binders take.
+fn kept_case(kept: Kept, cell: &str, text: &str, parameters: &[(String, String)]) -> Generated {
     let tag = match kept {
         Kept::FunctionContext => "g6-function-context",
         Kept::ContextAlias => "g6-context-alias",
@@ -1000,8 +1012,6 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
         construct: text.to_owned(),
     };
     let spelling = read(Form::Cells, text);
-    let mut parameters = Vec::new();
-    binder_types(&spelling, &stack(cell), &mut parameters);
     let case_tag = spec.tag();
     let command = Command::for_case(&spec.id(), usize::from(matches!(kept, Kept::Context)));
     let mut item = ItemBuilder::new();
@@ -1019,7 +1029,7 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
                  pub struct G6Probe{case_tag} {{\n    pub a: k::Term<k::KItem>,\n}}\n\n\
                  #[k::equation]\nfn case_{case_tag}(\n    a: k::Term<k::KItem>,\n"
             ));
-            for (name, ty) in &parameters {
+            for (name, ty) in parameters {
                 item.push(&format!("    {name}: {ty},\n"));
             }
             item.push(&format!(
@@ -1033,7 +1043,7 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
             item.push(&format!(
                 "#[k::context_alias(name = case_{case_tag}, here = site)]\nfn case_{case_tag}(\n"
             ));
-            for (name, ty) in &parameters {
+            for (name, ty) in parameters {
                 item.push(&format!("    {name}: {ty},\n"));
             }
             item.push("    k::cells! { k: k::configuration::KCell(site, tail @ ..), ");
@@ -1052,7 +1062,7 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
             item.push(&format!(
                 "#[k::context(hole = h)]\nfn case_{case_tag}(\n    h: k::Term<k::builtin::Int>,\n"
             ));
-            for (name, ty) in &parameters {
+            for (name, ty) in parameters {
                 item.push(&format!("    {name}: {ty},\n"));
             }
             let k = format!(
@@ -1090,13 +1100,72 @@ fn context_case(kept: Kept, cell: &str, text: &str) -> Generated {
     }
 }
 
-/// Every G6 case: each own entry in a function context, in a context alias and in a context.
+/// Every G6 case: each own entry of [`CONTEXTS`] in a function context, in a context alias and
+/// in a context, and the kinds grid's subject spellings there ([`kept_grid`]).
 pub(super) fn context_cases() -> Vec<Generated> {
-    CONTEXTS
+    let mut out = CONTEXTS
         .iter()
-        .flat_map(|(cell, text)| {
-            [Kept::FunctionContext, Kept::ContextAlias, Kept::Context]
-                .map(|kept| context_case(kept, cell, text))
-        })
-        .collect()
+        .flat_map(|(cell, text)| KEPT.map(|kept| context_case(kept, cell, text)))
+        .collect::<Vec<_>>();
+    let listed = out
+        .iter()
+        .map(|generated| generated.case.id.clone())
+        .collect::<BTreeSet<_>>();
+    out.extend(
+        kept_grid()
+            .into_iter()
+            .filter(|generated| !listed.contains(&generated.case.id)),
+    );
+    out
+}
+
+/// The three kept sentences.
+const KEPT: [Kept; 3] = [Kept::FunctionContext, Kept::ContextAlias, Kept::Context];
+
+/// What a kept sentence answers for its entry: the sentence's refusal or lint (P4 over the
+/// sentence, then its rule-level class), else whether the entry is admitted outright or leaves
+/// a value's sort to the lattice.
+fn answer(generated: &Generated) -> &'static str {
+    let (_, outcome) = sentence_outcome(Form::Cells, &generated.entry.sentence(), 0);
+    match (outcome, generated.entry.rule_outcome(outcome)) {
+        (_, Some(class)) | (Outcome::Refuse(class) | Outcome::Admit { lint: Some(class) }, _) => {
+            class
+        }
+        (Outcome::Admit { lint: None }, None) => "admitted",
+        (Outcome::After, None) => "admitted, its sort the lattice's",
+    }
+}
+
+/// The kinds grid's subject spellings in each kept sentence: [`super::CELLS_MARKS`] on each of
+/// [`super::CELLS`]'s stacks, at the path the grid's array gives the pair (stack `i`, mark `j`),
+/// `(i + 2j) mod 3` ([`super::generate`]), so every stack and every mark meets every path; and of
+/// those, one case per (stack, answer): the first, in the grid's order, of a stack's spellings
+/// that the sentence answers alike ([`answer`]). A kept pattern is a rule's subject over cells
+/// the sentence keeps (P0), so each mark on each kind means there what it means in a rule's
+/// subject, which the grid's rules witness; what a kept sentence adds is its own judgement of a
+/// cell's path (a function context and a context alias judge every marked ancestor,
+/// [`super::super::cells_oracle::record_level`]) and its own limits, which one spelling of an
+/// answer on a stack meets as every other spelling of that answer there does.
+fn kept_grid() -> Vec<Generated> {
+    let mut out = Vec::new();
+    for kept in KEPT {
+        let mut seen = BTreeSet::new();
+        for (i, cells) in CELLS.iter().enumerate() {
+            for (j, mark) in CELLS_MARKS.iter().enumerate() {
+                let cell = cells[(i + 2 * j) % 3];
+                let (decl, ..) = find(cell).unwrap_or_else(|| panic!("no kinds cell `{cell}`"));
+                let written = cells_mark(mark, decl, RuleSide::Subject);
+                let parameters = written
+                    .binders
+                    .iter()
+                    .map(|(name, ty)| ((*name).to_owned(), ty.clone()))
+                    .collect::<Vec<_>>();
+                let generated = kept_case(kept, cell, &written.text, &parameters);
+                if seen.insert((i, answer(&generated))) {
+                    out.push(generated);
+                }
+            }
+        }
+    }
+    out
 }

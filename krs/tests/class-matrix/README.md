@@ -162,6 +162,17 @@ K7 1,209 programs; 2,266 s). The batch builds, which collect and lower, grow by 
 checks by a tenth, the derived cases judged in full; the wall times are the load's and the alone
 re-runs' as much as the cases'.
 
+**Kept sentences by kind** (`kinds::groups::kept_grid`, GEN2). An equation's function context, a
+context alias and a `#[k::context]` keep a `cells!` pattern as they matched it, so each entry there
+means what it means in a rule's subject over a cell the sentence keeps (P0). Beside G6's listed
+entries, each of the three sentences holds the kinds grid's `cells!` subject spellings (every mark
+on every stack, at the path the grid's array gives the pair), one case per (stack, answer): the
+first spelling of a stack that the oracle answers alike, judged as `Form::Cells` with the
+sentence's own path rule (`record_level`: a function context and a context alias judge every
+marked ancestor) and the table's `fixed-cells-only` limit. A kept sentence is no rule, so none of
+its cases stands for a sweep cell. 190 cases (63, 63 and 64), each packaged alone: the 226 kept
+cases ran in 286 package builds and 170 s on 6 workers (K6 30 checks).
+
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
 

@@ -107,9 +107,14 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // one-child group), the 2-child group's fragment naming one child on each side, a rule
             // that restates its subject (`rule-changes-no-cell`), and
             // item 3b's groups (44 entries: 2 lints are `cells!`-only), G6's 12 entries in a
-            // function context, a context alias and a context (`cells!`-only), and the
+            // function context, a context alias and a context (`cells!`-only), and the kinds
+            // grid's subject spellings there, one per (stack, answer) beside G6's own (GEN2: 63
+            // in a function context, 63 in a context alias, 64 in a context), and the
             // computation cell's 6 results that write a rest (`cells::computation_results`).
-            (Family::Cells, 182 + 15 * 9 + 2 + 3 + 44 + 12 * 3 + 6),
+            (
+                Family::Cells,
+                182 + 15 * 9 + 2 + 3 + 44 + 12 * 3 + 63 + 63 + 64 + 6
+            ),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and

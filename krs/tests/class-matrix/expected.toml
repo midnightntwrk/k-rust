@@ -6923,6 +6923,150 @@ match = 'cells/{g6-function-context,g6-context-alias}/kinds/job/{[k::fragment![c
 class = "fixed-cells-only"
 at = "entry"
 
+# GEN2 item 1: the kinds grid's subject spellings in the three kept sentences, one per (stack,
+# answer) (`kinds::groups::kept_grid`), each answered as a rule's subject over cells the
+# sentence keeps (P0), with the kept sentence's own judgement of the path (`record_level`) and
+# its limit (fixed-cells-only)
+[[refuse]]
+match = 'cells/g6-context/kinds/aomap/None'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/ogroup/None'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/hogroup/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{aacct,code,hbag,hframe,hprog,job}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{aolist,aset,astack,hcounter,henv,hpc,omap,seq}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/aomap/None'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/aolist/Some(k::configuration::Cell(x))'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/aframe/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/aenv/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/acode/k::configuration::KCell(x\, ..)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/g6-context/kinds/hacct/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{ajob,bag}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/aacct/\{ k::fragment![crate::Aacct \{ aid: x\, .. \}]\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias}/kinds/omap/Some(k::configuration::Cell(x))'
+class = "fixed-cells-only"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/account/[k::fragment![crate::Acct \{ id: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/abag/[k::fragment![crate::Aobj \{ akey: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/job/\{ k::fragment![crate::Job \{ payload: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/aframe/[k::fragment![crate::Ag \{ aa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{aomap,aprog,aseq,counter,env,hcode,holist,hset,hstack,pc}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/ogroup/[k::fragment![crate::O \{ oa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/holist/None'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/hcounter/Some(k::configuration::Cell(x))'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/hjob/[k::fragment![crate::Hjob \{ hpay: x\, .. \}]\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{homap,hseq}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/hframe/k::fragment![crate::Hg \{ ha: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/hogroup/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/hbag/\{ k::fragment![crate::Hobj \{ hkey: x\, .. \}]\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{acode,ajob,aset,astack,bag,frame,hacct,henv,hpc,prog,seq}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
 [[refuse]]
 match = 'cells/path-a/kinds/key/k::configuration::Cell(x)'
 class = "collection-without-instances"
@@ -17457,6 +17601,176 @@ rule [case-TAG]:
 <k> cTAG => .K ... </k>
 <stack> ListItem(V0:KItem) V1:List => ListItem(V0:KItem) </stack>
 <olist> V2:List => V1:List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-context-alias/kinds/frame/x"]
+
+[accept."cells/g6-context-alias/kinds/prog/k::configuration::KCell(x, ..)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+<prog> V0:KItem ... </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-context-alias/kinds/set/k::configuration::Cell(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+<set> ... </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-context-alias/kinds/stack/k::configuration::Cell(x)"]
+k = """
+context alias [caseTAG]:
+<k> HERE ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-context/kinds/aacct/{ k::fragment![crate::Aacct { aid: x, .. }], .. }"]
+k = """
+context [case-TAG]:
+<account>
+<aacct>
+<aid> V0:Int </aid>
+...
+</aacct>
+...
+</account>
+<k> cTAG ( V1:Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/acode/k::configuration::KCell(x, ..)"]
+k = """
+context [case-TAG]:
+<account>
+<acode> V0:KItem ... </acode>
+...
+</account>
+<k> cTAG ( V1:Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/aenv/k::configuration::Cell(x)"]
+k = """
+context [case-TAG]:
+<account>
+<aenv> ... </aenv>
+...
+</account>
+<k> cTAG ( V0:Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/aframe/_"]
+lint = "no-effect-entry"
+k = """
+context [case-TAG]:
+<account>
+_
+...
+</account>
+<k> cTAG ( V0:Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/aolist/Some(k::configuration::Cell(x))"]
+k = """
+context [case-TAG]:
+<account>
+<aolist> ... </aolist>
+...
+</account>
+<k> cTAG ( V0:Int ) ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/frame/x"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+V1:FrameCell
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/omap/Some(k::configuration::Cell(x))"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<omap> ... </omap>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/prog/k::configuration::KCell(x, ..)"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<prog> V1:KItem ... </prog>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/set/k::configuration::Cell(x)"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<set> ... </set>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-context/kinds/stack/k::configuration::Cell(x)"]
+k = """
+context [case-TAG]:
+<k> cTAG ( V0:Int ) ... </k>
+<stack> ... </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g6-function-context/kinds/frame/x"]
+
+[accept."cells/g6-function-context/kinds/prog/k::configuration::KCell(x, ..)"]
+k = """
+rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
+<prog> V1:KItem ... </prog> [label(krsRule_DIGEST)]
+
+syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-function-context/kinds/set/k::configuration::Cell(x)"]
+k = """
+rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
+<set> ... </set> [label(krsRule_DIGEST)]
+
+syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/g6-function-context/kinds/stack/k::configuration::Cell(x)"]
+k = """
+rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
+<stack> ... </stack> [label(krsRule_DIGEST)]
+
+syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

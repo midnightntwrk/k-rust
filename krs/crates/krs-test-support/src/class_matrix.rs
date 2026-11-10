@@ -895,8 +895,13 @@ pub fn cases() -> Vec<Case> {
         .filter_map(|case| {
             let entry = case.cell_entry()?;
             // A kinds group's sentence (item 3b's) is written for its interactions across
-            // entries, so it witnesses no single-entry sweep cell.
-            (!kinds::of_group(case) && entry.entry.path.is_empty()).then(|| {
+            // entries, so it witnesses no single-entry sweep cell; and a kept sentence (G6) is
+            // no rule: it is lowered as a function context, a context alias or a context, so it
+            // witnesses no rule's sweep cell.
+            (!kinds::of_group(case)
+                && entry.template.sentence != cells_oracle::Sentence::Context
+                && entry.entry.path.is_empty())
+            .then(|| {
                 sweep::row_key(
                     &entry_cases::declared_stack(case, &entry.entry.cell),
                     &entry,
