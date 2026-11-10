@@ -1230,7 +1230,7 @@ mod kink_tier {
         assert_eq!(
             document["settings"],
             json!({"tiers": [1], "depth": 1, "mcdc": [], "max_obligations": 10,
-                   "invariants": [], "argued": [], "source": "manifest"})
+                   "invariants": [], "argued": [], "source": "manifest", "work_factor": 5})
         );
         write(&manifest, &format!("[coverage]\nwidth = 1\n\n{text}"));
         let (document, status) = run(&manifest, false);
@@ -2506,8 +2506,8 @@ endmodule
         // holds the rule windows its run took, with the depth it collected them to. v24, because
         // a record's coverage holds that depth and its bindings the syntax paths. v25, because a
         // record's guards hold the untried entries of every matching equation of the deciding
-        // group.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v25");
+        // group. v26, because a comparable record holds its baseline run's polls (FB45-KINK).
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v26");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

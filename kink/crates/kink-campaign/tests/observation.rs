@@ -722,9 +722,12 @@ fn a_branching_mutants_path_outside_the_baseline_set_kills() {
     });
 }
 
-/// tick's count step 2 under a mutant work budget: with room for two states the mutant's
-/// first difference (element 1, its second tick) is within its explored prefix, and it is
-/// killed there; with room for one the budget ends the run first, and a bound never kills.
+/// tick's count step 2 under a mutant work budget: with room for the run up to the mutant's
+/// first difference (element 1, its second tick), where the probe ends the request, the mutant
+/// is killed there; with less the budget ends the run first, and a bound never kills. FB45-KINK:
+/// the budget counts polls, where it counted states (8 then had room, 1 had none), and the probe
+/// ends the request at the difference, so the run's own count is the least bound with room: every
+/// bound below it cuts the run before the difference.
 #[test]
 fn a_work_bound_mutant_is_killed_on_its_explored_prefix() {
     on_a_big_stack(|| {
@@ -736,11 +739,26 @@ fn a_work_bound_mutant_is_killed_on_its_explored_prefix() {
             work: WorkBudget::Calibrated { factor: 0, floor },
             ..observe(vec![clock(Stutter::Collapse)], Vec::new())
         };
-        let killed = run(&campaign, &generation, budget(8));
+        let unbounded = run(
+            &campaign,
+            &generation,
+            observe(vec![clock(Stutter::Collapse)], Vec::new()),
+        );
+        let polls = unbounded.mutants[0].evidence[0].notes.polls.unwrap();
+        let cut = |run: &kink_campaign::CampaignRun| run.mutants[0].evidence[0].notes.poll_bound;
+        let killed = run(&campaign, &generation, budget(polls));
+        assert!(!cut(&killed));
         assert_eq!(killed.mutants[0].report.status, MutantStatus::Killed);
         assert_eq!(verdict(&killed).position, position("clock", 1, false));
-        let bounded = run(&campaign, &generation, budget(1));
-        assert_eq!(bounded.mutants[0].report.status, MutantStatus::Unknown);
+        for floor in [1, polls / 2, polls - 1] {
+            let bounded = run(&campaign, &generation, budget(floor));
+            assert!(cut(&bounded), "{floor} of {polls}");
+            assert_eq!(
+                bounded.mutants[0].report.status,
+                MutantStatus::Unknown,
+                "{floor} of {polls}"
+            );
+        }
     });
 }
 

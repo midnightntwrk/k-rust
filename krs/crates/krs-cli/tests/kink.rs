@@ -6420,7 +6420,8 @@ fn a_narrowing_written_without_sorts_gets_the_sorted_narrowings_status() {
 /// reuses its left-hand side's `s(M)` (which k-rust's compiler writes as an alias of the
 /// left-hand side), and its mutant recurses without end: its witnesses are the cases that apply
 /// `plus_succ`, `t3` and `t4`, never `t1` or `t2`, which apply only `plus_zero`, and it stays
-/// `unknown` with the reason `stack-stop`. `shifted` edits `plus_succ`'s pattern: an equation
+/// `unknown`, cut by kink's work budget (FB45-KINK; the native stack's bound stopped it before,
+/// reason `stack-stop`). `shifted` edits `plus_succ`'s pattern: an equation
 /// whose pattern changes can match terms no baseline run tried, so every case witnesses it
 /// (`witnesses_global`), and `fuzz --kill` says so. Its mutant also narrows `plus_succ` through
 /// a result the syntactic narrowing test does not read as an instance, so on `t4`,
@@ -6454,7 +6455,7 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
         ]
         .concat(),
     );
-    // `no-decrease` stops at the native stack's bound, a bound on work: the clock never decides
+    // `no-decrease` stops at kink's work budget, a bound of polls: the clock never decides
     // a run of the tests (R4-WALLCLOCK), so this copy of the story's corpus gives its runs a time
     // far above it.
     project.write(
@@ -6485,7 +6486,21 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
     };
     let no_decrease = row("no-decrease");
     assert_eq!(no_decrease["status"], "unknown", "{no_decrease:#}");
-    assert_eq!(no_decrease["reason"], "stack-stop", "{no_decrease:#}");
+    // FB45-KINK: kink's work budget, a bound of polls inside the step too, cuts the recursion at
+    // the same poll on every host, where the native stack's bound stopped it before (reason
+    // `stack-stop`, an exclusion of the host): a decided `unknown`, whose causes name the polls.
+    assert_eq!(no_decrease["reason"], Value::Null, "{no_decrease:#}");
+    for entry in no_decrease["executed"].as_array().unwrap() {
+        if entry["outcome"] == "unknown" {
+            assert!(
+                entry["cause"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("the mutant's run used more than "),
+                "{no_decrease:#}"
+            );
+        }
+    }
     assert_eq!(
         strings(&no_decrease["witnesses"]),
         ["t3", "t4"],
@@ -6496,7 +6511,7 @@ fn witnesses_follow_coverage_and_an_open_application_names_the_unknown() {
         no_decrease["action"]
             .as_str()
             .unwrap()
-            .contains("write the misunderstanding as a mutant that ends, or drop the mutation"),
+            .contains("the cause of each executed program says what stopped the comparison"),
         "{no_decrease:#}"
     );
     let shifted = row("shifted");

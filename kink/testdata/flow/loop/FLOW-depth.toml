@@ -11,6 +11,9 @@ syntax_module = "LOOP-SYNTAX"
 # the clock never decides a run of the tests (R4-WALLCLOCK)
 time_ms = 600000
 max_depth = 200
+# A work budget so large that the depth bound stops first (FB45-KINK: the default, 5, cuts a run
+# that never ends before 200 steps): these runs test the depth bound's path.
+work_factor = 1000000000000
 
 [[program]]
 id = "countdown"

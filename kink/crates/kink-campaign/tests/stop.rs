@@ -402,6 +402,41 @@ fn run(
     .unwrap()
 }
 
+/// The mutant's runs of `generation` under `options` with its work budget a bound of polls at
+/// every sixteenth of the polls of its unbounded run (FB45-KINK: the budget counts polls, where it
+/// counted states), in increasing order, each with whether the bound cut it (its last leaf is
+/// `poll-bound`; a bound below a run's count may leave it whole, k-rust `docs/compatibility.md`,
+/// "Poll budget").
+fn poll_ladder(
+    campaign: &Campaign<'_>,
+    generation: &CandidateGeneration<'_>,
+    options: RunOptions,
+) -> Vec<(CampaignRun, bool)> {
+    let unbounded = run(campaign, generation, options);
+    let polls = unbounded.mutants[0].evidence[0]
+        .notes
+        .polls
+        .expect("the mutant's polls");
+    (0..16)
+        .map(|sixteenth| {
+            let bounded = run(
+                campaign,
+                generation,
+                RunOptions {
+                    work: WorkBudget::Calibrated {
+                        factor: 0,
+                        floor: polls * sixteenth / 16,
+                    },
+                    one_sided: OneSided::NoCrashClassifier,
+                    ..options
+                },
+            );
+            let cut = bounded.mutants[0].evidence[0].notes.poll_bound;
+            (bounded, cut)
+        })
+        .collect()
+}
+
 fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
         .stack_size(256 << 20)
@@ -602,13 +637,14 @@ fn a_stop_rule_turned_into_a_choice_is_unknown() {
 /// The run is one request, which k-rust explores depth first, a state's successors in the order
 /// of its rules: from `clock(0, 5)`, where warp's step and skip's are its two successors, warp's
 /// way comes first and ends at `clock(105, 0)` in 6 states, and skip's way, the baseline's (10
-/// states with the start), comes second. Under a work budget of the baseline's work plus at most
-/// 4 states the mutant's run ends at the budget on skip's way, so its side is unknown, but its
-/// stop leaf `clock(105, 0)` is a final configuration of every completion of the run, outside
-/// the baseline's ends: a one-sided kill. From `clock(0, 0)` tick's way comes first, so the one
-/// end the bounded run finished is the baseline's own `clock(8, 0)`, which distinguishes
-/// nothing: the mutant is unknown there. With 5 states or more over the baseline's work, both
-/// runs complete.
+/// states with the start), comes second. Under a work budget that ends the mutant's run on skip's
+/// way, its side is unknown, but its stop leaf `clock(105, 0)` is a final configuration of every
+/// completion of the run, outside the baseline's ends: a one-sided kill. From `clock(0, 0)` tick's
+/// way comes first, so under a budget that ends the run between the two ways the one end the
+/// bounded run finished is the baseline's own `clock(8, 0)`, which distinguishes nothing: the
+/// mutant is unknown there. Under a budget past the run's count both runs complete. (FB45-KINK:
+/// the budget counts polls; [`poll_ladder`] finds the cuts that once were the baseline's work
+/// plus up to 4 states.)
 #[test]
 fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stop() {
     on_a_big_stack(|| {
@@ -629,7 +665,29 @@ fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stop() {
             ..test("five")
         }];
         let from_five = self::campaign(&validator, &five);
-        let bounded = run(&from_five, &generation, budget(2));
+        let killing = |run: &CampaignRun| {
+            run.mutants[0].evidence[0].run
+                == SideRun::Sides {
+                    sides: vec![OracleSide::Unknown],
+                }
+                && run.mutants[0].report.status == MutantStatus::Killed
+        };
+        let ladder = poll_ladder(&from_five, &generation, options(after_frame(2)));
+        // Every cut run is unknown or a one-sided kill, never another verdict.
+        for (cut_run, _) in ladder.iter().filter(|(_, cut)| *cut) {
+            assert!(
+                matches!(
+                    cut_run.mutants[0].report.status,
+                    MutantStatus::Unknown | MutantStatus::Killed
+                ),
+                "{:?}",
+                cut_run.mutants[0].report
+            );
+        }
+        let (bounded, _) = ladder
+            .into_iter()
+            .find(|(bounded, cut)| *cut && killing(bounded))
+            .expect("a budget that ends the mutant's run on skip's way, past warp's stop leaf");
         let mutant = &bounded.mutants[0];
         assert_eq!(mutant.report.status, MutantStatus::Killed);
         assert_eq!(
@@ -646,7 +704,15 @@ fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stop() {
             mutant.evidence[0].one_sided_ends.iter().collect::<Vec<_>>(),
             [&clock(105, 0)]
         );
-        let baseline_first = run(&campaign, &generation, budget(2));
+        let (baseline_first, _) = poll_ladder(&campaign, &generation, options(after_frame(2)))
+            .into_iter()
+            .find(|(bounded, cut)| {
+                *cut && bounded.mutants[0].evidence[0]
+                    .one_sided_ends
+                    .iter()
+                    .eq([&clock(8, 0)])
+            })
+            .expect("a budget that ends the mutant's run between tick's way and warp's");
         let mutant = &baseline_first.mutants[0];
         assert_eq!(mutant.report.status, MutantStatus::Unknown);
         assert_eq!(
@@ -654,7 +720,7 @@ fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stop() {
             [&clock(8, 0)]
         );
         for campaign in [&from_five, &campaign] {
-            let complete = run(campaign, &generation, budget(5));
+            let complete = run(campaign, &generation, budget(u64::MAX));
             let mutant = &complete.mutants[0];
             assert_eq!(mutant.report.status, MutantStatus::Killed);
             assert!(mutant.evidence[0].one_sided_ends.is_empty());
@@ -992,7 +1058,8 @@ fn an_undecided_or_refused_condition_is_unknown_on_either_side() {
 /// warp's -1 becomes 0: from `clock(0, 5)` the mutant's run explores warp's way first
 /// (`clock(100, 3)`), whose first arrival, at 101, the condition fails, and whose second, at 105,
 /// it holds; then skip's way, the baseline's, whose first arrival, at 5, it holds. Under a work
-/// budget too small for both ways the run ends at the budget on skip's way, so its side is
+/// budget too small for both ways ([`poll_ladder`]: a bound of polls) the run ends at the budget
+/// on skip's way, so its side is
 /// unknown, but its stop leaf `clock(105, 0)`, reached past an arrival decided to fail, is a
 /// final configuration of every completion of the run outside the baseline's ends: a one-sided
 /// kill. Without a budget both runs complete and the kill is two-sided.
@@ -1011,20 +1078,10 @@ fn a_work_bound_mutant_is_killed_one_sidedly_at_a_condition_stop() {
         assert_eq!(baseline_ends(&unbounded), [vec![clock(5, 0)]]);
         assert_eq!(mutant_ends(&unbounded), [vec![clock(105, 0), clock(5, 0)]]);
         assert_eq!(unbounded.mutants[0].report.status, MutantStatus::Killed);
-        let one_sided = (0..12)
-            .map(|floor| {
-                run(
-                    &campaign,
-                    &generation,
-                    RunOptions {
-                        work: WorkBudget::Calibrated { factor: 1, floor },
-                        one_sided: OneSided::NoCrashClassifier,
-                        ..options(stop)
-                    },
-                )
-            })
-            .find(|run| {
-                run.mutants[0].report.status == MutantStatus::Killed
+        let (one_sided, _) = poll_ladder(&campaign, &generation, options(stop))
+            .into_iter()
+            .find(|(run, cut)| {
+                *cut && run.mutants[0].report.status == MutantStatus::Killed
                     && run.mutants[0].evidence[0].run
                         == SideRun::Sides {
                             sides: vec![OracleSide::Unknown],

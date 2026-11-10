@@ -689,7 +689,16 @@ fn differential(
         )
         .map(|run| {
             (
-                run.baseline,
+                // The polls a run counted measure its work, which a state set does less of than
+                // the path set of the same request (FB45-KINK: `RunNotes::polls`, which bounds the
+                // mutants' runs); every other member of the evidence is the modality's verdict.
+                run.baseline
+                    .into_iter()
+                    .map(|mut evidence| {
+                        evidence.notes.polls = None;
+                        evidence
+                    })
+                    .collect::<Vec<_>>(),
                 run.baseline_coverage
                     .into_iter()
                     .map(|coverage| (coverage.complete, coverage.rule_ids, coverage.applied_ids))
