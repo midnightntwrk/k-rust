@@ -1,40 +1,49 @@
 $ krs kink --package story-plus --definition main coverage --output verdicts --locked
+# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
+# [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command
+# reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.
 schema = "kink-flow-verdicts"
-version = 23
-document = "coverage"
+
+[coverage]
+# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
+# next run tries each flip's `killer` first, a run without --locked rewrites this section, and
+# `coverage --locked` checks that it is current.
+version = 24
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
 krs_annotation = 10
 
-[spec]
+[coverage.spec]
 outcome = "admitted"
 
-[settings]
-tiers = [1]
+[coverage.settings]
 depth = 1
 mcdc = [
 ]
 
-[rules]
+# Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
+# argument of FLOW.toml ([[coverage.argued]]) stands in for, each with the `standing` it rests
+# on (text: its text alone; connected, checked-on-runs or proved: its invariant's checks hold;
+# unchecked: a check did not decide); `undecided`, those the records cannot decide.
+[coverage.rules]
 open = [
 ]
 argued = [
 ]
 
-[requirements]
+[coverage.requirements]
 open = [
 ]
 argued = [
 ]
 
-[syntax]
+[coverage.syntax]
 open = [
 ]
 argued = [
 ]
 
-[arguments]
-
-[flips]
+# No condition flip ran: the front end derives none, or `--tier 1` runs none.
+[coverage.flips]
 run = false
