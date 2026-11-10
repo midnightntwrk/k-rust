@@ -1466,6 +1466,18 @@ fn listed() -> Vec<Generated> {
             "counter",
             &written("Some(_)", some(wild())),
         ));
+        // BUILT-DOTS (GEN2): a result's group record whose `..` follows every child is the exact
+        // record (P0), so it writes what `G { a: x, b: y }` writes.
+        out.push(readable_case(
+            family,
+            RuleSide::Result,
+            "frame",
+            &g(
+                vec![("a", bind("x")), ("b", bind("y"))],
+                "G { a: x, b: y, .. }",
+                RecordRest::Open,
+            ),
+        ));
     }
     // A rule that writes no cell, on both routes, and a claim that the configuration reaches
     // itself: a claim is no step of execution, so it is no rule that repeats forever.
@@ -1487,6 +1499,7 @@ fn listed() -> Vec<Generated> {
         "frame",
         &cells_mark("value:fragment", frame, RuleSide::Result),
     ));
+    out.extend(built_dots_roots());
     for side in [RuleSide::Subject, RuleSide::Result] {
         out.push(cells_case(
             side,
@@ -1512,6 +1525,35 @@ fn listed() -> Vec<Generated> {
         out.push(init_case(
             cell,
             &written(text, super::sweep::read(Form::Init, text)),
+        ));
+    }
+    out
+}
+
+/// BUILT-DOTS (GEN2): a `cells!` result's fragment root naming every child of the 2-child group,
+/// exact and with a `..` after them, which defaults none (P0) and so writes what the exact one
+/// writes.
+fn built_dots_roots() -> Vec<Generated> {
+    let mut out = Vec::new();
+    for (text, rest) in [
+        ("k::fragment![crate::G { a: x, b: y }]", RecordRest::Exact),
+        (
+            "k::fragment![crate::G { a: x, b: y, .. }]",
+            RecordRest::Open,
+        ),
+    ] {
+        out.push(cells_case(
+            RuleSide::Result,
+            "frame",
+            &Written {
+                text: text.to_owned(),
+                spelling: Spelling::Fragment(record(
+                    "G",
+                    vec![("a", bind("x")), ("b", bind("y"))],
+                    rest,
+                )),
+                binders: Vec::new(),
+            },
         ));
     }
     out

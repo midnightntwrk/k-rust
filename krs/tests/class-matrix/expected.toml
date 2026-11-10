@@ -502,7 +502,7 @@ advice = "init/counter/k::absent!(0)"
 [class.notation-in-pattern]
 code = "krs::syntax::invalid-expression-notation"
 doc = "a notation form (an operator, `&&`, `||`, `!`, a method call) where a pattern is read: it denotes a builtin application but is no pattern, so a pattern spells the call; not in a map key, which holds the application a notation form denotes: computed there, its spelling is no mistake, and where the key selects an entry (below `@` or `|`, or beside a name nothing else binds) the application never matches, spelled either way (`function-in-pattern`, S0-14)"
-advice = "terms/simplification/subject/k::builtin::int::add(x, 1)"
+advice = ["terms/simplification/subject/k::builtin::int::add(x, 1)", "terms/simplification/subject/k::builtin::int::sub(0, k::builtin::int::add(x, 1))"]
 
 [class.object-term-as-predicate]
 code = "krs::analysis::invalid-ml-predicate"
@@ -7067,6 +7067,182 @@ match = 'cells/{g6-function-context,g6-context-alias,g6-context}/kinds/{acode,aj
 class = "presence-on-plain-cell"
 at = "entry"
 
+# GEN2 item 2, the audits' openers (`kinds::groups`): OP-VALUES, an operator value and the call
+# it denotes (`x + 1`, `k::builtin::int::add(x, 1)`) answered alike, the twin's K the call's
+# (`same_k_as`); `x < 1` is a `Bool` where an `Int` stands, and an `Int` is no Map (content-sort).
+# PRESENCE, two `?` children in one record: an instance record's are the limit
+# instance-child-multiplicity once the whole is admitted; a `None` the result does not create
+# (P5) and a `?` child an update leaves unmatched (Q1) are refused before it.
+[[refuse]]
+match = '{claim,readable}/pr-b/kinds/account/\{ Acct \{ id: z\, acounter: Some(y)\, aolist: None\, .. \}\, .. \}'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'cells/pr-b/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, acounter: Some(y)\, aolist: None\, .. \}]\, .. \}'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/pr-d/kinds/opt/Some(H \{ hcounter: Some(y)\, holist: None\, .. \})'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'cells/pr-d/kinds/opt/Some(k::fragment![crate::H \{ hcounter: Some(y)\, holist: None\, .. \}])'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/op-inst-2n/kinds/account/\{ Acct \{ id: x\, apc: k::builtin::int::lt(x\, 1)\, .. \}\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-inst-2n/kinds/account/\{ k::fragment![crate::Acct \{ id: x\, apc: k::builtin::int::lt(x\, 1)\, .. \}]\, ..instances0 \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-inst-2o/kinds/account/\{ Acct \{ id: x\, apc: x < 1\, .. \}\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-inst-2o/kinds/account/\{ k::fragment![crate::Acct \{ id: x\, apc: x < 1\, .. \}]\, ..instances0 \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-leaf-2n/kinds/pc/k::builtin::int::lt(x\, 1)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-leaf-2n/kinds/pc/k::configuration::Cell(k::builtin::int::lt(x\, 1))'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-leaf-2o/kinds/pc/k::configuration::Cell(x < 1)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-leaf-2o/kinds/pc/x < 1'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-map-0n/kinds/env/k::builtin::int::add(x\, 1)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-map-0n/kinds/env/k::configuration::Cell(k::builtin::int::add(x\, 1))'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-map-0o/kinds/env/k::configuration::Cell(x + 1)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-map-0o/kinds/env/x + 1'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-opt-2n/kinds/counter/Some(k::builtin::int::lt(x\, 1))'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-opt-2n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::lt(x\, 1)))'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/op-opt-2o/kinds/counter/Some(k::configuration::Cell(x < 1))'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-opt-2o/kinds/counter/Some(x < 1)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/pr-a/kinds/account/\{ Acct \{ id: z\, acounter: Some(y)\, aolist: Some(w)\, .. \}\, .. \}'
+class = "instance-child-multiplicity"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/pr-a/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, acounter: Some(y)\, aolist: Some(w)\, .. \}]\, .. \}'
+class = "instance-child-multiplicity"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/pr-e/kinds/account/\{ Acct \{ id: x\, acounter: Some(x)\, aolist: None\, .. \}\, .. \}'
+class = "instance-child-multiplicity"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/pr-e/kinds/account/\{ k::fragment![crate::Acct \{ id: x\, acounter: Some(x)\, aolist: None\, .. \}]\, ..instances0 \}'
+class = "instance-child-multiplicity"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/op-opt-whole-0n/kinds/counter/k::builtin::int::add(x\, 1)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/op-opt-whole-0n/kinds/counter/k::configuration::Cell(k::builtin::int::add(x\, 1))'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/op-opt-whole-0o/kinds/counter/k::configuration::Cell(x + 1)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/op-opt-whole-0o/kinds/counter/x + 1'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/op-plain-0n/kinds/pc/Some(k::builtin::int::add(x\, 1))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/op-plain-0n/kinds/pc/Some(k::configuration::Cell(k::builtin::int::add(x\, 1)))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/op-plain-0o/kinds/pc/Some(k::configuration::Cell(x + 1))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/op-plain-0o/kinds/pc/Some(x + 1)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/pr-f/kinds/account/\{ Acct \{ acounter: Some(x)\, aolist: None\, ..me \}\, .. \}'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'cells/pr-f/kinds/account/\{ k::fragment![crate::Acct \{ acounter: Some(x)\, aolist: None\, ..me \}]\, ..instances0 \}'
+class = "unmatched-optional-result"
+at = "entry"
+
 [[refuse]]
 match = 'cells/path-a/kinds/key/k::configuration::Cell(x)'
 class = "collection-without-instances"
@@ -11691,6 +11867,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 same_k_as = ["cells/result/k/rest/k::configuration::KCell(x, ..)"]
 
 [accept."readable/result/kinds/frame/G { a: x, b: y }"]
+same_k_as = ["cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y }]"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
@@ -13519,6 +13696,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
+same_k_as = ["sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
@@ -14307,6 +14485,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."sweep/claim/overwrite/c30-wcell/W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }"]
+same_k_as = ["sweep/claim/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
 k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
@@ -16287,6 +16466,7 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."sweep/readable/overwrite/c30-wcell/W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }"]
+same_k_as = ["sweep/readable/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
@@ -17773,6 +17953,458 @@ rule [[ g6probeTAG ( V0:KItem ) => 0 ]]
 syntax Int ::= "g6probeTAG" "(" KItem ")" [symbol(g6ProbeTAG), function]
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/bd-a/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: Ag { .. }, .. }], ..instances0 }"]
+
+[accept."cells/bd-b/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }], ..instances0 }"]
+
+[accept."cells/op-inst-0n/kinds/account/{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::add(x, 1), .. }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> V0:Int +Int 1 </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-inst-0o/kinds/account/{ k::fragment![crate::Acct { id: x, apc: x + 1, .. }], ..instances0 }"]
+same_k_as = ["cells/op-inst-0n/kinds/account/{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::add(x, 1), .. }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> V0:Int +Int 1 </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-inst-1n/kinds/account/{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> 0 -Int (V0:Int +Int 1) </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-inst-1o/kinds/account/{ k::fragment![crate::Acct { id: x, apc: -(x + 1), .. }], ..instances0 }"]
+same_k_as = ["cells/op-inst-1n/kinds/account/{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> 0 -Int (V0:Int +Int 1) </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-leaf-0n/kinds/pc/k::configuration::Cell(k::builtin::int::add(x, 1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => V0:Int +Int 1 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-leaf-0o/kinds/pc/k::configuration::Cell(x + 1)"]
+same_k_as = ["cells/op-leaf-0n/kinds/pc/k::configuration::Cell(k::builtin::int::add(x, 1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => V0:Int +Int 1 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-leaf-1n/kinds/pc/k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => 0 -Int (V0:Int +Int 1) </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-leaf-1o/kinds/pc/k::configuration::Cell(-(x + 1))"]
+same_k_as = ["cells/op-leaf-1n/kinds/pc/k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => 0 -Int (V0:Int +Int 1) </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-opt-0n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::add(x, 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => V0:Int +Int 1 </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-opt-0o/kinds/counter/Some(k::configuration::Cell(x + 1))"]
+same_k_as = ["cells/op-opt-0n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::add(x, 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => V0:Int +Int 1 </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-opt-1n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1))))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => 0 -Int (V0:Int +Int 1) </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/op-opt-1o/kinds/counter/Some(k::configuration::Cell(-(x + 1)))"]
+same_k_as = ["cells/op-opt-1n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1))))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => 0 -Int (V0:Int +Int 1) </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/pr-c/kinds/opt/Some(k::fragment![crate::H { hcounter: Some(y), holist: Some(w), .. }])"]
+
+[accept."cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+same_k_as = ["cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."claim/bd-a/kinds/account/{ Acct { id: x, aframe: Ag { .. }, .. }, .. }"]
+
+[accept."claim/bd-b/kinds/account/{ Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }, .. }"]
+
+[accept."claim/op-inst-0n/kinds/account/{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> V0:Int +Int 1 </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-inst-0o/kinds/account/{ Acct { id: x, apc: x + 1, .. }, .. }"]
+same_k_as = ["claim/op-inst-0n/kinds/account/{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> V0:Int +Int 1 </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-inst-1n/kinds/account/{ Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> 0 -Int (V0:Int +Int 1) </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-inst-1o/kinds/account/{ Acct { id: x, apc: -(x + 1), .. }, .. }"]
+same_k_as = ["claim/op-inst-1n/kinds/account/{ Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> 0 -Int (V0:Int +Int 1) </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-leaf-0n/kinds/pc/k::builtin::int::add(x, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => V0:Int +Int 1 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-leaf-0o/kinds/pc/x + 1"]
+same_k_as = ["claim/op-leaf-0n/kinds/pc/k::builtin::int::add(x, 1)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => V0:Int +Int 1 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-leaf-1n/kinds/pc/k::builtin::int::sub(0, k::builtin::int::add(x, 1))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => 0 -Int (V0:Int +Int 1) </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-leaf-1o/kinds/pc/-(x + 1)"]
+same_k_as = ["claim/op-leaf-1n/kinds/pc/k::builtin::int::sub(0, k::builtin::int::add(x, 1))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => 0 -Int (V0:Int +Int 1) </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-opt-0n/kinds/counter/Some(k::builtin::int::add(x, 1))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => V0:Int +Int 1 </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-opt-0o/kinds/counter/Some(x + 1)"]
+same_k_as = ["claim/op-opt-0n/kinds/counter/Some(k::builtin::int::add(x, 1))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => V0:Int +Int 1 </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-opt-1n/kinds/counter/Some(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => 0 -Int (V0:Int +Int 1) </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/op-opt-1o/kinds/counter/Some(-(x + 1))"]
+same_k_as = ["claim/op-opt-1n/kinds/counter/Some(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => 0 -Int (V0:Int +Int 1) </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/pr-c/kinds/opt/Some(H { hcounter: Some(y), holist: Some(w), .. })"]
+
+[accept."claim/result/kinds/frame/G { a: x, b: y, .. }"]
+same_k_as = ["claim/result/kinds/frame/G { a: x, b: y }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."readable/bd-a/kinds/account/{ Acct { id: x, aframe: Ag { .. }, .. }, .. }"]
+
+[accept."readable/bd-b/kinds/account/{ Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }, .. }"]
+
+[accept."readable/op-inst-0n/kinds/account/{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> V0:Int +Int 1 </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-inst-0o/kinds/account/{ Acct { id: x, apc: x + 1, .. }, .. }"]
+same_k_as = ["readable/op-inst-0n/kinds/account/{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> V0:Int +Int 1 </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-inst-1n/kinds/account/{ Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> 0 -Int (V0:Int +Int 1) </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-inst-1o/kinds/account/{ Acct { id: x, apc: -(x + 1), .. }, .. }"]
+same_k_as = ["readable/op-inst-1n/kinds/account/{ Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<apc> 0 -Int (V0:Int +Int 1) </apc>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-leaf-0n/kinds/pc/k::builtin::int::add(x, 1)"]
+same_k_as = ["cells/op-leaf-0n/kinds/pc/k::configuration::Cell(k::builtin::int::add(x, 1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => V0:Int +Int 1 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-leaf-0o/kinds/pc/x + 1"]
+same_k_as = ["readable/op-leaf-0n/kinds/pc/k::builtin::int::add(x, 1)", "cells/op-leaf-0o/kinds/pc/k::configuration::Cell(x + 1)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => V0:Int +Int 1 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-leaf-1n/kinds/pc/k::builtin::int::sub(0, k::builtin::int::add(x, 1))"]
+same_k_as = ["cells/op-leaf-1n/kinds/pc/k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => 0 -Int (V0:Int +Int 1) </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-leaf-1o/kinds/pc/-(x + 1)"]
+same_k_as = ["readable/op-leaf-1n/kinds/pc/k::builtin::int::sub(0, k::builtin::int::add(x, 1))", "cells/op-leaf-1o/kinds/pc/k::configuration::Cell(-(x + 1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> V1:Int => 0 -Int (V0:Int +Int 1) </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-opt-0n/kinds/counter/Some(k::builtin::int::add(x, 1))"]
+same_k_as = ["cells/op-opt-0n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::add(x, 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => V0:Int +Int 1 </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-opt-0o/kinds/counter/Some(x + 1)"]
+same_k_as = ["readable/op-opt-0n/kinds/counter/Some(k::builtin::int::add(x, 1))", "cells/op-opt-0o/kinds/counter/Some(k::configuration::Cell(x + 1))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => V0:Int +Int 1 </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-opt-1n/kinds/counter/Some(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))"]
+same_k_as = ["cells/op-opt-1n/kinds/counter/Some(k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1))))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => 0 -Int (V0:Int +Int 1) </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/op-opt-1o/kinds/counter/Some(-(x + 1))"]
+same_k_as = ["readable/op-opt-1n/kinds/counter/Some(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))", "cells/op-opt-1o/kinds/counter/Some(k::configuration::Cell(-(x + 1)))"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<counter> V1:Int => 0 -Int (V0:Int +Int 1) </counter>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/pr-c/kinds/opt/Some(H { hcounter: Some(y), holist: Some(w), .. })"]
+same_k_as = ["cells/pr-c/kinds/opt/Some(k::fragment![crate::H { hcounter: Some(y), holist: Some(w), .. }])"]
+
+[accept."readable/result/kinds/frame/G { a: x, b: y, .. }"]
+same_k_as = ["readable/result/kinds/frame/G { a: x, b: y }", "cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
 [accept."cells/g6-context-alias/kinds/pc/k::configuration::Cell(_)"]

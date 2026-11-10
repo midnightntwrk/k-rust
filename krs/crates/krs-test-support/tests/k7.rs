@@ -57,6 +57,7 @@ fn every_spelling_states_its_witness_and_its_value_or_why_not() {
 
 const MISSING: &[&str] = &[
     "no value: Size is partial and the base gives it no equation, so its application has no value: a function has a value only where its equations give one: terms Size(x)",
+    "no value: a built record holding `..` outside a cell's entry, refused wherever it stands, so no run reads it: terms Frame { ret: x, .. } | terms Frame { .. } | terms k::fragment![crate::Frame { ret: x, .. }] | terms k::fragment![crate::Frame { .. }]",
     "no value: a cell's value, which the generator's ground terms do not write: terms k::fragment![crate::Frame { ret: 1 }]",
     "no value: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "no value: a pattern, which names or tests a term and builds none: terms _ | terms y @ Cmd::Hold(_) | terms Cmd::Go() | Cmd::Hold(_) | terms Cmd::Pair { a: x, .. } | terms [x, ..] | terms Cmd::Tw(y @ Cmd::Hold(x)) | terms Cmd::Pair(1 | 2, 3 | 4)",
@@ -66,8 +67,8 @@ const MISSING: &[&str] = &[
     "no value: the let's pattern does not match x: terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }",
     "no value: the update's base, x, is no Pair: terms Cmd::Pair { a: x, ..x }",
     "no value: x is no Bool: terms x && true | terms x || true",
-    "no witness: a cell's value, which a program writes no syntax for: terms k::fragment![crate::Frame { ret: 1 }]",
-    "no witness: a computed term, which no evaluated term is: terms k::builtin::int::add(1, 2) | terms Size(x) | terms k::or_bool!(true, false) | terms k::is!(Int, x) | terms k::project!(Int, x) | terms k::matches!(x, Cmd::Hold(_)) | terms { let y = x; y } | terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms Cmd::Pair { a: x, ..x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } } | terms x + 1 | terms x & 1 | terms x << 1 | terms x / 2 | terms x % 2 | terms x >> 1 | terms x < 1 | terms x == 1 | terms x && true | terms x || true | terms !(x < 1) | terms -(x + 1) | terms x.add::<Int>(1) | terms k::builtin::int::add(x, 1) | notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x) | notation k::builtin::list::item(x)[0] | notation k::builtin::list::get(k::builtin::list::item(x), 0) | notation k::builtin::map::empty().update(x, 1) | notation k::builtin::map::update(k::builtin::map::empty(), x, 1) | notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x)) | notation k::builtin::set::item(x).to_list() | notation k::builtin::set::to_list(k::builtin::set::item(x)) | notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty()) | notation k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3) | notation map![x -> 1, ..k::builtin::map::empty()] | notation k::builtin::map::update(k::builtin::map::empty(), 0, 1) | notation set![x, 1] | notation k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1)) | notation set![x, ..k::builtin::set::empty()] | notation k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
+    "no witness: a cell's value, which a program writes no syntax for: terms k::fragment![crate::Frame { ret: 1 }] | terms Frame { ret: x, .. } | terms Frame { .. } | terms k::fragment![crate::Frame { ret: x, .. }] | terms k::fragment![crate::Frame { .. }]",
+    "no witness: a computed term, which no evaluated term is: terms k::builtin::int::add(1, 2) | terms Size(x) | terms k::or_bool!(true, false) | terms k::is!(Int, x) | terms k::project!(Int, x) | terms k::matches!(x, Cmd::Hold(_)) | terms { let y = x; y } | terms { let y @ Cmd::Hold(_) = x; y } | terms { let (Cmd::Go() | Cmd::Hold(_)) = x; x } | terms Cmd::Pair { a: x, ..x } | terms { let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } } | terms x + 1 | terms x & 1 | terms x << 1 | terms x / 2 | terms x % 2 | terms x >> 1 | terms x < 1 | terms x == 1 | terms x && true | terms x || true | terms !(x < 1) | terms -(x + 1) | terms x.add::<Int>(1) | terms k::builtin::int::add(x, 1) | terms k::builtin::int::sub(0, k::builtin::int::add(x, 1)) | notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x) | notation k::builtin::list::item(x)[0] | notation k::builtin::list::get(k::builtin::list::item(x), 0) | notation k::builtin::map::empty().update(x, 1) | notation k::builtin::map::update(k::builtin::map::empty(), x, 1) | notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x)) | notation k::builtin::set::item(x).to_list() | notation k::builtin::set::to_list(k::builtin::set::item(x)) | notation k::builtin::map::empty().contains_key(x) | notation k::builtin::map::in_keys(x, k::builtin::map::empty()) | notation k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), 2, 3) | notation map![x -> 1, ..k::builtin::map::empty()] | notation k::builtin::map::update(k::builtin::map::empty(), 0, 1) | notation set![x, 1] | notation k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1)) | notation set![x, ..k::builtin::set::empty()] | notation k::builtin::set::union(k::builtin::set::empty(), k::builtin::set::item(x))",
     "no witness: a map pattern of the entries x -> 1 and 2 -> 3, which no map matches where x is 2: notation map![x -> 1, 2 -> 3]",
     "no witness: a matching-logic predicate, which only a prover reads: terms k::ml::exists(|v: Int| k::ml::equals(v, 0))",
     "no witness: its expansion depends on what a program writes, or there is none: terms Cmd::Dn(x) | terms Cmd::Tw(_) | terms Cmd::Dn(2) | terms Cmd::Lp(0) | terms Cmd::Pb(Cmd::Go())",
@@ -187,7 +188,7 @@ const UNREAD: &[&str] = &[
 ];
 
 const STATUSES: &[&str] = &[
-    "4411 judged by its direct case: a case through a local, whose K, read through the block, K3 compares with its direct case's, which K6 and K7 judge",
+    "4423 judged by its direct case: a case through a local, whose K, read through the block, K3 compares with its direct case's, which K6 and K7 judge",
     "1704 no driver: a claim is proved, not run, and needs a prover (L4 keeps claims in the fixture gates)",
     "187 no driver: a constant has no program syntax, and no base sentence can name the case's constant",
     "201 no driver: a context alias acts only through a production strict in it, and neither the base nor the case declares one",
@@ -199,9 +200,10 @@ const STATUSES: &[&str] = &[
     "191 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "5376 no driver: the path sweep's cases witness the compiler's verdict on each sweep cell below a marked ancestor; the path base has no driver commands to set its cells up",
-    "1458 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
+    "1558 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "4 no driver: the sentence cannot take both attributes, and is refused",
     "162 no driver: the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
+    "28 no value: a built record holding `..` outside a cell's entry, refused wherever it stands, so no run reads it",
     "7 no value: a cell's value, which the generator's ground terms do not write",
     "122 no value: a matching-logic predicate, which only a prover reads",
     "215 no value: a pattern, which names or tests a term and builds none",
@@ -250,11 +252,11 @@ const STATUSES: &[&str] = &[
     "80 no witness: the context's hole is the construct's x, which K7 binds to 1, a KResult no context heats",
     "3 no witness: the program would hold a value the generator does not state",
     "1321 runs a counter-witness",
-    "2588 runs at another input",
+    "2589 runs at another input",
     "1781 runs, liveness",
     "246 runs, undefined",
     "322 runs, undefined result",
-    "3356 runs, value",
+    "3357 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it
@@ -496,6 +498,7 @@ fn every_operator_spelling_differs_from_every_other_operator_of_its_class_on_its
 
 const AT_ONE_ONLY: &[&str] = &[
     "Size's application has no value at any input: terms Size(x)",
+    "a built record holding `..` outside a cell's entry, refused wherever it stands, so no run reads it: terms Frame { ret: x, .. } | terms k::fragment![crate::Frame { ret: x, .. }]",
     "a one-element list's size is 1 at every x: notation k::builtin::list::item(x).len() | notation k::builtin::list::size(k::builtin::list::item(x))",
     "its expansion depends on what a program writes at every x: terms Cmd::Dn(x)",
     "the empty map has no entry at any x: notation k::builtin::map::empty()[x] | notation k::builtin::map::get(k::builtin::map::empty(), x)",
@@ -1440,7 +1443,7 @@ fn every_static_result_has_a_rule_twin_with_runs_on_each_witness() {
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
     assert_eq!(unpaired, Vec::<&str>::new());
-    assert_eq!(twins.len(), 329);
+    assert_eq!(twins.len(), 337);
     for (case, twin) in &twins {
         let witnesses = |case: &Case| {
             class_matrix::twin_runs(case)

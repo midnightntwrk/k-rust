@@ -173,6 +173,23 @@ marked ancestor) and the table's `fixed-cells-only` limit. A kept sentence is no
 its cases stands for a sweep cell. 190 cases (63, 63 and 64), each packaged alone: the 226 kept
 cases ran in 286 package builds and 170 s on 6 workers (K6 30 checks).
 
+**The audits' openers** (GEN2). Sentences of the kinds base's groups (`kinds::groups`, in
+readable, claim and `cells!`): an operator value beside the call it denotes (`op-..`: `x + 1` and
+`k::builtin::int::add(x, 1)`, `-(x + 1)` and `int::sub(0, ..)`, `x < 1` and `int::lt(x, 1)`) at a
+leaf, inside a `?` leaf's `Some(..)`, at a created instance's child, and wrongly at a `?` leaf, a
+Map leaf and a plain leaf's `Some(..)`, each operator case's accept naming its call's in
+`same_k_as`; two `?` children in one record at a configuration position (`pr-..`), an
+instance's (the limit `instance-child-multiplicity` once the whole is admitted, P5's and Q1's
+refusals before it) and a `?` group's; and a created instance's group child written `..`
+(`bd-..`, P6: the template's defaults). Beside them, the 2-child group's result record whose `..`
+follows both children (`same_k_as` its exact record, as the compiled sweep's `c30` its `c29`), and
+four group records built with `..` at the results of depth 1 of an equation, a `#[k::rule]` fn, an
+alias, a desugar and a sort rule (`terms::built_record_spellings`, `open-record-outside-pattern`).
+The sweep's reader reads an operator as the opaque call the product's entry reader reads. Since
+the twin writes `int::sub(0, ..)`, the advice `notation-in-pattern` gives `-(x + 1)`, K8 checks
+that advice: the call stands at a simplification's subject too (`terms::advised_spellings`), the
+class's second advised case.
+
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
 

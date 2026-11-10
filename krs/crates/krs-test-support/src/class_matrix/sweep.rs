@@ -1194,8 +1194,8 @@ enum Token {
 }
 
 fn tokens(text: &str) -> Vec<Token> {
-    const PUNCTS: [&str; 15] = [
-        "..", "::", "->", "[", "]", "{", "}", "(", ")", ",", ":", "@", "!", "-", "=",
+    const PUNCTS: [&str; 17] = [
+        "..", "::", "->", "[", "]", "{", "}", "(", ")", ",", ":", "@", "!", "-", "=", "+", "<",
     ];
     let mut out = Vec::new();
     let mut rest = text;
@@ -1285,7 +1285,38 @@ impl Reader {
         matches!(self.peek(0), None | Some(Token::Punct("]" | "}" | ")")))
     }
 
+    /// A spelling, or an operator over two (`x + 1`, `x < 1`): an application of the function
+    /// it denotes (`int::add(x, 1)`, `int::lt(x, 1)`), a value whose sort the lattice judges as
+    /// the call's (RDRA's OP-VALUES), read as the product's entry reader reads it, a call whose
+    /// operands no entry judgement reads (`krs_syntax::cell_entry`, an opaque call).
     fn parse(&mut self, head: bool) -> Spelling {
+        let left = self.operand(head);
+        if self.eat("+") || self.eat("<") {
+            self.operand(false);
+            return Spelling::Call(Vec::new());
+        }
+        left
+    }
+
+    /// An operand: a negation `-(e)`, an application of the function it denotes
+    /// (`int::sub(0, e)`) read as [`Self::parse`] reads an operator, a parenthesized spelling, or
+    /// a spelling.
+    fn operand(&mut self, head: bool) -> Spelling {
+        if self.eat("-") {
+            self.expect("(");
+            self.parse(false);
+            self.expect(")");
+            return Spelling::Call(Vec::new());
+        }
+        if self.eat("(") {
+            let inner = self.parse(head);
+            self.expect(")");
+            return inner;
+        }
+        self.primary(head)
+    }
+
+    fn primary(&mut self, head: bool) -> Spelling {
         if matches!(self.peek(0), Some(Token::Ident(name)) if name == "_") {
             self.at += 1;
             return Spelling::Wild;

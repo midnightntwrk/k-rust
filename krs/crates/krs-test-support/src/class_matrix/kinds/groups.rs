@@ -725,6 +725,425 @@ pub(super) const GROUPS: &[Group] = &[
         result: &[],
         cases: &[(S, "opt"), (S, "hpc")],
         typed: &[],
+    }, // GEN2, OP-VALUES (RDRA): an operator value beside the call it denotes, `x + 1` beside
+    // `k::builtin::int::add(x, 1)`, `-(x + 1)` beside `int::sub(0, ..)` and `x < 1` beside
+    // `int::lt(x, 1)`, at a leaf, inside a `?` leaf's `Some(..)`, at a created instance's leaf child
+    // (one sentence per spelling, `op-KIND-Nv`: `o` the operator, `n` the call), and `x + 1` with
+    // its twin at a `?` leaf without its presence, at a Map leaf and in `Some(..)` on a plain leaf:
+    // each twin means what its call means, so each is answered as its call is.
+    Group {
+        tag: "op-leaf-0o",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[("pc", ["x + 1", "k::configuration::Cell(x + 1)"])],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-0o",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            ["Some(x + 1)", "Some(k::configuration::Cell(x + 1))"],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-inst-0o",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, apc: x + 1, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, apc: x + 1, .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-leaf-0n",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[(
+            "pc",
+            [
+                "k::builtin::int::add(x, 1)",
+                "k::configuration::Cell(k::builtin::int::add(x, 1))",
+            ],
+        )],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-0n",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            [
+                "Some(k::builtin::int::add(x, 1))",
+                "Some(k::configuration::Cell(k::builtin::int::add(x, 1)))",
+            ],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-inst-0n",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, apc: k::builtin::int::add(x, 1), .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::add(x, 1), .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-whole-0o",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[("counter", ["x + 1", "k::configuration::Cell(x + 1)"])],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-map-0o",
+        arguments: &["x"],
+        subject: &[("env", ["w", "k::configuration::Cell(w)"])],
+        result: &[("env", ["x + 1", "k::configuration::Cell(x + 1)"])],
+        cases: &[(RS, "env")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-plain-0o",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[("pc", ["Some(x + 1)", "Some(k::configuration::Cell(x + 1))"])],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-whole-0n",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            [
+                "k::builtin::int::add(x, 1)",
+                "k::configuration::Cell(k::builtin::int::add(x, 1))",
+            ],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-map-0n",
+        arguments: &["x"],
+        subject: &[("env", ["w", "k::configuration::Cell(w)"])],
+        result: &[(
+            "env",
+            [
+                "k::builtin::int::add(x, 1)",
+                "k::configuration::Cell(k::builtin::int::add(x, 1))",
+            ],
+        )],
+        cases: &[(RS, "env")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-plain-0n",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[(
+            "pc",
+            [
+                "Some(k::builtin::int::add(x, 1))",
+                "Some(k::configuration::Cell(k::builtin::int::add(x, 1)))",
+            ],
+        )],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-leaf-1o",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[("pc", ["-(x + 1)", "k::configuration::Cell(-(x + 1))"])],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-1o",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            ["Some(-(x + 1))", "Some(k::configuration::Cell(-(x + 1)))"],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-inst-1o",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, apc: -(x + 1), .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, apc: -(x + 1), .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-leaf-1n",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[(
+            "pc",
+            [
+                "k::builtin::int::sub(0, k::builtin::int::add(x, 1))",
+                "k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))",
+            ],
+        )],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-1n",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            [
+                "Some(k::builtin::int::sub(0, k::builtin::int::add(x, 1)))",
+                "Some(k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::add(x, 1))))",
+            ],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-inst-1n",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::sub(0, k::builtin::int::add(x, 1)), .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-leaf-2o",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[("pc", ["x < 1", "k::configuration::Cell(x < 1)"])],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-2o",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            ["Some(x < 1)", "Some(k::configuration::Cell(x < 1))"],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-inst-2o",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, apc: x < 1, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, apc: x < 1, .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-leaf-2n",
+        arguments: &["x"],
+        subject: &[("pc", ["w", "k::configuration::Cell(w)"])],
+        result: &[(
+            "pc",
+            [
+                "k::builtin::int::lt(x, 1)",
+                "k::configuration::Cell(k::builtin::int::lt(x, 1))",
+            ],
+        )],
+        cases: &[(RS, "pc")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-opt-2n",
+        arguments: &["x"],
+        subject: &[("counter", ["Some(w)", "Some(k::configuration::Cell(w))"])],
+        result: &[(
+            "counter",
+            [
+                "Some(k::builtin::int::lt(x, 1))",
+                "Some(k::configuration::Cell(k::builtin::int::lt(x, 1)))",
+            ],
+        )],
+        cases: &[(RS, "counter")],
+        typed: &[],
+    },
+    Group {
+        tag: "op-inst-2n",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, apc: k::builtin::int::lt(x, 1), .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, apc: k::builtin::int::lt(x, 1), .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    // GEN2, PRESENCE (RDRB): two presence children in one record at a configuration position, an
+    // instance record's and a `?` group's, in a subject (both present; one `None` the result does
+    // not create) and in a result (a created instance; an update whose `?` child its subject
+    // leaves unmatched). BUILT-DOTS (RDRA): a created instance's group child written `..` with no
+    // child named, bare and as a fragment.
+    Group {
+        tag: "pr-a",
+        arguments: &[],
+        subject: &[(
+            "account",
+            [
+                "{ Acct { id: z, acounter: Some(y), aolist: Some(w), .. }, .. }",
+                "{ k::fragment![crate::Acct { id: z, acounter: Some(y), aolist: Some(w), .. }], .. }",
+            ],
+        )],
+        result: &[],
+        cases: &[(S, "account")],
+        typed: &[("z", INT), ("y", INT), ("w", "k::Term<k::builtin::List>")],
+    },
+    Group {
+        tag: "pr-b",
+        arguments: &[],
+        subject: &[(
+            "account",
+            [
+                "{ Acct { id: z, acounter: Some(y), aolist: None, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: z, acounter: Some(y), aolist: None, .. }], .. }",
+            ],
+        )],
+        result: &[],
+        cases: &[(S, "account")],
+        typed: &[("z", INT), ("y", INT)],
+    },
+    Group {
+        tag: "pr-c",
+        arguments: &[],
+        subject: &[(
+            "opt",
+            [
+                "Some(H { hcounter: Some(y), holist: Some(w), .. })",
+                "Some(k::fragment![crate::H { hcounter: Some(y), holist: Some(w), .. }])",
+            ],
+        )],
+        result: &[],
+        cases: &[(S, "opt")],
+        typed: &[("y", INT), ("w", "k::Term<k::builtin::List>")],
+    },
+    Group {
+        tag: "pr-d",
+        arguments: &[],
+        subject: &[(
+            "opt",
+            [
+                "Some(H { hcounter: Some(y), holist: None, .. })",
+                "Some(k::fragment![crate::H { hcounter: Some(y), holist: None, .. }])",
+            ],
+        )],
+        result: &[],
+        cases: &[(S, "opt")],
+        typed: &[("y", INT)],
+    },
+    Group {
+        tag: "pr-e",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, acounter: Some(x), aolist: None, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, acounter: Some(x), aolist: None, .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "pr-f",
+        arguments: &["x"],
+        subject: &[(
+            "account",
+            [
+                "{ me @ Acct { id: z, .. }, .. }",
+                "{ me @ k::fragment![crate::Acct { id: z, .. }], instances0 @ .. }",
+            ],
+        )],
+        result: &[(
+            "account",
+            [
+                "{ Acct { acounter: Some(x), aolist: None, ..me }, .. }",
+                "{ k::fragment![crate::Acct { acounter: Some(x), aolist: None, ..me }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[("z", INT)],
+    },
+    Group {
+        tag: "bd-a",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, aframe: Ag { .. }, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, aframe: Ag { .. }, .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
+    },
+    Group {
+        tag: "bd-b",
+        arguments: &["x"],
+        subject: &[("account", ["{ .. }", "{ instances0 @ .. }"])],
+        result: &[(
+            "account",
+            [
+                "{ Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }, .. }",
+                "{ k::fragment![crate::Acct { id: x, aframe: k::fragment![crate::Ag { .. }], .. }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "account")],
+        typed: &[],
     },
 ];
 

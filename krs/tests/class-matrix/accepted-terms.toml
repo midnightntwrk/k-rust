@@ -17840,6 +17840,13 @@ rule zero ( cTAG , V0:Int +Int 1 ) => 0 [simplification, label(krsRule_DIGEST)]
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."terms/simplification/subject/k::builtin::int::sub(0, k::builtin::int::add(x, 1))"]
+k = """
+rule zero ( cTAG , 0 -Int (V0:Int +Int 1) ) => 0 [simplification, label(krsRule_DIGEST)]
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."terms/simplification/subject/k::builtin::set::item(x)"]
 k = """
 rule zero ( cTAG , SetItem(V0:KItem) ) => 0 [simplification, label(krsRule_DIGEST)]

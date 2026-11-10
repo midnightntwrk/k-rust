@@ -100,8 +100,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // child, the 2-child group record written whole and naming one child on each side,
             // `Some(_)` in a result, and a rule that writes no cell (readable, claim, `cells!`); and item
             // 3b's groups (`kinds::groups`), 42 entries in each readable form.
-            (Family::Readable, 182 + 64 + 15 * 9 + 7 + 42),
-            (Family::Claim, 182 + 64 + 15 * 9 + 7 + 42),
+            // GEN2: the audits' openers, 32 sentences of `kinds::groups` (OP-VALUES' 24,
+            // PRESENCE's 6, BUILT-DOTS' 2) and the 2-child group record whose `..` follows both.
+            (Family::Readable, 182 + 64 + 15 * 9 + 7 + 42 + 32 + 1),
+            (Family::Claim, 182 + 64 + 15 * 9 + 7 + 42 + 32 + 1),
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
             // marks, S5-F1's result fragment with a bare `..` (and its machine-base twin on the
             // one-child group), the 2-child group's fragment naming one child on each side, a rule
@@ -110,10 +112,12 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // function context, a context alias and a context (`cells!`-only), and the kinds
             // grid's subject spellings there, one per (stack, answer) beside G6's own (GEN2: 63
             // in a function context, 63 in a context alias, 64 in a context), and the
-            // computation cell's 6 results that write a rest (`cells::computation_results`).
+            // computation cell's 6 results that write a rest (`cells::computation_results`); and
+            // GEN2's 32 opener sentences and the fragment root naming both children, exact and with
+            // `..`.
             (
                 Family::Cells,
-                182 + 15 * 9 + 2 + 3 + 44 + 12 * 3 + 63 + 63 + 64 + 6
+                182 + 15 * 9 + 2 + 3 + 44 + 12 * 3 + 63 + 63 + 64 + 6 + 32 + 2
             ),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
@@ -143,7 +147,11 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // not); and the 2 Bool spellings a desugar's result holds below `Cmd::When`, whose
             // rule's condition reads it, and the 3 subjects of `k::matches!(HOLE, _)` there, in a
             // rule's guard and at a rule's result, the static result's twin (NT-42); and the 4
-            // spellings of a Set collection's instance a `cells!` subject looks up (S6-1e).
+            // spellings of a Set collection's instance a `cells!` subject looks up (S6-1e); and the
+            // 4 group records built with `..` (bare and fragment, all and none named) at the 5
+            // results of depth 1 of an equation, a `#[k::rule]` fn, an alias, a desugar and a sort
+            // rule (GEN2, BUILT-DOTS); and the call `-(x + 1)` denotes at a simplification's
+            // subject, `notation-in-pattern`'s second advised case (GEN2).
             (
                 Family::Terms,
                 106 * 51
@@ -161,7 +169,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
                     + 4
                     + 2
                     + 3 * 3
-                    + 4,
+                    + 4
+                    + 5 * 4
+                    + 1,
             ),
             // 96 slots of depth 1 (an alias root's twin is a slot of its own, and a desugar's
             // subject beside a second clause one too) × 2 bare variants.
@@ -196,9 +206,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // pattern computes, the oracle admitting a block there; no predicate at a condition,
             // no cell fragment), depth 2 included; and `{ let y = { S }; y }` at those of depth 1
             // and the slots' roots.
-            (Family::TermsLocal, 2_113),
+            (Family::TermsLocal, 2_123),
             (Family::NotationLocal, 1_134),
-            (Family::TermsLocalBlock, 1_754),
+            (Family::TermsLocalBlock, 1_764),
             (Family::NotationLocalBlock, 945),
         ])
     );

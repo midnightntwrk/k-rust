@@ -656,6 +656,9 @@ struct Spelling {
     /// Whether the spelling stands only at the matched positions below a subject's root, as the
     /// applications of the static productions do ([`static_spellings`]).
     below_root_only: bool,
+    /// The slots of depth 1, by form and position, at which alone the spelling stands
+    /// ([`built_record_spellings`], [`advised_spellings`]); empty: no such restriction.
+    only_at: &'static [(&'static str, &'static str)],
     /// Whether the spelling stands only below a static clause's subject root, where KRS writes
     /// what static expansion matches: the applications whose expansion the base's clauses decide
     /// a program's way, and the Bytes spellings and alternatives that static expansion compares
@@ -888,6 +891,8 @@ impl Spelling {
         let static_subject = below_root && matches!(slot.form, "desugar" | "alias");
         (!self.below_root_only || (below_root && (slot.opener.is_none() || static_subject)))
             && (!self.static_only || static_subject)
+            && (self.only_at.is_empty()
+                || (slot.opener.is_none() && self.only_at.contains(&(slot.form, slot.position))))
     }
 }
 
@@ -923,6 +928,7 @@ fn spelling(text: &'static str, nodes: &[Node]) -> Spelling {
         domain: None,
         narrows_x: None,
         below_root_only: false,
+        only_at: &[],
         static_only: false,
     }
 }
@@ -1478,7 +1484,78 @@ fn spellings() -> Vec<Spelling> {
     );
     spellings.extend(static_spellings());
     spellings.extend(static_subject_spellings());
+    spellings.extend(built_record_spellings());
+    spellings.extend(advised_spellings());
     spellings
+}
+
+/// The call an operator denotes where `notation-in-pattern` advises it and no other spelling
+/// writes it, at the slot of that class's advised case (a simplification's subject, where a
+/// pattern holds a builtin application): `-(x + 1)` denotes `int::sub(0, int::add(x, 1))`, which
+/// an advice is checked against once a case writes it (K8; the kinds base's OP-VALUES twin does).
+fn advised_spellings() -> Vec<Spelling> {
+    vec![Spelling {
+        only_at: &[("simplification", "subject")],
+        ..spelling(
+            "k::builtin::int::sub(0, k::builtin::int::add(x, 1))",
+            &[
+                node(C::BuiltinApplication, &[]),
+                node(C::Literal, &[FunctionArgument]),
+                node(C::BuiltinApplication, &[FunctionArgument]),
+                node(C::Reference, &[FunctionArgument, FunctionArgument]),
+                node(C::Literal, &[FunctionArgument, FunctionArgument]),
+            ],
+        )
+        .unmatched(COMPUTED)
+        .of_x(|x| on_int(x, |x| int(-(x + 1))))
+        .at(int(SECOND))
+    }]
+}
+
+/// BUILT-DOTS (RDRA, GEN2): a group's record built with `..`, bare and as a fragment, naming
+/// its one child (`Frame` has the child `ret` only) and naming none. `..` is pattern notation
+/// and a cell entry's (where a created instance takes its template's defaults): a record built
+/// anywhere else names every field's value and holds no `..`, even after every field
+/// (`open-record-outside-pattern`). They stand at the results of depth 1 of an equation, a
+/// `#[k::rule]` fn (the static results' twin, [`super::twins`]), an alias and a desugar (a
+/// function's argument, `Wk(HOLE)`, or a constructor's, `Cmd::Hold(HOLE)`) and a sort rule (a
+/// constructor's argument), where the audit's fix was witnessed by hand; at a pattern position a
+/// group's record is a cell term, which no term position's sort holds.
+fn built_record_spellings() -> Vec<Spelling> {
+    const REFUSED: &str = "a built record holding `..` outside a cell's entry, refused wherever it stands, so no run reads it";
+    let built = |text, nodes: &[Node]| Spelling {
+        only_at: &[
+            ("equation", "result"),
+            ("rule", "result"),
+            ("alias", "result"),
+            ("desugar", "result"),
+            ("sort-rule", "result"),
+        ],
+        ..spelling(text, nodes)
+            .unmatched("a cell's value, which a program writes no syntax for")
+            .no_term(REFUSED)
+    };
+    vec![
+        built(
+            "Frame { ret: x, .. }",
+            &[node(C::OpenRecord, &[]), node(C::Reference, &[Argument])],
+        )
+        .at_one_only(REFUSED),
+        built("Frame { .. }", &[node(C::OpenRecord, &[])]),
+        built(
+            "k::fragment![crate::Frame { ret: x, .. }]",
+            &[
+                node(C::Fragment, &[]),
+                node(C::OpenRecord, &[]),
+                node(C::Reference, &[FragmentField]),
+            ],
+        )
+        .at_one_only(REFUSED),
+        built(
+            "k::fragment![crate::Frame { .. }]",
+            &[node(C::Fragment, &[]), node(C::OpenRecord, &[])],
+        ),
+    ]
 }
 
 /// The collection notation (`krs_syntax::notation`), each form beside the call it denotes, which
