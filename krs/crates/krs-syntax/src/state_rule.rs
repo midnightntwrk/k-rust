@@ -23,7 +23,6 @@ use crate::term_sort::{TermSort, parse_term_or_readable_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, StateMacroRemainder,
     StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermNode, TokenRange,
-    parse_cells_expression, parse_cells_pattern,
 };
 
 /// Semantic class of one binding introduced by a configuration-rule subject.
@@ -455,7 +454,10 @@ impl StateContextAliasItem {
         };
         let pattern_macro = pattern_macro.clone();
         validate_cells_path(&pattern_macro.mac.path, pattern_macro.span())?;
-        let pattern = parse_cells_pattern(pattern_macro.mac.tokens.clone())?;
+        // Its entries are judged against their cells' kinds before an item after a
+        // computation's rest is asked ([`CellsExpression::misplaced_tail`]), as a rule's are.
+        let pattern =
+            crate::state_macro::parse_cells_pattern_judged_later(pattern_macro.mac.tokens.clone())?;
         let configuration_type = parse_configuration_type(&argument.ty)?;
         let mut bindings = Vec::new();
         collect_cells_bindings(&pattern, &mut bindings)?;
@@ -710,9 +712,8 @@ impl StateRuleItem {
         };
         let subject_macro = subject_macro.clone();
         validate_cells_path(&subject_macro.mac.path, subject_macro.span())?;
-        // A rule's and a context's entries are judged against their cells' kinds before an
-        // item after a computation's rest is asked ([`Self::misplaced_tail`]); no such judgement
-        // reads a claim's.
+        // A sentence's entries are judged against their cells' kinds before an item after a
+        // computation's rest is asked ([`Self::misplaced_tail`]), a claim's as a rule's.
         let subject = if form == StateRuleForm::Claim {
             crate::state_macro::parse_cells_claim_pattern(subject_macro.mac.tokens.clone())?
         } else {
@@ -737,13 +738,9 @@ impl StateRuleItem {
                 let result_type = parse_configuration_type(result_type)?;
                 let result_macro = parse_result_macro(&item)?;
                 validate_cells_path(&result_macro.path, result_macro.span())?;
-                let result = if form == StateRuleForm::Claim {
-                    parse_cells_expression(result_macro.tokens.clone())?
-                } else {
-                    crate::state_macro::parse_cells_expression_judged_later(
-                        result_macro.tokens.clone(),
-                    )?
-                };
+                let result = crate::state_macro::parse_cells_expression_judged_later(
+                    result_macro.tokens.clone(),
+                )?;
                 Some(StateRuleResult {
                     result_macro,
                     result_type,
@@ -1275,7 +1272,9 @@ impl FunctionContext {
                 argument.ty.span(),
             ));
         }
-        let pattern = parse_cells_pattern(pattern_macro.mac.tokens.clone())?;
+        // Judged as a context alias's pattern is.
+        let pattern =
+            crate::state_macro::parse_cells_pattern_judged_later(pattern_macro.mac.tokens.clone())?;
         match pattern.remainder() {
             StateMacroRemainder::Anonymous(_) => {}
             StateMacroRemainder::Bind { range, .. } | StateMacroRemainder::Reuse { range, .. } => {

@@ -1697,15 +1697,17 @@ pub(crate) fn parse_cells_pattern_judged_later(
 
 /// Parses a `cells!` claim's start state, which holds its collection
 /// instances as written: their cells are read as any pattern is, not as keys
-/// a rule's pattern looks a Set collection up by ([`parse_instance_list`]).
+/// a rule's pattern looks a Set collection up by ([`parse_instance_list`]). A
+/// `KCell(..)` entry that writes an item after its sequence's tail is kept for
+/// the judgement of the entries, as [`parse_cells_pattern_judged_later`] keeps it.
 ///
 /// # Errors
 ///
-/// As [`parse_cells_pattern`].
+/// As [`parse_cells_pattern_judged_later`].
 pub(crate) fn parse_cells_claim_pattern(
     tokens: TokenStream,
 ) -> Result<CellsExpression, SyntaxError> {
-    parse_cells(tokens, StateMacroContext::Pattern, false).and_then(CellsExpression::in_order)
+    parse_cells(tokens, StateMacroContext::Pattern, false)
 }
 
 /// Parses a `cells!` expression payload.

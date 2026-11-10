@@ -1677,6 +1677,106 @@ fn a_group_records_presence_child_waits_for_its_entry_on_every_route() {
     .assert_debug_eq(&outcomes);
 }
 
+/// A function an equation's function context is written for, appended to [`PRESENCES`].
+const PEEK: &str = r#"
+#[k::function(partial, sort = Int, syntax = "peek({a})")]
+pub struct Peek {
+    pub a: Term<Int>,
+}
+"#;
+
+/// The `cells!` sentences over [`PRESENCES`] that match `entry` beside the computation, with the
+/// typed parameters `parameters`: a rule, a claim, a context alias and an equation's function
+/// context, each by its form's name.
+fn sentence_forms(entry: &str, parameters: &str) -> [(&'static str, String); 4] {
+    let rule = format!(
+        "#[k::rule(label = \"go\")]\nfn go({parameters}, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {entry}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+    );
+    let claim = format!(
+        "#[k::claim(all_paths, label = \"go-claim\")]\nfn go_claim({parameters}, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {entry}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+    );
+    let alias = format!(
+        "#[k::context_alias(name = at_go, here = site)]\nfn at_go({parameters}, k::cells! {{ k: k::configuration::KCell(site, tail @ ..), {entry}, state @ .. }}: Machine) {{}}\n"
+    );
+    let context = format!(
+        "#[k::equation]\nfn peek(\n    a: Term<Int>,\n    {parameters},\n    k::term![Peek(a)]: Term<Int>,\n    k::cells! {{ {entry}, .. }}: Machine,\n) -> Term<Int> {{\n    a\n}}\n"
+    );
+    [
+        ("rule", rule),
+        ("claim", claim),
+        ("context-alias", alias),
+        ("function-context", context),
+    ]
+    .map(|(form, sentence)| (form, format!("{PRESENCES}{PEEK}{sentence}")))
+}
+
+/// A `cells!` entry's kind is judged by the entry table in every sentence form that holds one,
+/// a claim's, a context alias's and a function context's as a rule's (TABLE item 2), so a
+/// mistake is told with one class and one text, at one spelling, and in the same order: a
+/// presence on a plain leaf; `KCell(..)` on a leaf with an item after its rest, where the
+/// wrapper is the first mistake; a by-kind mistake beside a fragment's `?` child presence,
+/// whose limit waits for the entries. A claim was judged by the compiler's copy only (another
+/// text, at the cell's name), and a claim, a context alias and a function context met the item
+/// after the rest and the limit before the kind.
+#[test]
+fn a_cells_entry_is_judged_alike_by_every_sentence_form() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let witnesses = [
+        (
+            "presence-on-a-plain-leaf",
+            "stack: Some(k::configuration::Cell(s))",
+            "s: Term<List>",
+            "Some(k::configuration::Cell(s))",
+        ),
+        (
+            "item-after-rest-on-a-leaf",
+            "stack: k::configuration::KCell(.., z)",
+            "z: Term<Int>",
+            "k::configuration::KCell(.., z)",
+        ),
+        (
+            "kind-beside-a-limit",
+            "ocell: k::fragment![crate::O { oo: Some(z), .. }], stack: Some(k::configuration::Cell(s))",
+            "z: Term<Int>, s: Term<List>",
+            "Some(k::configuration::Cell(s))",
+        ),
+    ];
+    let mut outcomes = Vec::new();
+    for (name, entry, parameters, at) in witnesses {
+        let mut refusals = Vec::new();
+        for (form, source) in sentence_forms(entry, parameters) {
+            let manifest =
+                library_package(temporary.path(), &format!("forms-{name}-{form}"), &source);
+            let error = first_error(target.path(), &manifest);
+            let (headline, location) = error.split_once(" @ ").expect("refused");
+            let library = fs::read_to_string(manifest.with_file_name("src/lib.rs")).unwrap();
+            let (line, column) = location.split_once(':').unwrap();
+            let line: usize = line.parse().unwrap();
+            let column: usize = column.parse().unwrap();
+            let written = &library.lines().nth(line - 1).unwrap()[column - 1..];
+            assert!(
+                written.starts_with(at),
+                "{name}, {form}: at `{at}`, found `{written}`:\n{error}"
+            );
+            refusals.push((form, headline.to_owned()));
+        }
+        let (_, first) = &refusals[0];
+        for (form, headline) in &refusals {
+            assert_eq!(headline, first, "{name}: the {form} is told as the rule is");
+        }
+        outcomes.push(format!("{name}: {first}"));
+    }
+    expect_test::expect![[r#"
+        [
+            "presence-on-a-plain-leaf: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
+            "item-after-rest-on-a-leaf: error[krs::analysis::cell-wrapper]: the cell `stack` holds a `List` leaf, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)`",
+            "kind-beside-a-limit: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
+        ]
+    "#]]
+    .assert_debug_eq(&outcomes);
+}
+
 /// Groups a result may create with every child unmatched: an optional group `ogroup` of two
 /// children, an optional group `ohcell` holding the group `hg`, and the group child `aframe` of
 /// the Map collection `acct`'s instances.

@@ -801,17 +801,21 @@ fn collect_fn_invocations(
         let parsed = krs_syntax::ClaimAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let claim = StateClaimItem::from_item(item_fn.clone()).map_err(source_syntax)?;
-        // No admission judges a claim's entries, so what its parser left until then comes now.
-        super::cell_entries::refused_without_admission(claim.rule())?;
         let anchors = claim
             .descriptor_provenance(&parsed)
             .map_err(source_syntax)?;
-        output.push(parsed_invocation(
+        let mut invocation = parsed_invocation(
             ProvenanceRole::ClaimDeclaration,
             item_fn.sig.ident.unraw().to_string(),
             anchors,
             ParsedInvocationPayload::Declaration,
-        )?);
+        )?;
+        // A claim's entries are judged as a rule's, and what its parser left until then after.
+        invocation.cells = super::cell_entries::ParsedCells::of_rule(claim.rule());
+        if invocation.cells.is_none() {
+            super::cell_entries::refused_without_admission(claim.rule())?;
+        }
+        output.push(invocation);
     }
     for attribute in item_fn
         .attrs

@@ -651,27 +651,20 @@ fn a_reserved_rest_name_is_refused_on_both_sides() {
 #[test]
 fn a_cells_list_rest_is_kept_only_from_the_subjects() {
     let target = shared_fixture_target();
-    // The entry table judges a rule's entries; the compiler answers a claim's, and a wire the
-    // table never saw.
+    // The entry table judges a rule's entries and a claim's alike (TABLE item 2: a claim's were
+    // the compiler's, with its own texts).
     let table = "error[krs::syntax::invalid-list-notation]: the entry of the cell `word_stack` has a rest (`..`) on one side of the rule only";
-    let unmatched = "error[krs::syntax::invalid-list-notation]: the result keeps the rest of the list with `..`, and the subject matched no unnamed rest of it";
-    let dropped = "error[krs::syntax::invalid-list-notation]: the subject matches the rest of the list with `..`, and the result's brackets are exact, so the sentence would drop that rest";
     let entries = [
-        ("b: Term<Int>,", "[a, b]", "[b, ..]", unmatched),
-        (
-            "rest: Term<WordStack>,",
-            "[a, rest @ ..]",
-            "[a, ..]",
-            unmatched,
-        ),
-        ("", "[a, ..]", "[a]", dropped),
+        ("b: Term<Int>,", "[a, b]", "[b, ..]"),
+        ("rest: Term<WordStack>,", "[a, rest @ ..]", "[a, ..]"),
+        ("", "[a, ..]", "[a]"),
         // A lone `[..]` keeps the rest whole, so only a rest the subject's `..` matched.
-        ("b: Term<Int>,", "[a, b]", "[..]", unmatched),
+        ("b: Term<Int>,", "[a, b]", "[..]"),
     ];
-    for (binders, subject, result, claim) in entries {
-        for (attribute, expected) in [
-            ("k::rule(label = \"kept\")", table),
-            ("k::claim(all_paths, label = \"kept\")", claim),
+    for (binders, subject, result) in entries {
+        for attribute in [
+            "k::rule(label = \"kept\")",
+            "k::claim(all_paths, label = \"kept\")",
         ] {
             let item = format!(
                 "#[{attribute}]
@@ -692,10 +685,7 @@ fn a_cells_list_rest_is_kept_only_from_the_subjects() {
                  }}"
             );
             let error = check_error(target.path(), &item);
-            assert!(
-                error.starts_with(expected),
-                "{subject} => {result}: {error}"
-            );
+            assert!(error.starts_with(table), "{subject} => {result}: {error}");
         }
     }
 }

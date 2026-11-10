@@ -183,18 +183,31 @@ fn located_fields(
 
 impl ParsedCells<Coordinates> {
     /// The fields of a one-sided `cells!` pattern the sentence keeps as it matched it (a
-    /// function context, a context alias, a context), with the names `parameters` bind; `None`
-    /// where the payload is no list of fields.
+    /// function context, a context alias), with the names `parameters` bind, and the refusal its
+    /// parser left until the entries are admitted (an item after a computation's rest, or an
+    /// entry part's fault, [`krs_syntax::CellsExpression::misplaced_tail`]); `None` where the
+    /// payload is no list of fields and the parser left none. Where it left one, the payload
+    /// has no entries to judge, so the refusal is raised at once ([`judge`]) rather than dropped.
     pub(super) fn of_pattern(
         pattern: &krs_syntax::CellsExpression,
         parameters: impl IntoIterator<Item = String>,
     ) -> Option<Self> {
+        let after = pattern
+            .misplaced_tail()
+            .map(|error| After::of(deferred(error), error))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let subject = match fields(pattern) {
+            Some(subject) => subject,
+            None if !after.is_empty() => Vec::new(),
+            None => return None,
+        };
         Some(Self {
             form: EntryForm::Cells,
-            subject: fields(pattern)?,
+            subject,
             result: None,
             parameters: parameters.into_iter().collect(),
-            after: Vec::new(),
+            after,
         })
     }
 
