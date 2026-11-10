@@ -135,7 +135,16 @@ fn render_term_with_binders(
     let start = 0;
     match term.kind() {
         DefinitionTermKind::Variable { variable } => {
-            if variable.kind() == SemanticIdKind::Wildcard {
+            // A wildcard at a `?` leaf cell's place names the cell's sort, whose values are the
+            // cell and its absence: a bare `_` among a cell's children is placed by K's reading
+            // of an untyped variable there, which with two of them depends on how K shares the
+            // children out among them.
+            if variable.kind() == SemanticIdKind::Wildcard
+                && matches!(term.sort(), DefinitionSortRef::LeafCell(_))
+            {
+                output.push("_:");
+                output.push(&context.sort_name_ref(term.sort())?);
+            } else if variable.kind() == SemanticIdKind::Wildcard {
                 output.push("_");
             } else {
                 output.push(names.name(variable).ok_or_else(|| {

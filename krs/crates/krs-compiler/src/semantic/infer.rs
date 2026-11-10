@@ -3268,6 +3268,13 @@ impl StructuredTermBuilder<'_> {
             };
             self.check_child_presence(key, declared, field)?;
             match &declared.content {
+                // A `?` leaf child that reaches here is one the record's long form fills, which
+                // stands for the child's whole place ([`Self::lower_cell_term`]).
+                ProtocolCellContent::Leaf { .. }
+                    if let Some(place) = self.optional_leaf_place(declared)? =>
+                {
+                    self.infer(&field.value, Some(&place), subject)?;
+                }
                 ProtocolCellContent::Leaf { sort, .. } => {
                     self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
                 }
@@ -3377,6 +3384,24 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
+    /// The generated sort of the cell term's child `declared` when it is a `?` leaf cell: the
+    /// values of its place, the cell and its absence. `None` for another child: a plain leaf's
+    /// place always holds the cell, which `<pc> _ </pc>` matches exactly, and a group child's
+    /// sort is its declaration's.
+    fn optional_leaf_place(
+        &self,
+        declared: &krs_ir::DescriptorCellField,
+    ) -> Result<Option<SemanticSortRef>, DescriptorLoweringError> {
+        if super::references::declared_multiplicity(declared, self.declarations)
+            != krs_ir::cell_kind::Multiplicity::Optional
+        {
+            return Ok(None);
+        }
+        Ok(Some(SemanticSortRef::LeafCell(semantic_cell_id(
+            &declared.reference.cell,
+        )?)))
+    }
+
     /// The refusal of a cell term's group child `declared` that is a `*` cell, written as `field`
     /// holds it, neither a record, a binder nor `_`: its instances would say which cells the
     /// record holds there, which no lowering writes yet. `None` for a child that is none. A `?`
@@ -3443,6 +3468,17 @@ impl StructuredTermBuilder<'_> {
             }
             let value = field.map(|field| field.value.as_ref());
             let child = match &declared.content {
+                // A `?` leaf child's place holds the cell or its absence, both values of the
+                // cell's generated sort, so the child the term leaves out, a base's hidden
+                // binder and an update's fill are a variable of that sort at the place, as a
+                // group child's are. A `<oo> _ </oo>` there would match the present cell only.
+                // Every such child the term holds is one its long form fills: one the author
+                // writes is refused first ([`Self::check_child_presence`]).
+                ProtocolCellContent::Leaf { .. }
+                    if let Some(place) = self.optional_leaf_place(declared)? =>
+                {
+                    self.lower_record_field(value, &field_id, Some(&place), record)?
+                }
                 ProtocolCellContent::Leaf { sort, .. } => {
                     let content_sort = semantic_sort_ref(&sort.sort);
                     let content =

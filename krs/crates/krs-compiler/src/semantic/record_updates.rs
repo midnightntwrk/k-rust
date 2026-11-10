@@ -686,6 +686,16 @@ fn field_sort(
                     continue;
                 }
                 return Ok(Some(match &declared.content {
+                    // A `?` leaf's place holds the cell or its absence: the cell's sort, whose
+                    // values those are, as the lowering gives the binder there.
+                    ProtocolCellContent::Leaf { .. }
+                        if super::references::declared_multiplicity(declared, declarations)
+                            == krs_ir::cell_kind::Multiplicity::Optional =>
+                    {
+                        SemanticSortRef::LeafCell(super::origin::semantic_cell_id(
+                            &declared.reference.cell,
+                        )?)
+                    }
                     ProtocolCellContent::Leaf { sort, .. } => semantic_sort_ref(&sort.sort),
                     ProtocolCellContent::Nested { declaration } => {
                         SemanticSortRef::Cell(declaration.declaration.clone())
