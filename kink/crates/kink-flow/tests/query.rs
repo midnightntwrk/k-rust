@@ -932,6 +932,7 @@ fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {
         collect_guards: None,
         collect_bindings: None,
         max_work: None,
+        max_polls: None,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
         match_states: None,

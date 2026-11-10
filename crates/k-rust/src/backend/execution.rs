@@ -2065,13 +2065,17 @@ fn run_backend_in_execution(
     })
 }
 
-/// Whether a stopped execution leaf fails the run. A cancelled request, an exhausted stack and a
-/// failed solver prelude leave the state without an answer; a passed step deadline ends only its
-/// state under a bound the run was given, so its leaf is printed like the others.
+/// Whether a stopped execution leaf fails the run. A cancelled request, a spent bound of polls,
+/// an exhausted stack and a failed solver prelude leave the state without an answer; a passed
+/// step deadline ends only its state under a bound the run was given, so its leaf is printed
+/// like the others.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn stop_fails_the_run(cause: &StopCause) -> bool {
     match cause {
-        StopCause::Cancelled | StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) => true,
+        StopCause::Cancelled
+        | StopCause::PollBound(_)
+        | StopCause::StackExhausted(_)
+        | StopCause::SolverPrelude(_) => true,
         StopCause::Deadline(_) => false,
     }
 }

@@ -621,7 +621,7 @@ impl UnjudgedReason {
             H::UnsupportedHook => Self::HaltUnsupportedHook,
             H::SimplificationError => Self::InternalHalt,
             H::Vacuous => Self::HaltVacuous,
-            H::WorkBound => Self::WorkBound,
+            H::WorkBound | H::PollBound => Self::WorkBound,
             H::DepthBound | H::BreadthBound => Self::DepthBound,
             H::Timeout => Self::Clock,
             H::Cancelled => Self::Cancelled,
@@ -663,7 +663,8 @@ impl UnjudgedReason {
             FailureCause::TooDeep => Self::TooDeep,
             FailureCause::StackMappingRefused => Self::StackMappingRefused,
             FailureCause::Panic(_) => Self::Panic,
-            FailureCause::Stop(StopCause::SolverPrelude(_))
+            // An execution's bound of polls ends it with a leaf, never an `Err`.
+            FailureCause::Stop(StopCause::SolverPrelude(_) | StopCause::PollBound(_))
             | FailureCause::StateRefused
             | FailureCause::Other => Self::InternalError,
         }
@@ -923,6 +924,7 @@ pub fn halt_cause<K: Serialize>(
         | HaltReasonOutput::DepthBound
         | HaltReasonOutput::BreadthBound
         | HaltReasonOutput::WorkBound
+        | HaltReasonOutput::PollBound
         | HaltReasonOutput::UnsupportedHook
         | HaltReasonOutput::Timeout
         | HaltReasonOutput::Cancelled => None,

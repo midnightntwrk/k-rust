@@ -547,6 +547,7 @@ fn the_run_facts_carry_the_short_circuit_readings_as_recorded() {
             coverage: None,
             work: 0,
             expanded: 0,
+            polls: 0,
             stack_stops: 0,
             smt_unknowns: 0,
             implementation_chosen_values: Vec::new(),

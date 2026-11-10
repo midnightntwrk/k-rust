@@ -803,12 +803,15 @@ pub(crate) fn untried_step<T>(enter: impl FnOnce() -> T) -> Option<T> {
         .then(|| untried_isolated(enter))
 }
 
-/// The isolation of [`untried_application`] and [`untried_step`] around `enter`.
+/// The isolation of [`untried_application`] and [`untried_step`] around `enter`, which also
+/// counts in no run's polls (`stop::off_the_run_count`).
 fn untried_isolated<T>(enter: impl FnOnce() -> T) -> T {
     super::suspend(|| {
         k_rust_kore::measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
-                crate::path_facts::discarded(|| crate::rule::with_apart_names_restored(enter))
+                crate::path_facts::discarded(|| {
+                    crate::stop::off_the_run_count(|| crate::rule::with_apart_names_restored(enter))
+                })
             })
         })
     })

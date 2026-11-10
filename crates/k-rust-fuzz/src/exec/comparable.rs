@@ -285,7 +285,8 @@ pub fn end_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
             FailureCause::Stop(StopCause::StackExhausted(_))
             | FailureCause::StackMappingRefused => C::StackStops,
             FailureCause::Panic(_) | FailureCause::Other => C::Crash,
-            FailureCause::Stop(StopCause::SolverPrelude(_))
+            // An execution's bound of polls ends it with a leaf, never an `Err`.
+            FailureCause::Stop(StopCause::SolverPrelude(_) | StopCause::PollBound(_))
             | FailureCause::StateRefused
             | FailureCause::TooDeep => C::RunFailed,
         });
@@ -400,7 +401,9 @@ fn halt_condition(leaf: &super::LeafReport) -> Option<ComparableCondition> {
     }
     Some(match leaf.halt {
         H::Stuck | H::Trivial => return None,
-        H::WorkBound => C::WorkBound,
+        // A counted bound cut the run, the bound of polls as the work budget: the fuzz sets
+        // neither on a case it compares unless asked.
+        H::WorkBound | H::PollBound => C::WorkBound,
         H::DepthBound | H::BreadthBound => C::DepthBound,
         H::Timeout | H::Cancelled => C::Clock,
         H::Indeterminate

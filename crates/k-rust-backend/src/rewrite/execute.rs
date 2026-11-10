@@ -182,24 +182,30 @@ fn execute_asking(
 ) -> Result<(ExecutionResult, InitialSimplificationStatus), StopConditionRefusal> {
     // Every stack stop of the run is counted, those that end a state and those a refinement
     // dismisses alike (`ExecutionResult::stack_stops`), and so is every undecided answer the
-    // solver delivers to a decision of the run (`ExecutionResult::smt_unknowns`).
+    // solver delivers to a decision of the run (`ExecutionResult::smt_unknowns`), and every poll
+    // of the run's own work, under its bound (`ExecutionResult::polls`,
+    // `ExecutionOptions::max_polls`).
     let counting = crate::smt::UndecidedCounting::new(solver);
-    let (outcome, stack_stops) = crate::stop::counting_stack_stops(|| {
-        execute_counted(
-            definition,
-            initial,
-            options,
-            &counting,
-            solver,
-            initial_io,
-            observation,
-            observe,
-            in_process,
-        )
+    let max_polls = options.max_polls;
+    let ((outcome, polls), stack_stops) = crate::stop::counting_stack_stops(|| {
+        crate::stop::counting_run_polls(max_polls, || {
+            execute_counted(
+                definition,
+                initial,
+                options,
+                &counting,
+                solver,
+                initial_io,
+                observation,
+                observe,
+                in_process,
+            )
+        })
     });
     let (mut result, status) = outcome?;
     result.stack_stops = stack_stops;
     result.smt_unknowns = counting.undecided();
+    result.polls = polls;
     Ok((result, status))
 }
 
@@ -617,6 +623,7 @@ impl<'a> Execution<'a> {
                 coverage: None,
                 work: self.work.visited(),
                 expanded: self.work.expanded(),
+                polls: 0,
                 stack_stops: 0,
                 smt_unknowns: 0,
                 stopped: self.stopped,
@@ -719,9 +726,11 @@ impl<'a> Execution<'a> {
                     let ends_execution = match &leaf.halt_reason {
                         HaltReason::Stopped(cause) => {
                             // A stop that ends the run is its cause; one local to the state ends
-                            // only the state, which is left unrecorded for merging.
+                            // only the state, which is left unrecorded for merging. The run's
+                            // bound of polls ends it as a bound does, by no fault of the host: its
+                            // leaf names it, and the run has no stop cause.
                             let ends = stop_ends_execution(cause, &mut step_timer);
-                            if ends {
+                            if ends && !matches!(cause, StopCause::PollBound(_)) {
                                 self.stopped = Some(cause.clone());
                             }
                             ends
@@ -3687,10 +3696,12 @@ impl<'a> Execution<'a> {
         for effect in &effects {
             // An observer is the caller's code, not part of the run: whatever it evaluates is
             // outside the execution, in `Proof` mode.
-            // Nor does it report to the run's coverage.
+            // Nor does it report to the run's coverage, or count in the run's polls.
             crate::evaluation::with_evaluation(crate::evaluation::EvaluationMode::Proof, || {
                 crate::coverage::suspend(|| {
-                    crate::path_facts::suspend(|| (self.observe)(effect));
+                    crate::path_facts::suspend(|| {
+                        crate::stop::off_the_run_count(|| (self.observe)(effect));
+                    });
                 });
             });
         }
@@ -3703,6 +3714,7 @@ impl<'a> Execution<'a> {
                 coverage: None,
                 work: self.work.visited(),
                 expanded: self.work.expanded(),
+                polls: 0,
                 stack_stops: 0,
                 smt_unknowns: 0,
                 stopped: self.stopped,
@@ -3741,8 +3753,8 @@ fn interrupted_with(
 
 /// Publish a stopped state's step: the step produced no answer, so its duration measures no
 /// step and is not recorded. Returns whether the stop ends the whole execution: a cancelled
-/// request or a failed solver prelude ends every remaining state, a passed step deadline or an
-/// exhausted stack only the state being stepped.
+/// request, the run's spent bound of polls or a failed solver prelude ends every remaining
+/// state, a passed step deadline or an exhausted stack only the state being stepped.
 fn stop_ends_execution(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> bool {
     step_timer.discard_measurement();
     ends_execution(cause)
@@ -3750,9 +3762,12 @@ fn stop_ends_execution(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> boo
 
 /// A poll for a stop that ends the run, after the exploration: a pending cancellation or a failed
 /// solver prelude. A step's passed deadline or an exhausted stack ends only its step, so it is not
-/// one here.
+/// one here. It is off the run's count of polls (`stop::off_the_run_count`): only
+/// `ExecutionOptions::discard_stopped` makes these polls, which ask for a cancellation and do no
+/// work of the run, so the run counts the same polls without them, and its bound of polls, spent
+/// or not, is no stop here.
 fn run_ending_stop() -> Option<StopCause> {
-    match stop::check() {
+    match stop::off_the_run_count(stop::check) {
         Ok(()) => None,
         Err(stop) => {
             let cause = stop.into_cause();
@@ -3766,7 +3781,7 @@ fn run_ending_stop() -> Option<StopCause> {
 #[deny(clippy::wildcard_enum_match_arm)]
 const fn ends_execution(cause: &StopCause) -> bool {
     match cause {
-        StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
+        StopCause::Cancelled | StopCause::PollBound(_) | StopCause::SolverPrelude(_) => true,
         StopCause::Deadline(_) | StopCause::StackExhausted(_) => false,
     }
 }
@@ -7689,7 +7704,17 @@ mod tests {
                         // The same work too: the condition is asked within the step, of a
                         // successor normalized there, and costs the run no state visit, so a
                         // work bound the run without it meets exactly cuts neither run short.
+                        // The polls aside: where a cut-point arrival ends the path, the step
+                        // normalizes the successor to show it defined, which makes the step an
+                        // arrival the condition is asked about; the run without a condition
+                        // ends there unnormalized. That normalization is the run's own work,
+                        // counted, while the condition's is off the run's count.
                         let asked = asked.unwrap();
+                        assert!(asked.polls >= plain.polls);
+                        let asked = ExecutionResult {
+                            polls: plain.polls,
+                            ..asked
+                        };
                         assert_eq!(asked, plain, "terminal={terminal} count={count} {mode:?}");
                         assert!(asked.leaves.iter().all(|leaf| leaf.arrivals == leaf.stops));
                         let bounded = ExecutionOptions {
@@ -7709,7 +7734,10 @@ mod tests {
                                 .all(|leaf| leaf.halt_reason != HaltReason::WorkBound)
                         );
                         assert_eq!(
-                            asked.unwrap(),
+                            ExecutionResult {
+                                polls: plain.polls,
+                                ..asked.unwrap()
+                            },
                             plain,
                             "terminal={terminal} count={count} {mode:?} max_work"
                         );

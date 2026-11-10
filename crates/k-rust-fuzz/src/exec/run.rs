@@ -1343,6 +1343,7 @@ impl Judge<'_> {
             | HaltReasonOutput::DepthBound
             | HaltReasonOutput::BreadthBound
             | HaltReasonOutput::WorkBound
+            | HaltReasonOutput::PollBound
             | HaltReasonOutput::Indeterminate
             | HaltReasonOutput::UnsupportedHook
             | HaltReasonOutput::SimplificationError

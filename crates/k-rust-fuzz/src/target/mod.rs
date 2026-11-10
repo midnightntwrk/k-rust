@@ -696,6 +696,7 @@ fn no_path_ends_naturally(result: &CaseResult) -> bool {
             | HaltReasonOutput::DepthBound
             | HaltReasonOutput::BreadthBound
             | HaltReasonOutput::WorkBound
+            | HaltReasonOutput::PollBound
             | HaltReasonOutput::Indeterminate
             | HaltReasonOutput::UnsupportedHook
             | HaltReasonOutput::SimplificationError

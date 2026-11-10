@@ -100,6 +100,7 @@ fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) 
             collect_guards: None,
             collect_bindings: None,
             max_work: None,
+            max_polls: None,
             trace: false,
             cancelled_result: CancelledResultOutput::Error,
             match_states: None,

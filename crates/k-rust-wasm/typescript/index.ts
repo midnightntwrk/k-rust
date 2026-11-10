@@ -240,6 +240,8 @@ export interface BackendCapabilities {
   stackStops: boolean
   /** `execute` and `executeObserved` report `smtUnknowns`. */
   smtUnknowns: boolean
+  /** `execute` and `executeObserved` accept `maxPolls` and report `polls`. */
+  pollBound: boolean
   /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'implementation-chosen-value' and report `implementationChosenValues`. */
   implementationChosenValues: boolean
   /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'contradicted-claim' and report `contradictedClaims`. */
@@ -350,6 +352,14 @@ export interface ExecuteOptions {
    * and does not explore the other pending states (docs/compatibility.md, "Work budget").
    */
   maxWork?: number
+  /**
+   * The most polls the run may count, the unit `polls` reports; absent: no bound. Unlike
+   * `maxWork` it bounds the work inside a step too. A run that reaches it ends with one
+   * 'poll-bound' leaf for the state it was expanding, the last leaf, and does not explore the
+   * other pending states; it is never an error. The count, and so the stop, is the same on a
+   * fresh and on a reused backend (docs/compatibility.md, "Poll budget").
+   */
+  maxPolls?: number
   /**
    * Whether each leaf carries its path's `trace` (default `true`). With `false` every leaf's
    * `trace` is empty and every other field is unchanged, so the traces no longer grow with the
@@ -473,6 +483,9 @@ export interface ExecutionLeaf {
    * 'work-bound': the request's `maxWork` was reached before this state was visited; the state is
    * where exploration stopped, unexpanded and unnormalised, not a result, and the pending states
    * were not explored.
+   * 'poll-bound': the request's `maxPolls` was reached while this state was being expanded; the
+   * state is as it stood when the bound stopped it, not a result, and the pending states were
+   * not explored.
    * Under strategy 'all' without stops, bounds or diagnostics, the leaves' constraints cover the initial state.
    * 'stop-undecided', 'probe-difference' and 'probe-done' come only from an in-process execution with a stop condition or a probe, which these bindings do not offer.
    */
@@ -490,6 +503,7 @@ export interface ExecutionLeaf {
     | 'depth-bound'
     | 'breadth-bound'
     | 'work-bound'
+    | 'poll-bound'
     | 'indeterminate'
     | 'unsupported-hook'
     | 'simplification-error'
@@ -542,6 +556,11 @@ export interface ExecutionResult {
   discarded?: UncommittedObservation[]
   /** The states the run visited across all its paths, the unit `maxWork` bounds. */
   work: number
+  /**
+   * The polls the run counted, the unit `maxPolls` bounds, reported whether or not a bound was
+   * set; the same on a fresh and on a reused backend (docs/compatibility.md, "Poll budget").
+   */
+  polls: number
   /**
    * The visited states whose rewrite step ran and answered, whatever the answer (successors,
    * a branch or cut-point report, or a verdict that ends the state such as stuck or trivial);

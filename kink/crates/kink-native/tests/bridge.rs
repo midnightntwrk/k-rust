@@ -497,6 +497,7 @@ fn audit_so_every_stop_cause_is_a_non_complete_stop() {
     fn published(cause: &StopCause) -> Option<HaltReasonOutput> {
         match cause {
             StopCause::Cancelled => Some(HaltReasonOutput::Cancelled),
+            StopCause::PollBound(_) => Some(HaltReasonOutput::PollBound),
             StopCause::Deadline(_) => Some(HaltReasonOutput::Timeout),
             StopCause::StackExhausted(_) => Some(HaltReasonOutput::SimplificationError),
             StopCause::SolverPrelude(_) => None,
@@ -504,6 +505,7 @@ fn audit_so_every_stop_cause_is_a_non_complete_stop() {
     }
     let causes = [
         StopCause::Cancelled,
+        StopCause::PollBound(1),
         StopCause::Deadline(StepTimeoutMode::Manual(Duration::from_millis(1))),
         StopCause::Deadline(StepTimeoutMode::MovingAverage(Duration::from_millis(1))),
         StopCause::StackExhausted(StackLimit::ThreadBudget(1)),

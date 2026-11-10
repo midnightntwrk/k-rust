@@ -63,21 +63,23 @@ use crate::support::{
 /// A term node's stored head shape (`shape` in its attributes) was added later too, and it is
 /// present on every node, so no line filter can leave it out. It is a function of the node's
 /// kind, which the rendering already shows, so the pins were re-taken with it and still state
-/// the results they were taken from.
+/// the results they were taken from. A result's count of polls (`ExecutionResult::polls`) was
+/// added later still and is left out, whatever its value: it counts the work, not the result.
 fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
     let rendered = format!("{value:#?}")
         .lines()
         .filter(|line| {
-            !matches!(
-                line.trim(),
-                "state_matches: None,"
-                    | "stops: 0,"
-                    | "stops: 1,"
-                    | "arrivals: 0,"
-                    | "arrivals: 1,"
-                    | "passed_stops: [],"
-                    | "short_circuit_readings: [],"
-            )
+            !line.trim().starts_with("polls: ")
+                && !matches!(
+                    line.trim(),
+                    "state_matches: None,"
+                        | "stops: 0,"
+                        | "stops: 1,"
+                        | "arrivals: 0,"
+                        | "arrivals: 1,"
+                        | "passed_stops: [],"
+                        | "short_circuit_readings: [],"
+                )
         })
         .collect::<Vec<_>>()
         .join("\n");

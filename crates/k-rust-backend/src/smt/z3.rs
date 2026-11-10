@@ -695,7 +695,14 @@ impl Z3Solver {
     /// A failed prelude is a stop, not a query failure: no answer of the solver means anything
     /// under it, whichever operation asked. A check interrupted by a stop before its solve
     /// answered leaves the prelude unchecked, so a later operation checks it again.
+    ///
+    /// The check is one poll of an enclosing run, as a query is ([`stop::as_one_poll`]): whether
+    /// an earlier request already checked the prelude moves no run's count.
     pub fn check_prelude(&self) -> Stoppable<()> {
+        stop::as_one_poll(|| self.check_prelude_uncounted())
+    }
+
+    fn check_prelude_uncounted(&self) -> Stoppable<()> {
         let mut state = self
             .prelude_state
             .lock()
@@ -1268,8 +1275,44 @@ impl Z3Solver {
     }
 }
 
+/// Each query is one poll of an enclosing run ([`stop::as_one_poll`]), whatever its caches hold,
+/// its preparation and its attempts take, and whether its prelude was checked before: what
+/// outlives the request moves no run's count.
 impl SmtSolver for Z3Solver {
     fn is_sat(
+        &self,
+        predicates: &[Predicate],
+        substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        stop::as_one_poll(|| self.is_sat_uncounted(predicates, substitution))
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        stop::as_one_poll(|| self.check_predicates_inner(known, substitution, checked, true))
+    }
+
+    fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
+        stop::as_one_poll(|| self.get_model_uncounted(query))
+    }
+
+    fn prelude_signal(&self) -> Option<&PreludeSignal> {
+        Some(&self.prelude_signal)
+    }
+
+    /// Under [`SmtBudget::Units`] no attempt carries a wall-clock timeout, and an `Unknown` is a
+    /// function of the query, the options and the Z3 build.
+    fn undecided_answers_reproducible(&self) -> bool {
+        self.options.budget.is_clock_free()
+    }
+}
+
+impl Z3Solver {
+    fn is_sat_uncounted(
         &self,
         predicates: &[Predicate],
         substitution: &Substitution,
@@ -1294,16 +1337,10 @@ impl SmtSolver for Z3Solver {
         Ok(answer)
     }
 
-    fn check_predicates(
+    fn get_model_uncounted(
         &self,
-        known: &[Predicate],
-        substitution: &Substitution,
-        checked: &[Predicate],
-    ) -> Stoppable<Result<Validity, SmtError>> {
-        self.check_predicates_inner(known, substitution, checked, true)
-    }
-
-    fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
+        query: &ModelQuery<'_>,
+    ) -> Stoppable<Result<ModelResult, SmtError>> {
         let (predicates, substitution) = (query.predicates(), query.substitution());
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
@@ -1321,16 +1358,6 @@ impl SmtSolver for Z3Solver {
             Err(error) => return Ok(Err(error.into())),
         };
         self.solve_model(&query, &variables)
-    }
-
-    fn prelude_signal(&self) -> Option<&PreludeSignal> {
-        Some(&self.prelude_signal)
-    }
-
-    /// Under [`SmtBudget::Units`] no attempt carries a wall-clock timeout, and an `Unknown` is a
-    /// function of the query, the options and the Z3 build.
-    fn undecided_answers_reproducible(&self) -> bool {
-        self.options.budget.is_clock_free()
     }
 }
 

@@ -95,11 +95,19 @@
 //!
 //! A serve does none of the work a new simplification would do, so it spends none of the polls
 //! of `stop::check` or the native stack that work would spend: where a new simplification would
-//! stop, at an enclosing `stop::with_poll_budget`'s last poll or for want of stack, a served one
-//! is returned. Neither is reachable within a proof today: a poll budget is in force only under
-//! `coverage::isolated`, which sets the record aside ([`aside`]), and in load-time checks, which
-//! open no proof's scope; a stop for want of stack depends on the thread's stack and on the depth
-//! the work runs at, not on its inputs, and a simplification that met one is never recorded.
+//! stop, at the last poll of a budget or for want of stack, a served one is returned. A budget's
+//! stop stays a function of the work all the same: the record is opened by a proof's or an
+//! implication check's scope ([`scope`]) and closed with it, so what it serves is a function of
+//! the work done inside that scope, never of an earlier request, and work that only describes a
+//! run sets it aside (`coverage::isolated`, [`aside`]). The budgets in force are those of the
+//! off-the-clock work that describes a run (`stop::off_the_clock`: `coverage::isolated` and the
+//! untried entries), of the load-time checks (`confluence::budgeted`,
+//! `data_term::instance::budgeted`, which open no proof's scope), a host's bound on an operation
+//! (`stop::with_poll_budget`: krs's bound on a view, kink's on an invariant's evaluation), and an
+//! execution's bound of polls (`stop::counting_run_polls`, `ExecutionOptions::max_polls`), which
+//! counts an implication check's served simplifications as served. A stop for want of stack
+//! depends on the thread's stack and on the depth the work runs at, not on its inputs, and a
+//! simplification that met one is never recorded.
 
 use std::{
     cell::{Cell, RefCell},

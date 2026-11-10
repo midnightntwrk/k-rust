@@ -205,6 +205,9 @@ impl HaltClass {
             HaltReasonOutput::SimplificationError => Self::SimplificationError,
             HaltReasonOutput::Timeout => Self::Timeout,
             HaltReasonOutput::Cancelled => Self::Cancelled,
+            // The adapter's requests set no bound of polls (`max_polls`), so a `poll-bound` leaf
+            // is no outcome of them: like a cancelled leaf, it is never admitted.
+            HaltReasonOutput::PollBound => Self::Cancelled,
             HaltReasonOutput::WorkBound => Self::WorkBound,
             HaltReasonOutput::StopUndecided => Self::StopUndecided,
             HaltReasonOutput::ProbeDifference => Self::ProbeDifference,
@@ -1370,6 +1373,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
             collection
         }),
         max_work: run.max_work,
+        max_polls: None,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
         match_states: matching.cloned(),
@@ -2535,6 +2539,7 @@ fn settle(
                 coverage: None,
                 work: 0,
                 expanded: 0,
+                polls: 0,
                 stack_stops: 0,
                 // A timed-out run publishes nothing (k-rust 58720d2e5 added these lists,
                 // KINK-19/1, KINK-17/1, KINK-18/2); its leaves are never read.
@@ -2817,7 +2822,13 @@ mod tests {
     #[test]
     fn every_halt_variant_is_classified_exhaustively() {
         let actual = HaltReasonOutput::ALL.map(HaltClass::from_output);
-        assert_eq!(actual.len(), HaltClass::ALL.len());
+        // `poll-bound` is read as `Cancelled`, never admitted, since the adapter's requests set no
+        // `max_polls`; every other reason has a class of its own.
+        assert_eq!(
+            HaltClass::from_output(HaltReasonOutput::PollBound),
+            HaltClass::Cancelled
+        );
+        assert_eq!(actual.len(), HaltClass::ALL.len() + 1);
         for class in HaltClass::ALL {
             assert!(actual.contains(&class), "{class:?}");
         }
@@ -3387,6 +3398,7 @@ mod tests {
             coverage: None,
             work: 2,
             expanded: 1,
+            polls: 0,
             stack_stops: 0,
             smt_unknowns: 0,
             implementation_chosen_values: Vec::new(),
@@ -3822,6 +3834,7 @@ mod tests {
             coverage: None,
             work: 1,
             expanded: 0,
+            polls: 0,
             stack_stops: 0,
             smt_unknowns: 0,
             implementation_chosen_values: Vec::new(),

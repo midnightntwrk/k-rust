@@ -2029,9 +2029,9 @@ fn incomplete_search_output<K: WireKore>(
 
 /// The entry of a state whose exploration stopped. A cancelled state is `cancelled`; an exhausted
 /// stack keeps the `simplification` entry with the `stack-exhausted` failure kind it is published
-/// as. Search arms no step deadline, so a deadline entry is an outcome its contract cannot
-/// produce, and a failed solver prelude leaves no answer of the operation meaningful: both are
-/// the operation's error.
+/// as. Search arms no step deadline and counts no bound of polls, so a deadline or poll-bound
+/// entry is an outcome its contract cannot produce, and a failed solver prelude leaves no answer
+/// of the operation meaningful: all three are the operation's error.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn stopped_search_output<K: WireKore>(
     state: SearchState,
@@ -2047,6 +2047,9 @@ fn stopped_search_output<K: WireKore>(
         }),
         StopCause::Deadline(_) => Err(BackendError::new(
             "search reported a step deadline, but search arms no step deadline",
+        )),
+        StopCause::PollBound(_) => Err(BackendError::new(
+            "search reported a bound of polls, but search counts no polls",
         )),
         cause @ StopCause::SolverPrelude(_) => Err(BackendError::from(cause)),
     }
@@ -2212,6 +2215,7 @@ pub(super) fn execution_response<K: WireKore>(
             .collect(),
         coverage: result.coverage.map(run_coverage_output).transpose()?,
         work: result.work,
+        polls: result.polls,
         expanded: result.expanded,
         stack_stops: result.stack_stops,
         smt_unknowns: result.smt_unknowns,

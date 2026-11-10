@@ -754,6 +754,28 @@ pub struct ExecutionOptions {
     /// merged into it adds its own). This holds within the determinism contract above
     /// (docs/compatibility.md, "Work budget").
     pub max_work: Option<u64>,
+    /// The most polls the run may count (`None`, the default: no bound), the unit
+    /// [`ExecutionResult::polls`] reports: the backend's interruption point (`stop::check`),
+    /// taken at every round of the simplifier, at every phase of a state's step and inside the
+    /// hook loops, with every walk over a term the simplifier charges counted by its nodes in
+    /// its place, and each solver query counted once (`stop::counting_run_polls`).
+    ///
+    /// Unlike [`Self::max_work`] it bounds the work inside a step too: a ground function
+    /// evaluation whose equation applies itself forever, a growing descent and a hook loop all
+    /// poll. The poll that finds the count at the bound raises [`StopCause::PollBound`] in the
+    /// work that made it, which ends the run as a cancellation does: the state being expanded
+    /// becomes a [`HaltReason::Stopped`] leaf with that cause, the state as it stood when the
+    /// stop was observed, the last leaf of the result, and the other pending states are dropped
+    /// unexplored. It is no fault of the host: [`ExecutionResult::stopped`] stays `None`, and
+    /// [`Self::discard_stopped`] keeps the leaves. The leaf's configuration is no result; the
+    /// result is incomplete.
+    ///
+    /// The count, and so the point where the bound stops the run, is a function of the request
+    /// and the definition wherever the result is (docs/compatibility.md, "Poll budget"): the
+    /// same on a fresh backend and on one that served other requests first, with or without
+    /// coverage, a state match, a probe, a stop condition or an observer, whose work is off the
+    /// run's count.
+    pub max_polls: Option<u64>,
     /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),
     /// for a caller that will not read a stopped run's leaves (`false`, the default: the leaves
     /// finished before the stop are returned, with the stopped state's leaf).
@@ -834,6 +856,7 @@ impl Default for ExecutionOptions {
             collect_guards: None,
             collect_bindings: None,
             max_work: None,
+            max_polls: None,
             discard_stopped: false,
             match_states: None,
             collect_committed: false,
@@ -863,8 +886,9 @@ pub enum TraceKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HaltReason {
     /// The state's step, or the request, stopped before the step produced its answer: the leaf
-    /// is the state as it stood when the stop was observed. `Cancelled` and `SolverPrelude` end
-    /// the execution; `Deadline` and `StackExhausted` end this state only.
+    /// is the state as it stood when the stop was observed. `Cancelled`, `PollBound` (the run's
+    /// [`ExecutionOptions::max_polls`]) and `SolverPrelude` end the execution; `Deadline` and
+    /// `StackExhausted` end this state only.
     Stopped(StopCause),
     /// No sort-correct ground substitution satisfying the leaf pattern's constraints gives
     /// its term a rewrite successor. The set of satisfying instances may be empty.
@@ -1105,6 +1129,13 @@ pub struct ExecutionResult {
     /// The states the run visited across all its paths, the unit
     /// [`ExecutionOptions::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
+    /// The polls the run counted, the unit [`ExecutionOptions::max_polls`] bounds; reported
+    /// whether or not a bound was set. A poll the bound refused is not counted, so a run the
+    /// bound stopped counts at least the bound (more by the nodes of a walk charged on the
+    /// poll before the refused one). It is a function of the request and the definition
+    /// wherever the result is: the same on a fresh backend and on a reused one, and with or
+    /// without the work that only describes the run (docs/compatibility.md, "Poll budget").
+    pub polls: u64,
     /// The visited states whose rewrite step ran and answered, whatever the answer (successors, a
     /// branch or cut-point report, or a stuck, trivial, vacuous, indeterminate or
     /// simplification-failure verdict); at most [`ExecutionResult::work`]. The step's guards
@@ -1148,7 +1179,8 @@ pub struct ExecutionResult {
     /// that one is.
     pub smt_unknowns: usize,
     /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
-    /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
+    /// one did; `None` when the run ended by itself, by a bound (its bound of polls included,
+    /// whose stopped leaf names it) or by its work budget, unless,
     /// under [`ExecutionOptions::discard_stopped`], a pass after the exploration (the breadth
     /// drain or the state-set final merge) observed such a stop. Under `discard_stopped` a run
     /// with a cause here has no leaves.

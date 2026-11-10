@@ -3164,11 +3164,13 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
 /// Whether a stop published as a state's `Stopped` entry ends the search. A cancelled request or
 /// a failed solver prelude leaves no answer for any remaining state, so the search ends; a passed
 /// step deadline (only a caller that arms one around the search can raise it) or an exhausted
-/// stack ends the exploration of the state it stopped only.
+/// stack ends the exploration of the state it stopped only. A spent bound of polls ends it as a
+/// cancellation does; only an execution counts one (`stop::counting_run_polls`), so a search
+/// meets one only inside a run's own work.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn stop_ends_search(cause: &StopCause) -> bool {
     match cause {
-        StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
+        StopCause::Cancelled | StopCause::PollBound(_) | StopCause::SolverPrelude(_) => true,
         StopCause::Deadline(_) | StopCause::StackExhausted(_) => false,
     }
 }

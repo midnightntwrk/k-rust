@@ -755,6 +755,8 @@ pub(crate) fn isolated<T>(polls: u64, evaluation: impl FnOnce() -> T) -> (T, boo
 
 /// [`isolated`], but on the run's clock and with no budget of polls of its own: work done for the
 /// caller that the request's time bounds still bound (the state matcher, `rewrite::state_match`).
+/// It is off the run's count of polls all the same, so the run's bound of polls does not bound
+/// it.
 /// A passed step deadline stops it as it stops the step, and the time it takes counts in the
 /// step's measurement; a stop of its own is dismissed inside it, and a step deadline stays passed,
 /// so the step's next poll publishes it.
@@ -762,8 +764,14 @@ pub(crate) fn isolated_on_the_clock<T>(evaluation: impl FnOnce() -> T) -> (T, bo
     isolate(evaluation)
 }
 
-/// The isolation of [`isolated`] and [`isolated_on_the_clock`] around `evaluation`.
+/// The isolation of [`isolated`] and [`isolated_on_the_clock`] around `evaluation`. Both are
+/// off the run's count of polls (`stop::off_the_run_count`), so the run counts the same polls,
+/// and its bound of polls stops it at the same point, with or without the work.
 fn isolate<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
+    crate::stop::off_the_run_count(|| isolate_counted(evaluation))
+}
+
+fn isolate_counted<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
     suspend(|| {
         measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
@@ -1023,7 +1031,8 @@ where
 /// notes no path fact, and leaves the counter of renamed-apart names as it was, so that the
 /// names it minted are minted again by the run's next renaming exactly as without the probe.
 /// Its own renamed terms do not outlive it, so no name is shared. It takes nothing from the
-/// run's `FreshCounter`, which it is not given.
+/// run's `FreshCounter`, which it is not given, and counts in no run's polls
+/// (`stop::off_the_run_count`).
 pub(crate) fn offer(id: &str, probe: impl FnOnce() -> bool) {
     if !offering() || SINK.with_borrow(|sink| sink.holds(id)) {
         return;
@@ -1031,7 +1040,9 @@ pub(crate) fn offer(id: &str, probe: impl FnOnce() -> bool) {
     let matched = suspend(|| {
         measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
-                crate::path_facts::discarded(|| crate::rule::with_apart_names_restored(probe))
+                crate::path_facts::discarded(|| {
+                    crate::stop::off_the_run_count(|| crate::rule::with_apart_names_restored(probe))
+                })
             })
         })
     });

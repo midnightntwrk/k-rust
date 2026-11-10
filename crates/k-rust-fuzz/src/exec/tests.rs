@@ -937,7 +937,7 @@ fn every_halt_has_a_class() {
                 Some(OutcomeClass::Unsupported)
             }
             H::DepthBound | H::BreadthBound => Some(OutcomeClass::DepthBound),
-            H::WorkBound => Some(OutcomeClass::WorkBound),
+            H::WorkBound | H::PollBound => Some(OutcomeClass::WorkBound),
             H::Branch
             | H::CutPoint
             | H::Terminal

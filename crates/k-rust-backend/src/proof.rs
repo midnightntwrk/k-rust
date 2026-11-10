@@ -2861,7 +2861,9 @@ fn finish_explored(
 fn forgone_refinement_stop() -> Option<StopCause> {
     let stop = stop::check().err()?;
     match stop.cause() {
-        StopCause::Cancelled | StopCause::SolverPrelude(_) => Some(stop.into_cause()),
+        StopCause::Cancelled | StopCause::PollBound(_) | StopCause::SolverPrelude(_) => {
+            Some(stop.into_cause())
+        }
         StopCause::Deadline(_) | StopCause::StackExhausted(_) => {
             stop.forgo_refinement();
             None
@@ -2891,7 +2893,11 @@ fn proof_stop(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> ProofStop {
     match cause {
         StopCause::Deadline(_) => ProofStop::LeafAndFinish,
         StopCause::StackExhausted(_) => ProofStop::Leaf,
-        StopCause::Cancelled | StopCause::SolverPrelude(_) => ProofStop::Finish,
+        // A spent bound of polls ends every remaining state as a cancellation does; only an
+        // execution counts one (`stop::counting_run_polls`).
+        StopCause::Cancelled | StopCause::PollBound(_) | StopCause::SolverPrelude(_) => {
+            ProofStop::Finish
+        }
     }
 }
 

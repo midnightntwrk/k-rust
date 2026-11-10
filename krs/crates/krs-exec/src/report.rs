@@ -284,6 +284,7 @@ impl Halt {
             | HaltReasonOutput::Branch
             | HaltReasonOutput::BreadthBound
             | HaltReasonOutput::WorkBound
+            | HaltReasonOutput::PollBound
             | HaltReasonOutput::ProbeDifference
             | HaltReasonOutput::ProbeDone => Self::Interrupted,
         }

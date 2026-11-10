@@ -425,6 +425,7 @@ mod tests {
             coverage: None,
             work: 3,
             expanded: 2,
+            polls: 0,
             stack_stops: 0,
             smt_unknowns: 0,
             implementation_chosen_values: Vec::new(),

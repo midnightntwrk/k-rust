@@ -1,9 +1,9 @@
 //! Stops: a computation ended before producing its answer because a resource or context it runs
 //! under ran out or failed (design CBC-04).
 //!
-//! There are four such causes: the request was cancelled, the deadline of the active rewrite or
-//! proof step passed, the simplifier's recursion exhausted its native stack, or the solver's
-//! prelude failed. Each resource belongs to an owner (the step, the request, the operation that
+//! There are five such causes: the request was cancelled, the run spent its bound of polls, the
+//! deadline of the active rewrite or proof step passed, the simplifier's recursion exhausted its
+//! native stack, or the solver's prelude failed. Each resource belongs to an owner (the step, the request, the operation that
 //! uses the solver), so a site below that owner cannot know what the missing answer means for the
 //! owner's outcome, and must not substitute a value for it. A stop is therefore carried as a
 //! [`Stop`] and propagated with `?` up to its owner, which publishes it with
@@ -57,6 +57,11 @@ pub enum StopCause {
     StackExhausted(StackLimit),
     /// The solver's prelude is unsatisfiable or undecided, so none of its answers means anything.
     SolverPrelude(PreludeFailure),
+    /// The run spent its bound of polls, the payload ([`counting_run_polls`]; an execution's
+    /// `ExecutionOptions::max_polls`): the poll that found the count at the bound, and every
+    /// later poll of the run, raises it. Where it is raised is a function of the run's own work,
+    /// not of the clock, so it is no fault of the host.
+    PollBound(u64),
 }
 
 /// The limit that refused the simplifier's recursion another stack segment
@@ -179,6 +184,9 @@ impl fmt::Display for StopCause {
                 )
             }
             Self::SolverPrelude(failure) => write!(formatter, "could not initialize Z3: {failure}"),
+            Self::PollBound(bound) => {
+                write!(formatter, "the run reached its bound of {bound} polls")
+            }
         }
     }
 }
@@ -188,7 +196,7 @@ impl fmt::Display for StopCause {
 pub enum StopScope {
     /// The state being stepped: the deadline of its step, or the thread's stack.
     Step,
-    /// Every remaining state of the request.
+    /// Every remaining state of the request: its cancellation, or its run's bound of polls.
     Request,
     /// Every operation that uses the solver.
     Solver,
@@ -199,7 +207,7 @@ impl StopCause {
     pub const fn scope(&self) -> StopScope {
         match self {
             Self::Deadline(_) | Self::StackExhausted(_) => StopScope::Step,
-            Self::Cancelled => StopScope::Request,
+            Self::Cancelled | Self::PollBound(_) => StopScope::Request,
             Self::SolverPrelude(_) => StopScope::Solver,
         }
     }
@@ -207,7 +215,8 @@ impl StopCause {
 
 /// Evidence that a stop was observed.
 ///
-/// Minted only by [`check`], `with_stack_headroom`, [`operation`] and `Stop::solver_prelude`; consumed
+/// Minted only by [`check`], `as_one_poll`, `with_stack_headroom`, [`operation`] and
+/// `Stop::solver_prelude`; consumed
 /// only by `?`, [`Stop::into_cause`], [`Stop::merge`] or [`Stop::forgo_refinement`]. In debug
 /// builds dropping it any other way panics, naming where it was minted: the drop is a fallback
 /// that decided an outcome from a missing answer.
@@ -360,6 +369,9 @@ struct Registry {
     deadline: Option<(Instant, StepTimeoutMode)>,
     /// The budget of polls of the enclosing [`with_poll_budget`] scope, if any.
     polls: Option<PollBudget>,
+    /// The count of polls of the run being served ([`counting_run_polls`]), if one is open and
+    /// the work running is the run's own (not set aside by [`off_the_run_count`]).
+    run: Option<RunPolls>,
     /// What the work inside the innermost open [`with_operation_record`] scope (or
     /// [`counting_stack_stops`], [`StackStopCount`]) met so far, if one is open.
     record: Option<Cell<OperationRecord>>,
@@ -389,6 +401,33 @@ pub struct PollBudgetRecord {
     pub stack_exhausted: bool,
 }
 
+/// The polls of one run ([`counting_run_polls`]) and its bound. A `Cell` because [`check`] reads
+/// the registry through a shared borrow.
+struct RunPolls {
+    /// The polls counted so far, with the work charged in their place ([`charge`]).
+    used: Cell<u64>,
+    /// The most polls the run may count; the poll that finds the count there is refused.
+    bound: Option<u64>,
+}
+
+impl RunPolls {
+    /// Count one poll of the run, or refuse it, uncounted, when the count is at the bound. Once
+    /// refused, every later poll is refused too, since nothing lowers the count.
+    fn spend(&self) -> Option<StopCause> {
+        match self.bound {
+            Some(bound) if self.used.get() >= bound => Some(StopCause::PollBound(bound)),
+            _ => {
+                self.used.set(self.used.get().saturating_add(1));
+                None
+            }
+        }
+    }
+
+    fn charge(&self, work: u64) {
+        self.used.set(self.used.get().saturating_add(work));
+    }
+}
+
 impl PollBudgetRecord {
     /// Whether the scope met either stop.
     #[must_use]
@@ -404,18 +443,24 @@ impl Registry {
         #[cfg(not(target_arch = "wasm32"))]
         deadline: None,
         polls: None,
+        run: None,
         record: None,
     };
 
     /// The raised cause of widest scope, if any: the signals are read in decreasing
-    /// `StopScope` order (solver, request, step deadline, poll budget), so the first raised one
-    /// wins. Called once per poll: a poll that reaches the budget spends one poll of it.
+    /// `StopScope` order (solver, request cancellation, run's bound of polls, step deadline,
+    /// poll budget), so the first raised one wins. Called once per poll: a poll that passes the
+    /// solver and the cancellation counts one poll of the run, and one that reaches the budget
+    /// spends one poll of it.
     fn raised(&self) -> Option<StopCause> {
         if let Some(failure) = self.raised_prelude() {
             return Some(StopCause::SolverPrelude(failure.clone()));
         }
         if self.request_cancelled() {
             return Some(StopCause::Cancelled);
+        }
+        if let Some(refused) = self.run.as_ref().and_then(RunPolls::spend) {
+            return Some(refused);
         }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some((deadline, mode)) = self.deadline
@@ -495,18 +540,122 @@ pub fn check() -> Result<(), Stop> {
 /// one walk is bounded by the term's DAG size.
 ///
 /// Every budget counts the charged work: the load-time checks' (`confluence::budgeted`,
-/// `data_term::instance::budgeted`) and a request-time record's ([`off_the_clock`],
-/// `coverage::isolated`). A run's step has no poll
-/// budget, so its verdicts are unchanged by a charge; a record ends sooner than when only its
-/// polls were counted, which is its budget bounding its work.
+/// `data_term::instance::budgeted`), a request-time record's ([`off_the_clock`],
+/// `coverage::isolated`), and a run's count of polls ([`counting_run_polls`]), which a run's
+/// bound of polls (`ExecutionOptions::max_polls`) bounds. A record or a bounded run ends sooner
+/// than when only its polls were counted, which is its budget bounding its work.
 pub(crate) fn charge(work: u64) {
     REGISTRY.with(|registry| {
-        if let Some(budget) = &registry.borrow().polls {
+        let registry = registry.borrow();
+        if let Some(budget) = &registry.polls {
             budget
                 .remaining
                 .set(budget.remaining.get().saturating_sub(work));
         }
+        if let Some(run) = &registry.run {
+            run.charge(work);
+        }
     });
+}
+
+/// Runs `action`, a run of the backend, and counts its polls: every [`check`] on this thread
+/// while it runs that the solver's prelude and the request's cancellation pass, with the work
+/// charged in their place ([`charge`]), except the work set aside from the run
+/// ([`off_the_run_count`]: work done only to describe the run, and the inside of a solver query,
+/// which counts one poll, [`as_one_poll`]). With `bound`, the poll that finds the count at the
+/// bound, and every later one, raises [`StopCause::PollBound`] instead, uncounted. Returns
+/// `action`'s value and the count.
+///
+/// The count is a function of the run's own work: backend work is single-threaded and its
+/// choices are functions of its inputs, every memo it is served from within the run is opened
+/// by the run's outermost scopes and closed with them, and the state that outlives a request
+/// (a solver's caches and its prelude's check) is inside the queries, which count one poll
+/// whatever they find there. So a run counts the same polls, and a bound stops it at the same
+/// poll, on a fresh backend and on one that served other requests first.
+///
+/// A count opened inside another replaces it while it runs, and adds its polls to it when it
+/// ends; a [`detached`] computation (a definition loaded on first use) counts in none. Restored
+/// on every exit, also when `action` unwinds.
+pub(crate) fn counting_run_polls<T>(bound: Option<u64>, action: impl FnOnce() -> T) -> (T, u64) {
+    struct Restore(Option<Option<RunPolls>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.0.take() {
+                REGISTRY.with(|registry| {
+                    let mut registry = registry.borrow_mut();
+                    let inner = registry.run.take();
+                    if let (Some(outer), Some(inner)) = (&previous, inner) {
+                        outer.charge(inner.used.get());
+                    }
+                    registry.run = previous;
+                });
+            }
+        }
+    }
+    let previous = REGISTRY.with(|registry| {
+        registry.borrow_mut().run.replace(RunPolls {
+            used: Cell::new(0),
+            bound,
+        })
+    });
+    let restore = Restore(Some(previous));
+    let value = action();
+    let used = REGISTRY.with(|registry| {
+        registry
+            .borrow()
+            .run
+            .as_ref()
+            .map_or(0, |run| run.used.get())
+    });
+    drop(restore);
+    (value, used)
+}
+
+/// Runs `action` off the count of polls of the enclosing run ([`counting_run_polls`]), and
+/// restores the count afterwards, also when `action` unwinds: its polls and charges count in
+/// no run, and a run's bound of polls neither stops it nor is spent by it. Every other signal
+/// stays in force inside, a poll budget installed inside bounds it, and a count opened inside
+/// counts its own run.
+///
+/// For work done only to describe a run to its caller (an in-process caller's code, coverage
+/// records, a state match, an effect observer, `coverage::isolated`), so that a run counts the
+/// same polls with or without it, as its result is the same; and for the inside of a solver
+/// query ([`as_one_poll`]).
+pub(crate) fn off_the_run_count<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Option<RunPolls>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(run) = self.0.take() {
+                REGISTRY.with(|registry| registry.borrow_mut().run = run);
+            }
+        }
+    }
+    let _restore = Restore(Some(
+        REGISTRY.with(|registry| registry.borrow_mut().run.take()),
+    ));
+    action()
+}
+
+/// Runs `action`, one query of a solver, as one poll of the enclosing run
+/// ([`counting_run_polls`]): the run counts one poll for it, or the bound refuses that poll and
+/// the query does not start, and `action` itself runs off the run's count
+/// ([`off_the_run_count`]).
+///
+/// The polls inside a query depend on what outlives the request: whether the solver's caches
+/// hold the query's answer or its preparation, whether the prelude was checked by an earlier
+/// request, and, under a solver budget of time, how many attempts the clock let fail. None of
+/// that is the run's work, so none of it may move the run's count. The solver's own work is
+/// bounded without the run's bound: by its budget of resource units or time for each attempt,
+/// its limit of attempts, and the caps of its translation. Its polls inside still observe every
+/// other signal, and a poll budget installed around the query.
+#[cfg_attr(not(feature = "z3"), allow(dead_code))]
+pub(crate) fn as_one_poll<T>(action: impl FnOnce() -> Stoppable<T>) -> Stoppable<T> {
+    let refused =
+        REGISTRY.with(|registry| registry.borrow().run.as_ref().and_then(RunPolls::spend));
+    if let Some(cause) = refused {
+        return Err(Stop::mint(cause));
+    }
+    off_the_run_count(action)
 }
 
 /// Bytes of native stack that must remain when the simplifier enters a call of
@@ -862,7 +1011,9 @@ pub(crate) fn time_off_the_clock() -> std::time::Duration {
 /// [`time_off_the_clock`], which a step's moving-average measurement leaves out. So the step
 /// meets its deadline at the same point of its own work as without `action`. The budget bounds
 /// `action`'s work instead, as a function of the work alone: its polls and the nodes of the walks
-/// charged in their place ([`charge`]). A cancellation of the request and a
+/// charged in their place ([`charge`]). It is also off the run's count of polls
+/// ([`off_the_run_count`]), so the run counts the same polls, and its bound of polls stops it at
+/// the same point, as without `action`. A cancellation of the request and a
 /// failed solver prelude stay visible inside it: such a stop ends the run at its next poll in
 /// any case. Restored on every exit.
 ///
@@ -896,11 +1047,14 @@ pub(crate) fn off_the_clock<T>(polls: u64, action: impl FnOnce() -> T) -> (T, bo
         deadline: REGISTRY.with(|registry| registry.borrow_mut().deadline.take()),
     };
     // The budget's stop is the record's own and is dismissed inside it; the mode is not read.
-    let (value, record) = with_poll_budget(
-        polls,
-        StepTimeoutMode::Manual(std::time::Duration::ZERO),
-        action,
-    );
+    // Work off the run's clock is off its count of polls too: it describes the run.
+    let (value, record) = off_the_run_count(|| {
+        with_poll_budget(
+            polls,
+            StepTimeoutMode::Manual(std::time::Duration::ZERO),
+            action,
+        )
+    });
     (value, record.budget_exhausted)
 }
 
@@ -1082,6 +1236,8 @@ impl Drop for StackStopCount {
 ///
 /// The budget replaces an enclosing one for the scope and is restored when the scope ends,
 /// including on unwinding; a budget installed under it is the only one in force while it runs.
+/// The count of polls of an enclosing run ([`counting_run_polls`]) is no budget of this kind: it
+/// goes on counting inside, unless the work is set aside from it ([`off_the_run_count`]).
 /// Returns `action`'s value and what the scope met ([`PollBudgetRecord`]).
 ///
 /// A host bounds an operation it runs on this thread with it where the bound must not depend on
@@ -1357,6 +1513,7 @@ mod tests {
                 && registry.solvers.is_empty()
                 && no_deadline
                 && registry.polls.is_none()
+                && registry.run.is_none()
                 && registry.record.is_none()
         })
     }
@@ -1414,6 +1571,103 @@ mod tests {
         assert!(record.budget_exhausted);
         let ((), record) = with_poll_budget(5, MANUAL, || charge(5));
         assert!(!record.budget_exhausted);
+        assert!(registry_is_empty());
+    }
+
+    /// A run's count of polls counts every poll and every charge of its own work, refuses,
+    /// uncounted, the poll that finds it at its bound and every later one, and is gone when its
+    /// scope ends.
+    #[test]
+    fn a_run_counts_its_polls_and_its_bound_refuses_the_rest() {
+        let (outcomes, used) = counting_run_polls(None, || {
+            charge(5);
+            (0..3).map(|_| polled()).collect::<Vec<_>>()
+        });
+        assert_eq!((outcomes, used), (vec![None, None, None], 8));
+        for bound in [0, 1, 3] {
+            let (outcomes, used) = counting_run_polls(Some(bound), || {
+                (0..bound + 2).map(|_| polled()).collect::<Vec<_>>()
+            });
+            let passed = usize::try_from(bound).unwrap();
+            assert!(
+                outcomes[..passed].iter().all(Option::is_none),
+                "{outcomes:?}"
+            );
+            assert!(
+                outcomes[passed..]
+                    .iter()
+                    .all(|outcome| *outcome == Some(StopCause::PollBound(bound))),
+                "{outcomes:?}"
+            );
+            assert_eq!(used, bound);
+            assert!(registry_is_empty());
+        }
+        // A charge reaching the bound is refused at the next poll, not at the charge.
+        let ((charged, next), used) = counting_run_polls(Some(4), || {
+            charge(4);
+            (polled(), polled())
+        });
+        assert_eq!(
+            (charged, next, used),
+            (
+                Some(StopCause::PollBound(4)),
+                Some(StopCause::PollBound(4)),
+                4
+            )
+        );
+        // The bound outranks a step deadline and a poll budget, and yields to a cancellation.
+        let ((), _) = counting_run_polls(Some(0), || {
+            let ((), _) = with_poll_budget(0, MANUAL, || {
+                assert_eq!(polled(), Some(StopCause::PollBound(0)));
+            });
+            let token = CancellationToken::new();
+            token.cancel();
+            token.scope(|| assert_eq!(polled(), Some(StopCause::Cancelled)));
+        });
+    }
+
+    /// Work set aside from the run counts in no run's polls, and the bound neither refuses it
+    /// nor is spent by it; a solver query counts one poll whatever it polls inside; work
+    /// detached from the request counts in none; a count opened inside another adds its polls
+    /// to it; a poll budget inside the run goes on being counted by it.
+    #[test]
+    fn work_off_the_run_count_and_a_solver_query_leave_the_count_as_it_was() {
+        let ((), used) = counting_run_polls(Some(2), || {
+            assert_eq!(polled(), None);
+            off_the_run_count(|| {
+                charge(100);
+                assert!((0..10).all(|_| polled().is_none()));
+            });
+            let answer = as_one_poll(|| {
+                charge(100);
+                assert!((0..10).all(|_| polled().is_none()));
+                Ok(7)
+            });
+            assert_eq!(answer.map_err(Stop::into_cause), Ok(7));
+            // The bound is spent: a query does not start, and nothing else counts.
+            let refused = as_one_poll(|| -> Stoppable<()> { unreachable!("refused") });
+            assert_eq!(
+                refused.map_err(Stop::into_cause),
+                Err(StopCause::PollBound(2))
+            );
+            detached(|| assert!((0..10).all(|_| polled().is_none())));
+            let (passed, spent) = off_the_clock(u64::MAX, || (0..10).all(|_| polled().is_none()));
+            assert!(passed && !spent);
+            off_the_run_count(|| assert_eq!(polled(), None));
+        });
+        assert_eq!(used, 2);
+        let ((inner, outer), used) = counting_run_polls(None, || {
+            assert_eq!(polled(), None);
+            let ((), inner) = counting_run_polls(None, || {
+                assert_eq!((polled(), polled()), (None, None));
+            });
+            let ((), _) = with_poll_budget(5, MANUAL, || assert_eq!(polled(), None));
+            (
+                inner,
+                REGISTRY.with(|r| r.borrow().run.as_ref().map(|run| run.used.get())),
+            )
+        });
+        assert_eq!((inner, outer, used), (2, Some(4), 4));
         assert!(registry_is_empty());
     }
 

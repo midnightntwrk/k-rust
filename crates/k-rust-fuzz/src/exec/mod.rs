@@ -1125,7 +1125,10 @@ fn failure_class(result: &CaseResult, failure: &CaseFailure) -> OutcomeClass {
     match &failure.cause {
         FailureCause::Stop(StopCause::Cancelled | StopCause::Deadline(_)) => OutcomeClass::Timeout,
         FailureCause::StateRefused => OutcomeClass::Rejected,
-        FailureCause::Stop(StopCause::StackExhausted(_) | StopCause::SolverPrelude(_))
+        // An execution's bound of polls ends it with a leaf, never an `Err`.
+        FailureCause::Stop(
+            StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) | StopCause::PollBound(_),
+        )
         | FailureCause::TooDeep
         | FailureCause::StackMappingRefused
         | FailureCause::Panic(_)
@@ -1187,7 +1190,8 @@ fn leaf_class(
     }
     match leaf.halt {
         H::Cancelled | H::Timeout => Ok(OutcomeClass::Timeout),
-        H::WorkBound => Ok(OutcomeClass::WorkBound),
+        // A counted bound cut the run, the bound of polls as the work budget.
+        H::WorkBound | H::PollBound => Ok(OutcomeClass::WorkBound),
         H::DepthBound | H::BreadthBound => Ok(OutcomeClass::DepthBound),
         H::Trivial => Ok(OutcomeClass::Undefined),
         H::Vacuous | H::Indeterminate | H::UnsupportedHook | H::SimplificationError => {

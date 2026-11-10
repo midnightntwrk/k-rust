@@ -50,6 +50,7 @@ impl From<StopCause> for HostError {
 fn cause_name(cause: &StopCause) -> &'static str {
     match cause {
         StopCause::Cancelled => "cancelled",
+        StopCause::PollBound(_) => "poll bound",
         StopCause::Deadline(StepTimeoutMode::Manual(_)) => "manual deadline",
         StopCause::Deadline(StepTimeoutMode::MovingAverage(_)) => "moving-average deadline",
         StopCause::StackExhausted(StackLimit::ThreadBudget(_)) => "thread budget",

@@ -595,9 +595,10 @@ impl From<StopCause> for RpcFault {
     fn from(cause: StopCause) -> Self {
         match cause {
             StopCause::Cancelled => Self::cancelled(),
-            StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) | StopCause::Deadline(_) => {
-                Self::runtime(cause.to_string(), None)
-            }
+            StopCause::StackExhausted(_)
+            | StopCause::SolverPrelude(_)
+            | StopCause::Deadline(_)
+            | StopCause::PollBound(_) => Self::runtime(cause.to_string(), None),
         }
     }
 }
@@ -1315,9 +1316,11 @@ impl RpcService {
 fn execute_stop_reason(cause: &StopCause) -> Result<&'static str, RpcFault> {
     match cause {
         StopCause::Deadline(_) => Ok("timeout"),
-        StopCause::Cancelled | StopCause::StackExhausted(_) | StopCause::SolverPrelude(_) => {
-            Err(RpcFault::from(cause.clone()))
-        }
+        // RPC sets no bound of polls, so a poll-bound leaf is no outcome of its requests.
+        StopCause::Cancelled
+        | StopCause::PollBound(_)
+        | StopCause::StackExhausted(_)
+        | StopCause::SolverPrelude(_) => Err(RpcFault::from(cause.clone())),
     }
 }
 

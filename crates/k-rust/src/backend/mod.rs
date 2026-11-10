@@ -92,6 +92,12 @@
 //!    `work-bound` one ([`HaltReasonOutput::WorkBound`]), and drops the states still pending.
 //!    Unlike a cancellation it is deterministic: the run stops at the same state wherever its
 //!    result is the same (docs/compatibility.md, "Work budget").
+//! 8. The bound of polls of an execution ([`ExecuteRequest::max_polls`]) bounds all of its work,
+//!    inside its steps included, and is not a cancellation either: a run that reaches it returns
+//!    `Ok` under either `cancelledResult`, with the leaves completed before the stop and the
+//!    state it was expanding as one `poll-bound` leaf ([`HaltReasonOutput::PollBound`]). Every
+//!    result reports the polls it counted ([`ExecutionResult::polls`]), the same on a fresh and
+//!    on a reused `Backend` (docs/compatibility.md, "Poll budget").
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
 //! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run. A prelude
@@ -664,6 +670,9 @@ pub struct BackendCapabilities {
     /// An execution reports the undecided solver answers the run's decisions were taken from
     /// ([`ExecutionResult::smt_unknowns`]); in a build without a solver the count is always zero.
     pub smt_unknowns: bool,
+    /// An execution accepts `max_polls` ([`ExecuteRequest::max_polls`]) and reports the polls
+    /// the run counted ([`ExecutionResult::polls`]).
+    pub poll_bound: bool,
     /// An execution marks each leaf whose path read a value the definition leaves open
     /// (`BackendDiagnosticOutput::ImplementationChosenValue`) and lists every such value the run
     /// read ([`ExecutionResult::implementation_chosen_values`]); a search marks its states,
@@ -847,6 +856,24 @@ pub struct ExecuteRequest {
     /// (docs/compatibility.md, "Work budget").
     #[serde(default)]
     pub max_work: Option<u64>,
+    /// The most polls the run may count (wire `maxPolls`; absent: no bound), the unit
+    /// [`ExecutionResult::polls`] reports: the backend's interruption point, taken at every
+    /// round of the simplifier, at every phase of a state's step and inside the hook loops, with
+    /// each walk over a term the simplifier charges counted by its nodes, and each solver query
+    /// counted once. Unlike `max_work` it bounds the work inside a step too: a ground function
+    /// evaluation whose equation applies itself forever is stopped by it, not by a clock.
+    ///
+    /// When the bound is reached the run ends: the state being expanded becomes a `poll-bound`
+    /// leaf ([`HaltReasonOutput::PollBound`]) at the state as it stood when the bound stopped
+    /// it, the last leaf of the result, and the states still pending are dropped. It is not a
+    /// cancellation and never an `Err`, under either `cancelledResult`; the result is
+    /// incomplete, and the leaf's configuration is no result. The count, and so the point where
+    /// the bound stops the run, is a function of the request and the definition wherever the
+    /// result is: the same on a fresh `Backend` and on one that served other requests first,
+    /// and with or without coverage, `matchStates`, a probe, a stop condition or an observer
+    /// (docs/compatibility.md, "Poll budget").
+    #[serde(default)]
+    pub max_polls: Option<u64>,
     /// Whether each leaf carries its path's trace ([`ExecutionLeaf::trace`]), O(depth) entries
     /// per leaf; `true` when omitted. A caller that does not read traces sets `false`: every
     /// leaf's `trace` is then empty and every other field of the result is unchanged, so the
@@ -952,6 +979,7 @@ impl ExecuteRequest {
             collect_guards: None,
             collect_bindings: None,
             max_work: None,
+            max_polls: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
             match_states: None,
@@ -1004,6 +1032,13 @@ pub struct ExecutionResult<K> {
     /// The states the run visited across all its paths, the unit
     /// [`ExecuteRequest::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
+    /// The polls the run counted, the unit [`ExecuteRequest::max_polls`] bounds; reported
+    /// whether or not a bound was set, so a host measures a run's work in the unit it bounds
+    /// another's by. A poll the bound refused is not counted. It is a function of the request
+    /// and the definition wherever the result is: the same on a fresh `Backend` and on a reused
+    /// one, and with or without the work that only describes the run (docs/compatibility.md,
+    /// "Poll budget"). Portable and Z3 builds count differently.
+    pub polls: u64,
     /// The visited states whose rewrite step ran and answered, whatever the answer (successors,
     /// a branch or cut-point report, or a verdict that ends the state); at most `work`. A state
     /// the step's guards answer without matching a rule (constraints that are `\bottom`, a
@@ -2220,6 +2255,13 @@ pub enum HaltReasonOutput {
     /// unsatisfiable. The states still pending were not explored, so the result is incomplete.
     /// It is the last leaf of its result and never merged with another under `state-set`.
     WorkBound,
+    /// The request's `max_polls` was reached while this leaf's state was being expanded, and
+    /// the run ended: the leaf's state is the state as it stood when the bound stopped it, as a
+    /// `cancelled` leaf's is, and the states still pending were dropped, not explored. It is not
+    /// a reached result and the result is incomplete; unlike a cancellation it is deterministic
+    /// (docs/compatibility.md, "Poll budget"). It is the last leaf of its result and never
+    /// merged with another under `state-set`.
+    PollBound,
     /// Rule applicability or a remainder could not be decided; no stuckness claim is made.
     Indeterminate,
     UnsupportedHook,
@@ -2228,7 +2270,7 @@ pub enum HaltReasonOutput {
 }
 
 impl HaltReasonOutput {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Cancelled,
         Self::Stuck,
         Self::Trivial,
@@ -2242,6 +2284,7 @@ impl HaltReasonOutput {
         Self::DepthBound,
         Self::BreadthBound,
         Self::WorkBound,
+        Self::PollBound,
         Self::Indeterminate,
         Self::UnsupportedHook,
         Self::SimplificationError,
@@ -2640,6 +2683,7 @@ impl From<StopCause> for BackendError {
     fn from(cause: StopCause) -> Self {
         match cause {
             StopCause::Cancelled
+            | StopCause::PollBound(_)
             | StopCause::Deadline(_)
             | StopCause::StackExhausted(_)
             | StopCause::SolverPrelude(_) => Self {
@@ -2801,6 +2845,7 @@ impl Backend {
             state_matches: true,
             stack_stops: true,
             smt_unknowns: true,
+            poll_bound: true,
             implementation_chosen_values: true,
             contradicted_claims: true,
             allowance_refusals: true,
@@ -3176,6 +3221,7 @@ impl Backend {
                 collect_guards: request.collect_guards.map(Into::into),
                 collect_bindings,
                 max_work: request.max_work,
+                max_polls: request.max_polls,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
                 match_states,
                 collect_committed: request.collect_committed,
@@ -3914,8 +3960,12 @@ impl Backend {
                 Some(cause @ StopCause::Cancelled) if !result.settled => {
                     return Err(BackendError::from(cause.clone()));
                 }
+                // Only an execution counts a bound of polls.
                 Some(
-                    StopCause::Cancelled | StopCause::Deadline(_) | StopCause::StackExhausted(_),
+                    StopCause::Cancelled
+                    | StopCause::PollBound(_)
+                    | StopCause::Deadline(_)
+                    | StopCause::StackExhausted(_),
                 )
                 | None => {}
             }
@@ -4279,8 +4329,9 @@ fn halt_reason(
     })
 }
 
-/// The published reason of a leaf whose state stopped. A cancelled state is `cancelled` and a
-/// passed step deadline `timeout`; an exhausted stack keeps the `simplification-error` kind the
+/// The published reason of a leaf whose state stopped. A cancelled state is `cancelled`, a spent
+/// bound of polls `poll-bound` (with the bound named in its detail) and a passed step deadline
+/// `timeout`; an exhausted stack keeps the `simplification-error` kind the
 /// failure it used to be spelled as had, with the stop as its detail and `stack-exhausted` as
 /// its structured cause (`ExecutionLeaf::cause`). A failed solver prelude
 /// leaves no answer of the operation meaningful, so it is the operation's error, not a leaf.
@@ -4290,6 +4341,7 @@ fn stopped_halt_reason(
 ) -> Result<(HaltReasonOutput, Option<String>), BackendError> {
     match cause {
         StopCause::Cancelled => Ok((HaltReasonOutput::Cancelled, None)),
+        StopCause::PollBound(_) => Ok((HaltReasonOutput::PollBound, Some(cause.to_string()))),
         StopCause::Deadline(_) => Ok((HaltReasonOutput::Timeout, Some(cause.to_string()))),
         StopCause::StackExhausted(_) => Ok((
             HaltReasonOutput::SimplificationError,
@@ -4375,7 +4427,9 @@ pub fn proof_leaf_outcome(
                 ProofLeafOutcomeOutput::StackExhausted,
                 Some(cause.to_string()),
             ),
-            StopCause::Cancelled | StopCause::SolverPrelude(_) => {
+            // A proof counts no bound of polls; were one to stop it, it would end the proof
+            // as a cancellation does, with no leaf.
+            StopCause::Cancelled | StopCause::PollBound(_) | StopCause::SolverPrelude(_) => {
                 return Err(BackendError::from(cause.clone()));
             }
         },
@@ -4678,6 +4732,24 @@ mod tests {
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["smtUnknowns"], true);
         assert_eq!(capabilities["stackStops"], true);
+    }
+
+    /// The bound of polls is declared where the facade reads and writes it: the optional request
+    /// field, the count every execution result carries, and a capability flag, true in every
+    /// build.
+    #[test]
+    fn the_poll_bound_matches_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "maxPolls?: number");
+        assert_typescript_member("ExecutionResult", "polls: number");
+        assert_typescript_member("BackendCapabilities", "pollBound: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::DEFAULT,
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["pollBound"], true);
     }
 
     /// The offered level of run coverage is declared where the facade reads and writes it: the
