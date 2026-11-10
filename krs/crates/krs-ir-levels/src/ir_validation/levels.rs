@@ -336,7 +336,12 @@ impl Validation for DefinitionLevel {
                 _ => None,
             })
     }
-    type Registration<'a> = (&'a mut Declarations<Self>, &'a mut BTreeSet<String>);
+    /// The declared symbols, and each emitted name with its kind: sorts, symbols and cells are
+    /// K's three namespaces, so one name may be a sort, a symbol and a cell.
+    type Registration<'a> = (
+        &'a mut Declarations<Self>,
+        &'a mut BTreeSet<(SymbolKind, String)>,
+    );
 
     fn rule_view(rule: &Self::Rule) -> RuleView<'_, Self> {
         RuleView {
@@ -473,7 +478,10 @@ impl Validation for DefinitionLevel {
                 cell.id().clone(),
             ));
         }
-        if !registration.1.insert(cell.name().to_owned()) {
+        if !registration
+            .1
+            .insert((SymbolKind::Cell, cell.name().to_owned()))
+        {
             return Err(DefinitionValidationError::DuplicateEmittedName(
                 cell.name().to_owned(),
             ));

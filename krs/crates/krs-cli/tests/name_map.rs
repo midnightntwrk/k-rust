@@ -545,6 +545,39 @@ fn a_raw_keyword_item_is_named_by_its_identifier() {
     }
 }
 
+/// A cell `<k>`, its sort `KCell` and a function's symbol `k` are names of K's three namespaces,
+/// so a function `K` beside the cell `k` is its own name, and the rule applies it.
+#[test]
+fn a_function_k_beside_the_cell_k_is_another_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "function-k",
+        "name_map_function_k",
+        &function("K"),
+    );
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "name_map_function_k",
+        "check",
+        &[],
+    );
+    assert!(success, "{stderr}");
+    let emitted = emitted_k(
+        target.path(),
+        &manifest,
+        "name_map_function_k",
+        &temporary.path().join("function-k-out"),
+    );
+    assert!(
+        emitted.contains("syntax Int ::= \"k\" \"(\" Int \")\" [symbol(k), function, total]")
+            && emitted.contains("<acc> V:Int => k ( V:Int ) </acc>"),
+        "{emitted}"
+    );
+}
+
 /// One prelude module: its imports, the sorts it declares and the symbols of its productions.
 #[derive(Default)]
 struct PreludeModule {

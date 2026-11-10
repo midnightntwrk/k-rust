@@ -89,8 +89,12 @@ pub enum CollisionNamespace {
     Module,
     /// Definition symbol identities.
     SymbolId,
-    /// Emitted sort, production, and cell names.
+    /// Emitted sort names, and emitted production symbols: K's two namespaces of sorts and of
+    /// symbols, claimed apart, under one name since they report alike.
     EmittedSymbol,
+    /// Emitted cell names: a cell `<k>` is no sort and no symbol, so a function `K` (symbol
+    /// `k`) is another name.
+    EmittedCell,
     /// Emitted rule and context-alias labels.
     EmittedLabel,
     /// Definition label identities.
@@ -103,6 +107,7 @@ impl fmt::Display for CollisionNamespace {
             Self::Module => "module",
             Self::SymbolId => "symbol ID",
             Self::EmittedSymbol => "emitted symbol",
+            Self::EmittedCell => "emitted cell",
             Self::EmittedLabel => "emitted label",
             Self::LabelId => "label ID",
         })
@@ -294,6 +299,7 @@ impl ToDiagnostic for LoweringError {
             Self::InvalidEmittedName { .. } => codes::analysis::INVALID_EMITTED_NAME,
             Self::NameCollision { namespace, .. } => match namespace {
                 CollisionNamespace::EmittedSymbol => codes::analysis::SYMBOL_NAME_COLLISION,
+                CollisionNamespace::EmittedCell => codes::analysis::DUPLICATE_CELL_NAME,
                 CollisionNamespace::Module
                 | CollisionNamespace::SymbolId
                 | CollisionNamespace::EmittedLabel
@@ -843,7 +849,10 @@ impl NamingPass {
             ..Self::default()
         };
         let mut identities = Claims::new();
+        // K's namespaces: sorts, symbols and cells are three, so each is claimed apart.
+        let mut sort_claims = Claims::new();
         let mut emitted = Claims::new();
+        let mut cell_claims = Claims::new();
         let mut labels = Claims::new();
         let mut modules = Claims::new();
         let mut list_owners = BTreeMap::<String, String>::new();
@@ -905,7 +914,7 @@ impl NamingPass {
                     ));
                 }
                 claim(
-                    &mut emitted,
+                    &mut sort_claims,
                     name.clone(),
                     description,
                     CollisionNamespace::EmittedSymbol,
@@ -1005,7 +1014,7 @@ impl NamingPass {
                     &mut pass.fixed_cells,
                     &mut pass.group_cells,
                     &mut identities,
-                    &mut emitted,
+                    &mut cell_claims,
                     &mut cells,
                 )?;
             }
@@ -1243,7 +1252,7 @@ fn name_fixed_cells(
     lowered: &mut BTreeMap<krs_ir::SemanticId, SymbolId>,
     groups: &mut BTreeMap<StableItemId, SymbolId>,
     identities: &mut Claims,
-    emitted: &mut Claims,
+    cell_claims: &mut Claims,
     named: &mut Vec<(String, Option<krs_ir::CellCollectionType>)>,
 ) -> Result<(), LoweringError> {
     for cell in cells {
@@ -1270,11 +1279,17 @@ fn name_fixed_cells(
             CollisionNamespace::SymbolId,
             cell.origin(),
         )?;
+        let cell_owner = match cell.field() {
+            Some(field) if field != cell.name() => {
+                format!("the cell `<{}>` (field `{field}`)", cell.name())
+            }
+            _ => format!("the cell `<{}>`", cell.name()),
+        };
         claim(
-            emitted,
+            cell_claims,
             cell.name().to_owned(),
-            owner,
-            CollisionNamespace::EmittedSymbol,
+            cell_owner,
+            CollisionNamespace::EmittedCell,
             cell.origin(),
         )?;
         if let Some(declaration) = cell.declaration() {
@@ -1282,7 +1297,7 @@ fn name_fixed_cells(
         }
         lowered.insert(cell.id().clone(), id);
         if let FixedCellContent::Children { children } = cell.content() {
-            name_fixed_cells(children, lowered, groups, identities, emitted, named)?;
+            name_fixed_cells(children, lowered, groups, identities, cell_claims, named)?;
         }
     }
     Ok(())
@@ -4389,6 +4404,11 @@ mod tests {
                 CollisionNamespace::EmittedSymbol,
                 codes::analysis::SYMBOL_NAME_COLLISION,
                 "emitted symbol",
+            ),
+            (
+                CollisionNamespace::EmittedCell,
+                codes::analysis::DUPLICATE_CELL_NAME,
+                "emitted cell",
             ),
             (
                 CollisionNamespace::EmittedLabel,

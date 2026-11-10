@@ -2503,7 +2503,7 @@ fn expect_symbol_kind(
 fn declare_symbol(
     symbol: &SymbolIdentity,
     symbols: &mut BTreeMap<SymbolId, SymbolKind>,
-    names: &mut BTreeSet<String>,
+    names: &mut BTreeSet<(SymbolKind, String)>,
     declarations: &mut BTreeSet<(SymbolKind, DeclarationPath)>,
 ) -> Result<(), DefinitionValidationError> {
     if symbols.insert(symbol.id.clone(), symbol.kind).is_some() {
@@ -2511,7 +2511,8 @@ fn declare_symbol(
             symbol.id.clone(),
         ));
     }
-    if !names.insert(symbol.emitted_name.clone()) {
+    // A sort, a symbol and a cell are K's three namespaces: a name is claimed in its kind's.
+    if !names.insert((symbol.kind, symbol.emitted_name.clone())) {
         return Err(DefinitionValidationError::DuplicateEmittedName(
             symbol.emitted_name.clone(),
         ));
