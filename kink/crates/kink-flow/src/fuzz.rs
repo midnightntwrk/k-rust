@@ -2344,6 +2344,18 @@ pub fn fuzz_front(
                     Refusal::new("pattern", "unknown-pattern", format!("no pattern {id:?}"));
                 return refuse(document, refusal, "name a pattern of PATTERNS.toml");
             };
+            if entry.single().is_none() {
+                let refusal = Refusal::new(
+                    "pattern",
+                    "chain-pattern",
+                    format!("pattern {id:?} is a chain (`steps`), which fuzz does not target"),
+                );
+                return refuse(
+                    document,
+                    refusal,
+                    "name a pattern written as one `pattern`: a fuzz goal is one state to reach",
+                );
+            }
             Some(entry)
         }
         FuzzJob::Kill { .. }
@@ -2553,17 +2565,20 @@ pub fn fuzz_front(
         },
         FuzzJob::Pattern { .. } => {
             let entry = pattern_entry.expect("a pattern job has its entry");
-            match lower_pattern(manifest, &spec, &entry.pattern) {
+            let text = entry
+                .single()
+                .expect("a chain is refused when the job's entry is found");
+            match lower_pattern(manifest, &spec, text) {
                 Ok(kore) => {
                     document["job"]["pattern"] =
-                        json!({"id": entry.id, "text": entry.pattern, "kore": kore});
+                        json!({"id": entry.id, "text": text, "kore": kore});
                     Some(TargetKind::Pattern(PatternTarget {
-                        pattern: entry.pattern.clone(),
+                        pattern: text.to_owned(),
                         at: PatternAt::AnyState,
                     }))
                 }
                 Err(refusal) => {
-                    document["job"]["pattern"] = json!({"id": entry.id, "text": entry.pattern});
+                    document["job"]["pattern"] = json!({"id": entry.id, "text": text});
                     return refuse(
                         document,
                         refusal,

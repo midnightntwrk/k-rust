@@ -302,6 +302,58 @@ fn a_pattern_list_error_names_its_key() {
     assert!(!dir.join(CACHE_DIRECTORY).exists());
 }
 
+/// A chain (`steps`) decodes, but no route answers one yet: a query selecting it is refused
+/// before anything runs, naming the pattern, and the other patterns are asked with `--only`. A
+/// `steps` of one step is its `pattern`, and is answered as the pattern is, under its digest.
+#[test]
+fn a_chain_is_refused_until_it_is_evaluated() {
+    let dir = fixture("calc", "chain-refused");
+    let patterns = dir.join("PATTERNS-chain.toml");
+    write(
+        &patterns,
+        "[[pattern]]\nid = \"one\"\nsteps = [{ pattern = \"<k> 3 </k>\" }]\nprograms = [\"add\"]\n\n\
+         [[pattern]]\nid = \"c\"\nsteps = [\n  { pattern = \"<k> 1 + 2 ~> _ </k>\" },\n  { \
+         pattern = \"<k> 3 </k>\" },\n]\n",
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
+    assert_eq!(status, EXIT_UNASKED, "{document:#}");
+    assert_eq!(
+        document["pattern_list"]["outcome"], "refused",
+        "{document:#}"
+    );
+    let detail = document["pattern_list"]["detail"].as_str().unwrap();
+    assert!(
+        detail.starts_with("pattern \"c\".steps: chain patterns are not evaluated yet"),
+        "{detail}"
+    );
+    assert!(document.get("rows").is_none(), "{document:#}");
+    assert!(!dir.join(CACHE_DIRECTORY).exists());
+
+    let (document, status) = query(
+        &dir.join("FLOW.toml"),
+        &patterns,
+        QueryOptions {
+            only: vec!["one".into()],
+            ..QueryOptions::default()
+        },
+    );
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let (single, _) = query(
+        &dir.join("FLOW.toml"),
+        &flow("calc").join("PATTERNS.toml"),
+        QueryOptions {
+            only: vec!["result-three".into()],
+            ..QueryOptions::default()
+        },
+    );
+    assert_eq!(
+        document["patterns"][0]["digest"], single["patterns"][0]["digest"],
+        "{document:#}"
+    );
+    assert_eq!(document["patterns"][0]["pattern"], "<k> 3 </k>");
+    assert_eq!(document["rows"][0]["answer"], "hit", "{document:#}");
+}
+
 /// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
 /// test after ten minutes, so this clock fires only on a test that fails anyway, and the bound
 /// decides every passing run (R4-WALLCLOCK).
@@ -2722,7 +2774,7 @@ programs = ["add"]
                     .find(|p| p.id == row["pattern"])
                     .unwrap();
                 let program = row["program"].as_str().unwrap();
-                let stepped = stepper.hit(program, &entry.pattern, 10_000);
+                let stepped = stepper.hit(program, entry.single().unwrap(), 10_000);
                 let expected = match row["answer"].as_str().unwrap() {
                     "hit" => Some(true),
                     "no" => Some(false),

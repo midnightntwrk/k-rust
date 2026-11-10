@@ -13,6 +13,14 @@
 //! id, `expect` beside `programs`, and a claimed program the manifest does not have are errors
 //! naming the key.
 //!
+//! **Chains** ([`chain`]): a `[[pattern]]` may write `steps = [{ pattern = "...", unless =
+//! "..." }, ...]` in place of `pattern`: some path of the run passes states matching each step in
+//! order, under one assignment of the variables the steps share, with no state matching a step's
+//! `unless` between it and the step before. Each step and each `unless` is lowered as a single
+//! pattern is, and the variables the parts share are checked ([`Lowering::lower_chain`]). A
+//! `steps` of one step without `unless` is that step's `pattern`. `query` does not evaluate a
+//! chain yet: a list holding one among the selected patterns is refused.
+//!
 //! **Lowering** ([`Lowering`]). A pattern is K text, parsed by the specification's own grammar: it
 //! is compiled by k-rust's public `kompile::compile_search_pattern` (the compiler `krun --pattern`
 //! uses), which parses the text as the content of a rule (`#RuleContent`) in the main module's
@@ -286,6 +294,9 @@ use std::{
 };
 use toml::{Table, Value as TomlValue};
 
+pub mod chain;
+pub use chain::{CHAIN_DOMAIN, LoweredChain, LoweredStep, LoweredUnless, StepText};
+
 /// The lowering of a pattern's K text to its KORE target ([`Lowering`]), a component of every
 /// cached answer's key: it changes whenever kink changes how a pattern's text becomes a target.
 pub const LOWERING_VERSION: &str = "kink-flow/pattern-lowering/v1";
@@ -334,9 +345,8 @@ pub struct PatternList {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternEntry {
     pub id: String,
-    /// K text: a configuration fragment as a rule's left-hand side is written, cells completed
-    /// by k-rust as for rules, optionally followed by `requires` and a condition.
-    pub pattern: String,
+    /// The pattern's K text (key `pattern`), or its chain of steps (key `steps`).
+    pub form: PatternForm,
     /// The corpus programs the author claims hit the pattern (per-input claims), each asked and
     /// checked; `None` when the pattern states none. Whether or not it has claims, every pattern
     /// is an obligation of the corpus ([`crate::query`]).
@@ -349,6 +359,30 @@ pub struct PatternEntry {
     pub expect: Option<PatternExpect>,
     /// Free text for the reader; it enters no digest.
     pub note: Option<String>,
+}
+
+impl PatternEntry {
+    /// The K text of a single pattern; `None` for a chain.
+    #[must_use]
+    pub fn single(&self) -> Option<&str> {
+        match &self.form {
+            PatternForm::Single(text) => Some(text),
+            PatternForm::Chain(_) => None,
+        }
+    }
+}
+
+/// What a `[[pattern]]` asks of a run ([`PatternEntry::form`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PatternForm {
+    /// Key `pattern`, K text: a configuration fragment as a rule's left-hand side is written,
+    /// cells completed by k-rust as for rules, optionally followed by `requires` and a condition.
+    /// Some state of the run matches it.
+    Single(String),
+    /// Key `steps`, a chain of at least two steps ([`chain`]): the run passes states matching
+    /// each step in order, under one assignment of the variables the steps share. A `steps` of
+    /// one step without `unless` asks what its `pattern` asks, and is decoded as that pattern.
+    Chain(Vec<StepText>),
 }
 
 /// The answer a pattern states it expects of the corpus ([`PatternEntry::expect`]).
@@ -378,7 +412,7 @@ impl PatternExpect {
     }
 }
 
-fn pattern_key(id: &str) -> String {
+pub(crate) fn pattern_key(id: &str) -> String {
     format!("pattern {id:?}")
 }
 
@@ -475,14 +509,24 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
     known_keys(
         table,
         &key,
-        &["id", "pattern", "programs", "expect", "note"],
+        &["id", "pattern", "steps", "programs", "expect", "note"],
     )?;
-    let pattern = non_empty(
-        table
-            .get("pattern")
-            .ok_or_else(|| ManifestError::new(join(&key, "pattern"), "missing required key"))?,
-        &join(&key, "pattern"),
-    )?;
+    let form = match (table.get("pattern"), table.get("steps")) {
+        (Some(_), Some(_)) => {
+            return Err(ManifestError::new(
+                join(&key, "steps"),
+                "a pattern is either one `pattern` or a chain of `steps`: keep one of the two",
+            ));
+        }
+        (Some(pattern), None) => PatternForm::Single(non_empty(pattern, &join(&key, "pattern"))?),
+        (None, Some(steps)) => chain::decode_steps(steps, &join(&key, "steps"))?,
+        (None, None) => {
+            return Err(ManifestError::new(
+                join(&key, "pattern"),
+                "missing required key (a pattern has `pattern`, or `steps` for a chain)",
+            ));
+        }
+    };
     let note = table
         .get("note")
         .map(|value| match value.as_str() {
@@ -543,7 +587,7 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
     }
     Ok(PatternEntry {
         id,
-        pattern,
+        form,
         programs,
         expect,
         note,
@@ -1878,7 +1922,9 @@ fn decided(found: &SearchMatchOutput<Pattern>) -> Result<(), String> {
 /// (`generated_anonymous_variables`), or one spelled as its fresh-name passes spell an anonymous
 /// variable (`_Gen<n>`, `?_Gen<n>`, `!_Gen<n>`, `@_Gen<n>`, `_DotVar<n>`: k-rust
 /// `kompile::fresh_names`). At k-rust 501f18b9 the list omits the variables that complete the
-/// omitted sibling cells of a pattern, so both are read. A display rule only: no answer reads it.
+/// omitted sibling cells of a pattern, so both are read. A witness's bindings leave such a
+/// variable out, and a chain does not share it between its parts ([`chain`]): each part's
+/// generated variables are its own.
 fn generated(lowered: &LoweredPattern, name: &str) -> bool {
     if lowered.generated.contains(name) {
         return true;
@@ -2884,6 +2930,84 @@ mod tests {
             });
             incomplete(&outcome, UNDEFINED_STATE);
         });
+    }
+
+    /// The digests of the calc and loop fixtures' patterns, as every cached answer's key names
+    /// them: a change to how a single pattern is decoded, lowered or digested moves them, and
+    /// every record cached under them with it.
+    #[test]
+    fn the_fixture_pattern_digests_are_pinned() {
+        const PINNED: [(&str, &str, &str); 7] = [
+            (
+                "calc",
+                "result-three",
+                "a585d2cf629504e1272931036566d3324ffd48219377fa22ad71569f1c4800cb",
+            ),
+            (
+                "calc",
+                "result-four",
+                "ace32289902c3f9dc876da649c5c6eccf24a1bafe317aedff6b8bdfa10d23846",
+            ),
+            (
+                "calc",
+                "result-above-five",
+                "02f22d51e1cc4d2ef97f4cc7ad04ea9ad73310f361718c5302a9fecc1c09cf3f",
+            ),
+            (
+                "calc",
+                "adding-one-and-two",
+                "8465d1ac59de5e8e4d8beb7cf04be9e1d6bab4520cc6056c62afaa57bdbe0467",
+            ),
+            (
+                "loop",
+                "countdown-starts",
+                "0dfeff8f745a06e62a566e64e4cce1d4f9298c5428ce9a9b21cf5115d2d56ea3",
+            ),
+            (
+                "loop",
+                "zero",
+                "c4a7081c857f2d94092eae80b2724b2e7688da4ddd4a3c1b446f4725b2abeaa6",
+            ),
+            (
+                "loop",
+                "spin-five",
+                "7e5ae33ee0d2260b5c9389a99f0691e2e9de279bc816adafc06f907f96e9e15e",
+            ),
+        ];
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(|| {
+                for fixture in ["calc", "loop"] {
+                    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../testdata/flow")
+                        .join(fixture);
+                    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+                    let list = PatternList::read(&dir.join("PATTERNS.toml")).unwrap();
+                    let (_, admitted) = crate::admit::admit_spec(&manifest);
+                    let (spec, _) = admitted.expect("the fixture is admitted");
+                    let main = &manifest.spec.main_module;
+                    let searcher = Searcher::new(&spec, main, manifest.budget).unwrap();
+                    let lowering = Lowering::new(&spec, main).unwrap();
+                    for entry in &list.patterns {
+                        let lowered = lowering
+                            .lower(entry.single().unwrap(), searcher.definition())
+                            .unwrap();
+                        let pinned = PINNED
+                            .iter()
+                            .find(|(at, id, _)| *at == fixture && *id == entry.id)
+                            .unwrap_or_else(|| panic!("{fixture} {} is pinned", entry.id));
+                        assert_eq!(
+                            lowered.digest.to_string(),
+                            pinned.2,
+                            "{fixture} {}",
+                            entry.id
+                        );
+                    }
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     /// A pattern is lowered to the target the search reads, and admitted as the search admits

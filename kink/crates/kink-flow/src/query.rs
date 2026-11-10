@@ -93,8 +93,8 @@ use crate::{
     manifest::{FlowManifest, ManifestError},
     pattern::{
         Answer, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredPattern, Lowering, PatternEntry,
-        PatternExpect, PatternList, Route, SearchOutcome, Searcher, judge, search_modality,
-        stopped_modality,
+        PatternExpect, PatternForm, PatternList, Route, SearchOutcome, Searcher, judge,
+        search_modality, stopped_modality,
     },
     results::{
         BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
@@ -396,6 +396,12 @@ pub(crate) fn query_with(
     (named(manifest, document), ok)
 }
 
+/// Why a query refuses a list whose selected patterns hold a chain (`steps`): a chain is decoded
+/// and its variables are checked ([`crate::pattern::chain`]), but no route evaluates one yet, and
+/// answering it as any other pattern would answer another question.
+pub const CHAIN_NOT_EVALUATED: &str = "chain patterns are not evaluated yet: this build decodes \
+     and checks `steps` but has no route that answers a chain; ask the other patterns with --only";
+
 /// Why a query ignores `[observe]` (module docs).
 pub const OBSERVE_IGNORED: &str = "a pattern query asks which states one definition's run \
      reaches; observation channels compare two definitions' runs, and change neither which states \
@@ -422,6 +428,16 @@ fn query_unnamed(
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
 ) -> (Value, bool) {
     if let Err(error) = list.check_programs(manifest) {
+        return (pattern_list_refused(&error), false);
+    }
+    if let Some(entry) = list.patterns.iter().find(|entry| {
+        matches!(entry.form, PatternForm::Chain(_))
+            && (options.only.is_empty() || options.only.contains(&entry.id))
+    }) {
+        let error = ManifestError::new(
+            format!("{}.steps", crate::pattern::pattern_key(&entry.id)),
+            CHAIN_NOT_EVALUATED,
+        );
         return (pattern_list_refused(&error), false);
     }
     let (mut record, admitted) = admit_spec(manifest);
@@ -497,12 +513,15 @@ fn query_unnamed(
         .iter()
         .filter(|entry| options.only.is_empty() || options.only.contains(&entry.id))
     {
-        let lowered = lowering.lower(&entry.pattern, searcher.definition());
+        let PatternForm::Single(text) = &entry.form else {
+            unreachable!("a chain among the selected patterns refuses the list before admission")
+        };
+        let lowered = lowering.lower(text, searcher.definition());
         let claimed = entry.programs.is_some();
         patterns.push(json!({
             "id": entry.id,
             "note": entry.note,
-            "pattern": entry.pattern,
+            "pattern": text,
             "outcome": if lowered.is_ok() { "valid" } else { INVALID_PATTERN },
             "detail": lowered.as_ref().err(),
             "digest": lowered.as_ref().ok().map(|l| l.digest.to_string()),
@@ -1345,7 +1364,7 @@ mod tests {
     fn entry(expect: Option<PatternExpect>) -> PatternEntry {
         PatternEntry {
             id: "p".into(),
-            pattern: "<k> 7 </k>".into(),
+            form: PatternForm::Single("<k> 7 </k>".into()),
             programs: None,
             expect,
             note: None,
