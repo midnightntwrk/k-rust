@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use krs_test_support::{
     default_labels, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+    without_constant_names,
 };
 
 /// The declarations both packages share.
@@ -361,7 +362,8 @@ fn emit(target: &Path, manifest: &Path, package: &str, output: &Path) -> (bool, 
 }
 
 /// The definition's rules, each with its continuation lines, without default labels
-/// (which spell each package's identities), in sorted order.
+/// (which spell each package's identities) and without the comments that name the constants
+/// their literals are the values of, in sorted order.
 fn rules(definition: &str) -> Vec<String> {
     let mut rules: Vec<String> = Vec::new();
     for line in definition.lines() {
@@ -376,7 +378,8 @@ fn rules(definition: &str) -> Vec<String> {
         }
     }
     for rule in &mut rules {
-        *rule = default_labels(rule).replace("label(krsRule_DIGEST)", "label(..)");
+        *rule = without_constant_names(&default_labels(rule))
+            .replace("label(krsRule_DIGEST)", "label(..)");
     }
     rules.sort();
     rules
@@ -413,6 +416,12 @@ fn branches_emit_the_equations_written_by_hand() {
         &temporary.path().join("long-form-out"),
     );
     assert!(success, "{stderr}");
+    // `Port`'s branches match the constants `IF` and `MASK`: each literal names its constant
+    // there, where the long form, which writes the literals, names none.
+    for named in ["65295 /* IF */", "15 /* MASK */"] {
+        assert!(branching.contains(named), "{branching}");
+    }
+    assert!(!long_form.contains("/* "), "{long_form}");
     let branching = rules(&branching);
     assert_eq!(branching, rules(&long_form));
     // `Magnitude`'s one equation, and the twenty-three that branches define.

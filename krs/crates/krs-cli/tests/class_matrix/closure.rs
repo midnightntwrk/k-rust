@@ -69,9 +69,10 @@ impl Closure {
 /// more deeply indented lines after it continue it. Module headers, imports, and `endmodule`
 /// are left out, and so are the comments that name the Rust source rather than the K
 /// ([`krs_test_support::without_source_comments`]): the artifact's header (the comment lines
-/// that open it) and the `// KRS` line above a sentence, which a case and its printed source
+/// that open it), the `// KRS` line above a sentence, which a case and its printed source
 /// spell differently for one sentence (a shorthand branch and the equation fn `krs expand`
-/// prints for it). Rustdoc, capability lines and any other comment stay sentences.
+/// prints for it), and the ` /* NAME */` after a constant's literal. Rustdoc, capability lines
+/// and any other comment stay sentences.
 #[must_use]
 pub fn sentences(text: &str) -> Vec<String> {
     let mut sentences = Vec::<String>::new();

@@ -138,7 +138,7 @@ Each opens with a header that says it is generated, from which Cargo packages, a
 
 `definition.k`'s header adds the last two lines, on mutations, since kink patches that file: a mutation is a K patch anchored by a rule's label, `krs kink check` resolves it, and the link gives the reasons; `spec.k`'s header has the first three lines only.
 The packages are those of every module and sentence the file holds, so `definition.k` also names `krs`, whose sources declare the framework module.
-Above each rule, equation, simplification, alias, desugar, context and claim, and above the configuration, a `// KRS` line names the Rust item the sentence comes from, by its package, its file relative to the package, and the item as the source spells it:
+Above each rule, equation, simplification, alias, desugar, context and claim, above the configuration, and above each production the author wrote, a `// KRS` line names the Rust item the sentence comes from, by its package, its file relative to the package, and the item as the source spells it:
 
 ```text
   // KRS story-plus/src/lib.rs: plus_zero
@@ -151,12 +151,31 @@ An equation of a function KRS lifts out of a `let` block or a `k::matches!` name
 An equation of a function that, within the definition, only claims apply ends with `(claim helper: only claims apply it)`: no initializer term, no production of the program syntax and no other sentence a run can fire applies the function, not even through the equations of the functions those apply.
 The mark is about the definition alone: a run's [input](/reference/workflow#inputs-by-name) may apply any function through `{"$call": ..}`, a claim helper included.
 A definition with a `raw_k!` sentence marks none, since its opaque text may apply any function.
-A `raw_k!` sentence keeps its own `// raw_k! <package>/<file> (opaque to KRS)` comment instead, and the other sentences (sorts, productions, priorities, context aliases) have no line; a production's rustdoc is its own comment.
+A production names its constructor or function as the source declares it, `Step::SelectVector`, `Double`, and a constructor's production lists its named fields in production order, so that `flags(_, _, _, _)` in a rule reads by field:
+
+```text
+  // KRS cpu/src/lib.rs: Flags { z, n, h, c }
+  syntax Flags ::= "flags" "(" Bool "," Bool "," Bool "," Bool ")" [symbol(flags)]
+```
+
+A function's production names the function alone, a struct's as a `fn`'s, since both declare its parameters alike; its rustdoc follows the `// KRS` line, as the production's own comment.
+A production KRS derives names no item the author wrote and has no line: a syntactic list's `List{..}`, which K expands for the whole `#[k::syntax_list]` enum, a token or bracket production KRS generates for a sort, and the production of a function lifted out of a `let` block or a `k::matches!`.
+A `raw_k!` sentence keeps its own `// raw_k! <package>/<file> (opaque to KRS)` comment instead, and the other sentences (sorts, subsorts, priorities, context aliases) have no line.
+
+A literal that is the whole value of a [named constant](/reference/language#named-constants) the author wrote at its place names the constant after it:
+
+```text
+    <k> selectVector => write ( 65295 /* IF */ , 1 ) ... </k>
+```
+
+The name is the one written there: with `const FLAGS_REGISTER: Int = IF;`, a use of `FLAGS_REGISTER` is `65295 /* FLAGS_REGISTER */`.
+A literal that is a part of a constant's value, the `65295` of a constant `RESET` whose value is `Write { address: IF, value: 0 }`, names none, since `RESET` is the constant written there and the literal is not its whole value.
+The emitted K keeps arithmetic over a constant as the author wrote it, unevaluated, so `IF + 1` is `65295 /* IF */ +Int 1`.
 
 No comment holds a line, a column or a byte offset: the exact Rust line is the source map's, in `sources.json`.
 An edit that only moves Rust lines, such as a blank line or a `//` comment above an item, therefore leaves both files byte-identical, so a committed `definition.k`, and every digest of it, changes only when an item is added, removed, renamed or moved, or when its K changes.
 A rustdoc comment is different: a production's rustdoc is emitted above the production, so a new `///` line on one changes `definition.k`.
-The comments are K comments outside the generated range of every sentence: they change no sentence and no range `sources.json` records for one, and only the source locations K's own front end reads from `definition.k` move with them.
+The `// KRS` lines are K comments outside the generated range of every sentence, and a constant's name is a K comment inside its sentence's range but outside its literal's: they change no sentence K reads, no KORE and no node's own text, and only the ranges `sources.json` records after them, and the source locations K's own front end reads from `definition.k`, move with them.
 
 `krs build` continues from Definition IR to selected LLVM or Haskell KORE artifacts.
 The Haskell target carries the claims for proving; LLVM executes but does not prove, so its build omits the claims and reports how many.

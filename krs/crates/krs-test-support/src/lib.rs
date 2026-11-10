@@ -147,8 +147,9 @@ pub fn default_labels(text: &str) -> String {
 }
 
 /// Emitted K `text` without the comments that name its Rust sources: the artifact's header (its
-/// unindented comment lines) and the `// KRS` line above each sentence. A test of the sentences'
-/// K reads them this way; the comments have tests of their own.
+/// unindented comment lines), the `// KRS` line above each sentence, and the ` /* NAME */` after
+/// each literal that is a constant's value. A test of the sentences' K reads them this way; the
+/// comments have tests of their own.
 #[must_use]
 pub fn without_source_comments(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -165,8 +166,36 @@ pub fn without_source_comments(text: &str) -> String {
         if line.trim_start().starts_with("// KRS ") {
             continue;
         }
-        out.push_str(line);
+        out.push_str(&without_constant_names(line));
     }
+    out
+}
+
+/// `text` without each ` /* NAME */` that names, after a literal, the constant it is the value
+/// of: a block comment holding one Rust identifier, with the space before it.
+#[must_use]
+pub fn without_constant_names(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(" /* ") {
+        let after = &rest[start + " /* ".len()..];
+        let name_end = after
+            .find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .unwrap_or(after.len());
+        let name = &after[..name_end];
+        let is_name = name
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_');
+        if is_name && after[name_end..].starts_with(" */") {
+            out.push_str(&rest[..start]);
+            rest = &after[name_end + " */".len()..];
+        } else {
+            out.push_str(&rest[..start + " /* ".len()]);
+            rest = after;
+        }
+    }
+    out.push_str(rest);
     out
 }
 

@@ -4,7 +4,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    fixture_build_env, krs_command, shared_fixture_target, temp_dir, without_constant_names,
+};
 
 const PREAMBLE: &str = r#"
 use k::builtin::{Int, KSequence};
@@ -231,6 +233,17 @@ fn emitted_k(target: &Path, manifest: &Path) -> (String, String) {
     )
 }
 
+/// The constants that the literals of emitted K `text` name, in order: each `NAME` of
+/// ` /* NAME */`.
+fn constant_names(text: &str) -> Vec<&str> {
+    text.match_indices(" /* ")
+        .map(|(at, _)| {
+            let rest = &text[at + " /* ".len()..];
+            &rest[..rest.find(" */").unwrap()]
+        })
+        .collect()
+}
+
 /// The directory `krs emit-k` wrote.
 fn emit_k(target: &Path, manifest: &Path) -> PathBuf {
     let output = manifest.with_file_name("emitted");
@@ -285,10 +298,37 @@ fn a_constant_stands_for_its_value_at_every_use() {
     let inline = temp_dir();
     let named_manifest = package(named.path(), NAMED);
     let inline_manifest = package(inline.path(), INLINE);
+    // The same K, but that a literal which is the whole value of a constant written at its
+    // place names the constant: `ALIAS` by the name written, not `IF`'s; `START`'s `65295` is a
+    // part of its value and names none.
+    let (definition, spec) = emitted_k(target.path(), &named_manifest);
     assert_eq!(
-        emitted_k(target.path(), &named_manifest),
+        (
+            without_constant_names(&definition),
+            without_constant_names(&spec)
+        ),
         emitted_k(target.path(), &inline_manifest)
     );
+    expect_test::expect![[r#"
+        (
+            [
+                "PC_START",
+                "ALIAS",
+                "IE",
+                "IF",
+                "LCDC",
+                "PC_START",
+                "IF",
+                "IE",
+            ],
+            [
+                "IF",
+                "PC_START",
+                "IF",
+            ],
+        )
+    "#]]
+    .assert_debug_eq(&(constant_names(&definition), constant_names(&spec)));
     let outcomes = [
         "load(65295)",
         "load(65535)",
@@ -395,10 +435,15 @@ k::rules! {{
         fs::read_to_string(emit_k(target.path(), manifest).join("definition.k")).unwrap()
     };
     let named = definition(&named_manifest);
-    assert_eq!(named, definition(&inline_manifest));
+    let inline = definition(&inline_manifest);
+    assert_eq!(without_constant_names(&named), inline);
     let entry =
         r#"named ( #token("$main","Id") , #token("b\"ab\"","Bytes") , #token("word","Word") )"#;
-    assert_eq!(named.matches(entry).count(), 2, "{named}");
+    assert_eq!(inline.matches(entry).count(), 2, "{inline}");
+    // Each token `entry` writes is a constant's whole value; `exit`'s are parts of `ENTRY`'s.
+    let named_entry = r#"named ( #token("$main","Id") /* MAIN */ , #token("b\"ab\"","Bytes") /* MAGIC */ , #token("word","Word") /* WORD */ )"#;
+    assert_eq!(named.matches(named_entry).count(), 1, "{named}");
+    assert_eq!(named.matches(entry).count(), 1, "{named}");
 }
 
 #[test]
@@ -475,7 +520,7 @@ k::rules! {
     assert!(success, "{stderr}");
     let emitted = fs::read_to_string(output.join("definition.k")).unwrap();
     assert!(
-        emitted.contains("<k> ask ( 42 ) => 42 ... </k>"),
+        emitted.contains("<k> ask ( 42 /* ANSWER */ ) => 42 /* ANSWER */ ... </k>"),
         "{emitted}"
     );
 }
