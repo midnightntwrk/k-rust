@@ -242,7 +242,7 @@ register_codes! {
         AMBIGUOUS_OR_PATTERN: "krs::analysis::ambiguous-or-pattern" => "Two alternatives of one `A | B` or-pattern can match the same term with different bindings.",
         PRIORITY_AFTER_OWISE: "krs::analysis::priority-after-owise" => "A `priority = N` of 200 or more on an equation beside an `owise` equation of its function, or on a transition that overlaps an `owise` transition: `owise` comes after every other sentence that applies, but the emitted `owise` attribute fixes no rank against priorities 200 to 254, so the two have no single order.",
         NONDET_GROUP: "krs::analysis::nondet-group" => "A `nondet` group has one rule, mixes priorities, or names a rule that overlaps no other rule of the group.",
-        SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a production's symbol is one K generates.",
+        SYMBOL_NAME_COLLISION: "krs::analysis::symbol-name-collision" => "Two declarations have the same emitted symbol name, or a declaration takes a name K itself gives a meaning: a symbol K generates or a builtin module the definition imports declares, one of K's own sorts or a sort K generates for a cell, a cell K adds, or a sentence keyword as a terminal.",
         NAME_COLLISION: "krs::analysis::name-collision" => "Two declarations have the same name in a lowering namespace.",
         INVALID_OVERLOAD: "krs::analysis::invalid-overload" => "An `overload` key does not name a constructor production that its member specialises.",
         MISSING_PRECEDENCE_CHAIN: "krs::analysis::missing-precedence-chain" => "A constructor family without `#[k::precedence]` has a variant that can sit directly at the edge of another of its variants.",

@@ -15,6 +15,7 @@ mod error;
 mod guard_families;
 mod instance_keys;
 mod int_facts;
+mod k_reserved;
 mod lowering;
 mod mutant_theory;
 mod never_cools;

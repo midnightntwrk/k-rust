@@ -164,6 +164,22 @@ pub enum LoweringError {
         /// Exact parser-owned authored provenance for the production.
         origin: OriginStack,
     },
+    /// An authored declaration takes a K name that K itself declares or reads otherwise: a
+    /// symbol of one of K's builtin modules the definition sees, one of K's own sorts or the
+    /// sorts it generates for the definition's cells, a cell K generates, or a sentence keyword
+    /// as a terminal.
+    ReservedKName {
+        /// The K name.
+        value: String,
+        /// The declaration.
+        owner: String,
+        /// What the name is in K.
+        reserved: String,
+        /// How to give the declaration another name.
+        help: &'static str,
+        /// Exact parser-owned authored provenance for the declaration.
+        origin: OriginStack,
+    },
     /// A syntactic list's derived cons or terminator symbol collides with
     /// another production's symbol (KF-020, R11).
     ListSymbolCollision {
@@ -237,6 +253,15 @@ impl fmt::Display for LoweringError {
                 formatter,
                 "{owner} has the symbol {value:?}, which K generates as {generated}"
             ),
+            Self::ReservedKName {
+                value,
+                owner,
+                reserved,
+                ..
+            } => write!(
+                formatter,
+                "{owner} has the K name {value:?}, which {reserved}"
+            ),
             Self::ListSymbolCollision { list, other, .. } => {
                 let base = lower_camel(list);
                 write!(
@@ -274,9 +299,9 @@ impl ToDiagnostic for LoweringError {
                 | CollisionNamespace::EmittedLabel
                 | CollisionNamespace::LabelId => codes::analysis::NAME_COLLISION,
             },
-            Self::ListSymbolCollision { .. } | Self::GeneratedSymbolCollision { .. } => {
-                codes::analysis::SYMBOL_NAME_COLLISION
-            }
+            Self::ListSymbolCollision { .. }
+            | Self::GeneratedSymbolCollision { .. }
+            | Self::ReservedKName { .. } => codes::analysis::SYMBOL_NAME_COLLISION,
             Self::SourceMapCollision { .. } => codes::analysis::SOURCE_MAP_COLLISION,
             Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidDefinition { .. } => codes::analysis::INVALID_DEFINITION,
@@ -293,6 +318,10 @@ impl ToDiagnostic for LoweringError {
             Self::NameCollision { second_origin, .. }
             | Self::ListSymbolCollision { second_origin, .. }
             | Self::GeneratedSymbolCollision {
+                origin: second_origin,
+                ..
+            }
+            | Self::ReservedKName {
                 origin: second_origin,
                 ..
             } => second_origin
@@ -343,6 +372,9 @@ impl ToDiagnostic for LoweringError {
                 diagnostic = diagnostic.with_help(
                     "rename the production, or give it another symbol with `#[k::symbol(\"path::Name\")]`",
                 );
+            }
+            Self::ReservedKName { help, .. } => {
+                diagnostic = diagnostic.with_help(*help);
             }
             _ => {}
         }
@@ -402,6 +434,7 @@ impl LoweringError {
             Self::InvalidProductionTemplate { production, .. } => Some(production),
             Self::NameCollision { .. }
             | Self::GeneratedSymbolCollision { .. }
+            | Self::ReservedKName { .. }
             | Self::ListSymbolCollision { .. }
             | Self::InvalidSidecar(_)
             | Self::Partition(_) => None,
@@ -425,6 +458,7 @@ impl LoweringError {
             Self::InvalidProductionTemplate { .. }
             | Self::NameCollision { .. }
             | Self::GeneratedSymbolCollision { .. }
+            | Self::ReservedKName { .. }
             | Self::ListSymbolCollision { .. }
             | Self::InvalidSidecar(_)
             | Self::Partition(_) => {}
@@ -498,6 +532,7 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         }
     }
     check_signed_integer_leak(&lowered_modules)?;
+    check_builtin_names(&lowered_modules, &names)?;
     if let Some(split) = &names.configuration {
         check_configuration_visibility(&lowered_modules, split)?;
     }
@@ -628,6 +663,52 @@ fn check_signed_integer_leak(modules: &[DefinitionModule]) -> Result<(), Lowerin
     Ok(())
 }
 
+/// Refuses an authored sort or production that takes the name of a sort or symbol of a builtin
+/// module the definition imports ([`crate::k_reserved`]): a symbol names one production in the
+/// modules a definition imports, and a sort one sort, so the authored declaration would add to
+/// K's. A module with a configuration imports `MAP` (K reads its initial values from a map).
+fn check_builtin_names(
+    modules: &[DefinitionModule],
+    names: &NamingPass,
+) -> Result<(), LoweringError> {
+    let mut imports = BTreeSet::new();
+    for module in modules {
+        for policy in [ImportPolicy::SourceText, ImportPolicy::NativeFrontend] {
+            imports.extend(builtin_imports(module, policy));
+        }
+        if module
+            .sentences()
+            .iter()
+            .any(|sentence| matches!(sentence, DefinitionSentence::Configuration(_)))
+        {
+            imports.insert("MAP");
+        }
+    }
+    let sorts = crate::k_reserved::imported_sorts(&imports);
+    let symbols = crate::k_reserved::imported_symbols(&imports);
+    let reserved = names
+        .named_sorts
+        .iter()
+        .filter_map(|named| Some((named, sorts.get(named.0.as_str())?)))
+        .chain(
+            names
+                .named_productions
+                .iter()
+                .filter_map(|named| Some((named, symbols.get(named.0.as_str())?))),
+        )
+        .next();
+    match reserved {
+        Some(((value, owner, origin), reserved)) => Err(LoweringError::ReservedKName {
+            value: value.clone(),
+            owner: owner.clone(),
+            reserved: reserved.clone(),
+            help: "rename the declaration, or give it another K name with `#[k::symbol(\"path::Name\")]`",
+            origin: origin.clone(),
+        }),
+        None => Ok(()),
+    }
+}
+
 #[derive(Default)]
 struct NamingPass {
     modules: BTreeMap<ModuleId, ModuleId>,
@@ -645,6 +726,10 @@ struct NamingPass {
     configuration: Option<ConfigurationSplit>,
     /// The keys each function evaluated in one instance of a Map collection receives.
     instance_keys: crate::instance_keys::InstanceKeys,
+    /// Each authored sort's K name, with the sort and its provenance.
+    named_sorts: Vec<(String, String, OriginStack)>,
+    /// Each production's symbol, with the production and its provenance.
+    named_productions: Vec<(String, String, OriginStack)>,
 }
 
 /// The configuration of the configured module `<NS>`, moved into a module
@@ -764,7 +849,8 @@ impl NamingPass {
         let mut list_owners = BTreeMap::<String, String>::new();
         let mut production_displays = BTreeMap::<String, String>::new();
         let mut production_symbols = Vec::<(String, String, OriginStack)>::new();
-        let mut cell_names = Vec::<String>::new();
+        let mut sort_names = Vec::<(String, String, OriginStack)>::new();
+        let mut cells = Vec::<(String, Option<krs_ir::CellCollectionType>)>::new();
 
         for module in theory.modules() {
             validate_module_name(module.id().as_str())?;
@@ -805,14 +891,22 @@ impl NamingPass {
                     CollisionNamespace::SymbolId,
                     sort.origin(),
                 )?;
+                let description = format!(
+                    "sort `{}` of {}",
+                    rust_item_path(sort.id(), sort.id().item_name()),
+                    sort.id().package().k_namespace()
+                );
+                if !is_framework_module(module.id()) {
+                    sort_names.push((
+                        name.clone(),
+                        description.clone(),
+                        sort.origin().origin().clone(),
+                    ));
+                }
                 claim(
                     &mut emitted,
                     name.clone(),
-                    format!(
-                        "sort `{}` of {}",
-                        rust_item_path(sort.id(), sort.id().item_name()),
-                        sort.id().package().k_namespace()
-                    ),
+                    description,
                     CollisionNamespace::EmittedSymbol,
                     sort.origin(),
                 )?;
@@ -838,6 +932,27 @@ impl NamingPass {
                 let display = production_display_name(production.id());
                 let list = list_enum_name(production).map(str::to_owned);
                 let description = production_owner(production, &display);
+                if let Some(keyword) =
+                    production
+                        .items()
+                        .iter()
+                        .find_map(|item| match item.kind() {
+                            GrammarProductionItemKind::Terminal { text } => {
+                                crate::k_reserved::sentence_keyword(text)
+                            }
+                            _ => None,
+                        })
+                {
+                    return Err(LoweringError::ReservedKName {
+                        value: keyword.to_owned(),
+                        owner: description,
+                        reserved: format!(
+                            "is a terminal K reads as a sentence keyword: K ends a sentence's text at a bare `{keyword}`, so a rule or claim that applies the production would end there"
+                        ),
+                        help: "spell the terminal otherwise, or rename the function whose name gives it",
+                        origin: production.origin().origin().clone(),
+                    });
+                }
                 production_symbols.push((
                     name.clone(),
                     description.clone(),
@@ -890,7 +1005,7 @@ impl NamingPass {
                     &mut pass.group_cells,
                     &mut identities,
                     &mut emitted,
-                    &mut cell_names,
+                    &mut cells,
                 )?;
             }
             // Context aliases that share a name are one evaluation
@@ -962,6 +1077,10 @@ impl NamingPass {
             )?;
             pass.configuration = Some(split);
         }
+        let cell_names = cells
+            .iter()
+            .map(|(cell, _)| cell.clone())
+            .collect::<Vec<_>>();
         let generated = k_generated_symbols(
             pass.sorts
                 .values()
@@ -969,6 +1088,20 @@ impl NamingPass {
                 .collect(),
             &cell_names,
         );
+        let reserved_sorts = crate::k_reserved::reserved_sorts(&cells);
+        for (value, owner, origin) in &sort_names {
+            if let Some(reserved) = reserved_sorts.get(value) {
+                return Err(LoweringError::ReservedKName {
+                    value: value.clone(),
+                    owner: owner.clone(),
+                    reserved: reserved.clone(),
+                    help: "rename the sort, or give it another K name with `#[k::symbol(\"path::Name\")]`",
+                    origin: origin.clone(),
+                });
+            }
+        }
+        pass.named_sorts = sort_names;
+        pass.named_productions.clone_from(&production_symbols);
         for (value, owner, origin) in production_symbols {
             if let Some(generated) = generated.get(&value) {
                 return Err(LoweringError::GeneratedSymbolCollision {
@@ -1088,13 +1221,25 @@ fn name_fixed_cells(
     groups: &mut BTreeMap<StableItemId, SymbolId>,
     identities: &mut Claims,
     emitted: &mut Claims,
-    cell_names: &mut Vec<String>,
+    named: &mut Vec<(String, Option<krs_ir::CellCollectionType>)>,
 ) -> Result<(), LoweringError> {
     for cell in cells {
         let owner = format!("configuration cell {}", cell.id().as_str());
         let id = SymbolId::new(format!("cell:{}", lower_hex(cell.id().as_str().as_bytes())))?;
         validate_cell_name(cell.name())?;
-        cell_names.push(cell.name().to_owned());
+        if let Some((_, reserved)) = crate::k_reserved::K_CELLS
+            .iter()
+            .find(|(name, _)| *name == cell.name())
+        {
+            return Err(LoweringError::ReservedKName {
+                value: cell.name().to_owned(),
+                owner: format!("the cell `{}`", cell.field().unwrap_or(cell.name())),
+                reserved: (*reserved).to_owned(),
+                help: "give the cell another K name with `#[k::cell(name = \"..\")]`",
+                origin: cell.origin().origin().clone(),
+            });
+        }
+        named.push((cell.name().to_owned(), cell.collection_type()));
         claim(
             identities,
             id.as_str().to_owned(),
@@ -1114,7 +1259,7 @@ fn name_fixed_cells(
         }
         lowered.insert(cell.id().clone(), id);
         if let FixedCellContent::Children { children } = cell.content() {
-            name_fixed_cells(children, lowered, groups, identities, emitted, cell_names)?;
+            name_fixed_cells(children, lowered, groups, identities, emitted, named)?;
         }
     }
     Ok(())

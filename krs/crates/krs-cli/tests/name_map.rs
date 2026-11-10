@@ -203,3 +203,143 @@ fn a_raw_row_name_is_its_identifier() {
         )
     );
 }
+
+/// `LIBRARY` with each `(from, to)` replaced and `extra` appended.
+fn library(replacements: &[(&str, &str)], extra: &str) -> String {
+    let mut source = LIBRARY.to_owned();
+    for (from, to) in replacements {
+        assert!(source.contains(from), "{from}");
+        source = source.replacen(from, to, 1);
+    }
+    source + extra
+}
+
+/// The headline of `krs check`'s first error on a package of `library`, or `None` when the
+/// package checks.
+fn check_headline(target: &Path, root: &Path, directory: &str, library: &str) -> Option<String> {
+    let name = format!("name_map_{}", directory.replace('-', "_"));
+    let manifest = package(root, directory, &name, library);
+    let (success, _, stderr) = krs(target, &manifest, &name, "check", &[]);
+    (!success).then(|| {
+        stderr
+            .lines()
+            .find(|line| line.starts_with("error"))
+            .unwrap_or_else(|| panic!("no error:\n{stderr}"))
+            .to_owned()
+    })
+}
+
+/// A declared sort and a constructor of it, appended to `LIBRARY`.
+fn sort(name: &str) -> String {
+    format!(
+        "\nk::sorts! {{\n    {name};\n}}\n\n#[k::constructors(sort = {name}, result = KResult)]\npub enum {name}Syntax {{\n    #[k::syntax(\"mark\")]\n    Mark(),\n}}\n"
+    )
+}
+
+/// `LIBRARY` with a function `name`, which the rule `unwrap` reads in place of `PickF`.
+fn function(name: &str) -> String {
+    library(
+        &[("acc: PickF(v)", &format!("acc: {name}(v)"))],
+        &format!(
+            "\n#[k::function(total, internal)]\npub fn {name}(b: Term<Int>) -> Term<Int> {{\n    int::add(b, 2)\n}}\n"
+        ),
+    )
+}
+
+/// A name K already gives a meaning is one thing in K, so an authored declaration that takes it
+/// would add to K's thing instead of declaring its own: K's own sorts, the sorts K generates for
+/// the definition's cells, a symbol of a builtin module the definition imports (the
+/// conditional's `ite`; a configuration imports `MAP`), a cell K adds to every configuration,
+/// and a terminal K reads as a sentence keyword (a function's name gives its terminal). Each is
+/// refused at the declaration, naming both. A name of a module the definition does not import
+/// (`bigEndianBytes` without bytes), a word K reads as a keyword only between sentences
+/// (`requires`), a sort K does not declare (`KVariable`, whose K sort is `#KVariable`) and a
+/// cell named by a keyword stay accepted.
+#[test]
+fn a_name_k_gives_a_meaning_is_refused_at_the_declaration() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let collision = "error[krs::analysis::symbol-name-collision]: ";
+    let cases = [
+        (
+            "sort-kcell",
+            library(&[], &sort("KCell")),
+            Some(
+                "sort `KCell` of ORG-KRS-NAME-MAP has the K name \"KCell\", which K generates as the sort of the cell `<k>`",
+            ),
+        ),
+        (
+            "sort-kbott",
+            library(&[], &sort("KBott")),
+            Some(
+                "sort `KBott` of ORG-KRS-NAME-MAP has the K name \"KBott\", which K declares as a sort of its own",
+            ),
+        ),
+        ("sort-kvariable", library(&[], &sort("KVariable")), None),
+        (
+            "cell-generated-top",
+            library(
+                &[
+                    (
+                        "pub acc: Int,",
+                        "pub acc: Int,\n    #[k::cell(name = \"generatedTop\")]\n    pub top: Int,",
+                    ),
+                    ("acc: 0 }", "acc: 0, top: 0 }"),
+                ],
+                "",
+            ),
+            Some(
+                "the cell `top` has the K name \"generatedTop\", which K adds as the top cell of every configuration",
+            ),
+        ),
+        (
+            "cell-rule",
+            library(
+                &[
+                    (
+                        "pub acc: Int,",
+                        "pub acc: Int,\n    #[k::cell]\n    pub rule: Int,",
+                    ),
+                    ("acc: 0 }", "acc: 0, rule: 0 }"),
+                ],
+                "",
+            ),
+            None,
+        ),
+    ];
+    let functions = [
+        (
+            "fn-ite",
+            "Ite",
+            Some(
+                "production `Ite` of ORG-KRS-NAME-MAP has the K name \"ite\", which K's builtin module `K-EQUAL` declares as a symbol",
+            ),
+        ),
+        (
+            "fn-size-map",
+            "SizeMap",
+            Some(
+                "production `SizeMap` of ORG-KRS-NAME-MAP has the K name \"sizeMap\", which K's builtin module `MAP` declares as a symbol",
+            ),
+        ),
+        ("fn-big-endian-bytes", "BigEndianBytes", None),
+        (
+            "fn-rule",
+            "Rule",
+            Some(
+                "production `Rule` of ORG-KRS-NAME-MAP has the K name \"rule\", which is a terminal K reads as a sentence keyword: K ends a sentence's text at a bare `rule`, so a rule or claim that applies the production would end there",
+            ),
+        ),
+        ("fn-requires", "Requires", None),
+    ];
+    let cases = cases
+        .into_iter()
+        .chain(functions.map(|(directory, name, expected)| (directory, function(name), expected)));
+    for (directory, source, expected) in cases {
+        assert_eq!(
+            check_headline(target.path(), temporary.path(), directory, &source),
+            expected.map(|reason| format!("{collision}{reason}")),
+            "{directory}"
+        );
+    }
+}
