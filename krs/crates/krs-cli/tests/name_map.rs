@@ -375,3 +375,19 @@ fn context_alias_names_k_spells_alike_are_refused() {
         None
     );
 }
+
+/// A `k::rules!` clause is labelled by its name, so a name no K label spells (a non-ASCII
+/// letter) is refused at the name, as the same label written `label = ".."` is, where it
+/// was an internal error.
+#[test]
+fn a_clause_name_no_k_label_spells_is_refused_at_the_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let source = library(&[("unwrap: {", "dérouler: {")], "");
+    assert_eq!(
+        check_headline(target.path(), temporary.path(), "clause-name", &source).as_deref(),
+        Some(
+            "error[krs::syntax::invalid-argument-value]: `label` must be a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter; a clause is labelled by its name unless `#[k::rule(label = \"..\")]` names it otherwise"
+        )
+    );
+}

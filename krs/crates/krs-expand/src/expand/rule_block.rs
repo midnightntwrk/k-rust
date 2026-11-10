@@ -618,17 +618,31 @@ fn expand_head_rule(
             key: ledger.define(claim.label_key())?,
             name: claim.label().value(),
         },
-        // The clause's name, or its `#[k::rule(label = ..)]`.
+        // The clause's name, or its `#[k::rule(label = ..)]`. A name is its K label, so one
+        // that no K label spells (a non-ASCII letter) is refused at the name, as an authored
+        // label would be.
         None => krs_ir::DescriptorRuleLabel {
             key: ledger.define(
                 clause
                     .label_key()
                     .or_else(|| clause.attribute().label_key()),
             )?,
-            name: clause.attribute().label().map_or_else(
-                || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
-                syn::LitStr::value,
-            ),
+            name: if let Some(label) = clause.attribute().label() {
+                label.value()
+            } else {
+                let name = rule.item().sig.ident.unraw().to_string().replace('_', "-");
+                if !krs_ir::transport::grammar::valid_rule_label_name(&name) {
+                    return Err(krs_syntax::SyntaxError::new(
+                        krs_syntax::SyntaxErrorKind::InvalidArgumentValue {
+                            name: "label",
+                            expected: "a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter; a clause is labelled by its name unless `#[k::rule(label = \"..\")]` names it otherwise",
+                        },
+                        rule.item().sig.ident.span(),
+                    )
+                    .into());
+                }
+                name
+            },
         },
     });
     let (sentence_kind, item_kind, claim) = match clause.claim() {
