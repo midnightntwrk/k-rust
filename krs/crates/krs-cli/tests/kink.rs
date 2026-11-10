@@ -6866,9 +6866,11 @@ fn an_old_verdicts_lock_is_moved_into_the_corpus_record() {
     assert_status(&project.kink("emit", &[]), 0);
     let mut old = "schema = \"kink-flow-verdicts\"\nversion = 23\ndocument = \"run\"\n".to_owned();
     for id in ["plus/a", "plus/b", "plus/c"] {
-        old.push_str(&format!(
+        write!(
+            old,
             "\n[[mutation]]\nid = \"{id}\"\nstatus = \"killed\"\nkiller = \"t4\"\n"
-        ));
+        )
+        .unwrap();
     }
     project.write("kink/verdicts.lock", &old);
     let refused = project.kink("run", &["--locked"]);
