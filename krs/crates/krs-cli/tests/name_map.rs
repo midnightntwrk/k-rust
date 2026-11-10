@@ -312,14 +312,14 @@ fn a_name_k_gives_a_meaning_is_refused_at_the_declaration() {
             "fn-ite",
             "Ite",
             Some(
-                "production `Ite` of ORG-KRS-NAME-MAP has the K name \"ite\", which K's builtin module `K-EQUAL` declares as a symbol",
+                "production `Ite` of ORG-KRS-NAME-MAP has the K name \"ite\", which K's builtin module `K-EQUAL` provides as a symbol (it or a module it imports declares it)",
             ),
         ),
         (
             "fn-size-map",
             "SizeMap",
             Some(
-                "production `SizeMap` of ORG-KRS-NAME-MAP has the K name \"sizeMap\", which K's builtin module `MAP` declares as a symbol",
+                "production `SizeMap` of ORG-KRS-NAME-MAP has the K name \"sizeMap\", which K's builtin module `MAP` provides as a symbol (it or a module it imports declares it)",
             ),
         ),
         ("fn-big-endian-bytes", "BigEndianBytes", None),
@@ -409,4 +409,234 @@ fn a_clause_name_no_k_label_spells_takes_the_hash_label() {
         &temporary.path().join("plain-out"),
     );
     assert!(plain_k.contains("rule [unwrap]:"), "{plain_k}");
+}
+
+/// One prelude module: its imports, the sorts it declares and the symbols of its productions.
+#[derive(Default)]
+struct PreludeModule {
+    imports: Vec<String>,
+    sorts: std::collections::BTreeSet<String>,
+    symbols: std::collections::BTreeSet<String>,
+}
+
+/// The modules of the prelude the emitted K is loaded with: k-rust's bundled `kast.md` and
+/// `domains.md`, read by k-rust's own parser.
+fn prelude() -> std::collections::BTreeMap<String, PreludeModule> {
+    let mut modules = std::collections::BTreeMap::new();
+    for file in ["kast.md", "domains.md"] {
+        let source = k_rust::builtin::embedded(file).expect("k-rust bundles the file");
+        let code = k_rust::outer::extract_fenced_k_code(&source.text, "k").unwrap();
+        let parsed = k_rust::outer::parse(source.source.clone(), &code).unwrap();
+        for module in parsed.modules {
+            let mut read = PreludeModule {
+                imports: module
+                    .imports
+                    .iter()
+                    .map(|import| import.module.clone())
+                    .collect(),
+                ..PreludeModule::default()
+            };
+            for sentence in &module.sentences {
+                let k_rust::outer::Sentence::Syntax(declaration) = sentence else {
+                    continue;
+                };
+                // A sort parameter (`syntax {Sort} Sort ::= ..`) is no sort of the module.
+                if !declaration
+                    .parameters
+                    .iter()
+                    .any(|parameter| parameter.name == declaration.sort.name)
+                {
+                    read.sorts.insert(declaration.sort.name.clone());
+                }
+                if let k_rust::outer::SyntaxBody::Productions(blocks) = &declaration.body {
+                    for production in blocks.iter().flat_map(|block| &block.productions) {
+                        read.symbols.extend(
+                            production
+                                .attributes
+                                .iter()
+                                .filter(|attribute| attribute.key == "symbol")
+                                .filter_map(|attribute| attribute.value.clone()),
+                        );
+                    }
+                }
+            }
+            modules.insert(module.name, read);
+        }
+    }
+    modules
+}
+
+/// `module` and every module it imports, directly or through others.
+fn closure<'a>(
+    modules: &'a std::collections::BTreeMap<String, PreludeModule>,
+    module: &str,
+) -> Vec<&'a PreludeModule> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pending = vec![module.to_owned()];
+    let mut closure = Vec::new();
+    while let Some(name) = pending.pop() {
+        if let Some(read) = modules.get(&name)
+            && seen.insert(name)
+        {
+            pending.extend(read.imports.iter().cloned());
+            closure.push(read);
+        }
+    }
+    closure
+}
+
+/// KRS's tables of the names K gives a meaning (`krs-compiler` `k_reserved`) are the names of the
+/// prelude the emitted K is loaded with, k-rust's bundled `kast.md` and `domains.md`: every entry
+/// is a sort or symbol its module declares (it or a module it imports), brought in by each
+/// module it lists, and K's own sorts are those of `K` and its cell modules. With
+/// [`the_bundled_prelude_s_names_are_reserved`], a prelude update fails here instead of leaving
+/// the tables behind.
+#[test]
+fn the_reserved_names_are_in_the_bundled_prelude() {
+    let mut failures = Vec::new();
+    macro_rules! expect {
+        ($holds:expr, $($message:tt)*) => {
+            if !$holds {
+                failures.push(format!($($message)*));
+            }
+        };
+    }
+    let modules = prelude();
+    let (kast_sorts, symbols, module_sorts) = krs_compiler::testing::reserved_k_names();
+    let declares = |module: &str, sort: bool, name: &str| {
+        closure(&modules, module).into_iter().any(|read| {
+            if sort {
+                read.sorts.contains(name)
+            } else {
+                read.symbols.contains(name)
+            }
+        })
+    };
+    let brings = |importer: &str, module: &str| {
+        closure(&modules, importer)
+            .into_iter()
+            .any(|read| std::ptr::eq(read, std::ptr::from_ref(&modules[module])))
+    };
+    // A definition imports K's own modules: with a configuration, `MAP`; without one, K's
+    // default configuration.
+    let every = ["MAP", "DEFAULT-CONFIGURATION"];
+    for (tables, sort) in [(symbols, false), (module_sorts, true)] {
+        for (name, module, importers) in tables {
+            expect!(declares(module, sort, name), "{module} declares {name}");
+            let importers = if importers.is_empty() {
+                &every[..]
+            } else {
+                importers
+            };
+            for importer in importers {
+                expect!(brings(importer, module), "{importer} brings {module}");
+            }
+        }
+    }
+    // K's own modules: `K`, and the cell syntax every rule and configuration is parsed with.
+    let own = ["K", "RULE-CELLS", "CONFIG-CELLS"];
+    let k_sorts = own
+        .into_iter()
+        .flat_map(|module| closure(&modules, module))
+        .flat_map(|read| read.sorts.iter().cloned())
+        .collect::<std::collections::BTreeSet<_>>();
+    for sort in kast_sorts {
+        expect!(k_sorts.contains(*sort), "K declares {sort}");
+    }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The other way: every sort and symbol an author can spell (a sort is ASCII, starting uppercase;
+/// a symbol starts lowercase or with `_`) of a prelude module a definition can import is in a
+/// table, or is a builtin sort of KRS, the framework's, or a cell sort K generates.
+#[test]
+fn the_bundled_prelude_s_names_are_reserved() {
+    let mut failures = Vec::new();
+    macro_rules! expect {
+        ($holds:expr, $($message:tt)*) => {
+            if !$holds {
+                failures.push(format!($($message)*));
+            }
+        };
+    }
+    let modules = prelude();
+    let (kast_sorts, symbols, module_sorts) = krs_compiler::testing::reserved_k_names();
+    let every = ["MAP", "DEFAULT-CONFIGURATION"];
+    let own = ["K", "RULE-CELLS", "CONFIG-CELLS"];
+    let spellable_sort = |sort: &str| {
+        sort.starts_with(|first: char| first.is_ascii_uppercase())
+            && sort.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let spellable_symbol = |symbol: &str| {
+        symbol.starts_with(|first: char| first.is_ascii_lowercase() || first == '_')
+            && symbol
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let builtin = krs_ir::BuiltinSort::ALL
+        .iter()
+        .map(|sort| sort.k_name())
+        .chain([
+            "KItem",
+            "KResult",
+            "GeneratedCounterCell",
+            "GeneratedTopCell",
+        ])
+        .collect::<std::collections::BTreeSet<_>>();
+    // The modules a definition can import: each builtin sort's and operation's, K's
+    // matching-logic and symbolic-map modules and the one declaring `K`, the collections
+    // module, unsigned integer syntax, and K's own.
+    let mut importable = krs_ir::BuiltinSort::ALL
+        .iter()
+        .flat_map(|sort| [sort.spec().k_module, sort.spec().k_syntax_module])
+        .flatten()
+        .chain(
+            krs_ir::BuiltinOperation::ALL
+                .iter()
+                .map(|operation| operation.spec().k_module),
+        )
+        .chain([
+            krs_ir_levels::k_surface::ML_SYNTAX_MODULE,
+            krs_ir_levels::k_surface::MAP_SYMBOLIC_MODULE,
+            krs_ir_levels::k_surface::SORT_K_MODULE,
+            "COLLECTIONS",
+            "UNSIGNED-INT-SYNTAX",
+        ])
+        .chain(every)
+        .collect::<std::collections::BTreeSet<_>>();
+    importable.extend(own);
+    for module in importable {
+        expect!(
+            modules.contains_key(module),
+            "the prelude declares {module}"
+        );
+        let reach = closure(&modules, module);
+        for symbol in reach
+            .iter()
+            .flat_map(|read| &read.symbols)
+            .filter(|symbol| spellable_symbol(symbol))
+        {
+            expect!(
+                symbols.iter().any(|(name, _, importers)| *name == symbol
+                    && (importers.is_empty() || importers.contains(&module))),
+                "{module} brings the symbol {symbol}, which no table entry reserves there"
+            );
+        }
+        for sort in reach
+            .iter()
+            .flat_map(|read| &read.sorts)
+            .filter(|sort| spellable_sort(sort))
+        {
+            expect!(
+                builtin.contains(sort.as_str())
+                    || kast_sorts.contains(&sort.as_str())
+                    || module_sorts
+                        .iter()
+                        .any(|(name, _, importers)| *name == sort && importers.contains(&module)),
+                "{module} brings the sort {sort}, which no table entry reserves there"
+            );
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

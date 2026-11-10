@@ -4,10 +4,14 @@
 //! A K name names one thing in its namespace: a sort, a symbol, a cell. An authored declaration
 //! that takes a name K already declares does not declare a new thing; it adds to K's (a sort
 //! `KCell` beside a cell `<k>` is that cell's sort, a function `Ite` a second production of
-//! K's conditional's symbol `ite`), so the K means something the Rust does not say. The tables
-//! below are those of the pinned K 7.1.337 (`kast.md`, `domains.md`), restricted to the names an
-//! authored declaration can spell: a sort is a Rust type name, and a production's symbol starts
-//! with a lowercase letter or `_` (`lowerCamel` of a Rust name).
+//! K's conditional's symbol `ite`), so the K means something the Rust does not say.
+//!
+//! The tables hold the names of the prelude the emitted K is loaded with, k-rust's bundled
+//! `kast.md` and `domains.md` (`k_rust::builtin::embedded`), restricted to the names an authored
+//! declaration can spell: a sort is a Rust type name, and a production's symbol starts with a
+//! lowercase letter or `_` (`lowerCamel` of a Rust name). krs-cli's `name_map` test reads that
+//! prelude and checks the tables against it both ways, so a prelude update fails the test
+//! instead of leaving the tables behind.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,7 +21,7 @@ use krs_ir::CellCollectionType;
 /// with (`kast.md`): the sorts of terms, labels, lists and strings of K's syntax, of
 /// configuration variables, and of cells and cell bags. `K`, `KItem` and `KResult` are claimed
 /// elsewhere (the builtin sort `KSequence`, the framework module).
-const KAST_SORTS: [&str; 7] = [
+pub(crate) const KAST_SORTS: [&str; 7] = [
     "Bag",
     "Cell",
     "KBott",
@@ -68,12 +72,12 @@ const BOOL_IMPORTERS: &[&str] = &[
 const K_EQUAL_IMPORTERS: &[&str] = &["BYTES", "INT", "K-EQUAL", "K-IO", "MAP-SYMBOLIC", "STRING"];
 const INT_IMPORTERS: &[&str] = &["BYTES", "INT", "K-IO", "STRING"];
 const BYTES_IMPORTERS: &[&str] = &["BYTES"];
-/// Every definition's: `ML-SYNTAX` is part of K's own modules.
+/// Every definition's: K's own modules, which every definition imports, import `ML-SYNTAX`.
 const EVERY_DEFINITION: &[&str] = &[];
 
 /// The symbols of K's builtin modules that an authored symbol could spell, each with its module
 /// and the modules that bring it in.
-const BUILTIN_SYMBOLS: [(&str, &str, &[&str]); 25] = [
+pub(crate) const BUILTIN_SYMBOLS: [(&str, &str, &[&str]); 25] = [
     ("_List_", "LIST", LIST_IMPORTERS),
     ("_inList_", "LIST", LIST_IMPORTERS),
     ("pushList", "LIST", LIST_IMPORTERS),
@@ -103,7 +107,7 @@ const BUILTIN_SYMBOLS: [(&str, &str, &[&str]); 25] = [
 
 /// The sorts of K's builtin modules that are no builtin sort of KRS, with the modules that bring
 /// them in: `MInt` (`MINT-SYNTAX`, imported by `LIST` and `BYTES`) and the sorts of `K-IO`.
-const BUILTIN_MODULE_SORTS: [(&str, &str, &[&str]); 6] = [
+pub(crate) const BUILTIN_MODULE_SORTS: [(&str, &str, &[&str]); 6] = [
     (
         "MInt",
         "MINT-SYNTAX",
@@ -168,7 +172,7 @@ pub(crate) fn imported_sorts(imports: &BTreeSet<&str>) -> BTreeMap<&'static str,
         .map(|(sort, module, _)| {
             (
                 *sort,
-                format!("K's builtin module `{module}` declares as a sort"),
+                format!("K's builtin module `{module}` provides as a sort (it or a module it imports declares it)"),
             )
         })
         .collect()
@@ -185,7 +189,7 @@ pub(crate) fn imported_symbols(imports: &BTreeSet<&str>) -> BTreeMap<&'static st
         .map(|(symbol, module, _)| {
             (
                 *symbol,
-                format!("K's builtin module `{module}` declares as a symbol"),
+                format!("K's builtin module `{module}` provides as a symbol (it or a module it imports declares it)"),
             )
         })
         .collect()

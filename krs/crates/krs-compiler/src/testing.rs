@@ -296,3 +296,23 @@ impl SortJudges {
         &self.user_lists
     }
 }
+
+/// A builtin-module entry of KRS's reserved names: the name, the module that declares it, and
+/// the modules whose import brings it into a definition (none: every definition's).
+pub type ReservedBuiltinName = (&'static str, &'static str, &'static [&'static str]);
+
+/// KRS's tables of the names K gives a meaning (`k_reserved`), for a test that checks them
+/// against the prelude the emitted K is loaded with: K's own sorts, the builtin modules'
+/// symbols, and their sorts that are no builtin sort of KRS.
+#[must_use]
+pub fn reserved_k_names() -> (
+    &'static [&'static str],
+    &'static [ReservedBuiltinName],
+    &'static [ReservedBuiltinName],
+) {
+    (
+        &crate::k_reserved::KAST_SORTS,
+        &crate::k_reserved::BUILTIN_SYMBOLS,
+        &crate::k_reserved::BUILTIN_MODULE_SORTS,
+    )
+}
