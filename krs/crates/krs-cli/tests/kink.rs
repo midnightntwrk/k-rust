@@ -1579,7 +1579,7 @@ fn coverage_names_heating_rules_by_the_strict_variant_and_field() {
     let verdicts = stdout(&output);
     assert!(
         verdicts.contains(
-            "[rules]\nopen = [\n  \"rule:crate::Arith::Add:heat:rhs\",\n  \
+            "[coverage.rules]\nopen = [\n  \"rule:crate::Arith::Add:heat:rhs\",\n  \
              \"rule:crate::Arith::Sub:heat:lhs\",\n  \"rule:crate::Arith::Sub:heat:rhs\",\n]\n"
         ),
         "{verdicts}"
@@ -1639,7 +1639,7 @@ fn coverage_names_rule_windows_by_their_rust_items() {
     assert_status(&output, 0);
     let verdicts = stdout(&output);
     assert!(
-        verdicts.contains("\n[rule_windows]\nopen = [\n]\nargued = [\n]\n"),
+        verdicts.contains("\n[coverage.rule_windows]\nopen = [\n]\nargued = [\n]\n"),
         "{verdicts}"
     );
 }

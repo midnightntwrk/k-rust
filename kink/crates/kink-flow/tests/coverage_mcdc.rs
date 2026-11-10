@@ -267,7 +267,8 @@ mod kink_tier {
             rendering.contains(BOTH_A) && rendering.contains(BOTH_B),
             "{rendering}"
         );
-        assert!(!rendering.contains("undecided"), "{rendering}");
+        // The legend names `undecided`; no family lists an undecided obligation.
+        assert!(!rendering.contains("\nundecided = ["), "{rendering}");
         assert!(
             text(&document)
                 .unwrap()

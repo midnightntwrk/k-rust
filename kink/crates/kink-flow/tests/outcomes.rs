@@ -143,7 +143,7 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
     )
 }
 
-/// The lock every run of this binary uses: `verdicts.lock` beside the manifest.
+/// The lock every run of this binary uses: `kink.lock` beside the manifest.
 fn lock_of(manifest: &Path) -> PathBuf {
     manifest.with_file_name("kink.lock")
 }
@@ -340,13 +340,13 @@ fn forge_record(
     write_json(&path, &file);
 }
 
-/// The lock's recorded killer of each mutation it lists.
+/// The lock's recorded killer of each mutation its `[run]` section lists.
 fn recorded_killers(manifest: &Path) -> BTreeMap<String, Option<String>> {
     let lock: toml::Table = fs::read_to_string(lock_of(manifest))
         .unwrap()
         .parse()
         .unwrap();
-    lock["mutation"]
+    lock["run"]["mutation"]
         .as_array()
         .unwrap()
         .iter()
@@ -361,11 +361,12 @@ fn recorded_killers(manifest: &Path) -> BTreeMap<String, Option<String>> {
         .collect()
 }
 
-/// Hand-edit the lock: the recorded killer of `mutation` becomes `program`.
+/// Hand-edit the lock: the recorded killer of `mutation` in its `[run]` section becomes `program`
+/// (the serializer writes the section's own `[run]` line, since the section has `version`).
 fn set_record(manifest: &Path, mutation: &str, program: &str) {
     let path = lock_of(manifest);
     let mut lock: toml::Table = fs::read_to_string(&path).unwrap().parse().unwrap();
-    let rows = lock["mutation"].as_array_mut().unwrap();
+    let rows = lock["run"]["mutation"].as_array_mut().unwrap();
     let row = rows
         .iter_mut()
         .find(|row| row["id"].as_str() == Some(mutation))
