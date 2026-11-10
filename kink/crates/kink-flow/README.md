@@ -2194,9 +2194,10 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 - A `requires` that is undefined at a state (`10 /Int (I -Int 3) >Int 0` where `I` is 3) does not hold there, as for a rule's condition: that state does not match. So a pattern whose only matches make its condition undefined gets a `no`, and a claim of it is refuted, although the program does reach the configuration you meant; write the condition so that it is defined at every state it is matched against. A condition whose definedness k-rust cannot decide (a partial function with no equation for its argument) gives `unknown`.
 - `programs` lists the corpus programs you claim hit the pattern (the per-input claims): each is asked, and its row says whether the claim is confirmed. Whether or not it has claims, every pattern is an obligation of the corpus (below).
 - `expect = "no"` claims that no program of the corpus hits the pattern, as a mutation's `expect = "survive"` claims no program kills it: the obligation's `expectation` is `met` when every program answers a final `no`, `unmet` on a hit (exit 1) and `inconclusive` otherwise (exit 3), and the query prints `pattern ID: ...` on stderr for each that is not met. It changes no answer and enters no key, digest or lock: the lock records the fact (`open` or `hit`). A pattern with both `expect` and `programs` claims two contradicting things, and is an error of the pattern list.
+- `steps` in place of `pattern` writes a chain of patterns a run passes in order ("Chains", below).
 - An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, `expect` beside `programs`, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
 
-`testdata/flow/calc/PATTERNS.toml`, `testdata/flow/loop/PATTERNS.toml` and `testdata/flow/witness/PATTERNS.toml` are complete examples.
+`testdata/flow/calc/PATTERNS.toml`, `testdata/flow/loop/PATTERNS.toml`, `testdata/flow/witness/PATTERNS.toml` and `testdata/flow/chain/PATTERNS.toml` are complete examples.
 
 ### The obligation and its witness
 
@@ -2209,11 +2210,13 @@ A witness discharges it as a killer discharges a mutant: one program that hits i
 
 ### Answers
 
-The command prints one document, `{schema: "kink-flow-query", version: 7, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data, lock?}`.
+The command prints one document, `{schema: "kink-flow-query", version: 9, k_rust_revision, profile, z3?, kink_build, kink, spec, stop?, observe?, programs, patterns, rows, obligations, full, counts, refuted_claims, mismatches, pattern_cache, baseline_runs, data, lock?}`.
+Version 9 answers chains ("Chains", below): a chain's entry in `patterns` carries its `steps`, a chain's rows name the route `chain-run`, and a chain's witness lists its `steps`; a version 8 query refused a list holding a chain.
+Version 8 prints a hit's witness for a reader (below), where version 7 gave its state and bindings as KORE text cut to 4000 characters.
 Version 7 (FB54-WITNESS) adds `obligations`, `full`, `lock` and each row's `clock_stopped`, and asks a pattern without `programs` until its first hit where version 6 asked every program, so `rows` holds only the pairs asked:
 `programs` are the `coverage` rows (the result cache is brought up to date first),
 `data` is the baseline's full critical-pair check under the premises, as in the run document (fz26 KINK-BASELINE-FINDINGS). Version 6 (KINK-FINDING-NAMES) names its findings by kind, sentences and digest, where version 5 named them by generated-K positions. `data` was added to version 1 without a new version, since it is additive and no command reads a `query` document back. Version 2 adds the refusal of a corpus with `[stop]` (stage `stop`, reason `unsupported-verb`, "Where a run ends"). Version 3 answers `no` under the Z3 profile where the search received no undecided solver answer, with a `cause` naming that count, and names the count in the `cause` of an `unknown` it withholds a `no` for (below). Version 4 adds `z3` under the Z3 profile, the Z3 build the answers were decided on, as the run document names it: whether the search's solver queries are decided within their units is a function of the build that counts them, so a `hit`, a `no` and an `unknown` are too; the portable document has no such member. Version 5 answers a corpus with `[stop]` through each program's stopped run ("A corpus with `[stop]`", below) and admits one with `[observe]`, which it ignores ("What a run observes"): the refusals at stages `stop` and `observe` are gone, the document carries `stop` as `check`, `coverage` and `run` do and `observe` (`{declaration, ignored}`, the declaration and why the query ignores it) when the manifest has them, a refused one's too, and each row names its route (`route`: `search` or `stopped-run`). A refused specification prints the document without `data` (the member is absent, not null; `spec.outcome` is `refused` and `programs`, `patterns` and `rows` are empty), and a pattern list that does not decode prints only `{schema, version, k_rust_revision, profile, z3?, pattern_list}`.
-`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus, expect}` (`kore` is the compiled target; `asked` says whether the pattern has `programs`),
+`patterns` one entry per selected pattern `{id, note, pattern, outcome: valid | invalid-pattern, detail, digest, kore, asked: claimed | corpus, expect}` (`kore` is the compiled target; `asked` says whether the pattern has `programs`); a chain's entry also carries `steps`, `[{pattern, unless, kore, unless_kore}]`, each step's text and its `unless`'s with their compiled targets, and has `pattern` and `kore` null and `digest` the chain's,
 `rows` one row per (pattern, program asked) `{pattern, program, claimed, route, answer, cause, witness, cached, wall_ms, claim, clock_stopped}` (`clock_stopped`: `search` where the clock stopped the search the answer rests on, `baseline` where a completed exploration's `no` failed only for the baseline run the clock stopped, else null),
 `obligations` one per selected pattern `{id, status, witness, recorded_witness, witness_change, hitters, unanswered, expect, expectation, clock_stopped}` ("The obligation and its witness"; `hitters` null without `--full`; `unanswered` the programs whose answer is neither a hit nor a final `no`; `clock_stopped` the stopped runs the obligation's value rests on, `{program, run}`),
 and, with `--lock`, `lock` as for the other sections ("The corpus record").
@@ -2281,7 +2284,7 @@ Constructors, functions declared total (a `total` helper with no equation for it
 A stop is part of a case's meaning ("Where a run ends"): each path of the case ends at its last stop event, or where the definition's own run ends, whichever comes first.
 A state past a path's last stop event is no state of the case, so a match there is no answer, and an exploration that reached every end of the truncated system is complete, also for a program whose untruncated run never ends.
 So on a corpus with `[stop]` (route `stopped-run`) each (pattern, program) is the program's run as `run` and `coverage` make it, one execute request of every path under the state set with the stop's rules, the program's count and the stop's condition, the manifest's `max_depth`, `baseline_max_work` and `time_ms`, which also matches every state it reaches against the pattern (k-rust `match_states`, with proof agreement: a state is refuted only where both evaluation modes refute it, since a refutation in execution mode alone may rest on a value the definition leaves open that nothing records; for a pattern that evaluates nothing this costs a second match and changes no verdict): the initial configuration, every state a path stepped or a bound stopped, a terminal rule's successor, and a cut-point leaf's state, but not the successor a cut-point rule proposes.
-A corpus without `[stop]` keeps the search (route `search`), its keys and its answers.
+A corpus without `[stop]` keeps the search (route `search`), its keys and its answers; a chain is answered by a run on either corpus ("Chains").
 
 - `hit`: the run reached a state that matches, decided, shown to exist, holding no term-level `\and`, on a path whose diagnostics up to it carry nothing but values the definition leaves open (k-rust's choice is one model, and the claim is existential), and the run left no hook application unevaluated.
 - `no`: the matcher refuted every state the run reached, and the run explored the truncated system to its ends: every leaf is stuck, undefined or a stop leaf (no bound, no clock, no `stop-undecided` leaf) and carries no diagnostic of its path (a rule whose condition was left unsimplified, failed to simplify or exhausted the simplification budget may have been left unapplied there), no stop was passed, nothing excludes the run (the exclusions a baseline run is judged by, the initial configuration's included), neither the run nor the matcher stopped for lack of native stack, and the run, its leaves' feasibility questions and its matcher received no undecided solver answer (under Z3 the `cause` says so). The premises the search route also needs still hold: data, and a `comparable` baseline run, which is the same request without the matching.
@@ -2290,6 +2293,73 @@ A corpus without `[stop]` keeps the search (route `search`), its keys and its an
 A hit's witness has the reached state's `depth` and `state` (printed as above), the `bindings` of a match of the pattern against that state without a condition (the kind of match the run reached it by), found by a search of depth 0 from it, which is bounded work and runs under no clock, so the bindings are a function of the state and the pattern; `{absent: reason}` where that search fails or gives no such match, which no array of bindings is (an empty array means you wrote no variable); and `rules` null: the run reports where it reached the state, not the steps of the path to it, and a search for a path could find another one, past a stop.
 The run does not stop at its first match: a hit costs one truncated run, about the program's baseline run, which its stop and the budget bound.
 The answer's key also holds the program's stop (`stop`, as its result key holds it) and the route's modality (`{route: "stopped-run", search_type: "all", result_modality: "state-set"}`), so an answer of one count is never read for another, and a key without a stop keeps its bytes.
+
+### Chains
+
+A chain asks whether some run of a program passes configurations that match several patterns, in order.
+
+```toml
+[[pattern]]
+id = "doubled-unless-alarm"
+steps = [
+  { pattern = "<k> pick(P:Int) ... </k>" },
+  { pattern = "<log> _:List ListItem(V:Int) </log> requires V ==Int P *Int 2", unless = "<alarm> true </alarm>" },
+]
+```
+
+`steps` stands in place of `pattern`: a non-empty array of tables `{ pattern, unless? }`, one per step.
+Each `pattern` and each `unless` is written as a single pattern is, `requires` included, and is compiled alone.
+The first step has no `unless`, since no step comes before it.
+A `steps` of one step without `unless` is that step's `pattern`: the same entry, digest, route, key and witness.
+`id`, `programs`, `expect` and `note` mean what they mean for a single pattern.
+
+**Meaning.**
+A chain P1, [U2] P2, ..., [Un] Pn holds on a program when some path of the program's run has configurations s1, ..., sn, each at or after the one before it, and one assignment of the variables the steps share, such that:
+- each si matches Pi, with Pi's `requires` true;
+- for each i ≥ 2 that has an `unless` Ui, no configuration strictly between s(i-1) and si matches Ui, for any value of the variables only Ui names.
+
+Steps are reflexive: one configuration may match consecutive steps, as `=>*` allows.
+A cell a step does not name is unconstrained, not "unchanged" as on a claim's right side: steps share values only through the variables they name.
+The configurations of a path are those the stopped route matches ("A corpus with `[stop]`"): the initial configuration, every configuration a path stepped or a bound stopped, and a terminal rule's successor.
+A `=>` inside a step keeps its meaning in a pattern: the step denotes its left side.
+
+**Variables.**
+A variable named in one part only (a step, its body and `requires` together, or an `unless`) is local to it: bound and reported in a step's body, existential in a step's `requires` alone and in an `unless`.
+A variable named in two or more parts is shared, and one value of it is carried from the part that binds it to every later part: it is bound by the body of the first step that names it, and every other part that names it comes after that body (that step's `requires`, a later step, or the `unless` of a later step).
+Each occurrence of a shared variable has one sort, and a shared variable is neither a set variable nor a variable written for several cells.
+A violation is `invalid-pattern`, naming each variable and the parts.
+
+**How it runs.**
+A chain is answered by the program's run on either corpus (route `chain-run`): with the corpus's stop where it has `[stop]`, and with none otherwise, so every path ends where the definition's run ends.
+The run is the stopped route's request, under the manifest's `max_depth`, `baseline_max_work` and `time_ms`, with proof agreement on every part.
+It matches the first step at every configuration it reaches, and each later step with the values earlier steps bound substituted for the variables it shares, so a step's `requires` may name them.
+Per path it keeps the partial occurrences later steps can still complete, each by the step it awaits and the values later parts need.
+A single pattern keeps the search on a corpus without `[stop]`.
+
+**Answers.**
+- `hit`: some path completes the chain, each step's configuration decided, shown to exist and holding no term-level `\and`, the path's diagnostics up to the last step's configuration carrying nothing but values the definition leaves open, and the run left no hook application unevaluated. An `unless` needs no configuration shown to exist: a configuration that denotes none lies on no path.
+- `no`: the stopped route's premises of a `no`, with the chain's matcher in the pattern's place (no step's or `unless`'s match left undecided, no path beyond the cap below, no stop for lack of native stack and no undecided solver answer of the matcher), and the premises every route shares: data and a `comparable` baseline run.
+- `unknown` otherwise, with the first missing premise in `cause`. Beside the stopped route's causes a chain has `undecided-match` with `undecided-step at step N` (a step's match at some configuration was undecided, so the partial occurrence was not extended by it) or `undecided-unless at step N` (an `unless`'s match at a configuration between two steps was undecided, so the partial occurrence was dropped, and it never makes a hit), each with k-rust's reason and count; and `chain-partial-cap` (some path kept more partial occurrences than the cap). The cause of an undecided part whose `requires` names a variable that neither its cell patterns nor an earlier step binds says how to bind it.
+
+A chain is one obligation of the corpus, with one `[query]` row whose witness is a program that hits it: the witness rule, `programs`, `expect = "no"`, `--full` and `--locked` treat it as they treat a single pattern ("The obligation and its witness").
+
+**The witness** of a hit is `{depth, state, bindings, rules, rendering, note, steps}`.
+`depth` and `state` are the last step's, printed with the cells that step names in full.
+`bindings` holds every variable of the steps you wrote, once each.
+`rules` is null: the run reports the configurations of the completion, not the rewrite steps between them.
+`steps` holds each step's `{step, depth, state, bindings, rendering}`, its state printed with the cells that step names in full, and its bindings those of its own variables (a variable an earlier step bound is that step's).
+The witness is the first completion the run finds in its depth-first order, and on its path the one whose last configuration comes first: a function of the definition, the program and the budget.
+
+**What it costs.**
+At each configuration the run makes one match of the first step, one per partial occurrence its path keeps, and one per `unless` such an occurrence awaits, each twice under proof agreement.
+A path keeps at most 256 partial occurrences, a constant of kink that the answer's key names; beyond it the largest are evicted, an evicted occurrence never makes a hit, and a `no` becomes `unknown` (`chain-partial-cap`).
+A chain whose steps share no variable keeps at most one partial occurrence per step.
+The run merges two configurations only where their paths' partial occurrences agree, so it can explore more configurations than the program's run without the chain, and `baseline_max_work` can then cut it where that run completes: the answer is `unknown` for the work bound (`incomplete`, naming `baseline_max_work`), not for the chain.
+Without `baseline_max_work` the run is bounded by `max_depth` and `time_ms`, as the program's baseline run is.
+The run does not stop at its first completion: a check costs about one run of the program, with its matches.
+
+**The key** of a chain's answer is a single pattern's with `lowering` `kink-flow/chain-lowering/v1`, `pattern` the chain's digest (each part's compiled target and generated variables; not the text's layout, the id or the note), `modality` `{route: "chain-run", search_type: "all", result_modality: "state-set", partial_cap}` and `stop` the program's stop, null on a corpus without `[stop]`.
+A chain's key never equals a single pattern's, and its records are kept beside the single patterns', under the chain's digest.
 
 ### How it runs, and what it costs
 
@@ -2304,14 +2374,14 @@ The admission of the specification (about 1 s per command on IMP) costs more tha
 
 Only a `hit` and a `no` are cached, one record per (pattern, program), `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory:
 `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness, baseline_run_sha256, record_sha256}`, a hit's `witness` its facts `{depth, state, bindings, rules}`, the state and each binding's variable and value as whole KORE text.
-The key is `{schema_version: "kink-flow/pattern-answer/v9", lowering: "kink-flow/pattern-lowering/v1", k_rust_revision, kink_build, kink, execution, program, pattern, budget, modality, stop?}`, `stop` on the stopped route only ("A corpus with `[stop]`"):
+The key is `{schema_version: "kink-flow/pattern-answer/v9", lowering: "kink-flow/pattern-lowering/v1", k_rust_revision, kink_build, kink, execution, program, pattern, budget, modality, stop?}`, `stop` on the stopped route only ("A corpus with `[stop]`"; a chain's key, "Chains"):
 the execution digest (`{kind, digest}`, the result cache's: the loaded definition without positions, so a comment or layout edit keeps every answer), the program digest (its text, start sort and variables), the pattern digest (its compiled KORE target, not its id or its text's layout), the budget as the result key holds it, the search's modality, kink's build (any rebuild misses) and its semantics identity.
 A record is used only when its key is exactly the current one and its `record_sha256` recomputes; a cached `no` also only while the program's current result is `comparable` with the baseline run digest the `no` was given against.
 A used record is judged again with the current command's facts (the definition's exclusions on this command's load, the initial configuration's, the baseline class, the profile), so it never answers more than a live search would.
 Editing the meaning of the specification, the program, a bound of the budget (not `time_ms`: a stored answer is a hit or the `no` of a complete exploration, neither of which the clock decided) or the pattern, or rebuilding kink, recomputes the answer; an `unknown` is recomputed every time.
 
 A cached answer stands without a search. It rests on the integrity of the cache directory (whoever can write it can forge an answer, as for every kink cache) and on the key naming every input; not on k-rust's determinism: a `hit` and a `no` are facts about the definition and the program, which a later search can fail to re-derive (an unknown) but cannot contradict.
-`--verify` searches every selected (pattern, program) live, compares each with the stored record a command without `--verify` would use (the answer, and for a hit the witness's facts: its `depth` and whole `state`, and its `bindings` and `rules` where both sides carry them: absent bindings and the stopped route's null `rules` are not compared, and the printing never is), lists every difference in `mismatches` (`{pattern, program, record, cached, live}`, each witness as its facts, whole KORE text, since two witnesses can differ in a cell the printing shortens; the row's `verify` is `match` or `mismatch`), writes no pattern record, and exits 1 on a difference; it also updates the results with `--verify` (which writes a result record for a program that has none).
+`--verify` searches every selected (pattern, program) live, compares each with the stored record a command without `--verify` would use (the answer, and for a hit the witness's facts: its `depth` and whole `state`, and its `bindings`, `rules` and a chain's `steps` where both sides carry them: absent bindings and the null `rules` of the stopped and chain routes are not compared, and the printing never is), lists every difference in `mismatches` (`{pattern, program, record, cached, live}`, each witness as its facts, whole KORE text, since two witnesses can differ in a cell the printing shortens; the row's `verify` is `match` or `mismatch`), writes no pattern record, and exits 1 on a difference; it also updates the results with `--verify` (which writes a result record for a program that has none).
 Each live answer is judged with the program's live baseline run, not with a stored result record that `--verify` found different, so the printed answers are those of this command's own runs; a stale result record shows as a mismatch of the results, and the command exits 1.
 The cache is on in both profiles: under Z3 the search's solver queries are resource-bounded, and the key's budget names the units and the Z3 build.
 It is off where tier 1 is (a solver the clock bounds, a Z3 build that cannot be named) and when the executable cannot be read (`pattern_cache.enabled` false, with the reason).

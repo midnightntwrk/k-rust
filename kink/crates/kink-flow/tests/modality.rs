@@ -821,8 +821,10 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 37] = [
+const CORPUS: [(&str, &[&str], Minimums); 38] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
+    // The chain patterns' corpus (no minimum: it is there for `tests/query.rs`).
+    ("chain", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     (
         "calc",
         &["FLOW-bad-program.toml", "FLOW.toml"],
@@ -1038,6 +1040,12 @@ mod kink_tier {
     #[ignore = "kink"]
     fn modality_on_bytes_map() {
         corpus_specification("bytes-map", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_the_chain_corpus() {
+        corpus_specification("chain", &["FLOW.toml"]);
     }
 
     #[test]

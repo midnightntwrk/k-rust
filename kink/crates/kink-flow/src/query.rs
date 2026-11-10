@@ -8,6 +8,8 @@
 //! ([`crate::pattern::Route`]):
 //! - a corpus without `[stop]`: one `search_pattern_kore` per (pattern, program), which explores
 //!   the definition's own reachable states;
+//! - a chain (`steps`), on either corpus: the program's run, with the corpus's stop where it has
+//!   one, which matches the chain along its paths (`Searcher::run_chain`, route `chain-run`);
 //! - a corpus with `[stop]`: the program's run as every campaign of the command makes it (the
 //!   stop's rules, the program's count and the stop's condition, in one execute request), which
 //!   matches every state it reaches against the pattern (`Searcher::run_stopped`). A stop is part
@@ -27,8 +29,9 @@
 //! `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory,
 //! written atomically, `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness,
 //! baseline_run_sha256, record_sha256}`, a hit's `witness` its facts (`{depth, state, bindings,
-//! rules}`, the state and the bindings as whole KORE text; `crate::pattern`, "A witness"): the
-//! document prints it when it is written, a cached hit as a live one, so the printing is in no
+//! rules}`, the state and the bindings as whole KORE text; `crate::pattern`, "A witness"; a
+//! chain's also holds its `steps`, `crate::pattern`, "The chain route"): the document prints it
+//! when it is written, a cached hit as a live one, so the printing is in no
 //! key. The key ([`answer_key`]) names every input an answer
 //! depends on: the record's schema, the lowering version, the k-rust revision, kink's build
 //! (`kink_build`, the executable's SHA-256, so any rebuild starts a new key: packet CACHE-ID-fix-1)
@@ -41,8 +44,13 @@
 //! state set, at most one result), and on the stopped route the program's stop
 //! (`FlowManifest::program_stop`: the rules, the program's count and the condition's identity)
 //! with the route's modality ([`crate::pattern::stopped_modality`]); a key without a stop keeps
-//! the bytes it had before the stopped route existed. A record is used only when its key is exactly the current one
-//! and its `record_sha256` recomputes; a `no` also only while the program's current result record
+//! the bytes it had before the stopped route existed. A chain's key ([`chain_answer_key`]) is
+//! the same key with the chain's lowering ([`CHAIN_LOWERING_VERSION`]) in place of a pattern's,
+//! the chain's digest in place of the pattern's, the chain route's modality with the cap of
+//! partial occurrences per path ([`crate::pattern::chain_modality`]) and the program's stop, null
+//! on a corpus without `[stop]`, so it never equals a single pattern's key; its records are kept
+//! beside the single patterns', under the chain's digest. A record is used only when its key is
+//! exactly the current one and its `record_sha256` recomputes; a `no` also only while the program's current result record
 //! is comparable with the baseline run digest the `no` was given against. A used record's answer is
 //! judged again with the current command's facts (the definition exclusions of this command's load,
 //! the initial state's exclusion, the baseline class, the profile), so a record never answers more
@@ -55,7 +63,7 @@
 //! re-derive (an unknown), never contradict. `--verify` re-derives every answer of the selected
 //! patterns live, compares it with each stored record a command without `--verify` would use
 //! (the answer, and for a hit what is a fact of it: the witness's depth and state, and its
-//! bindings and rules where both sides carry them, [`same_witness`]),
+//! bindings, rules and a chain's steps where both sides carry them, [`same_witness`]),
 //! reports every difference (`mismatches`: `{pattern, program, record, cached, live}`) and exits 1
 //! on one; it writes no pattern record. Each live answer is judged with the program's live
 //! baseline run (`ProgramRow::live`), not with a stored result record `--verify` found different.
@@ -92,9 +100,9 @@ use crate::{
     lock::{Lock, LockKind, Settle},
     manifest::{FlowManifest, ManifestError},
     pattern::{
-        Answer, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredPattern, Lowering, PatternEntry,
-        PatternExpect, PatternForm, PatternList, Route, SearchOutcome, Searcher, judge,
-        search_modality, stopped_modality,
+        Answer, CHAIN_LOWERING_VERSION, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredChain,
+        LoweredPattern, Lowering, PatternEntry, PatternExpect, PatternForm, PatternList, Route,
+        SearchOutcome, Searcher, chain_modality, judge, search_modality, stopped_modality,
     },
     results::{
         BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
@@ -151,7 +159,15 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// differ in a cell the printing shortens. A pattern that does not parse and writes a cell tag
 /// that is no cell of the configuration names it, and the configuration's cells, in its `cause`
 /// (FB-53).
-pub const QUERY_VERSION: u64 = 8;
+/// Version 9 answers a chain pattern (`steps`): its entry in `patterns` carries `steps`
+/// (`[{pattern, unless, kore, unless_kore}]`, each step's and its `unless`'s text and compiled
+/// target) with `pattern` and `kore` null and `digest` the chain's digest, each of its rows names
+/// the route `chain-run`, and a hit's witness also lists `steps` (`[{step, depth, state,
+/// bindings, rendering}]`, each step's state printed with the cells that step names in full),
+/// with `bindings` every variable of the chain's steps once and `rules` null. A version 8 list
+/// holding a chain was refused (`pattern_list`); a single pattern's entry, rows and witness are
+/// as in version 8.
+pub const QUERY_VERSION: u64 = 9;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -233,6 +249,26 @@ pub fn answer_key(
         key["stop"] = stop;
         key["modality"] = stopped_modality();
     }
+    key
+}
+
+/// The key of a chain's cached answer (module docs): [`answer_key`] with the chain's lowering,
+/// its digest `chain` in the pattern's place, the chain route's modality with `partial_cap`, the
+/// cap of partial occurrences per path the run kept, and `stop`, the program's stop, null on a
+/// corpus without `[stop]`.
+pub fn chain_answer_key(
+    build: Sha256Digest,
+    execution: ExecutionDigest,
+    program: Sha256Digest,
+    chain: Sha256Digest,
+    budget: crate::manifest::Budget,
+    stop: Option<Value>,
+    partial_cap: usize,
+) -> Value {
+    let mut key = answer_key(build, execution, program, chain, budget, None);
+    key["lowering"] = json!(CHAIN_LOWERING_VERSION);
+    key["modality"] = chain_modality(partial_cap);
+    key["stop"] = stop.unwrap_or(Value::Null);
     key
 }
 
@@ -345,12 +381,22 @@ pub fn query_spelled(
     options: &QueryOptions,
     command: &str,
 ) -> (Value, bool) {
-    query_with(manifest, list, options, command, &|_| {})
+    query_with(
+        manifest,
+        list,
+        options,
+        command,
+        &|_| {},
+        kink_campaign::CHAIN_PARTIAL_CAP,
+    )
 }
 
 /// [`query_spelled`], with `adjust` applied to the definition exclusions of the searcher's load
 /// before any answer is judged: the unit tests' seam for a load fact a test cannot provoke (a load
-/// stack stop depends on the host's stack).
+/// stack stop depends on the host's stack); and with `partial_cap` the cap of partial occurrences
+/// per path every chain run keeps, kink's [`kink_campaign::CHAIN_PARTIAL_CAP`] but in the unit
+/// tests' overflow of it. A chain's key names the cap, so an answer under one cap is never read
+/// under another.
 ///
 /// With `options.lock` the record's `[query]` section is read before anything runs (a record
 /// that does not decode, or under `--locked` one of another version, refuses the command) and
@@ -362,6 +408,7 @@ pub(crate) fn query_with(
     options: &QueryOptions,
     command: &str,
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
+    partial_cap: usize,
 ) -> (Value, bool) {
     let lock = match options.lock.as_deref() {
         None => None,
@@ -376,7 +423,8 @@ pub(crate) fn query_with(
         },
     };
     let recorded = lock.as_ref().map(Lock::witnesses).unwrap_or_default();
-    let (mut document, mut ok) = query_unnamed(manifest, list, options, &recorded, adjust);
+    let (mut document, mut ok) =
+        query_unnamed(manifest, list, options, &recorded, adjust, partial_cap);
     if let Some(lock) = &lock {
         document["lock"] = if document["spec"]["outcome"] == "admitted" {
             let store = Store::new(cache_directory(manifest, options.cache.as_deref()));
@@ -395,12 +443,6 @@ pub(crate) fn query_with(
     }
     (named(manifest, document), ok)
 }
-
-/// Why a query refuses a list whose selected patterns hold a chain (`steps`): a chain is decoded
-/// and its variables are checked ([`crate::pattern::chain`]), but no route evaluates one yet, and
-/// answering it as any other pattern would answer another question.
-pub const CHAIN_NOT_EVALUATED: &str = "chain patterns are not evaluated yet: this build decodes \
-     and checks `steps` but has no route that answers a chain; ask the other patterns with --only";
 
 /// Why a query ignores `[observe]` (module docs).
 pub const OBSERVE_IGNORED: &str = "a pattern query asks which states one definition's run \
@@ -426,18 +468,9 @@ fn query_unnamed(
     options: &QueryOptions,
     recorded: &BTreeMap<String, String>,
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
+    partial_cap: usize,
 ) -> (Value, bool) {
     if let Err(error) = list.check_programs(manifest) {
-        return (pattern_list_refused(&error), false);
-    }
-    if let Some(entry) = list.patterns.iter().find(|entry| {
-        matches!(entry.form, PatternForm::Chain(_))
-            && (options.only.is_empty() || options.only.contains(&entry.id))
-    }) {
-        let error = ManifestError::new(
-            format!("{}.steps", crate::pattern::pattern_key(&entry.id)),
-            CHAIN_NOT_EVALUATED,
-        );
         return (pattern_list_refused(&error), false);
     }
     let (mut record, admitted) = admit_spec(manifest);
@@ -507,28 +540,50 @@ fn query_unnamed(
         exclusions: &exclusions,
         route,
         reader: runner.end_reader(),
+        partial_cap,
     };
     for entry in list
         .patterns
         .iter()
         .filter(|entry| options.only.is_empty() || options.only.contains(&entry.id))
     {
-        let PatternForm::Single(text) = &entry.form else {
-            unreachable!("a chain among the selected patterns refuses the list before admission")
+        let lowered = match &entry.form {
+            PatternForm::Single(text) => lowering
+                .lower(text, searcher.definition())
+                .map(Lowered::Pattern),
+            PatternForm::Chain(steps) => lowering
+                .lower_chain(steps, searcher.definition())
+                .map(Lowered::Chain),
         };
-        let lowered = lowering.lower(text, searcher.definition());
         let claimed = entry.programs.is_some();
-        patterns.push(json!({
+        let mut described = json!({
             "id": entry.id,
             "note": entry.note,
-            "pattern": text,
+            "pattern": entry.single(),
             "outcome": if lowered.is_ok() { "valid" } else { INVALID_PATTERN },
             "detail": lowered.as_ref().err(),
-            "digest": lowered.as_ref().ok().map(|l| l.digest.to_string()),
-            "kore": lowered.as_ref().ok().map(LoweredPattern::kore),
+            "digest": lowered.as_ref().ok().map(|l| l.asked().digest().to_string()),
+            "kore": match &lowered {
+                Ok(Lowered::Pattern(lowered)) => Some(lowered.kore()),
+                _ => None,
+            },
             "asked": if claimed { "claimed" } else { "corpus" },
             "expect": entry.expect.map(PatternExpect::as_str),
-        }));
+        });
+        if let PatternForm::Chain(steps) = &entry.form {
+            described["steps"] = chain_steps(
+                steps,
+                match &lowered {
+                    Ok(Lowered::Chain(chain)) => Some(chain),
+                    _ => None,
+                },
+            );
+        }
+        patterns.push(described);
+        let route = match entry.form {
+            PatternForm::Single(_) => route,
+            PatternForm::Chain(_) => Route::ChainRun,
+        };
         // Each program's row of this pattern, by corpus index, in the order they were asked: the
         // claims first, then the obligation's walk, which reuses every answer a claim gave and,
         // without `--full`, stops at its first hit.
@@ -575,7 +630,7 @@ fn query_unnamed(
                             &mut searcher,
                             index,
                             &entry.id,
-                            lowered,
+                            lowered.asked(),
                             row,
                             claim,
                             &mut mismatches,
@@ -638,6 +693,62 @@ fn query_unnamed(
     document["obligations"] = json!(obligations);
     document["full"] = json!(options.full);
     (document, ok)
+}
+
+/// A selected pattern lowered: a single pattern or a chain.
+enum Lowered {
+    Pattern(LoweredPattern),
+    Chain(LoweredChain),
+}
+
+impl Lowered {
+    const fn asked(&self) -> Asked<'_> {
+        match self {
+            Self::Pattern(lowered) => Asked::Pattern(lowered),
+            Self::Chain(chain) => Asked::Chain(chain),
+        }
+    }
+}
+
+/// What one row asks of a program: a single pattern, by the command's route, or a chain, by the
+/// chain route.
+#[derive(Clone, Copy)]
+enum Asked<'a> {
+    Pattern(&'a LoweredPattern),
+    Chain(&'a LoweredChain),
+}
+
+impl Asked<'_> {
+    /// The digest that keys its answers and names its records' directory.
+    const fn digest(self) -> Sha256Digest {
+        match self {
+            Self::Pattern(lowered) => lowered.digest,
+            Self::Chain(chain) => chain.digest,
+        }
+    }
+}
+
+/// A chain's `steps` in its document entry: each step's text and its `unless`'s (`pattern`,
+/// `unless`), and their compiled targets (`kore`, `unless_kore`), null where the chain did not
+/// lower (`lowered` is `None`).
+fn chain_steps(steps: &[crate::pattern::StepText], lowered: Option<&LoweredChain>) -> Value {
+    Value::Array(
+        steps
+            .iter()
+            .enumerate()
+            .map(|(index, step)| {
+                let at = lowered.and_then(|chain| chain.steps.get(index));
+                json!({
+                    "pattern": step.pattern,
+                    "unless": step.unless,
+                    "kore": at.map(|at| at.pattern.kore()),
+                    "unless_kore": at
+                        .and_then(|at| at.unless.as_ref())
+                        .map(|unless| unless.pattern.kore()),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The order a pattern's obligation asks the corpus in: its recorded witness first, where it
@@ -927,6 +1038,8 @@ struct Context<'a> {
     route: Route,
     /// The printer of a hit's witness ([`rendered`]).
     reader: &'a EndReader,
+    /// The cap of partial occurrences per path every chain run keeps.
+    partial_cap: usize,
 }
 
 /// One (pattern, program) row and whether it found no error.
@@ -938,7 +1051,7 @@ fn ask(
     searcher: &mut Searcher,
     index: usize,
     pattern_id: &str,
-    lowered: &LoweredPattern,
+    asked: Asked<'_>,
     row: Map<String, Value>,
     claimed: bool,
     mismatches: &mut Vec<Value>,
@@ -994,26 +1107,46 @@ fn ask(
         ),
         profile: SolverProfile::BUILD,
         no_data: crate::pattern::no_data(&spec.data),
-        route: context.route,
-    };
-    let stop = match context.route {
-        Route::Search => None,
-        Route::StoppedRun => context.manifest.program_stop(program),
+        route: match asked {
+            Asked::Pattern(_) => context.route,
+            Asked::Chain(_) => Route::ChainRun,
+        },
     };
     let keyed = context.build.map(|build| {
-        (
-            answer_key(
+        let budget = context.manifest.budget;
+        let key = match (asked, context.route) {
+            (Asked::Pattern(lowered), Route::Search) => answer_key(
                 build,
                 context.execution,
                 digest,
                 lowered.digest,
-                context.manifest.budget,
-                stop,
+                budget,
+                None,
             ),
+            (Asked::Pattern(lowered), _) => answer_key(
+                build,
+                context.execution,
+                digest,
+                lowered.digest,
+                budget,
+                context.manifest.program_stop(program),
+            ),
+            (Asked::Chain(chain), _) => chain_answer_key(
+                build,
+                context.execution,
+                digest,
+                chain.digest,
+                budget,
+                context.manifest.program_stop(program),
+                context.partial_cap,
+            ),
+        };
+        (
+            key,
             answer_path(
                 context.cache,
                 context.execution.digest,
-                lowered.digest,
+                asked.digest(),
                 digest,
             ),
         )
@@ -1034,15 +1167,15 @@ fn ask(
         return (
             unstopped(rendered(
                 finish_row(row, &answer, true, None, claimed),
-                lowered,
+                asked,
                 context.reader,
             )),
             true,
         );
     }
-    let (outcome, wall_ms) = match context.route {
-        Route::Search => searcher.search(&test.initial_state, lowered),
-        Route::StoppedRun => {
+    let (outcome, wall_ms) = match (asked, context.route) {
+        (Asked::Pattern(lowered), Route::Search) => searcher.search(&test.initial_state, lowered),
+        (Asked::Pattern(lowered), _) => {
             let (outcome, state, wall_ms) = searcher.run_stopped(
                 context.manifest.campaign_stop(),
                 &test.id,
@@ -1052,6 +1185,18 @@ fn ask(
             );
             // The initial state's exclusion read with the run's lists (its short-circuit
             // readings), as the baseline runner reads it.
+            facts.state = state;
+            (outcome, wall_ms)
+        }
+        (Asked::Chain(chain), _) => {
+            let (outcome, state, wall_ms) = searcher.run_chain(
+                context.manifest.campaign_stop(),
+                &test.id,
+                &test.initial_state,
+                chain,
+                context.partial_cap,
+                context.exclusions,
+            );
             facts.state = state;
             (outcome, wall_ms)
         }
@@ -1086,7 +1231,7 @@ fn ask(
     };
     let mut row = rendered(
         finish_row(row, &answer, false, Some(wall_ms), claimed),
-        lowered,
+        asked,
         context.reader,
     );
     row["clock_stopped"] = json!(clock);
@@ -1148,11 +1293,18 @@ fn ask(
 }
 
 /// `row` with its witness, a hit's facts, printed for the reader
-/// ([`crate::pattern::rendered_witness`]); the answer's own witness keeps the facts, which the
-/// record stores and `--verify` compares.
-fn rendered(mut row: Value, lowered: &LoweredPattern, reader: &EndReader) -> Value {
+/// ([`crate::pattern::rendered_witness`], [`crate::pattern::rendered_chain_witness`]); the
+/// answer's own witness keeps the facts, which the record stores and `--verify` compares.
+fn rendered(mut row: Value, asked: Asked<'_>, reader: &EndReader) -> Value {
     if row["witness"].is_object() {
-        row["witness"] = crate::pattern::rendered_witness(&row["witness"], lowered, reader);
+        row["witness"] = match asked {
+            Asked::Pattern(lowered) => {
+                crate::pattern::rendered_witness(&row["witness"], lowered, reader)
+            }
+            Asked::Chain(chain) => {
+                crate::pattern::rendered_chain_witness(&row["witness"], chain, reader)
+            }
+        };
     }
     row
 }
@@ -1166,17 +1318,18 @@ fn unstopped(mut row: Value) -> Value {
 
 /// Whether a live hit's witness (`live`) and a stored one agree on what is a fact of the answer,
 /// both as facts (`crate::pattern::rendered_witness` prints a document's, and is compared never):
-/// the matching state's depth and whole state, and the bindings and the rules wherever both sides
-/// carry them as arrays. Bindings one side could not produce (`{absent: reason}`, a stopped
-/// route's) and the rules the stopped route never reports (null) are left out, so `--verify`
-/// reports a difference only where two answers differ.
+/// the matching state's depth and whole state, and the bindings, the rules and a chain's steps
+/// (each step's depth, state and bindings) wherever both sides carry them as arrays. Bindings one
+/// side could not produce (`{absent: reason}`, a stopped route's), the rules the stopped and
+/// chain routes never report (null) and the steps a single pattern's witness has not are left
+/// out, so `--verify` reports a difference only where two answers differ.
 fn same_witness(live: Option<&Value>, stored: &Value) -> bool {
     let Some(live) = live else {
         return false;
     };
     live["depth"] == stored["depth"]
         && live["state"] == stored["state"]
-        && ["bindings", "rules"]
+        && ["bindings", "rules", "steps"]
             .iter()
             .all(|key| match (&live[*key], &stored[*key]) {
                 (Value::Array(live), Value::Array(stored)) => live == stored,
@@ -1331,7 +1484,14 @@ mod tests {
                     cache: Some(cache),
                     ..QueryOptions::default()
                 };
-                query_with(&manifest, &list, &options, "kink-flow query", &adjust)
+                query_with(
+                    &manifest,
+                    &list,
+                    &options,
+                    "kink-flow query",
+                    &adjust,
+                    kink_campaign::CHAIN_PARTIAL_CAP,
+                )
             })
             .unwrap()
             .join()
@@ -1509,6 +1669,76 @@ mod tests {
         assert_eq!(undecided["expectation"]["verdict"], "inconclusive");
         assert_eq!(undecided["clock_stopped"], json!([]));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The cap of partial occurrences per path is counted. countdown's path keeps one
+    /// partial occurrence of `countdown-rises` per count it reaches, six, so under a cap of 2 its
+    /// run evicts some and the answer is `unknown` (`chain-partial-cap`), never a hit; fork keeps
+    /// none and is a `no`. A chain's key names the cap, so the `no` given under a cap of 2 is not
+    /// read under kink's own cap, under which countdown's answer is a `no` too.
+    #[test]
+    fn a_chain_beyond_its_cap_is_unknown_and_the_cap_is_keyed() {
+        let cache =
+            std::env::temp_dir().join(format!("kink-flow-query-chain-cap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        let ask = |partial_cap: usize| {
+            let cache = cache.clone();
+            std::thread::Builder::new()
+                .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+                .spawn(move || {
+                    let dir =
+                        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/chain");
+                    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+                    let list = PatternList::read(&dir.join("PATTERNS.toml")).unwrap();
+                    let options = QueryOptions {
+                        only: vec!["countdown-rises".into()],
+                        cache: Some(cache),
+                        ..QueryOptions::default()
+                    };
+                    query_with(
+                        &manifest,
+                        &list,
+                        &options,
+                        "kink-flow query",
+                        &|_| {},
+                        partial_cap,
+                    )
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        let (capped, ok) = ask(2);
+        assert!(ok, "{capped:#}");
+        let overflowed = row(&capped, "countdown-rises", "countdown");
+        assert_eq!(overflowed["answer"], "unknown", "{overflowed:#}");
+        let cause = overflowed["cause"].as_str().unwrap();
+        for part in [
+            "(chain-partial-cap)",
+            "beyond its cap of 2 per path on 1 path(s)",
+        ] {
+            assert!(cause.contains(part), "{part:?} in {cause}");
+        }
+        let fork = row(&capped, "countdown-rises", "fork");
+        assert_eq!(
+            (&fork["answer"], &fork["cached"]),
+            (&json!("no"), &json!(false))
+        );
+
+        let (kink, _) = ask(kink_campaign::CHAIN_PARTIAL_CAP);
+        for program in ["countdown", "fork"] {
+            let row = row(&kink, "countdown-rises", program);
+            assert_eq!(
+                (&row["answer"], &row["cached"]),
+                (&json!("no"), &json!(false)),
+                "{row:#}"
+            );
+        }
+        let (again, _) = ask(kink_campaign::CHAIN_PARTIAL_CAP);
+        for program in ["countdown", "fork"] {
+            assert_eq!(row(&again, "countdown-rises", program)["cached"], true);
+        }
+        let _ = fs::remove_dir_all(&cache);
     }
 
     mod kink_tier {

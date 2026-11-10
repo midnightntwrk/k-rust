@@ -6,13 +6,14 @@ use k_rust::backend::{
     ResultModalityOutput, SearchPatternRequest, SearchTypeArg,
 };
 use k_rust::kore::{ast::Pattern, json as kore_json};
+use kink_campaign::CHAIN_PARTIAL_CAP;
 use kink_corpus::admission::input_backend;
 use kink_flow::{
     FlowManifest, admit,
     cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES},
     pattern::{
-        Answer, Facts, Lowering, PatternList, Route, SearchOutcome, Searcher, judge,
-        search_modality, stopped_modality,
+        Answer, CHAIN_LOWERING_VERSION, Facts, LOWERING_VERSION, Lowering, PatternList, Route,
+        SearchOutcome, Searcher, chain_modality, judge, search_modality, stopped_modality,
     },
     query::{QueryOptions, record_sha256},
     results::{CACHE_DIRECTORY, SIMPLIFICATION_ITERATIONS},
@@ -302,12 +303,11 @@ fn a_pattern_list_error_names_its_key() {
     assert!(!dir.join(CACHE_DIRECTORY).exists());
 }
 
-/// A chain (`steps`) decodes, but no route answers one yet: a query selecting it is refused
-/// before anything runs, naming the pattern, and the other patterns are asked with `--only`. A
-/// `steps` of one step is its `pattern`, and is answered as the pattern is, under its digest.
+/// A `steps` of one step is its `pattern`, answered as the pattern is, by the corpus's
+/// route under its digest; a chain beside it is answered by the chain route.
 #[test]
-fn a_chain_is_refused_until_it_is_evaluated() {
-    let dir = fixture("calc", "chain-refused");
+fn a_one_step_chain_is_its_pattern() {
+    let dir = fixture("calc", "chain-one-step");
     let patterns = dir.join("PATTERNS-chain.toml");
     write(
         &patterns,
@@ -315,29 +315,8 @@ fn a_chain_is_refused_until_it_is_evaluated() {
          [[pattern]]\nid = \"c\"\nsteps = [\n  { pattern = \"<k> 1 + 2 ~> _ </k>\" },\n  { \
          pattern = \"<k> 3 </k>\" },\n]\n",
     );
-    let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
-    assert_eq!(status, EXIT_UNASKED, "{document:#}");
-    assert_eq!(
-        document["pattern_list"]["outcome"], "refused",
-        "{document:#}"
-    );
-    let detail = document["pattern_list"]["detail"].as_str().unwrap();
-    assert!(
-        detail.starts_with("pattern \"c\".steps: chain patterns are not evaluated yet"),
-        "{detail}"
-    );
-    assert!(document.get("rows").is_none(), "{document:#}");
-    assert!(!dir.join(CACHE_DIRECTORY).exists());
-
-    let (document, status) = query(
-        &dir.join("FLOW.toml"),
-        &patterns,
-        QueryOptions {
-            only: vec!["one".into()],
-            ..QueryOptions::default()
-        },
-    );
-    assert_eq!(status, EXIT_YES, "{document:#}");
+    let (document, _) = plain(&dir.join("FLOW.toml"), &patterns);
+    assert!(document.get("pattern_list").is_none(), "{document:#}");
     let (single, _) = query(
         &dir.join("FLOW.toml"),
         &flow("calc").join("PATTERNS.toml"),
@@ -351,7 +330,411 @@ fn a_chain_is_refused_until_it_is_evaluated() {
         "{document:#}"
     );
     assert_eq!(document["patterns"][0]["pattern"], "<k> 3 </k>");
-    assert_eq!(document["rows"][0]["answer"], "hit", "{document:#}");
+    assert!(document["patterns"][0].get("steps").is_none());
+    assert_eq!(
+        row(&document, "one", "add")["answer"],
+        "hit",
+        "{document:#}"
+    );
+    for row in document["rows"].as_array().unwrap() {
+        let route = if row["pattern"] == "one" {
+            "search"
+        } else {
+            "chain-run"
+        };
+        assert_eq!(row["route"], route, "{row:#}");
+    }
+}
+
+/// The record of (`pattern`, `program`) in `document`'s default cache under `dir`.
+fn pattern_record(dir: &Path, document: &Value, pattern: &str, program: &str) -> PathBuf {
+    let digest = |list: &str, id: &str| {
+        document[list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == id)
+            .unwrap_or_else(|| panic!("no {list} entry {id} in {document:#}"))["digest"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    dir.join(CACHE_DIRECTORY)
+        .join("patterns")
+        .join(
+            document["spec"]["execution_digest"]["digest"]
+                .as_str()
+                .unwrap(),
+        )
+        .join(digest("patterns", pattern))
+        .join(format!("{}.json", digest("programs", program)))
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The text of the cell labelled `label` in a printed witness state `state`, and whether the
+/// pattern names it.
+#[track_caller]
+fn printed_cell(state: &Value, label: &str) -> (String, bool) {
+    let witness = json!({ "state": state });
+    let cell = witness_cell(&witness, label);
+    (
+        cell["value"]["text"].as_str().unwrap().to_owned(),
+        cell["named"].as_bool().unwrap(),
+    )
+}
+
+/// `(variable, printed value)` of a printed witness's bindings.
+fn printed_bindings(bindings: &Value) -> Vec<(String, String)> {
+    bindings
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|binding| {
+            (
+                binding["variable"].as_str().unwrap().to_owned(),
+                binding["value"]["text"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// The chain fixture's obligations, on a corpus without `[stop]`.
+fn chain_obligations() -> Vec<(String, String, Option<String>)> {
+    owed(&[
+        ("doubled-after-pick", "hit", Some("fork")),
+        ("doubled-unless-alarm", "open", None),
+        ("alarm-then-four", "open", None),
+        ("countdown-rises", "open", None),
+        ("four-logged", "hit", Some("countdown")),
+    ])
+}
+
+/// A chain is answered along the paths of each program's run, by the chain route, on a
+/// corpus without `[stop]`. fork's run picks P = 3 and then, on the path that raises the alarm,
+/// logs 6, so `doubled-after-pick` hits, with the witness of each step; with no raised alarm
+/// allowed between the two steps the same chain is a decided `no`, the alarm state lying between
+/// them; `alarm-then-four` is a decided `no` though each of its steps is reached, on different
+/// paths, and its `expect = "no"` is met. A single pattern beside the chains keeps the search
+/// route, its digest, its key and the bytes of its witness and record. A second query reads every
+/// answer from the cache, chains under the chain's digest and key; `--verify` agrees with every
+/// record, and finds a record whose chain witness's step differs.
+#[test]
+fn a_chain_is_answered_along_the_paths_of_a_run() {
+    let dir = fixture("chain", "chain-answers");
+    let manifest = dir.join("FLOW.toml");
+    let patterns = dir.join("PATTERNS.toml");
+    let (document, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["version"], 9);
+    assert_eq!(
+        answers(&document),
+        expect(&[
+            ("doubled-after-pick", "countdown", NO),
+            ("doubled-after-pick", "fork", "hit"),
+            ("doubled-unless-alarm", "countdown", NO),
+            ("doubled-unless-alarm", "fork", NO),
+            ("alarm-then-four", "countdown", NO),
+            ("alarm-then-four", "fork", NO),
+            ("countdown-rises", "countdown", NO),
+            ("countdown-rises", "fork", NO),
+            ("four-logged", "countdown", "hit"),
+        ])
+    );
+    for row in document["rows"].as_array().unwrap() {
+        let route = if row["pattern"] == "four-logged" {
+            "search"
+        } else {
+            "chain-run"
+        };
+        assert_eq!(row["route"], route, "{row:#}");
+    }
+    assert_eq!(obligations(&document), chain_obligations());
+    assert_eq!(
+        obligation(&document, "alarm-then-four")["expectation"]["verdict"],
+        "met"
+    );
+
+    // The witness: the last step at the top level, every variable once, and each step.
+    let witness = &row(&document, "doubled-after-pick", "fork")["witness"];
+    assert_eq!(witness["depth"], 5, "{witness:#}");
+    assert_eq!(witness["rules"], Value::Null);
+    assert_eq!(witness["rendering"], "k");
+    assert_eq!(
+        printed_bindings(&witness["bindings"]),
+        [("P".into(), "3".into()), ("V".into(), "6".into())]
+    );
+    let steps = witness["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 2, "{witness:#}");
+    assert_eq!(
+        (&steps[0]["step"], &steps[0]["depth"]),
+        (&json!(1), &json!(2))
+    );
+    assert_eq!(
+        (&steps[1]["step"], &steps[1]["depth"]),
+        (&json!(2), &json!(5))
+    );
+    assert_eq!(
+        printed_bindings(&steps[0]["bindings"]),
+        [("P".into(), "3".into())]
+    );
+    assert_eq!(
+        printed_bindings(&steps[1]["bindings"]),
+        [("V".into(), "6".into())]
+    );
+    // Each step's state is printed with the cells that step names in full.
+    assert_eq!(
+        printed_cell(&steps[0]["state"], "<k>"),
+        ("pick ( 3 ) ~> .K".into(), true)
+    );
+    assert_eq!(
+        printed_cell(&steps[0]["state"], "<log>"),
+        ("ListItem ( 3 )".into(), false)
+    );
+    assert_eq!(
+        printed_cell(&steps[1]["state"], "<log>"),
+        ("ListItem ( 3 ) ListItem ( 6 )".into(), true)
+    );
+    assert!(!printed_cell(&steps[1]["state"], "<k>").1);
+    assert_eq!(witness["state"], steps[1]["state"]);
+
+    // A chain's entry: its steps' texts and targets, the chain's digest, no single text.
+    let chain = &document["patterns"][1];
+    assert_eq!(chain["id"], "doubled-unless-alarm");
+    assert_eq!(chain["pattern"], Value::Null);
+    assert_eq!(chain["kore"], Value::Null);
+    assert_eq!(chain["steps"].as_array().unwrap().len(), 2, "{chain:#}");
+    assert_eq!(chain["steps"][0]["pattern"], "<k> pick(P:Int) ... </k>");
+    assert_eq!(chain["steps"][0]["unless"], Value::Null);
+    assert_eq!(chain["steps"][1]["unless"], "<alarm> true </alarm>");
+    assert!(chain["steps"][1]["kore"].is_string(), "{chain:#}");
+    assert!(chain["steps"][1]["unless_kore"].is_string(), "{chain:#}");
+    assert_ne!(chain["digest"], document["patterns"][0]["digest"]);
+
+    // The single pattern: its route, digest, witness and record are those of a list without
+    // chains.
+    let alone_dir = fixture("chain", "chain-single-alone");
+    let alone = alone_dir.join("PATTERNS-single.toml");
+    write(
+        &alone,
+        "[[pattern]]\nid = \"four-logged\"\npattern = \"<log> _:List ListItem(4) </log>\"\n",
+    );
+    let (single, status) = plain(&alone_dir.join("FLOW.toml"), &alone);
+    assert_eq!(status, EXIT_YES, "{single:#}");
+    assert_eq!(
+        single["patterns"][0]["digest"],
+        document["patterns"][4]["digest"]
+    );
+    let hit = row(&document, "four-logged", "countdown");
+    assert_eq!(
+        hit["witness"],
+        row(&single, "four-logged", "countdown")["witness"]
+    );
+    assert!(hit["witness"].get("steps").is_none(), "{hit:#}");
+    assert!(hit["witness"]["rules"].is_array(), "{hit:#}");
+    let single_record = pattern_record(&dir, &document, "four-logged", "countdown");
+    assert_eq!(
+        fs::read(&single_record).unwrap(),
+        fs::read(pattern_record(
+            &alone_dir,
+            &single,
+            "four-logged",
+            "countdown"
+        ))
+        .unwrap()
+    );
+    let key = &read_json(&single_record)["key"];
+    assert_eq!(key["modality"], search_modality());
+    assert_eq!(key["lowering"], LOWERING_VERSION);
+    assert!(key.get("stop").is_none(), "{key:#}");
+
+    // The chain's record: under its digest, with its own key, the witness's facts with steps.
+    let path = pattern_record(&dir, &document, "doubled-after-pick", "fork");
+    let record = read_json(&path);
+    assert_eq!(record["key"]["lowering"], CHAIN_LOWERING_VERSION);
+    assert_eq!(record["key"]["modality"], chain_modality(CHAIN_PARTIAL_CAP));
+    assert_eq!(record["key"]["stop"], Value::Null);
+    assert_eq!(record["key"]["pattern"], document["patterns"][0]["digest"]);
+    assert_eq!(record["witness"]["steps"][1]["depth"], 5);
+    assert!(
+        record["witness"]["steps"][0]["state"].is_string(),
+        "{record:#}"
+    );
+
+    // Cached on the second run, chains and the single pattern alike.
+    let (second, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_YES, "{second:#}");
+    assert_eq!(answers(&second), answers(&document));
+    assert!(cached(&second).iter().all(|cached| *cached), "{second:#}");
+    assert_eq!(
+        row(&second, "doubled-after-pick", "fork")["witness"],
+        *witness
+    );
+
+    // --verify re-derives every answer and agrees with each record.
+    let (verified, status) = verify(&manifest, &patterns);
+    assert_eq!(status, EXIT_YES, "{verified:#}");
+    assert_eq!(verified["mismatches"], json!([]), "{verified:#}");
+    for row in verified["rows"].as_array().unwrap() {
+        assert_eq!(row["verify"], "match", "{row:#}");
+    }
+    // A record whose step differs, its digest recomputed, is a mismatch.
+    let mut forged = record.clone();
+    forged["witness"]["steps"][0]["depth"] = json!(1);
+    forged["record_sha256"] = json!(
+        record_sha256(
+            &forged["key"],
+            "hit",
+            &forged["witness"],
+            &forged["baseline_run_sha256"]
+        )
+        .to_string()
+    );
+    fs::write(&path, serde_json::to_string(&forged).unwrap()).unwrap();
+    let (mismatched, status) = verify(&manifest, &patterns);
+    assert_eq!(status, EXIT_NO, "{mismatched:#}");
+    let mismatches = mismatched["mismatches"].as_array().unwrap();
+    assert_eq!(mismatches.len(), 1, "{mismatched:#}");
+    assert_eq!(
+        (&mismatches[0]["pattern"], &mismatches[0]["program"]),
+        (&json!("doubled-after-pick"), &json!("fork"))
+    );
+}
+
+/// A chain is one `[[pattern]]`, so one obligation and one `[query]` row whose
+/// witness is the program that hits it. The first query records it; the next asks the recorded
+/// witness first and stops at its hit, and `--locked` finds the section unchanged; `--full`
+/// lists the hitters and keeps the witness.
+#[test]
+fn a_chain_obligation_is_locked_as_a_pattern_is() {
+    let dir = fixture("chain", "chain-lock");
+    let (document, status) = locked_query(&dir, false, false);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    assert_eq!(locked_rows(&dir), chain_obligations());
+    let recorded = fs::read_to_string(dir.join("kink.lock")).unwrap();
+    assert!(
+        recorded.contains(
+            "[[query.pattern]]\nid = \"doubled-after-pick\"\nstatus = \"hit\"\nwitness = \"fork\"\n"
+        ),
+        "{recorded}"
+    );
+
+    let (again, status) = locked_query(&dir, true, false);
+    assert_eq!(status, EXIT_YES, "{again:#}");
+    assert_eq!(again["lock"]["status"], "unchanged", "{again:#}");
+    assert!(obligation(&again, "doubled-after-pick")["witness_change"].is_null());
+    assert_eq!(
+        answers(&again)
+            .into_iter()
+            .filter(|(pattern, _, _)| pattern == "doubled-after-pick")
+            .collect::<Vec<_>>(),
+        expect(&[("doubled-after-pick", "fork", "hit")])
+    );
+
+    let (full, status) = locked_query(&dir, true, true);
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(full["lock"]["status"], "unchanged", "{full:#}");
+    assert_eq!(
+        obligation(&full, "doubled-after-pick")["hitters"],
+        json!(["fork"])
+    );
+    assert_eq!(fs::read_to_string(dir.join("kink.lock")).unwrap(), recorded);
+}
+
+/// On a corpus with `[stop]` a chain's run takes the stop. Stopped before the alarm is
+/// raised, fork's path that would log 6 ends first, so `doubled-after-pick` is a decided `no`
+/// there; the key holds the program's stop. The single pattern keeps the stopped route.
+#[test]
+fn a_chain_takes_the_corpus_stop() {
+    let dir = fixture("chain", "chain-stop");
+    let manifest = dir.join("FLOW-stop.toml");
+    write(
+        &manifest,
+        &format!(
+            "{}\n[stop]\nbefore = [\"CHAIN.raise\"]\n",
+            fs::read_to_string(dir.join("FLOW.toml")).unwrap()
+        ),
+    );
+    let (document, status) = plain(&manifest, &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let pick = row(&document, "doubled-after-pick", "fork");
+    assert_eq!(pick["answer"], NO, "{pick:#}");
+    assert_eq!(pick["route"], "chain-run");
+    let single = row(&document, "four-logged", "countdown");
+    assert_eq!(
+        (&single["answer"], &single["route"]),
+        (&json!("hit"), &json!("stopped-run"))
+    );
+    assert_eq!(
+        obligation(&document, "doubled-after-pick")["status"],
+        "open"
+    );
+    let record = read_json(&pattern_record(
+        &dir,
+        &document,
+        "doubled-after-pick",
+        "fork",
+    ));
+    assert_eq!(
+        record["key"]["stop"],
+        json!({"before": ["CHAIN.raise"], "after": [], "count": 1}),
+        "{record:#}"
+    );
+    assert_eq!(record["key"]["modality"], chain_modality(CHAIN_PARTIAL_CAP));
+}
+
+/// A step or an `unless` whose match is undecided leaves the chain `unknown`, its cause
+/// naming the part and its step, and, where the part's `requires` names a variable no cell
+/// pattern and no earlier step binds, the note that says how to bind it (an imported variable,
+/// `P`, is bound by step 1 and is not named).
+#[test]
+fn an_undecided_part_names_its_step() {
+    let dir = fixture("chain", "chain-undecided");
+    let patterns = dir.join("PATTERNS-undecided.toml");
+    write(
+        &patterns,
+        r#"
+[[pattern]]
+id = "requires-only-step"
+steps = [
+  { pattern = "<k> pick(P:Int) ... </k>" },
+  { pattern = "<log> L:List </log> requires W in L andBool W >Int P" },
+]
+
+[[pattern]]
+id = "requires-only-unless"
+steps = [
+  { pattern = "<k> pick(P:Int) ... </k>" },
+  { pattern = "<k> done ... </k>", unless = "<log> L:List </log> requires W in L" },
+]
+"#,
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    for (pattern, part, note) in [
+        (
+            "requires-only-step",
+            "undecided-step at step 2 (undecided-match)",
+            "; step 2: the pattern's requires names W, which",
+        ),
+        (
+            "requires-only-unless",
+            "undecided-unless at step 2 (undecided-match)",
+            "; step 2's unless: the pattern's requires names W, which",
+        ),
+    ] {
+        assert_eq!(row(&document, pattern, "countdown")["answer"], NO);
+        let unknown = row(&document, pattern, "fork");
+        assert_eq!(unknown["answer"], "unknown", "{unknown:#}");
+        let cause = unknown["cause"].as_str().unwrap();
+        for expected in [part, note, "(undecided-match: "] {
+            assert!(cause.contains(expected), "{expected:?} in {cause}");
+        }
+        assert_eq!(obligation(&document, pattern)["status"], "undecided");
+    }
 }
 
 /// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
@@ -877,7 +1260,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 8, "{document:#}");
+    assert_eq!(document["version"], 9, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1392,7 +1775,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 8);
+    assert_eq!(document["version"], 9);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -1848,7 +2231,7 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_YES, "{document:#}");
-        assert_eq!(document["version"], 8);
+        assert_eq!(document["version"], 9);
         let hit = row(&document, "filled", "twelve");
         assert_eq!(hit["answer"], "hit", "{hit:#}");
         let witness = &hit["witness"];
@@ -1998,7 +2381,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 8);
+        assert_eq!(document["version"], 9);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

@@ -60,6 +60,7 @@ use k_rust::{
         json as kore_json,
     },
 };
+use kink_native::execution::{ChainRequest, ChainStepRequest, UnlessRequest};
 use kink_patch::{Sha256Digest, canonical_json, payload_digest};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -68,6 +69,13 @@ use toml::Value as TomlValue;
 /// Domain of a chain's digest: each part's KORE target and the variables the compiler generated
 /// (module docs).
 pub const CHAIN_DOMAIN: &str = "kink-flow/chain/v1";
+
+/// How a chain's text becomes the request its run makes: each part lowered as a single pattern
+/// is ([`super::LOWERING_VERSION`]), and each step's imports and exports from the rules on the
+/// variables ([`Lowering::lower_chain`], [`LoweredChain::request`]). It is the `lowering` of every
+/// cached chain answer's key, in place of a single pattern's, so it changes whenever kink changes
+/// either.
+pub const CHAIN_LOWERING_VERSION: &str = "kink-flow/chain-lowering/v1";
 
 /// One step of a chain as the list writes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -171,6 +179,29 @@ pub struct LoweredUnless {
 }
 
 impl LoweredChain {
+    /// The request a run matches this chain by: each step's target, its imports and exports, and
+    /// its `unless`'s target and imports, in step order, keeping at most `partial_cap` partial
+    /// occurrences per path.
+    #[must_use]
+    pub fn request(&self, partial_cap: usize) -> ChainRequest {
+        ChainRequest {
+            steps: self
+                .steps
+                .iter()
+                .map(|step| ChainStepRequest {
+                    pattern: step.pattern.target.clone(),
+                    imports: step.imports.clone(),
+                    exports: step.exports.clone(),
+                    unless: step.unless.as_ref().map(|unless| UnlessRequest {
+                        pattern: unless.pattern.target.clone(),
+                        imports: unless.imports.clone(),
+                    }),
+                })
+                .collect(),
+            partial_cap,
+        }
+    }
+
     /// The digest of `steps`, each a lowered step and its lowered `unless` (module docs).
     fn digest_of(
         steps: &[(LoweredPattern, Option<LoweredPattern>)],

@@ -1,0 +1,41 @@
+# Chain patterns of the chain fixture (crates/kink-flow/README.md, "Chains").
+
+# Hit by fork: the pick of P = 3, then, later on the path that raises the alarm, 2 * P logged.
+[[pattern]]
+id = "doubled-after-pick"
+steps = [
+  { pattern = "<k> pick(P:Int) ... </k>" },
+  { pattern = "<log> _:List ListItem(V:Int) </log> requires V ==Int P *Int 2" },
+]
+
+# The same chain with no raised alarm between the two steps: the only path that logs 2 * P
+# raises the alarm first, so no program hits it.
+[[pattern]]
+id = "doubled-unless-alarm"
+steps = [
+  { pattern = "<k> pick(P:Int) ... </k>" },
+  { pattern = "<log> _:List ListItem(V:Int) </log> requires V ==Int P *Int 2", unless = "<alarm> true </alarm>" },
+]
+
+# fork raises the alarm on one path and logs 4 on the other, so no path has both in order.
+[[pattern]]
+id = "alarm-then-four"
+steps = [
+  { pattern = "<alarm> true </alarm>" },
+  { pattern = "<log> _:List ListItem(4) </log>" },
+]
+expect = "no"
+
+# countdown's counts only go down, so no count is followed by a greater one; each count is a
+# partial occurrence of its own on countdown's path.
+[[pattern]]
+id = "countdown-rises"
+steps = [
+  { pattern = "<k> count(C:Int) ... </k>" },
+  { pattern = "<k> count(D:Int) ... </k> requires D ==Int C +Int 1" },
+]
+
+# A single pattern beside the chains: countdown logs 4 last at depth 4.
+[[pattern]]
+id = "four-logged"
+pattern = "<log> _:List ListItem(4) </log>"

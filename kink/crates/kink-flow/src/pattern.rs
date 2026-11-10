@@ -18,8 +18,25 @@
 //! order, under one assignment of the variables the steps share, with no state matching a step's
 //! `unless` between it and the step before. Each step and each `unless` is lowered as a single
 //! pattern is, and the variables the parts share are checked ([`Lowering::lower_chain`]). A
-//! `steps` of one step without `unless` is that step's `pattern`. `query` does not evaluate a
-//! chain yet: a list holding one among the selected patterns is refused.
+//! `steps` of one step without `unless` is that step's `pattern`.
+//!
+//! **The chain route** ([`Route::ChainRun`], [`Searcher::run_chain`]): a chain is asked of a
+//! program by the program's run as the stopped route makes it, with the corpus's stop, or with no
+//! stop on a corpus without `[stop]` (every path then ends where the definition's run ends), the
+//! manifest's `max_depth`, `baseline_max_work` and `time_ms`, matching the chain along every path
+//! it explores (kink-campaign `Stop::execute_result_chain_matching`) with proof agreement on every
+//! part, under a cap of partial occurrences per path (kink-campaign `CHAIN_PARTIAL_CAP`), and
+//! kink-campaign `judge_chain_matches` answers it; [`judge`] then applies the premises every route
+//! shares. A chain is never asked by a search, also on a corpus without `[stop]`: the run's
+//! matcher is the one evaluation of a chain, and the run has a counted work bound
+//! (`baseline_max_work`), where a search has only the clock. A run that matches a chain merges
+//! two states only when their paths' chain progress agrees, so it can explore more states than
+//! the program's run without the chain, and `baseline_max_work` can then cut it where that run
+//! completes: the answer is `unknown` for the work bound, never for the chain. A hit's witness is
+//! the completion's last step at the top level (`depth`, `state`), `bindings` every variable of
+//! the chain's steps that the author wrote, once each (the steps' own bindings, which the run
+//! reports), `rules` null, and `steps`, each step's `{step, depth, state, bindings}`
+//! ([`chain_witness`]).
 //!
 //! **Lowering** ([`Lowering`]). A pattern is K text, parsed by the specification's own grammar: it
 //! is compiled by k-rust's public `kompile::compile_search_pattern` (the compiler `krun --pattern`
@@ -295,7 +312,9 @@ use std::{
 use toml::{Table, Value as TomlValue};
 
 pub mod chain;
-pub use chain::{CHAIN_DOMAIN, LoweredChain, LoweredStep, LoweredUnless, StepText};
+pub use chain::{
+    CHAIN_DOMAIN, CHAIN_LOWERING_VERSION, LoweredChain, LoweredStep, LoweredUnless, StepText,
+};
 
 /// The lowering of a pattern's K text to its KORE target ([`Lowering`]), a component of every
 /// cached answer's key: it changes whenever kink changes how a pattern's text becomes a target.
@@ -315,13 +334,27 @@ pub fn stopped_modality() -> Value {
     json!({"route": Route::StoppedRun.name(), "search_type": "all", "result_modality": "state-set"})
 }
 
-/// How a (pattern, program) is asked (module docs): by a pattern search of the definition's own
-/// reachable states (a corpus without `[stop]`), or by the program's stopped run matching every
-/// state of the truncated system it reaches (a corpus with `[stop]`).
+/// The run every check of a chain makes ([`Searcher::run_chain`]), as the cache key names it:
+/// one execute request of every path, state set, matching the chain along each path, keeping at
+/// most `partial_cap` partial occurrences per path.
+pub fn chain_modality(partial_cap: usize) -> Value {
+    json!({
+        "route": Route::ChainRun.name(),
+        "search_type": "all",
+        "result_modality": "state-set",
+        "partial_cap": partial_cap,
+    })
+}
+
+/// How a (pattern, program) is asked (module docs): a single pattern by a pattern search of the
+/// definition's own reachable states (a corpus without `[stop]`), or by the program's stopped run
+/// matching every state of the truncated system it reaches (a corpus with `[stop]`); a chain by
+/// the program's run, stopped where the corpus has `[stop]`, matching the chain along its paths.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Route {
     Search,
     StoppedRun,
+    ChainRun,
 }
 
 impl Route {
@@ -331,6 +364,7 @@ impl Route {
         match self {
             Self::Search => "search",
             Self::StoppedRun => "stopped-run",
+            Self::ChainRun => "chain-run",
         }
     }
 }
@@ -636,23 +670,27 @@ impl LoweredPattern {
     /// added to every cause such a condition can leave: an undecided match, and a solver query
     /// it needs that failed or is unavailable (the portable profile).
     pub fn requires_only_note(&self) -> String {
-        if self.requires_only.is_empty() {
-            return String::new();
-        }
-        let names = self
-            .requires_only
-            .iter()
-            .map(|name| name.strip_prefix("Var").unwrap_or(name))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(
-            "; the pattern's requires names {names}, which its cell patterns do not bind \
-             (requires-only variable): such a condition is decided only when the application \
-             holding the variable evaluates, so write the term that holds {names} in a cell \
-             pattern instead (for an element of a list, `L1:List ListItem(E) L2:List` with E \
-             holding {names}), where matching binds it"
-        )
+        requires_only_note(&self.requires_only)
     }
+}
+
+/// [`LoweredPattern::requires_only_note`] of the requires-only variables `requires_only`.
+fn requires_only_note(requires_only: &BTreeSet<String>) -> String {
+    if requires_only.is_empty() {
+        return String::new();
+    }
+    let names = requires_only
+        .iter()
+        .map(|name| name.strip_prefix("Var").unwrap_or(name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "; the pattern's requires names {names}, which its cell patterns do not bind \
+         (requires-only variable): such a condition is decided only when the application \
+         holding the variable evaluates, so write the term that holds {names} in a cell \
+         pattern instead (for an element of a list, `L1:List ListItem(E) L2:List` with E \
+         holding {names}), where matching binds it"
+    )
 }
 
 /// The variables the `requires` of the lowered target `\and(body, P...)` names (free in some
@@ -1100,6 +1138,13 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
                                               undecided solver answers, so no solver query the \
                                               answer rests on was left undecided"
                             .to_owned(),
+                        Route::ChainRun => "the chain run explored every path to its end (its \
+                                            last stop event, on a corpus with [stop]) with no \
+                                            completion of the chain, and its run, its leaves' \
+                                            feasibility questions and its chain matcher received \
+                                            0 undecided solver answers, so no solver query the \
+                                            answer rests on was left undecided"
+                            .to_owned(),
                     }),
                     witness: None,
                 },
@@ -1299,11 +1344,12 @@ impl Searcher {
                     }
                     MatchAnswer::No => SearchOutcome::Complete { smt_unknowns: 0 },
                     MatchAnswer::Unknown(unknown) => {
-                        let cause = stopped_cause(
+                        let cause = run_cause(
                             unknown,
                             matched.execution.as_ref(),
                             self.budget,
-                            lowered,
+                            &STOPPED_WORDS,
+                            &|_| lowered.requires_only_note(),
                         );
                         if matches!(unknown, MatchUnknown::Clock) {
                             SearchOutcome::ClockStopped(cause)
@@ -1330,6 +1376,85 @@ impl Searcher {
             "bindings": bindings,
             "rules": null,
         })
+    }
+
+    /// One check of a chain (module docs, the chain route): the run of the test `test_id` from
+    /// `initial` as [`Self::run_stopped`] makes it, under `stop` ([`kink_campaign::Stop::NONE`] on
+    /// a corpus without `[stop]`), matching `chain` along its paths with proof agreement on every
+    /// part and at most `partial_cap` partial occurrences per path; its outcome, the exclusion of
+    /// the initial state read with the run's lists, and its wall time. The run's work bound is
+    /// `baseline_max_work`, the bound of the program's baseline run; where the manifest sets none,
+    /// the run is bounded as that run is, by `max_depth` and the clock.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_chain(
+        &mut self,
+        stop: kink_campaign::Stop,
+        test_id: &str,
+        initial: &Pattern,
+        chain: &LoweredChain,
+        partial_cap: usize,
+        exclusions: &DefinitionExclusions,
+    ) -> (SearchOutcome, Option<Exclusion>, u64) {
+        let started = Instant::now();
+        let matched = stop.execute_result_chain_matching(
+            &ExecutionAdapter::with_profile(SolverProfile::BUILD),
+            &mut self.backend,
+            &mut self.tables,
+            test_id,
+            initial,
+            execution_budget(self.budget),
+            ResultRun {
+                max_work: self.budget.baseline_max_work,
+                ..ResultRun::default()
+            },
+            chain.request(partial_cap),
+            // Proof agreement on every part, for the reason the stopped route gives.
+            true,
+            exclusions,
+        );
+        let (outcome, state) = match matched {
+            Err(failure) => (
+                SearchOutcome::Failed(format!("k-rust refused the chain run: {failure:?}")),
+                None,
+            ),
+            Ok(matched) => {
+                let state = matched.execution.as_ref().and_then(|execution| {
+                    exclusions.state_exclusion(&self.definition, initial, execution.facts())
+                });
+                let outcome = match &matched.answer {
+                    MatchAnswer::Hit(completion) => {
+                        SearchOutcome::Hit(chain_witness(completion, chain))
+                    }
+                    MatchAnswer::No => SearchOutcome::Complete { smt_unknowns: 0 },
+                    MatchAnswer::Unknown(unknown) => {
+                        let words = RunWords {
+                            system: if stop.is_none() {
+                                "the system without a stop"
+                            } else {
+                                "the truncated system"
+                            },
+                            cap: Some(partial_cap),
+                            ..CHAIN_WORDS
+                        };
+                        let cause = run_cause(
+                            unknown,
+                            matched.execution.as_ref(),
+                            self.budget,
+                            &words,
+                            &|undecided| chain_notes(chain, undecided),
+                        );
+                        if matches!(unknown, MatchUnknown::Clock) {
+                            SearchOutcome::ClockStopped(cause)
+                        } else {
+                            SearchOutcome::Incomplete(cause)
+                        }
+                    }
+                };
+                (outcome, state)
+            }
+        };
+        let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        (outcome, state, wall_ms)
     }
 
     /// The bindings of the author's variables in a match of `lowered` against `state`, a state
@@ -1395,36 +1520,229 @@ const STOPPED_WITNESS_NOTE: &str = "the state and the bindings are printed as a 
      past a stop; the bindings are those of a match of the pattern against that state without a \
      condition, or {absent: reason} where none was produced";
 
-/// The cause of a stopped run's `unknown` (kink-campaign `MatchUnknown`), in the reader's words,
-/// each naming its cause; `execution` is the run, when it has a result.
-fn stopped_cause(
-    unknown: &MatchUnknown,
+/// The note of a chain's witness ([`chain_witness`], [`rendered_chain_witness`]).
+const CHAIN_WITNESS_NOTE: &str = "the witness is a completion of the chain on one path of the \
+     run: depth and state are its last step's, bindings the values of every variable of the \
+     chain's steps you wrote, once each, and steps each step's depth, state and the bindings of \
+     its own variables (a variable an earlier step bound is that step's); each state is printed as \
+     a search's witness prints it, the cells that step names in full; rules is null: the run \
+     reports the states of the completion, not the rewrite steps between them";
+
+/// A completed chain's witness as facts (module docs, the chain route): `{depth, state, bindings,
+/// rules, steps}`, `depth` and `state` the last step's, `rules` null, `steps` each step's
+/// `{step, depth, state, bindings}` in step order, and `bindings` every binding of the steps'
+/// in step order, once per variable. A step's bindings are those the run reports for the step's
+/// own variables, without those the compiler minted for its part ([`generated`]); the states
+/// and values are whole KORE text, as a single pattern's witness keeps them.
+fn chain_witness(
+    completion: &kink_native::execution::ChainCompletion,
+    chain: &LoweredChain,
+) -> Value {
+    let mut all = Vec::new();
+    let mut seen = BTreeSet::new();
+    let steps = completion
+        .steps
+        .iter()
+        .map(|matched| {
+            let lowered = matched
+                .step
+                .checked_sub(1)
+                .and_then(|index| chain.steps.get(index))
+                .map(|step| &step.pattern);
+            let bindings = matched
+                .bindings
+                .iter()
+                .filter(|binding| {
+                    !matches!((&binding.variable, lowered), (Pattern::Variable(variable), Some(lowered))
+                        if generated(lowered, &variable.name))
+                })
+                .map(|binding| {
+                    json!({
+                        "variable": binding.variable.to_string(),
+                        "value": binding.value.to_string(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            for binding in &bindings {
+                if seen.insert(binding["variable"].to_string()) {
+                    all.push(binding.clone());
+                }
+            }
+            json!({
+                "step": matched.step,
+                "depth": matched.depth,
+                "state": matched.state.to_string(),
+                "bindings": bindings,
+            })
+        })
+        .collect::<Vec<_>>();
+    let last = completion.steps.last();
+    json!({
+        "depth": last.map(|matched| matched.depth),
+        "state": last.map(|matched| matched.state.to_string()),
+        "bindings": all,
+        "rules": null,
+        "steps": steps,
+    })
+}
+
+/// The notes of an undecided chain's cause: for each part whose match was left undecided
+/// (`undecided`) and whose `requires` names a variable that neither its cell patterns bind nor an
+/// earlier step binds (its imports), the note [`LoweredPattern::requires_only_note`] gives of
+/// those variables, naming the part, in the order the parts are listed.
+fn chain_notes(chain: &LoweredChain, undecided: &[(UndecidedReason, u64)]) -> String {
+    let mut parts = Vec::new();
+    for (reason, _) in undecided {
+        let part = match *reason {
+            UndecidedReason::State(_) => continue,
+            UndecidedReason::Step { step, .. } => (step, false),
+            UndecidedReason::Unless { step, .. } => (step, true),
+        };
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    parts
+        .into_iter()
+        .filter_map(|(step, unless)| {
+            let at = chain.steps.get(step.checked_sub(1)?)?;
+            let (lowered, imports, name) = if unless {
+                let unless = at.unless.as_ref()?;
+                (
+                    &unless.pattern,
+                    &unless.imports,
+                    format!("step {step}'s unless"),
+                )
+            } else {
+                (&at.pattern, &at.imports, format!("step {step}"))
+            };
+            // An imported variable is bound by an earlier step and substituted before the match.
+            let requires_only = lowered
+                .requires_only
+                .iter()
+                .filter(|name| !imports.iter().any(|import| &import.name == *name))
+                .cloned()
+                .collect();
+            let note = requires_only_note(&requires_only);
+            (!note.is_empty()).then(|| format!("; {name}: {}", note.trim_start_matches("; ")))
+        })
+        .collect()
+}
+
+/// How the causes of a run's `unknown` name the run and what it found ([`run_cause`]).
+#[derive(Clone, Copy)]
+struct RunWords<'a> {
+    /// The run, as a cause names it.
+    run: &'a str,
+    /// The lead of every cause that withholds a `no`.
+    would: &'a str,
+    /// What a run whose leaf ended where its system goes on did not explore to its ends.
+    system: &'a str,
+    /// The lead of the cause of a hit refused for an application left unevaluated.
+    matched: &'a str,
+    /// What the matcher left undecided.
+    undecided: &'a str,
+    /// The lead of the cause of a run that did not match.
+    unmatched: &'a str,
+    /// Added to the cause of a run the work bound cut.
+    work: &'a str,
+    /// A chain's cap of partial occurrences per path.
+    cap: Option<usize>,
+}
+
+/// The words of a single pattern's stopped run.
+const STOPPED_WORDS: RunWords<'static> = RunWords {
+    run: "the stopped run",
+    would: "the stopped run reached no state that matches, but a no is not given",
+    system: "the truncated system",
+    matched: "a state the stopped run reached matches",
+    undecided: "the matcher left the verdict of some reached state undecided",
+    unmatched: "the stopped run reports no state matches",
+    work: "",
+    cap: None,
+};
+
+/// The words of a chain's run; [`Searcher::run_chain`] sets `system` and `cap`.
+const CHAIN_WORDS: RunWords<'static> = RunWords {
+    run: "the chain run",
+    would: "the chain run completed the chain on no path, but a no is not given",
+    system: "the truncated system",
+    matched: "a path of the chain run completes the chain",
+    undecided: "the chain's matcher left matches of its parts undecided",
+    unmatched: "the chain run reports no chain matching",
+    work: "; a run that matches a chain merges two states only where their paths' chain progress \
+           agrees, so it can explore more states than the program's run without the chain under \
+           the same bound: the work bound cut it, not the chain",
+    cap: None,
+};
+
+/// What a hit is read from, as a cause names it.
+trait Reach {
+    /// The diagnostics of the path up to it.
+    fn diagnostics(&self) -> &[k_rust::backend::BackendDiagnosticOutput<Pattern>];
+    /// The cause's subject.
+    fn lead(&self, words: &RunWords<'_>) -> String;
+}
+
+impl Reach for MatchedState {
+    fn diagnostics(&self) -> &[k_rust::backend::BackendDiagnosticOutput<Pattern>] {
+        &self.diagnostics
+    }
+
+    fn lead(&self, words: &RunWords<'_>) -> String {
+        format!(
+            "the first state {} reached that matches (depth {})",
+            words.run, self.depth
+        )
+    }
+}
+
+impl Reach for kink_native::execution::ChainCompletion {
+    fn diagnostics(&self) -> &[k_rust::backend::BackendDiagnosticOutput<Pattern>] {
+        &self.diagnostics
+    }
+
+    fn lead(&self, words: &RunWords<'_>) -> String {
+        format!(
+            "the first completion of the chain on a path of {} (its last step at depth {})",
+            words.run,
+            self.steps.last().map_or(0, |step| step.depth)
+        )
+    }
+}
+
+/// The note an undecided match's cause carries, given the run's undecided matches by reason and
+/// count ([`run_cause`]).
+type UndecidedNote<'a> = &'a dyn Fn(&[(UndecidedReason, u64)]) -> String;
+
+/// The cause of a run's `unknown` (kink-campaign `MatchUnknown`), in the reader's words
+/// (`words`), each naming its cause; `execution` is the run, when it has a result, and `note`
+/// gives the note an undecided match's cause carries.
+fn run_cause<R: Reach>(
+    unknown: &MatchUnknown<R>,
     execution: Option<&kink_native::execution::AdaptedExecution>,
     budget: Budget,
-    lowered: &LoweredPattern,
+    words: &RunWords<'_>,
+    note: UndecidedNote<'_>,
 ) -> String {
     let name = unknown.name();
-    let reach = |what: &str, state: &MatchedState| {
-        format!(
-            "the first state the stopped run reached that matches (depth {}) {what} ({name})",
-            state.depth
-        )
-    };
-    let would = "the stopped run reached no state that matches, but a no is not given";
+    let reach = |what: &str, reached: &R| format!("{} {what} ({name})", reached.lead(words));
+    let would = words.would;
     match unknown {
         MatchUnknown::Clock => format!(
-            "the stopped run did not finish within time_ms = {}, so its states are not read \
+            "{} did not finish within time_ms = {}, so its states are not read \
              ({name}: the clock is no answer)",
-            budget.time_ms
+            words.run, budget.time_ms
         ),
         MatchUnknown::StopConditionRefused(reason) => format!(
             "the stop's condition refused at an arrival or could not be asked ({reason}), so the \
              stop is not defined on this run, nor is the system it truncates ({name})"
         ),
         MatchUnknown::PassedStop(passed) => format!(
-            "the stopped run went on past a step of a stop rule that had another successor \
+            "{} went on past a step of a stop rule that had another successor \
              ({name}: {}), so on that branch its states need not be states of the truncated \
              system, and neither a match nor its lack is an answer",
+            words.run,
             passed
                 .iter()
                 .map(|stop| format!("{} at depth {}", stop.rule, stop.depth))
@@ -1435,7 +1753,7 @@ fn stopped_cause(
             &format!(
                 "rests on its path's diagnostics ({}), so the path may not exist",
                 state
-                    .diagnostics
+                    .diagnostics()
                     .iter()
                     .map(diagnostic_kind)
                     .collect::<BTreeSet<_>>()
@@ -1466,26 +1784,36 @@ fn stopped_cause(
                 })
                 .unwrap_or_default();
             format!(
-                "a state the stopped run reached matches, but the run left applications \
+                "{}, but the run left applications \
                  unevaluated ({UNSUPPORTED_HOOK}: {hooks}; a hook it does not evaluate, or a \
                  result its memory allowance refused), and a state holding one denotes a \
                  configuration only where the hook is defined at its arguments, which k-rust did \
-                 not compute"
+                 not compute",
+                words.matched
             )
         }
         MatchUnknown::UndecidedMatch(undecided) => format!(
-            "{would}: the matcher left the verdict of some reached state undecided ({name}: \
-             {}){}",
+            "{would}: {} ({name}: {}){}",
+            words.undecided,
             undecided
                 .iter()
-                .map(|(reason, count)| format!("{} {count}", undecided_reason(*reason)))
+                .map(|(reason, count)| match reason {
+                    UndecidedReason::State(_) => format!("{} {count}", undecided_reason(*reason)),
+                    UndecidedReason::Step { .. } | UndecidedReason::Unless { .. } => {
+                        format!("{}: {count}", undecided_reason(*reason))
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", "),
-            lowered.requires_only_note()
+            note(undecided)
         ),
         MatchUnknown::ChainPartialCap(paths) => format!(
-            "{would}: the chain's matcher evicted partial occurrences beyond its cap on {paths} \
-             path(s) ({name}), so a completion may have been missed there"
+            "{would}: the chain's matcher evicted partial occurrences beyond its cap{} on \
+             {paths} path(s) ({name}), so a completion may have been missed there",
+            words
+                .cap
+                .map(|cap| format!(" of {cap} per path"))
+                .unwrap_or_default()
         ),
         MatchUnknown::StopConditionUndecided(reason) => format!(
             "{would}: a path ended at an arrival at a stop where the condition was left \
@@ -1507,16 +1835,23 @@ fn stopped_cause(
                 halt => format!("a {} leaf", crate::results::kebab(&format!("{halt:?}"))),
             };
             format!(
-                "{would}: the run did not explore the truncated system to its ends ({name}: \
-                 {leaves} leaf/leaves ended where the system goes on, the first: {first})"
+                "{would}: the run did not explore {} to its ends ({name}: \
+                 {leaves} leaf/leaves ended where the system goes on, the first: {first}){}",
+                words.system,
+                if matches!(halt, HaltClass::WorkBound) {
+                    words.work
+                } else {
+                    ""
+                }
             )
         }
         MatchUnknown::DiagnosedLeaf { halt, leaves } => format!(
             "{would}: {leaves} leaf/leaves of the run carry a diagnostic of their path, the first a \
              {} leaf ({name}): a rule whose condition was left unsimplified, failed to simplify \
              or exhausted the simplification budget may have been left unapplied there, so the \
-             leaf need not be an end of the truncated system",
-            crate::results::kebab(&format!("{halt:?}"))
+             leaf need not be an end of {}",
+            crate::results::kebab(&format!("{halt:?}")),
+            words.system
         ),
         MatchUnknown::ExecutionModeRefutation => format!(
             "{would}: the run's states were refuted in execution mode alone ({name}), where the \
@@ -1538,7 +1873,7 @@ fn stopped_cause(
              incompleteness), so a decision the answer rests on may rest on one"
         ),
         MatchUnknown::Unmatched => {
-            format!("the stopped run reports no state matches ({name}), so it answers nothing")
+            format!("{} ({name}), so it answers nothing", words.unmatched)
         }
     }
 }
@@ -1572,7 +1907,7 @@ fn undecided_reason(reason: UndecidedReason) -> String {
             step,
             reason: inner,
         } => {
-            format!("{} ({}) at step {step}", reason.name(), named(inner))
+            format!("{} at step {step} ({})", reason.name(), named(inner))
         }
     }
 }
@@ -2020,45 +2355,101 @@ fn witness(
 /// `lowered` names printed in full. A KORE text of the facts that does not parse (a forged
 /// record) is shown as KORE, cut at [`VALUE_CAP`], with the parser's error.
 pub fn rendered_witness(facts: &Value, lowered: &LoweredPattern, reader: &EndReader) -> Value {
-    let parsed = |text: &Value| -> Result<Pattern, Value> {
-        let text = text.as_str().unwrap_or_default();
-        parse_pattern(text).map_err(|error| {
-            json!({
-                "text": text.chars().take(VALUE_CAP).collect::<String>(),
-                "rendering": "kore",
-                "truncated": text.chars().count() > VALUE_CAP,
-                "note": format!("the witness's KORE text does not parse: {error}"),
-            })
-        })
-    };
     let named = reader.named_cells(&lowered.target, &|name| generated(lowered, name));
-    let state = parsed(&facts["state"]).map_or_else(
+    json!({
+        "depth": facts["depth"],
+        "state": rendered_state(&facts["state"], &named, reader),
+        "bindings": rendered_bindings(&facts["bindings"], reader),
+        "rules": facts["rules"],
+        "rendering": "k",
+        "note": if facts["rules"].is_null() { STOPPED_WITNESS_NOTE } else { SEARCH_WITNESS_NOTE },
+    })
+}
+
+/// A chain's witness for the reader (module docs), derived from its facts `facts`
+/// ([`chain_witness`]) as [`rendered_witness`] derives a single pattern's: `{depth, state,
+/// bindings, rules, rendering, note, steps}`, each step `{step, depth, state, bindings,
+/// rendering}`. Each step's state is printed with the cells that step of `chain` names in full,
+/// and the top level, the last step's state, with the cells the last step names.
+pub fn rendered_chain_witness(facts: &Value, chain: &LoweredChain, reader: &EndReader) -> Value {
+    let named = |step: Option<&LoweredStep>| {
+        step.map(|step| {
+            reader.named_cells(&step.pattern.target, &|name| generated(&step.pattern, name))
+        })
+        .unwrap_or_default()
+    };
+    let steps = match &facts["steps"] {
+        Value::Array(steps) => Value::Array(
+            steps
+                .iter()
+                .map(|step| {
+                    let lowered = step["step"]
+                        .as_u64()
+                        .and_then(|number| usize::try_from(number).ok()?.checked_sub(1))
+                        .and_then(|index| chain.steps.get(index));
+                    json!({
+                        "step": step["step"],
+                        "depth": step["depth"],
+                        "state": rendered_state(&step["state"], &named(lowered), reader),
+                        "bindings": rendered_bindings(&step["bindings"], reader),
+                        "rendering": "k",
+                    })
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    };
+    json!({
+        "depth": facts["depth"],
+        "state": rendered_state(&facts["state"], &named(chain.steps.last()), reader),
+        "bindings": rendered_bindings(&facts["bindings"], reader),
+        "rules": facts["rules"],
+        "rendering": "k",
+        "note": CHAIN_WITNESS_NOTE,
+        "steps": steps,
+    })
+}
+
+/// A witness's KORE text `text` parsed, or, where it does not parse (a forged record), the text
+/// as KORE cut at [`VALUE_CAP`] with the parser's error.
+fn parsed_witness_text(text: &Value) -> Result<Pattern, Value> {
+    let text = text.as_str().unwrap_or_default();
+    parse_pattern(text).map_err(|error| {
+        json!({
+            "text": text.chars().take(VALUE_CAP).collect::<String>(),
+            "rendering": "kore",
+            "truncated": text.chars().count() > VALUE_CAP,
+            "note": format!("the witness's KORE text does not parse: {error}"),
+        })
+    })
+}
+
+/// A witness's state, its KORE text `text`, listed by its cells, those in `named` in full.
+fn rendered_state(text: &Value, named: &BTreeSet<String>, reader: &EndReader) -> Value {
+    parsed_witness_text(text).map_or_else(
         |unreadable| json!({ "unreadable": unreadable }),
-        |state| reader.witness_state(&state, &named),
-    );
-    let bindings = match &facts["bindings"] {
+        |state| reader.witness_state(&state, named),
+    )
+}
+
+/// A witness's bindings `bindings` printed, each variable by its name; `{absent: reason}` as it
+/// is.
+fn rendered_bindings(bindings: &Value, reader: &EndReader) -> Value {
+    match bindings {
         Value::Array(bindings) => Value::Array(
             bindings
                 .iter()
                 .map(|binding| {
                     json!({
                         "variable": variable_name(&binding["variable"]),
-                        "value": parsed(&binding["value"])
+                        "value": parsed_witness_text(&binding["value"])
                             .map_or_else(|unreadable| unreadable, |value| reader.witness_value(&value)),
                     })
                 })
                 .collect(),
         ),
         absent => absent.clone(),
-    };
-    json!({
-        "depth": facts["depth"],
-        "state": state,
-        "bindings": bindings,
-        "rules": facts["rules"],
-        "rendering": "k",
-        "note": if facts["rules"].is_null() { STOPPED_WITNESS_NOTE } else { SEARCH_WITNESS_NOTE },
-    })
+    }
 }
 
 /// The name the author wrote for a binding's variable, its KORE text `variable`

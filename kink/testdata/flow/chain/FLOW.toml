@@ -1,0 +1,15 @@
+# kink-flow corpus manifest for the chain fixture (crates/kink-flow/README.md, "Chains"):
+# two programs in corpus order. `countdown` logs 5, 4, 3, 2, 1 on one path; `fork` logs 3, then
+# on one path logs 4, and on the other raises the alarm and logs 6.
+[spec]
+entry = "chain.k"
+main_module = "CHAIN"
+syntax_module = "CHAIN-SYNTAX"
+
+[[program]]
+id = "countdown"
+text = "count(5)"
+
+[[program]]
+id = "fork"
+text = "go(3)"

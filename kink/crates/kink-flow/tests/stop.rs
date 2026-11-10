@@ -1037,7 +1037,7 @@ fn query_answers_through_the_stopped_run() {
     fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
     let (document, status) = query(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 8, "{document:#}");
+    assert_eq!(document["version"], 9, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),
