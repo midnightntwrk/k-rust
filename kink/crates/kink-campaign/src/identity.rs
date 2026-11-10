@@ -313,7 +313,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 43] = [
+pub const OUTSIDE_IDENTITY: [Outside; 45] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -577,6 +577,22 @@ pub const OUTSIDE_IDENTITY: [Outside; 43] = [
                  in the record's key, which also holds `kink_build` and the whole identity, and \
                  checks the record's digest under that key (query.rs read_record); a pattern answer \
                  decides no status",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "COMPARE_VERSION",
+        reason: "the compare document's format (compare.rs): no command reads a compare document \
+                 back; its lock section is the verdicts rendering, versioned by VERDICTS_VERSION",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "IMPLEMENTATION_ANSWER_VERSION",
+        reason: "the format of a cached answer of another implementation (compare.rs AnswerKey): \
+                 its reader requires it in the record's name and the record, which also hold the \
+                 protocol, the implementation's identity digest, its command and the request's \
+                 digest; the record holds the implementation's stdout, which every build reads \
+                 again by the protocol and compares again with the definition's ends, so it holds \
+                 nothing kink's build decides",
     },
     Outside {
         krate: "kink-flow",

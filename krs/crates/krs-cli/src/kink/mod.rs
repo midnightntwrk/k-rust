@@ -61,8 +61,13 @@
 //! `coverage` keeps the `[coverage]` section (one recorded killer per distinguished flip, by the
 //! same rule), unless the command names a lock. A run with the manifest's own settings rewrites
 //! it; `--tier 1` and `--depth` leave it unwritten, and krs's `--locked` adds kink-flow's only to
-//! a run with the manifest's own settings. So a CI also runs `krs kink coverage --locked`. Each
-//! command keeps the other's section as it is.
+//! a run with the manifest's own settings. So a CI also runs `krs kink coverage --locked`.
+//!
+//! `compare` keeps the `[compare]` section (one verdict per implementation, case and view),
+//! unless the command names a lock: a run of every implementation rewrites it, `--only` leaves it
+//! unwritten, and under krs's `--locked` kink-flow's `--locked` compares it. So a corpus with
+//! `[[implementation]]`s also runs `krs kink compare --locked` in CI. Each command keeps the
+//! others' sections as they are.
 //!
 //! Before version 24 the two locks were `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
 //! Where the command keeps the record by default and its old file is there, the front end names
@@ -122,8 +127,8 @@ pub const CORPUS_DIRECTORY: &str = "kink";
 pub const MANIFEST_FILE: &str = "FLOW.toml";
 /// The emitted definition's name inside the corpus directory.
 pub const DEFINITION_FILE: &str = "definition.k";
-/// The corpus record's name inside the corpus directory (kink-flow `run --lock` and
-/// `coverage --lock`), one section per command.
+/// The corpus record's name inside the corpus directory (kink-flow `run --lock`, `coverage
+/// --lock` and `compare --lock`), one section per command.
 pub const LOCK_FILE: &str = kink_flow::lock::LOCK_FILE;
 
 /// The exit statuses of kink-flow's command line, which `krs kink` keeps: the four actions of
@@ -1248,7 +1253,7 @@ fn flow_arguments(
     // The lock a verb keeps by default: none for a run of another list.
     let default = match verb {
         Verb::Run if named("--mutations") => None,
-        Verb::Run | Verb::Coverage => Some(LOCK_FILE),
+        Verb::Run | Verb::Coverage | Verb::Compare => Some(LOCK_FILE),
         _ => return Ok((files, rest)),
     };
     if let Some(lock) = default.filter(|_| !named("--lock")) {
@@ -1276,7 +1281,7 @@ fn legacy_lock(corpus: &Path, verb: Verb, options: &[String]) -> Option<PathBuf>
         Verb::Coverage => kink_flow::lock::LockKind::Coverage,
         _ => return None,
     };
-    let path = corpus.join(kind.legacy_file());
+    let path = corpus.join(kind.legacy_file()?);
     (!named("--lock") && path.exists()).then_some(path)
 }
 

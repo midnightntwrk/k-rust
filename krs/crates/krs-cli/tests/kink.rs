@@ -6649,13 +6649,14 @@ fn story_lock(killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
-        "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) \
-         and\n# [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), \
-         each command\n# reads, checks (--locked) and rewrites only its own section, and keeps the \
-         other as it is.\nschema = \"kink-flow-verdicts\"\n\n[run]\n# The verdicts of kink's \
-         `run` command (`krs kink run`, `kink-flow run`): the next run tries\n# each `killer` \
-         first, a run without --locked rewrites this section, and `run --locked` checks\n# that it \
-         is current.\nversion = 24\nprofile = \"z3\"\nz3_version = \"{}\"\n",
+        "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),\n\
+         # [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps\n\
+         # <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own \
+         section,\n# and keeps the others as they are.\nschema = \"kink-flow-verdicts\"\n\n[run]\n\
+         # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run \
+         tries\n# each `killer` first, a run without --locked rewrites this section, and `run \
+         --locked` checks\n# that it is current.\nversion = 25\nprofile = \"z3\"\nz3_version = \
+         \"{}\"\n",
         build.version
     );
     if let Some(digest) = &build.library_sha256 {

@@ -76,6 +76,10 @@ pub struct Kept {
     /// `"open"`, `"argued"`, `"undecided"` or null where that side lists it neither way), and
     /// `{argument, recorded, now}` for an argued item's standing.
     pub kept: Vec<Value>,
+    /// The runs of an implementation that gave no answer for another reason than the clock
+    /// (`compare`: `{implementation, program, failure}`), on which its rows depend as on a run
+    /// the clock stopped ([`crate::compare::keep`]); empty for every other command.
+    pub failed: Vec<Value>,
 }
 
 /// Whether the clock stopped a program's baseline run: its class is `timeout`, or its
@@ -111,10 +115,14 @@ pub fn mutant_timeouts(row: &Value) -> Vec<String> {
 /// from `lock`, with the stopped runs and the kept entries (module documentation).
 #[must_use]
 pub fn keep(lock: &Lock, document: &Value) -> Kept {
+    if lock.kind == LockKind::Compare {
+        return crate::compare::keep(lock, document);
+    }
     let mut kept = Kept {
         document: document.clone(),
         stopped: Vec::new(),
         kept: Vec::new(),
+        failed: Vec::new(),
     };
     let programs = document["programs"]
         .as_array()
@@ -135,6 +143,8 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
     let rows = match kind {
         LockKind::Run => items_mut(&mut kept.document, "/mutations"),
         LockKind::Coverage => items_mut(&mut kept.document, "/families/flips/items"),
+        // Kept by `crate::compare::keep`, above.
+        LockKind::Compare => None,
     };
     for row in rows.into_iter().flatten() {
         let Some(id) = row["id"].as_str().map(str::to_owned) else {
@@ -201,11 +211,13 @@ fn items_mut<'d>(document: &'d mut Value, pointer: &str) -> Option<&'d mut Vec<V
     document.pointer_mut(pointer)?.as_array_mut()
 }
 
-/// The status of a kill: a mutation's `killed`, a flip's `distinguished`.
+/// The status of a kill: a mutation's `killed`, a flip's `distinguished`; a compare row has
+/// none.
 const fn kill_status(kind: LockKind) -> &'static str {
     match kind {
         LockKind::Run => "killed",
         LockKind::Coverage => flips::DISTINGUISHED,
+        LockKind::Compare => "",
     }
 }
 
@@ -221,6 +233,7 @@ const fn dependent_statuses(kind: LockKind) -> &'static [&'static str] {
             ARGUED,
             flips::UNKNOWN,
         ],
+        LockKind::Compare => &[],
     }
 }
 
@@ -245,6 +258,7 @@ fn row_stops(
             (status != flips::UNKNOWN && dependent_statuses(kind).contains(&status))
                 || matches!(row["kink_status"].as_str(), Some("unknown" | "timeout"))
         }
+        LockKind::Compare => false,
     };
     if !(killed || dependent) {
         return None;
@@ -253,7 +267,7 @@ fn row_stops(
         return None;
     }
     let timeouts = match kind {
-        LockKind::Run => mutant_timeouts(row),
+        LockKind::Run | LockKind::Compare => mutant_timeouts(row),
         LockKind::Coverage => row["timed_out"]
             .as_array()
             .into_iter()
@@ -295,6 +309,7 @@ fn now_value(kind: LockKind, row: &Value) -> Value {
             json!({"status": rendered["status"], "killer": rendered["killer"],
                    "reason": rendered["reason"]})
         }
+        LockKind::Compare => Value::Null,
     }
 }
 
@@ -471,11 +486,10 @@ fn keep_standings(lock: &Lock, kept: &mut Kept, baseline: bool) {
 #[must_use]
 pub fn clock_lines(document: &Value) -> Vec<String> {
     let lock = &document["lock"];
-    let kind = if document["schema"] == crate::coverage::COVERAGE_SCHEMA {
-        LockKind::Coverage
-    } else {
-        LockKind::Run
-    };
+    let kind = LockKind::of(document);
+    if kind == LockKind::Compare {
+        return crate::compare::clock_lines(document);
+    }
     let path = lock["path"].as_str().unwrap_or(crate::lock::LOCK_FILE);
     let text = |value: &Value| value.as_str().unwrap_or("?").to_owned();
     let mut lines = Vec::new();

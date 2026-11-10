@@ -296,7 +296,7 @@ fn an_unreadable_lock_refuses_the_run() {
             "its run is not a table",
         ),
         (
-            "schema = \"kink-flow-verdicts\"\n[ run ]\nversion = 24\n",
+            "schema = \"kink-flow-verdicts\"\n[ run ]\nversion = 25\n",
             "its run section does not begin with a line `[run]`",
         ),
         (

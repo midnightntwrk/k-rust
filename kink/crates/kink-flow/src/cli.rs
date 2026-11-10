@@ -80,9 +80,9 @@ macro_rules! usage_line {
          --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
          [--stack-stops N] [--open-stops N] [--assume-joined NAME]... [--one-path] [--cache DIR] \
          [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
-         <topic>.toml files | kink-flow compare FLOW.toml [--only NAME]... [--cache DIR] \
-         [--output json|text]; --help (or -h), anywhere, prints the loop, the mutation format and \
-         the exit statuses"
+         <topic>.toml files | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
+         [--locked]] [--cache DIR] [--output json|text|verdicts]; --help (or -h), anywhere, \
+         prints the loop, the mutation format and the exit statuses"
     };
 }
 
@@ -541,15 +541,27 @@ const FUZZ_OPTIONS: &[VerbOption] = &[
 const COMPARE_OPTIONS: &[VerbOption] = &[
     option(
         "--only NAME",
-        "compare only this implementation of the manifest (repeatable)",
+        "compare only this implementation of the manifest (repeatable; the lock is left \
+         unwritten)",
+    ),
+    option(
+        "--lock FILE",
+        "the corpus record: rewrite its [compare] section after a run of every implementation",
+    ),
+    option(
+        "--locked",
+        "with --lock: leave FILE unwritten, and exit 1 when the run would change its [compare] \
+         section",
     ),
     option(
         "--cache DIR",
-        "the cache of the definition's baseline runs (default: .kink-flow beside FLOW.toml)",
+        "the cache of the definition's baseline runs and of the answers of each implementation \
+         that declares identity (default: .kink-flow beside FLOW.toml)",
     ),
     option(
-        "--output json|text",
-        "print the JSON document (default) or one line per verdict and a summary",
+        "--output json|text|verdicts",
+        "print the JSON document (default), one line per verdict and a summary, or the \
+         deterministic verdicts rendering",
     ),
 ];
 
@@ -677,7 +689,8 @@ impl Verb {
                  [--no-filter]"
             }
             Self::Compare => {
-                "compare FLOW.toml [--only NAME]... [--cache DIR] [--output json|text]"
+                "compare FLOW.toml [--only NAME]... [--lock FILE [--locked]] [--cache DIR] \
+                 [--output json|text|verdicts]"
             }
         }
     }
@@ -1108,6 +1121,7 @@ impl FlowCommand {
         match self {
             Self::Coverage { options, .. } => options.lock.as_deref(),
             Self::Run { options, .. } => options.lock.as_deref(),
+            Self::Compare { options, .. } => options.lock.as_deref(),
             _ => None,
         }
     }
@@ -1365,6 +1379,7 @@ pub fn run_command(
                 front
                     .implementations
                     .map(|vocabulary| vocabulary as &dyn crate::compare::Vocabulary),
+                &front.spelling.verb(Verb::Compare),
             );
             let status = crate::compare::compare_status(&document);
             (document, status)
@@ -1572,7 +1587,7 @@ pub fn coverage_status(document: &Value) -> u8 {
 /// [`EXIT_UNANSWERED`] when `--locked` found no difference but some entry rests on a run the
 /// clock stopped (`undecided`: not decided on this host, [`crate::clock`]), [`EXIT_UNASKED`] when
 /// it could not be written, else [`EXIT_YES`].
-fn lock_status(document: &Value) -> u8 {
+pub(crate) fn lock_status(document: &Value) -> u8 {
     match document["lock"]["status"].as_str() {
         Some("stale") => EXIT_NO,
         Some("undecided") => EXIT_UNANSWERED,
@@ -2067,16 +2082,29 @@ fn compare_options(
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
             }
+            "--lock" if options.lock.is_none() => {
+                let file = args.next().ok_or("--lock needs a file")?;
+                options.lock = Some(PathBuf::from(file));
+            }
+            "--locked" if !options.locked => options.locked = true,
             "--output" if output.is_none() => {
-                let value = args.next().ok_or("--output needs json or text")?;
+                let value = args.next().ok_or("--output needs json, text or verdicts")?;
                 output = Some(match value.as_str() {
                     "json" => OutputFormat::Json,
                     "text" => OutputFormat::Text,
-                    _ => return Err(format!("--output {value:?}: expected json or text")),
+                    "verdicts" => OutputFormat::Verdicts,
+                    _ => {
+                        return Err(format!(
+                            "--output {value:?}: expected json, text or verdicts"
+                        ));
+                    }
                 });
             }
             _ => return Err(repeated(arg)),
         }
+    }
+    if options.locked && options.lock.is_none() {
+        return Err("--locked compares the run with its lock: give --lock FILE".to_owned());
     }
     Ok((options, output.unwrap_or_default()))
 }

@@ -1,11 +1,12 @@
-//! The corpus record, `kink.lock` (`run --lock FILE`, `coverage --lock FILE`): one file, one
-//! section per command. `[run]` holds the killer record, one recorded killer per killed mutation,
-//! kept while it still kills; `[coverage]` holds the coverage lock, one recorded killer per
-//! distinguished flip by the same rule, with each family's open and argued obligations
-//! ([`LockKind`]).
+//! The corpus record, `kink.lock` (`run --lock FILE`, `coverage --lock FILE`, `compare --lock
+//! FILE`): one file, one section per command. `[run]` holds the killer record, one recorded
+//! killer per killed mutation, kept while it still kills; `[coverage]` holds the coverage lock,
+//! one recorded killer per distinguished flip by the same rule, with each family's open and
+//! argued obligations; `[compare]` holds one verdict per (implementation, program, view) of the
+//! corpus's other implementations ([`crate::compare`], [`LockKind`]).
 //!
 //! Each command owns its section. It reads only its own, compares only its own under `--locked`,
-//! and rewrites only its own, keeping the other section's text byte for byte, so that
+//! and rewrites only its own, keeping the other sections' text byte for byte, so that
 //! `coverage --locked` is unaffected by a stale `[run]`, and the reverse. A file with no section
 //! for a command records nothing for it: a first `coverage` after only `run`s is no error.
 //!
@@ -17,13 +18,13 @@
 //! wrong for the section the last command did not write, and a `run` on another Z3 build would
 //! make `coverage --locked` stale for a change `coverage` did not make.
 //!
-//! A section is the lines from its `[run]` or `[coverage]` line to the next such line (or the end
-//! of the file), trailing blank lines aside: it is the command's verdicts rendering after the
-//! record's header ([`crate::verdicts::lock_section`]), so a file only one command has written is
-//! that command's `--output verdicts` (for `run`, without `killed_by`).
+//! A section is the lines from its `[run]`, `[coverage]` or `[compare]` line to the next such line
+//! (or the end of the file), trailing blank lines aside: it is the command's verdicts rendering
+//! after the record's header ([`crate::verdicts::lock_section`]), so a file only one command has
+//! written is that command's `--output verdicts` (for `run`, without `killed_by`).
 //!
 //! A command writes its section by a read-modify-write under an exclusive lock of the file's
-//! directory: it reads the file again, keeps the other section's text, writes the whole file to a
+//! directory: it reads the file again, keeps the other sections' text, writes the whole file to a
 //! temporary name in the directory and renames it over the file ([`Store::write_text`]), then
 //! releases the lock. Two commands that write at once each find the other's section in the file
 //! they rewrite, so neither loses it; a reader never sees a part-written file.
@@ -43,11 +44,12 @@
 //! fires) or the order work was done in.
 //!
 //! Reading tolerates any version: `schema` must be `kink-flow-verdicts`, the command's section,
-//! where there is one, must be a table and begin with its own `[run]` or `[coverage]` line, and
-//! each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string
-//! `killer`; its `status` and `reason`, when they are strings, are read only to report what
-//! changed. A file that is not TOML, has another schema, or repeats an id does not decode, and the
-//! command is refused ([`Lock::read`]).
+//! where there is one, must be a table and begin with its own `[run]`, `[coverage]` or `[compare]`
+//! line, and each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may
+//! have a string `killer`, and each `[[compare.verdict]]` a string `implementation`, `program` and
+//! `view`; its `status` (`verdict`), `reason` and `difference`, when they are strings, are read
+//! only to report what changed. A file that is not TOML, has another schema, or repeats an id does
+//! not decode, and the command is refused ([`Lock::read`]).
 //!
 //! A lock written before version 24 is one command's rendering at the top of its file
 //! (`document = "run"` or `"coverage"`, the rows `[[mutation]]` or `[[flip]]`, a coverage lock's
@@ -66,7 +68,7 @@
 
 use crate::verdicts::{VERDICTS_SCHEMA, lock_section, record_header};
 use kink_corpus::Store;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -86,7 +88,8 @@ pub const LEGACY_RUN_LOCK_FILE: &str = "verdicts.lock";
 pub const LEGACY_COVERAGE_LOCK_FILE: &str = "coverage.lock";
 
 /// Which command's section of the record a lock is: a run's verdicts (`[run]`), one row per
-/// mutation, or a coverage command's (`[coverage]`), one row per flip (module documentation).
+/// mutation, a coverage command's (`[coverage]`), one row per flip, or a compare command's
+/// (`[compare]`), one row per (implementation, program, view) (module documentation).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LockKind {
     /// `run --lock`: `[run]`, `[[run.mutation]]` rows.
@@ -94,10 +97,13 @@ pub enum LockKind {
     Run,
     /// `coverage --lock`: `[coverage]`, `[[coverage.flip]]` rows.
     Coverage,
+    /// `compare --lock`: `[compare]`, `[[compare.verdict]]` rows, each keyed by its
+    /// `implementation`, `program` and `view` rather than an `id` ([`row_id`]).
+    Compare,
 }
 
 /// The sections of a record, in the order a record writes them.
-const SECTIONS: [LockKind; 2] = [LockKind::Run, LockKind::Coverage];
+const SECTIONS: [LockKind; 3] = [LockKind::Run, LockKind::Coverage, LockKind::Compare];
 
 impl LockKind {
     /// The command, and the name of its section (`run`, `coverage`); a lock before version 24
@@ -107,57 +113,77 @@ impl LockKind {
         match self {
             Self::Run => "run",
             Self::Coverage => "coverage",
+            Self::Compare => "compare",
         }
     }
 
-    /// The name of a row's table inside the section (`mutation`, `flip`).
+    /// The name of a row's table inside the section (`mutation`, `flip`, `verdict`).
     #[must_use]
     pub const fn row(self) -> &'static str {
         match self {
             Self::Run => "mutation",
             Self::Coverage => "flip",
+            Self::Compare => "verdict",
         }
     }
 
-    /// The old file a corpus directory kept this command's lock in before version 24.
+    /// The old file a corpus directory kept this command's lock in before version 24; none for
+    /// `compare`, whose section is newer than the record.
     #[must_use]
-    pub const fn legacy_file(self) -> &'static str {
+    pub const fn legacy_file(self) -> Option<&'static str> {
         match self {
-            Self::Run => LEGACY_RUN_LOCK_FILE,
-            Self::Coverage => LEGACY_COVERAGE_LOCK_FILE,
+            Self::Run => Some(LEGACY_RUN_LOCK_FILE),
+            Self::Coverage => Some(LEGACY_COVERAGE_LOCK_FILE),
+            Self::Compare => None,
         }
     }
 
-    /// The section's first line (`[run]`, `[coverage]`).
+    /// The section's first line (`[run]`, `[coverage]`, `[compare]`).
     fn heading(self) -> &'static str {
         match self {
             Self::Run => "[run]",
             Self::Coverage => "[coverage]",
+            Self::Compare => "[compare]",
+        }
+    }
+
+    /// The key whose line opens a row's table in the rendering: `id`, and for a compare row
+    /// `implementation`, the first of its three keys.
+    const fn key_line(self) -> &'static str {
+        match self {
+            Self::Run | Self::Coverage => "id",
+            Self::Compare => "implementation",
         }
     }
 
     /// The kind of the lock `document`'s rendering is: a coverage document's is a coverage lock,
-    /// every other a run's.
-    fn of(document: &Value) -> Self {
+    /// a compare document's a compare lock, every other a run's.
+    pub(crate) fn of(document: &Value) -> Self {
         if document["schema"] == crate::coverage::COVERAGE_SCHEMA {
             Self::Coverage
+        } else if document["schema"] == crate::compare::COMPARE_SCHEMA {
+            Self::Compare
         } else {
             Self::Run
         }
     }
 
     /// The rows of `document` a lock of this kind records: a run's mutations, a coverage
-    /// document's flips.
+    /// document's flips, a compare document's verdict rows as the lock holds them
+    /// (`verdicts`, which [`crate::compare::keep`] sets on the document a lock settles).
     fn rows(self, document: &Value) -> &[Value] {
         let rows = match self {
             Self::Run => &document["mutations"],
             Self::Coverage => &document["families"]["flips"]["items"],
+            Self::Compare => &document["verdicts"],
         };
         rows.as_array().map_or(&[][..], Vec::as_slice)
     }
 
     /// What the rendering writes of a row of `document` that a lock compares: `{status, killer,
-    /// reason}` (a horizon is rendered, and compared only as the rendering's text).
+    /// reason}` (a horizon is rendered, and compared only as the rendering's text); for a
+    /// compare row `{verdict, reason, difference}` (its digests are compared as the rendering's
+    /// text).
     fn now(self, row: &Value) -> Value {
         match self {
             Self::Run => json!({
@@ -173,7 +199,64 @@ impl LockKind {
                     "reason": rendered["reason"],
                 })
             }
+            Self::Compare => json!({
+                "verdict": row["verdict"],
+                "reason": row["reason"],
+                "difference": row["difference"],
+            }),
         }
+    }
+
+    /// The members that name the row `id` in a change or a kept entry: `{mutation: id}`,
+    /// `{flip: id}`, and for a compare row `{implementation, program, view}`.
+    pub(crate) fn keyed(self, id: &str) -> Map<String, Value> {
+        let mut keyed = Map::new();
+        match self {
+            Self::Run | Self::Coverage => {
+                keyed.insert(self.row().into(), json!(id));
+            }
+            Self::Compare => {
+                let parts: Vec<String> = serde_json::from_str(id).unwrap_or_default();
+                for (key, part) in ["implementation", "program", "view"].iter().zip(parts) {
+                    keyed.insert((*key).into(), json!(part));
+                }
+            }
+        }
+        keyed
+    }
+
+    /// How a line names the row a change or kept entry names ([`LockKind::keyed`]): its id, and
+    /// for a compare row `IMPLEMENTATION PROGRAM VIEW`, as `compare --output text` does.
+    pub(crate) fn named(self, entry: &Value) -> String {
+        match self {
+            Self::Run | Self::Coverage => entry[self.row()].as_str().unwrap_or("?").to_owned(),
+            Self::Compare => ["implementation", "program", "view"]
+                .iter()
+                .map(|key| entry[*key].as_str().unwrap_or("?"))
+                .collect::<Vec<_>>()
+                .join(" "),
+        }
+    }
+}
+
+/// The id of a compare row, its `(implementation, program, view)` as one JSON array: a function
+/// of the three that no two rows share, whatever their names hold.
+#[must_use]
+pub fn compare_row_id(implementation: &str, program: &str, view: &str) -> String {
+    json!([implementation, program, view]).to_string()
+}
+
+/// The id of a row of a `kind` section as TOML: its `id`, and for a compare row its three keys
+/// ([`compare_row_id`]); `None` where one is not a string.
+fn row_id(kind: LockKind, row: &toml::Table) -> Option<String> {
+    let string = |key: &str| row.get(key).and_then(toml::Value::as_str);
+    match kind {
+        LockKind::Run | LockKind::Coverage => string("id").map(str::to_owned),
+        LockKind::Compare => Some(compare_row_id(
+            string("implementation")?,
+            string("program")?,
+            string("view")?,
+        )),
     }
 }
 
@@ -225,15 +308,35 @@ pub struct Legacy {
     pub migrated: bool,
 }
 
-/// One row of a lock's section (`[[run.mutation]]`, `[[coverage.flip]]`).
+/// One row of a lock's section (`[[run.mutation]]`, `[[coverage.flip]]`, `[[compare.verdict]]`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LockRow {
+    /// The row's `id`; a compare row's [`compare_row_id`].
     pub id: String,
-    /// The recorded killer, the one fact a run reads.
+    /// The recorded killer, the one fact a run reads; none in a compare row.
     pub killer: Option<String>,
-    /// The recorded status and reason, read only to report what changed.
+    /// The recorded status (a compare row's `verdict`) and reason, read only to report what
+    /// changed.
     pub status: Option<String>,
     pub reason: Option<String>,
+    /// A compare row's first difference, as the section writes it; read only to report what
+    /// changed.
+    pub difference: Option<String>,
+}
+
+impl LockRow {
+    /// What a lock compares of the recorded row ([`LockKind::now`]'s shape for `kind`).
+    fn recorded(&self, kind: LockKind) -> Value {
+        match kind {
+            LockKind::Run | LockKind::Coverage => {
+                json!({"status": self.status, "killer": self.killer, "reason": self.reason})
+            }
+            LockKind::Compare => {
+                json!({"verdict": self.status, "reason": self.reason,
+                       "difference": self.difference})
+            }
+        }
+    }
 }
 
 /// How a run ended, for [`Lock::settle`].
@@ -369,11 +472,22 @@ impl Lock {
             let Some(row) = row.as_table() else {
                 return Err(refused(format!("{noun} {} is not a table", index + 1)));
             };
-            let Some(id) = row.get("id").and_then(toml::Value::as_str) else {
-                return Err(refused(format!("{noun} {} has no string id", index + 1)));
+            let Some(id) = row_id(kind, row) else {
+                return Err(refused(match kind {
+                    LockKind::Compare => format!(
+                        "{noun} {} has no string implementation, program and view",
+                        index + 1
+                    ),
+                    _ => format!("{noun} {} has no string id", index + 1),
+                }));
             };
+            let id = id.as_str();
             if !seen.insert(id.to_owned()) {
-                return Err(refused(format!("the {noun} {id:?} is listed twice")));
+                let shown = match kind {
+                    LockKind::Compare => id.to_owned(),
+                    _ => format!("{id:?}"),
+                };
+                return Err(refused(format!("the {noun} {shown} is listed twice")));
             }
             let killer = match row.get("killer") {
                 None => None,
@@ -388,8 +502,13 @@ impl Lock {
             rows.push(LockRow {
                 id: id.to_owned(),
                 killer,
-                status: string("status"),
+                status: string(if kind == LockKind::Compare {
+                    "verdict"
+                } else {
+                    "status"
+                }),
                 reason: string("reason"),
+                difference: string("difference"),
             });
         }
         // A coverage section's open and argued obligations: each family table's `open` and
@@ -407,7 +526,7 @@ impl Lock {
                 .filter(|(family, _)| crate::coverage::FAMILIES.contains(&family.as_str()))
         };
         let listed = |key: &str| match kind {
-            LockKind::Run => BTreeMap::new(),
+            LockKind::Run | LockKind::Compare => BTreeMap::new(),
             LockKind::Coverage => families()
                 .filter_map(|(family, section)| {
                     let ids = section.get(key)?.as_array()?;
@@ -420,7 +539,7 @@ impl Lock {
         // lock written before version 24, its `[arguments]` line. A standing that is not a string
         // is left out, as an `open` that is not an array of ids is.
         let arguments = match kind {
-            LockKind::Run => BTreeMap::new(),
+            LockKind::Run | LockKind::Compare => BTreeMap::new(),
             LockKind::Coverage => {
                 let standing = |entry: &toml::Value| {
                     Some((
@@ -686,6 +805,9 @@ impl Lock {
             if let Some(arguments) = &arguments {
                 value["argument_changes"] = json!(arguments);
             }
+            if kind == LockKind::Compare {
+                value["failed"] = json!(clock.failed);
+            }
             value
         };
         if run.locked {
@@ -695,10 +817,11 @@ impl Lock {
                 header || !changes.is_empty()
             };
             // Not a difference, and not confirmed either: some entry rests on a run the clock
-            // stopped, so this host cannot decide it.
+            // stopped (or, for `compare`, on a run of an implementation that gave no answer), so
+            // this host cannot decide it.
             let status = if differs {
                 "stale"
-            } else if clock.stopped.is_empty() {
+            } else if clock.stopped.is_empty() && clock.failed.is_empty() {
                 "unchanged"
             } else {
                 "undecided"
@@ -899,7 +1022,7 @@ impl Lock {
             .and_then(toml::Value::as_array)
             .into_iter()
             .flatten()
-            .filter_map(|row| row.get("id")?.as_str().map(str::to_owned))
+            .filter_map(|row| row_id(kind, row.as_table()?))
             .collect()
     }
 
@@ -908,16 +1031,11 @@ impl Lock {
     /// document's order, then the lock's rows the document has no row for. Under `--only`
     /// (`only` not empty) only the selected rows are compared.
     fn changes(&self, document: &Value, only: &[String]) -> Vec<Value> {
-        let selected = |id: &str| only.is_empty() || only.iter().any(|o| o == id);
+        let selected = |id: &str| selected(self.kind, only, id);
         let recorded = self
             .rows
             .iter()
-            .map(|row| {
-                (
-                    row.id.as_str(),
-                    json!({"status": row.status, "killer": row.killer, "reason": row.reason}),
-                )
-            })
+            .map(|row| (row.id.as_str(), row.recorded(self.kind)))
             .collect::<BTreeMap<_, _>>();
         let mut seen = BTreeSet::new();
         let mut changes = Vec::new();
@@ -930,16 +1048,18 @@ impl Lock {
             let now = self.kind.now(row);
             let before = recorded.get(id).cloned();
             if before.as_ref() != Some(&now) {
-                changes.push(json!({self.kind.row(): id, "recorded": before, "now": now}));
+                let mut change = self.kind.keyed(id);
+                change.insert("recorded".into(), json!(before));
+                change.insert("now".into(), now);
+                changes.push(Value::Object(change));
             }
         }
         for row in &self.rows {
             if selected(&row.id) && only.is_empty() && !seen.contains(&row.id) {
-                changes.push(json!({
-                    self.kind.row(): row.id,
-                    "recorded": recorded[row.id.as_str()],
-                    "now": null,
-                }));
+                let mut change = self.kind.keyed(&row.id);
+                change.insert("recorded".into(), recorded[row.id.as_str()].clone());
+                change.insert("now".into(), Value::Null);
+                changes.push(Value::Object(change));
             }
         }
         changes
@@ -1020,6 +1140,20 @@ impl Lock {
         }
         changes
     }
+}
+
+/// Whether `--only` (`only`, empty: every row) selects the row `id` of a `kind` section: by its
+/// id, and for a compare row by its implementation, since `compare --only` names
+/// implementations.
+fn selected(kind: LockKind, only: &[String], id: &str) -> bool {
+    only.is_empty()
+        || match kind {
+            LockKind::Run | LockKind::Coverage => only.iter().any(|o| o == id),
+            LockKind::Compare => {
+                let keyed = kind.keyed(id);
+                only.iter().any(|o| keyed["implementation"] == o.as_str())
+            }
+        }
 }
 
 /// The run document's `lock` of a lock at `path` when nothing was compared or written, for
@@ -1112,11 +1246,12 @@ fn header_key_order(text: &str, name: &str) -> Vec<String> {
     keys
 }
 
-/// The `id` line of each row of `kind`'s section `text` (`[[run.mutation]]`, `[[coverage.flip]]`),
-/// in order, with its line number counted from 1 in `text`: the first line of the row's table
-/// that sets `id`.
+/// The `id` line of each row of `kind`'s section `text` (`[[run.mutation]]`, `[[coverage.flip]]`;
+/// a `[[compare.verdict]]`'s `implementation` line), in order, with its line number counted from
+/// 1 in `text`: the first line of the row's table that sets that key.
 fn id_lines(text: &str, kind: LockKind) -> Vec<(u64, &str)> {
     let table = format!("[[{}.{}]]", kind.document(), kind.row());
+    let key = kind.key_line();
     let mut lines = Vec::new();
     let mut in_row = false;
     for (number, line) in (1_u64..).zip(text.split('\n')) {
@@ -1125,7 +1260,7 @@ fn id_lines(text: &str, kind: LockKind) -> Vec<(u64, &str)> {
             in_row = trimmed == table;
         } else if in_row
             && trimmed
-                .strip_prefix("id")
+                .strip_prefix(key)
                 .is_some_and(|rest| rest.trim_start().starts_with('='))
         {
             lines.push((number, line));
@@ -1138,10 +1273,13 @@ fn id_lines(text: &str, kind: LockKind) -> Vec<(u64, &str)> {
 /// The header of a section of `kind`: a run section's lines before its first `[[run.mutation]]`
 /// (the version, profile and build lines and `[run.spec]`, with the comments before the rows), a
 /// coverage section's before its first family table or `[[coverage.flip]]` (the version, profile,
-/// build and `krs_annotation` lines, `[coverage.spec]` and `[coverage.settings]`).
+/// build and `krs_annotation` lines, `[coverage.spec]` and `[coverage.settings]`), a compare
+/// section's before its first `[[compare.verdict]]` (the version, profile, build and `protocol`
+/// lines and `[compare.spec]`).
 fn head(kind: LockKind, text: &str) -> &str {
     let end = match kind {
         LockKind::Run => text.find("\n[[run.mutation]]"),
+        LockKind::Compare => text.find("\n[[compare.verdict]]"),
         LockKind::Coverage => text.match_indices("\n[").map(|(at, _)| at).find(|&at| {
             let line = text[at + 1..].lines().next().unwrap_or_default();
             line == "[[coverage.flip]]"
@@ -1238,6 +1376,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
             let first = match kind {
                 LockKind::Run => "its first mutation",
                 LockKind::Coverage => "its first family",
+                LockKind::Compare => "its first verdict",
             };
             lines.push(format!(
                 "{path}: the {section} section's header differs (the file has no {section} \
@@ -1279,6 +1418,7 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
         .iter()
         .map(|change| &change["obligation"])
         .chain(changes.iter().map(|change| &change[kind.row()]))
+        .filter(|_| kind != LockKind::Compare)
         .filter_map(Value::as_str)
         .collect::<BTreeSet<_>>();
     let arguments = lock["argument_changes"]
@@ -1315,6 +1455,10 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
         let (order, written) = match kind {
             LockKind::Run => ("the mutation list's", "the list's order"),
             LockKind::Coverage => ("the flips family's", "the family's order"),
+            LockKind::Compare => (
+                "the declarations'",
+                "implementation, program and view order",
+            ),
         };
         lines.push(if difference["kind"] == "order" {
             format!(
@@ -1351,9 +1495,13 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
         ));
     }
     for change in changes {
-        let id = change[kind.row()].as_str().unwrap_or("?");
+        let id = kind.named(change);
         let (recorded, now) = (&change["recorded"], &change["now"]);
         let text = |value: &Value| value.as_str().unwrap_or("none").to_owned();
+        if kind == LockKind::Compare {
+            lines.push(format!("{path}: {id}: {}", compare_change(recorded, now)));
+            continue;
+        }
         let line = match (recorded.is_null(), now.is_null()) {
             (true, _) => format!("added, {}", text(&now["status"])),
             (_, true) => format!("removed, was {}", text(&recorded["status"])),
@@ -1383,6 +1531,36 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
         lines.push(format!("{path}: {id}: {line}"));
     }
     lines
+}
+
+/// What a line says of a compare row whose `{verdict, reason, difference}` moved from `recorded`
+/// to `now` (either null for a row only the other side has): `added, equal`, `removed, was
+/// different`, `equal -> different`, `not-compared (omitted) -> equal`, or, where only the first
+/// difference moved, both of its forms.
+fn compare_change(recorded: &Value, now: &Value) -> String {
+    let verdict = |side: &Value| {
+        let word = side["verdict"].as_str().unwrap_or("none");
+        match side["reason"].as_str() {
+            Some(reason) => format!("{word} ({reason})"),
+            None => word.to_owned(),
+        }
+    };
+    match (recorded.is_null(), now.is_null()) {
+        (true, _) => format!("added, {}", verdict(now)),
+        (_, true) => format!("removed, was {}", verdict(recorded)),
+        _ if recorded["verdict"] != now["verdict"] || recorded["reason"] != now["reason"] => {
+            format!("{} -> {}", verdict(recorded), verdict(now))
+        }
+        _ => {
+            let side = |value: &Value| value.as_str().unwrap_or("none").to_owned();
+            format!(
+                "{}: its first difference moved: recorded {}, now {}",
+                verdict(now),
+                side(&recorded["difference"]),
+                side(&now["difference"])
+            )
+        }
+    }
 }
 
 /// One line per note on the lock of `document` that is no finding, as `kink-flow` prints them on
@@ -1485,6 +1663,388 @@ mod tests {
         Lock::decode(Path::new(LOCK_FILE), text.to_owned(), kind).unwrap()
     }
 
+    /// A view of a compare row: its name, whether it is required, its verdict, and its other
+    /// members (`difference`, `reason`, `detail`).
+    fn view(name: &str, required: bool, verdict: &str, extra: Value) -> Value {
+        let mut view = json!({"view": name, "required": required, "verdict": verdict,
+                              "difference": null, "reason": null, "detail": null});
+        for (key, value) in extra.as_object().into_iter().flatten() {
+            view[key] = value.clone();
+        }
+        view
+    }
+
+    /// The row of the implementation `cpu` on `program`: its views, its failure and which run
+    /// the clock stopped.
+    fn compare_row(program: &str, views: Vec<Value>, failure: Value, clock: Value) -> Value {
+        json!({"implementation": "cpu", "program": program,
+               "request_sha256": format!("r-{program}"), "failure": failure,
+               "clock_stopped": clock, "views": views})
+    }
+
+    /// The two views of `cpu` on `program` it answered `equal` (`whole`, required) and
+    /// `different` at `parity` (reported), the difference at `cell`.
+    fn answered(program: &str, cell: &str) -> Value {
+        compare_row(
+            program,
+            vec![
+                view("whole", true, "equal", json!({})),
+                view(
+                    "parity",
+                    false,
+                    "different",
+                    json!({"difference": {"format": "krs-difference/3", "path": cell,
+                                          "definition": 1, "implementation": 3}}),
+                ),
+            ],
+            Value::Null,
+            Value::Null,
+        )
+    }
+
+    /// A compare document of `cpu` (identity digest `aa`) on the programs `p1` and `p2`.
+    fn compare_document(rows: Vec<Value>) -> Value {
+        json!({
+            "schema": crate::compare::COMPARE_SCHEMA,
+            "profile": "no-z3",
+            "protocol": crate::compare::PROTOCOL,
+            "spec": {"outcome": "admitted"},
+            "refusal": null,
+            "implementations": [{"name": "cpu", "identity": {"file": "bin/cpu", "sha256": "aa"}}],
+            "programs": [{"id": "p1", "class": "comparable"}, {"id": "p2", "class": "comparable"}],
+            "rows": rows,
+        })
+    }
+
+    /// The compare section of `cpu` answering both programs, as the record writes it.
+    fn compare_section_text() -> String {
+        let legend = crate::verdicts::COMPARE_LEGEND
+            .iter()
+            .map(|line| format!("# {line}\n"))
+            .collect::<String>();
+        let preamble = crate::verdicts::COMPARE_PREAMBLE
+            .iter()
+            .map(|line| format!("# {line}\n"))
+            .collect::<String>();
+        let rows = ["p1", "p2"]
+            .iter()
+            .map(|program| {
+                format!(
+                    "[[compare.verdict]]\nimplementation = \"cpu\"\nprogram = \"{program}\"\n\
+                     view = \"whole\"\nrequired = true\nverdict = \"equal\"\n\
+                     request_sha256 = \"r-{program}\"\nidentity_sha256 = \"aa\"\n\n\
+                     [[compare.verdict]]\nimplementation = \"cpu\"\nprogram = \"{program}\"\n\
+                     view = \"parity\"\nrequired = false\nverdict = \"different\"\n\
+                     difference = '{{\"definition\":1,\"format\":\"krs-difference/3\",\
+                     \"implementation\":3,\"path\":\"acc\"}}'\n\
+                     request_sha256 = \"r-{program}\"\nidentity_sha256 = \"aa\"\n"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "[compare]\n{preamble}version = 25\nprofile = \"no-z3\"\n\
+             protocol = \"kink-implementation/1\"\n\n[compare.spec]\noutcome = \"admitted\"\n\n\
+             {legend}{rows}"
+        )
+    }
+
+    /// A compare section is one `[[compare.verdict]]` per (implementation, program, view) in
+    /// the declarations' order, keyed by its three names, with `required`, the verdict, a
+    /// different view's first difference as canonical JSON, and the request's and the
+    /// identity's digests; its header names the protocol. It renders the same bytes every time,
+    /// decodes to its rows, and a write then `--locked` finds it unchanged.
+    #[test]
+    fn a_compare_section_renders_decodes_and_round_trips() {
+        let document = compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]);
+        let section = lock_section(&document).unwrap();
+        assert_eq!(section, compare_section_text());
+        assert_eq!(lock_section(&document).unwrap(), section);
+        let text = lock_text(&document).unwrap();
+        let lock = decoded(&text, LockKind::Compare);
+        assert_eq!(lock.section.as_deref(), Some(section.as_str()));
+        assert_eq!(
+            lock.rows
+                .iter()
+                .map(|row| row.id.clone())
+                .collect::<Vec<_>>(),
+            [
+                compare_row_id("cpu", "p1", "whole"),
+                compare_row_id("cpu", "p1", "parity"),
+                compare_row_id("cpu", "p2", "whole"),
+                compare_row_id("cpu", "p2", "parity"),
+            ]
+        );
+        assert_eq!(lock.rows[1].status.as_deref(), Some("different"));
+        assert_eq!(
+            lock.rows[1].difference.as_deref(),
+            Some(
+                "{\"definition\":1,\"format\":\"krs-difference/3\",\"implementation\":3,\
+                 \"path\":\"acc\"}"
+            )
+        );
+        assert_eq!(lock.header["protocol"], "kink-implementation/1");
+        assert_eq!(lock.header["version"], 25);
+        // A row with no implementation, program or view does not decode.
+        let broken = text.replacen("view = \"whole\"\n", "", 1);
+        assert!(
+            Lock::decode(Path::new(LOCK_FILE), broken, LockKind::Compare)
+                .unwrap_err()
+                .contains("verdict 1 has no string implementation, program and view")
+        );
+
+        let dir = scratch("compare-round-trip");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        let (value, ok) = read().settle(&store, &document, WRITE);
+        assert!(ok);
+        assert_eq!(value["status"], "created", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        let (value, _) = read().settle(&store, &document, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(value["failed"], json!([]), "{value:#}");
+        let (value, _) = read().settle(&store, &document, WRITE);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        // `--only` compares the selected implementations' rows, and writes nothing.
+        let only = ["cpu".to_owned()];
+        let (value, _) = read().settle(
+            &store,
+            &document,
+            Settle {
+                only: &only,
+                ..WRITE
+            },
+        );
+        assert_eq!(
+            (&value["status"], &value["reason"]),
+            (&json!("not-written"), &json!("only"))
+        );
+    }
+
+    /// Under `--locked` a verdict that moved, or the first difference of a reported view, is a
+    /// lock difference, named by its implementation, program and view.
+    #[test]
+    fn a_moved_verdict_or_first_difference_makes_the_compare_section_stale() {
+        let recorded = compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]);
+        let lock = decoded(&lock_text(&recorded).unwrap(), LockKind::Compare);
+        let store = Store::new("/nonexistent");
+        let stale = |document: &Value| {
+            let (value, _) = lock.settle(&store, document, LOCKED);
+            assert_eq!(value["status"], "stale", "{value:#}");
+            let mut with_lock = document.clone();
+            with_lock["lock"] = value;
+            assert_eq!(crate::cli::lock_status(&with_lock), crate::cli::EXIT_NO);
+            stale_lines(&with_lock)
+        };
+        let moved = compare_document(vec![answered("p1", "n"), answered("p2", "acc")]);
+        assert_eq!(
+            stale(&moved),
+            [
+                "kink.lock: cpu p1 parity: different: its first difference moved: recorded \
+              {\"definition\":1,\"format\":\"krs-difference/3\",\"implementation\":3,\
+              \"path\":\"acc\"}, now {\"definition\":1,\"format\":\"krs-difference/3\",\
+              \"implementation\":3,\"path\":\"n\"}"
+            ]
+        );
+        let mut differs = answered("p2", "acc");
+        differs["views"][0] = view(
+            "whole",
+            true,
+            "different",
+            json!({"difference": {"at": "end"}}),
+        );
+        let changed = compare_document(vec![answered("p1", "acc"), differs]);
+        let (value, _) = lock.settle(&store, &changed, LOCKED);
+        assert_eq!(
+            value["changes"][0],
+            json!({"implementation": "cpu", "program": "p2", "view": "whole",
+                   "recorded": {"verdict": "equal", "reason": null, "difference": null},
+                   "now": {"verdict": "different", "reason": null,
+                           "difference": "{\"at\":\"end\"}"}})
+        );
+        assert_eq!(
+            stale(&changed),
+            ["kink.lock: cpu p2 whole: equal -> different"]
+        );
+        // A program the corpus no longer has: its rows are removed.
+        let fewer = compare_document(vec![answered("p1", "acc")]);
+        let mut fewer = fewer;
+        fewer["programs"] = json!([{"id": "p1", "class": "comparable"}]);
+        assert_eq!(
+            stale(&fewer),
+            [
+                "kink.lock: cpu p2 whole: removed, was equal",
+                "kink.lock: cpu p2 parity: removed, was different"
+            ]
+        );
+    }
+
+    /// A row of a run that gave no answer (the implementation failed, the clock cancelled it, or
+    /// the clock stopped the definition's baseline) keeps its recorded verdicts: under `--locked`
+    /// the section is `undecided` (exit 3), not stale, and a write leaves the file as it was.
+    #[test]
+    fn a_run_with_no_answer_keeps_its_compare_rows() {
+        let dir = scratch("compare-no-answer");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let recorded = compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]);
+        let read = || Lock::read_kind(&path, LockKind::Compare).unwrap();
+        let _ = read().settle(&store, &recorded, WRITE);
+        let text = fs::read_to_string(&path).unwrap();
+        let timeout = json!({"kind": "timeout", "detail": "cancelled"});
+        let exit = json!({"kind": "exit", "detail": "status 3"});
+        let cancelled = compare_document(vec![
+            compare_row("p1", vec![], timeout, json!("implementation")),
+            answered("p2", "acc"),
+        ]);
+        let crashed = compare_document(vec![
+            answered("p1", "acc"),
+            compare_row("p2", vec![], exit, Value::Null),
+        ]);
+        let mut baseline = compare_document(vec![
+            compare_row(
+                "p1",
+                vec![
+                    view(
+                        "whole",
+                        true,
+                        "not-compared",
+                        json!({"reason": "definition"}),
+                    ),
+                    view(
+                        "parity",
+                        false,
+                        "not-compared",
+                        json!({"reason": "definition"}),
+                    ),
+                ],
+                Value::Null,
+                json!("baseline"),
+            ),
+            answered("p2", "acc"),
+        ]);
+        baseline["programs"][0]["class"] = json!("timeout");
+        for (document, stopped, failed, kept) in [
+            (
+                &cancelled,
+                json!([{"implementation": "cpu", "program": "p1", "run": "implementation"}]),
+                json!([]),
+                0,
+            ),
+            (
+                &crashed,
+                json!([]),
+                json!([{"implementation": "cpu", "program": "p2", "failure": "exit"}]),
+                0,
+            ),
+            (
+                &baseline,
+                json!([{"program": "p1", "run": "baseline"}]),
+                json!([]),
+                2,
+            ),
+        ] {
+            let (value, _) = read().settle(&store, document, LOCKED);
+            assert_eq!(value["status"], "undecided", "{value:#}");
+            assert_eq!(value["clock_stopped"], stopped, "{value:#}");
+            assert_eq!(value["failed"], failed, "{value:#}");
+            assert_eq!(
+                value["kept"].as_array().map(Vec::len),
+                Some(kept),
+                "{value:#}"
+            );
+            let mut with_lock = document.clone();
+            with_lock["lock"] = value;
+            assert_eq!(
+                crate::cli::lock_status(&with_lock),
+                crate::cli::EXIT_UNANSWERED
+            );
+            assert!(!crate::clock::clock_lines(&with_lock).is_empty());
+            let (value, _) = read().settle(&store, document, WRITE);
+            assert_eq!(value["status"], "unchanged", "{value:#}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        }
+        let mut with_lock = baseline.clone();
+        with_lock["lock"] = read().settle(&store, &baseline, LOCKED).0;
+        with_lock["lock"]["path"] = json!(LOCK_FILE);
+        assert_eq!(
+            crate::clock::clock_lines(&with_lock),
+            [
+                "kink.lock: the clock (budget.time_ms) stopped the baseline run of p1: its \
+                 compare rows are not decided on this host",
+                "kink.lock: cpu p1 whole: kept equal unverified: this host gives not-compared \
+                 (definition)",
+                "kink.lock: cpu p1 parity: kept different unverified: this host gives \
+                 not-compared (definition)",
+            ]
+        );
+        // A row the lock does not record is written from the run, but a run with no answer
+        // writes none.
+        fs::remove_file(&path).unwrap();
+        let _ = read().settle(&store, &cancelled, WRITE);
+        let only_p2 = decoded(&fs::read_to_string(&path).unwrap(), LockKind::Compare);
+        assert_eq!(
+            only_p2
+                .rows
+                .iter()
+                .map(|row| row.id.clone())
+                .collect::<Vec<_>>(),
+            [
+                compare_row_id("cpu", "p2", "whole"),
+                compare_row_id("cpu", "p2", "parity")
+            ]
+        );
+    }
+
+    /// `compare` writes its section after the other two, keeping their text byte for byte, a
+    /// hand comment included; and a write of another section keeps the compare section's.
+    #[test]
+    fn the_compare_section_keeps_the_other_sections_byte_for_byte() {
+        let dir = scratch("compare-own-section");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let run = run_document(&[("m", "killed", Some("t1"))]);
+        let coverage = coverage_document(&[("rule:a", "text")], &["rule:b"]);
+        let _ = Lock::read_kind(&path, LockKind::Run)
+            .unwrap()
+            .settle(&store, &run, WRITE);
+        let _ = Lock::read_kind(&path, LockKind::Coverage)
+            .unwrap()
+            .settle(&store, &coverage, WRITE);
+        let both = fs::read_to_string(&path)
+            .unwrap()
+            .replace("[run.spec]\n", "[run.spec]\n# kept by hand\n");
+        fs::write(&path, &both).unwrap();
+        let compare = compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]);
+        let (value, _) = Lock::read_kind(&path, LockKind::Compare)
+            .unwrap()
+            .settle(&store, &compare, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let all = fs::read_to_string(&path).unwrap();
+        assert_eq!(all, format!("{both}\n{}", compare_section_text()));
+        // `run` and `coverage` find their sections as they were, and `run` rewrites its own
+        // keeping the compare section.
+        let (value, _) = Lock::read_kind(&path, LockKind::Coverage)
+            .unwrap()
+            .settle(&store, &coverage, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+        let moved = run_document(&[("m", "survived", None)]);
+        let _ = Lock::read_kind(&path, LockKind::Run)
+            .unwrap()
+            .settle(&store, &moved, WRITE);
+        let rewritten = fs::read_to_string(&path).unwrap();
+        assert!(
+            rewritten.ends_with(&format!("\n{}", compare_section_text())),
+            "{rewritten}"
+        );
+        let (value, _) = Lock::read_kind(&path, LockKind::Compare)
+            .unwrap()
+            .settle(&store, &compare, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+    }
+
     /// A record is its header and one section per command that wrote it: a command's rendering
     /// is the record holding its section alone, which starts at its `[run]` or `[coverage]`
     /// line; the record's header holds the comment and `schema` only, and every value a verdict
@@ -1497,7 +2057,7 @@ mod tests {
         assert!(!header.contains("version"), "{header}");
         assert!(
             run.contains(
-                "\nversion = 24\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
+                "\nversion = 25\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
             ),
             "{run}"
         );
@@ -1508,14 +2068,14 @@ mod tests {
         let (head_text, found) = split(&run);
         assert_eq!(head_text, format!("{header}\n"));
         assert_eq!(found.len(), 1);
-        assert_eq!((found[0].0, found[0].1), (LockKind::Run, 6));
+        assert_eq!((found[0].0, found[0].1), (LockKind::Run, 7));
         let lock = decoded(&run, LockKind::Run);
         assert_eq!(lock.section.as_deref(), Some(&run[header.len() + 1..]));
         assert_eq!(
             lock.killers(),
             BTreeMap::from([("a".to_owned(), "t1".to_owned())])
         );
-        assert_eq!(lock.header["version"], 24);
+        assert_eq!(lock.header["version"], 25);
         // The other command finds no section of its own: it records nothing, and is no error.
         let coverage = decoded(&run, LockKind::Coverage);
         assert_eq!(
@@ -1937,7 +2497,7 @@ mod tests {
         assert_eq!(
             lock.refuse_other_version(command).unwrap_err(),
             "kink.lock: it is recorded at version 23 of the verdicts rendering, and this build \
-             writes version 24, so --locked cannot find it current; run `krs kink coverage \
+             writes version 25, so --locked cannot find it current; run `krs kink coverage \
              --package p --definition main` without --locked once to rewrite it, and review its \
              diff"
         );
@@ -1953,12 +2513,12 @@ mod tests {
             decoded(&current, kind).refuse_other_version(command),
             Ok(())
         );
-        let other_version = current.replace("\nversion = 24\n", "\nversion = 25\n");
+        let other_version = current.replace("\nversion = 25\n", "\nversion = 26\n");
         assert!(
             decoded(&other_version, kind)
                 .refuse_other_version(command)
                 .unwrap_err()
-                .starts_with("kink.lock: its [coverage] section is recorded at version 25"),
+                .starts_with("kink.lock: its [coverage] section is recorded at version 26"),
         );
         assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
         let refused = Lock::decode(Path::new(LOCK_FILE), old.to_owned(), LockKind::Run);

@@ -20,7 +20,7 @@ the mutations directory, anchors by a suffix of a label's components and the req
 the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
 the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below),
 the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below),
-the corpus record, a `kink.lock` with one section per command that `run --lock` and `coverage --lock` read and rewrite, each its own: `[run]`, one recorded killer per killed mutation, kept while it still kills, and `[coverage]`, the same for the condition flips with each family's open and argued obligations ("The corpus record" below),
+the corpus record, a `kink.lock` with one section per command that `run --lock`, `coverage --lock` and `compare --lock` read and rewrite, each its own: `[run]`, one recorded killer per killed mutation, kept while it still kills, `[coverage]`, the same for the condition flips with each family's open and argued obligations, and `[compare]`, one verdict per implementation, program and view ("The corpus record" below),
 the comparison of other implementations of a corpus's system with the definition, over its programs, inputs and `[stop]`, under declared views, with `compare` (FB-47; "Comparing implementations" below),
 and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
@@ -404,6 +404,7 @@ An entry of a lock is decided on this host only when it would be the same whatev
 - Every other status (`survived`, `unknown`, `timeout`) depends on every program whose run on the mutant or baseline the clock stopped, since each could have killed.
 - A flip's entry in the coverage lock follows the same rule (`distinguished` is a kill; `undistinguished`, `unreached`, `argued` and an `unknown` of a survivor, unknown or timeout depend on the stopped runs), its row naming the programs whose run on its mutant timed out (`timed_out`).
 - An obligation is covered when some comparable program covers it, so a covered obligation is decided, and one that is not depends on every program whose baseline the clock stopped. So is an argued item's standing (its evidence reads the comparable programs' runs), unless it is `text`, and so is a standing one of whose own evidence runs the clock stopped.
+- A `compare` row rests on the implementation's run of its program and on the program's baseline and depth-0 runs: where the implementation's run gave no answer (it failed, or its `time_ms` cancelled it) or the clock stopped a definition run, the rows of that implementation and program keep their recorded values ("Comparing implementations").
 
 Where an entry depends on a stopped run, the lock keeps its recorded value: the lock compared and written is the rendering with that value, and the document's `lock.kept` lists each entry kept over another value (`{mutation | flip, recorded, now}`, `{family, obligation, recorded, now}`, `{argument, recorded, now}`), and `lock.clock_stopped` each stopped run some entry depends on (`{program, run: "baseline"}`, `{program, run: "mutant", mutation | flip}`, `{program, run: "evidence", argument}`).
 The exceptions are facts the runs that ended decided against the record: a kill where the lock records none (a recorded survivor killed now by a program that ended), a recorded status no run could give, and a row the lock does not have, which is written from the run.
@@ -1706,23 +1707,24 @@ the end, in pre-order, that fails its own test there, as a refused baseline's ca
 
 ## The corpus record: `--lock FILE`
 
-`run --lock FILE` and `coverage --lock FILE` name the corpus record, conventionally `kink.lock`: one file, one section per command.
-`[run]` is the killer record, one recorded killer per killed mutation, kept while it still kills; `[coverage]` is the coverage lock, one recorded killer per distinguished flip by the same rule, with each family's open and argued obligations.
-kink-flow has no default path, since one corpus is routinely run with several mutation lists, whose rows would overwrite each other in one section; the krs front end gives `<corpus>/kink.lock` to a run of the corpus's own mutation list and to `coverage`, unless the command names a lock.
+`run --lock FILE`, `coverage --lock FILE` and `compare --lock FILE` name the corpus record, conventionally `kink.lock`: one file, one section per command.
+`[run]` is the killer record, one recorded killer per killed mutation, kept while it still kills; `[coverage]` is the coverage lock, one recorded killer per distinguished flip by the same rule, with each family's open and argued obligations; `[compare]` holds the verdicts of the corpus's other implementations, one per implementation, program and view ("Comparing implementations").
+kink-flow has no default path, since one corpus is routinely run with several mutation lists, whose rows would overwrite each other in one section; the krs front end gives `<corpus>/kink.lock` to a run of the corpus's own mutation list, to `coverage` and to `compare`, unless the command names a lock.
 The name is the tool's, as `Cargo.lock` is Cargo's: the file holds every command's section, so it is named for none of them, and a new name lets a front end tell the two files an earlier kink kept apart ("Old files" below).
 A library run (`RunOptions::default()`, `fuzz`'s confirmation) has no lock and writes nothing outside the cache.
 
 ```toml
-# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
-# [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command
-# reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.
+# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),
+# [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps
+# <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,
+# and keeps the others as they are.
 schema = "kink-flow-verdicts"
 
 [run]
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 24
+version = 25
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1744,7 +1746,7 @@ status = "survived"
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...
-version = 24
+version = 25
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1781,15 +1783,49 @@ rules = [                        # the rules the mutant edits, by their ids in t
 ]
 status = "distinguished"
 killer = "irq"
+
+[compare]
+# The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run
+# ...
+version = 25
+profile = "z3"
+z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
+z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
+protocol = "kink-implementation/1"
+
+[compare.spec]
+outcome = "admitted"
+
+# Each [[compare.verdict]] is one view of one implementation on one program, and its verdict:
+# ...
+[[compare.verdict]]
+implementation = "rust-cpu"
+program = "cases/irq/case.toml"
+view = "writes"
+required = true
+verdict = "equal"
+request_sha256 = "039fbda42c342c04bea68bb18bca5a85541bbac54f92c7310939a7c9d4430314"
+identity_sha256 = "5d1e…"
+
+[[compare.verdict]]
+implementation = "rust-cpu"
+program = "cases/irq/case.toml"
+view = "accesses"
+required = false
+verdict = "different"
+difference = '{"at":"cell","cell":"bus","format":"krs-difference/3",…}'
+request_sha256 = "039fbda42c342c04bea68bb18bca5a85541bbac54f92c7310939a7c9d4430314"
+identity_sha256 = "5d1e…"
 ```
 
 The comments say what the file is to a reader who has not read this README: the first what the record is and who writes each section, the one after each section's line which command keeps it and what it does with it, and the one before a section's rows and families what each entry, list and status word is.
 Each is a constant of the rendering's version, so it moves no line between runs.
 
-**What a section is.** A section is the lines from its `[run]` or `[coverage]` line to the next such line or the end of the file, trailing blank lines aside: the command's verdicts rendering after the record's header ("Verdicts"; `kink_flow::verdicts::lock_section`), its tables under the command's (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`).
+**What a section is.** A section is the lines from its `[run]`, `[coverage]` or `[compare]` line to the next such line or the end of the file, trailing blank lines aside: the command's verdicts rendering after the record's header ("Verdicts"; `kink_flow::verdicts::lock_section`), its tables under the command's (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, `[[compare.verdict]]`).
+The record writes them in that order.
 So a record only one command has written is that command's `--output verdicts` (for `run`, without `killed_by`), and the record is the format of recorded outputs too.
 
-**Ownership.** Each command reads only its own section, compares only its own under `--locked`, and rewrites only its own, keeping the other section's text byte for byte, a hand comment in it included.
+**Ownership.** Each command reads only its own section, compares only its own under `--locked`, and rewrites only its own, keeping the other sections' text byte for byte, a hand comment in them included.
 So `coverage --locked` is unaffected by a stale `[run]`, and the reverse.
 A file with no section for a command records nothing for it: a first `coverage` after only `run`s is no error, and its section is `created`.
 
@@ -1800,7 +1836,7 @@ Each command writes its section at its own time, on the build it runs on, and ke
 And under `--locked` a `run` on another Z3 build would move the shared line, so `coverage --locked` would be stale for a change no `coverage` made, which ownership rules out.
 Each command checks the values its own section states, against its own run: two sections that agree state them twice, which is the price of each staying true of the command that wrote it.
 
-**Writing.** A command writes its section by a read-modify-write under an exclusive lock of the file's directory (`flock` on the directory, `std::fs::File::lock`): it reads the file again, keeps the other section's text as the file now holds it, writes the record's header and both sections to a temporary name in the directory, flushes it and renames it over the file, then releases the lock.
+**Writing.** A command writes its section by a read-modify-write under an exclusive lock of the file's directory (`flock` on the directory, `std::fs::File::lock`): it reads the file again, keeps the other sections' text as the file now holds it, writes the record's header and every section to a temporary name in the directory, flushes it and renames it over the file, then releases the lock.
 Two commands that write at once each find the other's section in the file they rewrite, so neither loses it, and a reader never sees a part-written file (`lock.rs`, `concurrent_writes_of_the_two_sections_lose_neither`).
 A file that no longer decodes as a record the command may write is not overwritten (`lock.status` `not-written`, `reason` `write-failed`).
 The record is created when absent, as `Cargo.lock` is: it holds the killers the next run starts from, and a run that discarded them would repeat the search.
@@ -1842,6 +1878,16 @@ Otherwise it is left as it was (`not-written`, with `reason` `tier-1`, `depth`, 
 A front end that derives no flips (kink-flow's own) has a complete run without them: its section lists the families' open obligations and `[coverage.flips] run = false`.
 `--locked` asks whether a run with the manifest's own settings writes the committed section, so it is a usage error beside `--tier 1` or `--depth`, which run other settings.
 
+**The `[compare]` section.** Its header names, besides the version, the profile and the Z3 build (the definition's ends are a function of the solver as every baseline is), the `protocol` every request was written in and every answer read by; it is the same for every row by construction, and a row's request digest names it too, since the request carries it.
+It has one `[[compare.verdict]]` per (implementation, program, view) that has a verdict, keyed by its `implementation`, `program` and `view` (no `id`, since none of the three alone names the row), implementation by implementation in the manifest's order, each implementation's programs in the corpus's order and each program's views in the declaration's, so that a diff of one implementation's change is contiguous.
+Each row holds `required`, the `verdict`, its `reason` (a `not-compared` verdict's reason, a `could-not-apply` verdict's own, the implementation's words), a `different` verdict's first `difference` (the document's, as canonical JSON in a literal string: a text that is a function of the difference), `request_sha256` and, where the implementation declares `identity`, `identity_sha256`: the request and the build the verdict was measured on, so a request or a build that moves shows in the diff beside any verdict that moved with it.
+A failed run of an implementation has no verdict and so no row ("Comparing implementations").
+`compare` writes it after a run of every implementation of the manifest whose specification was admitted and that no refusal stopped; under `--only`, which judges some of them, it is left as it was (`not-written`, reason `only`; `refused` and `write-failed` as for the other sections), so a section never mixes rows judged against the current inputs with rows that were not.
+A row whose verdict rests on a run that gave no answer keeps its recorded value, in the section compared and in the section written: the implementation's run when it failed or the clock (`time_ms`) cancelled it, and the definition's baseline or depth-0 run when the clock (`budget.time_ms`) stopped it, which a faster host could have ended with any end ("What decides a verdict").
+Every row of that (implementation, program) is kept, as recorded; where the lock records none, a failed run writes none and a stopped definition run writes the run's own `not-compared` rows.
+`lock.clock_stopped` names each stopped run (`{program, run: "baseline"}`, `{implementation, program, run: "start" | "implementation"}`), `lock.failed` each failed run of an implementation (`{implementation, program, failure}`), and `lock.kept` each kept row the host gave another verdict (`{implementation, program, view, recorded, now}`, each side `{verdict, reason, difference}`).
+Under `--locked` a section that differs in nothing else is `undecided`, exit 3, and never a difference.
+
 **Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]` or `[coverage]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`; and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
 A version-5 lock has no `killer` lines, so it records no killer.
 
@@ -1851,7 +1897,7 @@ An entry of the section (a row, an obligation, a standing) whose recorded value 
 Only the command's own section is kept so; the other section is neither compared nor written.
 No separate check command exists: answering it is a run, and `--locked` is that run.
 `kink-flow` prints one line per change on stderr: `kink.lock: add-becomes-sub: killer nested -> add (nested: not-in-corpus)`, `kink.lock: add-swaps-operands: killed -> survived`, `kink.lock: flip--b: unreached -> distinguished`, `kink.lock: rules: rule:x is open`, `kink.lock: requirements: requirement:x:held is no longer open`, `kink.lock: rules: rule:y is argued (was open)`, `kink.lock: rule:z: standing text -> unchecked` (a standing that moved, where no other line names its item), and one line per section header key that differs, `` kink.lock: [run] z3_library_sha256 differs: recorded "7ca2…", now "1f0e…" (another Z3 build) ``, or one line when the header differs in no value (the file has no section of the command, or the record's header, or a comment or spacing before the first row or family, differs).
-`lock.changes` lists each row whose `(status, killer, reason)` differs, `{mutation, recorded, now}` (`{flip, ...}` for a flip; either side null for a row only the other has); `lock.open_changes` each obligation whose state differs, `{family, obligation, recorded, now}` (`"open"`, `"argued"`, or null where that side lists it neither way); `lock.argument_changes` each argued item whose standing differs, `{obligation, recorded, now}` (null where that side has none).
+`lock.changes` lists each row whose `(status, killer, reason)` differs, `{mutation, recorded, now}` (`{flip, ...}` for a flip; for a compare row `{implementation, program, view, recorded, now}`, each side `{verdict, reason, difference}`, so a reported view whose first difference moved is a change; either side null for a row only the other has); `lock.open_changes` each obligation whose state differs, `{family, obligation, recorded, now}` (`"open"`, `"argued"`, or null where that side lists it neither way); `lock.argument_changes` each argued item whose standing differs, `{obligation, recorded, now}` (null where that side has none).
 `lock.header` says whether the record's header or the section's lines before its first row or family differ; `lock.header_changes` names each section header key whose value differs, `{key, recorded, now}` (a sub-table's key as `spec.outcome`; either side null where that side has no such key), in the section's line order and then the keys only the file has; it is empty when the file records nothing for the command or only a comment or spacing differs.
 `lock.difference` names where the file's section first differs from the one the command would write, `{kind, line, recorded, now}` (`line` counted from 1 in the file), null when they are equal, when the file has no section of the command, or under `--only`.
 `kind` is `order` when the section holds the same rows in another order: `line` is then the file's line of the `id` of its first row out of the rendering's order, `recorded` that line and `now` the `id` line of the row the rendering puts there, whatever comment or spacing differs before it, since the order is what a run changes.
@@ -1862,7 +1908,7 @@ A section that differs neither in its header nor in a row's verdict (rows in ano
 One that is not TOML (merge-conflict markers included), has another schema, has a section of the command that is no table or does not begin with its own line, repeats an id or has a `killer` that is not a string refuses the command: exit 2, no row or family, `lock: {path, outcome: "refused", detail}`, and in the rendering a `[run.lock]` or `[coverage.lock]` table with `outcome = "refused"`.
 The next step is to resolve the file, or delete it to start from the search's killers; a run then regenerates it.
 
-**Other versions.** Under `--locked` a section of another version (its `version` is not this build's, or absent) is refused before admission, exit 2, with the detail `kink.lock: its [run] section is recorded at version 23 of the verdicts rendering, and this build writes version 24, so --locked cannot find it current; run `krs kink run --package p --definition main` without --locked once to rewrite it, and review its diff` (the command as the front end spells it).
+**Other versions.** Under `--locked` a section of another version (its `version` is not this build's, or absent) is refused before admission, exit 2, with the detail `kink.lock: its [run] section is recorded at version 24 of the verdicts rendering, and this build writes version 25, so --locked cannot find it current; run `krs kink run --package p --definition main` without --locked once to rewrite it, and review its diff` (the command as the front end spells it).
 Another version writes other bytes for the same verdicts, so the comparison could only find it stale, after a whole run; a run without `--locked` reads its killers and rewrites its section, and the diff shows what the new version changed beside any moved verdict.
 
 **Old files.** Before version 24 each command kept its own file, the command's rendering at its top (`document = "run"` or `"coverage"`, the rows `[[mutation]]` or `[[flip]]`, the standings under `[arguments]`), which the krs front end named `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
@@ -1884,24 +1930,24 @@ A run on another build cannot confirm that, since rows that agree on the current
 Passing it would leave the repository's record naming a build no check ran on, and a row that later moves would be blamed on the corpus while the header misnamed the solver.
 When every row agrees the fix is a header-only rewrite, a run without `--locked`, which review sees as exactly that; a project whose CI links another Z3 build than its developers do records the sections on the CI's build.
 
-A corpus commits `kink.lock`, and a CI runs `run --locked` and `coverage --locked` (`krs kink run --locked`, `krs kink coverage --locked`).
+A corpus commits `kink.lock`, and a CI runs `run --locked` and `coverage --locked` (`krs kink run --locked`, `krs kink coverage --locked`), and `compare --locked` where it declares an `[[implementation]]` (`krs kink compare --locked`).
 
 ## Verdicts: `--output verdicts`
 
-`coverage` and `run` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status; `report --output verdicts` renders the stored run document.
+`coverage`, `run` and `compare` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status; `report --output verdicts` renders the stored run document.
 It holds what the specification, the corpus and the budget decide and nothing that depends on the host, kink's own build identity, the cache or the order the work was done in (it names the solver: the build's solver profile and, under Z3, the Z3 build, below),
 so an unchanged corpus renders the same bytes on a cold and on a warm cache.
 It is the record's header and the command's section ("The corpus record"): the format of recorded outputs and, without `killed_by`, of the section `run --lock` writes, and of the one `coverage --lock` writes, so that a moved verdict shows in review; a record only one command has written is that command's rendering.
 
 ```toml
-# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
+# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),
 # ...                         (the record's comment)
 schema = "kink-flow-verdicts"
 
 [coverage]                    # or [run]: the command's section
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...                         (the comment naming the command, and what it does with its section as a lock)
-version = 24
+version = 25
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
@@ -2064,7 +2110,8 @@ Version 21 (FB-39) gives a coverage rendering `[arguments]`, each argued item's 
 Version 22 (FB-39) renders coverage document version 19: an invariant-only equation is no obligation ("Families"), so a lock whose open lists and flips move for that reason shows a new version, not a corpus change; an `[arguments]` line names the assumed findings its standing rests on (`"<id>" = "<standing>, assuming joined <name>, ..."`); and an item whose invariant is not shown to be a function is `unchecked`. A run rendering differs from version 21's in its `version` line only.
 Version 23 (KINK-FINDING-NAMES) renders coverage document version 20: an `[arguments]` line names the assumed findings a standing rests on by kind, sentences and digest, so a lock whose arguments assume findings shows a new version; every other lock differs in its `version` line only.
 Version 24 (FB48-NAMES, FB48-ONE-LOCK) is the corpus record's: the rendering is the record's header (a comment saying what the file is, and `schema`) and the command's section, `[run]` or `[coverage]`, which states its own `version`, `profile`, Z3 build and `krs_annotation` and holds the command's tables (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, ...), where version 23 wrote one command's rendering at the top of its file with `document`; each section opens with a comment naming the command whose verdicts it holds and what that command does with it as a lock, and a comment before its rows and families says what each entry and status word is; a coverage section gives each argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued flip's `standing` on its row), where version 23 listed the ids there and repeated them as the keys of `[arguments]`; it gives each flip the condition it negates or the bit it toggles and the rules it edits, and it no longer writes `[settings] tiers`, which `[coverage.flips] run` states.
-Under `--locked` a section of another version, or a lock before version 24, is refused, naming the command that rewrites it ("The corpus record"), so a lock recorded at version 23 is rewritten by one run without `--locked`, whose diff shows the new layout beside any moved verdict.
+Version 25 (FB47-VERDICTS) gives the record a third section, `[compare]` ("The corpus record"), and the record's comment names it: a `[run]` or `[coverage]` section differs from version 24's in its `version` line only, and the record in its comment.
+Under `--locked` a section of another version, or a lock before version 24, is refused, naming the command that rewrites it ("The corpus record"), so a lock recorded at version 24 is rewritten by one run without `--locked`, whose diff shows the new layout beside any moved verdict.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 
@@ -2355,7 +2402,7 @@ Version 15 runs a corpus with `[stop]` and one with `[observe]` ("A corpus with 
 Version 16 (KINK-FINDING-NAMES) names every finding (`findings`, `assumed`, `spec.unnamed_findings`, a witness's premises) by its kind, sentences and digest, refuses a genuine finding's name given with `--assume-joined` (`decided`), and embeds k-rust-fuzz reports of version 12.
 `tests/formats.rs` ties the version to the document's keys and enumerated values and to the report version it embeds.
 
-## Comparing implementations: `kink-flow compare FLOW.toml [--only NAME]... [--cache DIR] [--output json|text]`
+## Comparing implementations: `kink-flow compare FLOW.toml [--only NAME]... [--lock FILE [--locked]] [--cache DIR] [--output json|text|verdicts]`
 
 A corpus states what its system does on each of its programs.
 Another implementation of the system (an emulator, a hardware model, a port) is compared with the definition over the same programs, inputs and `[stop]` by declaring it in `FLOW.toml`; a program added to the corpus is compared with no other edit.
@@ -2380,11 +2427,11 @@ views = [
 | `command` | A nonempty array of nonempty strings: the executable and its arguments. It runs in the manifest's directory. |
 | `given` | `start` or `inputs` (below, "The protocol"). Required. |
 | `omits` | The cells the implementation does not state, by the front end's cell names (krs: Rust field paths). Every other observable cell must be in each answer, or the answer is malformed, naming the cell. A view that compares an omitted cell is `not-compared` (`omitted`). Default: none. |
-| `identity` | `{ file }`, relative to the manifest's directory: the document names its SHA-256 (`implementations[].identity.sha256`), the identity a later cache of verdicts is keyed by. Absent: the verdicts are never cached. A file that cannot be read refuses the command (stage `implementation`, reason `identity`). |
+| `identity` | `{ file }`, relative to the manifest's directory: the document names its SHA-256 (`implementations[].identity.sha256`), the build its answers are cached under and its lock rows name ("The record and the cache" below). Absent: the implementation runs on every command. A file that cannot be read refuses the command (stage `implementation`, reason `identity`). |
 | `time_ms` | The wall clock that cancels one run of the implementation; positive. It decides no verdict (below). Default `budget.time_ms`. |
 | `views` | A nonempty array of views, each `{name, required, compare, views, observer}`: `name` unique among the implementation's views; `required` a boolean, default false (a view that is reported only); `compare` the cells it compares (default: every observable cell the implementation states); `views` a function by cell, applied to both sides' values before they are compared; `observer` the definition the functions are evaluated in (default: the definition). `compare`, `views` and `observer` are the front end's, resolved as an expectation's are ("Expectations"); a view that does not resolve refuses the command (stage `implementation`, reason `declaration`). `views = [{ name = "end", required = true }]` compares every cell the implementation states. |
 
-No run of the definition reads an implementation, so `[[implementation]]` is in no digest or cache key, and every other command ignores it.
+No run of the definition reads an implementation, so `[[implementation]]` is in no digest or cache key of the definition's runs, and every other command ignores it.
 
 ### The protocol
 
@@ -2435,16 +2482,34 @@ Each (implementation, program, view) has one verdict:
 
 Only a required view decides the status; every other verdict is reported.
 Each (implementation, program) row joins its required views' statuses: `equal` and `could-not-apply` 0 (an answer: the implementation states that it does not apply the program), `different` 1, `not-compared` 3 for `several-ends`, `undecided` and a `definition` that is `timeout`, `unknown` or `comparable-prefix`, else 2; and, for an implementation with a required view, its failure: 3 for `timeout`, else 2.
-The command exits with the join of its rows ("Exit status"), 2 for a refusal: a front end with no cell vocabulary (`unsupported-front-end`: kink-flow's own, which reads K terms; run `krs kink compare`), a manifest with no `[[implementation]]` (`no-implementation`), an `--only` name it does not declare (`unknown-implementation`), a declaration the definition refutes (`declaration`), an unreadable `identity` file (`identity`), and a refused specification.
+The command exits with the join of its rows and of its lock ("Exit status"; `stale` 1, `undecided` 3, a lock that does not decode or cannot be written 2), 2 for a refusal: a front end with no cell vocabulary (`unsupported-front-end`: kink-flow's own, which reads K terms; run `krs kink compare`), a manifest with no `[[implementation]]` (`no-implementation`), an `--only` name it does not declare (`unknown-implementation`), a declaration the definition refutes (`declaration`), an unreadable `identity` file (`identity`), and a refused specification.
 
 ### The document
 
 `schema` `kink-flow-compare`, `version` 1, `protocol`, the builds (`k_rust_revision`, `profile`, `kink_build`, `z3`), `spec`, `refusal` (`{stage, reason, detail}` or null), `implementations` (each declaration as written, its `identity` with `sha256`), `programs` (each program's baseline `{id, class, cause, cached, cache_error}`), `stop` and `result.not_compared` (the cells the ends leave out), `rows` and `summary`.
-Each row is one (implementation, program): `{implementation, program, required, request_sha256, answer: {end, reason}, failure, wall_ms, views}`, `request_sha256` the SHA-256 of the request's canonical JSON, and each entry of `views` `{view, required, verdict, difference, reason, detail, omitted, status}`.
+Each row is one (implementation, program): `{implementation, program, required, request_sha256, answer: {end, reason}, cached, failure, wall_ms, clock_stopped, views}`, `request_sha256` the SHA-256 of the request's canonical JSON, `cached` whether the answer was read from the cache (its `wall_ms` is then null), `clock_stopped` the run the clock stopped that the row rests on (`baseline`, `start`, `implementation`, or null), and each entry of `views` `{view, required, verdict, difference, reason, detail, omitted, status}`.
+Each program's baseline is `{id, class, cause, cached, not_cached, cache_error}`.
 `summary` counts the verdicts (`verdicts`, and `required`, of the required views) and the `failures`.
-`--output text` prints one line per verdict (`IMPLEMENTATION PROGRAM VIEW (required|reported): VERDICT`, with where a difference is or why a view is not compared) and per failure, then the counts.
+`lock`, with `--lock`, is the lock's state as `run`'s and `coverage`'s is ("The corpus record"), with `failed`.
+`--output text` prints one line per verdict (`IMPLEMENTATION PROGRAM VIEW (required|reported): VERDICT`, with where a difference is or why a view is not compared) and per failure, then the counts; `--output verdicts` prints the record's header and the `[compare]` section the run would write.
+Version 2 adds `lock`, a row's `cached` and `clock_stopped`, and a program's `not_cached`.
 
-A row of `views` with its row's `implementation`, `program`, `request_sha256` and the implementation's `identity.sha256` is what a lock section of the corpus record would hold per (implementation, program, view): the verdict is a function of the definition, the corpus and that request and build, except a `timeout`, which no record would hold.
+### The record and the cache
+
+With `--lock FILE` the verdicts are the corpus record's `[compare]` section ("The corpus record"): one `[[compare.verdict]]` per (implementation, program, view), with `required`, the verdict, its reason, a different view's first difference, `request_sha256` and the implementation's `identity_sha256`, under a header that names the `protocol`.
+The record is read before anything runs, and the command follows the rule of `run` and `coverage`: a run of every implementation without `--locked` rewrites the section (`created`, `written` or `unchanged`), keeping the other sections byte for byte; `--only` and a refusal leave it unwritten.
+A verdict is a function of the definition, the corpus, the request and the implementation's answer, so the section states what the current inputs give, and a moved verdict shows in review.
+
+Under `--locked` the command writes nothing and compares the section it would write with the file's: a row whose verdict, reason or first difference differs, a reported view's included, is a lock difference (`lock.status` `stale`, exit 1, one line per change on stderr: `kink.lock: rust-cpu cases/irq/case.toml accesses: different: its first difference moved: recorded ..., now ...`, `kink.lock: rust-cpu cases/irq/case.toml writes: equal -> different`), and so is a row only one side has (`added, equal`, `removed, was different`), a moved digest, or another order or text, which the first difference names.
+A run of an implementation that gave no answer, because it failed (`spawn`, `exit`, `malformed`) or the clock cancelled it (`timeout`), decides no verdict, and neither does a definition run the clock stopped: the rows of that (implementation, program) keep their recorded values, so the run is never a lock difference and never rewrites a row, and under `--locked` a section that differs in nothing else is `undecided`, exit 3, not decided on this host, as the clock's rule is for `run` ("What decides a verdict").
+stderr names each such run (`kink.lock: rust-cpu cases/irq/case.toml: the clock (time_ms) cancelled the implementation's run: its rows are not decided on this host`).
+
+An implementation that declares `identity` has its answers cached in the result cache (`--cache DIR`, `implementation-answers/`): the stdout of a run that exited 0 with an answer the protocol reads is stored under the protocol, the digest of the `identity` file, the `command` and the request's digest, and a later run with the same four reads it instead of starting the implementation (`cached: true`).
+A cached answer trusts that the same binary, given the same request, gives the same answer.
+The cache holds answers, not verdicts: each run reads the answer again by the protocol and compares it again with the definition's ends under the views as they are then, since a request with `given = "inputs"` does not name the definition, so a definition, a `[result]` or a view that changed is never answered from the cache, and `--locked` checks the verdicts the current definition gives.
+A failure or a cancelled run is never cached: it is no answer, and a host on which the implementation answers must not be told otherwise.
+Without `identity` nothing names the build that answered, so the implementation runs on every command.
+The lock is not the cache: a lock row states a verdict, which also depends on the definition's ends, and a cache in the lock would make `--locked` compare a row with itself.
 
 ## Front ends
 

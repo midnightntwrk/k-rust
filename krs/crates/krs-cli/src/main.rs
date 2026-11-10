@@ -258,7 +258,7 @@ Usage:
                    (--kill MUTATION | --matched RULE | --fired RULE | --refuted RULE
                    | --cover ITEM | --pattern ID) [kink-flow's fuzz options] [--locked]
   krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache DIR]
-                   [--output json|text] [--locked]
+                   [--output json|text|verdicts] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
@@ -279,7 +279,9 @@ The corpus is <package>/kink (or --corpus DIR):
                     mutation's verdict and its one recorded killer, which run tries first
                     and keeps while it still kills, written by krs kink run; [coverage],
                     each family's open obligations, each condition flip's status and its
-                    one recorded killer, kept by the same rule, written by krs kink coverage
+                    one recorded killer, kept by the same rule, written by krs kink coverage;
+                    [compare], each implementation's verdict on each case under each view,
+                    written by krs kink compare
   .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
                     holding /.kink-flow/ keeps them out)
 
@@ -300,7 +302,8 @@ The loop:
      and expect = \"survive\" (its status stays survived, and run fails if a case kills
      it); run again (cached outcomes are not re-run)
   4. commit definition.k and kink.lock with the corpus; CI runs krs kink
-     emit --check, krs kink run --locked and krs kink coverage --locked
+     emit --check, krs kink run --locked and krs kink coverage --locked (and krs kink
+     compare --locked where FLOW.toml declares an [[implementation]])
 
 A mutation (mutations/<topic>.toml; its id is <topic>/<id>):
   [[mutation]]
@@ -330,11 +333,16 @@ kills, and rewrites its section after a run of the whole list; under --locked it
 file unwritten and exits 1 when the run would change its section. coverage keeps the
 [coverage] section (--lock FILE names another) by the same rule for the condition flips, and
 rewrites it after a run with the manifest's own settings (not under --tier 1 or --depth);
-under --locked such a run leaves it unwritten and exits 1 when it would change it. Each keeps
-the other's section as it is. A kink/verdicts.lock or kink/coverage.lock of an earlier kink is
-read for its killers by the command that kept it, which moves them into kink.lock and says to
-delete the old file; under --locked the command is refused while it is there. report builds
-nothing: it
+under --locked such a run leaves it unwritten and exits 1 when it would change it. compare
+keeps the [compare] section (--lock FILE names another), rewritten after a run of every
+implementation (not under --only); under --locked it is left unwritten, a verdict that differs
+from its row exits 1, and a run of an implementation that gave no answer (it failed, or its
+time_ms cancelled it) leaves its rows as recorded, not decided on this host (3). An
+implementation that declares identity has its answers cached in .kink-flow/: the same binary,
+given the same request, gives the same answer. Each keeps the others' sections as they are.
+A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
+command that kept it, which moves them into kink.lock and says to delete the old file; under
+--locked the command is refused while it is there. report builds nothing: it
 prints the last run's stored document (or its verdicts) as that run printed it, exits as
 that run did, and takes no --locked. run --progress prints a line on stderr as each phase
 starts (the build, the binding, the checks of the list, the specification's admission, the
@@ -347,7 +355,7 @@ Exit status, by what the caller does next, as krs run's (krs --help):
      answered (query), the fuzz found a witness or proved the mutant equivalent, verdicts
      are possible (check), definition.k is fresh (emit)
   1  a finding: a --verify mismatch, a kink.lock section --locked would change
-     (run, coverage), an unmet expectation (coverage), a refuted pattern claim (query), a
+     (run, coverage, compare), an unmet expectation (coverage), a refuted pattern claim (query), a
      case excluded on the baseline or a baseline without data (check)
   2  the question could not be asked: a usage error, a package krs refuses, a stale
      definition.k (--locked, emit --check), a refused manifest, specification, case,
@@ -414,7 +422,7 @@ const KINK_VERB_USAGE: [(&str, &str); 8] = [
     (
         "compare",
         "krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache \
-         DIR] [--output json|text] [--locked]",
+         DIR] [--output json|text|verdicts] [--locked]",
     ),
 ];
 
@@ -585,6 +593,11 @@ fn kink_verb_help(verb: &str) -> String {
             "--locked",
             "refuse a stale kink/definition.k instead of writing it, and leave kink.lock \
              unwritten, exiting 1 when the run's [run] section would differ",
+        )),
+        "compare" => own.push(option(
+            "--locked",
+            "refuse a stale kink/definition.k instead of writing it, and leave kink.lock \
+             unwritten, exiting 1 when the run's [compare] section would differ",
         )),
         _ => own.push(option(
             "--locked",

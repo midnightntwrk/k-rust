@@ -29,23 +29,45 @@
 //! decides a verdict.
 //!
 //! Only a required view decides the exit status ([`compare_status`]); every other verdict is
-//! reported. The document's rows are what a later lock section records per (implementation,
-//! program, view), keyed by the request's digest and the implementation's identity.
+//! reported.
+//!
+//! With `--lock FILE` the verdicts are the record's `[compare]` section ([`crate::lock`]), one
+//! `[[compare.verdict]]` per (implementation, program, view) in the declarations' order
+//! ([`verdict_rows`]), each with the digest of the request and of the implementation's
+//! `identity`. A run without `--locked` rewrites it, as `run` and `coverage` rewrite theirs, and
+//! `--locked` compares the section the run would write with the file's. A row whose verdict rests
+//! on a run that gave no answer (the implementation's run failed or the clock cancelled it, or
+//! the clock stopped the definition's baseline or depth-0 run) keeps its recorded value
+//! ([`keep`]): no verdict was decided, so none can contradict the record.
+//!
+//! An implementation that declares `identity` has its answers cached
+//! ([`IMPLEMENTATION_ANSWER_VERSION`]): the protocol answer of a run that exited 0 is stored in
+//! the result cache (`--cache DIR`) under the protocol, the identity's digest, the command and
+//! the request's digest, and a later run with the same four reads it instead of starting the
+//! implementation. What the cache trusts
+//! is that the same binary, given the same request, gives the same answer. The verdict is
+//! computed again from the answer on every run, against the definition's ends and the views as
+//! they are then, so an edit of the definition, the corpus or a view is never answered from the
+//! cache. Without `identity` nothing says which build answered, and the implementation always
+//! runs.
 
 use crate::admit::{InputFiles, ManifestFiles, admit_spec};
 use crate::cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, exit_join};
+use crate::clock::Kept;
+use crate::lock::{Lock, LockKind, Settle, compare_row_id};
 use crate::manifest::{FlowManifest, Given, ImplementationSection, Program, ViewSection};
 use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
     record_final_configuration, runner_refusal, update_results,
 };
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
+use kink_corpus::Store;
 use kink_corpus::admission::{AdmissionRecord, AdmissionRefusal};
 use kink_native::execution::SolverProfile;
 use kink_patch::{canonical_json, sha256};
 use serde_json::{Map, Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -55,10 +77,18 @@ use std::{
 
 /// The schema of the `compare` document.
 pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
-/// The version of the `compare` document.
-pub const COMPARE_VERSION: u64 = 1;
+/// The version of the `compare` document: 1, the first; 2 since it has `lock` (`--lock FILE`), a
+/// row's `cached` and `clock_stopped`, and a program's `not_cached`.
+pub const COMPARE_VERSION: u64 = 2;
 /// The protocol every request names (`protocol`), and every answer is read by.
 pub const PROTOCOL: &str = "kink-implementation/1";
+/// The format of a cached answer of an implementation (module documentation): a record
+/// `{version, protocol, identity_sha256, command, request_sha256, answer}` whose name is the
+/// digest of all but `answer`, the implementation's stdout. Every build reads `answer` again by
+/// the protocol, so the record holds nothing kink's build decides.
+pub const IMPLEMENTATION_ANSWER_VERSION: &str = "kink-flow/implementation-answer/v1";
+/// The directory of the result cache that holds the cached answers.
+const ANSWERS_DIRECTORY: &str = "implementation-answers";
 /// The most bytes of an implementation's stderr a failure quotes, its end.
 const STDERR_QUOTED: usize = 2000;
 
@@ -67,8 +97,13 @@ const STDERR_QUOTED: usize = 2000;
 pub struct CompareOptions {
     /// `--only NAME`: compare only these implementations; empty: every one.
     pub only: Vec<String>,
-    /// `--cache DIR`: the result cache of the definition's baseline runs.
+    /// `--cache DIR`: the result cache of the definition's baseline runs, which also holds the
+    /// cached answers of the implementations that declare `identity`.
     pub cache: Option<PathBuf>,
+    /// `--lock FILE`: the corpus record whose `[compare]` section the command reads and writes.
+    pub lock: Option<PathBuf>,
+    /// `--locked`: compare the section the run would write with the file's, and write nothing.
+    pub locked: bool,
 }
 
 /// How a run of an implementation ended, by its own answer.
@@ -105,6 +140,9 @@ pub enum NotCompared {
     SeveralEnds(String),
     /// A view's evaluation stopped before it ended, or the comparison cannot conclude (3).
     Undecided(String),
+    /// The clock (`budget.time_ms`) stopped the definition's depth-0 run, which gives the start:
+    /// reason `undecided`, but its row rests on a run the clock stopped (3).
+    ClockStopped(String),
     /// The definition's side cannot be stated in the front end's vocabulary (an end or a start
     /// with no document) (2).
     Unreadable(String),
@@ -118,7 +156,7 @@ impl NotCompared {
             Self::Omitted(_) => "omitted",
             Self::LeftOut(_) => "left-out",
             Self::SeveralEnds(_) => "several-ends",
-            Self::Undecided(_) => "undecided",
+            Self::Undecided(_) | Self::ClockStopped(_) => "undecided",
             Self::Unreadable(_) => "unreadable",
         }
     }
@@ -140,6 +178,7 @@ impl NotCompared {
             Self::LeftOut(detail)
             | Self::SeveralEnds(detail)
             | Self::Undecided(detail)
+            | Self::ClockStopped(detail)
             | Self::Unreadable(detail) => detail.clone(),
         }
     }
@@ -150,7 +189,7 @@ impl NotCompared {
     #[must_use]
     pub const fn status(&self) -> u8 {
         match self {
-            Self::SeveralEnds(_) | Self::Undecided(_) => EXIT_UNANSWERED,
+            Self::SeveralEnds(_) | Self::Undecided(_) | Self::ClockStopped(_) => EXIT_UNANSWERED,
             Self::Omitted(_) | Self::LeftOut(_) | Self::Unreadable(_) => EXIT_UNASKED,
         }
     }
@@ -746,13 +785,16 @@ pub fn row_status(row: &Value) -> u8 {
     status
 }
 
-/// The status of a `compare` document: [`EXIT_UNASKED`] for a refused one, else the join of its
-/// rows' statuses ([`row_status`]).
+/// The status of a `compare` document: [`EXIT_UNASKED`] for a refused one (its lock included),
+/// else the join of its rows' statuses ([`row_status`]) and its lock's (`stale` [`EXIT_NO`],
+/// `undecided` [`EXIT_UNANSWERED`], a failed write [`EXIT_UNASKED`]), as `run`'s and
+/// `coverage`'s join theirs.
 #[must_use]
 pub fn compare_status(document: &Value) -> u8 {
     if document["refusal"].is_object()
         || document["spec"]["outcome"] == "refused"
         || document["cache_error"] == true
+        || document["lock"]["outcome"] == "refused"
     {
         return EXIT_UNASKED;
     }
@@ -761,7 +803,7 @@ pub fn compare_status(document: &Value) -> u8 {
         .into_iter()
         .flatten()
         .map(row_status)
-        .fold(EXIT_YES, exit_join)
+        .fold(crate::cli::lock_status(document), exit_join)
 }
 
 /// The document's head: its schema, the builds and the specification's admission.
@@ -806,8 +848,54 @@ pub const UNSUPPORTED_FRONT_END: &str = "an implementation states its end in the
 
 /// `compare` on `manifest` with the front end's `vocabulary` (module documentation): the
 /// document, whose status is [`compare_status`]. A result record that could not be written sets
-/// its `cache_error`, which fails the command as it fails `coverage`.
+/// its `cache_error`, which fails the command as it fails `coverage`. With `options.lock` the
+/// record's `[compare]` section is read before anything runs (a record that does not decode, or
+/// under `--locked` one of another version, refuses the command; `verb` is the front end's
+/// spelling of the command, which the refusal names) and settled after ([`Lock::settle`]): the
+/// document's `lock`.
 pub fn command(
+    manifest: &FlowManifest,
+    options: &CompareOptions,
+    vocabulary: Option<&dyn Vocabulary>,
+    verb: &str,
+) -> Value {
+    let lock = match options.lock.as_deref() {
+        None => None,
+        Some(path) => match Lock::read_for(path, LockKind::Compare, None, options.locked, verb) {
+            Ok(lock) => Some(lock),
+            Err(detail) => return lock_refused(manifest, path, &detail),
+        },
+    };
+    let mut document = compared(manifest, options, vocabulary);
+    if let Some(lock) = &lock {
+        document["lock"] = if document["refusal"].is_object() || document["spec"].is_null() {
+            lock.not_written("refused")
+        } else {
+            let store = Store::new(cache_directory(manifest, options.cache.as_deref()));
+            let settle = Settle {
+                locked: options.locked,
+                verify: false,
+                only: &options.only,
+                stopped: false,
+            };
+            lock.settle(&store, &document, settle).0
+        };
+    }
+    document
+}
+
+/// The document of a command whose lock at `path` does not decode: it names the refused lock
+/// (`lock: {path, outcome: "refused", detail}`), and has no specification and no row, since the
+/// lock is read before anything runs.
+fn lock_refused(manifest: &FlowManifest, path: &Path, detail: &str) -> Value {
+    let mut document = head(&AdmissionRecord::new(&manifest.spec.entry), None);
+    document["spec"] = Value::Null;
+    document["lock"] = crate::lock::refused_value(path, detail);
+    document
+}
+
+/// [`command`] without its lock.
+fn compared(
     manifest: &FlowManifest,
     options: &CompareOptions,
     vocabulary: Option<&dyn Vocabulary>,
@@ -900,6 +988,7 @@ pub fn command(
     };
     let update = update_results(&spec, manifest, &mut inputs, &runner, &cache, false, None);
     let not_compared = spec.result.not_compared.clone();
+    let answers = Store::new(&cache);
     let mut document = head(&record, Some(update.spec_digest.to_string()));
     let mut rows = Vec::new();
     let mut programs = Vec::new();
@@ -909,26 +998,34 @@ pub fn command(
             "class": row.row["class"],
             "cause": row.row["cause"],
             "cached": row.row["cached"],
+            "not_cached": row.row.get("not_cached"),
             "cache_error": row.row.get("cache_error"),
         }));
+        // The clock stopped the program's baseline run: it has no end on this host.
+        let baseline_stopped = crate::clock::baseline_stopped(&row.row);
         let definition = definition_side(manifest, &runner, update.execution, program, row, &cache);
         // The request's parts every implementation shares: its inputs and the start, each
         // read once.
         let mut shared: Option<RequestParts> = None;
-        for implementation in &selected {
+        for (implementation, declaration) in selected.iter().zip(&declared) {
             let mut out = json!({
                 "implementation": implementation.name,
                 "program": program.id,
                 "required": implementation.has_required_view(),
                 "request_sha256": null,
                 "answer": null,
+                "cached": false,
                 "failure": null,
                 "wall_ms": null,
+                "clock_stopped": null,
                 "views": [],
             });
             let (ends, words) = match &definition {
                 Definition::None { class, cause } => {
                     out["views"] = json!(definition_rows(implementation, class, cause.as_deref()));
+                    if baseline_stopped {
+                        out["clock_stopped"] = json!("baseline");
+                    }
                     rows.push(out);
                     continue;
                 }
@@ -953,6 +1050,9 @@ pub fn command(
             let request = match request {
                 Ok(request) => request,
                 Err(reason) => {
+                    if matches!(reason, NotCompared::ClockStopped(_)) {
+                        out["clock_stopped"] = json!("start");
+                    }
                     out["views"] = json!(
                         implementation
                             .views
@@ -969,25 +1069,48 @@ pub fn command(
                 }
             };
             let bytes = canonical_json(&request).into_bytes();
-            out["request_sha256"] = json!(digest(&bytes));
+            let request_sha256 = digest(&bytes);
+            out["request_sha256"] = json!(request_sha256);
             let limit =
                 Duration::from_millis(implementation.time_ms.unwrap_or(manifest.budget.time_ms));
-            let answer =
-                run_process(&implementation.command, &root, bytes, limit).and_then(|ran| {
+            // Where the implementation names its build, the answer of an earlier run of the same
+            // build on the same request (module documentation).
+            let key = declaration["identity"]["sha256"]
+                .as_str()
+                .map(|identity| AnswerKey::new(implementation, identity, &request_sha256));
+            let cached = key.as_ref().and_then(|key| key.read(&answers));
+            out["cached"] = json!(cached.is_some());
+            let stdout = match cached {
+                Some(stdout) => Ok(stdout),
+                None => run_process(&implementation.command, &root, bytes, limit).map(|ran| {
                     out["wall_ms"] = json!(ran.wall_ms);
-                    let answer = read_answer(&ran.stdout)
-                        .map_err(|detail| Failure::new("malformed", detail))?;
-                    if let Answer::Ended { cells, .. } = &answer {
-                        vocabulary
-                            .read_answer(implementation, cells)
-                            .map_err(|detail| {
-                                Failure::new("malformed", format!("`cells`: {detail}"))
-                            })?;
-                    }
-                    Ok(answer)
-                });
+                    ran.stdout
+                }),
+            };
+            let fresh = out["cached"] == false;
+            let answer = stdout.and_then(|stdout| {
+                let answer =
+                    read_answer(&stdout).map_err(|detail| Failure::new("malformed", detail))?;
+                if fresh && let Some(key) = &key {
+                    // A cache that cannot be written costs the next run a start, nothing else.
+                    key.write(&answers, &stdout);
+                }
+                if let Answer::Ended { cells, .. } = &answer {
+                    vocabulary
+                        .read_answer(implementation, cells)
+                        .map_err(|detail| {
+                            Failure::new("malformed", format!("`cells`: {detail}"))
+                        })?;
+                }
+                Ok(answer)
+            });
             match answer {
-                Err(failure) => out["failure"] = failure.value(),
+                Err(failure) => {
+                    if failure.kind == "timeout" {
+                        out["clock_stopped"] = json!("implementation");
+                    }
+                    out["failure"] = failure.value();
+                }
                 Ok(answer) => {
                     out["answer"] = answer.value();
                     match view_rows(
@@ -1072,7 +1195,7 @@ fn request_parts(
     let start = match test.and_then(|test| inputs.start(&test)) {
         Ok(Some(state)) => vocabulary.start(&state).map_err(unreadable),
         // The clock only cancels: a start it stopped is no answer on this host.
-        Ok(None) => Err(NotCompared::Undecided(
+        Ok(None) => Err(NotCompared::ClockStopped(
             "the clock (budget.time_ms) stopped the definition's depth-0 run: its start is not \
              known on this host"
                 .to_owned(),
@@ -1116,6 +1239,279 @@ fn request(
         }
     }
     Ok(Value::Object(request))
+}
+
+/// Where a cached answer of an implementation is, and what it is the answer to: the protocol,
+/// the digest of the implementation's `identity` file, its command and the request's digest
+/// (module documentation). A run with the same four reads the answer instead of starting the
+/// implementation.
+struct AnswerKey {
+    record: Value,
+    name: String,
+}
+
+impl AnswerKey {
+    fn new(implementation: &ImplementationSection, identity: &str, request_sha256: &str) -> Self {
+        let record = json!({
+            "version": IMPLEMENTATION_ANSWER_VERSION,
+            "protocol": PROTOCOL,
+            "identity_sha256": identity,
+            "command": implementation.command,
+            "request_sha256": request_sha256,
+        });
+        let name = digest(canonical_json(&record).as_bytes());
+        Self { record, name }
+    }
+
+    fn path(&self, store: &Store) -> PathBuf {
+        store
+            .root()
+            .join(ANSWERS_DIRECTORY)
+            .join(format!("{}.json", self.name))
+    }
+
+    /// The cached stdout, where a record of this key is stored and names the same four; `None`
+    /// otherwise, so a record that does not read is answered by a run.
+    fn read(&self, store: &Store) -> Option<Vec<u8>> {
+        let mut record = store.read_json(&self.path(store)).ok()?;
+        let answer = record.as_object_mut()?.remove("answer")?;
+        (record == self.record).then(|| answer.as_str().map(|text| text.as_bytes().to_vec()))?
+    }
+
+    /// Store `stdout`, an answer the protocol reads (so UTF-8 text), under this key; a write that
+    /// fails is left unreported, since it only costs the next run a start.
+    fn write(&self, store: &Store, stdout: &[u8]) {
+        let Ok(answer) = std::str::from_utf8(stdout) else {
+            return;
+        };
+        let mut record = self.record.clone();
+        record["answer"] = json!(answer);
+        let path = self.path(store);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = store.write_json(&path, &record);
+    }
+}
+
+/// The verdict rows a compare document's `[compare]` section holds, as it writes them: one per
+/// (implementation, program, view) that has a verdict, implementation by implementation in the
+/// manifest's order, each implementation's programs in the corpus's order and each program's
+/// views in the declaration's: `{id, implementation, program, view, required, verdict, reason,
+/// difference, request_sha256, identity_sha256}`. `reason` is a `not-compared` verdict's reason
+/// and a `could-not-apply` verdict's own (the implementation's words); `difference` is a
+/// `different` verdict's first difference as canonical JSON, a text that is a function of the
+/// difference; `identity_sha256` is null for an implementation that declares no `identity`. A
+/// row of a run that gave no answer has no verdict, so it has none here.
+#[must_use]
+pub fn verdict_rows(document: &Value) -> Vec<Value> {
+    let rows = document["rows"].as_array().map_or(&[][..], Vec::as_slice);
+    let mut verdicts = Vec::new();
+    for implementation in document["implementations"].as_array().into_iter().flatten() {
+        let name = implementation["name"].as_str().unwrap_or_default();
+        let identity = &implementation["identity"]["sha256"];
+        for row in rows.iter().filter(|row| row["implementation"] == name) {
+            let program = row["program"].as_str().unwrap_or_default();
+            for view in row["views"].as_array().into_iter().flatten() {
+                let verdict = view["verdict"].as_str().unwrap_or_default();
+                let reason = match verdict {
+                    "not-compared" => view["reason"].clone(),
+                    "could-not-apply" => view["detail"].clone(),
+                    _ => Value::Null,
+                };
+                let difference = if view["difference"].is_null() {
+                    Value::Null
+                } else {
+                    json!(canonical_json(&view["difference"]))
+                };
+                let name_of_view = view["view"].as_str().unwrap_or_default();
+                verdicts.push(json!({
+                    "id": compare_row_id(name, program, name_of_view),
+                    "implementation": name,
+                    "program": program,
+                    "view": name_of_view,
+                    "required": view["required"] == true,
+                    "verdict": verdict,
+                    "reason": reason,
+                    "difference": difference,
+                    "request_sha256": row["request_sha256"],
+                    "identity_sha256": identity,
+                }));
+            }
+        }
+    }
+    verdicts
+}
+
+/// `document` with its `verdicts` ([`verdict_rows`]) as the `[compare]` section of `lock` is
+/// compared with and written as, and what of it no run decided (the clock's rule, README "What
+/// decides a verdict", applied to `compare`).
+///
+/// A row of (implementation, program) is decided on this host only when the runs it rests on
+/// gave an answer: the implementation's run (a failure of it, the clock's cancellation included,
+/// gives none) and the definition's baseline run and, for `given = "start"`, depth-0 run, which
+/// the clock can stop. Where one gave none, the verdict of each view is what that run would have
+/// given, which this host does not know, so the recorded rows of the pair are kept as they are
+/// and the run's own rows are not written: `kept` names each recorded row a stopped definition
+/// run gave another verdict on this host, `stopped` each run the clock stopped
+/// (`{program, run: "baseline"}` once per program, `{implementation, program, run: "start" |
+/// "implementation"}`), and `failed` each failed run of an implementation (`{implementation,
+/// program, failure}`). A pair the lock records nothing for has its live rows, those of a run
+/// that failed none. Under `--locked` a section that differs in nothing else is `undecided`.
+#[must_use]
+pub fn keep(lock: &Lock, document: &Value) -> Kept {
+    let live = verdict_rows(document);
+    // The recorded rows by (implementation, program), each with its id, in the file's order.
+    let mut recorded: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
+    if let Some(table) = lock.recorded_table() {
+        for row in table
+            .get(LockKind::Compare.row())
+            .and_then(toml::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Ok(mut value) = serde_json::to_value(row) else {
+                continue;
+            };
+            let field = |key: &str| value[key].as_str().unwrap_or_default().to_owned();
+            let (implementation, program) = (field("implementation"), field("program"));
+            value["id"] = json!(compare_row_id(&implementation, &program, &field("view")));
+            recorded
+                .entry((implementation, program))
+                .or_default()
+                .push(value);
+        }
+    }
+    let mut stopped = Vec::new();
+    let mut failed = Vec::new();
+    let mut undecided = BTreeSet::new();
+    for row in document["rows"].as_array().into_iter().flatten() {
+        let (implementation, program) = (&row["implementation"], &row["program"]);
+        let pair = (
+            implementation.as_str().unwrap_or_default().to_owned(),
+            program.as_str().unwrap_or_default().to_owned(),
+        );
+        match row["clock_stopped"].as_str() {
+            Some("baseline") => {
+                let entry = json!({"program": program, "run": "baseline"});
+                if !stopped.contains(&entry) {
+                    stopped.push(entry);
+                }
+            }
+            Some(run) => stopped.push(json!({
+                "implementation": implementation,
+                "program": program,
+                "run": run,
+            })),
+            None if row["failure"].is_object() => failed.push(json!({
+                "implementation": implementation,
+                "program": program,
+                "failure": row["failure"]["kind"],
+            })),
+            None => continue,
+        }
+        undecided.insert(pair);
+    }
+    let compared = |row: &Value| {
+        json!({"verdict": row["verdict"], "reason": row["reason"],
+               "difference": row["difference"]})
+    };
+    let mut verdicts = Vec::new();
+    let mut kept = Vec::new();
+    let pairs = document["implementations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|implementation| implementation["name"].as_str())
+        .flat_map(|implementation| {
+            document["programs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|program| program["id"].as_str())
+                .map(move |program| (implementation.to_owned(), program.to_owned()))
+        });
+    for pair in pairs {
+        let own = live.iter().filter(|row| {
+            row["implementation"] == pair.0.as_str() && row["program"] == pair.1.as_str()
+        });
+        match recorded.get(&pair).filter(|_| undecided.contains(&pair)) {
+            Some(rows) => {
+                for row in rows {
+                    let now = own.clone().find(|live| live["id"] == row["id"]);
+                    if let Some(now) = now.filter(|now| compared(now) != compared(row)) {
+                        let mut entry =
+                            LockKind::Compare.keyed(row["id"].as_str().unwrap_or_default());
+                        entry.insert("recorded".into(), compared(row));
+                        entry.insert("now".into(), compared(now));
+                        kept.push(Value::Object(entry));
+                    }
+                    verdicts.push(row.clone());
+                }
+            }
+            None => verdicts.extend(own.cloned()),
+        }
+    }
+    let mut document = document.clone();
+    document["verdicts"] = json!(verdicts);
+    Kept {
+        document,
+        stopped,
+        kept,
+        failed,
+    }
+}
+
+/// The lines `kink-flow` prints on stderr for a compare document's lock some row of which rests
+/// on a run that gave no answer ([`keep`]): one per run the clock stopped and per failed run of
+/// an implementation, then one per kept row (`lock.clock_stopped`, `lock.failed`, `lock.kept`).
+#[must_use]
+pub fn clock_lines(document: &Value) -> Vec<String> {
+    let lock = &document["lock"];
+    let path = lock["path"].as_str().unwrap_or(crate::lock::LOCK_FILE);
+    let text = |value: &Value| value.as_str().unwrap_or("?").to_owned();
+    let mut lines = Vec::new();
+    for stop in lock["clock_stopped"].as_array().into_iter().flatten() {
+        let program = text(&stop["program"]);
+        let implementation = text(&stop["implementation"]);
+        lines.push(match stop["run"].as_str() {
+            Some("baseline") => format!(
+                "{path}: the clock (budget.time_ms) stopped the baseline run of {program}: its \
+                 compare rows are not decided on this host"
+            ),
+            Some("start") => format!(
+                "{path}: {implementation} {program}: the clock (budget.time_ms) stopped the \
+                 definition's depth-0 run, which gives the start: its rows are not decided on \
+                 this host"
+            ),
+            _ => format!(
+                "{path}: {implementation} {program}: the clock (time_ms) cancelled the \
+                 implementation's run: its rows are not decided on this host"
+            ),
+        });
+    }
+    for failure in lock["failed"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "{path}: {} {}: the implementation's run failed ({}) and gave no answer: its rows \
+             are not decided on this host",
+            text(&failure["implementation"]),
+            text(&failure["program"]),
+            text(&failure["failure"])
+        ));
+    }
+    let verdict = |side: &Value| match side["reason"].as_str() {
+        Some(reason) => format!("{} ({reason})", text(&side["verdict"])),
+        None => text(&side["verdict"]),
+    };
+    for entry in lock["kept"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "{path}: {}: kept {} unverified: this host gives {}",
+            LockKind::Compare.named(entry),
+            verdict(&entry["recorded"]),
+            verdict(&entry["now"])
+        ));
+    }
+    lines
 }
 
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
@@ -1335,7 +1731,12 @@ mod tests {
     #[test]
     fn kink_flow_refuses_compare_without_a_vocabulary() {
         let manifest = decoded(ONE).unwrap();
-        let document = command(&manifest, &CompareOptions::default(), None);
+        let document = command(
+            &manifest,
+            &CompareOptions::default(),
+            None,
+            "kink-flow compare",
+        );
         assert_eq!(document["schema"], COMPARE_SCHEMA);
         assert_eq!(document["refusal"]["reason"], "unsupported-front-end");
         assert_eq!(compare_status(&document), EXIT_UNASKED);

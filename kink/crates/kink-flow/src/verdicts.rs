@@ -1,20 +1,20 @@
-//! The verdicts of a `coverage` or `run` document as deterministic TOML (`--output verdicts`):
-//! what the corpus and the specification decide, and nothing that depends on the host, the build,
-//! the cache or the order the work was done in. A rendering is the corpus record's header and the
-//! command's section ([`crate::lock`]): it is the format of recorded outputs and, without
-//! `killed_by`, of the section of `kink.lock` its command writes (`run --lock`, `coverage
-//! --lock`; [`lock_section`], [`lock_text`]), so that a change of a verdict shows in review and
-//! an unchanged corpus renders the same bytes.
+//! The verdicts of a `coverage`, `run` or `compare` document as deterministic TOML (`--output
+//! verdicts`): what the corpus and the specification decide, and nothing that depends on the
+//! host, the build, the cache or the order the work was done in. A rendering is the corpus
+//! record's header and the command's section ([`crate::lock`]): it is the format of recorded
+//! outputs and, without `killed_by`, of the section of `kink.lock` its command writes (`run
+//! --lock`, `coverage --lock`, `compare --lock`; [`lock_section`], [`lock_text`]), so that a
+//! change of a verdict shows in review and an unchanged corpus renders the same bytes.
 //!
 //! ```toml
-//! # kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and
+//! # kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),
 //! # ...
 //! schema = "kink-flow-verdicts"
 //!
 //! [coverage]
 //! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 //! # ...
-//! version = 24
+//! version = 25
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -256,15 +256,20 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// it edits, and no longer writes `[settings] tiers`, which `[coverage.flips] run` states. Under
 /// `--locked` a section of another version, or a lock before 24, is refused, naming the command
 /// that rewrites it ([`crate::lock`]).
-pub const VERDICTS_VERSION: u64 = 24;
+/// 25 since a record has a third section, `[compare]` (FB47-VERDICTS), `compare`'s verdicts, one
+/// `[[compare.verdict]]` per (implementation, program, view), and the record's comment names it:
+/// a `[run]` or `[coverage]` section differs in its `version` line only, and the record in its
+/// comment.
+pub const VERDICTS_VERSION: u64 = 25;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
 /// command keeps, and that a command touches only its own, so that a reader of `kink.lock` needs
 /// no README to tell what wrote it.
 pub const RECORD_PREAMBLE: &[&str] = &[
-    "kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and",
-    "[coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command",
-    "reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.",
+    "kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),",
+    "[coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps",
+    "<corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,",
+    "and keeps the others as they are.",
 ];
 
 /// The comment after `[run]`: the command whose verdicts the section holds, and what the command
@@ -280,6 +285,22 @@ pub const COVERAGE_PREAMBLE: &[&str] = &[
     "The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the",
     "next run tries each flip's `killer` first, a run without --locked rewrites this section, and",
     "`coverage --locked` checks that it is current.",
+];
+
+/// The comment after `[compare]` ([`RUN_PREAMBLE`]'s, for `compare`).
+pub const COMPARE_PREAMBLE: &[&str] = &[
+    "The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run",
+    "without --locked rewrites this section, and `compare --locked` checks that it is current.",
+];
+
+/// The comment before a compare section's first `[[compare.verdict]]`: what a row is, what each
+/// verdict says, and what the digests name.
+pub const COMPARE_LEGEND: &[&str] = &[
+    "Each [[compare.verdict]] is one view of one implementation on one program, and its verdict:",
+    "equal (its end agrees with the definition's under the view), different (`difference`, the",
+    "first difference), could-not-apply (it declined the program; `reason`, its own words) or",
+    "not-compared (`reason` says why). `request_sha256` names the request it was given, and",
+    "`identity_sha256` its build (its `identity` file); a run that gave no answer keeps its rows.",
 ];
 
 /// The comment before a run section's first `[[run.mutation]]`: what a row is and what each status
@@ -340,8 +361,11 @@ pub fn lock_text(document: &Value) -> Result<String, String> {
 /// when it is neither a run nor a coverage document.
 pub fn lock_section(document: &Value) -> Result<String, String> {
     let schema = &document["schema"];
-    if schema != crate::report::RUN_SCHEMA && schema != crate::coverage::COVERAGE_SCHEMA {
-        return Err("a lock is the rendering of a run or coverage document".to_owned());
+    if schema != crate::report::RUN_SCHEMA
+        && schema != crate::coverage::COVERAGE_SCHEMA
+        && schema != crate::compare::COMPARE_SCHEMA
+    {
+        return Err("a lock is the rendering of a run, coverage or compare document".to_owned());
     }
     let kind = section_name(document)?;
     Ok(section(document, kind, false))
@@ -373,6 +397,7 @@ fn section_name(document: &Value) -> Result<&'static str, String> {
     match document["schema"].as_str() {
         Some(crate::coverage::COVERAGE_SCHEMA) => Ok("coverage"),
         Some(crate::report::RUN_SCHEMA) => Ok("run"),
+        Some(crate::compare::COMPARE_SCHEMA) => Ok("compare"),
         Some(crate::report::MISSING_SCHEMA) => Err(match document["outcome"].as_str() {
             Some(outcome) => format!(
                 "{outcome} run report {}: {}",
@@ -386,7 +411,7 @@ fn section_name(document: &Value) -> Result<&'static str, String> {
             ),
         }),
         other => Err(format!(
-            "--output verdicts renders a coverage or run document, not {}",
+            "--output verdicts renders a coverage, run or compare document, not {}",
             other.map_or_else(|| "a document with no schema".to_owned(), str::to_owned)
         )),
     }
@@ -397,10 +422,10 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
     let mut text = format!("[{kind}]\n");
     comment(
         &mut text,
-        if kind == "coverage" {
-            COVERAGE_PREAMBLE
-        } else {
-            RUN_PREAMBLE
+        match kind {
+            "coverage" => COVERAGE_PREAMBLE,
+            "compare" => COMPARE_PREAMBLE,
+            _ => RUN_PREAMBLE,
         },
     );
     line(&mut text, "version", &VERDICTS_VERSION.to_string());
@@ -420,7 +445,19 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
     {
         line(&mut text, "krs_annotation", &annotation.to_string());
     }
-    for table in ["spec", "mutation_list", "lock"] {
+    // The protocol every request of the section was written in and every answer read by.
+    if kind == "compare"
+        && let Some(protocol) = document["protocol"].as_str()
+    {
+        line(&mut text, "protocol", &string(protocol));
+    }
+    // A compare document refused before any run says so under `[compare.refusal]`.
+    let tables: &[&str] = if kind == "compare" {
+        &["spec", "refusal", "lock"]
+    } else {
+        &["spec", "mutation_list", "lock"]
+    };
+    for &table in tables {
         let Some(object) = document[table].as_object() else {
             continue;
         };
@@ -436,10 +473,10 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
             }
         }
     }
-    if kind == "coverage" {
-        coverage(&mut text, document);
-    } else {
-        mutations(&mut text, document, killed_by);
+    match kind {
+        "coverage" => coverage(&mut text, document),
+        "compare" => compare(&mut text, document),
+        _ => mutations(&mut text, document, killed_by),
     }
     if let Some(stopped) = document["stopped"].as_object() {
         let _ = write!(text, "\n[{kind}.stopped]\n");
@@ -741,6 +778,58 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
                 .collect::<Vec<_>>();
             line(text, "killed_by", &strings(&killers));
         }
+    }
+}
+
+/// A compare section's rows (`[[compare.verdict]]`), in the order [`crate::compare::verdict_rows`]
+/// gives them: each row's `implementation`, `program`, `view`, `required` and `verdict`, then its
+/// `reason`, `difference`, `request_sha256` and `identity_sha256` where it has them. The rows are
+/// `document`'s `verdicts` where a lock set them ([`crate::compare::keep`]), else its live rows.
+fn compare(text: &mut String, document: &Value) {
+    let rows = match document["verdicts"].as_array() {
+        Some(rows) => rows.clone(),
+        None => crate::compare::verdict_rows(document),
+    };
+    if !rows.is_empty() {
+        text.push('\n');
+        comment(text, COMPARE_LEGEND);
+    }
+    for (index, row) in rows.iter().enumerate() {
+        text.push_str(if index == 0 {
+            "[[compare.verdict]]\n"
+        } else {
+            "\n[[compare.verdict]]\n"
+        });
+        for key in ["implementation", "program", "view"] {
+            line(text, key, &string(row[key].as_str().unwrap_or_default()));
+        }
+        line(text, "required", &(row["required"] == true).to_string());
+        line(
+            text,
+            "verdict",
+            &string(row["verdict"].as_str().unwrap_or_default()),
+        );
+        if let Some(reason) = row["reason"].as_str() {
+            line(text, "reason", &string(reason));
+        }
+        if let Some(difference) = row["difference"].as_str() {
+            line(text, "difference", &literal(difference));
+        }
+        for key in ["request_sha256", "identity_sha256"] {
+            if let Some(digest) = row[key].as_str() {
+                line(text, key, &string(digest));
+            }
+        }
+    }
+}
+
+/// A TOML literal string of `value` where it can be one (no `'` and no control character), so
+/// that a JSON text reads as itself; else a basic string.
+fn literal(value: &str) -> String {
+    if value.contains('\'') || value.chars().any(char::is_control) {
+        string(value)
+    } else {
+        format!("'{value}'")
     }
 }
 

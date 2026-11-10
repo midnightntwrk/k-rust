@@ -5,7 +5,7 @@
 //! `omits`, `identity`, `time_ms`, each view's `name` and `required`); a view's `compare`,
 //! `views` and `observer` are the front end's, which only a front end that reads the
 //! definition's values resolves (`crate::compare::Vocabulary::check`). An implementation is no
-//! input of the definition's runs, so the declaration is in no digest or cache key.
+//! input of the definition's runs, so the declaration is in no digest or cache key of them.
 
 use super::{
     ManifestError, front_end_key, join, known_keys, missing, names, required_string, table,
@@ -26,8 +26,8 @@ pub struct ImplementationSection {
     /// `omits`: the cells the implementation does not state, by the front end's cell names;
     /// every other cell a view compares must be in its answer.
     pub omits: Vec<String>,
-    /// `identity = { file = .. }`: the file whose digest names the implementation's build, for
-    /// a later cache of its verdicts; `None`: its verdicts are never cached.
+    /// `identity = { file = .. }`: the file whose digest names the implementation's build, under
+    /// which its answers are cached (`crate::compare`); `None`: it runs on every command.
     pub identity: Option<IdentitySection>,
     /// `time_ms`: the wall clock that cancels one run of the implementation; `None`: the
     /// manifest's `budget.time_ms`. It decides no verdict.

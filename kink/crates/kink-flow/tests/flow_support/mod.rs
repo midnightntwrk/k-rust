@@ -174,10 +174,11 @@ pub fn heading(document: &str) -> String {
         other => panic!("no rendering of a {other} document"),
     };
     format!(
-        "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list) and\n\
-         # [coverage] (`coverage`). As a lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command\n\
-         # reads, checks (--locked) and rewrites only its own section, and keeps the other as it is.\n\
-         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 24\n"
+        "# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),\n\
+         # [coverage] (`coverage`) and [compare] (`compare`). As a lock (`--lock FILE`; krs keeps\n\
+         # <corpus>/kink.lock), each command reads, checks (--locked) and rewrites only its own section,\n\
+         # and keeps the others as they are.\n\
+         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 25\n"
     )
 }
 

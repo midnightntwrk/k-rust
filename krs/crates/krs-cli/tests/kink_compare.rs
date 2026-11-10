@@ -9,7 +9,8 @@
 //!
 //! The implementations are one shell script, `fake.sh`, whose first argument says how it
 //! answers: `equal` computes the end as the definition does, `different` adds 2 to `acc` (a
-//! different end, of the same parity), `wrong-end` swaps `stopped` and `final`,
+//! different end, of the same parity), `farther` adds 4 (the same, differing farther),
+//! `wrong-end` swaps `stopped` and `final`,
 //! `could-not-apply` declines every program, `omit` leaves `acc` out of its answer, `crash` exits
 //! 3, `garbage` prints no JSON, and `sleep` never answers. Its second argument, when given, is a
 //! file it appends each request to. It never states the computation cell `k`, which each
@@ -113,6 +114,7 @@ while [ "$n" -gt 0 ]; do
 done
 case $mode in
   different) acc=$((acc + 2));;
+  farther) acc=$((acc + 4));;
   wrong-end) if [ "$end" = final ]; then end=stopped; else end=final; fi;;
 esac
 if [ "$mode" = omit ]; then
@@ -550,4 +552,224 @@ fn a_declaration_is_checked_before_any_run() {
         document.to_string().contains("implementation[0].given"),
         "{document:#}"
     );
+}
+
+/// The implementations of the record's corpus: `logged` (no `identity`, recording each request it
+/// is given in `logged.log`), `named` (given the start, with `identity`, recording in
+/// `named.log`), both answering as the definition does, and `reported`, answering in
+/// `reported` mode, whose `whole` view is reported and `parity` required. `logged` is cancelled
+/// after `time_ms` when its mode is `sleep`.
+fn record_implementations(logged: &str, reported: &str) -> String {
+    format!(
+        "[[implementation]]\nname = \"logged\"\ncommand = [\"sh\", \"fake.sh\", \"{logged}\", \
+         \"logged.log\"]\ngiven = \"inputs\"\nomits = [\"k\"]\ntime_ms = 1500\nviews = \
+         {VIEWS}\n\n[[implementation]]\nname = \"named\"\ncommand = [\"sh\", \"fake.sh\", \
+         \"equal\", \"named.log\"]\ngiven = \"start\"\nomits = [\"k\"]\nidentity = {{ file = \
+         \"fake.sh\" }}\nviews = [{{ name = \"whole\", required = true }}]\n\n{}",
+        implementation(
+            "reported",
+            reported,
+            "inputs",
+            "[{ name = \"whole\" }, { name = \"parity\", views = { acc = \"Parity\" }, required = \
+             true }]",
+        )
+    )
+}
+
+/// The record's other sections, as another command wrote them and a hand edited them.
+const OTHER_SECTIONS: &str = "[run]\n# kept by hand\nversion = 25\nprofile = \"z3\"\n\n\
+                              [[run.mutation]]\nid = \"m\"\nstatus = \"survived\"\n\n[coverage]\n\
+                              version = 25\n\n[coverage.rules]\nopen = [\n]\n";
+
+/// How many requests the log `name` of the corpus holds: one per run of its implementation.
+fn runs(package: &Package, corpus: &str, name: &str) -> usize {
+    fs::read_to_string(package.directory.path().join(corpus).join(name))
+        .map_or(0, |log| log.lines().count())
+}
+
+/// The verdicts are the corpus record's `[compare]` section: `compare` writes it after the
+/// other sections, keeping them byte for byte; `--locked` finds it current; an implementation
+/// with `identity` is not run again for the same request, one without it always is; a reported
+/// view whose first difference moves makes `--locked` exit 1; and a run the clock cancels under
+/// `--locked` is not decided on this host (exit 3), leaving the rows as recorded.
+#[test]
+fn the_verdicts_are_the_corpus_records_compare_section() {
+    let package = Package::new();
+    let corpus = "corpora/record";
+    package.corpus(
+        corpus,
+        &record_implementations("equal", "different"),
+        &[("a", 2), ("b", 5)],
+    );
+    let record = package.directory.path().join(corpus).join("kink.lock");
+    let other = format!("{}\n{OTHER_SECTIONS}", kink_flow::verdicts::record_header());
+    fs::write(&record, &other).unwrap();
+
+    // A write: the section follows the others, which are kept as they were.
+    let first = package.compare(corpus, &[]);
+    assert_status(&first, 0);
+    let document = json_of(&first);
+    assert_eq!(document["lock"]["status"], "created", "{document:#}");
+    assert_eq!(document["lock"]["path"], "corpora/record/kink.lock");
+    let written = fs::read_to_string(&record).unwrap();
+    let section = written
+        .strip_prefix(&format!("{other}\n"))
+        .unwrap_or_else(|| panic!("the other sections are kept byte for byte:\n{written}"));
+    assert!(section.starts_with("[compare]\n"), "{section}");
+    assert!(
+        section.contains("protocol = \"kink-implementation/1\"\n"),
+        "{section}"
+    );
+    let rows = section
+        .lines()
+        .filter(|line| *line == "[[compare.verdict]]")
+        .count();
+    // `logged` and `reported` with two views, `named` with one, on two cases.
+    assert_eq!(rows, 10, "{section}");
+    let identity = document["implementations"][1]["identity"]["sha256"]
+        .as_str()
+        .unwrap();
+    assert!(
+        section.contains(&format!(
+            "implementation = \"named\"\nprogram = \"cases/a/case.toml\"\nview = \
+             \"whole\"\nrequired = true\nverdict = \"equal\"\nrequest_sha256 = \"{}\"\n\
+             identity_sha256 = \"{identity}\"\n",
+            row(&document, "named", "cases/a/case.toml")["request_sha256"]
+                .as_str()
+                .unwrap()
+        )),
+        "{section}"
+    );
+    assert!(
+        section.contains(
+            "implementation = \"reported\"\nprogram = \"cases/a/case.toml\"\nview = \
+             \"whole\"\nrequired = false\nverdict = \"different\"\ndifference = '{"
+        ),
+        "the reported view's first difference is recorded: {section}"
+    );
+    assert_eq!(
+        (
+            runs(&package, corpus, "logged.log"),
+            runs(&package, corpus, "named.log")
+        ),
+        (2, 2)
+    );
+
+    // `--locked` finds it current; `named` is answered from the cache, `logged` runs again.
+    let locked = package.compare(corpus, &["--locked"]);
+    assert_status(&locked, 0);
+    let document = json_of(&locked);
+    assert_eq!(document["lock"]["status"], "unchanged", "{document:#}");
+    assert_eq!(fs::read_to_string(&record).unwrap(), written);
+    assert_eq!(
+        (
+            runs(&package, corpus, "logged.log"),
+            runs(&package, corpus, "named.log")
+        ),
+        (4, 2)
+    );
+    assert_eq!(row(&document, "named", "cases/b/case.toml")["cached"], true);
+    assert_eq!(
+        row(&document, "logged", "cases/b/case.toml")["cached"],
+        false
+    );
+
+    let rewritten = assert_a_moved_difference_is_stale(&package, corpus, &other, &written);
+    assert_a_cancelled_run_keeps_its_rows(&package, corpus, &rewritten);
+}
+
+/// A reported view whose first difference moved is a lock difference under `--locked`, which
+/// writes nothing; a run without it rewrites the section, which is then current. The record's
+/// text after the rewrite.
+fn assert_a_moved_difference_is_stale(
+    package: &Package,
+    corpus: &str,
+    other: &str,
+    written: &str,
+) -> String {
+    let record = package.directory.path().join(corpus).join("kink.lock");
+    package.write(
+        &format!("{corpus}/FLOW.toml"),
+        &fs::read_to_string(package.directory.path().join(corpus).join("FLOW.toml"))
+            .unwrap()
+            .replace("\"fake.sh\", \"different\"", "\"fake.sh\", \"farther\""),
+    );
+    let moved = package.compare(corpus, &["--locked"]);
+    assert_status(&moved, 1);
+    let document = json_of(&moved);
+    assert_eq!(document["lock"]["status"], "stale", "{document:#}");
+    assert_eq!(
+        verdict(row(&document, "reported", "cases/a/case.toml"), "parity")["verdict"],
+        "equal"
+    );
+    let stderr = String::from_utf8_lossy(&moved.stderr);
+    assert!(
+        stderr.contains("reported cases/a/case.toml whole: different: its first difference moved"),
+        "{stderr}"
+    );
+    assert_eq!(fs::read_to_string(&record).unwrap(), written);
+    // A run without `--locked` rewrites the section, and the record is current again.
+    let rewrite = package.compare(corpus, &[]);
+    assert_status(&rewrite, 0);
+    assert_eq!(json_of(&rewrite)["lock"]["status"], "written");
+    let rewritten = fs::read_to_string(&record).unwrap();
+    assert!(rewritten.starts_with(&format!("{other}\n[compare]\n")));
+    assert_ne!(rewritten, written);
+    assert_status(&package.compare(corpus, &["--locked"]), 0);
+    rewritten
+}
+
+/// The clock cancels `logged`: not decided on this host (3), and its rows stay as recorded
+/// (`rewritten`), under `--locked` and without it; `--only` writes nothing, and `--output
+/// verdicts` is the section the run would write.
+fn assert_a_cancelled_run_keeps_its_rows(package: &Package, corpus: &str, rewritten: &str) {
+    let record = package.directory.path().join(corpus).join("kink.lock");
+    package.write(
+        &format!("{corpus}/FLOW.toml"),
+        &fs::read_to_string(package.directory.path().join(corpus).join("FLOW.toml"))
+            .unwrap()
+            .replace(
+                "\"fake.sh\", \"equal\", \"logged.log\"",
+                "\"fake.sh\", \"sleep\", \"logged.log\"",
+            ),
+    );
+    for arguments in [&["--locked"][..], &[]] {
+        let cancelled = package.compare(corpus, arguments);
+        assert_status(&cancelled, 3);
+        let document = json_of(&cancelled);
+        let status = if arguments.is_empty() {
+            "unchanged"
+        } else {
+            "undecided"
+        };
+        assert_eq!(document["lock"]["status"], status, "{document:#}");
+        assert_eq!(
+            document["lock"]["clock_stopped"][0],
+            json!({"implementation": "logged", "program": "cases/a/case.toml", "run": "implementation"}),
+            "{document:#}"
+        );
+        let stderr = String::from_utf8_lossy(&cancelled.stderr);
+        assert!(
+            stderr.contains("logged cases/a/case.toml: the clock (time_ms) cancelled"),
+            "{stderr}"
+        );
+        assert_eq!(fs::read_to_string(&record).unwrap(), rewritten);
+    }
+    // `--only` writes nothing, and `--output verdicts` is the section the run would write.
+    let only = package.compare(corpus, &["--only", "named", "--output", "verdicts"]);
+    assert_status(&only, 0);
+    let verdicts = String::from_utf8(only.stdout).unwrap();
+    assert!(
+        verdicts.starts_with(&kink_flow::verdicts::record_header()),
+        "{verdicts}"
+    );
+    assert!(
+        verdicts.contains("implementation = \"named\""),
+        "{verdicts}"
+    );
+    assert!(
+        !verdicts.contains("implementation = \"logged\""),
+        "{verdicts}"
+    );
+    assert_eq!(fs::read_to_string(&record).unwrap(), rewritten);
 }
