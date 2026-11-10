@@ -3254,6 +3254,7 @@ impl StructuredTermBuilder<'_> {
                     declared.rust_field
                 )));
             };
+            self.check_child_presence(declared, field)?;
             match &declared.content {
                 ProtocolCellContent::Leaf { sort, .. } => {
                     self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
@@ -3317,6 +3318,28 @@ impl StructuredTermBuilder<'_> {
                     }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Refuses a cell term's child `declared` written as `field` when it is a `?` cell: its value
+    /// states its presence, at a configuration position and in a value alike
+    /// ([`super::cell_states::optional_child_without_presence`]). A child's `Some(..)` or `None`
+    /// is refused before lowering (a stated limit), so every such value that reaches here is bare.
+    fn check_child_presence(
+        &self,
+        declared: &krs_ir::DescriptorCellField,
+        field: &krs_ir::DescriptorCellTermField,
+    ) -> Result<(), DescriptorLoweringError> {
+        if super::references::declared_multiplicity(declared, self.declarations)
+            == krs_ir::cell_kind::Multiplicity::Optional
+        {
+            return Err(super::cell_states::optional_child_without_presence(
+                self.descriptor,
+                declared,
+                self.declarations,
+                super::collection_types::term_key(&field.value),
+            ));
         }
         Ok(())
     }

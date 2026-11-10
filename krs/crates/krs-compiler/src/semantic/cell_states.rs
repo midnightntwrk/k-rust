@@ -223,6 +223,38 @@ pub(super) fn no_child(
     )
 }
 
+/// The refusal of a group record's child `declared`, a `?` cell, written as a bare value at
+/// `key`, wherever the record stands.
+///
+/// The child's place in its parent holds the cell or its absence, so a value there says which:
+/// `Some(..)` the cell with its content, `None` its absence. A bare term, binder or `_` says
+/// neither, as the same value written as the optional cell's own entry does not, and a group
+/// record means the same cell at a configuration position and as a value, so the refusal is
+/// the entry's (`krs::analysis::optional-presence`), with its reason and advice.
+pub(super) fn optional_child_without_presence(
+    descriptor: &Descriptor,
+    declared: &DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+    key: &ProvenanceKey,
+) -> DescriptorLoweringError {
+    let kind = krs_ir::cell_kind::EntryKind {
+        path: CellKind::default(),
+        own: declared_kind(declared, declarations),
+    };
+    let reason = krs_syntax::cell_entries::Refusal::OptionalWithoutPresence.reason(
+        krs_syntax::cell_entry::EntryForm::Cells,
+        &declared.rust_field,
+        &kind,
+        None,
+    );
+    collection_error(
+        descriptor,
+        codes::analysis::OPTIONAL_PRESENCE,
+        key,
+        format!("{reason}; write its entry inside `Some(..)`, or as `None` for its absence"),
+    )
+}
+
 /// The refusal of a record whose head names another struct than `group`, the struct the cell
 /// `cell` holds (or its collection's instances are), or no `#[k::cell]` struct; `None` when it
 /// names `group`.

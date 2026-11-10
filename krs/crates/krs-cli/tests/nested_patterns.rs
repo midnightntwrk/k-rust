@@ -1815,6 +1815,95 @@ fn a_cells_entry_is_judged_alike_by_every_sentence_form() {
     .assert_debug_eq(&outcomes);
 }
 
+/// A group record that is a value, the group's cell term in a list element, means the cell a
+/// record at a configuration position means, so its `?` child's place holds the cell or its
+/// absence there too, and a bare value, binder, `_` or group record states neither: each is
+/// the entry's `optional-presence`, with the entry's text, at the child's value, in a subject
+/// and a result, readable and `cells!` alike.
+#[test]
+fn a_value_records_presence_child_states_its_presence_as_an_entry_does() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "leaf-readable",
+            readable_presence("stack: [O { oo: x, .. }, ..]", "x, "),
+            "x, ..",
+        ),
+        (
+            "leaf-cells",
+            cells_presence(
+                "stack: k::configuration::Cell([k::fragment![crate::O { oo: x, .. }], ..])",
+                true,
+            ),
+            "x, ..",
+        ),
+        (
+            "leaf-wildcard",
+            readable_presence("stack: [O { oo: _, .. }, ..]", ""),
+            "_, ..",
+        ),
+        (
+            "group-record",
+            readable_presence("stack: [Core { fpu: Fpu { fx: y }, .. }, ..]", "y, "),
+            "Fpu {",
+        ),
+        (
+            "group-binder",
+            readable_presence("stack: [Core { fpu: f, .. }, ..]", ""),
+            "f, ..",
+        ),
+        (
+            "group-wildcard",
+            readable_presence("stack: [Core { fpu: _, pc: y }, ..]", "y, "),
+            "_, pc",
+        ),
+        (
+            "result-leaf",
+            readable_written("stack: [O { oo: 1, op: 2, on: 3 }]"),
+            "1, op",
+        ),
+    ];
+    let mut outcomes = Vec::new();
+    for (name, source, at) in &cases {
+        let manifest = library_package(temporary.path(), &format!("value-{name}"), source);
+        let error = first_error(target.path(), &manifest);
+        let (headline, location) = error.split_once(" @ ").expect("refused");
+        let library = fs::read_to_string(manifest.with_file_name("src/lib.rs")).unwrap();
+        let (line, column) = location.split_once(':').unwrap();
+        let line: usize = line.parse().unwrap();
+        let column: usize = column.parse().unwrap();
+        let written = &library.lines().nth(line - 1).unwrap()[column - 1..];
+        assert!(
+            written.starts_with(at),
+            "{name}: at `{at}`, found `{written}`:\n{error}"
+        );
+        let cell = if name.starts_with("group") {
+            "fpu"
+        } else {
+            "oo"
+        };
+        outcomes.push((*name, headline.replace(&format!("`{cell}`"), "`CELL`")));
+    }
+    // The entry's own refusal of the same spelling at a configuration position, whose text the
+    // values share.
+    let entry = library_package(
+        temporary.path(),
+        "value-entry",
+        &readable_presence("core: Core { fpu: f, .. }", ""),
+    );
+    let entry = first_error(target.path(), &entry);
+    let entry = entry
+        .split_once(" @ ")
+        .expect("refused")
+        .0
+        .replace("`fpu`", "`CELL`");
+    for (name, headline) in &outcomes {
+        assert_eq!(headline, &entry, "{name}");
+    }
+    expect_test::expect![[r#"error[krs::analysis::optional-presence]: the cell `CELL` is optional (`multiplicity = "?"`), so its entry states whether it is there: `Some(..)` holds its content when it is, and `None` stands for its absence; write its entry inside `Some(..)`, or as `None` for its absence"#]].assert_eq(&entry);
+}
+
 /// Groups a result may create with every child unmatched: an optional group `ogroup` of two
 /// children, an optional group `ohcell` holding the group `hg`, and the group child `aframe` of
 /// the Map collection `acct`'s instances.
