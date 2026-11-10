@@ -442,7 +442,7 @@ impl SemanticTheory {
             for layout in &module.layouts {
                 insert_node::<SemanticLevel>(&mut node_keys, layout.origin().key())?;
             }
-            for rule in &module.rules {
+            for rule in module.rules.iter().chain(&module.patterns) {
                 in_item(Some(&rule.id), || {
                     let expected = rule.kind().item_kind();
                     validate_item_kind(&rule.id, expected)?;
@@ -587,7 +587,7 @@ impl SemanticTheory {
                     &mut node_keys,
                 )?;
             }
-            for rule in &module.rules {
+            for rule in module.rules.iter().chain(&module.patterns) {
                 in_item(Some(&rule.id), || {
                     validate_rule::<SemanticLevel>(
                         rule,
@@ -614,7 +614,7 @@ impl SemanticTheory {
                     &cell_ids,
                 )?;
             }
-            for rule in &module.rules {
+            for rule in module.rules.iter().chain(&module.patterns) {
                 in_item(Some(&rule.id), || {
                     validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)
                 })?;
@@ -704,6 +704,11 @@ pub struct SemanticModule {
     configuration: Option<SemanticConfiguration>,
     context_aliases: SortedByKey<SemanticContextAlias>,
     rules: SortedByKey<SemanticRule>,
+    /// The parts of the module's `k::patterns!` chains (FB-49): claims whose subject is a
+    /// part's set of states, kept apart so that no reader of [`Self::rules`] ever sees one as
+    /// a claim of the definition ([`Self::pattern_parts`]).
+    #[serde(default, skip_serializing_if = "is_empty_sentences")]
+    patterns: SortedByKey<SemanticRule>,
     #[serde(default, skip_serializing_if = "is_signed")]
     int_literals: krs_ir::IntLiterals,
     #[serde(default, skip_serializing_if = "is_empty_sentences")]
@@ -730,6 +735,11 @@ fn is_false(value: &bool) -> bool {
 
 fn is_empty_sentences<T>(value: &SortedByKey<T>) -> bool {
     value.is_empty()
+}
+
+/// Whether `rule` is a part of a `k::patterns!` chain.
+fn is_pattern_part(rule: &SemanticRule) -> bool {
+    rule.claim().is_some_and(|claim| claim.pattern().is_some())
 }
 
 #[cfg(feature = "test-support")]
@@ -812,13 +822,15 @@ impl SemanticModule {
             associativities: SortedByKey::new(associativities),
             configuration,
             context_aliases: SortedByKey::new(context_aliases),
-            rules: SortedByKey::new(rules),
+            rules: SortedByKey::default(),
+            patterns: SortedByKey::default(),
             int_literals: krs_ir::IntLiterals::Signed,
             lexicals: SortedByKey::default(),
             layouts: SortedByKey::default(),
             raw_sentences: Vec::new(),
             spec: false,
         }
+        .with_rules(rules)
     }
 
     /// Marks this module as an author spec module (KF-041).
@@ -837,8 +849,20 @@ impl SemanticModule {
     /// Replaces the module's rules.
     #[must_use]
     pub fn with_rules(mut self, rules: Vec<SemanticRule>) -> Self {
+        let (parts, rules): (Vec<_>, Vec<_>) = rules.into_iter().partition(is_pattern_part);
         self.rules = SortedByKey::new(rules);
+        if !parts.is_empty() {
+            let mut patterns = self.patterns.iter().cloned().collect::<Vec<_>>();
+            patterns.extend(parts);
+            self.patterns = SortedByKey::new(patterns);
+        }
         self
+    }
+
+    /// The parts of the module's `k::patterns!` chains, which [`Self::rules`] never holds.
+    #[must_use]
+    pub fn pattern_parts(&self) -> &[SemanticRule] {
+        &self.patterns
     }
 
     /// Replaces the module's productions.

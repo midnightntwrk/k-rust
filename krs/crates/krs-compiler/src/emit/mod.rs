@@ -1,4 +1,5 @@
 mod annotation;
+mod patterns;
 mod sentence;
 mod term;
 mod token;
@@ -27,6 +28,9 @@ use crate::{
 };
 use annotation::{HeaderArtifact, header};
 pub use annotation::{SentenceSource, SentenceSources};
+pub use patterns::{
+    EmittedPattern, EmittedPatternStep, PatternSource, PatternVariable, emit_patterns,
+};
 use sentence::emit_sentence;
 pub(crate) use sentence::k_label_name;
 use term::Rendered;
@@ -124,6 +128,14 @@ pub enum EmitError {
     DuplicateGeneratedRange(SourceMapKey),
     /// A shared sidecar invariant failed.
     InvalidSidecar(String),
+    /// A binder of a `k::patterns!` clause is not one variable of every part that names it
+    /// (FB-49): an author's mistake, at the binder's occurrence.
+    PatternBinder {
+        /// The occurrence the refusal names.
+        key: SourceMapKey,
+        /// The complete reason.
+        reason: String,
+    },
 }
 
 impl ToDiagnostic for EmitError {
@@ -133,12 +145,15 @@ impl ToDiagnostic for EmitError {
             Self::InvalidReference(_) => codes::emit::INVALID_REFERENCE,
             Self::DuplicateGeneratedRange(_) => codes::emit::DUPLICATE_GENERATED_RANGE,
             Self::InvalidSidecar(_) => codes::emit::INVALID_SIDECAR,
+            Self::PatternBinder { .. } => codes::analysis::PATTERN_BINDER,
         };
         Diagnostic::error(
             code,
             self.to_string(),
             match self {
-                Self::DuplicateGeneratedRange(key) => Location::Definition(key.clone()),
+                Self::DuplicateGeneratedRange(key) | Self::PatternBinder { key, .. } => {
+                    Location::Definition(key.clone())
+                }
                 _ => Location::None,
             },
         )
@@ -158,6 +173,7 @@ impl fmt::Display for EmitError {
                 key.as_str()
             ),
             Self::InvalidSidecar(detail) => write!(formatter, "invalid emitted sidecar: {detail}"),
+            Self::PatternBinder { reason, .. } => formatter.write_str(reason),
         }
     }
 }
@@ -336,6 +352,9 @@ struct EmitContext<'a> {
     /// In an author spec module (KF-041), the `Id` tokens its grammar lexes,
     /// which print bare.
     spec_identifiers: Option<crate::spec_tokens::IdLexicon>,
+    /// Whether a literal that is a constant's whole value names the constant in a K comment
+    /// (FB52); a `k::patterns!` part's text carries none, since kink reads it as rule content.
+    constant_markers: bool,
 }
 
 impl<'a> EmitContext<'a> {
@@ -355,6 +374,7 @@ impl<'a> EmitContext<'a> {
             naming: VariableNaming::new(definition),
             lexicon: TokenLexicon::new(definition),
             spec_identifiers: None,
+            constant_markers: true,
         }
     }
 
@@ -863,6 +883,7 @@ fn emit_module<'a>(
         writer.push(import);
         writer.push("\n");
     }
+    // A module's sentences never hold a `k::patterns!` part (`DefinitionModule::pattern_parts`).
     let mut sentences = module.sentences().iter().collect::<Vec<_>>();
     sentences.sort_by_key(|sentence| sentence_key(sentence));
     let sentences = match claims {

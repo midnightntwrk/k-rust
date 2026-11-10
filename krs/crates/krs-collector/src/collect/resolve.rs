@@ -1828,6 +1828,17 @@ fn group_claim(group: &StableItemId) -> CollectionError {
     )
 }
 
+/// The refusal of a `k::patterns!` block typed by the cell group `group` (FB-49).
+fn group_pattern(group: &StableItemId) -> CollectionError {
+    CollectionError::new(
+        CollectionErrorKind::GroupPattern,
+        format!(
+            "a pattern typed by the cell group `{group}` is not supported yet: a pattern is about its definition's states, and is written for the configuration, which names the group's cells flat",
+            group = group.item_name(),
+        ),
+    )
+}
+
 /// The definition's one configuration scoped to the cell group `group`: a sentence typed by a
 /// group is about the group's cells at its one position in that configuration.
 fn group_target<'a>(
@@ -1884,7 +1895,13 @@ pub(super) fn select_head_rule_target<'a>(
                         "cell-record rule names a fixed configuration that was not collected",
                     )
                 })?,
-            TypedBy::Group(group) => if rule.sentence_kind == krs_ir::SentenceKind::Claim {
+            TypedBy::Group(group) => if rule
+                .claim
+                .as_ref()
+                .is_some_and(|claim| claim.pattern.is_some())
+            {
+                Err(group_pattern(&group))
+            } else if rule.sentence_kind == krs_ir::SentenceKind::Claim {
                 Err(group_claim(&group))
             } else {
                 group_target(&group, targets)

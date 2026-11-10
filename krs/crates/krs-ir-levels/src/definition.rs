@@ -693,7 +693,16 @@ impl DefinitionIr {
                     .into());
                 }
             }
-            for sentence in &module.sentences {
+            // A sentence of the module is never a pattern's part, and a part is never a
+            // sentence: both are validated alike.
+            if module.sentences.iter().any(is_pattern_part)
+                || !module.patterns.iter().all(is_pattern_part)
+            {
+                return Err(
+                    DefinitionValidationError::InvalidPatternParts(module.id.clone()).into(),
+                );
+            }
+            for sentence in module.sentences.iter().chain(&module.patterns) {
                 in_item(sentence_item(sentence.origin()), || {
                     insert_node::<DefinitionLevel>(&mut nodes, sentence.origin().key())?;
                     match sentence {
@@ -851,7 +860,16 @@ impl DefinitionIr {
                     return Err(DefinitionValidationError::DanglingModule(import.clone()).into());
                 }
             }
-            for sentence in &module.sentences {
+            // A sentence of the module is never a pattern's part, and a part is never a
+            // sentence: both are validated alike.
+            if module.sentences.iter().any(is_pattern_part)
+                || !module.patterns.iter().all(is_pattern_part)
+            {
+                return Err(
+                    DefinitionValidationError::InvalidPatternParts(module.id.clone()).into(),
+                );
+            }
+            for sentence in module.sentences.iter().chain(&module.patterns) {
                 in_item(sentence_item(sentence.origin()), || {
                     match sentence {
                         DefinitionSentence::SyntaxSort(sentence) => {
@@ -1006,6 +1024,21 @@ pub struct DefinitionModule {
     imports: BTreeSet<ModuleId>,
     production_groups: SortedByKey<ProductionGroupIdentity>,
     sentences: SortedByKey<DefinitionSentence>,
+    /// The parts of the module's `k::patterns!` chains (FB-49), claims whose subject is a part's
+    /// set of states, kept apart so that no reader of [`Self::sentences`] ever sees one as a
+    /// claim of the definition ([`Self::pattern_parts`]).
+    #[serde(default, skip_serializing_if = "no_pattern_parts")]
+    patterns: SortedByKey<DefinitionSentence>,
+}
+
+fn no_pattern_parts(parts: &SortedByKey<DefinitionSentence>) -> bool {
+    parts.is_empty()
+}
+
+/// Whether `sentence` is a part of a `k::patterns!` chain.
+fn is_pattern_part(sentence: &DefinitionSentence) -> bool {
+    matches!(sentence, DefinitionSentence::Rule(rule)
+        if rule.claim().is_some_and(|claim| claim.pattern().is_some()))
 }
 
 impl DefinitionModule {
@@ -1025,18 +1058,37 @@ impl DefinitionModule {
             int_literals: krs_ir::IntLiterals::Signed,
             imports: imports.into_iter().collect(),
             production_groups: SortedByKey::new(production_groups),
-            sentences: SortedByKey::new(sentences),
+            sentences: SortedByKey::default(),
+            patterns: SortedByKey::default(),
         }
+        .with_sentences(sentences)
+    }
+
+    /// The module with `sentences`, the parts of `k::patterns!` chains among them kept apart.
+    fn with_sentences(mut self, sentences: Vec<DefinitionSentence>) -> Self {
+        let (parts, sentences): (Vec<_>, Vec<_>) = sentences.into_iter().partition(is_pattern_part);
+        self.sentences = SortedByKey::new(sentences);
+        self.patterns = SortedByKey::new(parts);
+        self
+    }
+
+    /// The parts of the module's `k::patterns!` chains, which [`Self::sentences`] never holds.
+    #[must_use]
+    pub fn pattern_parts(&self) -> &[DefinitionSentence] {
+        &self.patterns
     }
 
     /// Rebuilds the module with every sentence replaced by `map(sentence)`.
     #[must_use]
     pub fn map_sentences(self, map: impl FnMut(DefinitionSentence) -> DefinitionSentence) -> Self {
-        let sentences = self.sentences.iter().cloned().map(map).collect();
-        Self {
-            sentences: SortedByKey::new(sentences),
-            ..self
-        }
+        let sentences = self
+            .sentences
+            .iter()
+            .chain(&self.patterns)
+            .cloned()
+            .map(map)
+            .collect();
+        self.with_sentences(sentences)
     }
 
     /// Marks this module as a package's program-syntax module, whose integer
@@ -1067,7 +1119,12 @@ impl DefinitionModule {
     pub fn permute_sets(&self, seed: u64) -> Self {
         let mut imports = self.imports.iter().cloned().collect::<Vec<_>>();
         let mut production_groups = self.production_groups.iter().cloned().collect::<Vec<_>>();
-        let mut sentences = self.sentences.iter().cloned().collect::<Vec<_>>();
+        let mut sentences = self
+            .sentences
+            .iter()
+            .chain(&self.patterns)
+            .cloned()
+            .collect::<Vec<_>>();
         krs_ir::testing::permute(&mut imports, seed);
         krs_ir::testing::permute(&mut production_groups, seed);
         krs_ir::testing::permute(&mut sentences, seed);
@@ -2098,6 +2155,8 @@ pub enum DefinitionValidationError {
     InvalidRulePriority(LabelId),
     /// Claim metadata presence disagrees with the sentence kind.
     InvalidClaimMetadata(LabelId),
+    /// A module's sentences hold a `k::patterns!` part, or its parts hold another sentence.
+    InvalidPatternParts(ModuleId),
     /// A claim used an ordinary term rewrite instead of a configuration rewrite.
     ClaimBodyNotConfiguration(LabelId),
     /// A claim binder is repeated, absent from the sentence scope, or has the wrong sort.
@@ -2356,6 +2415,10 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidRulePriority(id) => write!(
                 formatter,
                 "rule priority is invalid on sentence {id}: only an equation or a transition takes one, and an `owise` one has the value 200"
+            ),
+            Self::InvalidPatternParts(id) => write!(
+                formatter,
+                "module {id} holds a pattern part among its sentences, or a sentence among its pattern parts"
             ),
             Self::InvalidClaimMetadata(id) => {
                 write!(formatter, "claim metadata disagrees with sentence {id}")

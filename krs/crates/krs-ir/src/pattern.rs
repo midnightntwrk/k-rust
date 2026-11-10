@@ -42,6 +42,11 @@ pub struct PatternDecl {
     /// Whether the part is the `unless` of the arrow into [`Self::step`], rather than the step.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unless: bool,
+    /// The binders the part names, in order: those its record binds, then those its conditions
+    /// read that an earlier step binds. A binder two parts name is one variable of the pattern,
+    /// which each of those parts must write as a variable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub binders: Vec<String>,
     /// The clause's documentation, which kink shows as the pattern's note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,

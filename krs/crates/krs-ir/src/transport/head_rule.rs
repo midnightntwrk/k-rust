@@ -630,6 +630,49 @@ fn validate_claim(
     }
 }
 
+/// Whether a head rule (of either stage) writes some cell: its head's result, its computation
+/// cell restated, or an extra that writes.
+macro_rules! writes_a_cell {
+    ($rule:expr) => {
+        $rule
+            .head
+            .as_ref()
+            .is_some_and(|head| head.result.is_some())
+            || $rule
+                .computation_cell
+                .as_ref()
+                .is_some_and(|cell| cell.result_key.is_some())
+            || $rule.extras.iter().any(ProtocolHeadRuleExtra::writes)
+    };
+}
+
+/// A `k::patterns!` part (FB-49) is a claim subject with no result: no cell is written, so the
+/// part is the set of states its subject denotes.
+fn validate_pattern_part_reads(
+    claim: Option<&HeadRuleClaim>,
+    writes: bool,
+) -> Result<(), StateTransportError> {
+    if writes && claim.is_some_and(|claim| claim.pattern.is_some()) {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::PatternPartWrites,
+        ));
+    }
+    Ok(())
+}
+
+impl<I, T> ProtocolHeadRuleExtra<I, T> {
+    /// Whether the extra writes its cell: an update, or a rewrite with a result.
+    fn writes(&self) -> bool {
+        match self {
+            Self::HaveMap { .. } => false,
+            Self::UpdateMap { .. } => true,
+            Self::RewriteCell { after, .. } => after.is_some(),
+            Self::RewriteState { after, .. } => after.is_some(),
+            Self::RewriteList { after, .. } => after.is_some(),
+        }
+    }
+}
+
 fn validate_owise_priority(
     kind: SentenceKind,
     priority: Option<&DescriptorRulePriority>,
@@ -891,6 +934,7 @@ impl HostHeadRule {
             self.claim.as_ref(),
             self.head_sort.is_some(),
         )?;
+        validate_pattern_part_reads(self.claim.as_ref(), writes_a_cell!(self))?;
         if self.pattern_key.role() != ProvenanceRole::RulePattern
             || self.pattern_key.ordinal() != 0
             || self.result_key.role() != ProvenanceRole::RuleResult
@@ -1168,6 +1212,7 @@ impl DescriptorHeadRule {
             self.claim.as_ref(),
             self.head_sort.is_some(),
         )?;
+        validate_pattern_part_reads(self.claim.as_ref(), writes_a_cell!(self))?;
         if self.configuration.item_kind() != ItemKind::Configuration {
             return Err(StateTransportError::ItemKind {
                 field: TransportField::HeadRuleConfiguration,
@@ -2254,6 +2299,27 @@ mod tests {
         );
         claim.subject = None;
         assert_eq!(claim.validate(ItemKind::Claim), Ok(()));
+
+        // A pattern's part is a claim subject with no result: this one restates `k`.
+        let mut part = claim.clone();
+        if let Some(metadata) = part.claim.as_mut() {
+            metadata.pattern = Some(crate::PatternDecl {
+                id: "p".to_owned(),
+                name: "p".to_owned(),
+                step: 1,
+                unless: false,
+                binders: Vec::new(),
+                note: None,
+                programs: None,
+                expect: None,
+            });
+        }
+        assert_eq!(
+            part.validate(ItemKind::Claim),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::PatternPartWrites
+            ))
+        );
 
         // Only a cell-record clause's header names a subject.
         let mut table = rule;

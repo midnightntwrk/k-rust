@@ -934,6 +934,23 @@ k::claims! {
 ",
     ),
     (
+        "patterns",
+        r#"
+k::patterns! {
+    for ReadableRuleMachine;
+
+    /// The computation reaches a nonzero item, then a zero one.
+    #[k::cases("cases/down")]
+    #[k::requires(int::ne(x, 0))]
+    down: {
+        computation: [x, ..],
+    } => unless({ computation: [1, ..] }) {
+        computation: [0, ..],
+    };
+}
+"#,
+    ),
+    (
         "rule_fresh",
         r#"
 #[k::rule(label = "allocate")]

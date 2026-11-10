@@ -282,6 +282,32 @@ impl SentenceVariables {
             .iter()
             .map(|(variable, name)| (variable, name.as_str()))
     }
+
+    /// The spellings with every variable KRS generated (its identity holds the reserved marker)
+    /// renamed apart by `suffix`, appended, except K's anonymous `_`. A part of a `k::patterns!`
+    /// chain is named this way: kink reads a variable two parts name as one variable of the
+    /// chain, so a variable no author named must be its part's own (FB-49).
+    ///
+    /// Returns `None` when a renamed spelling would take one the sentence already holds.
+    #[must_use]
+    pub fn renamed_apart(&self, suffix: &str) -> Option<Self> {
+        let mut names = BTreeMap::new();
+        for (variable, name) in &self.names {
+            let renamed = if variable.as_str().contains(krs_ir::ir::RESERVED_MARKER) && name != "_"
+            {
+                format!("{name}{suffix}")
+            } else {
+                name.clone()
+            };
+            names.insert(variable.clone(), renamed);
+        }
+        let mut spellings = BTreeSet::new();
+        names
+            .values()
+            .filter(|name| name.as_str() != "_")
+            .all(|name| spellings.insert(name.clone()))
+            .then_some(Self { names })
+    }
 }
 
 #[derive(Default)]

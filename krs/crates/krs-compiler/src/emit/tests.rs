@@ -25,6 +25,7 @@ fn context() -> EmitContext<'static> {
         naming: VariableNaming::default(),
         lexicon: TokenLexicon::default(),
         spec_identifiers: None,
+        constant_markers: true,
     }
 }
 

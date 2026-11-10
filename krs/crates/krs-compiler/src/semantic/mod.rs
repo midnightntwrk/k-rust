@@ -36,6 +36,7 @@ mod or_positions;
 mod origin;
 mod overload;
 mod package;
+mod patterns;
 mod raw_k;
 mod record_updates;
 pub(crate) use record_updates::structured_rule_long_form;
@@ -420,6 +421,7 @@ fn lower_bundle(
         .keys()
         .map(|package| Ok((package.clone(), ModuleId::new(package.k_namespace())?)))
         .collect::<Result<BTreeMap<_, _>, DescriptorLoweringError>>()?;
+    let pattern_packages = patterns::pattern_packages(&packages, &inlined.constants)?;
     let declaration_catalog = DeclarationCatalog {
         descriptors: &declarations,
         metadata: &declaration_metadata,
@@ -446,6 +448,7 @@ fn lower_bundle(
                 package_specs.push((package, split.specs));
             }
         }
+        patterns::check_outside_closure(&pattern_packages, root, &module_ids, &modules)?;
         if let Some(root) = root.and_then(|root| module_ids.get(root)) {
             composition::import_composition(&mut modules, root);
         }

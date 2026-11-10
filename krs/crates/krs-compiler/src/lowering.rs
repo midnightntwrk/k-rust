@@ -1045,7 +1045,9 @@ impl NamingPass {
                     alias.origin(),
                 )?;
             }
-            for rule in module.rules() {
+            // A pattern's part is labelled as every claim is, so that it lowers alike; it stays
+            // apart from the module's rules at every level.
+            for rule in module.rules().iter().chain(module.pattern_parts()) {
                 let owner = stable_item_text(rule.id());
                 let id = LabelId::new(format!("rule:{}", lower_hex(owner.as_bytes())))?;
                 let name = rule.label().map_or_else(
@@ -1642,7 +1644,7 @@ fn lower_module(
         })?);
     }
 
-    for rule in module.rules() {
+    for rule in module.rules().iter().chain(module.pattern_parts()) {
         sentences.push(of_item(rule.id(), || {
             Ok(DefinitionSentence::Rule(lower_rule_sentence(
                 rule, names, origins, stdin,

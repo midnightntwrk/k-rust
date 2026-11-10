@@ -1127,6 +1127,11 @@ fn collect_macro_invocations(
                 .map_err(source_syntax)?;
             collect_rule_block(block.block(), ProvenanceRole::ClaimDeclaration, output)?;
         }
+        FunctionMacro::Patterns => {
+            let block = krs_syntax::PatternBlock::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            collect_rule_block(block.block(), ProvenanceRole::ClaimDeclaration, output)?;
+        }
         FunctionMacro::Equations => {
             let table = krs_syntax::EquationTable::parse_tokens(item_macro.mac.tokens.clone())
                 .map_err(source_syntax)?;

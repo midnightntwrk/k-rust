@@ -184,6 +184,7 @@ details! {
         InitializerPatternOr => "`A | B` or-patterns (#Or) stand in an initializer only in a `k::matches!` pattern",
         RecordUpdateBase => "the base of a record update is a rule's binder, or an initializer's value, outside a pattern",
         InvalidReadableClaim => "a readable claim is a cell-record clause with claim metadata of the claim roles, and a transition has none",
+        PatternPartWrites => "a pattern's part is a set of states, a claim subject with no result: it writes no cell",
         MatchesInPattern => "`k::matches!` (:=K) is a Bool test, allowed only in results and conditions",
         LetInPattern => "a `let` block (#let) is a term, allowed only in results and conditions",
         ClosureInPattern => "an `ml::exists` closure (#Exists) is a predicate, allowed only in conditions and predicate simplifications",

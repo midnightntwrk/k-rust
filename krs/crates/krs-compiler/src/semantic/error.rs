@@ -760,6 +760,34 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the brackets.
         range: Option<Box<SourceRange>>,
     },
+    /// A package holding a `k::patterns!` block declares something else, or the definition's
+    /// semantics imports it (FB-49).
+    PatternsPackage {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Complete reason, naming the fix.
+        reason: String,
+        /// The item's authored range.
+        range: Option<Box<SourceRange>>,
+    },
+    /// Two `k::patterns!` clauses of one package have one id (FB-49).
+    DuplicatePatternId {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Complete reason, naming both places.
+        reason: String,
+        /// The second clause's authored range.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A package holding a `k::patterns!` block defines a function (FB-49 item 7).
+    PatternHelper {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Complete reason, naming the fix.
+        reason: String,
+        /// The function's authored range.
+        range: Option<Box<SourceRange>>,
+    },
     /// A builtin `List` pattern holds two or more parts that are not single
     /// elements, so it matches some lists in several ways.
     AmbiguousListPattern {
@@ -1317,6 +1345,21 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::PatternsPackage {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::PatternHelper {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::DuplicatePatternId {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::AmbiguousListPattern {
                 range: $named_range,
                 item: $named_item,
@@ -1846,6 +1889,9 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
             | Self::InvalidListNotation { reason, .. }
+            | Self::PatternsPackage { reason, .. }
+            | Self::PatternHelper { reason, .. }
+            | Self::DuplicatePatternId { reason, .. }
             | Self::AmbiguousListPattern { reason, .. }
             | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
@@ -1957,6 +2003,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::NativeInstance { .. } => codes::analysis::NATIVE_INSTANCE,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
             Self::InvalidListNotation { .. } => codes::analysis::INVALID_LIST_NOTATION,
+            Self::PatternsPackage { .. } => codes::analysis::PATTERNS_PACKAGE,
+            Self::PatternHelper { .. } => codes::analysis::PATTERN_HELPER,
+            Self::DuplicatePatternId { .. } => codes::syntax::INVALID_PATTERN,
             Self::AmbiguousListPattern { .. } => codes::analysis::AMBIGUOUS_LIST_PATTERN,
             Self::InvalidConsList { .. } => codes::analysis::INVALID_CONS_LIST,
             Self::InvalidLexical { problem, .. } => match problem {

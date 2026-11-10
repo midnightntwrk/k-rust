@@ -1630,6 +1630,11 @@
         "unless": "BOOL"
       },
       {
+        "binders": {
+          "SEQ": "STR"
+        }
+      },
+      {
         "note": {
           "OPTION": "STR"
         }

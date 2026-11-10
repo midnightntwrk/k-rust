@@ -56,6 +56,8 @@ pub enum CollectionErrorKind {
     CellOutsideSubject,
     /// A claim typed by a cell group.
     GroupClaim,
+    /// A `k::patterns!` block typed by a cell group, which is not supported yet (FB-49).
+    GroupPattern,
     /// A rule at the head of the computation needs a computation cell in its configuration, and
     /// the configuration has no `KSequence` cell, or the record names a cell that is not one.
     ComputationCell,
@@ -274,6 +276,7 @@ impl ToDiagnostic for CollectionError {
             }
             CollectionErrorKind::CellOutsideSubject => codes::analysis::CELL_OUTSIDE_SUBJECT,
             CollectionErrorKind::GroupClaim => codes::analysis::GROUP_CLAIM,
+            CollectionErrorKind::GroupPattern => codes::syntax::INVALID_PATTERN,
             CollectionErrorKind::ComputationCell => codes::analysis::COMPUTATION_CELL,
             CollectionErrorKind::MainCell => codes::analysis::MAIN_CELL,
             CollectionErrorKind::AmbiguousMainConfigurationVariable => {
@@ -451,6 +454,10 @@ mod tests {
             (
                 CollectionErrorKind::GroupClaim,
                 codes::analysis::GROUP_CLAIM,
+            ),
+            (
+                CollectionErrorKind::GroupPattern,
+                codes::syntax::INVALID_PATTERN,
             ),
             (
                 CollectionErrorKind::InvalidDisplayFile,

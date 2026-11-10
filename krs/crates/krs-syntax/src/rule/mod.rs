@@ -6,6 +6,7 @@ mod existentials;
 mod item;
 mod machine;
 mod pattern;
+mod patterns;
 
 pub use bits::{desugar_bit_templates, is_hidden_binder};
 pub(crate) use bits::{
@@ -25,4 +26,7 @@ pub use pattern::RulePattern;
 pub(crate) use pattern::{
     NegativeLiteralSpans, allocate_term_node_keys, allocate_wildcard_keys, keep_let_literal_spans,
     parse_rust_pattern_with_signs, validate_pattern_literal,
+};
+pub use patterns::{
+    PatternBlock, PatternClause, PatternPart, parse_pattern_block_source_with_trivia,
 };

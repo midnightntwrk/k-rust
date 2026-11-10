@@ -31,6 +31,16 @@ pub(crate) fn claims(env: &dyn MacroEnvironment, input: TokenStream) -> crate::R
     expand_block(env, block.block())
 }
 
+/// Expands a readable pattern block (FB-49) into its parts, each the readable claim whose
+/// subject is the part's set of states, marked with the part it is.
+pub(crate) fn patterns(
+    env: &dyn MacroEnvironment,
+    input: TokenStream,
+) -> crate::Result<TokenStream> {
+    let block = krs_syntax::PatternBlock::parse_tokens(input)?;
+    expand_block(env, block.block())
+}
+
 fn expand_block(
     env: &dyn MacroEnvironment,
     block: &krs_syntax::RuleBlock,
@@ -656,7 +666,7 @@ fn expand_head_rule(
                     .trusted()
                     .then(|| ledger.define(claim.trusted_key()))
                     .transpose()?,
-                pattern: None,
+                pattern: clause.pattern().cloned(),
             }),
         ),
         None => (

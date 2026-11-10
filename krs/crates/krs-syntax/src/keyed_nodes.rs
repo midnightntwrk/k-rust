@@ -1181,6 +1181,14 @@ mod tests {
                         clause(item, label, round_trip);
                     }
                 }
+                FunctionMacro::Patterns => {
+                    for item in crate::PatternBlock::parse_tokens(tokens.clone())
+                        .unwrap()
+                        .clauses()
+                    {
+                        clause(item, label, round_trip);
+                    }
+                }
                 FunctionMacro::Equations => {
                     for row in EquationTable::parse_tokens(tokens.clone()).unwrap().rows() {
                         round_trip.descriptor(

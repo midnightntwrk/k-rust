@@ -3089,6 +3089,7 @@ fn assemble_machine_clause(
         layout,
         bracket_alternative: None,
         claim,
+        pattern: None,
         keys: ClauseKeys::default(),
         anchors: Vec::new(),
         records: Some((record_tokens(pattern_record), record_tokens(result_record))),

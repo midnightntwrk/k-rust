@@ -254,6 +254,38 @@ pub fn claims(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Claims, input)
 }
 
+/// Declares chain patterns over a fixed configuration, for kink to ask of a corpus's runs.
+///
+/// ```ignore
+/// k::patterns! {
+///     for Machine;
+///     use Step::*;
+///
+///     /// A VBlank request arrives inside one timer dispatch.
+///     #[k::cases("scheduled/dispatch-request")]
+///     #[k::requires(before & 0x1F == 0x04)]
+///     #[k::requires(after & 0x05 == 0x05)]
+///     dispatch_request: {
+///         k: [Dispatch, ..],
+///         memory: { IF: before, .. },
+///     } => unless({ k: [Boundary, ..] }) {
+///         k: [SelectVector(_), ..],
+///         memory: { IF: after, .. },
+///     };
+/// }
+/// ```
+///
+/// A clause `name: step (=> [unless(record)] step)*;` holds on a run when some path passes
+/// states matching each step in order, each at or after the one before, under one assignment
+/// of the binders the steps share, with no state strictly between two steps matching the
+/// arrow's `unless`. Each step and each `unless` is a cell record read as a claim's subject:
+/// the set of states it matches, where a cell it does not name is unconstrained. A package
+/// that holds this block declares nothing else; it depends on the specification's package.
+#[proc_macro]
+pub fn patterns(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Patterns, input)
+}
+
 /// Declares a table of labelled equations of one function.
 ///
 /// ```ignore

@@ -824,6 +824,25 @@ fn term_occurrences<'a>(
     }
 }
 
+/// Writes the body of a `k::patterns!` part, the claim whose subject is the part's states: its
+/// cell clauses, every one only read, and its `requires`, as `emit_rule` writes them after
+/// the claim's label.
+pub(super) fn emit_pattern_part(
+    sentence: &RuleSentence,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let RuleBodyRef::Configuration { body, .. } = sentence.relational_body() else {
+        return Err(EmitError::UnsupportedShape {
+            node: "pattern part",
+            detail: "a pattern's part is a cell-record claim".to_owned(),
+        });
+    };
+    emit_configuration_clauses(body, names, context, writer)?;
+    emit_requires(sentence, names, context, writer)
+}
+
 fn emit_rule(
     sentence: &RuleSentence,
     context: &EmitContext<'_>,

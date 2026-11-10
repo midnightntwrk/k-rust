@@ -397,6 +397,17 @@ pub enum SyntaxErrorKind {
         /// Specific restriction, naming the fix.
         reason: String,
     },
+    /// A `k::patterns!` clause is malformed: its attributes, its parts or its binders (FB-49).
+    InvalidPattern {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
+    /// A pattern holds a helper that would define a function, a `let` block or `k::matches!`
+    /// (FB-49 item 7).
+    PatternHelper {
+        /// Complete explanation.
+        reason: String,
+    },
     /// A `#[k::cons_list]` constructors enum was malformed (F6).
     InvalidConsList {
         /// Specific restriction, naming the constructor that breaks it.
@@ -578,6 +589,8 @@ impl SyntaxErrorKind {
             Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
             Self::InvalidListNotation { .. } => codes::syntax::INVALID_LIST_NOTATION,
             Self::InvalidConsList { .. } => codes::syntax::INVALID_CONS_LIST_ATTRIBUTE,
+            Self::InvalidPattern { .. } => codes::syntax::INVALID_PATTERN,
+            Self::PatternHelper { .. } => codes::analysis::PATTERN_HELPER,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
@@ -932,6 +945,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidExpressionNotation { reason }
             | SyntaxErrorKind::InvalidListNotation { reason }
             | SyntaxErrorKind::InvalidConsList { reason }
+            | SyntaxErrorKind::InvalidPattern { reason }
+            | SyntaxErrorKind::PatternHelper { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason }
             | SyntaxErrorKind::InstanceChildMultiplicity { reason } => formatter.write_str(reason),
         }

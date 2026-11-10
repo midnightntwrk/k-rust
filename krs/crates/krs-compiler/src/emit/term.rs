@@ -292,7 +292,8 @@ fn render_term_with_binders<'t>(
             // constant after it, `65295 /* IF */`, so a reader of the K finds the Rust. A K
             // comment is layout: the token, its range and every K reading of the sentence stay
             // as they were.
-            if let Some((frames, constant)) = constant_use(term)
+            if context.constant_markers
+                && let Some((frames, constant)) = constant_use(term)
                 && enclosing != Some(frames)
             {
                 let mut output = output.finish(term.origin().key(), start);

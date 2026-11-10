@@ -253,6 +253,9 @@ register_codes! {
         INSTANCE_CONTEXT_CALLER: "krs::analysis::instance-context-caller" => "A function whose context reads a cell group held in an optional cell or a Map collection is applied where no one instance of that holder is determined: the function reads the instance it is evaluated in, so it is applied only from a sentence inside that instance.",
         GROUP_NOT_IN_CONFIGURATION: "krs::analysis::group-not-in-configuration" => "A sentence typed by a cell group names a group that no cell of the definition's configuration holds.",
         GROUP_CLAIM: "krs::analysis::group-claim" => "A claim is typed by a cell group: a claim states what its definition's transition system does, so it is typed by the configuration.",
+        PATTERN_HELPER: "krs::analysis::pattern-helper" => "A `k::patterns!` pattern holds or its package defines a helper, a function, a `let` block or `k::matches!`: a pattern may call only the specification's functions, since nothing may add a function to the specification for a pattern.",
+        PATTERN_BINDER: "krs::analysis::pattern-binder" => "A binder of a `k::patterns!` clause is not one variable of every part that names it: its occurrences have different sorts, or it is no variable in some part.",
+        PATTERNS_PACKAGE: "krs::analysis::patterns-package" => "A package that holds a `k::patterns!` block declares something besides `use` items and the block, or the definition's semantics imports it: patterns go in a package of their own that depends on the specification's.",
         GROUP_AND_DESCENDANT: "krs::analysis::group-and-descendant" => "A rule selects a nested cell together with a cell inside it.",
         AMBIGUOUS_CELL_SORT: "krs::analysis::ambiguous-cell-sort" => "One cell declaration is the content of two cell fields, so its K cell sort is ambiguous.",
         CELL_OUTSIDE_SUBJECT: "krs::analysis::cell-outside-subject" => "A configuration-typed sentence names a cell outside its subject: for a sentence about a cell group, a cell outside that group; for any sentence, a cell of a group the configuration does not hold.",
@@ -419,6 +422,7 @@ register_codes! {
         INVALID_ML_EXISTS: "krs::syntax::invalid-ml-exists" => "An `ml::exists` closure does not take exactly one typed parameter (`|x: Sort| predicate`), or a closure occurs anywhere but as the one argument of `ml::exists`.",
         INVALID_LIST_NOTATION: "krs::syntax::invalid-list-notation" => "Bracket list notation is malformed: it holds two rests, `[..]` or `[..rest]` names no element, a term result's rest `..` is anonymous outside a list cell's own brackets, a pattern's rest is not `..` or `name @ ..`, or a readable record cell's anonymous rest is on one side only.",
         INVALID_CONS_LIST_ATTRIBUTE: "krs::syntax::invalid-cons-list" => "A `#[k::cons_list]` constructors enum does not have exactly one zero-field constructor and one two-field constructor, or carries an argument.",
+        INVALID_PATTERN: "krs::syntax::invalid-pattern" => "A `k::patterns!` clause is malformed: an attribute it does not take or takes twice, an `unless` on step 1, a record's named rest, a binder an `unless` shares with no earlier step, or ids that are not unique in the package.",
     }
     /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {

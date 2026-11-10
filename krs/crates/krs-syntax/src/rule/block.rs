@@ -364,6 +364,9 @@ pub struct RuleClause {
     /// The modality and flags of a `k::claims!` clause (F7), which is then a
     /// claim and carries no `#[k::rule]` metadata.
     pub(super) claim: Option<crate::ClaimAttribute>,
+    /// The part of a `k::patterns!` chain the clause is, a claim whose subject is that part's
+    /// set of states (FB-49).
+    pub(super) pattern: Option<krs_ir::PatternDecl>,
     /// The keys of the clause's own nodes, which no part holds.
     pub(super) keys: ClauseKeys,
     /// The anchors of the clause's keying.
@@ -562,6 +565,13 @@ impl RuleClause {
     #[must_use]
     pub const fn claim(&self) -> Option<&crate::ClaimAttribute> {
         self.claim.as_ref()
+    }
+
+    /// Returns the part of a `k::patterns!` chain the clause is (FB-49); `None` outside a
+    /// patterns block.
+    #[must_use]
+    pub const fn pattern(&self) -> Option<&krs_ir::PatternDecl> {
+        self.pattern.as_ref()
     }
 
     /// Keys the clause as a sentence of its own and stores its anchors.
@@ -1342,6 +1352,20 @@ pub struct RuleBlock {
 }
 
 impl RuleBlock {
+    /// A configuration-owned block of readable claims, the parts of a `k::patterns!` block.
+    pub(super) const fn of_claims(
+        sort: TermSort,
+        imports: Vec<ItemUse>,
+        clauses: Vec<RuleClause>,
+    ) -> Self {
+        Self {
+            sort,
+            configuration: true,
+            imports,
+            clauses,
+        }
+    }
+
     /// Returns the alias-typed subject and result sort shared by every clause.
     #[must_use]
     pub const fn sort(&self) -> &TermSort {
@@ -1647,6 +1671,7 @@ impl RuleBlock {
                 layout,
                 bracket_alternative: None,
                 claim: None,
+                pattern: None,
                 keys: ClauseKeys::default(),
                 anchors: Vec::new(),
                 records: None,

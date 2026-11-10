@@ -156,6 +156,8 @@ entry_points! {
         Rules = "rules",
         /// `k::claims!`.
         Claims = "claims",
+        /// `k::patterns!` (FB-49).
+        Patterns = "patterns",
         /// `k::equations!`.
         Equations = "equations",
         /// `k::term!`.

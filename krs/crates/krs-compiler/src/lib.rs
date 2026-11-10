@@ -46,8 +46,9 @@ pub use edit_origin::{
     MutationVerdict, OutsideChange, SentenceJudgement, SentenceVerdict, judge_edits,
 };
 pub use emit::{
-    DeclaredCellType, EmitError, EmittedK, EmittedSpec, SentenceSource, SentenceSources,
-    declared_cell_types, definition_module_imports, definition_sentence_source, emit_k,
+    DeclaredCellType, EmitError, EmittedK, EmittedPattern, EmittedPatternStep, EmittedSpec,
+    PatternSource, PatternVariable, SentenceSource, SentenceSources, declared_cell_types,
+    definition_module_imports, definition_sentence_source, emit_k, emit_patterns,
     smt_only_function_warnings, trusted_claim_warnings,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
