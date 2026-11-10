@@ -3,9 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::testing::assert_lowering_contract;
-use krs_compiler::{
-    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, lower_semantic_theory,
-};
+use krs_compiler::{EmittedK, LoweredDefinition, SourceMapNodeKind, lower_semantic_theory};
 use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
@@ -1275,7 +1273,7 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
 }
 
 #[test]
-fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
+fn undeclared_wildcard_fails_typed_and_an_unspellable_control_name_takes_the_hash_label() {
     assert!(matches!(
         control_flow_theory(ControlOptions {
             omit_if_true_wildcard: true,
@@ -1283,19 +1281,31 @@ fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
         }),
         Err(SemanticValidationError::DanglingVariable(_))
     ));
-    let invalid = control_flow_theory(ControlOptions {
+    // An item name no K label spells (`if.true`) is an identifier, not label text: the rule
+    // takes the hash label of its identity, as a term rule of that name does.
+    let unspellable = control_flow_theory(ControlOptions {
         invalid_first_label: true,
         ..ControlOptions::default()
     })
     .unwrap();
-    assert!(matches!(
-        lower_semantic_theory(&invalid),
-        Err(LoweringError::InvalidEmittedName {
-            role: "rule label",
-            value,
-            ..
-        }) if value == "if.true"
-    ));
+    let lowered = lower_semantic_theory(&unspellable).unwrap();
+    let labels = lowered
+        .definition()
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            krs_ir_levels::DefinitionSentence::Rule(rule) => {
+                Some(rule.label().emitted_name().to_owned())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        labels.iter().any(|label| label.starts_with("krsRule_"))
+            && !labels.contains(&"if.true".to_owned()),
+        "{labels:?}"
+    );
 }
 
 #[test]
