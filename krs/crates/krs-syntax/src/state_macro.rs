@@ -2437,13 +2437,31 @@ pub(crate) struct RecordPresences {
 }
 
 impl RecordPresences {
-    /// The presences of `value`, read in `context`, where it is a record, `Path { .. }`, a
-    /// `k::fragment![Path { .. }]`, or either under `name @`, and one of its children, or of the
-    /// records its children write, at any depth, is `Some(..)` or `None`; `None` otherwise.
+    /// The presences of `value`, an entry's value read in `context`, where it is a record,
+    /// `Path { .. }`, a `k::fragment![Path { .. }]`, either under `name @`, or any of these as the
+    /// content of the entry's own `Some(..)`, and one of its children, or of the records its
+    /// children write, at any depth, is `Some(..)` or `None`; `None` otherwise.
+    ///
+    /// The content of a `?` group's `Some(..)` is the present group's record, at the group's own
+    /// configuration position as a fixed group's record is at its cell's, so its children are
+    /// their cells' entries there too; the entry's presence is the group's, kept as written.
     pub(crate) fn of(value: &TokenStream, context: StateMacroContext) -> Option<Self> {
         let mut found = Vec::new();
         let trees = value.clone().into_iter().collect::<Vec<_>>();
-        let read = record_presences(&trees, context, &mut found)?;
+        let read = match trees.as_slice() {
+            [TokenTree::Ident(some), TokenTree::Group(body)]
+                if PresenceTokens::spelled(&trees).is_some_and(|(_, inside)| inside.is_some()) =>
+            {
+                let inside = body.stream().into_iter().collect::<Vec<_>>();
+                let mut group = proc_macro2::Group::new(
+                    body.delimiter(),
+                    record_presences(&inside, context, &mut found)?,
+                );
+                group.set_span(body.span());
+                TokenStream::from_iter([TokenTree::Ident(some.clone()), TokenTree::Group(group)])
+            }
+            _ => record_presences(&trees, context, &mut found)?,
+        };
         (!found.is_empty()).then_some(Self { found, read })
     }
 
@@ -4040,6 +4058,28 @@ mod presences {
         assert!(RecordPresences::of(&quote!(Some(x)), StateMacroContext::Pattern).is_none());
         assert!(
             RecordPresences::of(&quote!(crate::G { a: x }), StateMacroContext::Pattern).is_none()
+        );
+        // A `?` group's present record is at the group's configuration position: the entry's
+        // own `Some(..)` stays, its record's children are read as anywhere else.
+        let present = quote!(Some(k::fragment![crate::H {
+            hc: Some(y),
+            hl: None,
+            ..
+        }]));
+        let pattern = RecordPresences::of(&present, StateMacroContext::Pattern).expect("found");
+        assert_eq!(pattern.found.len(), 2);
+        assert_eq!(
+            pattern.read.to_string(),
+            quote!(Some(k::fragment![crate::H { hc: y, hl: _, .. }])).to_string()
+        );
+        let result = RecordPresences::of(&present, StateMacroContext::Expression).expect("found");
+        assert_eq!(
+            result.read.to_string(),
+            quote!(Some(k::fragment![crate::H { .. }])).to_string()
+        );
+        assert!(
+            RecordPresences::of(&quote!(Some(H { hc: y, .. })), StateMacroContext::Pattern)
+                .is_none()
         );
     }
 

@@ -319,6 +319,11 @@ code = "krs::analysis::group-and-descendant"
 doc = "a rule or claim whose entries, on either side, name a group (or a collection) and a cell below it: an entry denotes the content of one cell, so the group's entry already names the cell below it, and the two denote overlapping content (P1); judged on the whole rule"
 advice = "none"
 
+[class.group-record-child-presence]
+code = "krs::analysis::collection-entry"
+doc = "a group record at a configuration position (a group cell's entry, the record a `?` group's `Some(..)` holds, a group child of such a record) naming a `?` child's presence or absence (`hcounter: Some(y)`, `oo: None`): it is that child cell's entry, meaning there what it means at the child's own level, and no lowering writes it, since a group record's children are lowered as terms; not supported yet, said at the child once the sentence's entries are admitted"
+advice = "none"
+
 [class.helper-on-constant]
 code = "krs::syntax::invalid-constant"
 doc = "a sentence's helper attribute (`#[k::requires]`, `#[k::ensures]`, `#[k::exists]`, `#[k::fresh]`) on a `#[k::constant]`, which declares a value and applies to nothing"
@@ -7183,6 +7188,18 @@ at = "spelling"
 [[refuse]]
 match = '{claim,readable}/pr-a/kinds/account/\{ Acct \{ id: z\, acounter: Some(y)\, aolist: Some(w)\, .. \}\, .. \}'
 class = "instance-child-multiplicity"
+at = "spelling"
+
+# FIXG2 R4: the record a `?` group's `Some(..)` holds is the present group's record at the
+# group's own position, so its `?` children's presences are a group record's limit there
+[[refuse]]
+match = '{claim,readable}/pr-c/kinds/opt/Some(H \{ hcounter: Some(y)\, holist: Some(w)\, .. \})'
+class = "group-record-child-presence"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/pr-c/kinds/opt/Some(k::fragment![crate::H \{ hcounter: Some(y)\, holist: Some(w)\, .. \}])'
+class = "group-record-child-presence"
 at = "spelling"
 
 [[refuse]]
@@ -18092,8 +18109,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."cells/pr-c/kinds/opt/Some(k::fragment![crate::H { hcounter: Some(y), holist: Some(w), .. }])"]
-
 [accept."cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y }]"]
 k = """
 rule [case-TAG]:
@@ -18247,8 +18262,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."claim/pr-c/kinds/opt/Some(H { hcounter: Some(y), holist: Some(w), .. })"]
-
 [accept."claim/result/kinds/frame/G { a: x, b: y, .. }"]
 same_k_as = ["claim/result/kinds/frame/G { a: x, b: y }"]
 k = """
@@ -18396,9 +18409,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."readable/pr-c/kinds/opt/Some(H { hcounter: Some(y), holist: Some(w), .. })"]
-same_k_as = ["cells/pr-c/kinds/opt/Some(k::fragment![crate::H { hcounter: Some(y), holist: Some(w), .. }])"]
 
 [accept."readable/result/kinds/frame/G { a: x, b: y, .. }"]
 same_k_as = ["readable/result/kinds/frame/G { a: x, b: y }", "cells/result/kinds/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
@@ -19062,6 +19072,11 @@ findings = ["S5-C2"]
 code = "krs::expand::cell-collection-placement"
 docs = "A context alias and an equation's function context read fixed leaf cells only"
 findings = ["S5-Z1"]
+
+[limit.group-record-child-presence]
+code = "krs::analysis::collection-entry"
+docs = "A `?` child's `Some(..)` or `None` is not supported yet, a stated limitation"
+findings = ["GEN2-R4"]
 
 [limit.instance-child-multiplicity]
 code = "krs::analysis::collection-entry"

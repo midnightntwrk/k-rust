@@ -134,6 +134,7 @@ fn readable_error(span: proc_macro2::Span, reason: &'static str) -> ParseError {
 fn parse_readable_pattern_state(
     input: ParseStream<'_>,
     looks_up: bool,
+    faults: &PartFaults,
 ) -> Result<Option<StateTerm>, ParseError> {
     let fork = input.fork();
     if let Ok(ident) = fork.parse::<Ident>() {
@@ -142,6 +143,17 @@ fn parse_readable_pattern_state(
             return Ok(Some(StateTerm::Absent(TokenRange::for_tokens(&ident)?)));
         }
         if ident == "Some" && fork.peek(syn::token::Paren) {
+            // A `?` group's present record whose children write their own presences is read
+            // without them, as a record at a cell's position is ([`value_presences`]).
+            if let Some(presences) = value_presences(input, StateMacroContext::Pattern) {
+                skip_value(input)?;
+                presences.carry(faults)?;
+                return Ok(crate::parse::structured_with(
+                    presences.read,
+                    |input| parse_readable_pattern_state(input, looks_up, faults),
+                    crate::SyntaxError::from,
+                )?);
+            }
             input.parse::<Ident>()?;
             let tokens = input.call(|input| {
                 let inner;
@@ -839,7 +851,7 @@ fn parse_machine_pattern_record(
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
         let looks_up = sentence == ReadableSentence::Rule;
-        let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up)? {
+        let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
@@ -1084,21 +1096,19 @@ fn parse_machine_result_record(
             })
         };
         let value = if presence {
-            // A present content whose list notation keeps an anonymous `..` (`Some([..])`) is
-            // refused by the notation, but only once the cell's kind has answered.
-            let fork = content.fork();
-            match parse_readable_result_state(&fork, StateFamily::Optional) {
-                Ok(state) => {
-                    content.advance_to(&fork);
-                    MachineResultCell::State(Box::new(state))
-                }
-                Err(ParseError::Structured(error))
-                    if crate::list_notation::is_anonymous_rest(&error) =>
-                {
+            // A `?` group's present record whose children write their own presences is written
+            // without them, as a record at a cell's position is ([`value_presences`]).
+            match value_presences(&content, StateMacroContext::Expression) {
+                Some(presences) => {
                     skip_value(&content)?;
-                    MachineResultCell::Refused(Box::new(error))
+                    presences.carry(faults)?;
+                    crate::parse::structured_with(
+                        presences.read,
+                        read_result_presence,
+                        crate::SyntaxError::from,
+                    )?
                 }
-                Err(error) => return Err(error),
+                None => read_result_presence(&content)?,
             }
         } else if let Some(map) = braced_map_read(&content)? {
             // A map read is spelled by its arrows, which no instance list holds at its top
@@ -1195,9 +1205,28 @@ fn record_child_entry(content: ParseStream<'_>) -> Option<crate::SyntaxError> {
     })
 }
 
+/// A result's `Some(..)` or `None` ([`parse_readable_result_state`]). A present content whose
+/// list notation keeps an anonymous `..` (`Some([..])`) is refused by the notation, but only
+/// once the cell's kind has answered.
+fn read_result_presence(content: ParseStream<'_>) -> Result<MachineResultCell, ParseError> {
+    let fork = content.fork();
+    match parse_readable_result_state(&fork, StateFamily::Optional) {
+        Ok(state) => {
+            content.advance_to(&fork);
+            Ok(MachineResultCell::State(Box::new(state)))
+        }
+        Err(ParseError::Structured(error)) if crate::list_notation::is_anonymous_rest(&error) => {
+            skip_value(content)?;
+            Ok(MachineResultCell::Refused(Box::new(error)))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// The presences a readable record value's children write, at any depth, where the value is a
-/// record ([`RecordPresences`]): the value is read without them, and its first presence's
-/// refusal waits for the judgement of the entry ([`PartFaults`]).
+/// record, or a `?` group's `Some(..)` around one ([`RecordPresences`]): the value is read
+/// without them, and its first presence's refusal waits for the judgement of the entry
+/// ([`PartFaults`]).
 fn value_presences(
     content: ParseStream<'_>,
     reading: StateMacroContext,
