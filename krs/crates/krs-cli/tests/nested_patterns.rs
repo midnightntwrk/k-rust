@@ -3443,8 +3443,8 @@ impl Machine {
 /// record outside an instance waits for them (TABLE follow-up (a)): a clause with another fault
 /// gets that fault first, the line the clause gets with the record outside the instance, on the
 /// readable braced route and the `cells!` route; alone, the record's presence is the limit at the
-/// presence. (A readable List collection's brackets still say it at expansion: their List reading
-/// takes its children from another reading's terms, which rustc reads.)
+/// presence. A readable List collection's brackets are judged alike
+/// ([`a_list_collection_s_brackets_are_judged_as_a_map_collection_s_braces`]).
 #[test]
 fn a_presence_in_an_instance_child_s_record_waits_for_the_entries_as_outside_an_instance() {
     let target = shared_fixture_target();
@@ -3514,6 +3514,254 @@ fn a_presence_in_an_instance_child_s_record_waits_for_the_entries_as_outside_an_
             "readable: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
             "cells: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
             "alone: error[krs::analysis::collection-entry]: the cell `mark`, inside the instance child `info`, holds `Some(..)`, a `?` cell's presence: an instance record does not name a `?` or `*` child yet",
+        ]
+    "#]].assert_debug_eq(&lines);
+}
+
+/// The configuration of the BRACKETS witness: a `*` collection `job` of `Job` records, a List
+/// collection or a Map collection by `CELL_TYPE`, beside a list leaf `stack`.
+const COLLECTION_TWINS: &str = r#"
+use k::builtin::{Int, KSequence, List, list};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+}
+
+#[k::cell]
+pub struct Info {
+    #[k::cell(multiplicity = "?")]
+    pub mark: Option<Int>,
+    #[k::cell]
+    pub level: Int,
+}
+
+#[k::cell]
+pub struct Job {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell(nested)]
+    pub info: Info,
+    #[k::cell]
+    pub tk: KSequence,
+    #[k::cell]
+    pub n: Int,
+}
+
+#[k::cell]
+pub struct Jobs {
+    #[k::cell(multiplicity = "*", cell_type = "CELL_TYPE", nested)]
+    pub job: Job,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell(nested)]
+    pub jobs: Jobs,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            jobs: Jobs { job: Job { id: 0, info: Info { mark: k::absent!(0), level: 0 }, tk: k::k![], n: 0 } },
+        }
+    }
+}
+"#;
+
+/// The rows of [`a_list_collection_s_brackets_are_judged_as_a_map_collection_s_braces`]: a
+/// subject entry and a result suffix, `«`/`»` standing for the collection's delimiters, and
+/// whether the row is also asked beside another cell's fault, and in a claim.
+const COLLECTION_TWIN_ROWS: [(&str, &str, bool, bool); 9] = [
+    (
+        "job: «Job { info: Info { mark: None, .. }, .. }, ..»",
+        "",
+        true,
+        true,
+    ),
+    (
+        "job: «Job { tk: k::k![Go(), ..], .. }, ..»",
+        "",
+        false,
+        false,
+    ),
+    ("job: «Job { n: k::k![1], .. }, ..»", "", true, true),
+    ("job: «Job { n: Go(), .. }, ..»", "", false, false),
+    ("job: «Job { n: x, .. }, ..»", "", false, false),
+    (
+        "job: «me @ Job { .. }, ..»",
+        ", job: «Job { info: Info { mark: Some(1), level: 0 }, ..me }, ..»",
+        false,
+        true,
+    ),
+    (
+        "job: «me @ Job { .. }, ..»",
+        ", job: «Job { tk: k::k![Go()], ..me }, ..»",
+        false,
+        false,
+    ),
+    (
+        "job: «me @ Job { .. }, ..»",
+        ", job: «Job { n: k::k![1], ..me }, ..»",
+        false,
+        false,
+    ),
+    (
+        "job: «me @ Job { .. }, ..»",
+        ", job: «Job { n: 1, ..me }, ..»",
+        false,
+        false,
+    ),
+];
+
+/// The readable rule `go` (or, with `claim`, the claim `c`) over [`COLLECTION_TWINS`] whose
+/// subject and result records hold `subject` and `result`.
+fn collection_twin_block(subject: &str, result: &str, claim: bool) -> String {
+    if claim {
+        format!(
+            "k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(all_paths)]\n    c: {{ k: [Go()], {subject} }} => {{ k: []{result} }};\n}}\n"
+        )
+    } else {
+        format!(
+            "k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [Go(), ..], {subject} }} => {{ k: [..]{result} }};\n}}\n"
+        )
+    }
+}
+
+/// `krs check`'s first error for `block` over [`COLLECTION_TWINS`] whose `job` is a `cell_type`
+/// collection, `«`/`»` written `open`/`close`, or `passed:` and the sentence `label` it emits.
+fn collection_twin(
+    target: &Path,
+    root: &Path,
+    name: &str,
+    (cell_type, open, close): (&str, &str, &str),
+    block: &str,
+    label: &str,
+) -> String {
+    let library = format!(
+        "{}{}",
+        COLLECTION_TWINS.replace("CELL_TYPE", cell_type),
+        block.replace('«', open).replace('»', close)
+    );
+    let manifest = library_package(root, &format!("{name}-{cell_type}"), &library);
+    let line = first_error(target, &manifest);
+    if line.starts_with("passed") {
+        return format!("passed: {}", emitted_sentence(target, &manifest, label));
+    }
+    line
+}
+
+/// A readable `*` collection's instance records stand in braces, and a List collection's in
+/// brackets, which the syntax also reads as a list's elements and the computation's items: only
+/// the cell's declaration says which, so each reading is read and the collector judges the one
+/// it selects. A List collection's bracketed record is judged as the same record in a Map
+/// collection's braces: the same line, at the same place, for a rule and a claim, alone and
+/// beside another cell's fault, or both admitted. A presence in an instance child's group record
+/// is the entry's (P5, P6), a `k::k![..]` child is judged by the child's sort, and a clause with
+/// another fault gets that fault first. On a list leaf the same brackets are a list's elements,
+/// terms: a record element's presence is the group record child's limit, and a `k::k![..]` in it
+/// the term reader's refusal.
+#[test]
+fn a_list_collection_s_brackets_are_judged_as_a_map_collection_s_braces() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut lines = Vec::new();
+    for (index, (subject, result, beside, claimed)) in COLLECTION_TWIN_ROWS.into_iter().enumerate()
+    {
+        let mut forms = vec![("rule", subject.to_owned(), false)];
+        if beside {
+            forms.push(("rule+", format!("{subject}, stack: Some(s)"), false));
+        }
+        if claimed {
+            forms.push(("claim", subject.to_owned(), true));
+        }
+        for (form, subject, claim) in forms {
+            let block = collection_twin_block(&subject, result, claim);
+            let name = format!("brackets-{index}-{}", form.replace('+', "o"));
+            let label = if claim { "c" } else { "go" };
+            let twin = |delimiters| {
+                collection_twin(
+                    target.path(),
+                    temporary.path(),
+                    &name,
+                    delimiters,
+                    &block,
+                    label,
+                )
+            };
+            let bracketed = twin(("List", "[", "]"));
+            let braced = twin(("Map", "{", "}"));
+            if braced.starts_with("passed") {
+                assert!(
+                    bracketed.starts_with("passed"),
+                    "{form} {subject}{result}: {bracketed}"
+                );
+            } else {
+                assert_eq!(bracketed, braced, "{form} {subject}{result}");
+            }
+            let written = format!("{subject}{result}")
+                .replace('«', "[")
+                .replace('»', "]");
+            lines.push(format!("{form} {written}: {bracketed}"));
+        }
+    }
+    for (index, (subject, result)) in [
+        ("stack: [Info { mark: None, .. }, ..]", ""),
+        (
+            "stack: [Info { level: 1, .. }, ..]",
+            ", stack: [Info { mark: None, level: 1 }, ..]",
+        ),
+        ("stack: [Info { level: k::k![1], .. }, ..]", ""),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let block = collection_twin_block(subject, result, false);
+        let name = format!("brackets-leaf-{index}");
+        let line = collection_twin(
+            target.path(),
+            temporary.path(),
+            &name,
+            ("List", "[", "]"),
+            &block,
+            "go",
+        );
+        lines.push(format!("leaf {subject}{result}: {line}"));
+    }
+    expect_test::expect![[r#"
+        [
+            "rule job: [Job { info: Info { mark: None, .. }, .. }, ..]: error[krs::analysis::optional-presence]: the subject tests that the optional cell `mark` is absent (`None`), and the result does not create it: K tests a cell's absence only by creating the cell, so a subject's `None` stands where its result creates it with `Some(..)` @ 66:57",
+            "rule+ job: [Job { info: Info { mark: None, .. }, .. }, ..], stack: Some(s): error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of @ 66:87",
+            "claim job: [Job { info: Info { mark: None, .. }, .. }, ..]: error[krs::analysis::optional-presence]: the subject tests that the optional cell `mark` is absent (`None`), and the result does not create it: K tests a cell's absence only by creating the cell, so a subject's `None` stands where its result creates it with `Some(..)` @ 67:52",
+            "rule job: [Job { tk: k::k![Go(), ..], .. }, ..]: passed: rule [go]: <k> go => .K ... </k> <jobs> <job> <tk> go ~> Tail0:K </tk> ... </job> ... </jobs>",
+            "rule job: [Job { n: k::k![1], .. }, ..]: error[krs::analysis::invalid-term]: the cell `n` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's @ 66:41",
+            "rule+ job: [Job { n: k::k![1], .. }, ..], stack: Some(s): error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of @ 66:69",
+            "claim job: [Job { n: k::k![1], .. }, ..]: error[krs::analysis::invalid-term]: the cell `n` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's @ 67:36",
+            "rule job: [Job { n: Go(), .. }, ..]: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::go (rule): application result sort ORG-KRS-NESTED::Stmt (sort) is not admissible at sort Int @ 66:41",
+            "rule job: [Job { n: x, .. }, ..]: passed: rule [go]: <k> go => .K ... </k> <jobs> <job> <n> X:Int </n> ... </job> ... </jobs>",
+            "rule job: [me @ Job { .. }, ..], job: [Job { info: Info { mark: Some(1), level: 0 }, ..me }, ..]: error[krs::analysis::optional-presence]: the result writes the optional cell `mark`, which the subject does not match, so the rule does not know whether the cell is there: the subject matches it with `Some(..)` or `None` first @ 66:100",
+            "claim job: [me @ Job { .. }, ..], job: [Job { info: Info { mark: Some(1), level: 0 }, ..me }, ..]: error[krs::analysis::optional-presence]: the result writes the optional cell `mark`, which the subject does not match, so the rule does not know whether the cell is there: the subject matches it with `Some(..)` or `None` first @ 67:93",
+            "rule job: [me @ Job { .. }, ..], job: [Job { tk: k::k![Go()], ..me }, ..]: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `tk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it @ 66:85",
+            "rule job: [me @ Job { .. }, ..], job: [Job { n: k::k![1], ..me }, ..]: error[krs::analysis::invalid-term]: the cell `n` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's @ 66:84",
+            "rule job: [me @ Job { .. }, ..], job: [Job { n: 1, ..me }, ..]: passed: rule [go]: <k> go => .K ... </k> <jobs> <job> <n> _ => 1 </n> ... </job> ... </jobs>",
+            "leaf stack: [Info { mark: None, .. }, ..]: error[krs::analysis::collection-entry]: the record's field `mark` holds `None`, a `?` cell's absence, and no term: KRS has no `Option` term; in a group record it is the `?` child's entry, which a group record does not name yet, as an instance record does not name a `?` or `*` child yet @ 66:47",
+            "leaf stack: [Info { level: 1, .. }, ..], stack: [Info { mark: None, level: 1 }, ..]: error[krs::analysis::collection-entry]: the record's field `mark` holds `None`, a `?` cell's absence, and no term: KRS has no `Option` term; in a group record it is the `?` child's entry, which a group record does not name yet, as an instance record does not name a `?` or `*` child yet @ 66:98",
+            "leaf stack: [Info { level: k::k![1], .. }, ..]: error[krs::syntax::unsupported-term-expression]: unsupported term expression: macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands @ 66:48",
         ]
     "#]].assert_debug_eq(&lines);
 }

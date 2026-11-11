@@ -363,6 +363,15 @@ impl ParsedCells<Coordinates> {
 }
 
 impl LocatedCells {
+    /// The first refusal a readable clause's reader left until every entry is admitted, raised
+    /// then: neither the subject's limit, raised once the subject's entries are, nor a bracketed
+    /// value's term reading, which its cell's declaration decides ([`instances_only`]).
+    fn left_after_every_entry(&self) -> Option<&After<SourceRange>> {
+        self.after
+            .iter()
+            .find(|after| !after.subject && after.cell.is_none())
+    }
+
     /// The first refusal the reader left until the entries were judged, where it is: raised once
     /// they are admitted.
     pub(super) fn left_after_admission(&self) -> Option<CollectionError> {
@@ -427,6 +436,10 @@ pub(super) fn judge(
 /// The first refused entry, with its class's code, at what it refuses; else the refusal of the
 /// first cell whose two entries the parser could not pair
 /// ([`krs_syntax::RuleClause::pairing_refusal`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "the questions an admitted clause is asked, in the order they are asked"
+)]
 pub(super) fn judge_readable(
     id: &StableItemId,
     target: &super::resolve::HeadRuleTarget,
@@ -485,11 +498,7 @@ pub(super) fn judge_readable(
         instance_child_multiplicity(&subject, &result)?;
         // A cell whose two entries the parser could not pair (a presence over a term, ..) is
         // refused only now: the table admitted both entries against the cell's kind, first.
-        if let Some(pairing) = authored
-            .after
-            .iter()
-            .find(|after| !after.subject && after.cell.is_none())
-        {
+        if let Some(pairing) = authored.left_after_every_entry() {
             return Err(pairing.refused());
         }
     }
