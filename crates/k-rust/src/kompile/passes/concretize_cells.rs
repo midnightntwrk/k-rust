@@ -340,6 +340,16 @@ pub(crate) fn concretize_cells_pass(
                     // copying that sentence again only to overwrite it.
                     if !concretizer.rebuilt_input() {
                         *sentence = Arc::new(transformed);
+                    } else {
+                        debug_assert!(
+                            k_rust_kore::measure::without_counting(|| {
+                                crate::definition::resolve::sentences_identical(
+                                    &transformed,
+                                    sentence,
+                                )
+                            }),
+                            "concretize cells kept a sentence it changed: {transformed:?}"
+                        );
                     }
                 }
                 Err(message) => {

@@ -265,7 +265,15 @@ pub(crate) fn expand_macros_pass(
             .iter()
             .any(|sentence| reports_unexpanded_macros(sentence).is_some())
         {
-            if let Err(diagnostic) = Preparation::new(&views, module_id, module_id, &mut memo) {
+            let prepared = Preparation::new(&views, module_id, module_id, &mut memo).err();
+            // The full construction reports what the preparation reports, and the loop below
+            // would expand none of the module's sentences.
+            #[cfg(debug_assertions)]
+            measure::without_counting(|| {
+                let built = Expander::with_memo(&views, module_id, module_id, &mut memo).err();
+                debug_assert_eq!(prepared, built, "a skipped module's expander differs");
+            });
+            if let Some(diagnostic) = prepared {
                 diagnostics.push(diagnostic);
             }
             continue;
@@ -1034,7 +1042,16 @@ impl<'view, 'definition> Preparation<'view, 'definition> {
             .sentences(macro_module)
             .into_iter()
             .enumerate()
-            .filter(|(_, sentence)| may_be_macro_rule(sentence, &macro_heads))
+            .filter(|(_, sentence)| {
+                let may = may_be_macro_rule(sentence, &macro_heads);
+                debug_assert!(
+                    may || measure::without_counting(|| {
+                        macro_rule_recursion(sentence, productions).is_none()
+                    }),
+                    "may_be_macro_rule rejected a macro rule"
+                );
+                may
+            })
             .filter_map(|(id, sentence)| {
                 macro_rule_recursion(sentence, productions)
                     .map(|recursive| (id, sentence, recursive))
@@ -1044,6 +1061,27 @@ impl<'view, 'definition> Preparation<'view, 'definition> {
         // recursion as deep as the rule, so the rules not built yet are built with stack for
         // the deepest of them, measured without recursion. A parametric head is typed later,
         // when it is first tried.
+        // A memoized rule's sides are the sides its sentence gives now.
+        #[cfg(debug_assertions)]
+        measure::without_counting(|| {
+            for (_, sentence, _) in &selected {
+                if let Some(sides) = memo.sides.get(&std::ptr::from_ref(*sentence)) {
+                    let depth = sentence_depth(sentence);
+                    let fresh = with_stack(walk_zone(depth), || macro_sides(sentence, depth));
+                    debug_assert!(
+                        crate::definition::resolve::sentences_identical(
+                            &sides.sentence,
+                            &fresh.sentence
+                        ) && sides.left == fresh.left
+                            && sides.right == fresh.right
+                            && sides.depth == fresh.depth
+                            && sides.nonlinear == fresh.nonlinear
+                            && sides.rank == fresh.rank,
+                        "a memoized macro rule differs from its sentence's sides"
+                    );
+                }
+            }
+        });
         let missing = selected
             .iter()
             .map(|(_, sentence, _)| *sentence)
