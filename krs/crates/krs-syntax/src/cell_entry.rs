@@ -455,7 +455,7 @@ impl<'a> EntryReading<'a> {
         let expression = input.parse::<syn::Expr>()?;
         if self.form != EntryForm::Initializer
             && !denotes_term(&expression)
-            && !(marked && !holds_rest(&expression))
+            && (!marked || holds_rest(&expression))
         {
             return Err(syn::Error::new_spanned(
                 &expression,
