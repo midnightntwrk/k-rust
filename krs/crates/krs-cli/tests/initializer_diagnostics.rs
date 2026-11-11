@@ -731,6 +731,14 @@ fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route()
     .assert_debug_eq(&classes);
 }
 
+/// A leaf's name, its library around a sentence, and its routes: each a name, a sentence and
+/// the spelling its refusal is at.
+type Leaf<'a> = (
+    &'a str,
+    &'a dyn Fn(&str) -> String,
+    [(&'a str, String, &'a str); 6],
+);
+
 /// `k::k![..]`, the computation's item notation, is the term of sort `K` its items make
 /// (`a ~> b ~> rest`). Where a sentence's leaf entry writes it, readable or `cells!`, subject or
 /// result, rule or claim, the collector judges it by the leaf's sort once the entries are
@@ -740,6 +748,10 @@ fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route()
 /// class `invalid-term`, naming the leaf's sort. A clause the readable route reads no
 /// computation of (no bracketed value) keeps the term reader's refusal.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of routes per leaf, each with its spelling and its place."
+)]
 fn the_computation_s_items_on_a_sentence_s_leaf_are_one_verdict_on_every_route() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
@@ -766,7 +778,7 @@ fn the_computation_s_items_on_a_sentence_s_leaf_are_one_verdict_on_every_route()
             "#[k::rule]\npub fn r(\n    k::cells! {{ k: k::configuration::KCell(Cmd::{save}(), tail @ ..), {subject}, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
         )
     };
-    let leaves: [(&str, &dyn Fn(&str) -> String, [(&str, String, &str); 6]); 2] = [
+    let leaves: [Leaf<'_>; 2] = [
         (
             "k-leaf",
             &k_leaf,
@@ -912,6 +924,10 @@ fn the_computation_s_items_on_a_sentence_s_leaf_are_one_verdict_on_every_route()
 /// (`Cell::new(k::k![..])`, `KCell::new(x)`) is the reader's refusal once the value has been
 /// judged; one of the value's family is admitted as the plain value is.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of twins, wrapped beside plain, and the family refusals."
+)]
 fn a_value_written_with_its_rust_wrapper_is_judged_as_the_value_it_wraps() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
