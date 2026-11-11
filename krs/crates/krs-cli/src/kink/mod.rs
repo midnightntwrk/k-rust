@@ -89,8 +89,12 @@
 //! `prune` reads the corpus's own lists as `run` and `query` do (a family whose list the layout
 //! lacks is skipped; `--mutations` and `--patterns` name others), runs the front end's checks of
 //! the mutation list and derives the condition flips as `run` and `coverage` do, and reads
-//! `kink.lock` (`--lock FILE` names another) for the rows each removal would move; it writes no
-//! section, so krs's `--locked` adds no kink-flow `--locked` to it.
+//! `kink.lock` (`--lock FILE` names another) for the rows each removal would move and the order
+//! its searches ask in; it writes no section, so krs's `--locked` adds no kink-flow `--locked` to
+//! it. The front end tells kink-flow whether each list it reads is the corpus's own
+//! ([`kink_flow::FlowCommand::set_corpus_lists`]): a list `--mutations` or `--patterns` names is
+//! the corpus's own only when it is the layout's file, and a report of another list holds for
+//! that list, not for the corpus, which the document and `--output text` say.
 //!
 //! Before version 24 the two locks were `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
 //! Where the command keeps the record by default and its old file is there, the front end names
@@ -632,7 +636,38 @@ fn parsed_command(
     if let Some(legacy) = legacy_lock(corpus, verb, options) {
         command.set_legacy_lock(legacy);
     }
+    if verb == Verb::Prune {
+        command.set_corpus_lists(corpus_lists(corpus, options, declares_patterns));
+    }
     Ok((command, declared))
+}
+
+/// Whether each list `krs kink prune` reads with `options` is the corpus's own: the layout's
+/// (its mutation list, and its `PATTERNS.toml` or the patterns its manifest declares), also
+/// where `--mutations` or `--patterns` names that same file, and also where the layout has none
+/// and none is named.
+fn corpus_lists(
+    corpus: &Path,
+    options: &[String],
+    declares_patterns: bool,
+) -> kink_flow::prune::CorpusLists {
+    let layout = layout_files(corpus, Verb::Prune, declares_patterns);
+    let files = command_files(corpus, Verb::Prune, options, declares_patterns)
+        .map_or_else(|_| layout.clone(), |(files, _)| files);
+    let same = |given: &Option<PathBuf>, own: &Option<PathBuf>| match (given, own) {
+        (None, None) => true,
+        (Some(given), Some(own)) => {
+            given == own
+                || given
+                    .canonicalize()
+                    .is_ok_and(|given| own.canonicalize().ok() == Some(given))
+        }
+        _ => false,
+    };
+    kink_flow::prune::CorpusLists {
+        mutations: same(&files.mutations, &layout.mutations),
+        patterns: same(&files.patterns, &layout.patterns),
+    }
 }
 
 /// Whether `command` judges a mutation list or the definition's condition flips, so that the
@@ -832,6 +867,7 @@ fn run_flow(
         annotator.annotate(document);
         document["definition"] = definition.clone();
         shown_lock(document, &lock);
+        shown_lists(document, &lock);
     };
     let front = FrontEnd {
         spelling,
@@ -951,6 +987,31 @@ fn shown_lock(document: &mut Value, lock: &(String, String)) {
     }
     if let Some(text) = document["lock"]["legacy"]["path"].as_str() {
         document["lock"]["legacy"]["path"] = json!(show(text));
+    }
+}
+
+/// The lists a prune document's families name (`families[].list.path`) by their paths as
+/// documents show them: a path in the corpus directory as kink-flow reads it (`lock.0`'s) is
+/// spelled from the corpus directory as documents show it (`lock.1`'s), as [`shown_lock`] spells
+/// the record.
+fn shown_lists(document: &mut Value, lock: &(String, String)) {
+    let directory = |path: &str| {
+        path.rfind(['/', '\\'])
+            .map_or_else(String::new, |at| path[..=at].to_owned())
+    };
+    let (full, shown) = (directory(&lock.0), directory(&lock.1));
+    if full.is_empty() {
+        return;
+    }
+    let Some(families) = document["families"].as_array_mut() else {
+        return;
+    };
+    for family in families {
+        if let Some(path) = family["list"]["path"].as_str()
+            && let Some(rest) = path.strip_prefix(&full)
+        {
+            family["list"]["path"] = json!(format!("{shown}{rest}"));
+        }
     }
 }
 

@@ -260,7 +260,7 @@ Usage:
   krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache DIR]
                    [--output json|text|verdicts] [--locked]
   krs kink prune   --package P --definition D [--corpus DIR] [--mutations PATH] [--patterns PATH]
-                   [--lock FILE] [--compile-workers N] [--progress] [--cache DIR]
+                   [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR]
                    [--output json|text] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
@@ -360,10 +360,13 @@ rewritten after a query of the whole list (not under --only or --verify), and un
 is left unwritten and a query that would change it exits 1.
 Each keeps the others' sections as they are. prune reads the corpus's own mutation list and
 patterns (a family whose list the layout lacks is skipped; --mutations and --patterns name
-others) and kink.lock (--lock FILE names another), which it never writes: it runs coverage,
-run --full and query --full and reports each case redundant alone, with the other cases that
-discharge what it does, one set of cases removable together, why each other case is kept, and
-the kink.lock rows each removal would move; under --locked it refuses a stale definition.k.
+others; a report of another list holds for that list, not for the corpus, and says so) and
+kink.lock (--lock FILE names another), which it never writes: it runs coverage, the kill search
+and the pattern walk, asking a further cell only where a decision needs it (--full: run --full
+and query --full, with the same decisions), and reports each case redundant alone, with the
+other cases known to discharge what it does, one set of cases removable together, why each other
+case is kept, and the kink.lock rows each removal would move; under --locked it refuses a stale
+definition.k.
 A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
 command that kept it, which moves them into kink.lock and says to delete the old file; under
 --locked the command is refused while it is there. report builds nothing: it
@@ -452,7 +455,7 @@ const KINK_VERB_USAGE: [(&str, &str); 9] = [
     (
         "prune",
         "krs kink prune --package P --definition D [--corpus DIR] [--mutations PATH] [--patterns \
-         PATH] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output \
+         PATH] [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output \
          json|text] [--locked]",
     ),
 ];

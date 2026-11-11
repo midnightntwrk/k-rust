@@ -2533,10 +2533,17 @@ fn prune_reads_the_corpus_layout_and_its_record() {
     assert_eq!(
         families[0],
         json!({"family": "mutations", "run": false, "reason": "no-mutation-list",
-               "detail": "no mutation list was given"}),
+               "detail": "no mutation list was given",
+               "list": {"path": null, "corpus_own": true}}),
         "{document:#}"
     );
     assert_eq!(families[1]["obligations"], 1, "{document:#}");
+    // FB56 P6: the layout's pattern list is the corpus's own, named as documents show paths.
+    assert_eq!(
+        families[1]["list"],
+        json!({"path": format!("{corpus}/PATTERNS.toml"), "corpus_own": true}),
+        "{document:#}"
+    );
     let redundant = document["redundant"]
         .as_array()
         .unwrap()
@@ -2574,6 +2581,27 @@ fn prune_reads_the_corpus_layout_and_its_record() {
     assert!(
         stdout(&output).starts_with(
             "3 cases: 2 redundant alone, 1 removable together (in reverse-manifest order): c3\n"
+        ),
+        "{}",
+        stdout(&output)
+    );
+
+    // Another pattern list is not the corpus's own, even with the same patterns: the report
+    // holds for that list, and the text says so.
+    project.write(
+        &format!("{corpus}/OTHER.toml"),
+        "[[pattern]]\nid = \"done\"\npattern = \"<k> done </k>\"\n",
+    );
+    let other = format!("{corpus}/OTHER.toml");
+    let output = project.kink(
+        "prune",
+        &["--corpus", corpus, "--patterns", &other, "--output", "text"],
+    );
+    assert_status(&output, 0);
+    assert!(
+        stdout(&output).contains(
+            "note: the patterns family read `corpora/prune/OTHER.toml`, not the corpus's own \
+             list: the report holds for that list, not for the corpus\n"
         ),
         "{}",
         stdout(&output)
