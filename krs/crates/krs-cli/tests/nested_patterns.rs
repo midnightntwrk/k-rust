@@ -1978,6 +1978,69 @@ fn a_presence_around_pattern_alternatives_is_judged_as_around_any_term() {
     );
 }
 
+/// A `cells!` leaf's `Cell(k::fragment![..])` holds the group's cell term as the readable
+/// record does, so the fragment's `?` children's presences are carried out of it as the entry
+/// reader carries a record's (TABLE follow-up (b): rustc's `Option` answered `not-a-declaration`
+/// inside `Cell(..)`). The leaf's verdict then comes first, with the readable twin's line: a
+/// group record on a `List` leaf is `invalid-term`, and on a `KItem` leaf, which holds it, the
+/// `?` child's presence is the group record's limit, both at the same spelling as the twin's.
+#[test]
+fn a_fragment_inside_a_leaf_s_cell_carries_its_presence_children_as_the_readable_record_does() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let twins = [
+        (
+            "list-leaf",
+            cells_presence(
+                "stack: k::configuration::Cell(k::fragment![crate::Core { fpu: Some(_), .. }])",
+                false,
+            ),
+            "k::fragment![crate::Core { fpu: Some(_), .. }]",
+            readable_presence("stack: Core { fpu: Some(_), .. }", ""),
+            "Core { fpu: Some(_), .. }",
+        ),
+        (
+            "item-leaf",
+            cells_presence(
+                "slot: k::configuration::Cell(k::fragment![crate::Core { fpu: Some(_), .. }])",
+                false,
+            ),
+            "Some(_), .. }])",
+            readable_presence("slot: Core { fpu: Some(_), .. }", ""),
+            "Some(_), .. }",
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (name, cells, cells_at, readable, readable_at) in twins {
+        let mut headlines = Vec::new();
+        for (route, source, at) in [
+            ("cells", cells, cells_at),
+            ("readable", readable, readable_at),
+        ] {
+            let manifest = library_package(
+                temporary.path(),
+                &format!("fragment-{name}-{route}"),
+                &source,
+            );
+            let error = first_error(target.path(), &manifest);
+            let (headline, place) = error.split_once(" @ ").expect("refused");
+            assert_eq!(place, location(&manifest, at), "{name} {route}: {error}");
+            headlines.push(headline.to_owned());
+        }
+        assert_eq!(
+            headlines[0], headlines[1],
+            "{name}: one line on both routes"
+        );
+        lines.push(format!("{name}: {}", headlines[0]));
+    }
+    expect_test::expect![[r#"
+        [
+            "list-leaf: error[krs::analysis::invalid-term]: the cell `stack` holds a `List` leaf, and the entry gives it a `Core` record, the `Core` group's cell term, whose sort is not below the leaf's: a group's cell sort is below `KItem` only, so a leaf holds a group's record only where its sort is `KItem`",
+            "item-leaf: error[krs::analysis::collection-entry]: the record's field `fpu` holds `Some(..)`, a `?` cell's presence, and no term: KRS has no `Option` term; in a group record it is the `?` child's entry, which a group record does not name yet, as an instance record does not name a `?` or `*` child yet",
+        ]
+    "#]].assert_debug_eq(&lines);
+}
+
 /// A group record that is a value, the group's cell term in a list element, means the cell a
 /// record at a configuration position means, so its `?` child's place holds the cell or its
 /// absence there too, and a bare value, binder, `_` or group record states neither: each is

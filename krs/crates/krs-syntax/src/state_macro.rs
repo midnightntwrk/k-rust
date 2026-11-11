@@ -2448,20 +2448,7 @@ impl RecordPresences {
     pub(crate) fn of(value: &TokenStream, context: StateMacroContext) -> Option<Self> {
         let mut found = Vec::new();
         let trees = value.clone().into_iter().collect::<Vec<_>>();
-        let read = match trees.as_slice() {
-            [TokenTree::Ident(some), TokenTree::Group(body)]
-                if PresenceTokens::spelled(&trees).is_some_and(|(_, inside)| inside.is_some()) =>
-            {
-                let inside = body.stream().into_iter().collect::<Vec<_>>();
-                let mut group = proc_macro2::Group::new(
-                    body.delimiter(),
-                    record_presences(&inside, context, &mut found)?,
-                );
-                group.set_span(body.span());
-                TokenStream::from_iter([TokenTree::Ident(some.clone()), TokenTree::Group(group)])
-            }
-            _ => record_presences(&trees, context, &mut found)?,
-        };
+        let read = marked_presences(&trees, context, &mut found)?;
         (!found.is_empty()).then_some(Self { found, read })
     }
 
@@ -2490,6 +2477,45 @@ pub(crate) struct Presence {
     present: bool,
     /// The span of its `Some` or `None`.
     span: Span,
+}
+
+/// [`RecordPresences::of`] over an entry value's trees, through the entry's own marks, its
+/// `Some(..)` and a leaf's `Cell(..)`: the record inside is the cell's content as written there
+/// (a `?` group's present record, or a group's cell term a leaf holds), so its children are the
+/// same entries, and the marks are kept as written.
+fn marked_presences(
+    trees: &[TokenTree],
+    context: StateMacroContext,
+    found: &mut Vec<Presence>,
+) -> Option<TokenStream> {
+    let marked = match trees {
+        [TokenTree::Ident(_), TokenTree::Group(_)]
+            if PresenceTokens::spelled(trees).is_some_and(|(_, inside)| inside.is_some()) =>
+        {
+            true
+        }
+        [prefix @ .., TokenTree::Ident(cell), TokenTree::Group(body)]
+            if cell == "Cell" && body.delimiter() == Delimiter::Parenthesis =>
+        {
+            let (chunks, remainder) = prefix.as_chunks::<3>();
+            remainder.is_empty()
+                && chunks.iter().all(|chunk| {
+                    matches!(chunk, [TokenTree::Ident(_), TokenTree::Punct(first), TokenTree::Punct(second)]
+                        if first.as_char() == ':' && second.as_char() == ':')
+                })
+        }
+        _ => false,
+    };
+    let Some((TokenTree::Group(body), head)) = trees.split_last().filter(|_| marked) else {
+        return record_presences(trees, context, found);
+    };
+    let inside = body.stream().into_iter().collect::<Vec<_>>();
+    let mut group =
+        proc_macro2::Group::new(body.delimiter(), marked_presences(&inside, context, found)?);
+    group.set_span(body.span());
+    let mut read = head.iter().cloned().collect::<TokenStream>();
+    read.extend([TokenTree::Group(group)]);
+    Some(read)
 }
 
 /// [`RecordPresences::of`] over a value's trees: the value read, where it is a record.
