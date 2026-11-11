@@ -126,8 +126,9 @@ fn a_condition_over_two_steps_is_placed_at_the_later_and_imports_the_earlier_bin
 fn a_shared_binder_is_one_name_in_every_step() {
     let block = parse(
         "for Machine;
-        #[k::cases(&quot;cases/halt-bug-rst&quot;)]
-        halt_bug_rst: { k: [Fetch, ..], halt_bug: true, pc: p } => { k: [Fetch, ..], halt_bug: false, pc: p };",
+        /// halt-bug-refetch: after a bugged HALT, the opcode that follows is fetched again at the same address, whatever it is.
+        #[k::cases(&quot;cases/halt-bug-refetch&quot;)]
+        halt_bug_refetch: { k: [Fetch, ..], halt_bug: true, pc: p } => { k: [Fetch, ..], halt_bug: false, pc: p };",
     );
     let [pattern] = block.patterns() else {
         panic!("one pattern");

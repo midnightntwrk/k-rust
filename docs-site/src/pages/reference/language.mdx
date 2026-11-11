@@ -1448,14 +1448,15 @@ k::patterns! {
         memory: { IF -> after, .. },
     };
 
-    #[k::cases("cases/halt-bug-rst")]
-    halt_bug_rst: { k: [Fetch(), ..], halt_bug: true, pc: p } => { k: [Fetch(), ..], halt_bug: false, pc: p };
+    /// halt-bug-refetch: after a bugged HALT, the opcode that follows is fetched again at the same address, whatever it is.
+    #[k::cases("cases/halt-bug-refetch")]
+    halt_bug_refetch: { k: [Fetch(), ..], halt_bug: true, pc: p } => { k: [Fetch(), ..], halt_bug: false, pc: p };
 }
 ```
 
 Each step, and each `unless`, is a cell record that denotes a set of states: it is read as a [readable claim](/verification/reachability-claims#readable-claims)'s subject is, by the same reader and the same entry table, so every entry means there what it means on a claim's left side, and is refused there as it is there.
 The step is the claim `{ .. } => {}` with no result, every cell it names only read, so kink is given exactly that claim's left side: `<k> dispatch ... </k> <memory> 65295 |-> Before:Int ... </memory> requires (Before:Int &Int 31) ==Int 4` for the first step above, `<k> boundary ... </k>` for its `unless`.
-A cell a step does not name is unconstrained, and a record may end in `..`, which says the same; nothing is carried from one step to the next, so steps share values only through binders, and a binder is one variable of the whole clause, of one sort (`krs::analysis::pattern-binder` when two of its occurrences have two sorts, naming both steps). In `halt_bug_rst`, `p` is the pc of the first fetch and the second must be at the same pc, at any later fetch, not only the next.
+A cell a step does not name is unconstrained, and a record may end in `..`, which says the same; nothing is carried from one step to the next, so steps share values only through binders, and a binder is one variable of the whole clause, of one sort (`krs::analysis::pattern-binder` when two of its occurrences have two sorts, naming both steps). In `halt_bug_refetch`, `p` is the pc of the first fetch and the second must be at the same pc, at any later fetch, not only the next.
 A variable KRS generates (a list's anonymous rest, for one) is its own step's, renamed apart per step, so two steps never share one by accident; a group binder that the record names by its cells (`frame: f @ Frame { pc: x, .. }`) is no variable there, and sharing it with another step is refused (`krs::analysis::pattern-binder`).
 An `unless`'s own binders are local to it, existential there: `unless({ k: [Store(_), ..] })` excludes any store; a name it shares with an earlier step is that step's value, and a name it shares with its own or a later step and no earlier one is refused, since the `unless` is asked before that step binds it (`krs::syntax::invalid-pattern`).
 

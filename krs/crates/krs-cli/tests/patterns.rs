@@ -111,8 +111,8 @@ k::rules! {
 }
 "#;
 
-/// The acceptance examples E1 (dispatch-request) and E2 (halt-bug-rst), a condition over two
-/// steps, and an expectation.
+/// The acceptance examples E1 (dispatch-request) and E2 (halt-bug-refetch), a condition over
+/// two steps, and an expectation. The package denies `non_snake_case` (FB56 P4a).
 const PATTERNS: &str = r#"#![deny(non_snake_case)]
 use spec::{IF, Low};
 
@@ -132,8 +132,9 @@ k::patterns! {
         memory: { IF -> after, .. },
     };
 
-    #[k::cases("cases/halt-bug-rst")]
-    halt_bug_rst: { k: [Fetch(), ..], halt_bug: true, pc: p } => { k: [Fetch(), ..], halt_bug: false, pc: p };
+    /// halt-bug-refetch: after a bugged HALT, the opcode that follows is fetched again at the same address, whatever it is.
+    #[k::cases("cases/halt-bug-refetch")]
+    halt_bug_refetch: { k: [Fetch(), ..], halt_bug: true, pc: p } => { k: [Fetch(), ..], halt_bug: false, pc: p };
 
     #[k::expect(no)]
     #[k::requires(d2 == d + 1 && Low(d) == 4)]
@@ -297,7 +298,7 @@ fn e1_and_e2_emit_each_step_as_the_k_its_claim_subject_is() {
         .iter()
         .map(|pattern| pattern.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["climbs", "dispatch-request", "halt-bug-rst"]);
+    assert_eq!(ids, ["climbs", "dispatch-request", "halt-bug-refetch"]);
     let [climbs, dispatch, halt] = emitted.as_slice() else {
         unreachable!()
     };
@@ -343,7 +344,18 @@ fn e1_and_e2_emit_each_step_as_the_k_its_claim_subject_is() {
         ]
     );
 
-    // E2: `p` is one variable of both steps.
+    // E2: `p` is one variable of both steps, so the pattern says that the opcode after a bugged
+    // HALT is fetched again at the same address, whatever it is, which its name and note state.
+    assert_eq!(
+        halt.note.as_deref(),
+        Some(
+            "halt-bug-refetch: after a bugged HALT, the opcode that follows is fetched again at the same address, whatever it is."
+        )
+    );
+    assert_eq!(
+        halt.programs.as_deref(),
+        Some(&["cases/halt-bug-refetch".to_owned()][..])
+    );
     assert_eq!(
         halt.steps
             .iter()
@@ -730,7 +742,7 @@ fn no_reader_of_claims_sees_a_part() {
     assert!(success, "{stderr}");
     for name in [
         "dispatch_request",
-        "halt_bug_rst",
+        "halt_bug_refetch",
         "climbs",
         "dispatch-request",
     ] {
