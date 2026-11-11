@@ -46,9 +46,9 @@ use crate::names::BuiltinSort;
 use crate::timings::PhaseTimings;
 
 use super::config::{
-    BuiltinTokenGrammar, add_bottom_subsort, add_casts, add_implicit_ml_syntax, add_k_syntax,
-    add_kitem_subsort, add_sort_bracket, add_subsort, add_synonym_casts, implicit_kseq_bracket,
-    nonterminal, reject_kernel_position_contradiction, truth,
+    BuiltinTokenGrammar, ModuleView, add_bottom_subsort, add_casts, add_implicit_ml_syntax,
+    add_k_syntax, add_kitem_subsort, add_sort_bracket, add_subsort, add_synonym_casts,
+    implicit_kseq_bracket, nonterminal, reject_kernel_position_contradiction, truth,
 };
 use super::location::{locate_ambiguity_places, span_location};
 use super::parser::{
@@ -530,7 +530,7 @@ fn rule_grammar_view_and_signature(
 ) -> (Vec<&Sentence>, usize) {
     let mut visible = resolved.signature_sentences(module);
     let signature = visible.len();
-    add_implicit_ml_syntax(resolved, &mut visible);
+    add_implicit_ml_syntax(resolved, ModuleView::Signature(module), &mut visible);
     inject_rule_cell_sentences(resolved, &mut visible);
     (visible, signature)
 }
@@ -543,7 +543,7 @@ pub(crate) fn grammar_injected_sentences(
 ) -> Vec<&Sentence> {
     let mut signature = resolved.signature_sentences(module);
     let signature_end = signature.len();
-    add_implicit_ml_syntax(resolved, &mut signature);
+    add_implicit_ml_syntax(resolved, ModuleView::Signature(module), &mut signature);
     inject_rule_cell_sentences(resolved, &mut signature);
     signature.split_off(signature_end)
 }
@@ -747,7 +747,7 @@ pub(crate) fn rule_language_productions(
 ) -> Vec<Sentence> {
     let mut view = resolved.sentences(module);
     let closure = view.len();
-    add_implicit_ml_syntax(resolved, &mut view);
+    add_implicit_ml_syntax(resolved, ModuleView::Visible(module), &mut view);
     inject_rule_cell_sentences(resolved, &mut view);
     let mut added = view[closure..]
         .iter()
@@ -1805,7 +1805,7 @@ endmodule
         let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         let mut visible = resolved.signature_sentences(module);
-        add_implicit_ml_syntax(resolved, &mut visible);
+        add_implicit_ml_syntax(resolved, ModuleView::Signature(module), &mut visible);
         assert!(
             visible.iter().any(|sentence| matches!(sentence,
                 Sentence::Production { parameters, sort, .. }

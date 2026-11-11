@@ -23,13 +23,21 @@
 //! ```toml algorithm
 //! id = "definition.resolve.sentences"
 //! name = "visible-sentence selection with bucketed equivalence deduplication"
-//! sites = ["ResolvedDefinition::select_sentence_locations", "ResolvedDefinition::sentence_classes", "ResolvedDefinition::import_closures", "united_inputs"]
-//! variable = "n_m = visible sentences for module m; v_m = modules module m imports transitively; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
+//! sites = ["ResolvedDefinition::select_sentence_locations", "ResolvedDefinition::select_signature_locations", "ResolvedDefinition::signature_sentences_absent_from", "ResolvedDefinition::sentence_classes", "ResolvedDefinition::import_closures", "united_inputs"]
+//! variable = "n_m = visible sentences for module m; v_m = modules module m imports transitively; s_m = candidate sentences of module m's signature; g = sentences of the added module's signature; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
 //! mode = "one module's first sentences or sentence_arcs call"
 //! bound = "O(v_m + n_m + n_m x a x A + u x (z + A)) expected"
+//!
+//! [[cost]]
+//! mode = "one module's first signature_sentences call"
+//! bound = "O(M + v_m log v_m + s_m) expected, after sentence_classes"
+//!
+//! [[cost]]
+//! mode = "signature_sentences_absent_from_signature or _visible"
+//! bound = "O(g + n_m) expected"
 //!
 //! [[cost]]
 //! mode = "first selection of a resolution (sentence_classes)"
@@ -41,7 +49,7 @@
 //! ```
 //!
 //! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
-//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module by the equivalence classes numbered once per resolution, the kept sentence of each class carrying the union of the class's input addresses (`united_inputs` clones it once per dropped sentence that adds one), and `signature_sentences` uses O(S^2 * eq) dedup.
+//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module by the equivalence classes numbered once per resolution, the kept sentence of each class carrying the union of the class's input addresses (`united_inputs` clones it once per dropped sentence that adds one), and `signature_sentences` keeps the first sentence of each class among a module's signature candidates by the same class numbers.
 //! `Counter::KompileResolveCalls` counts invocations.
 //!
 //! Resolution of flat, name-based modules into an import graph.
@@ -402,8 +410,11 @@ pub struct ResolvedDefinition {
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
     visible_sentences: Vec<OnceLock<Arc<[VisibleSentence]>>>,
     // The equivalence class of every local sentence of this graph, per module node, built on the
-    // first visible-sentence selection and shared by the selections of every module.
+    // first visible-sentence or signature selection and shared by the selections of every module.
     sentence_classes: OnceLock<Box<[Box<[u32]>]>>,
+    // The coordinates of every module's signature view, by module index, filled on the first
+    // `signature_sentences` call for the module; like `visible_sentences`, coordinates only.
+    signature_views: Vec<OnceLock<Arc<[SentenceLocation]>>>,
     // The transitive imports of every module, a function of the import graph alone, so a
     // resolution updated without import changes shares them with the one it was updated from.
     // By module index, each in dependency order.
@@ -489,6 +500,7 @@ impl ResolvedDefinition {
         };
         dependency_order.reverse();
         let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
+        let signature_views = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
         let production_catalogs = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
@@ -498,6 +510,7 @@ impl ResolvedDefinition {
             dependency_order,
             visible_sentences,
             sentence_classes: OnceLock::new(),
+            signature_views,
             import_closures: Arc::default(),
             declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
@@ -620,6 +633,12 @@ impl ResolvedDefinition {
             dependency_order: self.dependency_order.clone(),
             visible_sentences,
             sentence_classes: OnceLock::new(),
+            // Signature views start empty: each is recomputed from this graph's sentence classes
+            // on its first use, so none is carried over a change it would have to be proven
+            // independent of.
+            signature_views: (0..self.graph.node_count())
+                .map(|_| OnceLock::new())
+                .collect(),
             import_closures: Arc::clone(&self.import_closures),
             declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
@@ -822,17 +841,37 @@ impl ResolvedDefinition {
 
     /// The sentences a module sees: its local sentences plus the exported sentences
     /// of every direct import, following only public imports after that first edge.
+    ///
+    /// One sentence per equivalence class, the first in the order of
+    /// [`Self::signature_candidates`].
     pub fn signature_sentences(&self, module: ModuleId) -> Vec<&Sentence> {
-        let mut exported_modules = BTreeSet::new();
+        self.signature_locations(module)
+            .iter()
+            .map(|&location| self.located_sentence(location))
+            .collect()
+    }
+
+    fn signature_locations(&self, module: ModuleId) -> &[SentenceLocation] {
+        self.signature_views[module.0.index()]
+            .get_or_init(|| self.select_signature_locations(module))
+    }
+
+    /// The candidates of a module's signature, in order: the exported sentences of each module
+    /// it sees exports of, in dependency order, then its own local sentences.
+    fn signature_candidates(
+        &self,
+        module: ModuleId,
+    ) -> impl Iterator<Item = (SentenceLocation, &Sentence)> + '_ {
+        let mut exporters = BTreeSet::new();
         let mut pending = self
             .direct_imports(module)
             .into_iter()
             .map(|import| import.module)
             .collect::<Vec<_>>();
-        // Invariant: `exported_modules` contains expanded imports and `pending` contains the
+        // Invariant: `exporters` contains expanded imports and `pending` contains the
         // public-import frontier; each module is expanded at most once.
         while let Some(import) = pending.pop() {
-            if exported_modules.insert(import) {
+            if exporters.insert(import) {
                 pending.extend(
                     self.direct_imports(import)
                         .into_iter()
@@ -842,13 +881,118 @@ impl ResolvedDefinition {
             }
         }
 
-        let sentences = self
-            .dependency_order
+        self.dependency_order
             .iter()
-            .filter(|module| exported_modules.contains(module))
-            .flat_map(|module| self.public_sentences(*module))
-            .chain(self.module(module).local_sentences.iter().map(Arc::as_ref));
-        dedup_by_equivalence(sentences)
+            .copied()
+            .filter(move |owner| exporters.contains(owner))
+            .flat_map(move |owner| {
+                let exports = self.module(owner);
+                let module_is_private = exports.attributes.has(AttributeKey::Private);
+                exports
+                    .local_sentences
+                    .iter()
+                    .enumerate()
+                    .filter(move |(_, sentence)| exported(module_is_private, sentence))
+                    .map(move |(index, sentence)| ((owner, index), sentence.as_ref()))
+            })
+            .chain(
+                self.module(module)
+                    .local_sentences
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, sentence)| ((module, index), sentence.as_ref())),
+            )
+    }
+
+    /// Keep the first candidate of each equivalence class, in candidate order.
+    ///
+    /// Every candidate is a local sentence of this graph, so it has a class number, and two
+    /// local sentences have the same number exactly when they are equivalent
+    /// ([`Self::sentence_classes`]). Keeping a candidate when no earlier kept one is equivalent
+    /// to it therefore keeps it exactly when no earlier candidate has its number: an earlier
+    /// candidate of its class was either kept or dropped for an equivalent kept one, which is
+    /// then equivalent to it too. The kept candidates are the same sentences, in the same order,
+    /// as structural deduplication of the candidates keeps, without comparing any two.
+    fn select_signature_locations(&self, module: ModuleId) -> Arc<[SentenceLocation]> {
+        let classes = self.sentence_classes();
+        let mut kept = rustc_hash::FxHashSet::<u32>::default();
+        let locations = self
+            .signature_candidates(module)
+            .filter(|&((owner, index), _)| kept.insert(classes[owner.0.index()][index]))
+            .map(|(location, _)| location)
+            .collect::<Vec<_>>();
+        debug_assert!(
+            measure::without_counting(|| {
+                let structural =
+                    dedup_by_equivalence(self.signature_candidates(module).map(|(_, s)| s));
+                structural.len() == locations.len()
+                    && structural
+                        .iter()
+                        .zip(&locations)
+                        .all(|(sentence, &location)| {
+                            std::ptr::eq(*sentence, self.located_sentence(location))
+                        })
+            }),
+            "the signature view of {} differs from structural deduplication",
+            self.module(module).name
+        );
+        locations.into()
+    }
+
+    /// The sentences of `added`'s signature that no sentence of `module`'s signature is
+    /// equivalent to, in signature order.
+    pub(crate) fn signature_sentences_absent_from_signature(
+        &self,
+        added: ModuleId,
+        module: ModuleId,
+    ) -> Vec<&Sentence> {
+        let view = self.signature_locations(module);
+        self.signature_sentences_absent_from(added, view.iter().copied())
+    }
+
+    /// The sentences of `added`'s signature that no sentence of `module`'s visible view
+    /// ([`Self::sentences`]) is equivalent to, in signature order.
+    pub(crate) fn signature_sentences_absent_from_visible(
+        &self,
+        added: ModuleId,
+        module: ModuleId,
+    ) -> Vec<&Sentence> {
+        let view = self.visible_sentences[module.0.index()]
+            .get_or_init(|| self.select_sentence_locations(module));
+        // A visible sentence carrying united input addresses differs from the sentence at its
+        // location only in those addresses, which equivalence ignores, so it has that class.
+        self.signature_sentences_absent_from(added, view.iter().map(|visible| visible.location))
+    }
+
+    /// The sentences of `added`'s signature whose class no location of `view` has.
+    ///
+    /// The signature keeps one sentence per class, so its sentences have distinct classes, and
+    /// one of them is equivalent to a sentence of the view exactly when the view has its class.
+    fn signature_sentences_absent_from(
+        &self,
+        added: ModuleId,
+        view: impl Iterator<Item = SentenceLocation>,
+    ) -> Vec<&Sentence> {
+        let classes = self.sentence_classes();
+        let class = |(owner, index): SentenceLocation| classes[owner.0.index()][index];
+        let signature = self.signature_locations(added);
+        let position = signature
+            .iter()
+            .enumerate()
+            .map(|(position, &location)| (class(location), position))
+            .collect::<rustc_hash::FxHashMap<_, _>>();
+        let mut present = vec![false; signature.len()];
+        for location in view {
+            if let Some(&position) = position.get(&class(location)) {
+                present[position] = true;
+            }
+        }
+        signature
+            .iter()
+            .zip(present)
+            .filter(|(_, present)| !present)
+            .map(|(&location, _)| self.located_sentence(location))
+            .collect()
     }
 
     /// The local sentences a module exports: in a `private` module those marked `public`,
@@ -859,15 +1003,19 @@ impl ResolvedDefinition {
         module
             .local_sentences
             .iter()
-            .filter(|sentence| {
-                if module_is_private {
-                    sentence.attributes().has(AttributeKey::Public)
-                } else {
-                    !sentence.attributes().has(AttributeKey::Private)
-                }
-            })
+            .filter(|sentence| exported(module_is_private, sentence))
             .map(Arc::as_ref)
             .collect()
+    }
+}
+
+/// Whether a module exports one of its local sentences: in a `private` module one marked
+/// `public`, otherwise one not marked `private`.
+fn exported(module_is_private: bool, sentence: &Sentence) -> bool {
+    if module_is_private {
+        sentence.attributes().has(AttributeKey::Public)
+    } else {
+        !sentence.attributes().has(AttributeKey::Private)
     }
 }
 
@@ -1379,6 +1527,72 @@ mod tests {
             assert_eq!(updated.sentences(id), resolved.sentences(id));
         }
         assert_eq!(updated.sentences(updated.main_module_id()).len(), 2);
+    }
+
+    /// A signature keeps the first sentence of each class in candidate order (exporters in
+    /// dependency order, then the module's own), by the sentence of that coordinate; the view is
+    /// cached; and the sentences of another signature absent from it are those of the classes it
+    /// lacks, in that signature's order.
+    #[test]
+    fn signature_views_keep_first_class_members_and_report_absent_classes() {
+        let import = |name: &str| FlatImport {
+            name: name.into(),
+            public: true,
+        };
+        let mut main = module("MAIN", sort_sentence("X"));
+        main.local_sentences.push(Arc::new(sort_sentence("Y")));
+        main.imports = vec![import("A"), import("B")];
+        let mut added = module("ADDED", sort_sentence("Z"));
+        added.local_sentences.push(Arc::new(sort_sentence("Y")));
+        added.local_sentences.push(Arc::new(sort_sentence("W")));
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                main,
+                module("A", sort_sentence("X")),
+                module("B", sort_sentence("X")),
+                added,
+            ],
+            attributes: Attributes::default(),
+        };
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let main = resolved.main_module_id();
+        let first_exporter = resolved
+            .dependency_order()
+            .iter()
+            .copied()
+            .find(|&id| ["A", "B"].contains(&resolved.module(id).name.as_str()))
+            .unwrap();
+
+        let signature = resolved.signature_sentences(main);
+        assert_eq!(signature.len(), 2);
+        assert!(std::ptr::eq(
+            signature[0],
+            resolved.module(first_exporter).local_sentences[0].as_ref()
+        ));
+        assert!(std::ptr::eq(
+            signature[1],
+            resolved.module(main).local_sentences[1].as_ref()
+        ));
+        assert!(resolved.signature_views[main.0.index()].get().is_some());
+        let again = resolved.signature_sentences(main);
+        assert!(
+            signature
+                .iter()
+                .zip(&again)
+                .all(|(left, right)| std::ptr::eq(*left, *right))
+        );
+
+        let added = resolved.module_id("ADDED").unwrap();
+        let local = &resolved.module(added).local_sentences;
+        for absent in [
+            resolved.signature_sentences_absent_from_signature(added, main),
+            resolved.signature_sentences_absent_from_visible(added, main),
+        ] {
+            assert_eq!(absent.len(), 2);
+            assert!(std::ptr::eq(absent[0], local[0].as_ref()));
+            assert!(std::ptr::eq(absent[1], local[2].as_ref()));
+        }
     }
 
     /// The order `compare_erased_terms` computes, stated recursively: the terms' kinds, then the

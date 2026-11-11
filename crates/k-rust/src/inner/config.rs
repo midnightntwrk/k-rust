@@ -25,6 +25,8 @@
 use std::cell::OnceCell;
 use std::fmt;
 
+use k_rust_kore::measure;
+
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, EquivalenceAccumulator, LabelHead, LabelResultSort, Location, ModuleId,
@@ -391,7 +393,7 @@ fn configuration_rule_productions(
     module: ModuleId,
 ) -> Vec<Sentence> {
     let mut visible = resolved.signature_sentences(module);
-    add_implicit_ml_syntax(resolved, &mut visible);
+    add_implicit_ml_syntax(resolved, ModuleView::Signature(module), &mut visible);
     visible.retain(|sentence| !is_cell_production(sentence));
     super::rules::configuration_rule_language(&visible)
 }
@@ -407,7 +409,7 @@ fn configuration_grammar(
 ) -> Result<Grammar, ParseError> {
     let mut visible = resolved.signature_sentences(module);
     let signature = visible.len();
-    add_implicit_ml_syntax(resolved, &mut visible);
+    add_implicit_ml_syntax(resolved, ModuleView::Signature(module), &mut visible);
     reject_kernel_position_contradiction(&visible)?;
     // Start sorts and #token sort strings denote in the module's full view. SortUniverse
     // still restricts generated casts to aliases declared in this grammar's own view.
@@ -557,22 +559,57 @@ pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&At
         })
 }
 
+/// The view of a module that [`add_implicit_ml_syntax`] extends.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ModuleView {
+    /// [`ResolvedDefinition::signature_sentences`] of the module.
+    Signature(ModuleId),
+    /// [`ResolvedDefinition::sentences`] of the module.
+    Visible(ModuleId),
+}
+
 /// The reference rule and configuration grammar seed imports `K`, whose
 /// `KSEQ-SYMBOLIC` import contributes `ML-SYNTAX` independently of the user
 /// module signature. The hand-built seed models the rest of that syntax.
+///
+/// `visible` is the sentence list of `view`. It gains the sentences of ML-SYNTAX's signature
+/// that are equivalent neither to one of its sentences nor to one gained before. Every sentence
+/// of both lists is a local sentence of `resolved` (or, in a visible view, one equivalent to the
+/// local sentence at its coordinates), so the resolution answers by equivalence class without
+/// comparing sentences; ML-SYNTAX's signature holds one sentence per class, so no gained sentence
+/// is equivalent to one gained before.
 pub(super) fn add_implicit_ml_syntax<'a>(
     resolved: &'a ResolvedDefinition,
+    view: ModuleView,
     visible: &mut Vec<&'a Sentence>,
 ) {
     let Some(module) = resolved.module_id("ML-SYNTAX") else {
         return;
     };
-    let mut unique = EquivalenceAccumulator::from_sentences(visible.iter().copied());
-    let accepted = resolved
-        .signature_sentences(module)
-        .into_iter()
-        .filter(|sentence| push_if_inequivalent(&mut unique, sentence))
-        .collect::<Vec<_>>();
+    let accepted = match view {
+        ModuleView::Signature(viewed) => {
+            resolved.signature_sentences_absent_from_signature(module, viewed)
+        }
+        ModuleView::Visible(viewed) => {
+            resolved.signature_sentences_absent_from_visible(module, viewed)
+        }
+    };
+    debug_assert!(
+        measure::without_counting(|| {
+            let mut unique = EquivalenceAccumulator::from_sentences(visible.iter().copied());
+            let structural = resolved
+                .signature_sentences(module)
+                .into_iter()
+                .filter(|sentence| push_if_inequivalent(&mut unique, sentence))
+                .collect::<Vec<_>>();
+            structural.len() == accepted.len()
+                && structural
+                    .iter()
+                    .zip(&accepted)
+                    .all(|(left, right)| std::ptr::eq(*left, *right))
+        }),
+        "the ML-SYNTAX sentences added to {view:?} differ from structural deduplication"
+    );
     visible.extend(accepted);
 }
 
@@ -1146,7 +1183,7 @@ endmodule
         let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         let mut visible = resolved.signature_sentences(module);
-        add_implicit_ml_syntax(resolved, &mut visible);
+        add_implicit_ml_syntax(resolved, ModuleView::Signature(module), &mut visible);
         for parameter in ["Sort", "Sort1", "Sort2"] {
             assert!(
                 visible.iter().any(|sentence| matches!(sentence,
