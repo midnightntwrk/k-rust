@@ -3939,6 +3939,9 @@ fn an_exact_cells_subject_is_judged_by_the_cells_its_author_names() {
         emitted_sentence(target.path(), &manifest, "make")
     };
     let open = "acc: k::configuration::Cell(x), frame: k::fragment![crate::Frame { pc: x, .. }]";
+    let open_rest = format!("{open}, ..");
+    let wildcard = "acc: k::configuration::Cell(a), frame: _";
+    let record = "acc: k::configuration::Cell(a), frame: k::fragment![crate::Frame { .. }]";
     let mut admitted = Vec::new();
     for claim in [false, true] {
         let form = if claim { "claim" } else { "rule" };
@@ -3946,27 +3949,14 @@ fn an_exact_cells_subject_is_judged_by_the_cells_its_author_names() {
             &format!("{form}-rest"),
             &whole_cells(claim, "", "acc: k::configuration::Cell(a), ..", open),
         );
-        for (name, parameters, subject) in [
-            ("wildcard", "", "acc: k::configuration::Cell(a), frame: _"),
-            (
-                "record",
-                "",
-                "acc: k::configuration::Cell(a), frame: k::fragment![crate::Frame { .. }]",
-            ),
-            (
-                "result-rest",
-                "",
-                "acc: k::configuration::Cell(a), frame: _",
-            ),
+        for (name, subject, result) in [
+            ("wildcard", wildcard, open),
+            ("record", record, open),
+            ("result-rest", wildcard, open_rest.as_str()),
         ] {
-            let result = if name == "result-rest" {
-                format!("{open}, ..")
-            } else {
-                open.to_owned()
-            };
             let sentence = emitted(
                 &format!("{form}-{name}"),
-                &whole_cells(claim, parameters, subject, &result),
+                &whole_cells(claim, "", subject, result),
             );
             assert_eq!(sentence, rest, "{form}-{name}");
         }
