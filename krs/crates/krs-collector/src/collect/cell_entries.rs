@@ -1918,7 +1918,8 @@ fn dropped(parents: &[Option<usize>], anchor: Option<usize>, index: usize) -> us
 ///   instance's identity, which no update writes another of);
 /// - `rest-mismatch`: the rest on both sides;
 /// - `map-collection-key`: a created instance's key, its first child; an update keeps it;
-/// - `record-update-base`: the label its subject gives the instance the update keeps.
+/// - `record-update-base`: the label its subject gives the instance the update keeps;
+/// - `list-back-kept`: the back instance named whole on both sides ([`list_back_kept`]).
 fn advice(
     form: EntryForm,
     entry: &RefusedCell<'_>,
@@ -1959,6 +1960,7 @@ fn advice(
             };
             Some(format!("write its key first, `{key}: ..`"))
         }
+        Refusal::ListBackKept => list_back_kept(own, rewrite, claim),
         Refusal::RecordUpdateBase => {
             let label = entry.spelling.and_then(update_label)?;
             let group = match own {
@@ -1976,6 +1978,33 @@ fn advice(
         }
         _ => None,
     }
+}
+
+/// The advice of a List collection's back instance matched in place (`list-back-kept`), whose
+/// collection has the layers `layers`: the way, accepted today, to state the same step. A record
+/// naming every child of the instance, on both sides, is no update in place: the sentence removes
+/// the subject's instance and creates the result's at the back, which leaves the list the step in
+/// place would, a read included (the result restating the instance). A single-body rule states
+/// it as a rule with a result. A context has no result, so none.
+fn list_back_kept(layers: &[Layer], rewrite: Rewrite, claim: bool) -> Option<String> {
+    let [Layer::Instances(Order::List), Layer::Group(group), ..] = layers else {
+        return None;
+    };
+    let children = group
+        .children
+        .iter()
+        .map(|(child, _)| format!("`{}`", unraw(child)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let (write, sentence) = match rewrite {
+        Rewrite::Result if claim => ("", "the claim"),
+        Rewrite::Result => ("", "the rule"),
+        Rewrite::InPlace => ("write the rule with a result, and ", "it"),
+        Rewrite::Kept { .. } => return None,
+    };
+    Some(format!(
+        "{write}name every child of the back instance ({children}) without `..`, in the subject and again in the result's list: {sentence} then removes the instance and creates the result's at the back, which leaves the same list as the step in place"
+    ))
 }
 
 /// The advice of a path refusal of the entry `entry`, below its outermost `?` or `*` ancestor

@@ -1111,6 +1111,8 @@ fn a_move_names_its_binders_apart_and_writes_a_created_instance() {
 
 /// A List's back instance written on both sides, its result keeping children with `..`, is the
 /// instance updated in place, which KRS does not emit at the back: refused, as its labelled twin.
+/// The refusal's way out (CELLS4) names every child on both sides: the rule removes the instance
+/// and creates the result's at the back, the same list, `lmem` kept through its binder.
 #[test]
 fn a_back_instance_updated_in_place_is_refused_as_its_labelled_twin() {
     let target = shared_fixture_target();
@@ -1138,5 +1140,25 @@ fn a_back_instance_updated_in_place_is_refused_as_its_labelled_twin() {
     })
     .collect::<Vec<_>>();
     assert_eq!(errors[0], errors[1]);
-    expect_test::expect!["error[krs::analysis::collection-entry]: a back instance of the List collection `lob` is matched in place; KRS creates or removes instances at the back, and reads and updates them at the front"].assert_eq(&errors[0]);
+    expect_test::expect!["error[krs::analysis::collection-entry]: a back instance of the List collection `lob` is matched in place; KRS creates or removes instances at the back, and reads and updates them at the front; name every child of the back instance (`lval`, `lmem`) without `..`, in the subject and again in the result's list: the rule then removes the instance and creates the result's at the back, which leaves the same list as the step in place"].assert_eq(&errors[0]);
+    let rules = "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    last: { k: [Pupd(x), ..], lob: [.., Lob { lval: v, lmem: m }] } => { k: [..], lob: [.., Lob { lval: int::add(v, x), lmem: m }] };\n}\n";
+    let manifest = package_of(
+        temporary.path(),
+        "back-advised",
+        &TWINS.replace("{RULES}", rules),
+    );
+    expect_test::expect![[r#"
+        rule [last]:
+            <k> pupd X:Int => .K ... </k>
+            <lobs>
+                _Instances1:Bag
+                (<lob>
+                    <lval> V:Int </lval>
+                    <lmem> M:Int </lmem>
+                </lob> => .Bag)
+                (.Bag => <lob>
+                    <lval> V:Int +Int X:Int </lval>
+                    <lmem> M:Int </lmem>
+                </lob>)
+            </lobs>"#]].assert_eq(rule(&emitted_k(target.path(), &manifest), "last"));
 }
