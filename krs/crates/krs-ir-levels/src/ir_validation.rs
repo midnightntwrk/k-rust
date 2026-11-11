@@ -2333,7 +2333,8 @@ fn validate_term_node<L: Validation>(
                 nodes,
             )?;
             // A K-sequence item that rewrites to `.K` keeps its own sort
-            // (KF-011); the item is removed.
+            // (KF-011); the item is removed. Where `.K` stands elsewhere
+            // ([`local_rewrites_valid`]) the rewrite has its sort.
             let removes_item = matches!(to.kind(), IrTermKind::KSequence { items, .. } if items.is_empty())
                 && from.sort() == term.sort();
             if !is_subsort::<L>(from.sort(), term.sort(), sort_parents)
@@ -2901,13 +2902,16 @@ pub(crate) fn find_map_rest<L: IrLevel>(term: &IrTerm<L>) -> Option<&IrTerm<L>> 
 
 /// Whether the local rewrites of a single-body term are well placed
 /// (KF-011): none inside another rewrite, and a right side `.K` (an empty K
-/// sequence) only on a whole K-sequence item.
+/// sequence) only where K is admissible: on a whole K-sequence item, which it
+/// removes, or where the rewrite has the sort of `.K` itself.
 fn local_rewrites_valid<L: Validation>(term: &IrTerm<L>, item: bool) -> bool {
     match term.kind() {
         IrTermKind::Rewrite { from, to } => {
             let empty =
                 matches!(to.kind(), IrTermKind::KSequence { items, .. } if items.is_empty());
-            (!empty || item) && !from.contains_rewrite() && !to.contains_rewrite()
+            (!empty || item || to.sort() == term.sort())
+                && !from.contains_rewrite()
+                && !to.contains_rewrite()
         }
         IrTermKind::KSequence { items, .. } => {
             items.iter().all(|child| local_rewrites_valid(child, true))

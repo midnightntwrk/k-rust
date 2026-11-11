@@ -191,7 +191,6 @@ details! {
         InitializerClosure => "an `ml::exists` closure (#Exists) is not allowed in initializers",
         RewriteOutsideSingleBodyRule => "`k::rewrite!` (K's local =>) is allowed only in the subject of a single-body rule",
         NestedRewrite => "`k::rewrite!` cannot occur inside another rewrite",
-        EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
         SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
         InvalidEvaluationStep => "a heat or cool key is allowed only on a transition without priority, nondet group, anywhere marker, or fresh binders, with the heat, cool, hole, and result-sort roles",
         InitialRequiresMultiplicity => "`initial` requires an optional or collection multiplicity",
@@ -306,7 +305,6 @@ details! {
         InvalidPredicateRule => "a predicate rule (`ml::Predicate` subject and result) is allowed only on a simplification",
         RewriteOutsideSingleBodyRule => "`k::rewrite!` (K's local =>) is allowed only in the subject of a single-body rule",
         NestedRewrite => "`k::rewrite!` cannot occur inside another rewrite",
-        EmptyRewriteOutsideKSequence => "`()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item",
         SingleBodyRuleWithoutRewrite => "a single-body rule has no result and must contain a `k::rewrite!`",
         InvalidEvaluationStep => "a heat or cool key is allowed only on a transition without priority, nondet group, anywhere marker, or fresh binders, with the heat, cool, hole, and result-sort roles",
     }
@@ -346,8 +344,7 @@ mod tests {
             "invalid term: invalid anonymous sort"
         );
         // Where the sentence is known, the term's refusal names it.
-        let refused =
-            StateTransportError::InvalidTerm(StateTermReason::EmptyRewriteOutsideKSequence);
+        let refused = StateTransportError::InvalidTerm(StateTermReason::InvalidAnonymousSort);
         assert_eq!(
             [
                 crate::ItemKind::Configuration,

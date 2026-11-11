@@ -868,7 +868,13 @@ impl StructuredTermBuilder<'_> {
                     "closures introduce quantified binders only inside ml::exists".to_owned(),
                 ));
             }
-            DescriptorTerm::Rewrite { key, from, to, .. } => {
+            DescriptorTerm::Rewrite {
+                key,
+                to_key,
+                from,
+                to,
+                ..
+            } => {
                 if !subject {
                     return Err(self.refused_position(key, "`k::rewrite!`"));
                 }
@@ -879,6 +885,22 @@ impl StructuredTermBuilder<'_> {
                 self.infer(from, from_sort.as_ref(), true)?;
                 if let Some(to) = to {
                     self.infer(to, to_sort.as_ref(), false)?;
+                } else {
+                    // `()` is `.K`, a term of sort K, so it stands where K is admissible: at a
+                    // place of sort K, or as a whole K-sequence item, a place of no stated sort,
+                    // which the rewrite removes.
+                    self.admit(
+                        to_key,
+                        || "`()`".to_owned(),
+                        &SemanticSortRef::k_sequence(),
+                        to_sort.as_ref(),
+                        |expected| {
+                            format!("`()` (.K) of sort K is not admissible at sort {expected}")
+                        },
+                    )
+                    .map_err(|error| {
+                        error.within(self.descriptor.id(), self.authored_range(to_key).as_deref())
+                    })?;
                 }
             }
         }
@@ -976,8 +998,8 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// Lowers `k::rewrite!(from => to)` (KF-011) at the join of its sides'
-    /// sorts; `()` on the right is `.K`, which removes a K-sequence item and
-    /// keeps the item's sort.
+    /// sorts; `()` on the right is `.K`, which at a whole K-sequence item
+    /// removes the item and keeps the item's sort.
     fn lower_rewrite(
         &mut self,
         key: &ProvenanceKey,
@@ -1006,8 +1028,10 @@ impl StructuredTermBuilder<'_> {
                 };
                 (sort, to)
             }
+            // At a place of sort K the rewrite has that sort; a whole K-sequence item, whose
+            // place states none, keeps the removed item's.
             None => (
-                from.sort().clone(),
+                expected_sort.unwrap_or(from.sort()).clone(),
                 SemanticTerm::k_sequence(
                     semantic_origin(self.descriptor, to_key.clone(), "rule-local-rewrite-dot-k")?,
                     SemanticSortRef::k_sequence(),

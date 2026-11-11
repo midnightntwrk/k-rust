@@ -4411,35 +4411,6 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         leaf-rewrite: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>"]].assert_eq(&accepted.join("\n"));
 }
 
-/// CELLS4 item 6: a term the configuration transport refuses names the sentence whose term it
-/// is. `()` (.K) as a rewrite's right side away from a whole K-sequence item reaches the
-/// transport from a single-body rule and from a context alike, and was framed "invalid
-/// initializer term" for both.
-#[test]
-fn a_term_the_transport_refuses_names_its_sentence() {
-    let target = shared_fixture_target();
-    let temporary = temp_dir();
-    let lines = [
-        (
-            "rule",
-            single_body("\n    a: Int,", "acc: k::configuration::Cell(k::rewrite!(a => ()))"),
-        ),
-        (
-            "context",
-            format!(
-                "{SINGLE_BODY}#[k::context(hole = h)]\nfn ctx(\n    h: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x: k::rewrite!(h => ()) }}, ..), .. }}: Machine,\n) {{}}\n"
-            ),
-        ),
-    ]
-    .map(|(name, source)| {
-        let manifest = library_package(temporary.path(), &format!("transport-{name}"), &source);
-        format!("{name}: {}", first_error(target.path(), &manifest))
-    });
-    expect_test::expect![[r"
-        rule: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid rule term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:8
-        context: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid context term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:4"]].assert_eq(&lines.join("\n"));
-}
-
 /// A `SINGLE_BODY` single-body rule `make` over `x: Int` and the binders of `parameters` that
 /// removes `make(x)` from the computation and rewrites the cells of `entries`.
 fn single_body(parameters: &str, entries: &str) -> String {
@@ -5420,4 +5391,125 @@ fn a_present_optional_group_is_stated_present() {
     );
     expect_test::expect!["error[krs::analysis::collection-entry]: not supported yet: `x` binds the present group `ogroup`, which the result rewrites, and the rule reads `x` elsewhere: a `cells!` rule cannot rebuild the group `x` matched from its children; bind them instead, `Some(k::fragment![crate::Gp { pa: pa, pb: pb }])`, and write that group where `x` is read"]
         .assert_eq(&check_errors(target.path(), &manifest));
+}
+
+/// `SINGLE_BODY` with `hold(x)`, an Int field, and `keep(body)`, a field of sort `KSequence`.
+fn dot_k_fixture() -> String {
+    SINGLE_BODY.replace(
+        "    Make { x: Int },\n",
+        "    Make { x: Int },\n    #[k::syntax(\"hold({x})\")]\n    Hold { x: Int },\n    #[k::syntax(\"keep({body})\")]\n    Keep { body: KSequence },\n",
+    )
+}
+
+/// TERMDOTK: `()` on a rewrite's right is `.K`, a term of sort K, so it stands where K is
+/// admissible: as a whole K-sequence item, which the rewrite removes, or at a place of sort K, a
+/// field of sort `KSequence`, which it writes empty (`keep((B:K => .K))`). Anywhere else it is no
+/// value of its place, the author's mistake that every other wrongly-sorted right side is, with
+/// that side's class, text and location, on the `cells!` and the term route, in a rule and in a
+/// context. It was refused by a structural check that knew only K-sequence items: framed as the
+/// configuration descriptor's on the `cells!` route, an internal error on the term route, and a
+/// field of sort K refused with them. A readable clause and an equation never hold a rewrite.
+#[test]
+fn a_dot_k_right_side_stands_where_k_is_admissible() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let fixture = dot_k_fixture();
+    let removal = "k: k::configuration::KCell(k::rewrite!(Cmd::Make { x } => ()), ..)";
+    let cells = |parameters: &str, entries: &str| {
+        format!(
+            "{fixture}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,{parameters}\n    k::cells! {{ {entries}, .. }}: Machine,\n) {{}}\n"
+        )
+    };
+    let term = |parameters: &str, subject: &str| {
+        format!(
+            "{fixture}#[k::rule(label = \"make\")]\npub fn make(\n    {parameters}\n    k::term![{subject}]: k::Term<Stmt>,\n) {{}}\n"
+        )
+    };
+    let cells_context = |entry: &str| {
+        format!(
+            "{fixture}#[k::context(hole = h)]\nfn ctx(\n    h: Int,\n    k::cells! {{ k: k::configuration::KCell({entry}, ..), .. }}: Machine,\n) {{}}\n"
+        )
+    };
+    let term_context = |subject: &str| {
+        format!(
+            "{fixture}#[k::context(hole = h)]\nfn ctx(\n    h: Int,\n    k::term![{subject}]: k::Term<Stmt>,\n) {{}}\n"
+        )
+    };
+    let refused = [
+        ("cells-rule/int-leaf", cells("\n    a: Int,", &format!("{removal}, acc: k::configuration::Cell(k::rewrite!(a => ()))"))),
+        ("cells-rule/map-leaf", cells("\n    e: Map,", &format!("{removal}, env: k::configuration::Cell(k::rewrite!(e => ()))"))),
+        ("cells-rule/group-child", cells("\n    p: Int,", &format!("{removal}, crate::Frame::pc: k::configuration::Cell(k::rewrite!(p => ()))"))),
+        ("cells-rule/map-value", cells("", &format!("{removal}, env: k::configuration::Cell(map![1 -> k::rewrite!(_ => ()), ..])"))),
+        ("cells-rule/item-field", cells("", "k: k::configuration::KCell(Cmd::Hold { x: k::rewrite!(x => ()) }, ..)")),
+        ("cells-rule/other-term", cells("\n    a: Int,", &format!("{removal}, acc: k::configuration::Cell(k::rewrite!(a => true))"))),
+        ("cells-context/item-field", cells_context("Cmd::Hold { x: k::rewrite!(h => ()) }")),
+        ("term-rule/field", term("x: Int,", "Cmd::Hold { x: k::rewrite!(x => ()) }")),
+        ("term-rule/other-term", term("x: Int,", "Cmd::Hold { x: k::rewrite!(x => true) }")),
+        ("term-rule/root", term("x: Int,", "k::rewrite!(Cmd::Make { x } => ())")),
+        ("term-context/field", term_context("Cmd::Hold { x: k::rewrite!(h => ()) }")),
+        ("equation", format!("{fixture}#[k::function(total)]\npub fn Peek(a: k::Term<Int>) -> k::Term<Int>;\n\n#[k::equation]\nfn peek(a: Int, k::term![Peek(k::rewrite!(a => ()))]: k::Term<Int>) -> k::Term<Int> {{\n    a\n}}\n")),
+        ("readable-rule", format!("{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    make: {{ k: [k::rewrite!(Make {{ x }} => ()), ..] }} => {{ k: [..] }};\n}}\n")),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("dot-k-{}", name.replace('/', "-")), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r"
+        cells-rule/int-leaf: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 84:130
+        cells-rule/map-leaf: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Map @ 84:130
+        cells-rule/group-child: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 84:143
+        cells-rule/map-value: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort KRS-FRAMEWORK::KItem (sort) @ 83:140
+        cells-rule/item-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 83:76
+        cells-rule/other-term: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): literal `true` of sort Bool is not admissible at sort Int @ 84:130
+        cells-context/item-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::ctx (context): `()` (.K) of sort K is not admissible at sort Int @ 83:76
+        term-rule/field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 83:46
+        term-rule/other-term: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): literal `true` of sort Bool is not admissible at sort Int @ 83:46
+        term-rule/root: error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root @ 83:14
+        term-context/field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::ctx (context): `()` (.K) of sort K is not admissible at sort Int @ 83:46
+        equation: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state @ 84:31
+        readable-rule: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern; here it stands in the subject of a readable rule @ 83:17"]].assert_eq(&refused.join("\n"));
+    let admitted = [
+        ("cells-rule/item", cells("\n    a: Int,", &format!("{removal}, acc: k::configuration::Cell(k::rewrite!(a => x))"))),
+        ("cells-rule/k-field", cells("\n    b: KSequence,", "acc: k::configuration::Cell(x), k: k::configuration::KCell(Cmd::Keep { body: k::rewrite!(b => ()) }, ..)")),
+        ("term-rule/k-field", term("b: KSequence,", "Cmd::Keep { body: k::rewrite!(b => ()) }")),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("dot-k-{}", name.replace('/', "-")), &source);
+        if name.starts_with("term-") {
+            // A term-shaped rule carries its label as an attribute.
+            let k = emitted_k(target.path(), &manifest);
+            let rule = k
+                .lines()
+                .map(str::trim)
+                .find(|line| line.ends_with("[label(make)]"))
+                .unwrap_or_else(|| panic!("`make` is emitted:\n{k}"))
+                .to_owned();
+            format!("{name}: {rule}")
+        } else {
+            format!("{name}: {}", emitted_sentence(target.path(), &manifest, "make"))
+        }
+    });
+    expect_test::expect![[r"
+        cells-rule/item: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>
+        cells-rule/k-field: rule [make]: <acc> X:Int </acc> <k> keep ( (B:K => .K) ) ... </k>
+        term-rule/k-field: rule keep ( (B:K => .K) ) [label(make)]"]].assert_eq(&admitted.join("\n"));
+    // The admitted field rule runs: `split` and `wrap` turn `make(1)` into `keep(hold(1))`, and
+    // `make` empties its field once, `acc` going from 0 to 1.
+    let manifest = library_package(
+        temporary.path(),
+        "dot-k-run",
+        &format!(
+            "{fixture}#[k::rule(label = \"make\")]\npub fn make(\n    b: KSequence,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Keep {{ body: k::rewrite!(b => ()) }}, ..), acc: k::configuration::Cell(k::rewrite!(0 => 1)), .. }}: Machine,\n) {{}}\n\nk::rules! {{\n    for Stmt;\n    use Cmd::*;\n    split: Make {{ x }} => k::k![Hold {{ x }}, Hold {{ x }}];\n}}\n\n#[k::rule(label = \"wrap\")]\npub fn wrap(\n    k::cells! {{ k: k::configuration::KCell(Cmd::Hold {{ x: _ }}, rest @ ..), .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(Cmd::Keep {{ body: rest }}), .. }}\n}}\n"
+        ),
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "make(1)").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<generatedTop> <k> keep(.K) ~> .K </k> <acc> 1 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }

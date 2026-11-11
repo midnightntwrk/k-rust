@@ -1697,9 +1697,6 @@ struct RuleWalk {
     /// left image's bindings: its existentials and fresh binders, values of
     /// the after-state those right sides write.
     rewrite_right_names: BTreeSet<String>,
-    /// Whether the term being validated is a whole K-sequence item, whose
-    /// root rewrite may remove it (`k::rewrite!(x => ())`).
-    k_item_root: bool,
     /// How many sets' elements, and `cells!` map keys, enclose the term
     /// ([`TermValidation::set_element`]).
     set_elements: usize,
@@ -2622,17 +2619,14 @@ fn validate_rule_state<S: RuleValidationStage>(
         ProtocolRuleStateTerm::KSequence(sequence) => {
             validate_k_shell(sequence)?;
             for item in &sequence.items {
-                walk.k_item_root = true;
-                let validated = validate_rule_term::<S>(
+                validate_rule_term::<S>(
                     &item.value,
                     side.into(),
                     bindings,
                     discovered,
                     walk,
                     keys,
-                );
-                walk.k_item_root = false;
-                validated?;
+                )?;
             }
             if sequence.notation == DescriptorKSequenceNotation::DotK
                 // Every result-side anonymous tail of a K sequence is admitted here, wherever it
@@ -2911,12 +2905,6 @@ fn validate_rule_term<S: ValidationStage>(
     walk: &mut RuleWalk,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    // `k::rewrite!(x => ())` removes a whole K-sequence item (KF-011).
-    if super::validation::misplaced_empty_rewrite(term, walk.k_item_root) {
-        return Err(StateTransportError::InvalidTerm(
-            StateTermReason::EmptyRewriteOutsideKSequence,
-        ));
-    }
     validate_term(
         term,
         &mut RuleTermValidation {

@@ -1732,8 +1732,8 @@ stage_shape! {
             to_key: ProvenanceKey => [keep],
             /// The left side, a pattern.
             from: Box<Term<S>> => [box nested],
-            /// The right side; `None` is `()`, K's `.K`, admitted only as a
-            /// whole K-sequence item (the item is removed).
+            /// The right side; `None` is `()`, K's `.K`, which at a whole
+            /// K-sequence item removes the item.
             #[serde(default, skip_serializing_if = "Option::is_none")]
             to: Option<Box<Term<S>>> => [option box nested],
         },
@@ -2602,7 +2602,8 @@ impl DescriptorTerm {
     ///
     /// # Errors
     ///
-    /// As [`Self::validate`], plus a nested rewrite or a `()` right side.
+    /// As [`Self::validate`], plus a nested rewrite. Whether a `()` (.K) right side stands where
+    /// K is admissible is a question of sorts, which the compiler judges.
     pub fn validate_single_body_subject(
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
@@ -2610,11 +2611,6 @@ impl DescriptorTerm {
         right_bindings: &BTreeSet<String>,
         seen_variables: &mut BTreeSet<String>,
     ) -> Result<(), GrammarTransportError> {
-        if super::validation::misplaced_empty_rewrite(self, false) {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::EmptyRewriteOutsideKSequence,
-            ));
-        }
         super::validation::validate_term(
             self,
             &mut term_validation::GrammarTermValidation {

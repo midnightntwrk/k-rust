@@ -736,19 +736,6 @@ pub(crate) fn count_rewrites<S: Stage>(term: &Term<S>) -> usize {
             .sum::<usize>()
 }
 
-/// Whether a `k::rewrite!` whose right side is `()` (`.K`) occurs anywhere
-/// but at the root of `term` (a whole K-sequence item when `root_allowed`).
-pub(crate) fn misplaced_empty_rewrite<S: Stage>(term: &Term<S>, root_allowed: bool) -> bool {
-    if let Term::Rewrite { to: None, .. } = term
-        && !root_allowed
-    {
-        return true;
-    }
-    term_children(term)
-        .into_iter()
-        .any(|child| misplaced_empty_rewrite(child, false))
-}
-
 fn validate_arguments<S: ValidationStage, C: TermValidation<S>>(
     arguments: &crate::Arguments<S>,
     context: &mut C,

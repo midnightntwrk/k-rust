@@ -2439,7 +2439,7 @@ impl fmt::Display for SemanticValidationError {
                 "`let` (#let) occurs only in post-terms and conditions, at its body's sort, its pattern neither aliases nor has alternatives, and its local binders are exactly its pattern's named variables, used only in its pattern and body",
             ),
             Self::InvalidLocalRewrite => formatter.write_str(
-                "a local rewrite occurs strictly inside what a single-body clause states, the rule's subject term or a cell's content (a cell's whole content rewritten is the clause's before and after), never inside another rewrite, and removes a whole K-sequence item when its right side is `.K`",
+                "a local rewrite occurs strictly inside what a single-body clause states, the rule's subject term or a cell's content (a cell's whole content rewritten is the clause's before and after), never inside another rewrite, and has a right side `.K` only where K is admissible: a whole K-sequence item, which it removes, or a place of sort K",
             ),
             Self::SequenceSortMismatch => {
                 formatter.write_str("K sequence term must have builtin K-sequence sort")

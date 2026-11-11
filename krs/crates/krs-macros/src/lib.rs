@@ -567,7 +567,8 @@ pub fn matches(input: TokenStream) -> TokenStream {
 /// the subject of a single-body `#[k::rule]` fn, one that returns `()`, or
 /// rewrites the hole of a `#[k::context]` fn; the rest of the subject is the
 /// frame, as in K's `<k> (X = V ; => .K) ... </k>`.
-/// `()` on the right is K's `.K` and removes a whole K-sequence item. Used
+/// `()` on the right is K's `.K`, a term of sort K: a whole K-sequence item
+/// rewritten to it is removed, and a place of sort K is emptied. Used
 /// anywhere else it is a compile error.
 #[proc_macro]
 pub fn rewrite(input: TokenStream) -> TokenStream {
