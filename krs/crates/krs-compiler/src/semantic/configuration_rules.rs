@@ -1112,10 +1112,10 @@ fn names_below(
 /// A rule whose result writes a cell its subject does not match, with that cell's whole content
 /// matched by `_` in its subject: the result overwrites it (Q1), `<c> _ => v </c>`. That means
 /// one configuration where the cell exists once and the result keeps nothing of its content: a
-/// plain leaf, the computation written exactly, or a group. The entry-admission table refuses
-/// the rest first (an optional cell, whose presence the rule does not know; a rest kept from
-/// content the subject never matched), and an instance list, whose instances the subject does
-/// not say, is left to the refusal below. `None` where the result writes no such cell.
+/// plain leaf, the computation or a map written exactly, or a group. The entry-admission table
+/// refuses the rest first (an optional cell, whose presence the rule does not know; a rest kept
+/// from content the subject never matched; an instance list, whose instances the subject does
+/// not say), so the refusal below is a backstop. `None` where the result writes no such cell.
 fn with_overwritten_cells(
     rule: &krs_ir::DescriptorConfigurationRule,
     declarations: &DescriptorIndex<'_>,
@@ -1145,7 +1145,8 @@ fn with_overwritten_cells(
         // The subject matches the whole content with `_`: an exact result is the cell's whole
         // new content (P5, P6), so nothing of the old content is kept. A computation matched
         // by `KCell(..)` would leave its unwritten rest framed (`...`), which the exact result
-        // then keeps behind what it writes.
+        // then keeps behind what it writes. A map without a rest (`Cell(map![k -> v])`, or
+        // empty) is likewise the leaf's whole new content.
         let value = match (&cell.value, &declared.content) {
             (
                 ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
@@ -1153,6 +1154,18 @@ fn with_overwritten_cells(
                     ..
                 }),
                 _,
+            )
+            | (
+                ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
+                    body:
+                        krs_ir::ProtocolRuleMapBody::Empty { .. }
+                        | krs_ir::ProtocolRuleMapBody::Items {
+                            remainder: ProtocolRuleFrame::Exact,
+                            ..
+                        },
+                    ..
+                }),
+                ProtocolCellContent::Leaf { .. },
             )
             | (ProtocolRuleStateTerm::Term(_), ProtocolCellContent::Leaf { .. }) => {
                 ProtocolRuleStateTerm::Term(any)

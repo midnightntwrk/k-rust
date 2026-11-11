@@ -4149,3 +4149,203 @@ fn a_cells_results_own_rest_is_the_result_without_it() {
     "#]]
     .assert_debug_eq(&refused);
 }
+
+/// A machine with a Map leaf `env` and a group `objs` holding a Map collection `obj` of `Obj`
+/// instances.
+const OVERWRITE: &str = r#"
+use k::builtin::{Int, KSequence, Map, map};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("make({x})")]
+    Make { x: Int },
+}
+
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub oid: Int,
+    #[k::cell]
+    pub val: Int,
+}
+
+#[k::cell]
+pub struct Objs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub obj: Obj,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell(nested)]
+    pub objs: Objs,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], env: k::map![], objs: Objs { obj: Obj { oid: 0, val: 0 } } }
+    }
+}
+"#;
+
+/// An `OVERWRITE` `cells!` rule (`claim` false) or claim `make`, whose subject holds `subject`
+/// after the computation cell's entry and the record's `..`, and whose result writes `result`.
+fn overwrite_cells(claim: bool, subject: &str, result: &str) -> String {
+    let attribute = if claim {
+        "#[k::claim(one_path, label = \"make\")]"
+    } else {
+        "#[k::rule(label = \"make\")]"
+    };
+    format!(
+        "{OVERWRITE}{attribute}\npub fn make(\n    x: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, tail @ ..), {subject}.. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result} }}\n}}\n"
+    )
+}
+
+/// An `OVERWRITE` readable rule (`claim` false) or claim `make` writing `result`.
+fn overwrite_readable(claim: bool, result: &str) -> String {
+    let (block, attribute) = if claim {
+        ("claims", "#[k::claim(one_path)]\n    ")
+    } else {
+        ("rules", "")
+    };
+    format!(
+        "{OVERWRITE}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {attribute}make: {{ k: [Make {{ x }}, ..] }} => {{ k: [..], {result} }};\n}}\n"
+    )
+}
+
+/// CELLS2 item 2: a result entry over a cell the subject does not match overwrites it. A `cells!`
+/// result writing a whole map on a Map leaf is that overwrite, the rule whose subject reads the
+/// leaf with `_`. A result writing a `*` collection's instances replaces every instance it holds,
+/// which is not lowered yet: a readable and a `cells!` result give it one refusal, at the entry.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of routes and spellings, each with its K or its refusal."
+)]
+fn a_cells_result_over_a_cell_its_subject_leaves_out_overwrites_it_as_a_readable_one_does() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = |name: &str, source: &str| {
+        let manifest = library_package(temporary.path(), &format!("overwrite-{name}"), source);
+        emitted_sentence(target.path(), &manifest, "make")
+    };
+    let mut admitted = Vec::new();
+    for (name, map) in [("map", "map![1 -> 2]"), ("empty", "map![]")] {
+        let result = format!("env: k::configuration::Cell({map})");
+        let [unmatched, wildcard] = [
+            ("unmatched", ""),
+            ("wildcard", "env: k::configuration::Cell(_), "),
+        ]
+        .map(|(kind, subject)| {
+            emitted(
+                &format!("{name}-{kind}"),
+                &overwrite_cells(false, subject, &result),
+            )
+        });
+        assert_eq!(unmatched, wildcard, "{name}");
+        admitted.push(format!("{name}: {unmatched}"));
+    }
+    expect_test::expect![[r#"
+        [
+            "map: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <env> _ => 1 |-> 2 </env>",
+            "empty: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <env> _ => .Map </env>",
+        ]
+    "#]]
+    .assert_debug_eq(&admitted);
+    let instances = "{ crate::Obj { oid: 1, val: 2 } }";
+    let mut refused = Vec::new();
+    for claim in [false, true] {
+        let form = if claim { "claim" } else { "rule" };
+        for (name, source) in [
+            (
+                "readable",
+                overwrite_readable(claim, "obj: { Obj { oid: 1, val: 2 } }"),
+            ),
+            (
+                "cells",
+                overwrite_cells(claim, "", &format!("crate::Objs::obj: {instances}")),
+            ),
+            (
+                "cells-fragment",
+                overwrite_cells(
+                    claim,
+                    "",
+                    "crate::Objs::obj: { k::fragment![crate::Obj { oid: 1, val: 2 }] }",
+                ),
+            ),
+            (
+                "cells-beside-a-map",
+                overwrite_cells(
+                    claim,
+                    "",
+                    &format!(
+                        "env: k::configuration::Cell(map![1 -> 2]), crate::Objs::obj: {instances}"
+                    ),
+                ),
+            ),
+        ] {
+            let manifest = library_package(
+                temporary.path(),
+                &format!("overwrite-{form}-{name}"),
+                &source,
+            );
+            refused.push((
+                format!("{form}-{name}"),
+                first_error(target.path(), &manifest),
+            ));
+        }
+    }
+    let headline = |line: &str| line.split_once(" @ ").unwrap().0.to_owned();
+    for (name, line) in &refused {
+        assert_eq!(headline(line), headline(&refused[0].1), "{name}");
+    }
+    expect_test::expect![[r#"
+        [
+            (
+                "rule-readable",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 50:54",
+            ),
+            (
+                "rule-cells",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 52:71",
+            ),
+            (
+                "rule-cells-fragment",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 52:71",
+            ),
+            (
+                "rule-cells-beside-a-map",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 52:114",
+            ),
+            (
+                "claim-readable",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 51:54",
+            ),
+            (
+                "claim-cells",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 52:71",
+            ),
+            (
+                "claim-cells-fragment",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 52:71",
+            ),
+            (
+                "claim-cells-beside-a-map",
+                "error[krs::analysis::collection-entry]: the result writes the collection `obj`, whose instances the subject does not match, so the rule replaces every instance `obj` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject @ 52:114",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&refused);
+}

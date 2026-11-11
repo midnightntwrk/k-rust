@@ -460,15 +460,8 @@ pub(super) fn judge_readable(
         presence_in_constructor_record(subject.iter().chain(&result), target.groups())?;
     }
     subject_limit(&judged, authored)?;
-    if judged.is_ok()
-        && let Some(entry) = result.iter().find(|entry| {
-            matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_)))
-                && !subject.iter().any(|matched| matched.cell == entry.cell)
-        })
-    {
-        return Err(overwritten_collection(entry));
-    }
     if judged.is_ok() {
+        overwritten_collection(&subject, &result)?;
         for key in target
             .instance_key()
             .into_iter()
@@ -1003,8 +996,18 @@ fn constructor_presence(
 /// holds, whatever they are, which needs a pattern over the whole collection; a readable
 /// clause's collection entry matches instances one by one and keeps the others with `..` or
 /// names every one, so the overwrite has no lowering yet, and is refused rather than read as
-/// another rule.
-fn overwritten_collection(entry: &Entry<'_>) -> CollectionError {
+/// another rule. The entry means that in a readable clause and a `cells!` sentence alike, so
+/// both judges ask it once their entries are admitted.
+fn overwritten_collection(
+    subject: &[Entry<'_>],
+    result: &[Entry<'_>],
+) -> Result<(), CollectionError> {
+    let Some(entry) = result.iter().find(|entry| {
+        matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_)))
+            && !subject.iter().any(|matched| matched.cell == entry.cell)
+    }) else {
+        return Ok(());
+    };
     let name = unraw(&entry.cell.field);
     let error = CollectionError::new(
         CollectionErrorKind::CollectionOverwrite,
@@ -1012,10 +1015,10 @@ fn overwritten_collection(entry: &Entry<'_>) -> CollectionError {
             "the result writes the collection `{name}`, whose instances the subject does not match, so the rule replaces every instance `{name}` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject"
         ),
     );
-    match &entry.field.range {
+    Err(match &entry.field.range {
         Some(range) => error.with_source_range(range.clone()),
         None => error,
-    }
+    })
 }
 
 /// Refuses the first admitted entry, of the subject's then the result's, that names a child of a
@@ -1208,6 +1211,7 @@ fn judge_sentence(
         group_record_on_leaf(subject.iter().chain(&result), &tree.groups)?;
         items_off_the_computation(subject.iter().chain(&result), false)?;
         presence_in_constructor_record(subject.iter().chain(&result), &tree.groups)?;
+        overwritten_collection(&subject, &result)?;
         for key in &tree.keys {
             kept_key(key, &subject, &result)?;
             kept_key_in_place(key, subject_cells, &subject)?;
