@@ -4,11 +4,11 @@
 //! Give every anonymous variable occurrence a collision-free sentence-local name.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::{collections::BTreeSet, convert::Infallible};
+use std::{collections::BTreeSet, convert::Infallible, sync::Arc};
 
 use crate::{
     definition::{Definition, Sentence},
-    kast::{Term, TermParts},
+    kast::{Term, TermMetadata},
     kompile::fresh_names::{FreshNames, GeneratedVariableIdentity},
     provenance::GeneratingPass,
 };
@@ -31,7 +31,10 @@ pub(crate) fn resolve_anon_vars_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            resolve_anon_vars_in_sentence_mut(crate::definition::sentence_mut(sentence));
+            // A sentence the resolution leaves identical stays the input's allocation.
+            if let Some(resolved) = resolve_anon_vars_in(sentence, &mut BTreeSet::new()) {
+                *sentence = Arc::new(resolved);
+            }
         }
     }
     Ok(output)
@@ -39,32 +42,79 @@ pub(crate) fn resolve_anon_vars_pass(
 
 /// Resolve anonymous variables in one sentence and return exactly the identities minted.
 pub fn resolve_anon_vars_in_sentence(
-    mut sentence: Sentence,
+    sentence: Sentence,
 ) -> (Sentence, BTreeSet<GeneratedVariableIdentity>) {
-    let generated = resolve_anon_vars_in_sentence_mut(&mut sentence);
-    (sentence, generated)
+    let mut generated = BTreeSet::new();
+    let resolved = resolve_anon_vars_in(&sentence, &mut generated).unwrap_or(sentence);
+    (resolved, generated)
 }
 
-fn resolve_anon_vars_in_sentence_mut(
-    sentence: &mut Sentence,
-) -> BTreeSet<GeneratedVariableIdentity> {
-    let mut fresh = FreshNames::for_sentence(sentence);
-    let mut generated = BTreeSet::new();
-    let roots = match sentence {
+/// `sentence` with every anonymous variable of its body and conditions given a fresh name, each
+/// identity minted added to `generated`; `None` when that is `sentence` itself, identical in
+/// every stored part.
+fn resolve_anon_vars_in(
+    sentence: &Sentence,
+    generated: &mut BTreeSet<GeneratedVariableIdentity>,
+) -> Option<Sentence> {
+    let mut names = SentenceNames {
+        sentence,
+        fresh: None,
+    };
+    match sentence {
         Sentence::Rule {
             body,
             requires,
             ensures,
-            ..
+            attributes,
+        } => {
+            let [body, requires, ensures] =
+                transform_roots([body, requires, ensures], &mut names, generated)?;
+            Some(Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes: attributes.clone(),
+            })
         }
-        | Sentence::Claim {
+        Sentence::Claim {
             body,
             requires,
             ensures,
-            ..
-        } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
+            attributes,
+        } => {
+            let [body, requires, ensures] =
+                transform_roots([body, requires, ensures], &mut names, generated)?;
+            Some(Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                attributes: attributes.clone(),
+            })
+        }
+        Sentence::Context {
+            body,
+            requires,
+            attributes,
+        } => {
+            let [body, requires] = transform_roots([body, requires], &mut names, generated)?;
+            Some(Sentence::Context {
+                body,
+                requires,
+                attributes: attributes.clone(),
+            })
+        }
+        Sentence::ContextAlias {
+            body,
+            requires,
+            attributes,
+        } => {
+            let [body, requires] = transform_roots([body, requires], &mut names, generated)?;
+            Some(Sentence::ContextAlias {
+                body,
+                requires,
+                attributes: attributes.clone(),
+            })
+        }
         Sentence::SyntaxSort { .. }
         | Sentence::SortSynonym { .. }
         | Sentence::SyntaxLexical { .. }
@@ -72,57 +122,140 @@ fn resolve_anon_vars_in_sentence_mut(
         | Sentence::SyntaxAssociativity { .. }
         | Sentence::SyntaxPriority { .. }
         | Sentence::Configuration { .. }
-        | Sentence::Bubble { .. } => return generated,
-    };
-    for root in roots {
-        let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-        *root = transform(taken, &mut fresh, &mut generated);
+        | Sentence::Bubble { .. } => None,
     }
-    generated
 }
 
-// Invariant: every anonymous variable (`_`, `?_`, `!_`, `@_`) visited so far has a fresh `_Gen` name recorded in `generated`; each call recurses into the immediate subterms of `term`, so the finite `term` bounds the recursion.
-fn transform(
-    term: Term,
-    fresh: &mut FreshNames,
+/// The names of one sentence the minted names avoid. They are those of the sentence as received,
+/// which no root has been rewritten in yet whenever the first name is minted, so they are read
+/// then, and not at all for a sentence without an anonymous variable.
+struct SentenceNames<'s> {
+    sentence: &'s Sentence,
+    fresh: Option<FreshNames>,
+}
+
+impl SentenceNames<'_> {
+    fn mint(&mut self, sigil: &str) -> GeneratedVariableIdentity {
+        let sentence = self.sentence;
+        self.fresh
+            .get_or_insert_with(|| FreshNames::for_sentence(sentence))
+            .mint_generated(sigil)
+    }
+}
+
+/// [`transform`] of each root in order, `None` when every root is left as it is.
+fn transform_roots<const N: usize>(
+    roots: [&Term; N],
+    names: &mut SentenceNames<'_>,
     generated: &mut BTreeSet<GeneratedVariableIdentity>,
-) -> Term {
-    match term.into_parts() {
-        TermParts::Annotated { term, metadata } => {
-            transform(*term, fresh, generated).with_metadata(metadata)
-        }
-        TermParts::Variable { name, sort } if anonymous_prefix(&name).is_some() => {
-            let prefix = anonymous_prefix(&name).expect("guard checked the prefix");
-            let identity = fresh.mint_generated(prefix);
+) -> Option<[Term; N]> {
+    let transformed = roots.map(|root| transform(root, names, generated));
+    if transformed.iter().all(Option::is_none) {
+        return None;
+    }
+    let mut index = 0;
+    Some(transformed.map(|root| {
+        let root = root.unwrap_or_else(|| roots[index].clone());
+        index += 1;
+        root
+    }))
+}
+
+/// `term` with every anonymous variable (`_`, `?_`, `!_`, `@_`) renamed to a fresh `_Gen` name
+/// recorded in `generated`, in preorder; `None` when the result is `term` itself.
+///
+/// Every node is rebuilt as it is except an annotation, which is put back with
+/// [`Term::with_metadata`]: that drops an empty annotation and merges an annotation into an
+/// annotated child, so an annotation node is kept as it is only when its metadata is not empty,
+/// its child is not annotated, and its child is kept.
+// Invariant: each call recurses into the immediate subterms of `term`, so the finite `term`
+// bounds the recursion.
+fn transform(
+    term: &Term,
+    names: &mut SentenceNames<'_>,
+    generated: &mut BTreeSet<GeneratedVariableIdentity>,
+) -> Option<Term> {
+    match term {
+        Term::Annotated {
+            term: inner,
+            metadata,
+        } => match transform(inner, names, generated) {
+            None if *metadata != TermMetadata::default()
+                && !matches!(**inner, Term::Annotated { .. }) =>
+            {
+                None
+            }
+            transformed => Some(
+                transformed
+                    .unwrap_or_else(|| (**inner).clone())
+                    .with_metadata(metadata.clone()),
+            ),
+        },
+        Term::Variable { name, sort } => {
+            let prefix = anonymous_prefix(name)?;
+            let identity = names.mint(prefix);
             let name = identity.name.clone();
             generated.insert(identity);
-            Term::Variable { name, sort }
+            Some(Term::Variable {
+                name,
+                sort: sort.clone(),
+            })
         }
-        TermParts::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(transform(*left, fresh, generated)),
-            right: Box::new(transform(*right, fresh, generated)),
-        },
-        TermParts::As { pattern, alias } => Term::As {
-            pattern: Box::new(transform(*pattern, fresh, generated)),
-            alias: Box::new(transform(*alias, fresh, generated)),
-        },
-        TermParts::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| transform(item, fresh, generated))
-                .collect(),
-        ),
-        TermParts::Apply { label, arguments } => Term::Apply {
-            label,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| transform(argument, fresh, generated))
-                .collect(),
-        },
-        leaf @ (TermParts::InjectedLabel(_)
-        | TermParts::Variable { .. }
-        | TermParts::Token { .. }) => Term::from(leaf),
+        Term::Rewrite { left, right } => {
+            let new_left = transform(left, names, generated);
+            let new_right = transform(right, names, generated);
+            if new_left.is_none() && new_right.is_none() {
+                return None;
+            }
+            Some(Term::Rewrite {
+                left: Box::new(new_left.unwrap_or_else(|| (**left).clone())),
+                right: Box::new(new_right.unwrap_or_else(|| (**right).clone())),
+            })
+        }
+        Term::As { pattern, alias } => {
+            let new_pattern = transform(pattern, names, generated);
+            let new_alias = transform(alias, names, generated);
+            if new_pattern.is_none() && new_alias.is_none() {
+                return None;
+            }
+            Some(Term::As {
+                pattern: Box::new(new_pattern.unwrap_or_else(|| (**pattern).clone())),
+                alias: Box::new(new_alias.unwrap_or_else(|| (**alias).clone())),
+            })
+        }
+        Term::Sequence(items) => transform_all(items, names, generated).map(Term::Sequence),
+        Term::Apply { label, arguments } => {
+            transform_all(arguments, names, generated).map(|arguments| Term::Apply {
+                label: label.clone(),
+                arguments,
+            })
+        }
+        Term::InjectedLabel(_) | Term::Token { .. } => None,
     }
+}
+
+/// [`transform`] of each of `terms` in order, `None` when every one is `None`; the items before
+/// the first change are copied only once one changes.
+fn transform_all(
+    terms: &[Term],
+    names: &mut SentenceNames<'_>,
+    generated: &mut BTreeSet<GeneratedVariableIdentity>,
+) -> Option<Vec<Term>> {
+    let mut transformed: Option<Vec<Term>> = None;
+    for (index, term) in terms.iter().enumerate() {
+        let new = transform(term, names, generated);
+        match (&mut transformed, new) {
+            (Some(items), new) => items.push(new.unwrap_or_else(|| term.clone())),
+            (None, Some(new)) => {
+                let mut items = Vec::with_capacity(terms.len());
+                items.extend_from_slice(&terms[..index]);
+                items.push(new);
+                transformed = Some(items);
+            }
+            (None, None) => {}
+        }
+    }
+    transformed
 }
 
 fn anonymous_prefix(name: &str) -> Option<&'static str> {
