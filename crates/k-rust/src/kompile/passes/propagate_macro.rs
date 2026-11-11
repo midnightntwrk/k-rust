@@ -27,7 +27,12 @@ pub(crate) fn propagate_macro_attributes_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
-            propagate_macro_attribute(crate::definition::sentence_mut(sentence), productions);
+            // A sentence with nothing to mark stays the shared input allocation.
+            if let Some(attribute) = macro_attribute_to_mark(sentence, productions) {
+                crate::definition::sentence_mut(sentence)
+                    .attributes_mut()
+                    .mark(attribute);
+            }
         }
     }
     Ok(output)
@@ -42,37 +47,50 @@ pub(crate) fn propagate_macro_attribute(
     sentence: &mut Sentence,
     productions: &ProductionCatalog<'_>,
 ) {
+    if let Some(attribute) = macro_attribute_to_mark(sentence, productions) {
+        sentence.attributes_mut().mark(attribute);
+    }
+}
+
+/// The macro kind [`propagate_macro_attribute`] writes on `sentence`, or `None` when it writes
+/// nothing.
+///
+/// A rule that already holds the kind as a bare marker is `None` too: `mark` stores the empty
+/// string under an already-present key, so writing it again leaves the attributes as they are.
+fn macro_attribute_to_mark(
+    sentence: &Sentence,
+    productions: &ProductionCatalog<'_>,
+) -> Option<AttributeKey> {
     let Sentence::Rule {
         body, attributes, ..
     } = sentence
     else {
-        return;
+        return None;
     };
     if attributes.has(AttributeKey::Simplification) {
-        return;
+        return None;
     }
     // The head is the rule's head as every stage and check reads it, root aliases looked
     // through: `m(X) #as V => R` is a rule of `m` as `m(X) => R[m(X)/V]` is. A body without a
     // top rewrite states no expansion of the head, so it is not a macro rule.
     let head = RuleHead::of(body);
     if head.shape() != HeadShape::TopRewrite || head.context.is_some() {
-        return;
+        return None;
     }
-    let Some(label) = head.label() else {
-        return;
-    };
+    let label = head.label()?;
     if !productions.macro_labels().contains(&LabelHead::from(label)) {
-        return;
+        return None;
     }
-    let Some(production_attributes) = productions.attributes_for(&LabelHead::from(label)) else {
-        return;
-    };
-    if let Some(attribute) = AttributeKey::MACRO_LIKE
+    let production_attributes = productions.attributes_for(&LabelHead::from(label))?;
+    AttributeKey::MACRO_LIKE
         .into_iter()
         .find(|attribute| production_attributes.has(*attribute))
-    {
-        attributes.mark(attribute);
-    }
+        .filter(|attribute| {
+            attributes
+                .value(*attribute)
+                .and_then(serde_json::Value::as_str)
+                != Some("")
+        })
 }
 
 #[cfg(test)]
