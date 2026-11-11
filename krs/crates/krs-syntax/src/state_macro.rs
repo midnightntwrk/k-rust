@@ -992,11 +992,10 @@ impl InstanceField {
     pub fn record_multiplicity_limit(&self) -> Option<SyntaxError> {
         use syn::ext::IdentExt;
         let presence = self.presence.as_deref()?;
-        let reason = format!(
-            "the cell `{}`, inside the instance child `{}`, holds {}: {INSTANCE_CHILD_MULTIPLICITY}",
-            presence.child,
-            self.name.unraw(),
-            presence_written(presence.present),
+        let reason = instance_record_multiplicity_reason(
+            &presence.child,
+            &self.name.unraw().to_string(),
+            presence.present,
         );
         Some(SyntaxError::new(
             SyntaxErrorKind::InstanceChildMultiplicity { reason },
@@ -1011,6 +1010,17 @@ impl InstanceField {
 pub fn instance_child_multiplicity_reason(child: &str, present: bool) -> String {
     let written = presence_written(present);
     format!("the instance child `{child}` holds {written}: {INSTANCE_CHILD_MULTIPLICITY}")
+}
+
+/// The reason a `?` cell `cell`'s `Some(..)` (`present`) or `None`, a field of a record the
+/// instance child `child` writes, at any depth of records, is not lowered: a presence inside one
+/// instance ([`INSTANCE_CHILD_MULTIPLICITY`]).
+#[must_use]
+pub fn instance_record_multiplicity_reason(cell: &str, child: &str, present: bool) -> String {
+    let written = presence_written(present);
+    format!(
+        "the cell `{cell}`, inside the instance child `{child}`, holds {written}: {INSTANCE_CHILD_MULTIPLICITY}"
+    )
 }
 
 /// What a `?` cell's `Some(..)` (`present`) or `None` writes, as a refusal names it.
@@ -3139,14 +3149,14 @@ fn parse_instance_record(
                         name.span(),
                     ));
                 }
-                match parse_instance_child(tokens.clone(), context, keys) {
-                    Ok(value) => {
-                        let field = InstanceField::read(name, value, &tokens, context);
-                        if let Some(limit) = field.record_multiplicity_limit() {
-                            return Err(limit);
-                        }
-                        fields.push(field);
-                    }
+                // A `?` cell's `Some(..)` or `None` in a record the child writes is the same
+                // presence inside one instance, which the collector says once the entries are
+                // admitted ([`crate::cell_entries::instance_child_presence`]): the child is read
+                // without it, as a record at a cell's position is ([`RecordPresences`]).
+                let read = RecordPresences::of(&tokens, context)
+                    .map_or_else(|| tokens.clone(), |presences| presences.read);
+                match parse_instance_child(read, context, keys) {
+                    Ok(value) => fields.push(InstanceField::read(name, value, &tokens, context)),
                     // The term reader read no names of the child: in a pattern its fault is the
                     // record's at once.
                     Err(fault) => faults.carry(fault, false)?,

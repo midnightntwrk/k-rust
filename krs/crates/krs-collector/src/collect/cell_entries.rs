@@ -940,15 +940,12 @@ fn instance_child_multiplicity(
         let Some(spelling) = &entry.field.spelling else {
             continue;
         };
-        let Some((at, child, present)) =
+        let Some((at, reason)) =
             cell_entries::instance_child_presence(&entry.kind.own.layers, spelling)
         else {
             continue;
         };
-        let error = CollectionError::new(
-            CollectionErrorKind::InstanceChildMultiplicity,
-            krs_syntax::instance_child_multiplicity_reason(unraw(child), present),
-        );
+        let error = CollectionError::new(CollectionErrorKind::InstanceChildMultiplicity, reason);
         let range = entry
             .field
             .located

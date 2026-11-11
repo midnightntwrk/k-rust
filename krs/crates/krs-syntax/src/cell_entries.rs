@@ -563,11 +563,16 @@ pub fn fixed_cells_only_reason(cell: &str, entry: UnreadEntry) -> String {
 /// instance the child means whether that instance holds the cell, which the table admits and no
 /// lowering writes yet, the limit [`crate::INSTANCE_CHILD_MULTIPLICITY`]; it is asked once the
 /// sentence's entries are admitted, so a principle the same entry breaks answers first.
+///
+/// A child's value that is a record (a group record the child writes, at any depth of records)
+/// names cells of the same instance, so a `Some(..)` or `None` among its fields is the same
+/// presence inside one instance: the path then leads to that field, and the reason names it and
+/// the instance child that holds it ([`crate::instance_record_multiplicity_reason`]).
 #[must_use]
-pub fn instance_child_presence<'s>(
+pub fn instance_child_presence(
     stack: &[Layer],
-    spelling: &'s EntrySpelling,
-) -> Option<(Vec<usize>, &'s str, bool)> {
+    spelling: &EntrySpelling,
+) -> Option<(Vec<usize>, String)> {
     let [Layer::Instances(_), Layer::Group(group), ..] = stack else {
         return None;
     };
@@ -581,19 +586,57 @@ pub fn instance_child_presence<'s>(
             .iter()
             .enumerate()
             .find_map(|(child, (name, value))| {
-                let present = match unaliased(value) {
-                    EntrySpelling::Present(_) => true,
-                    EntrySpelling::Missing => false,
-                    _ => return None,
-                };
-                let path = std::iter::repeat_n(0, entry)
+                let mut path = std::iter::repeat_n(0, entry)
                     .chain([step])
                     .chain(labelled.then_some(0))
                     .chain([child])
-                    .collect();
-                Some((path, name.as_str(), present))
+                    .collect::<Vec<_>>();
+                let reason = match unaliased(value) {
+                    EntrySpelling::Present(_) => {
+                        crate::instance_child_multiplicity_reason(name, true)
+                    }
+                    EntrySpelling::Missing => {
+                        crate::instance_child_multiplicity_reason(name, false)
+                    }
+                    _ => {
+                        let (cell, present) = record_presence(value, &mut path)?;
+                        crate::instance_record_multiplicity_reason(cell, name, present)
+                    }
+                };
+                Some((path, reason))
             })
     })
+}
+
+/// The first field of the record `value` writes (below an alias), at any depth of records, that
+/// is a `?` cell's `Some(..)` or `None`: its name and whether it is `Some(..)`, with `path`
+/// extended to it.
+fn record_presence<'s>(value: &'s EntrySpelling, path: &mut Vec<usize>) -> Option<(&'s str, bool)> {
+    let (inner, aliased) = match value {
+        EntrySpelling::Alias(_, pattern) => (&**pattern, true),
+        other => (other, false),
+    };
+    let (EntrySpelling::Record(record) | EntrySpelling::Fragment(record)) = inner else {
+        return None;
+    };
+    let depth = path.len();
+    if aliased {
+        path.push(0);
+    }
+    for (step, (name, field)) in record.fields.iter().enumerate() {
+        path.push(step);
+        match field {
+            EntrySpelling::Present(_) => return Some((name, true)),
+            EntrySpelling::Missing => return Some((name, false)),
+            _ => {}
+        }
+        if let Some(found) = record_presence(field, path) {
+            return Some(found);
+        }
+        path.pop();
+    }
+    path.truncate(depth);
+    None
 }
 
 /// The step from a sequence or a map to its rest (`..`, `name @ ..`, `..name`), which is no

@@ -3354,3 +3354,166 @@ fn a_records_own_rest_is_the_record_without_it() {
         ]
     "#]].assert_debug_eq(&refused);
 }
+
+/// A machine with a List collection `job` and a Map collection `thread` of `Job` instances, each
+/// with a group child `info: Info { mark: ?, level }`, a group `meta: Meta { mmark: ?, mlevel }`
+/// beside them, and a plain `List` leaf `stack`.
+const INSTANCE_RECORDS: &str = r#"
+use k::builtin::{Int, KSequence, List, list};
+use k::{KResult, Term};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+}
+
+#[k::cell]
+pub struct Info {
+    #[k::cell(multiplicity = "?")]
+    pub mark: Option<Int>,
+    #[k::cell]
+    pub level: Int,
+}
+
+#[k::cell]
+pub struct Job {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell(nested)]
+    pub info: Info,
+}
+
+#[k::cell]
+pub struct Jobs {
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub job: Job,
+}
+
+#[k::cell]
+pub struct Threads {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub thread: Job,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List,
+    #[k::cell(nested)]
+    pub jobs: Jobs,
+    #[k::cell(nested)]
+    pub threads: Threads,
+    #[k::cell(nested)]
+    pub meta: Meta,
+}
+
+#[k::cell]
+pub struct Meta {
+    #[k::cell(multiplicity = "?")]
+    pub mmark: Option<Int>,
+    #[k::cell]
+    pub mlevel: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            stack: list::empty(),
+            jobs: Jobs { job: Job { id: 0, info: Info { mark: k::absent!(0), level: 0 } } },
+            threads: Threads { thread: Job { id: 0, info: Info { mark: k::absent!(0), level: 0 } } },
+            meta: Meta { mmark: k::absent!(0), mlevel: 0 },
+        }
+    }
+}
+"#;
+
+/// A `?` cell's `Some(..)` or `None` in a record an instance child writes is the limit
+/// `instance-child-multiplicity`, said once the sentence's entries are admitted, as the same
+/// record outside an instance waits for them (TABLE follow-up (a)): a clause with another fault
+/// gets that fault first, the line the clause gets with the record outside the instance, on the
+/// readable braced route and the `cells!` route; alone, the record's presence is the limit at the
+/// presence. (A readable List collection's brackets still say it at expansion: their List reading
+/// takes its children from another reading's terms, which rustc reads.)
+#[test]
+fn a_presence_in_an_instance_child_s_record_waits_for_the_entries_as_outside_an_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |subject: &str| {
+        format!(
+            "{INSTANCE_RECORDS}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [Go(), ..], {subject} }} => {{ k: [..] }};\n}}\n"
+        )
+    };
+    let cells = |subject: &str| {
+        format!(
+            "{INSTANCE_RECORDS}#[k::rule(label = \"go\")]\nfn go(s: Term<List>, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {subject}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+        )
+    };
+    let twins = [
+        (
+            "readable",
+            readable(
+                "thread: { Job { info: Info { mark: Some(1), .. }, .. }, .. }, stack: Some(s)",
+            ),
+            readable("meta: Meta { mmark: Some(1), .. }, stack: Some(s)"),
+            "Some(s)",
+        ),
+        (
+            "cells",
+            cells(
+                "Jobs::job: [k::fragment![crate::Job { info: crate::Info { mark: Some(1), .. }, .. }], rest @ ..], stack: Some(k::configuration::Cell(s))",
+            ),
+            cells(
+                "meta: k::fragment![crate::Meta { mmark: Some(1), .. }], stack: Some(k::configuration::Cell(s))",
+            ),
+            "Some(k::configuration::Cell(s))",
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (route, inside, outside, at) in twins {
+        let mut headlines = Vec::new();
+        for (place, source) in [("inside", inside), ("outside", outside)] {
+            let manifest = library_package(
+                temporary.path(),
+                &format!("instance-record-{route}-{place}"),
+                &source,
+            );
+            let error = first_error(target.path(), &manifest);
+            let (headline, located) = error.split_once(" @ ").expect("refused");
+            assert_eq!(located, location(&manifest, at), "{route} {place}: {error}");
+            headlines.push(headline.to_owned());
+        }
+        assert_eq!(
+            headlines[0], headlines[1],
+            "{route}: inside an instance as outside"
+        );
+        lines.push(format!("{route}: {}", headlines[0]));
+    }
+    let alone = readable("thread: { Job { info: Info { mark: Some(1), .. }, .. }, .. }");
+    let manifest = library_package(temporary.path(), "instance-record-alone", &alone);
+    let error = first_error(target.path(), &manifest);
+    let (headline, located) = error.split_once(" @ ").expect("refused");
+    assert_eq!(
+        located,
+        location(&manifest, "Some(1), .. }, .. }, .. }"),
+        "{error}"
+    );
+    lines.push(format!("alone: {headline}"));
+    expect_test::expect![[r#"
+        [
+            "readable: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
+            "cells: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
+            "alone: error[krs::analysis::collection-entry]: the cell `mark`, inside the instance child `info`, holds `Some(..)`, a `?` cell's presence: an instance record does not name a `?` or `*` child yet",
+        ]
+    "#]].assert_debug_eq(&lines);
+}

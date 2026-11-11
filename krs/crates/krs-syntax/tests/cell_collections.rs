@@ -723,10 +723,12 @@ fn an_optional_instance_child_is_carried_as_its_presence() {
 
 /// A group record an instance child writes names cells of the same instance, so a `Some(..)` or
 /// `None` among its fields, at any depth of records, is the same presence inside one instance:
-/// the limit is said at that field, naming it and the instance child that holds it, before rustc
-/// would read it as Rust's `Option`.
+/// the child is read without it, as a record at a cell's position is, and the limit is the
+/// collector's once the entries are admitted (TABLE follow-up (a)); the field still names the
+/// presence for a reading whose children are another reading's terms
+/// ([`krs_syntax::InstanceField::record_multiplicity_limit`]), with the limit's text.
 #[test]
-fn an_optional_cell_in_an_instance_child_s_group_record_is_the_instance_child_multiplicity_limit() {
+fn an_optional_cell_in_an_instance_child_s_group_record_waits_for_the_collector() {
     for (source, cell, child, written) in [
         (
             "obj: { k::fragment![crate::Obj { key: n, oinfo: k::fragment![crate::Oinfo { omark: Some(n) }] }], .. }, state @ ..",
@@ -741,23 +743,29 @@ fn an_optional_cell_in_an_instance_child_s_group_record_is_the_instance_child_mu
             "`None`, a `?` cell's absence",
         ),
     ] {
-        let error = parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
-            .unwrap_err();
-        assert!(
-            matches!(
-                error.kind(),
-                krs_syntax::SyntaxErrorKind::InstanceChildMultiplicity { .. }
-            ),
-            "{source}: {:?}",
-            error.kind()
-        );
+        let parsed = pattern(source);
+        let field = first_instance_fields(parsed.entries()[0].value())
+            .iter()
+            .find(|field| field.name() == child)
+            .expect("the child is read");
+        let limit = field
+            .record_multiplicity_limit()
+            .expect("the field names the presence");
         assert_eq!(
-            error.to_string(),
+            limit.to_string(),
             format!(
                 "the cell `{cell}`, inside the instance child `{child}`, holds {written}: {}",
                 krs_syntax::INSTANCE_CHILD_MULTIPLICITY
             ),
             "{source}"
+        );
+        assert_eq!(
+            limit.to_string(),
+            krs_syntax::instance_record_multiplicity_reason(
+                cell,
+                child,
+                written.starts_with("`Some")
+            )
         );
     }
 }

@@ -613,13 +613,15 @@ fn an_optional_instance_child_reaches_the_wire_as_its_presence() {
     }
 }
 
-/// A `?` cell's `Some(..)` or `None` inside one instance reaches no rustc reading in the two
-/// places no macro reader sees it: a bracketed value's List reading, whose children are the terms
-/// of the reading the clause took (the computation cell's head here), and a group record an
-/// instance child writes. The expansion says the limit at the child or the record's field.
+/// A `?` cell's `Some(..)` or `None` inside one instance reaches no rustc reading. A bracketed
+/// value's List reading takes its children from the terms of the reading the clause took (the
+/// computation cell's head or the list's elements), which rustc reads, so the expansion says the
+/// limit at the child or at the field of a record the child writes. In braces, a group record an
+/// instance child writes is read without the presence, as a record at a cell's position is, and
+/// the collector says the limit once the sentence's entries are admitted (TABLE follow-up (a)),
+/// so the expansion refuses nothing there.
 #[test]
-fn an_optional_cell_inside_a_bracketed_or_grouped_instance_child_is_the_instance_child_multiplicity_limit()
- {
+fn an_optional_cell_inside_a_bracketed_instance_child_is_the_limit_and_in_braces_it_waits() {
     for (clause, message) in [
         (
             "go: { k: [Go(), ..], job: [Job { note: Some(n), .. }, ..] } => { k: [..], job: [..] };",
@@ -628,10 +630,6 @@ fn an_optional_cell_inside_a_bracketed_or_grouped_instance_child_is_the_instance
         (
             "go: { k: [Go(), ..], job: [Job { info: Info { mark: None }, .. }, ..] } => { k: [..], job: [..] };",
             "the cell `mark`, inside the instance child `info`, holds `None`, a `?` cell's absence",
-        ),
-        (
-            "go: { k: [Go(), ..], thread: { Thread { slot: Slot { held: Some(1) }, .. }, .. } } => { k: [..] };",
-            "the cell `held`, inside the instance child `slot`, holds `Some(..)`, a `?` cell's presence",
         ),
     ] {
         let source =
@@ -648,6 +646,8 @@ fn an_optional_cell_inside_a_bracketed_or_grouped_instance_child_is_the_instance
             "{clause}"
         );
     }
+    let braced = "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    go: { k: [Go(), ..], thread: { Thread { slot: Slot { held: Some(1) }, .. }, .. } } => { k: [..] };\n}\n";
+    expand(braced).expect("the presence waits for the collector");
 }
 
 /// A readable instance child's empty `[]` is keyed at its brackets, and its

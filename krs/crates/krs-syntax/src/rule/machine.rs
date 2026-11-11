@@ -629,7 +629,13 @@ fn parse_readable_instance(
                 "an instance record names each child once",
             ));
         }
-        let state = parse_readable_child(name, value.clone(), context, braced)?;
+        // A `?` cell's `Some(..)` or `None` in a record the child writes is the same presence
+        // inside one instance, which the collector says once the entries are admitted
+        // ([`crate::cell_entries::instance_child_presence`]): the child is read without it, as
+        // a record at a cell's position is ([`RecordPresences`]).
+        let read = RecordPresences::of(&value, context)
+            .map_or_else(|| value.clone(), |presences| presences.read);
+        let state = parse_readable_child(name, read, context, braced)?;
         fields.push(InstanceField::read(name.clone(), state, &value, context));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest)?)
