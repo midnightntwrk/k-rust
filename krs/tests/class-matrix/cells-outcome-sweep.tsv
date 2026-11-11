@@ -134,7 +134,7 @@ result, matched	-	leaf List	[y, ..]	pop	pop	sort	rm	ok	sort	alias-outside-patter
 result, matched	-	leaf Cons	[y, ..]	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
 result, matched	-	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
 result, matched	-	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
-result, matched	-	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
+result, matched	-	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort	rmc
 result, matched	-	? leaf Int	Some(old)	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? leaf List	Some([y, ..])	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? leaf Map	Some({ z -> y, .. })	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -176,7 +176,7 @@ result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	
 result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
-result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
+result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort	rmc
 result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -305,7 +305,7 @@ result, matched	-	leaf List	[y, ..]	pop	pop	sort	rm	ok	sort	alias-outside-patter
 result, matched	-	leaf Cons	[y, ..]	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
 result, matched	-	leaf Map	{ z -> y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	open-record-outside-pattern	rm
 result, matched	-	leaf Set	old	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
-result, matched	-	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
+result, matched	-	group G	G { a: y, .. }	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort	rmc
 result, matched	-	? leaf Int	Some(old)	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? leaf List	Some([y, ..])	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? leaf Map	Some({ z -> y, .. })	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -347,7 +347,7 @@ result, unmatched	-	leaf List	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	
 result, unmatched	-	leaf Cons	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, unmatched	-	leaf Map	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
 result, unmatched	-	leaf Set	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	open-record-outside-pattern	sort
-result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
+result, unmatched	-	group G	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort	rmc
 result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -476,7 +476,7 @@ result, matched	-	leaf List	k::configuration::Cell([y, ..])	pop	pop	rm	sort	mna|
 result, matched	-	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	rm	sort	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, matched	-	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	rm	br	sort|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, matched	-	leaf Set	k::configuration::Cell(old)	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
-result, matched	-	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
+result, matched	-	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	sort	sort	rmc
 result, matched	-	? leaf Int	Some(k::configuration::Cell(old))	sort	ok	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? leaf List	Some(k::configuration::Cell([y, ..]))	rm	ok	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, matched	-	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	rm	ok	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -518,7 +518,7 @@ result, unmatched	-	leaf List	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw
 result, unmatched	-	leaf Cons	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, unmatched	-	leaf Map	-	pop	pop	sort	br	rm|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 result, unmatched	-	leaf Set	-	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
-result, unmatched	-	group G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
+result, unmatched	-	group G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	sort	sort	rmc
 result, unmatched	-	? leaf Int	-	uor	uor	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 result, unmatched	-	? leaf Map	-	uor	uor	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -1311,7 +1311,7 @@ readable	* List of T	[..]	[T { n: 0, .. }, ..]	sort
 readable	group C	-	C { c: [x], n: 0 }	cir
 readable	group O	-	O { o: Some(1), n: 0 }	uor
 readable	group O	-	O { o: None, n: 0 }	uor
-readable	group W	-	W { g: G { a: x, .. }, n: 0 }	open-record-outside-pattern
+readable	group W	-	W { g: G { a: x, .. }, n: 0 }	sort
 readable	group W	-	W { g: G { a: x, b: y }, n: 0 }	sort
 readable	group W	-	W { g: G { a: x, b: y, .. }, n: 0 }	sort
 readable	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	rm
@@ -1350,7 +1350,7 @@ claim	* List of T	[..]	[T { n: 0, .. }, ..]	sort
 claim	group C	-	C { c: [x], n: 0 }	cir
 claim	group O	-	O { o: Some(1), n: 0 }	uor
 claim	group O	-	O { o: None, n: 0 }	uor
-claim	group W	-	W { g: G { a: x, .. }, n: 0 }	open-record-outside-pattern
+claim	group W	-	W { g: G { a: x, .. }, n: 0 }	sort
 claim	group W	-	W { g: G { a: x, b: y }, n: 0 }	sort
 claim	group W	-	W { g: G { a: x, b: y, .. }, n: 0 }	sort
 claim	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	rm
@@ -1389,7 +1389,7 @@ cells	* List of T	[..]	[k::fragment![crate::T { n: 0, .. }], ..]	sort
 cells	group C	-	k::fragment![crate::C { c: [x], n: 0 }]	sort
 cells	group O	-	k::fragment![crate::O { o: Some(1), n: 0 }]	uor
 cells	group O	-	k::fragment![crate::O { o: None, n: 0 }]	uor
-cells	group W	-	k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]	open-record-outside-pattern
+cells	group W	-	k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]	sort
 cells	group W	-	k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]	sort
 cells	group W	-	k::fragment![crate::W { g: G { a: x, b: y, .. }, n: 0 }]	sort
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], ..me }], ..]	rm

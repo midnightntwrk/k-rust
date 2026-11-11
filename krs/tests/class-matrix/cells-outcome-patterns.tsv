@@ -70,7 +70,7 @@
 #   design:rev4-R10: an instance child's other side is the labelled subject instance's same child (..me); a created instance's child has none (S5-cell-kinds.md rev. 4, revision 4 table, R10; scope: readable, claim, cells; stacks with *)
 #   S5.0:F1: None over a matched ? cell removes it with its rest, admitted (README.md §12 lane 3, S5.0 rulings; scope: readable, claim, cells; stacks with ?)
 #   S5.0:F2: a named rest in a result is alias-outside-pattern (README.md §12 lane 3, S5.0 rulings; scope: readable, claim, cells; any stack)
-#   S5.0:F3: with ruling 1: a bare .. on a result group record of a group that exists, matched or overwritten, is open-record-outside-pattern; only a created instance has defaults (README.md §12 lane 3, S5.0 rulings; scope: readable, claim, cells; stacks with group)
+#   S5.0:F3: with ruling 1 and EDOTS: a bare .. on a result group record of a group that is there, matched by its children or _ or overwritten, keeps the children it leaves unnamed; beside a subject matching the group whole, or where the result writes the group whole (a ? group's content, an instance's group child), it is open-record-outside-pattern; a created instance takes its defaults (README.md §12 lane 3, S5.0 rulings; scope: readable, claim, cells; stacks with group)
 #   S5.0:R3: any @ in a result is refused (S5.0's ruling 3) (README.md §12 lane 3, S5.0 rulings; scope: readable, claim, cells; any stack)
 #   S5.0:R4: any @ in an initializer is refused (S5.0's ruling 4) (README.md §12 lane 3, S5.0 rulings; scope: init; any stack)
 #   S5.0g:D-1: a result pairs its rests at every content root, a group or instance record's children included (README.md §12 lane 3, S5.0g D-1; scope: readable, claim, cells; stacks with group or *)
@@ -80,7 +80,7 @@
 #   S5.0g:D-5: a * value is one instance's template at every depth (README.md §12 lane 3, S5.0g D-5; scope: init; any stack)
 #   S5.0g:key: a created Map instance must write its key (README.md §12 lane 3, S5.0g "ruled next"; scope: readable, claim, cells; stacks with * Map)
 #   S5.0g:R3: the cell's own form, mark and kind refusals come before the path refusal, which replaces only what they admit and pairing (README.md §12 lane 3, S5.0g part (a) review R3; scope: readable, claim, cells; any stack)
-#   S5.0g:R4: a bare .. on a built record that is not a created instance is open-record-outside-pattern where it leaves a field open; after every field it defaults none (README.md §12 lane 3, S5.0g R4 and the vacuous-rest ruling; scope: readable, claim, cells; any stack)
+#   S5.0g:R4: a bare .. on a record a result builds as a term is open-record-outside-pattern; on an entry's own record it keeps the fields it leaves unnamed, and after every field it leaves none (README.md §12 lane 3, S5.0g R4 and the vacuous-rest ruling; scope: readable, claim, cells; any stack)
 #   S5.0g:R7: L3 holds on a ? cell with no List layer; on a ? List the brackets are its leaf's mark (P3c) (tickets/S5-0g-review-a.md R7; scope: every form; stacks with ?)
 #   S5.0g:R9: an update writing a Map key as the same literal its subject matched keeps it (README.md §12 lane 3, S5.0g part (a) review R9; scope: readable, claim, cells; stacks with * Map)
 #   S5.0g:P-R1: a cons list's back lowers to no K: cons-list-back-item, a kind refusal inside the leaf's mark (tickets/S5-0g-b-review-fixes.md ruling 1; scope: every form; stacks with Cons)
@@ -244,12 +244,12 @@ rc28	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp
 rc28	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	open-record-outside-pattern	cwi
 rc28	member	readable, claim	result, matched	leaf Map
 rc28	principle	Result over a Map leaf matched by `{ z -> y, .. }`: { y -> x, .. } sort by the principles (P6, design:M3: the frame write keeps the subject's rest), the product's map-read-in-result being the stated limitation; x, 0 and G { a: x } rm (a whole value drops the subject's `..`); brackets br, braces iop, Some/None pop (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } and G { a: x, b: y, .. } open-record-outside-pattern (P6: a term built from nothing has nothing its `..` would leave as it was, so even a `..` after every field names no value; S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rc29	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
+rc29	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	sort	sort	rmc
 rc29	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 rc29	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc29	member	readable, claim	result, matched	group G
 rc29	member	readable, claim	result, unmatched	group G
-rc29	principle	Result over the plain group G, matched by `G { a: y, .. }` or overwritten, alike (a record's `..` frames children and is no content root, P6): x and 0 sort (P5, the lattice); G { a: x, b: y, .. } sort (the vacuous rest, S5.0g:R4); G { a: x, .. } open-record-outside-pattern (S5.0:F3: a bare `..` over an existing group is Rust's defaults, which only a created instance has; it is pairing, and under a path the ancestor's own pairing decides whether the group is created, so the ancestor's class replaces it, S5.0g:P-R12); G { a: x } rmc (L4, a kind refusal, it stands); Some/None pop, brackets br, braces iop, map mna (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3.
+rc29	principle	Result over the plain group G, matched by `G { a: y, .. }` or overwritten, alike (a record's `..` frames children and is no content root, P6): x and 0 sort (P5, the lattice); G { a: x, b: y, .. } sort (the vacuous rest, S5.0g:R4); G { a: x, .. } sort (S5.0:F3 with EDOTS: over a group that is there its bare `..` keeps the children it leaves unnamed, and the record writes the ones it names; under a path the ancestor's own pairing decides whether the group is created, so the ancestor's class replaces it, S5.0g:P-R12); G { a: x } rmc (L4, a kind refusal, it stands); Some/None pop, brackets br, braces iop, map mna (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3.
 rc30	-	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 rc30	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
 rc30	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -451,12 +451,12 @@ c20	?	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pa
 c20	*	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	open-record-outside-pattern	cw
 c20	member	cells	result, matched	leaf Map
 c20	principle	cells! result over a Map leaf matched by `Cell(k::map![z -> y, ..])`: Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): its `..` keeps the rest the subject's map framed (P6 at the map's content root), sort, as readable's { y -> x, .. } over { z -> y, .. } (P7), the product's arm being design:M3's stated limitation, a form-step answer that shows on every line; Cell(x) rm (a whole value drops the subject's `..`); Cell([x, ..]) br (P3b inside); KCell cw (P3b); Some/None pop, the instance lists iop (P3b); x and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open and the vacuous fragment open-record-outside-pattern (P6: a term built from nothing has nothing its `..` would leave as it was, so even a `..` after every field names no value; S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-c21	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
+c21	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	sort	sort	rmc
 c21	?	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 c21	*	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	cwi	wop	cwi	cwi	rmc
 c21	member	cells	result, matched	group G
 c21	member	cells	result, unmatched	group G
-c21	principle	cells! result over the group G, matched by `k::fragment![crate::G { a: y, .. }]` or overwritten, alike: x and the vacuous fragment sort (P5, S5.0g:R4); the open fragment open-record-outside-pattern (S5.0:F3 with S5.0g:D-3's reading of a fragment as its record: a bare `..` over an existing group is Rust's defaults; it is pairing, and under a path the ancestor's own pairing decides whether the group is created, `Some(P { g: .. })` over `None` or a created instance, so the ancestor's class replaces it, S5.0g:P-R12); k::fragment![crate::G { a: x }] rmc (S5.0g:D-4, a kind refusal); every Cell(..) and KCell cw (P3b: the group has no wrapper; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); Some/None pop, the instance lists iop (P3b); _ wop (P4). Paths: S5.0g:R3.
+c21	principle	cells! result over the group G, matched by `k::fragment![crate::G { a: y, .. }]` or overwritten, alike: x, the vacuous fragment and the open fragment sort (P5, S5.0g:R4; the open one by S5.0:F3 with EDOTS and S5.0g:D-3's reading of a fragment as its record: over a group that is there its bare `..` keeps the children it leaves unnamed; under a path the ancestor's own pairing decides whether the group is created, `Some(P { g: .. })` over `None` or a created instance, so the ancestor's class replaces it, S5.0g:P-R12); k::fragment![crate::G { a: x }] rmc (S5.0g:D-4, a kind refusal); every Cell(..) and KCell cw (P3b: the group has no wrapper; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); Some/None pop, the instance lists iop (P3b); _ wop (P4). Paths: S5.0g:R3.
 c22	-	sort	ok	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 c22	?	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
 c22	*	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	open-record-outside-pattern	owp
@@ -956,11 +956,12 @@ ch02	member	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x, ..], ..
 ch02	member	* Map of A	{ .. }	{ A { id: 5, l: [x] }, .. }
 ch02	member	* Map of A	{ .. }	{ A { id: 5, .. }, .. }
 ch02	member	* List of T	[..]	[T { n: 0, .. }, ..]
+ch02	member	group W	-	W { g: G { a: x, .. }, n: 0 }
 ch02	member	group W	-	W { g: G { a: x, b: y }, n: 0 }
 ch02	member	group W	-	W { g: G { a: x, b: y, .. }, n: 0 }
 ch02	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }
 ch02	member	? group G	None	Some(G { a: x, .. })
-ch02	principle	sort in every form (P1, P6): each child's rest pairs with its own other side, and each value to the lattice. An exact child over a framed one or none; a created instance's exact child or bare `..` (template fields, P6); an update `..me` of a shown instance keeping or naming its key as the subject's binder or literal (S5.0g:D-2, S5.0g:R9); a vacuous `..` (S5.0g:R4); a `?` cell created over `None` taking its template's fields for a bare `..` (S5.0g:P-R13).
+ch02	principle	sort in every form (P1, P6): each child's rest pairs with its own other side, and each value to the lattice. An exact child over a framed one or none; a created instance's exact child or bare `..` (template fields, P6); an update `..me` of a shown instance keeping or naming its key as the subject's binder or literal (S5.0g:D-2, S5.0g:R9); a vacuous `..` (S5.0g:R4); a `?` cell created over `None` taking its template's fields for a bare `..` (S5.0g:P-R13); an overwritten group's group child's bare `..`, which keeps the children it leaves unnamed (S5.0:F3 with EDOTS).
 ch03	answers	map-collection-key	map-collection-key	map-collection-key
 ch03	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }
 ch03	member	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }
@@ -975,15 +976,12 @@ ch05	answers	uor	uor	uor
 ch05	member	group O	-	O { o: Some(1), n: 0 }
 ch05	member	group O	-	O { o: None, n: 0 }
 ch05	principle	uor in every form: an overwritten group's `?` child, written Some(..) or None, has a presence the rule does not know (Q1 with P5).
-ch06	answers	open-record-outside-pattern	open-record-outside-pattern	open-record-outside-pattern
-ch06	member	group W	-	W { g: G { a: x, .. }, n: 0 }
-ch06	principle	open-record-outside-pattern in every form: an overwritten group's group child exists, so its bare `..` is Rust's defaults, which only a created instance has (S5.0:F3, S5.0g:D-1).
-ch07	answers	sort	sort	record-remainder-in-cells-term
-ch07	member	* List of T	[..]	[T { k: [x], ..me }, ..]
-ch07	principle	An update whose label the subject does not show, of a record of its constructor matched elsewhere (S5.0g:P-R3): readable and claim sort (a created instance taking that record's fields, P6); cells! record-remainder-in-cells-term (the reference notation names every child, and its one update rewrites in place the instance its subject labels, design:rev4-R10; ruled 2026-11-06, S6-1d-2), after its children pair against the instance it would create.
-ch08	answers	rmc	rmc	rmc
-ch08	member	? group G	None	Some(G { a: x })
-ch08	principle	record-missing-children in every form: a `?` cell created over `None` is written by its record, which names every child or writes `..` (L4, S5.0g:D-4), whatever its creation.
+ch06	answers	sort	sort	record-remainder-in-cells-term
+ch06	member	* List of T	[..]	[T { k: [x], ..me }, ..]
+ch06	principle	An update whose label the subject does not show, of a record of its constructor matched elsewhere (S5.0g:P-R3): readable and claim sort (a created instance taking that record's fields, P6); cells! record-remainder-in-cells-term (the reference notation names every child, and its one update rewrites in place the instance its subject labels, design:rev4-R10; ruled 2026-11-06, S6-1d-2), after its children pair against the instance it would create.
+ch07	answers	rmc	rmc	rmc
+ch07	member	? group G	None	Some(G { a: x })
+ch07	principle	record-missing-children in every form: a `?` cell created over `None` is written by its record, which names every child or writes `..` (L4, S5.0g:D-4), whatever its creation.
 #
 ## children, base matched nowhere
 pattern	line	readable	claim	cells

@@ -521,8 +521,8 @@ advice = "terms/desugar/subject/Cmd::Pair { a: x, .. }"
 
 [class.open-record-outside-pattern]
 code = "krs::syntax::invalid-record-update"
-doc = "an open record (`Ctor { f: e, .. }`) in a built term or a condition, which has no value for the fields `..` leaves open: only a pattern leaves fields unconstrained"
-examples = ["readable ; result ; - ; leaf List ; [G { a: x, .. }, ..] ; [y, ..]", "readable ; result ; - ; group G ; G { a: x, .. } ; G { a: y, .. }", "readable ; result ; - ; ? leaf Int ; Some(G { .. }) ; Some(old)"]
+doc = "an open record (`Ctor { f: e, .. }`) in a built term or a condition, which has no value for the fields `..` leaves open: only a pattern leaves fields unconstrained, and an entry's own record keeps them; and, a stated limit, a result's group record that keeps children beside a subject matching the group whole, or where the result writes the group whole (a `?` group's content, an instance's group child)"
+examples = ["readable ; result ; - ; leaf List ; [G { a: x, .. }, ..] ; [y, ..]", "readable ; result ; - ; group G ; G { a: x, .. } ; g", "readable ; result ; - ; ? leaf Int ; Some(G { .. }) ; Some(old)"]
 advice = "none"
 
 [class.optional-group-defaults]

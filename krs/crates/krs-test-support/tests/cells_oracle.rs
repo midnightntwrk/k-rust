@@ -3202,12 +3202,13 @@ fn a_named_rest_in_a_result_is_refused_at_the_form() {
     ]);
 }
 
-/// R4 under the vacuous-rest ruling (P6, P0): a bare `..` in a built record is Rust's default
-/// fields, so it is refused exactly where it leaves a declared field unnamed; here the record of
-/// a group that exists, and a child's record inside it. A `..` after every field defaults none:
+/// R4 (P6, P0; EDOTS): a bare `..` in the record a result's entry writes for a group that is
+/// there says the children it leaves unnamed keep their content, so the record writes the
+/// children it names, here the record of a group and a child's record inside it; beside a
+/// subject that matches the group whole it is refused. A `..` after every field leaves none:
 /// Rust and K read the same exact record.
 #[test]
-fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
+fn a_bare_rest_in_an_entrys_record_keeps_the_fields_it_leaves_unnamed() {
     let open = Outcome::Refuse("open-record-outside-pattern");
     let group = [group_g()];
     let w = children_stack("group W");
@@ -3216,7 +3217,7 @@ fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
         &[("ret", Layer::Leaf(Notation::Plain))],
     )];
     probes_agree(&[
-        // The record of a group that exists: open on `G { a, b }` without `b`, exact with it.
+        // The record of a group that is there: `b` kept without it, exact with it.
         (
             result_probe(
                 Form::Readable,
@@ -3224,6 +3225,10 @@ fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
                 "G { a: x, .. }",
                 Some("G { a: y, .. }"),
             ),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &group, "G { a: x, .. }", Some("g")),
             open,
         ),
         (
@@ -3260,7 +3265,7 @@ fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
         // A child's record inside a record.
         (
             result_probe(Form::Readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
-            open,
+            Outcome::After,
         ),
         (
             result_probe(
@@ -3330,10 +3335,13 @@ fn a_bare_rest_in_a_term_is_refused_whatever_fields_it_names() {
     probes_agree(&probes);
 }
 
-/// F3: a bare `..` in a result is Rust's default fields, which only a created instance has (its
-/// template, P6): refused on a group the subject matches, admitted on an instance record.
+/// F3 (EDOTS): a bare `..` in a result's record of a group the subject matches keeps the
+/// children it leaves unnamed (P6), over a subject that matches the group by its children or
+/// whatever they hold; beside a binder or an alias of the whole group, and inside a `?` group's
+/// presence, which the result writes whole, it is refused; an instance record's is its
+/// template's.
 #[test]
-fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
+fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_a_matched_group() {
     let refused = Outcome::Refuse("open-record-outside-pattern");
     let group = [group_g()];
     let optional = [Layer::Optional, group_g()];
@@ -3346,7 +3354,7 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
                 "G { a: x, .. }",
                 Some("G { a: y, .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(
@@ -3354,6 +3362,23 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
                 &group,
                 "G { a: x, .. }",
                 Some("G { a: y, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &group, "G { a: x, .. }", Some("_")),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &group, "G { a: x, .. }", Some("g")),
+            refused,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, .. }",
+                Some("g @ G { a: y, .. }"),
             ),
             refused,
         ),
@@ -3387,23 +3412,22 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_a_matched_group() {
     ]);
 }
 
-/// Ruling 1 on F3: a result over a group the subject does not match overwrites a group that
-/// exists already, so a bare `..` there has no default fields to give (P6); only a created
-/// instance, or a `?` cell created over a subject `None`, has its template's.
+/// Ruling 1 on F3 (EDOTS): a result over a group the subject does not match overwrites a group
+/// that is there already, so the children a bare `..` leaves unnamed keep their content (P6); a
+/// created instance, or a `?` cell created over a subject `None`, has its template's.
 #[test]
-fn a_result_group_record_with_a_bare_rest_is_refused_over_an_overwritten_group() {
-    let refused = Outcome::Refuse("open-record-outside-pattern");
+fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_an_overwritten_group() {
     let group = [group_g()];
     let optional = [Layer::Optional, group_g()];
     let set = [Layer::Instances(Order::Set), group_g()];
     probes_agree(&[
         (
             result_probe(Form::Readable, &group, "G { a: x, .. }", None),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(Form::Claim, &group, "G { a: x, .. }", None),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(Form::Readable, &group, "G { a: x, b: 0 }", None),
@@ -3429,12 +3453,13 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_an_overwritten_group()
     ]);
 }
 
-/// D-3 (S5.0g): `k::fragment![crate::G { a: x, .. }]` is the record readable `G { a: x, .. }`
-/// abbreviates (P7), so its bare `..` in a result is Rust's default fields too, which a group that
-/// exists, matched or overwritten, does not have (P6, ruling 1); a `?` cell created over a
+/// D-3 (S5.0g, EDOTS): `k::fragment![crate::G { a: x, .. }]` is the record readable
+/// `G { a: x, .. }` abbreviates (P7), so its bare `..` in a result keeps the children it leaves
+/// unnamed of a group that is there, matched or overwritten, too (P6, ruling 1), and is refused
+/// inside a `?` group's presence, which the result writes whole; a `?` cell created over a
 /// subject `None` and a created instance have their template's.
 #[test]
-fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() {
+fn a_result_group_fragment_with_a_bare_rest_keeps_the_rest_as_its_record_does() {
     let refused = Outcome::Refuse("open-record-outside-pattern");
     let group = [group_g()];
     let optional = [Layer::Optional, group_g()];
@@ -3449,9 +3474,12 @@ fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() 
                 open,
                 Some("k::fragment![crate::G { a: y, .. }]"),
             ),
-            refused,
+            Outcome::After,
         ),
-        (result_probe(Form::Cells, &group, open, None), refused),
+        (
+            result_probe(Form::Cells, &group, open, None),
+            Outcome::After,
+        ),
         (
             result_probe(
                 Form::Cells,
@@ -3774,8 +3802,8 @@ fn a_group_records_children_pair_their_rests_at_their_own_content_roots() {
 
 /// R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): a
 /// readable rule does not drop the computation child's continuation it never matched (Q3), the
-/// `?` child's presence is unknown (P5), and the group child exists, so a bare `..` on it is
-/// Rust's default fields (P6).
+/// `?` child's presence is unknown (P5), and the group child is there, so the children a bare
+/// `..` on it leaves unnamed keep their content (P6, EDOTS).
 #[test]
 fn an_overwritten_records_children_are_unmatched_not_created() {
     let int = || vec![Layer::Leaf(Notation::Plain)];
@@ -3798,7 +3826,6 @@ fn an_overwritten_records_children_are_unmatched_not_created() {
     );
     let w = group("W", vec![("g", vec![group_g()]), ("n", int())]);
     let uor = Outcome::Refuse("unmatched-optional-result");
-    let open = Outcome::Refuse("open-record-outside-pattern");
     probes_agree(&[
         (
             child_probe(Form::Readable, &c, "C { c: [x], n: 0 }", None),
@@ -3823,7 +3850,7 @@ fn an_overwritten_records_children_are_unmatched_not_created() {
         ),
         (
             child_probe(Form::Readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
-            open,
+            Outcome::After,
         ),
         (
             child_probe(
@@ -3832,7 +3859,7 @@ fn an_overwritten_records_children_are_unmatched_not_created() {
                 "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
                 None,
             ),
-            open,
+            Outcome::After,
         ),
         // A matched record that does not name `g`: `g` exists and is overwritten.
         (
@@ -3842,7 +3869,7 @@ fn an_overwritten_records_children_are_unmatched_not_created() {
                 "W { g: G { a: x, .. }, n: 0 }",
                 Some("W { n: y, .. }"),
             ),
-            open,
+            Outcome::After,
         ),
         (
             child_probe(Form::Readable, &w, "W { g: G { a: x, b: y }, n: 0 }", None),
@@ -5116,7 +5143,7 @@ const CITATIONS: [(&str, &str, &str, Scope); 50] = [
     ),
     (
         "S5.0:F3",
-        "with ruling 1: a bare .. on a result group record of a group that exists, matched or overwritten, is open-record-outside-pattern; only a created instance has defaults",
+        "with ruling 1 and EDOTS: a bare .. on a result group record of a group that is there, matched by its children or _ or overwritten, keeps the children it leaves unnamed; beside a subject matching the group whole, or where the result writes the group whole (a ? group's content, an instance's group child), it is open-record-outside-pattern; a created instance takes its defaults",
         "README.md §12 lane 3, S5.0 rulings",
         Scope {
             forms: RULE_FORMS,
@@ -5206,7 +5233,7 @@ const CITATIONS: [(&str, &str, &str, Scope); 50] = [
     ),
     (
         "S5.0g:R4",
-        "a bare .. on a built record that is not a created instance is open-record-outside-pattern where it leaves a field open; after every field it defaults none",
+        "a bare .. on a record a result builds as a term is open-record-outside-pattern; on an entry's own record it keeps the fields it leaves unnamed, and after every field it leaves none",
         "README.md §12 lane 3, S5.0g R4 and the vacuous-rest ruling",
         Scope {
             forms: RULE_FORMS,
