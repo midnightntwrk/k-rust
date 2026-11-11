@@ -887,11 +887,12 @@ impl StructuredTermBuilder<'_> {
                     self.infer(to, to_sort.as_ref(), false)?;
                 } else {
                     // `()` is `.K`, a term of sort K, so it stands where K is admissible: at a
-                    // place of sort K, or as a whole K-sequence item, a place of no stated sort,
-                    // which the rewrite removes.
+                    // place of sort K, or as a whole K-sequence item, which the rewrite removes
+                    // ([`Self::lower_k_item`]). A place whose sort inference does not know yet is
+                    // judged where the rewrite is lowered ([`Self::lower_rewrite`]).
                     self.admit(
                         to_key,
-                        || "`()`".to_owned(),
+                        || "()".to_owned(),
                         &SemanticSortRef::k_sequence(),
                         to_sort.as_ref(),
                         |expected| {
@@ -998,8 +999,9 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// Lowers `k::rewrite!(from => to)` (KF-011) at the join of its sides'
-    /// sorts; `()` on the right is `.K`, which at a whole K-sequence item
-    /// removes the item and keeps the item's sort.
+    /// sorts; `()` on the right is `.K`, which at a whole K-sequence `item`
+    /// removes the item and keeps the item's sort, and anywhere else stands
+    /// only where K is admissible.
     fn lower_rewrite(
         &mut self,
         key: &ProvenanceKey,
@@ -1007,6 +1009,7 @@ impl StructuredTermBuilder<'_> {
         from: &DescriptorTerm,
         to: Option<&DescriptorTerm>,
         expected_sort: Option<&SemanticSortRef>,
+        item: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let (from_sort, to_sort) = self.rewrite_side_sorts(expected_sort, from, to);
         let from = self.lower(from, from_sort.as_ref(), true)?;
@@ -1028,10 +1031,29 @@ impl StructuredTermBuilder<'_> {
                 };
                 (sort, to)
             }
-            // At a place of sort K the rewrite has that sort; a whole K-sequence item, whose
-            // place states none, keeps the removed item's.
+            // A whole K-sequence item keeps the removed item's sort. Anywhere else the rewrite
+            // has its place's sort, or, where the place states none (a parametric field whose
+            // instance its arguments solve), the sort it takes from its left side; `.K` must be
+            // a value of that sort.
             None => (
-                expected_sort.unwrap_or(from.sort()).clone(),
+                if item {
+                    from.sort().clone()
+                } else {
+                    let sort = expected_sort.unwrap_or(from.sort()).clone();
+                    self.admit(
+                        to_key,
+                        || "()".to_owned(),
+                        &SemanticSortRef::k_sequence(),
+                        Some(&sort),
+                        |expected| {
+                            format!("`()` (.K) of sort K is not admissible at sort {expected}")
+                        },
+                    )
+                    .map_err(|error| {
+                        error.within(self.descriptor.id(), self.authored_range(to_key).as_deref())
+                    })?;
+                    sort
+                },
                 SemanticTerm::k_sequence(
                     semantic_origin(self.descriptor, to_key.clone(), "rule-local-rewrite-dot-k")?,
                     SemanticSortRef::k_sequence(),
@@ -2647,6 +2669,31 @@ impl StructuredTermBuilder<'_> {
             .map_err(|error| self.locate(error, term))
     }
 
+    /// [`Self::lower`] for a whole K-sequence item: `k::rewrite!(item => ())` there removes the
+    /// item, the one place a `()` (.K) right side needs no sort of K's (KF-011). The caller,
+    /// which reads the sequence, says that `term` is one of its items.
+    pub(super) fn lower_k_item(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        match term {
+            DescriptorTerm::Rewrite {
+                key,
+                to_key,
+                from,
+                to: None,
+                ..
+            } if subject => {
+                self.head_pending = false;
+                self.lower_rewrite(key, to_key, from, None, expected_sort, true)
+                    .map_err(|error| self.locate(error, term))
+            }
+            _ => self.lower(term, expected_sort, subject),
+        }
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive lowering over the closed descriptor term sum."
@@ -2963,7 +3010,7 @@ impl StructuredTermBuilder<'_> {
                 from,
                 to,
                 ..
-            } => self.lower_rewrite(key, to_key, from, to.as_deref(), expected_sort),
+            } => self.lower_rewrite(key, to_key, from, to.as_deref(), expected_sort, false),
         }
     }
 

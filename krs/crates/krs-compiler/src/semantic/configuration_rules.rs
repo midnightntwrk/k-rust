@@ -45,6 +45,10 @@ fn entry_range(descriptor: &Descriptor, entry: &DescriptorRuleCell) -> Option<Bo
 
 /// Shared inputs for lowering the cell terms of one configuration rule or
 /// context alias, and the variables those terms introduce, in order.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Independent flags of where the term lowered stands, each read where it applies."
+)]
 struct StateRuleTerms<'a> {
     descriptor: &'a Descriptor,
     declarations: &'a DescriptorIndex<'a>,
@@ -74,6 +78,9 @@ struct StateRuleTerms<'a> {
     /// While an item of a rule's matched K sequence is lowered, whether it is the first, the
     /// sentence's head ([`StructuredTermBuilder::head_pending`]).
     sequence_item: Option<bool>,
+    /// Whether the term lowered is a whole item of a K sequence, where `k::rewrite!(item => ())`
+    /// removes the item ([`StructuredTermBuilder::lower_k_item`]).
+    k_item: bool,
     /// The guards of the instances and the keys the pattern looks up, which
     /// the sentence's condition must hold: [`Self::finish`] hands them back.
     guards: super::set_instances::SentenceGuards,
@@ -103,6 +110,7 @@ impl<'a> StateRuleTerms<'a> {
             readable: false,
             sequence_heads: false,
             sequence_item: None,
+            k_item: false,
             guards: super::set_instances::SentenceGuards::default(),
         }
     }
@@ -191,6 +199,8 @@ impl<'a> StateRuleTerms<'a> {
         builder.resolve_binding_sorts()?;
         let lowered = if looked_up_key {
             builder.lower_key(term, expected_sort)?
+        } else if self.k_item {
+            builder.lower_k_item(term, expected_sort, subject)?
         } else {
             builder.lower(term, expected_sort, subject)?
         };
@@ -405,7 +415,9 @@ impl<'a> StateRuleTerms<'a> {
                             .as_ref()
                             .filter(|_| matches!(item.value, DescriptorTerm::Wildcard { .. }));
                         self.sequence_item = (subject && self.sequence_heads).then_some(index == 0);
+                        self.k_item = true;
                         let lowered = self.term(&item.value, expected, binding_sorts, subject);
+                        self.k_item = false;
                         self.sequence_item = None;
                         lowered
                     })

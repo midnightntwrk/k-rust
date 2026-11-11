@@ -5393,12 +5393,13 @@ fn a_present_optional_group_is_stated_present() {
         .assert_eq(&check_errors(target.path(), &manifest));
 }
 
-/// `SINGLE_BODY` with `hold(x)`, an Int field, and `keep(body)`, a field of sort `KSequence`.
+/// `SINGLE_BODY` with `hold(x)`, an Int field, `keep(body)`, a field of sort `KSequence`,
+/// `wrap(s)`, a Stmt field, and `duo(a, b)`, whose fields' sort is a parameter.
 fn dot_k_fixture() -> String {
     SINGLE_BODY.replace(
         "    Make { x: Int },\n",
-        "    Make { x: Int },\n    #[k::syntax(\"hold({x})\")]\n    Hold { x: Int },\n    #[k::syntax(\"keep({body})\")]\n    Keep { body: KSequence },\n",
-    )
+        "    Make { x: Int },\n    #[k::syntax(\"hold({x})\")]\n    Hold { x: Int },\n    #[k::syntax(\"keep({body})\")]\n    Keep { body: KSequence },\n    #[k::syntax(\"wrap({s})\")]\n    Wrap { s: Stmt },\n",
+    ) + "\n#[k::constructor(sort = Stmt, syntax = \"duo({a}, {b})\")]\npub struct Duo<S: ?Sized> {\n    pub a: k::Term<S>,\n    pub b: k::Term<S>,\n}\n\n"
 }
 
 /// TERMDOTK: `()` on a rewrite's right is `.K`, a term of sort K, so it stands where K is
@@ -5406,10 +5407,16 @@ fn dot_k_fixture() -> String {
 /// field of sort `KSequence`, which it writes empty (`keep((B:K => .K))`). Anywhere else it is no
 /// value of its place, the author's mistake that every other wrongly-sorted right side is, with
 /// that side's class, text and location, on the `cells!` and the term route, in a rule and in a
-/// context. It was refused by a structural check that knew only K-sequence items: framed as the
+/// context. A place whose sort is a parameter (`duo(a, b)`) is judged at the sort the rewrite
+/// takes: `.K` is refused at Int, and admitted where the instance is K. Only the item loop says
+/// that a place is a whole item; a place that states no sort is not one. It was refused by a structural check that knew only K-sequence items: framed as the
 /// configuration descriptor's on the `cells!` route, an internal error on the term route, and a
 /// field of sort K refused with them. A readable clause and an equation never hold a rewrite.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of places, routes and sentence kinds, and the admitted rule's run."
+)]
 fn a_dot_k_right_side_stands_where_k_is_admissible() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
@@ -5442,8 +5449,10 @@ fn a_dot_k_right_side_stands_where_k_is_admissible() {
         ("cells-rule/map-value", cells("", &format!("{removal}, env: k::configuration::Cell(map![1 -> k::rewrite!(_ => ()), ..])"))),
         ("cells-rule/item-field", cells("", "k: k::configuration::KCell(Cmd::Hold { x: k::rewrite!(x => ()) }, ..)")),
         ("cells-rule/other-term", cells("\n    a: Int,", &format!("{removal}, acc: k::configuration::Cell(k::rewrite!(a => true))"))),
+        ("cells-rule/parametric-field", cells("", "k: k::configuration::KCell(Cmd::Make { x }, Duo { a: k::rewrite!(x => ()), b: 1 }, ..)")),
         ("cells-context/item-field", cells_context("Cmd::Hold { x: k::rewrite!(h => ()) }")),
         ("term-rule/field", term("x: Int,", "Cmd::Hold { x: k::rewrite!(x => ()) }")),
+        ("term-rule/parametric-field", term("x: Int,", "Cmd::Wrap { s: Duo { a: k::rewrite!(x => ()), b: 1 } }")),
         ("term-rule/other-term", term("x: Int,", "Cmd::Hold { x: k::rewrite!(x => true) }")),
         ("term-rule/root", term("x: Int,", "k::rewrite!(Cmd::Make { x } => ())")),
         ("term-context/field", term_context("Cmd::Hold { x: k::rewrite!(h => ()) }")),
@@ -5455,23 +5464,26 @@ fn a_dot_k_right_side_stands_where_k_is_admissible() {
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
     expect_test::expect![[r"
-        cells-rule/int-leaf: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 84:130
-        cells-rule/map-leaf: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Map @ 84:130
-        cells-rule/group-child: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 84:143
-        cells-rule/map-value: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort KRS-FRAMEWORK::KItem (sort) @ 83:140
-        cells-rule/item-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 83:76
-        cells-rule/other-term: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): literal `true` of sort Bool is not admissible at sort Int @ 84:130
-        cells-context/item-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::ctx (context): `()` (.K) of sort K is not admissible at sort Int @ 83:76
-        term-rule/field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 83:46
-        term-rule/other-term: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): literal `true` of sort Bool is not admissible at sort Int @ 83:46
-        term-rule/root: error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root @ 83:14
-        term-context/field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::ctx (context): `()` (.K) of sort K is not admissible at sort Int @ 83:46
-        equation: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state @ 84:31
-        readable-rule: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern; here it stands in the subject of a readable rule @ 83:17"]].assert_eq(&refused.join("\n"));
+        cells-rule/int-leaf: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 93:130
+        cells-rule/map-leaf: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Map @ 93:130
+        cells-rule/group-child: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 93:143
+        cells-rule/map-value: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort KRS-FRAMEWORK::KItem (sort) @ 92:140
+        cells-rule/item-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 92:76
+        cells-rule/other-term: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): literal `true` of sort Bool is not admissible at sort Int @ 93:130
+        cells-rule/parametric-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 92:87
+        cells-context/item-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::ctx (context): `()` (.K) of sort K is not admissible at sort Int @ 92:76
+        term-rule/field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 92:46
+        term-rule/parametric-field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): `()` (.K) of sort K is not admissible at sort Int @ 92:55
+        term-rule/other-term: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::make (rule): literal `true` of sort Bool is not admissible at sort Int @ 92:46
+        term-rule/root: error[krs::syntax::unsupported-rule-pattern]: unsupported rule pattern: a whole-subject `k::rewrite!(from => to)` is an ordinary rule: write `from` as the subject and `to` as the result, or mark the change below the subject's root @ 92:14
+        term-context/field: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::ctx (context): `()` (.K) of sort K is not admissible at sort Int @ 92:46
+        equation: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state @ 93:31
+        readable-rule: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern; here it stands in the subject of a readable rule @ 92:17"]].assert_eq(&refused.join("\n"));
     let admitted = [
         ("cells-rule/item", cells("\n    a: Int,", &format!("{removal}, acc: k::configuration::Cell(k::rewrite!(a => x))"))),
         ("cells-rule/k-field", cells("\n    b: KSequence,", "acc: k::configuration::Cell(x), k: k::configuration::KCell(Cmd::Keep { body: k::rewrite!(b => ()) }, ..)")),
         ("term-rule/k-field", term("b: KSequence,", "Cmd::Keep { body: k::rewrite!(b => ()) }")),
+        ("term-rule/parametric-k-field", term("b: KSequence,\n    c: KSequence,", "Cmd::Wrap { s: Duo { a: k::rewrite!(b => ()), b: c } }")),
     ]
     .map(|(name, source)| {
         let manifest = library_package(temporary.path(), &format!("dot-k-{}", name.replace('/', "-")), &source);
@@ -5492,7 +5504,8 @@ fn a_dot_k_right_side_stands_where_k_is_admissible() {
     expect_test::expect![[r"
         cells-rule/item: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>
         cells-rule/k-field: rule [make]: <acc> X:Int </acc> <k> keep ( (B:K => .K) ) ... </k>
-        term-rule/k-field: rule keep ( (B:K => .K) ) [label(make)]"]].assert_eq(&admitted.join("\n"));
+        term-rule/k-field: rule keep ( (B:K => .K) ) [label(make)]
+        term-rule/parametric-k-field: rule wrap ( duo ( (B:K => .K) , C:K ) ) [label(make)]"]].assert_eq(&admitted.join("\n"));
     // The admitted field rule runs: `split` and `wrap` turn `make(1)` into `keep(hold(1))`, and
     // `make` empties its field once, `acc` going from 0 to 1.
     let manifest = library_package(
