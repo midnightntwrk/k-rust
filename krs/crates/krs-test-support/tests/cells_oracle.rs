@@ -7176,6 +7176,13 @@ fn container<'k>(k: &'k str, cell: &str) -> Option<&'k str> {
 /// whose recorded K keeps a frame where P6 says none or none where it says one; `counts` the
 /// judged and the unjudged (a cell the K writes more often than the entry, such as a result's
 /// instance beside the subject's, or a collection with no instance record to find it by).
+/// A result record that names every child, written in place (an update of the group or the
+/// paired instance the subject matched, INSTPAIR), shares its cell term with the subject's
+/// record: a `...` there is the subject's `..`, and frames no child.
+fn shares_subject_frame(side: Side, keeps: bool, unnamed: &[String], content: &str) -> bool {
+    !keeps && side == Side::Result && unnamed.is_empty() && content.contains("=>")
+}
+
 fn record_frames_agree(
     case: &Case,
     entry: &EntryCase,
@@ -7269,7 +7276,9 @@ fn record_frames_agree(
                         let found = k_cells(content, child);
                         found.len() == 1 && found[0] == "_"
                     }));
-            if has_frame != keeps {
+            if has_frame != keeps
+                && !shares_subject_frame(entry.entry.side, keeps, unnamed, content)
+            {
                 failures.push(format!(
                     "{}: `<{cell}> {content} </{cell}>` has {} at its top level, where P6 says \
                      the record {}",
