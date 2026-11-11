@@ -45,6 +45,8 @@ use crate::{
     provenance::GeneratingPass,
 };
 
+use super::remove_unit::reannotation_keeps;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConcretizeCellsError {
     pub diagnostics: Vec<Diagnostic>,
@@ -332,9 +334,13 @@ pub(crate) fn concretize_cells_pass(
                             &transformed,
                         ));
                     }
-                    // The concretizer built `transformed` from its own copy: it replaces the
-                    // shared sentence without copying that sentence again only to overwrite it.
-                    *sentence = Arc::new(transformed);
+                    // A sentence the concretizer gave back as it was stays the shared
+                    // allocation, and its copy is dropped. Otherwise the concretizer built
+                    // `transformed` from its own copy: it replaces the shared sentence without
+                    // copying that sentence again only to overwrite it.
+                    if !concretizer.rebuilt_input() {
+                        *sentence = Arc::new(transformed);
+                    }
                 }
                 Err(message) => {
                     let message = if main_modules.contains(&module_id) {
@@ -1018,6 +1024,9 @@ struct Concretizer<'use_, 'definition> {
     /// Whether [`Self::sort_cells`] is below the right side of a rewrite, where a cell is built
     /// rather than matched.
     under_right_side: bool,
+    /// Whether the last sentence's concretization may have built something other than its
+    /// input ([`Self::rebuilt_input`]).
+    changed: std::cell::Cell<bool>,
 }
 
 /// Where the frame `...` of a parent cell is written, when not after the items only.
@@ -1112,6 +1121,33 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             completed_parents: std::cell::Cell::new(0),
             rest_sides: BTreeMap::new(),
             under_right_side: false,
+            changed: std::cell::Cell::new(false),
+        }
+    }
+
+    /// Whether the last sentence [`Self::sentence`] concretized came back as its input, equal
+    /// to it under the strict comparison (terms with their metadata), so that the input stands
+    /// for the result.
+    ///
+    /// Each step (aliases of one cell sorted, the root added, parents added, cells closed,
+    /// cells sorted) rebuilds every node it does not change from its parts and puts back its
+    /// outer annotation with `with_metadata`, which gives back the node exactly when
+    /// [`reannotation_keeps`] holds of it. Every step sets `changed` at each node where that
+    /// does not hold, and at each branch that builds anything else (a re-sorted alias, a root
+    /// cell, a completed parent, a closed cell, reordered children, a fragment test or its
+    /// replacement), whether or not the result differs. A step given a term equal to the input
+    /// therefore returns that term when it sets nothing, and when no step set it the sentence
+    /// is its input. The flag is conservative: a sentence it marks may still be equal to its
+    /// input, and is then kept as the step built it.
+    fn rebuilt_input(&self) -> bool {
+        !self.changed.get()
+    }
+
+    /// Set `changed` when rebuilding `term` from its parts and its outer metadata would not give
+    /// `term` back ([`Self::rebuilt_input`]).
+    fn note_reannotation(&self, term: &Term) {
+        if !reannotation_keeps(term) {
+            self.changed.set(true);
         }
     }
 
@@ -1176,6 +1212,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         self.under_right_side = false;
         self.conjoins_fragment = false;
         self.moved_cells.borrow_mut().clear();
+        self.changed.set(false);
     }
 
     /// `message`, an error of the last sentence, naming the cells moved before it.
@@ -1289,6 +1326,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         if sorts.is_empty() {
             return Ok(roots);
         }
+        self.changed.set(true);
         Ok(roots.map(|root| sort_one_cell_aliases(root, &sorts, self.model)))
     }
 
@@ -1511,6 +1549,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     self.ml_result_sort_children(&term, label, arguments.len())?
             {
                 if recurse.iter().any(|recurse| *recurse) {
+                    self.changed.set(true);
                     let metadata = term.metadata().cloned();
                     let TermParts::Apply { label, arguments } =
                         term.into_unannotated().into_parts()
@@ -1542,9 +1581,11 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             if wrapped_left == **left {
                 return Ok(term);
             }
+            self.changed.set(true);
             // As in `make_parents`, the frame of a built cell follows the cells it holds.
             return Ok(incomplete_cell(&root.label, false, term, true));
         }
+        self.changed.set(true);
         Ok(incomplete_cell(&root.label, false, term, true))
     }
 
@@ -1625,6 +1666,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// [`Self::add_parents`] on one subterm, returning the cells moved out of it that the
     /// enclosing cell bag must place.
     fn place_cells(&self, term: Term) -> Result<(Term, Vec<MovedCell>), String> {
+        self.note_reannotation(&term);
         let metadata = term.metadata().cloned();
         let (rebuilt, moved) = match term.into_unannotated().into_parts() {
             TermParts::Apply { label, arguments } => {
@@ -1635,6 +1677,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 if let Some(cell) = parent
                     && let Ok((open_left, body, open_right)) = incomplete_parts(&arguments)
                 {
+                    self.changed.set(true);
                     // Each item of the body keeps the cells lifted out of it, so that its
                     // completion can place them in the instances that hold it.
                     let items = flatten_cells(body)
@@ -3369,6 +3412,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     fn close(&mut self, term: Term, on_rhs: bool) -> Result<Term, String> {
+        self.note_reannotation(&term);
         let metadata = term.metadata().cloned();
         let rebuilt = match term.into_unannotated().into_parts() {
             TermParts::Rewrite { left, right } => Term::Rewrite {
@@ -3381,6 +3425,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     arguments,
                 };
                 if let Some(cell) = self.model.cell_for_label(&label) {
+                    self.changed.set(true);
                     application = self.close_cell(application, cell, on_rhs)?;
                 }
                 let TermParts::Apply { label, arguments } = application.into_parts() else {
@@ -3623,6 +3668,7 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// One level of [`Self::sort_cells_with_fragments`], which runs it with stack for one more
     /// level.
     fn sort_cells_level(&mut self, term: Term, replace_fragments: bool) -> Result<Term, String> {
+        self.note_reannotation(&term);
         let metadata = term.metadata().cloned();
         let rebuilt = match term.into_unannotated().into_parts() {
             TermParts::Apply { label, arguments } => {
@@ -3633,11 +3679,13 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                         .iter()
                         .any(|predicate| predicate.name == label.name)
                 {
+                    self.changed.set(true);
                     self.conjoins_fragment |= info.split.len() > 1;
                     fragment_predicate(info, self.model)
                 } else if let Some(cell) = self.model.cell_for_label(&label)
                     && !cell.children.is_empty()
                 {
+                    self.changed.set(true);
                     let ordered = self.order_children(label, arguments, cell)?;
                     let TermParts::Apply { label, arguments } = ordered.into_parts() else {
                         unreachable!()
@@ -3692,7 +3740,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 if replace_fragments {
                     self.fragments.get(&name).map_or_else(
                         || Ok(Term::Variable { name, sort }),
-                        |info| fragment_replacement(info, self.model),
+                        |info| {
+                            self.changed.set(true);
+                            fragment_replacement(info, self.model)
+                        },
                     )?
                 } else {
                     Term::Variable { name, sort }
