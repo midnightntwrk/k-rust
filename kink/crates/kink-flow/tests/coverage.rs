@@ -1764,7 +1764,7 @@ text = 'h(opaque(1), 2)'
         // checks an argued item's invariant by its connection; its eighteenth also by its
         // evidence on runs.
         assert_eq!(document["schema"], "kink-flow-coverage");
-        assert_eq!(document["version"], 23);
+        assert_eq!(document["version"], 24);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

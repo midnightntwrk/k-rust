@@ -541,7 +541,7 @@ fn a_run_of_the_clock_ends_at_its_stop() {
     let (document, ok) = coverage(&manifest, &CoverageOptions::default());
     assert!(ok, "{document:#}");
     assert_eq!(document["schema"], "kink-flow-coverage");
-    assert_eq!(document["version"], 23);
+    assert_eq!(document["version"], 24);
     let stop = json!({"before": ["CLOCK.frame"], "after": [], "count": 1});
     assert_eq!(document["stop"], stop);
     let program = &document["programs"][0];
