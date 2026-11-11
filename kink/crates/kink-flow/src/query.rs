@@ -1899,6 +1899,21 @@ mod tests {
     use super::*;
     use kink_native::exclusion::{DefinitionExclusions, HookReference};
 
+    /// A cell `prune` asks of the patterns ([`HitCells`]) is a hit or a final `no` only by its
+    /// answer: every other answer, a chain's `unknown` with the cause of the bound of polls that
+    /// cut its run (CHAIN-STOPLESS-WORK) among them, and live or cached alike, is an unknown
+    /// cell, which never discharges.
+    #[test]
+    fn only_a_hit_and_a_final_no_are_decided_cells() {
+        assert_eq!(hit_cell(&json!({"answer": "hit"})), HitCell::Hit);
+        assert_eq!(hit_cell(&json!({"answer": "no"})), HitCell::No);
+        for answer in ["unknown", INVALID_PATTERN, "error"] {
+            let row = json!({"answer": answer, "cause": "the bound of polls cut the run",
+                             "cached": true});
+            assert_eq!(hit_cell(&row), HitCell::Unknown, "{answer}");
+        }
+    }
+
     fn calc() -> (FlowManifest, PatternList) {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/calc");
         (
