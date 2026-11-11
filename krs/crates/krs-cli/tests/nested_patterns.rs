@@ -1894,6 +1894,12 @@ fn a_cells_entry_is_judged_alike_by_every_sentence_form() {
             "z: Term<Int>, s: Term<List>",
             "Some(k::configuration::Cell(s))",
         ),
+        (
+            "presence-around-alternatives",
+            "stack: Some(k::configuration::Cell(s | s))",
+            "s: Term<List>",
+            "Some(k::configuration::Cell(s | s))",
+        ),
     ];
     let mut outcomes = Vec::new();
     for (name, entry, parameters, at) in witnesses {
@@ -1925,9 +1931,51 @@ fn a_cells_entry_is_judged_alike_by_every_sentence_form() {
             "presence-on-a-plain-leaf: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
             "item-after-rest-on-a-leaf: error[krs::analysis::cell-wrapper]: the cell `stack` holds a `List` leaf, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)`",
             "kind-beside-a-limit: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
+            "presence-around-alternatives: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
         ]
     "#]]
     .assert_debug_eq(&outcomes);
+}
+
+/// Pattern alternatives a mark holds, `Some(s | s)` in a readable record and
+/// `Some(k::configuration::Cell(s | s))` in `cells!`, are the one term pattern they make: the
+/// marks around them are the entry's, judged by its cell's kind as around any term, with the
+/// table's line at the presence on both routes (TABLE follow-up (c): the `cells!` entry was
+/// left unread, and the compiler's copy answered with its own text at the cell's name).
+#[test]
+fn a_presence_around_pattern_alternatives_is_judged_as_around_any_term() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let routes = [
+        (
+            "readable",
+            readable_presence("stack: Some(s | s)", ""),
+            "Some(s | s)",
+        ),
+        (
+            "cells",
+            format!(
+                "{PRESENCES}#[k::rule(label = \"go\")]\nfn go(s: Term<List>, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), stack: Some(k::configuration::Cell(s | s)), state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+            ),
+            "Some(k::configuration::Cell(s | s))",
+        ),
+    ];
+    let mut headlines = Vec::new();
+    for (route, source, at) in routes {
+        let manifest = library_package(temporary.path(), &format!("alternatives-{route}"), &source);
+        let error = first_error(target.path(), &manifest);
+        let (headline, place) = error.split_once(" @ ").expect("refused");
+        assert_eq!(place, location(&manifest, at), "{route}: {error}");
+        headlines.push(headline.to_owned());
+    }
+    assert_eq!(headlines[0], headlines[1], "one line on both routes");
+    assert!(
+        headlines[0].starts_with(
+            "error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf"
+        ),
+        "{}",
+        headlines[0]
+    );
 }
 
 /// A group record that is a value, the group's cell term in a list element, means the cell a

@@ -322,14 +322,14 @@ impl<'a> EntryReading<'a> {
     fn call(self, name: &str, content: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
         match name {
             "Some" => {
-                let inner = self.content(content, head)?;
+                let inner = self.marked(content, head)?;
                 if !content.is_empty() {
                     return Err(content.error("`Some(..)` holds one entry"));
                 }
                 Ok(EntrySpelling::Present(Box::new(inner)))
             }
             "Cell" if self.form == EntryForm::Cells => {
-                let inner = self.term(content, false)?;
+                let inner = self.marked(content, false)?;
                 content.parse::<Option<Token![,]>>()?;
                 if !content.is_empty() {
                     return Err(content.error("`Cell(..)` holds one value"));
@@ -425,6 +425,22 @@ impl<'a> EntryReading<'a> {
     /// is no term, and `|` at a pattern's level joins alternatives and `..` is a rest: a value
     /// holding one stays unread.
     fn term(self, input: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
+        self.term_in(input, head, false)
+    }
+
+    /// The value a mark holds, `Some(..)`'s or `Cell(..)`'s, read as [`Self::term`] reads one,
+    /// except that pattern alternatives (`s | s`) there are the one term pattern they make,
+    /// matching either, so the marks around them are judged as around any term.
+    fn marked(self, input: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
+        self.term_in(input, head, true)
+    }
+
+    fn term_in(
+        self,
+        input: ParseStream<'_>,
+        head: bool,
+        marked: bool,
+    ) -> syn::Result<EntrySpelling> {
         let ahead = input.fork();
         match self.parse(&ahead, head) {
             Ok(spelling) if ahead.is_empty() || ahead.peek(Token![,]) || ahead.peek(Token![->]) => {
@@ -437,7 +453,10 @@ impl<'a> EntryReading<'a> {
             _ => {}
         }
         let expression = input.parse::<syn::Expr>()?;
-        if self.form != EntryForm::Initializer && !denotes_term(&expression) {
+        if self.form != EntryForm::Initializer
+            && !denotes_term(&expression)
+            && !(marked && !holds_rest(&expression))
+        {
             return Err(syn::Error::new_spanned(
                 &expression,
                 "alternatives or a rest are no term",
@@ -599,6 +618,11 @@ fn starts_entry(input: ParseStream<'_>) -> bool {
 /// Whether `expression`, read where a pattern may stand, is a term: no alternatives at a
 /// pattern's level ([`crate::recover::holds_alternatives`]) and no rest (`..`) outside a macro.
 fn denotes_term(expression: &syn::Expr) -> bool {
+    !holds_rest(expression) && !crate::recover::holds_alternatives(expression)
+}
+
+/// Whether `expression` holds a rest (`..`) outside a macro.
+fn holds_rest(expression: &syn::Expr) -> bool {
     struct Rest(bool);
     impl<'ast> syn::visit::Visit<'ast> for Rest {
         fn visit_expr_range(&mut self, _: &'ast syn::ExprRange) {
@@ -607,7 +631,7 @@ fn denotes_term(expression: &syn::Expr) -> bool {
     }
     let mut rest = Rest(false);
     syn::visit::Visit::visit_expr(&mut rest, expression);
-    !rest.0 && !crate::recover::holds_alternatives(expression)
+    rest.0
 }
 
 /// One field of a `cells!` payload as a `cells!` [`EntryReading`] reads it.
@@ -1181,8 +1205,14 @@ mod cells_fields_tests {
             );
             if form != super::EntryForm::Initializer {
                 assert_eq!(read("x | 1"), None, "{form:?}");
-                assert_eq!(read("Some(1 | 2)"), None, "{form:?}");
             }
+            // Alternatives a mark holds are the one term pattern they make, so the mark is the
+            // entry's to judge.
+            assert_eq!(
+                read("Some(1 | 2)"),
+                Some(EntrySpelling::Present(Box::new(term()))),
+                "{form:?}"
+            );
         }
         let cells = |text: &str| {
             super::EntryReading::new(super::EntryForm::Cells, &[])
@@ -1194,6 +1224,12 @@ mod cells_fields_tests {
             Some(EntrySpelling::Cell(Box::new(term())))
         );
         assert_eq!(cells("k::configuration::Cell(..)"), None);
+        assert_eq!(
+            cells("Some(k::configuration::Cell(s | s))"),
+            Some(EntrySpelling::Present(Box::new(EntrySpelling::Cell(
+                Box::new(term())
+            ))))
+        );
         let Some(EntrySpelling::Brackets(seq)) =
             super::EntryReading::new(super::EntryForm::Readable, &[])
                 .value("[x + 1, ..]".parse().expect("lexes"))
