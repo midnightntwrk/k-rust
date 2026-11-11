@@ -7572,11 +7572,6 @@ class = "nested-anonymous-rest"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/result/c10-tjob/[T \{ tk: [x\, ..]\, ..me \}\, ..]'
-class = "nested-anonymous-rest"
-at = "spelling"
-
-[[refuse]]
 match = 'sweep/{claim,readable}/result/f16-ccell/C \{ cc: [x\, ..]\, cn: 0 \}'
 class = "nested-anonymous-rest"
 at = "spelling"
@@ -14614,6 +14609,21 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/claim/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tqueue>
+<tjob>
+<tk> V1:KItem ~> V2:K => V0:Int ~> V2:K </tk>
+...
+</tjob>
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/claim/result/c11-tjob/[T { tn: 0, ..me }, ..]"]
 k = """
 claim [case-TAG]:
@@ -16615,6 +16625,21 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 (.Bag => <ohcell> <ohl> ListItem(V0:Int) </ohl> <ohb> 0 </ohb> </ohcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tqueue>
+<tjob>
+<tk> V1:KItem ~> V2:K => V0:Int ~> V2:K </tk>
+...
+</tjob>
+...
+</tqueue>
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
