@@ -185,13 +185,10 @@ pub enum Refusal {
     /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
     /// record's top-level route).
     MapReadInResult,
-    /// A Map collection's instance that does not keep its key, its first child, which is its
-    /// identity: a created instance that does not write it (a bare `..` takes the template's
-    /// fields, which state no identity), or an instance update (`..me`) that writes it as
-    /// anything but what is provably the key the subject matched (another literal, another
-    /// name, a computed value, or a key the labelled instance does not name), since an update
-    /// changes the instance in place and another key is another entry of the map. Written as
-    /// the subject's own key binder, or as the same literal it matched, the key is unchanged.
+    /// A created instance of a Map collection that does not write its key, its first child,
+    /// which is its identity: a bare `..` takes the template's fields, which state no identity.
+    /// An update `..me` takes the key from the instance it names, or writes one: the key that
+    /// instance matched updates it in place, and another key moves it there.
     MapCollectionKey,
     /// A readable map read at a record's top level whose value is not a fresh binder (a stated
     /// limitation of the readable record's top-level route; inside an instance record the value
@@ -509,7 +506,7 @@ impl Refusal {
                     _ => None,
                 };
                 format!(
-                    "an instance of the Map collection `{cell}` does not keep its key{}, its first child, which is its identity: a created instance states it, and an update keeps the key its subject matched, since another key is another entry of the map",
+                    "a created instance of the Map collection `{cell}` does not write its key{}, its first child, which is its identity: a bare `..` takes the template's children, which state no identity",
                     key.map_or_else(String::new, |key| format!(" `{key}`"))
                 )
             }
@@ -1700,8 +1697,9 @@ impl Other<'_> {
 
     /// The other side of an instance record a result writes in a collection whose other side is
     /// `self`, `None` where the record has none. An update `..label` changes in place the
-    /// subject's instance labelled `label`: only an instance the subject matches is rewritten in
-    /// place. An update whose label no subject instance has builds a new instance from the record
+    /// subject's instance labelled `label`, or, in a Map collection, moves it under the other key
+    /// it writes ([`moved_label`]), taking its other children: only an instance the subject
+    /// matches is rewritten in place. An update whose label no subject instance has builds a new instance from the record
     /// the sentence binds `label` to elsewhere, a created instance, where that record is of the
     /// update's own constructor: `..base` takes the fields of a value of the record's own type.
     /// It has no base (`None`) where the sentence binds `label` nowhere, to no record, or to a
@@ -1728,38 +1726,59 @@ impl Other<'_> {
     }
 }
 
-/// Whether a result's instance record of `group`, in a collection ordered by `order`, with
-/// `other` its other side, keys its instance as its collection does ([`GroupKind::key`]): a Map
-/// instance's key is its identity, written at creation and never changed. A created instance
-/// writes it, since a bare `..` takes only template fields, which state no identity. An update
-/// changes the instance in place, so it writes the key, if at all, as what is provably the key
-/// the subject matched: the key's own binder, or the same literal, which is the same instance;
-/// any other key value, or a key the labelled instance does not name, is a key change.
-fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>) -> bool {
-    fn named<'r>(record: &'r EntryRecord, key: &str) -> Option<&'r EntrySpelling> {
-        record
-            .fields
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value)
-    }
+/// Whether a result's instance record of `group`, in a collection ordered by `order`, keys its
+/// instance as its collection does ([`GroupKind::key`]): a Map instance's key is its identity,
+/// which a created instance writes, since a bare `..` takes only template fields, which state no
+/// identity. An update `..label` takes its key from the labelled instance where it does not write
+/// one, and states the key it writes otherwise: written as that instance matched it, it updates
+/// the instance in place, and written as anything else it moves the instance to that key
+/// ([`moved_label`]), so every update keys its instance.
+fn keyed(order: Order, group: &GroupKind, record: &EntryRecord) -> bool {
     let Some(key) = group.key(order) else {
         return true;
     };
-    match (&record.tail, named(record, key)) {
-        (RecordTail::Update(_), Some(value)) => {
-            // An update of a value bound elsewhere creates its instance, which writes its key.
-            let Other::Matched(subject) = other else {
-                return other == Other::Created;
-            };
-            keeps_key(
-                value,
-                record_of(subject, group).and_then(|record| named(record, key)),
-            )
-        }
-        (RecordTail::Update(_), None) => true,
-        (RecordTail::Exact | RecordTail::Open, written) => written.is_some(),
+    match &record.tail {
+        RecordTail::Update(_) => true,
+        RecordTail::Exact | RecordTail::Open => record_field(record, key).is_some(),
     }
+}
+
+/// The child `key` a record writes, as written.
+fn record_field<'r>(record: &'r EntryRecord, key: &str) -> Option<&'r EntrySpelling> {
+    record
+        .fields
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value)
+}
+
+/// The label a result's instance record `record` of `group`, in a Map collection (`order`) whose
+/// subject instances are `subject`, moves to another key: an update `..label` of a labelled
+/// subject instance that writes the key as anything but what is provably the key that instance
+/// matched ([`keeps_key`]; a key it does not name is not). A Map instance is identified by its
+/// key, so such a record builds a new instance under the key it writes, whose other children are
+/// the labelled instance's, and does not update that instance in place: the labelled instance is
+/// removed unless another result instance keeps it.
+fn moved_label<'r>(
+    order: Order,
+    group: &GroupKind,
+    subject: &[EntrySpelling],
+    record: &'r EntryRecord,
+) -> Option<&'r str> {
+    let key = group.key(order)?;
+    let RecordTail::Update(label) = &record.tail else {
+        return None;
+    };
+    let written = record_field(record, key)?;
+    // A whole instance named by one name, `label`, names no key.
+    let matched = subject.iter().find_map(|item| match item {
+        EntrySpelling::Alias(name, instance) if name == label => {
+            Some(record_of(instance, group).and_then(|record| record_field(record, key)))
+        }
+        EntrySpelling::Binder(name) if name == label => Some(None),
+        _ => None,
+    })?;
+    (!keeps_key(written, matched)).then_some(label.as_str())
 }
 
 /// Whether a result that writes a Map collection's key as `written` keeps the key `matched`,
@@ -1769,9 +1788,10 @@ fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>
 /// binder for the key (an alias's binder included), or the same literal the subject matched;
 /// any other value, or a key the subject does not name, is another instance.
 ///
-/// One predicate serves every place that judges a written key: an instance update inside an
-/// instance record ([`Refusal::MapCollectionKey`]), and the flat key entry of a sentence about
-/// one instance of a Map collection's group.
+/// One predicate serves every place that judges a written key: whether an instance update inside
+/// an instance record updates its instance in place or moves it ([`moved_label`]), which instance
+/// a record without a label's rest is ([`instance_twins`]), and the flat key entry of a sentence
+/// about one instance of a Map collection's group.
 #[must_use]
 pub fn keeps_key(written: &EntrySpelling, matched: Option<&EntrySpelling>) -> bool {
     match (written, matched) {
@@ -1803,10 +1823,12 @@ fn instance_twins<'s>(
     else {
         return Vec::new();
     };
+    // A label is updated by a record that keeps it in place, not by one that moves it.
     let updates = result
         .items
         .iter()
         .filter_map(|item| record_of(item, group))
+        .filter(|record| moved_label(order, group, &subject.items, record).is_none())
         .filter_map(|record| match &record.tail {
             RecordTail::Update(label) => Some(label.as_str()),
             _ => None,
@@ -2023,7 +2045,7 @@ fn pair_records(
                         .instance(record, bound)
                         .ok_or(Refusal::RecordUpdateBase)?,
                 };
-                if !keyed(*order, group, record, other) {
+                if !keyed(*order, group, record) {
                     return Err(Refusal::MapCollectionKey);
                 }
                 fields(group, record, other, true, path)?;
@@ -3976,7 +3998,7 @@ mod tests {
         assert!(!keeps_key(&binder("me"), None));
     }
     #[test]
-    fn an_update_of_a_map_collections_instance_keeps_its_key() {
+    fn an_update_of_a_map_collections_instance_under_another_key_moves_it() {
         let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
         let account = |order| {
             [
@@ -3988,27 +4010,30 @@ mod tests {
             ]
         };
         let map = account(Order::Map);
-        let refused = Err(Refusal::MapCollectionKey);
+        // Written as anything but the key the labelled instance matched, the key is another
+        // instance's: the record moves the labelled instance there, a removal and a creation
+        // that takes its other children, which keys its instance as a creation does.
+        let moved = Ok(None);
         let me = Some("{ me @ A { id: z, .. }, .. }");
         assert_eq!(
             result(readable, &map, "{ A { id: 5, ..me }, .. }", me),
-            refused
+            moved
         );
-        // Written back as the binder the subject matched it with, the key is unchanged; another
-        // name or a computed value is another key.
+        // Written back as the binder the subject matched it with, the key is unchanged (an
+        // update in place); another name or a computed value is another key (a move).
         assert_eq!(
             result(readable, &map, "{ A { id: z, ..me }, .. }", me),
             Ok(None)
         );
         assert_eq!(
             result(readable, &map, "{ A { id: y, ..me }, .. }", me),
-            refused
+            moved
         );
         assert_eq!(
             result(readable, &map, "{ A { id: int::add(z, 1), ..me }, .. }", me),
-            refused
+            moved
         );
-        // Another instance's key binder is not this instance's.
+        // Another instance's key binder is not this instance's: a move to that key.
         assert_eq!(
             result(
                 readable,
@@ -4016,9 +4041,9 @@ mod tests {
                 "{ A { id: z, ..me }, .. }",
                 Some("{ me @ A { id: y, .. }, other @ A { id: z, .. }, .. }")
             ),
-            refused
+            moved
         );
-        // Unnamed in the pattern, it is still the key.
+        // Unnamed in the pattern, the key is not shown kept: a move.
         assert_eq!(
             result(
                 readable,
@@ -4026,7 +4051,7 @@ mod tests {
                 "{ A { id: 5, ..me }, .. }",
                 Some("{ me @ A { bal: y, .. }, .. }")
             ),
-            refused
+            moved
         );
         assert_eq!(
             result(
@@ -4035,7 +4060,7 @@ mod tests {
                 "{ k::fragment![crate::A { id: 5, ..me }], .. }",
                 Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }")
             ),
-            refused
+            moved
         );
         assert_eq!(Refusal::MapCollectionKey.class(), "map-collection-key");
         // An unnamed child other than the key is overwritten, and a created instance states
@@ -4085,9 +4110,8 @@ mod tests {
                 children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
             }),
         ];
-        let refused = Err(Refusal::MapCollectionKey);
         // The same literal the subject matched is provably the same key; another literal is
-        // another key.
+        // another key, to which the update moves the instance.
         let five = Some("{ me @ A { id: 5, .. }, .. }");
         assert_eq!(
             result(readable, &map, "{ A { id: 5, ..me }, .. }", five),
@@ -4113,7 +4137,7 @@ mod tests {
         );
         assert_eq!(
             result(readable, &map, "{ A { id: 6, ..me }, .. }", five),
-            refused
+            Ok(None)
         );
     }
 

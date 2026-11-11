@@ -608,7 +608,7 @@
       "error[krs::analysis::collection-entry]: this entry names instances at both ends of the List collection `job`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
     ],
     "map-created-without-key": [
-      "error[krs::analysis::map-collection-key]: an instance of the Map collection `job` does not keep its key `id`, its first child, which is its identity: a created instance states it, and an update keeps the key its subject matched, since another key is another entry of the map; write its key first, `id: ..`"
+      "error[krs::analysis::map-collection-key]: a created instance of the Map collection `job` does not write its key `id`, its first child, which is its identity: a bare `..` takes the template's children, which state no identity; write its key first, `id: ..`"
     ],
     "stream-in-optional": [
       "error[krs::analysis::console-cell]: stream cell `output` is inside the repeated cell `console`; K connects a stream to one cell, so it must be outside every multiplicity cell"

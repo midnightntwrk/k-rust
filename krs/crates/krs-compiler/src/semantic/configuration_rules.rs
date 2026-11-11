@@ -1464,6 +1464,25 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
             super::catalog::semantic_is_subsort(sort, bound, self.terms.sort_parents),
         ))
     }
+
+    fn hidden_binder(
+        &mut self,
+        id: &SemanticId,
+        sort: &SemanticSortRef,
+        origin: krs_ir::NodeOrigin,
+    ) -> SemanticTerm {
+        if !self
+            .terms
+            .variables
+            .iter()
+            .any(|variable| variable.id() == id)
+        {
+            self.terms
+                .variables
+                .push(SemanticVariable::new(id.clone(), sort.clone()));
+        }
+        SemanticTerm::variable(origin, sort.clone(), id.clone())
+    }
 }
 
 /// The clause of a cell a rule reads without restating it. A `k::rewrite!` (KF-011) that is the

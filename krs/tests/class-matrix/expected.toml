@@ -419,10 +419,10 @@ advice = "init/main-k/k/k::k![pgm]"
 
 [class.map-collection-key]
 code = "krs::analysis::map-collection-key"
-doc = "a Map collection's instance that does not keep its key, its first child, which is its identity, written at creation and never changed by an update (§7): a created instance that does not write it (a bare `..` takes the template's fields, which state no identity, P5), or an instance update (`..me`) that writes it as anything but what is provably the key the subject matched (another literal, another name, a computed value, or a key the labelled instance does not name); written as the subject's own key binder, or as the same literal it matched, it is unchanged (P0)"
-examples = ["readable ; result ; - ; * Map of G ; { G { b: x, .. }, .. } ; { G { a: y, .. }, .. }", "readable ; result ; - ; * Map of A ; { A { id: 5, ..me }, .. } ; { me @ A { id: z, .. }, .. }"]
+doc = "a created instance of a Map collection that does not write its key, its first child, which is its identity (§7): a bare `..` takes the template's fields, which state no identity (P5); an update `..me` takes the key from the instance it names or writes one, the key that instance matched updating it in place (P0) and another key moving it there (KEYCHANGE)"
+examples = ["readable ; result ; - ; * Map of G ; { G { b: x, .. }, .. } ; { G { a: y, .. }, .. }"]
 # A created instance's refusal advises writing its key child (`id: ..`), which each advised case
-# writes for one Map collection's key; an update's advises in prose (keep or leave out the key).
+# writes for one Map collection's key.
 advice = ["claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }", "sweep/cells/result/c23-acc/{ k::fragment![crate::A { aid: 5, .. }], .. }", "sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
 
 [class.map-notation-at-non-map]
@@ -4142,42 +4142,12 @@ class = "instances-on-plain-cell"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/result/{c14-acc,c16-acc}/\{ A \{ aid: 5\, ..me \}\, .. \}'
-class = "map-collection-key"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/c35-acc/\{ A \{ aid: 6\, ..me \}\, .. \}'
-class = "map-collection-key"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/c21-acc/\{ A \{ aid: y\, ..me \}\, .. \}'
-class = "map-collection-key"
-at = "entry"
-
-[[refuse]]
 match = 'sweep/{claim,readable}/result/c22-acc/\{ A \{ al: [x]\, .. \}\, .. \}'
 class = "map-collection-key"
 at = "entry"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/result/acct/\{ Gm \{ mb: x\, .. \}\, .. \}'
-class = "map-collection-key"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/cells/result/{c14-acc,c16-acc}/\{ k::fragment![crate::A \{ aid: 5\, ..me \}]\, .. \}'
-class = "map-collection-key"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/cells/result/c35-acc/\{ k::fragment![crate::A \{ aid: 6\, ..me \}]\, .. \}'
-class = "map-collection-key"
-at = "entry"
-
-[[refuse]]
-match = 'sweep/cells/result/c21-acc/\{ k::fragment![crate::A \{ aid: y\, ..me \}]\, .. \}'
 class = "map-collection-key"
 at = "entry"
 
@@ -13801,6 +13771,22 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/cells/result/c14-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<aid> V0:Int </aid>
+<al> V1:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> V1:List </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."sweep/cells/result/c15-acc/{ k::fragment![crate::A { aid: z, ..me }], .. }"]
 k = """
 rule [case-TAG]:
@@ -13809,6 +13795,22 @@ rule [case-TAG]:
 <aid> V0:Int </aid>
 ...
 </acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c16-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<al> ( ListItem(V0:KItem) _ #as V1:List ) </al>
+...
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> V1:List </al>
+</acc>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -13833,6 +13835,22 @@ rule [case-TAG]:
 (.Bag => <acc>
 <aid> 5 </aid>
 <al> ListItem(V0:Int) </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/c21-acc/{ k::fragment![crate::A { aid: y, ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<acc>
+<aid> V1:Int </aid>
+<al> V2:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> V0:Int </aid>
+<al> V2:List </al>
 </acc>)
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
@@ -13873,6 +13891,22 @@ rule [case-TAG]:
 <aid> 5 </aid>
 ...
 </acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c35-acc/{ k::fragment![crate::A { aid: 6, ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<aid> 5 </aid>
+<al> V0:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 6 </aid>
+<al> V0:List </al>
+</acc>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -14654,6 +14688,22 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/claim/result/c14-acc/{ A { aid: 5, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<aid> V0:Int </aid>
+<al> V1:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> V1:List </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."sweep/claim/result/c15-acc/{ A { aid: z, ..me }, .. }"]
 k = """
 claim [case-TAG]:
@@ -14662,6 +14712,22 @@ claim [case-TAG]:
 <aid> V0:Int </aid>
 ...
 </acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c16-acc/{ A { aid: 5, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<al> ( ListItem(V0:KItem) V1:List #as V2:List ) </al>
+...
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> V2:List </al>
+</acc>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -14703,6 +14769,22 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/claim/result/c21-acc/{ A { aid: y, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<acc>
+<aid> V1:Int </aid>
+<al> V2:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> V0:Int </aid>
+<al> V2:List </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/claim/result/c23-acc/{ A { aid: 5, .. }, .. }"]
 k = """
 claim [case-TAG]:
@@ -14738,6 +14820,22 @@ claim [case-TAG]:
 <aid> 5 </aid>
 ...
 </acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c35-acc/{ A { aid: 6, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<aid> 5 </aid>
+<al> V0:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 6 </aid>
+<al> V0:List </al>
+</acc>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16674,6 +16772,22 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/readable/result/c14-acc/{ A { aid: 5, ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<aid> V0:Int </aid>
+<al> V1:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> V1:List </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."sweep/readable/result/c15-acc/{ A { aid: z, ..me }, .. }"]
 k = """
 rule [case-TAG]:
@@ -16682,6 +16796,22 @@ rule [case-TAG]:
 <aid> V0:Int </aid>
 ...
 </acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c16-acc/{ A { aid: 5, ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<al> ( ListItem(V0:KItem) V1:List #as V2:List ) </al>
+...
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> V2:List </al>
+</acc>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -16723,6 +16853,22 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/readable/result/c21-acc/{ A { aid: y, ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<acc>
+<aid> V1:Int </aid>
+<al> V2:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> V0:Int </aid>
+<al> V2:List </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/readable/result/c23-acc/{ A { aid: 5, .. }, .. }"]
 k = """
 rule [case-TAG]:
@@ -16758,6 +16904,22 @@ rule [case-TAG]:
 <aid> 5 </aid>
 ...
 </acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c35-acc/{ A { aid: 6, ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acc>
+<aid> 5 </aid>
+<al> V0:List </al>
+</acc> => .Bag)
+(.Bag => <acc>
+<aid> 6 </aid>
+<al> V0:List </al>
+</acc>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

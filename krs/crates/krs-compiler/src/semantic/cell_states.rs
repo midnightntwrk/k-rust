@@ -68,6 +68,15 @@ pub(super) trait StateLowering {
     /// The sort the rule binds `name` at, where it binds it, and whether every term of `sort`
     /// is a term of it.
     fn bound_sort(&self, name: &str, sort: &SemanticSortRef) -> Option<(SemanticSortRef, bool)>;
+
+    /// Declares `id`, a binder the sentence's long form adds, as a variable of `sort`, and gives
+    /// one occurrence of it at `origin`.
+    fn hidden_binder(
+        &mut self,
+        id: &SemanticId,
+        sort: &SemanticSortRef,
+        origin: krs_ir::NodeOrigin,
+    ) -> SemanticTerm;
 }
 
 /// The diagnostic for an optional or collection entry K cannot express.
@@ -1117,20 +1126,23 @@ pub(super) fn instance_twins(
     before: &ProtocolRuleInstances<DescriptorTerm>,
     after: &ProtocolRuleInstances<DescriptorTerm>,
 ) -> Vec<(usize, (bool, usize))> {
-    fn child<'i>(
-        instance: &'i ProtocolRuleInstance<DescriptorTerm>,
-        name: &str,
-    ) -> Option<&'i DescriptorState> {
-        instance
-            .fields
-            .iter()
-            .find(|field| field.field == name)
-            .map(|field| &field.value)
-    }
+    let child = instance_child;
+    // A label is updated by a result instance that keeps it in place; one that moves it to
+    // another key leaves it to be kept by another result instance, or removed.
+    let moved = moved_instances(order, children, before, after);
     let updated = |label: &str| {
-        after.front.iter().chain(&after.back).any(|instance| {
-            matches!(&instance.rest, ProtocolInstanceRest::Update { label: base } if base == label)
-        })
+        [(false, &after.front), (true, &after.back)]
+            .into_iter()
+            .flat_map(|(back, items)| {
+                items
+                    .iter()
+                    .enumerate()
+                    .map(move |(position, instance)| ((back, position), instance))
+            })
+            .any(|(at, instance)| {
+                !moved.contains_key(&at)
+                    && matches!(&instance.rest, ProtocolInstanceRest::Update { label: base } if base == label)
+            })
     };
     let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
     let free = subjects
@@ -1165,6 +1177,64 @@ pub(super) fn instance_twins(
             })
         },
     )
+}
+
+/// The child `name` an instance record writes, as written.
+fn instance_child<'i>(
+    instance: &'i ProtocolRuleInstance<DescriptorTerm>,
+    name: &str,
+) -> Option<&'i DescriptorState> {
+    instance
+        .fields
+        .iter()
+        .find(|field| field.field == name)
+        .map(|field| &field.value)
+}
+
+/// The result instances of a Map collection that move a subject instance to another key, each
+/// with the index of the subject instance it moves, the subject's instances counted front then
+/// back: an update `..label` that writes the key as anything that is not provably the key the
+/// labelled instance matched ([`keeps_key`]; a key the labelled instance does not name is not).
+/// A Map instance is identified by its key, so such a record is no update of the labelled
+/// instance in place: it builds a new instance under the key it writes, whose other children are
+/// the labelled instance's (`..label` gives them, as `..` gives a created instance the template's
+/// defaults), and the labelled instance itself is removed unless another result instance keeps it.
+/// Removal and creation state the step whatever the two keys are, so the key need not be shown
+/// to differ.
+fn moved_instances(
+    order: Order,
+    children: &[DescriptorCellField],
+    before: &ProtocolRuleInstances<DescriptorTerm>,
+    after: &ProtocolRuleInstances<DescriptorTerm>,
+) -> BTreeMap<(bool, usize), usize> {
+    let Some(key) = children.first().filter(|_| order == Order::Map) else {
+        return BTreeMap::new();
+    };
+    let key = key.rust_field.as_str();
+    let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
+    let mut moved = BTreeMap::new();
+    for (back, items) in [(false, &after.front), (true, &after.back)] {
+        for (position, instance) in items.iter().enumerate() {
+            let ProtocolInstanceRest::Update { label } = &instance.rest else {
+                continue;
+            };
+            let Some(index) = subjects
+                .iter()
+                .position(|subject| subject.label.as_ref() == Some(label))
+            else {
+                continue;
+            };
+            let Some(written) = instance_child(instance, key) else {
+                continue;
+            };
+            let kept = instance_child(subjects[index], key)
+                .is_some_and(|matched| keeps_key(written, matched));
+            if !kept {
+                moved.insert((back, position), index);
+            }
+        }
+    }
+    moved
 }
 
 /// Whether a result instance's key `written` is provably the key `matched` its subject instance
@@ -1313,12 +1383,19 @@ pub(super) fn lower_instances_clause(
     // Pair each result instance with the subject instance it updates.
     let subject_count = before.front.len() + before.back.len();
     let mut kept_by: Vec<Option<(bool, usize)>> = vec![None; subject_count];
+    let moved = after.map_or_else(BTreeMap::new, |after| {
+        moved_instances(order, instance_declaration.fields, before, after)
+    });
     if let Some(after) = after {
         for (back, items) in [(false, &after.front), (true, &after.back)] {
             for (position, instance) in items.iter().enumerate() {
                 let ProtocolInstanceRest::Update { label } = &instance.rest else {
                     continue;
                 };
+                // A move builds a new instance from its label's, which it does not update.
+                if moved.contains_key(&(back, position)) {
+                    continue;
+                }
                 // An update whose label no subject instance has has no base (the table's
                 // `record-update-base`), whatever form wrote it. A label the rule binds at a
                 // sort no instance of the collection has is a binder of the wrong sort before
@@ -1386,6 +1463,29 @@ pub(super) fn lower_instances_clause(
     }
     // The result instances a subject instance is, each emitted with it.
     let paired = kept_by.iter().flatten().copied().collect::<BTreeSet<_>>();
+    let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
+    let mut carried = BTreeMap::<String, BTreeSet<String>>::new();
+    if let Some(after) = after {
+        for (&(back, position), &index) in &moved {
+            let result = if back {
+                &after.back[position]
+            } else {
+                &after.front[position]
+            };
+            let label = subjects[index]
+                .label
+                .clone()
+                .expect("a moved instance updates a label");
+            let taken = carried.entry(label).or_default();
+            taken.extend(
+                instance_declaration
+                    .fields
+                    .iter()
+                    .map(|field| field.rust_field.clone())
+                    .filter(|child| instance_child(result, child).is_none()),
+            );
+        }
+    }
     let mut lowered = LoweredInstances {
         lowering,
         descriptor: &descriptor,
@@ -1398,6 +1498,8 @@ pub(super) fn lower_instances_clause(
         // collection up by an instance; a claim's states hold terms.
         looked_up: collection == CellCollectionType::Set
             && super::function_patterns::matches_evaluated_sentence(descriptor.payload()),
+        carried,
+        ordinal: 0,
     };
     let mut segments = Vec::new();
     for (back, subject_items, result_items, offset) in [
@@ -1436,7 +1538,8 @@ pub(super) fn lower_instances_clause(
                         .skip(next_result)
                     {
                         if !paired.contains(&(back, position)) {
-                            segment.push(lowered.created(created)?);
+                            let base = moved.get(&(back, position)).map(|&index| subjects[index]);
+                            segment.push(lowered.created(created, base)?);
                         }
                     }
                     segment.push(lowered.kept(subject, Some(&result_items[result_position]))?);
@@ -1447,7 +1550,8 @@ pub(super) fn lower_instances_clause(
         if let Some(result_items) = result_items {
             for (position, created) in result_items.iter().enumerate().skip(next_result) {
                 if !paired.contains(&(back, position)) {
-                    segment.push(lowered.created(created)?);
+                    let base = moved.get(&(back, position)).map(|&index| subjects[index]);
+                    segment.push(lowered.created(created, base)?);
                 }
             }
         }
@@ -1550,6 +1654,11 @@ struct LoweredInstances<'a, 'b, L: StateLowering> {
     /// Whether the pattern looks the collection up by its instances: a Set
     /// collection's, in a sentence that matches evaluated terms.
     looked_up: bool,
+    /// The children a result instance moving each labelled subject instance to another key
+    /// takes from it ([`moved_instances`]), by label: the long form binds each in the subject.
+    carried: BTreeMap<String, BTreeSet<String>>,
+    /// The next ordinal of a carried child's binder occurrence's origin.
+    ordinal: usize,
 }
 
 impl<L: StateLowering> LoweredInstances<'_, '_, L> {
@@ -1566,6 +1675,184 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             self.lowering
                 .lower_state(&field.value, sort, &field.key, true)
         }
+    }
+
+    /// The binder of the child `child` of the subject instance labelled `label`, which a result
+    /// instance moving it to another key takes ([`moved_instances`]): one occurrence of it,
+    /// located at `key`. It is named, as a record update's hidden binder is, after the label
+    /// and the child.
+    fn carried_binder(
+        &mut self,
+        label: &str,
+        child: &DescriptorCellField,
+        key: &ProvenanceKey,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let unraw = |name: &str| name.strip_prefix("r#").unwrap_or(name).to_owned();
+        let id = SemanticId::new(format!(
+            "{}{}_{}",
+            krs_ir::ir::UPDATE_BINDER_PREFIX,
+            unraw(label),
+            unraw(&child.rust_field)
+        ))?;
+        let (_, sort) = cell_kind_sort(child);
+        let origin = semantic_origin(
+            self.descriptor,
+            key.clone(),
+            &format!("moved-instance-binder-{}", self.ordinal),
+        )?;
+        self.ordinal += 1;
+        Ok(self.lowering.hidden_binder(&id, &sort, origin))
+    }
+
+    /// A fresh origin at `key` for a node a move's long form adds ([`moved_instances`]).
+    fn carried_origin(
+        &mut self,
+        key: &ProvenanceKey,
+    ) -> Result<krs_ir::NodeOrigin, DescriptorLoweringError> {
+        let origin = semantic_origin(
+            self.descriptor,
+            key.clone(),
+            &format!("moved-instance-child-{}", self.ordinal),
+        )?;
+        self.ordinal += 1;
+        Ok(origin)
+    }
+
+    /// The children a result instance that moves `subject` to another key takes from it.
+    fn carried(&self, subject: &ProtocolRuleInstance<DescriptorTerm>) -> Option<&BTreeSet<String>> {
+        self.carried.get(subject.label.as_ref()?)
+    }
+
+    /// A subject instance's child `field` lowered in the long form of a move that takes it
+    /// ([`Self::carried_pattern`]), one matched by `_` by the child's binder instead.
+    fn carried_child(
+        &mut self,
+        subject: &ProtocolRuleInstance<DescriptorTerm>,
+        field: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+        sort: &SemanticSortRef,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let wildcard = matches!(
+            &field.value,
+            ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard { .. })
+                | ProtocolRuleStateTerm::Group(DescriptorTerm::Wildcard { .. })
+        );
+        if wildcard
+            && let Some(label) = subject.label.clone()
+            && self
+                .carried(subject)
+                .is_some_and(|children| children.contains(&field.field))
+        {
+            let declared = self
+                .declaration
+                .child(&field.field)
+                .expect("children are checked before lowering");
+            return self.carried_binder(&label, declared, &field.key);
+        }
+        let before = self.subject_state(field, sort)?;
+        self.carried_pattern(subject, field, before)
+    }
+
+    /// The pattern of a subject instance's child `field`, lowered as `before`, in the long form
+    /// of a move ([`moved_instances`]) that takes the child: a child matched by a binder is
+    /// taken as matched, one matched by `_` is matched by the child's binder instead, and one
+    /// matched by another pattern `p` (a literal included) by `p #as Binder`.
+    fn carried_pattern(
+        &mut self,
+        subject: &ProtocolRuleInstance<DescriptorTerm>,
+        field: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+        before: SemanticTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        if !self
+            .carried(subject)
+            .is_some_and(|children| children.contains(&field.field))
+        {
+            return Ok(before);
+        }
+        let declared = self
+            .declaration
+            .child(&field.field)
+            .expect("children are checked before lowering");
+        let label = subject
+            .label
+            .clone()
+            .expect("a carried instance is labelled");
+        let (kind, sort) = cell_kind_sort(declared);
+        match &field.value {
+            ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term)
+                if carried_as_matched(term) =>
+            {
+                Ok(before)
+            }
+            ProtocolRuleStateTerm::Term(_) if kind == CellClauseKind::Content => {
+                let binder = self.carried_binder(&label, declared, &field.key)?;
+                let IrTermKind::Variable { variable: id } = binder.kind() else {
+                    unreachable!("a carried binder is a variable")
+                };
+                let id = id.clone();
+                let origin = self.carried_origin(&field.key)?;
+                Ok(SemanticTerm::pattern_as(origin, sort, id, before))
+            }
+            _ => Err(collection_error(
+                self.descriptor,
+                codes::analysis::COLLECTION_ENTRY,
+                &field.key,
+                format!(
+                    "not supported yet: a result instance of the Map collection `{}` writes another key than the instance `{label}` matched, so it moves `{label}` there and takes its child `{}`, which the pattern matches with a construct no binder holds whole yet; match `{}` with a name",
+                    self.collection.cell.field, field.field, field.field
+                ),
+            )),
+        }
+    }
+
+    /// The children of a subject instance a move takes ([`moved_instances`]) and the subject does
+    /// not name, each matched by its binder, in declaration order; and whether the subject then
+    /// names every child.
+    #[expect(
+        clippy::type_complexity,
+        reason = "The cell, its kind, its binder and its origin of each child."
+    )]
+    fn carried_unnamed(
+        &mut self,
+        subject: &ProtocolRuleInstance<DescriptorTerm>,
+    ) -> Result<
+        (
+            Vec<(SemanticId, CellClauseKind, SemanticTerm, krs_ir::NodeOrigin)>,
+            bool,
+        ),
+        DescriptorLoweringError,
+    > {
+        let Some(children) = self.carried(subject).cloned() else {
+            return Ok((Vec::new(), false));
+        };
+        let label = subject
+            .label
+            .clone()
+            .expect("a carried instance is labelled");
+        let mut unnamed = Vec::new();
+        let mut every = true;
+        for declared in self.declaration.fields {
+            let named = subject
+                .fields
+                .iter()
+                .any(|field| field.field == declared.rust_field);
+            if named {
+                continue;
+            }
+            if !children.contains(&declared.rust_field) {
+                every = false;
+                continue;
+            }
+            let (kind, _) = cell_kind_sort(declared);
+            let binder = self.carried_binder(&label, declared, &subject.key)?;
+            let origin = self.carried_origin(&subject.key)?;
+            unnamed.push((
+                semantic_cell_id(&declared.reference.cell)?,
+                kind,
+                binder,
+                origin,
+            ));
+        }
+        Ok((unnamed, every))
     }
 
     /// Refuses an instance record whose head names another struct than the collection's
@@ -1716,7 +2003,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                     .iter()
                     .find(|candidate| candidate.field == field.field)
             });
-            let before = self.subject_state(field, &sort)?;
+            let before = self.carried_child(subject, field, &sort)?;
             let mut frame = state_frame(
                 descriptor,
                 &field.value,
@@ -1803,11 +2090,26 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 clause
             });
         }
+        let (unnamed, every) = self.carried_unnamed(subject)?;
+        for (cell, kind, binder, origin) in unnamed {
+            let clause = FixedCellClause::new(
+                origin,
+                cell,
+                binder,
+                CellPost::Preserve,
+                CellContentFrame::Exact,
+            );
+            children.push(if kind == CellClauseKind::Whole {
+                clause.with_kind(CellClauseKind::Whole)
+            } else {
+                clause
+            });
+        }
         Ok(InstanceClause::Kept {
             origin: semantic_origin(descriptor, subject.key.clone(), "rule-instance")?,
             label: subject.label.clone(),
             children,
-            open: matches!(subject.rest, ProtocolInstanceRest::Open),
+            open: matches!(subject.rest, ProtocolInstanceRest::Open) && !every,
         })
     }
 
@@ -1827,7 +2129,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             let (kind, sort) = cell_kind_sort(declared);
             // A new instance's whole `map![..]` is built over the empty map.
             let term = if subject {
-                self.subject_state(field, &sort)?
+                self.carried_child(instance, field, &sort)?
             } else {
                 self.lowering
                     .lower_result(&field.value, &sort, &field.key, &MapBase::Unmatched)?
@@ -1835,21 +2137,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             let frame = if subject {
                 state_frame(descriptor, &field.value, None)?
             } else {
-                let exact = match &field.value {
-                    ProtocolRuleStateTerm::KSequence(sequence) => {
-                        matches!(sequence.tail, ProtocolRuleFrame::Exact)
-                    }
-                    ProtocolRuleStateTerm::Map(map) => !matches!(
-                        &map.body,
-                        krs_ir::ProtocolRuleMapBody::Items {
-                            remainder: ProtocolRuleFrame::Anonymous { .. }
-                                | ProtocolRuleFrame::Reuse { .. },
-                            ..
-                        }
-                    ),
-                    _ => true,
-                };
-                if !exact {
+                if !written_exactly(&field.value) {
                     return Err(collection_error(
                         descriptor,
                         codes::analysis::COLLECTION_ENTRY,
@@ -1879,21 +2167,32 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         subject: &ProtocolRuleInstance<DescriptorTerm>,
     ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
         self.head(subject)?;
+        let mut children = self.children(subject, true)?;
+        let (unnamed, every) = self.carried_unnamed(subject)?;
+        children.extend(unnamed.into_iter().map(|(cell, kind, binder, origin)| {
+            InstanceChild::new(origin, cell, kind, binder, CellContentFrame::Exact)
+        }));
         Ok(InstanceClause::Removed {
             origin: semantic_origin(self.descriptor, subject.key.clone(), "rule-instance")?,
             label: subject.label.clone(),
-            children: self.children(subject, true)?,
-            open: matches!(subject.rest, ProtocolInstanceRest::Open),
+            children,
+            open: matches!(subject.rest, ProtocolInstanceRest::Open) && !every,
         })
     }
 
-    /// A new instance: its children, and `..` defaults for the others.
+    /// A new instance: its children, and `..` defaults for the others; or, where `base` is the
+    /// subject instance the record moves to another key ([`moved_instances`]), the base's for the
+    /// others.
     fn created(
         &mut self,
         result: &ProtocolRuleInstance<DescriptorTerm>,
+        base: Option<&ProtocolRuleInstance<DescriptorTerm>>,
     ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
         let descriptor = self.descriptor;
         self.head(result)?;
+        if let Some(base) = base {
+            return self.moved(result, base);
+        }
         let named = result
             .fields
             .iter()
@@ -1969,6 +2268,118 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             children: self.children(result, false)?,
             defaults,
         })
+    }
+}
+
+impl<L: StateLowering> LoweredInstances<'_, '_, L> {
+    /// The instance a result record `..label` builds under another key than the instance `base`,
+    /// labelled `label`, matched ([`moved_instances`]): the children the record writes, and
+    /// `base`'s for the others, through the binders its pattern names them by (the long form of
+    /// `..label`, as a record update's). A `?` or `*` child, which no instance record names, is
+    /// not carried yet.
+    fn moved(
+        &mut self,
+        result: &ProtocolRuleInstance<DescriptorTerm>,
+        base: &ProtocolRuleInstance<DescriptorTerm>,
+    ) -> Result<InstanceClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+        let descriptor = self.descriptor;
+        let label = base
+            .label
+            .clone()
+            .expect("a moved instance updates a label");
+        let holder = &self.collection.cell.field;
+        for field in &result.fields {
+            if !written_exactly(&field.value) {
+                return Err(collection_error(
+                    descriptor,
+                    codes::analysis::COLLECTION_ENTRY,
+                    &field.key,
+                    format!(
+                        "not supported yet: the result instance writes another key than the instance `{label}` of the Map collection `{holder}` matched, so it moves `{label}` there, a new instance, and its `{}` keeps a rest of `{label}`'s, which a new instance does not write yet; write the child's whole content",
+                        field.field
+                    ),
+                ));
+            }
+        }
+        let mut children = self.children(result, false)?;
+        for declared in self.declaration.fields {
+            if result
+                .fields
+                .iter()
+                .any(|field| field.field == declared.rust_field)
+            {
+                continue;
+            }
+            if declared_multiplicity(declared, self.declarations) != Multiplicity::One {
+                return Err(collection_error(
+                    descriptor,
+                    codes::analysis::COLLECTION_ENTRY,
+                    &result.key,
+                    format!(
+                        "not supported yet: the result instance writes another key than the instance `{label}` of the Map collection `{holder}` matched, so it moves `{label}` there, a new instance that takes `{label}`'s other children, and its child `{}` is a `?` or `*` cell, which a new instance does not take from another yet",
+                        declared.rust_field
+                    ),
+                ));
+            }
+            let (kind, sort) = cell_kind_sort(declared);
+            let matched = base
+                .fields
+                .iter()
+                .find(|field| field.field == declared.rust_field);
+            let binder = matched.and_then(|field| match &field.value {
+                ProtocolRuleStateTerm::Term(DescriptorTerm::Variable { name, .. })
+                | ProtocolRuleStateTerm::Group(DescriptorTerm::Variable { name, .. }) => {
+                    Some(name.as_str())
+                }
+                _ => None,
+            });
+            let term = match binder
+                .and_then(|name| Some((name, self.lowering.bound_sort(name, &sort)?.0)))
+            {
+                // The binder the pattern names the child by, as the long form writes it.
+                Some((name, bound)) => {
+                    let origin = self.carried_origin(&result.key)?;
+                    SemanticTerm::variable(origin, bound, SemanticId::new(name.to_owned())?)
+                }
+                None => self.carried_binder(&label, declared, &result.key)?,
+            };
+            children.push(InstanceChild::new(
+                self.carried_origin(&result.key)?,
+                semantic_cell_id(&declared.reference.cell)?,
+                kind,
+                term,
+                CellContentFrame::Exact,
+            ));
+        }
+        Ok(InstanceClause::Created {
+            origin: semantic_origin(descriptor, result.key.clone(), "rule-instance")?,
+            children,
+            defaults: false,
+        })
+    }
+}
+
+/// Whether a subject instance's child matched by `term` is taken as matched by a move that
+/// carries it ([`moved_instances`]): a binder is the value it matched.
+fn carried_as_matched(term: &DescriptorTerm) -> bool {
+    matches!(term, DescriptorTerm::Variable { .. })
+}
+
+/// Whether a new instance's child `value` is written exactly, with no rest of matched content
+/// to keep.
+fn written_exactly(value: &DescriptorState) -> bool {
+    match value {
+        ProtocolRuleStateTerm::KSequence(sequence) => {
+            matches!(sequence.tail, ProtocolRuleFrame::Exact)
+        }
+        ProtocolRuleStateTerm::Map(map) => !matches!(
+            &map.body,
+            krs_ir::ProtocolRuleMapBody::Items {
+                remainder: ProtocolRuleFrame::Anonymous { .. } | ProtocolRuleFrame::Reuse { .. },
+                ..
+            }
+        ),
+        _ => true,
     }
 }
 

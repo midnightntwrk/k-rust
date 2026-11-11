@@ -1929,12 +1929,6 @@ fn advice(
                 .to_owned(),
         ),
         Refusal::MapCollectionKey => {
-            if entry.spelling.and_then(update_label).is_some() {
-                return Some(
-                    "leave the key out of the update, which keeps it, or write it as its subject matched it"
-                        .to_owned(),
-                );
-            }
             let key = match own {
                 [Layer::Instances(order), Layer::Group(group), ..] => group.key(*order)?,
                 _ => return None,

@@ -12,6 +12,10 @@
 //! result's `..` keeps the children it does not name rather than reset them to the template's
 //! defaults; a Set instance has no such identity, and a List's back instance is not updated in
 //! place.
+//!
+//! An update `..o` of a Map collection's instance that writes another key than `o` matched is
+//! `o` moved to that key: removed, unless the result keeps it, and created there with the
+//! children the record does not write taken from `o`, the K of its long form.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -638,6 +642,211 @@ fn an_instance_written_on_both_sides_is_updated_in_place() {
     let start = flat.find("<objs>").unwrap();
     let end = flat.find("</lobs>").unwrap() + "</lobs>".len();
     expect_test::expect!["<objs> <obj> <oid> 1 </oid> <val> 3 </val> <mem> 7 </mem> </obj> <obj> <oid> 2 </oid> <val> 5 </val> <mem> 7 </mem> </obj> </objs> <lobs> <lob> <lval> 7 </lval> <lmem> 9 </lmem> </lob> </lobs>"].assert_eq(&flat[start..end]);
+}
+
+/// Updates `..o` that write another key than the instance `o` matched: `upd` moves `o` to the
+/// key `j` the program gives, `swap` moves instance 1 to key 2 with its `val` changed, `same`
+/// keeps `o` and writes a copy of it under the key `i + 10`, and the `cells!` rule `cupd` moves
+/// instance 1 to key `x`; the claim moves instance 1 to key 2.
+const MOVED: &str = r#"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    upd: { k: [Upd(i, j), ..], obj: { o @ Obj { oid: i, .. }, .. } } => { k: [..], obj: { Obj { oid: j, ..o }, .. } };
+    swap: { k: [Swap(), ..], obj: { o @ Obj { oid: 1, val: v, .. }, .. } } => { k: [..], obj: { Obj { oid: 2, val: int::add(v, 1), ..o }, .. } };
+    same: { k: [Same(i), ..], obj: { o @ Obj { oid: i, .. }, .. } } => { k: [..], obj: { o, Obj { oid: int::add(i, 10), ..o }, .. } };
+}
+
+#[k::rule(label = "cupd")]
+fn cupd(
+    x: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cupd(x), tail @ ..),
+        Objs::obj: { o @ k::fragment![crate::Obj { oid: 1, .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Objs::obj: { k::fragment![crate::Obj { oid: x, ..o }], ..instances0 },
+        ..state
+    }
+}
+
+k::claims! {
+    for Machine;
+    use Cmd::*;
+
+    #[k::claim(all_paths)]
+    upd_claim: { k: [Upd(1, 2), ..], obj: { o @ Obj { oid: 1, val: v, .. }, .. } } => { k: [..], obj: { Obj { oid: 2, ..o }, .. } };
+}
+"#;
+
+/// The same moves in long form, every child named, the children `..o` takes named `o_val` and
+/// `o_mem`.
+const MOVED_LONG: &str = r#"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    upd: { k: [Upd(i, j), ..], obj: { Obj { oid: i, val: o_val, mem: o_mem }, .. } } => { k: [..], obj: { Obj { oid: j, val: o_val, mem: o_mem }, .. } };
+    swap: { k: [Swap(), ..], obj: { Obj { oid: 1, val: v, mem: o_mem }, .. } } => { k: [..], obj: { Obj { oid: 2, val: int::add(v, 1), mem: o_mem }, .. } };
+    same: { k: [Same(i), ..], obj: { Obj { oid: i, val: o_val, mem: o_mem }, .. } } => { k: [..], obj: { Obj { oid: i, val: o_val, mem: o_mem }, Obj { oid: int::add(i, 10), val: o_val, mem: o_mem }, .. } };
+}
+
+#[k::rule(label = "cupd")]
+fn cupd(
+    x: k::Term<Int>,
+    o_val: k::Term<Int>,
+    o_mem: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cupd(x), tail @ ..),
+        Objs::obj: { k::fragment![crate::Obj { oid: 1, val: o_val, mem: o_mem }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Objs::obj: { k::fragment![crate::Obj { oid: x, val: o_val, mem: o_mem }], ..instances0 },
+        ..state
+    }
+}
+
+k::claims! {
+    for Machine;
+    use Cmd::*;
+
+    #[k::claim(all_paths)]
+    upd_claim: { k: [Upd(1, 2), ..], obj: { Obj { oid: 1, val: v, mem: o_mem }, .. } } => { k: [..], obj: { Obj { oid: 2, val: v, mem: o_mem }, .. } };
+}
+"#;
+
+/// A Map instance is identified by its key, so an update `..o` that writes another key than `o`
+/// matched is `o` moved there: `o` is removed, unless the result keeps it, and an instance is
+/// created under the new key whose children the record does not write are `o`'s, as `..` gives a
+/// created instance the template's. Each move, readable and `cells!`, rule and claim, emits the K
+/// of its long form, every child named. A run shows `mem` carried over (7, where the template
+/// says 0) when the new key is free; where an instance holds it already, the creation is a
+/// second entry of one key, which is no map, so the step's result is undefined, as for every
+/// creation of a key that exists.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The pinned K of every move and the runs that show it are one witness."
+)]
+fn an_update_under_another_key_moves_the_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let moved = package_of(temporary.path(), "moved", &TWINS.replace("{RULES}", MOVED));
+    let long = package_of(
+        temporary.path(),
+        "movedlong",
+        &TWINS.replace("{RULES}", MOVED_LONG),
+    );
+    let (success, stdout, stderr) = krs(target.path(), &moved, "check", &[]);
+    assert!(success, "{stdout}\n{stderr}");
+    let emitted = emitted_k_and_claims(target.path(), &moved);
+    let rules = |emitted: &str| {
+        let rules = ["upd", "swap", "same", "cupd"]
+            .map(|label| rule(emitted, label))
+            .join("\n");
+        format!("{rules}\n{}", claim(emitted, "upd-claim"))
+    };
+    assert_eq!(
+        rules(&emitted),
+        rules(&emitted_k_and_claims(target.path(), &long))
+    );
+    expect_test::expect![[r"
+        rule [upd]:
+            <k> upd I:Int J:Int => .K ... </k>
+            (<obj>
+                <oid> I:Int </oid>
+                <val> OVal:Int </val>
+                <mem> OMem:Int </mem>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> J:Int </oid>
+                <val> OVal:Int </val>
+                <mem> OMem:Int </mem>
+            </obj>)
+        rule [swap]:
+            <k> swap => .K ... </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> V:Int </val>
+                <mem> OMem:Int </mem>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> 2 </oid>
+                <val> V:Int +Int 1 </val>
+                <mem> OMem:Int </mem>
+            </obj>)
+        rule [same]:
+            <k> same I:Int => .K ... </k>
+            <obj>
+                <oid> I:Int </oid>
+                <val> OVal:Int </val>
+                <mem> OMem:Int </mem>
+            </obj>
+            (.Bag => <obj>
+                <oid> I:Int +Int 10 </oid>
+                <val> OVal:Int </val>
+                <mem> OMem:Int </mem>
+            </obj>)
+        rule [cupd]:
+            <k> cupd X:Int ~> Tail:K => .K ~> Tail:K </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> OVal:Int </val>
+                <mem> OMem:Int </mem>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> X:Int </oid>
+                <val> OVal:Int </val>
+                <mem> OMem:Int </mem>
+            </obj>)
+        claim [upd-claim]:
+            <k> upd 1 2 => .K ... </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> V:Int </val>
+                <mem> OMem:Int </mem>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> 2 </oid>
+                <val> V:Int </val>
+                <mem> OMem:Int </mem>
+            </obj>)"]]
+    .assert_eq(&rules(&emitted));
+
+    let run = |name: &str, text: &str| {
+        let program = moved.with_file_name(format!("{name}.txt"));
+        fs::write(&program, text).unwrap();
+        let (success, stdout, stderr) =
+            krs(target.path(), &moved, "run", &[program.to_str().unwrap()]);
+        assert!(success, "{stdout}\n{stderr}");
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        let start = flat.find("<k>").unwrap();
+        let end = flat.find("</objs>").unwrap() + "</objs>".len();
+        format!("{}\n{}", &flat[start..end], stderr.trim())
+    };
+    let runs = [
+        run("free", "new 1 swap upd 2 5 new 1 cupd 6\n"),
+        run("copy", "new 1 same 1 upd 11 4\n"),
+        run("taken", "new 1 new 2 swap\n"),
+        run("taken-cells", "new 1 new 3 cupd 3\n"),
+    ]
+    .join("\n");
+    expect_test::expect![[r"
+        <k> .K </k> <objs> <obj> <oid> 5 </oid> <val> 1 </val> <mem> 7 </mem> </obj> <obj> <oid> 6 </oid> <val> 0 </val> <mem> 7 </mem> </obj> </objs>
+        krs run: stuck after 9 steps; <k> is empty
+        <k> .K </k> <objs> <obj> <oid> 1 </oid> <val> 0 </val> <mem> 7 </mem> </obj> <obj> <oid> 4 </oid> <val> 0 </val> <mem> 7 </mem> </obj> </objs>
+        krs run: stuck after 5 steps; <k> is empty
+        <k> swap ~> .K </k> <objs> <obj> <oid> 1 </oid> <val> 0 </val> <mem> 7 </mem> </obj> <obj> <oid> 2 </oid> <val> 0 </val> <mem> 7 </mem> </obj> </objs>
+        krs run: undefined after 4 steps; <k> starts with `swap`
+        <k> cupd 3 ~> .K </k> <objs> <obj> <oid> 1 </oid> <val> 0 </val> <mem> 7 </mem> </obj> <obj> <oid> 3 </oid> <val> 0 </val> <mem> 7 </mem> </obj> </objs>
+        krs run: undefined after 4 steps; <k> starts with `cupd 3`"]].assert_eq(&runs);
 }
 
 /// A List's back instance written on both sides, its result keeping children with `..`, is the
