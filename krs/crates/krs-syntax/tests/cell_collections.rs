@@ -655,10 +655,10 @@ fn a_bracketed_name_carries_its_whole_instance_reading() {
 /// `Some(..)` or `None` as an instance child is a `?` cell's presence or absence inside one
 /// instance, read by its spelling as a cell entry's is: `cells!` and readable records carry it as
 /// that state, in a pattern and in a result, for the collector, which says the limit
-/// instance-child-multiplicity once the sentence's entries are admitted, never as a binder `None`
-/// or Rust's `Option`. Only a reading whose children are terms says the limit itself
-/// ([`krs_syntax::InstanceField::multiplicity_limit`]). A child that is only a name is a binder
-/// as before, and a `Some(..)` holds the child's content, no other presence.
+/// instance-child-multiplicity once the sentence's entries are admitted
+/// ([`krs_syntax::instance_child_multiplicity_reason`]), never as a binder `None` or Rust's
+/// `Option`. A child that is only a name is a binder as before, and a `Some(..)` holds the
+/// child's content, no other presence.
 #[test]
 fn an_optional_instance_child_is_carried_as_its_presence() {
     let child = |state: &StateTerm| first_instance_fields(state)[1].value().clone();
@@ -676,17 +676,6 @@ fn an_optional_instance_child_is_carried_as_its_presence() {
     );
     let field = &first_instance_fields(result.entries()[0].value())[1];
     assert!(matches!(field.value(), StateTerm::Present(_)));
-    let limit = field
-        .multiplicity_limit()
-        .expect("a term reading says the limit");
-    assert_eq!(
-        limit.kind().code().as_str(),
-        "krs::analysis::collection-entry"
-    );
-    assert_eq!(
-        limit.to_string(),
-        krs_syntax::instance_child_multiplicity_reason("acounter", true)
-    );
     assert_eq!(
         krs_syntax::instance_child_multiplicity_reason("acounter", false),
         format!(
@@ -694,7 +683,6 @@ fn an_optional_instance_child_is_carried_as_its_presence() {
             krs_syntax::INSTANCE_CHILD_MULTIPLICITY
         )
     );
-    assert!(field.record_multiplicity_limit().is_none());
     let readable = krs_syntax::RuleBlock::parse_source(
         "for Machine; read: { k: [Go(), ..], account: { me @ Acct { acounter: None, .. }, .. } } => { k: [..], account: { Acct { acounter: Some(1), ..me }, .. } };",
     );
@@ -724,9 +712,8 @@ fn an_optional_instance_child_is_carried_as_its_presence() {
 /// A group record an instance child writes names cells of the same instance, so a `Some(..)` or
 /// `None` among its fields, at any depth of records, is the same presence inside one instance:
 /// the child is read without it, as a record at a cell's position is, and the limit is the
-/// collector's once the entries are admitted (TABLE follow-up (a)); the field still names the
-/// presence for a reading whose children are another reading's terms
-/// ([`krs_syntax::InstanceField::record_multiplicity_limit`]), with the limit's text.
+/// collector's once the entries are admitted (TABLE follow-up (a)), with the text
+/// [`krs_syntax::instance_record_multiplicity_reason`] gives.
 #[test]
 fn an_optional_cell_in_an_instance_child_s_group_record_waits_for_the_collector() {
     for (source, cell, child, written) in [
@@ -748,24 +735,22 @@ fn an_optional_cell_in_an_instance_child_s_group_record_waits_for_the_collector(
             .iter()
             .find(|field| field.name() == child)
             .expect("the child is read");
-        let limit = field
-            .record_multiplicity_limit()
-            .expect("the field names the presence");
+        let read = field.value().terms()[0].spelling();
+        assert!(
+            !read.contains("Some") && !read.contains("None"),
+            "{source}: {read}"
+        );
         assert_eq!(
-            limit.to_string(),
+            krs_syntax::instance_record_multiplicity_reason(
+                cell,
+                child,
+                written.starts_with("`Some")
+            ),
             format!(
                 "the cell `{cell}`, inside the instance child `{child}`, holds {written}: {}",
                 krs_syntax::INSTANCE_CHILD_MULTIPLICITY
             ),
             "{source}"
-        );
-        assert_eq!(
-            limit.to_string(),
-            krs_syntax::instance_record_multiplicity_reason(
-                cell,
-                child,
-                written.starts_with("`Some")
-            )
         );
     }
 }

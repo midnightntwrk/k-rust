@@ -903,9 +903,6 @@ pub struct InstanceField {
     name: Ident,
     value: StateTerm,
     name_key: Option<ProvenanceKey>,
-    /// The first child of a record the child's value writes, at any depth, that writes a `?`
-    /// cell's presence ([`Self::record_multiplicity_limit`]).
-    presence: Option<Box<Presence>>,
 }
 
 impl InstanceField {
@@ -914,27 +911,6 @@ impl InstanceField {
             name,
             value,
             name_key: None,
-            presence: None,
-        }
-    }
-
-    /// The child `name` whose value `tokens` are read as `value`, with the presence a record in
-    /// them writes ([`RecordPresences`]).
-    pub(crate) fn read(
-        name: Ident,
-        value: StateTerm,
-        tokens: &TokenStream,
-        context: StateMacroContext,
-    ) -> Self {
-        let presence = match &value {
-            StateTerm::Term(_) | StateTerm::Group(_) => RecordPresences::of(tokens, context)
-                .and_then(|presences| presences.found.into_iter().next())
-                .map(Box::new),
-            _ => None,
-        };
-        Self {
-            presence,
-            ..Self::new(name, value)
         }
     }
 
@@ -956,56 +932,12 @@ impl InstanceField {
     pub const fn value(&self) -> &StateTerm {
         &self.value
     }
-
-    /// The refusal of a `?` cell's `Some(..)` or `None` inside one instance, which would mean
-    /// whether that instance holds the cell, where no reading carries it to the collector: an
-    /// instance record does not name a `?` or `*` child yet ([`INSTANCE_CHILD_MULTIPLICITY`]).
-    /// `Some(..)` and `None` are read by their spelling, as a cell entry's are.
-    ///
-    /// The child itself written `Some(..)` or `None` is a presence state the descriptor carries,
-    /// so the collector says the limit once the entries' kinds and pairing admit it
-    /// ([`instance_child_multiplicity_reason`]); this gives it only for a reading whose children
-    /// are terms rustc reads, such as a List collection's bracket reading. A record the child
-    /// writes, a group record such as `Info { mark: Some(1) }`, names cells of the same instance
-    /// as terms, so a `Some(..)` or `None` among its fields, at any depth of records, is refused
-    /// here in every reading ([`Self::record_multiplicity_limit`]); `None` for every other child.
-    #[must_use]
-    pub fn multiplicity_limit(&self) -> Option<SyntaxError> {
-        use syn::ext::IdentExt;
-        let present = match &self.value {
-            StateTerm::Present(_) => true,
-            StateTerm::Absent(_) => false,
-            _ => return self.record_multiplicity_limit(),
-        };
-        Some(SyntaxError::new(
-            SyntaxErrorKind::InstanceChildMultiplicity {
-                reason: instance_child_multiplicity_reason(&self.name.unraw().to_string(), present),
-            },
-            self.name.span(),
-        ))
-    }
-
-    /// [`Self::multiplicity_limit`] of a `Some(..)` or `None` that stands as a field of a record
-    /// the child writes, at any depth of records, at that field: the descriptor carries a record's
-    /// fields as terms, which rustc reads.
-    #[must_use]
-    pub fn record_multiplicity_limit(&self) -> Option<SyntaxError> {
-        use syn::ext::IdentExt;
-        let presence = self.presence.as_deref()?;
-        let reason = instance_record_multiplicity_reason(
-            &presence.child,
-            &self.name.unraw().to_string(),
-            presence.present,
-        );
-        Some(SyntaxError::new(
-            SyntaxErrorKind::InstanceChildMultiplicity { reason },
-            presence.span,
-        ))
-    }
 }
 
 /// The reason an instance child `child` written `Some(..)` (`present`) or `None` is not lowered:
-/// a `?` cell's presence or absence inside one instance ([`INSTANCE_CHILD_MULTIPLICITY`]).
+/// a `?` cell's presence or absence inside one instance ([`INSTANCE_CHILD_MULTIPLICITY`]), which
+/// the collector says once the entries are admitted
+/// ([`crate::cell_entries::instance_child_presence`]).
 #[must_use]
 pub fn instance_child_multiplicity_reason(child: &str, present: bool) -> String {
     let written = presence_written(present);
@@ -1070,9 +1002,9 @@ impl PresenceTokens {
 /// What an instance record meets at a child that is a `?` cell or a collection of its own: what
 /// the child would mean is whether, or which, cells that one instance holds, and no lowering
 /// writes that yet, a stated limitation. The collector says it where `Some(..)` or `None` stand
-/// as an instance child, once the entries are admitted; the macros where they stand inside a
-/// record the child writes, or in a reading whose children rustc reads; and the compiler where
-/// the child's declaration shows it.
+/// as an instance child or inside a record the child writes, at any depth, once the entries are
+/// admitted ([`crate::cell_entries::instance_child_presence`]); and the compiler where the child's
+/// declaration shows it.
 pub const INSTANCE_CHILD_MULTIPLICITY: &str =
     "an instance record does not name a `?` or `*` child yet";
 
@@ -3180,7 +3112,7 @@ fn parse_instance_record(
                 let read = RecordPresences::of(&tokens, context)
                     .map_or_else(|| tokens.clone(), |presences| presences.read);
                 match parse_instance_child(read, context, keys) {
-                    Ok(value) => fields.push(InstanceField::read(name, value, &tokens, context)),
+                    Ok(value) => fields.push(InstanceField::new(name, value)),
                     // The term reader read no names of the child: in a pattern its fault is the
                     // record's at once.
                     Err(fault) => faults.carry(fault, false)?,

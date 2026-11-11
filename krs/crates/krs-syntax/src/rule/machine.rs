@@ -636,7 +636,7 @@ fn parse_readable_instance(
         let read = RecordPresences::of(&value, context)
             .map_or_else(|| value.clone(), |presences| presences.read);
         let state = parse_readable_child(name, read, context, braced)?;
-        fields.push(InstanceField::read(name.clone(), state, &value, context));
+        fields.push(InstanceField::new(name.clone(), state));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest)?)
 }

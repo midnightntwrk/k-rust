@@ -436,10 +436,6 @@ pub(super) fn judge(
 /// The first refused entry, with its class's code, at what it refuses; else the refusal of the
 /// first cell whose two entries the parser could not pair
 /// ([`krs_syntax::RuleClause::pairing_refusal`]).
-#[expect(
-    clippy::too_many_lines,
-    reason = "the questions an admitted clause is asked, in the order they are asked"
-)]
 pub(super) fn judge_readable(
     id: &StableItemId,
     target: &super::resolve::HeadRuleTarget,
