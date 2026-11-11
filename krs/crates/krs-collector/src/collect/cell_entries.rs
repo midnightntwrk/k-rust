@@ -455,6 +455,7 @@ pub(super) fn judge_readable(
     .judge_located();
     if judged.is_ok() {
         group_record_on_leaf(subject.iter().chain(&result), target.groups())?;
+        items_off_the_computation(subject.iter().chain(&result))?;
         presence_in_constructor_record(subject.iter().chain(&result), target.groups())?;
     }
     subject_limit(&judged, authored)?;
@@ -709,6 +710,77 @@ fn group_record_on_leaf<'e, 'a: 'e>(
                 head = record.head
             ),
         );
+        let range = entry
+            .field
+            .located
+            .iter()
+            .find(|(path, _)| *path == at)
+            .map(|(_, range)| range)
+            .or(entry.field.range.as_ref());
+        return Err(match range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        });
+    }
+    Ok(())
+}
+
+/// Refuses the first admitted entry of a sentence whose value is `k::k![..]` on a cell that is not
+/// the computation, through its presence and its `Cell(..)`: the computation's item notation,
+/// which denotes the term of sort `K` its items make in order (`a ~> b ~> rest`). On a leaf or a
+/// group of another sort it is a term whose sort is not below the cell's (`ContentSort`); on a
+/// leaf of sort `KSequence` it is that leaf's own sort, which no sentence's leaf entry lowers yet
+/// (`LeafItems`, a limit). The table admits it as the term it is ([`cell_entries`]'s marks: the
+/// computation's mark only where the cell holds a computation).
+fn items_off_the_computation<'e, 'a: 'e>(
+    entries: impl IntoIterator<Item = &'e Entry<'a>>,
+) -> Result<(), CollectionError> {
+    for entry in entries {
+        let Some(spelling) = &entry.field.spelling else {
+            continue;
+        };
+        let mut at = Vec::new();
+        let mut value = spelling;
+        while let EntrySpelling::Present(inner)
+        | EntrySpelling::Cell(inner)
+        | EntrySpelling::Alias(_, inner) = value
+        {
+            at.push(0);
+            value = inner;
+        }
+        if !matches!(value, EntrySpelling::KMacro(_)) {
+            continue;
+        }
+        let content = entry
+            .kind
+            .own
+            .layers
+            .iter()
+            .find(|layer| !matches!(layer, Layer::Optional));
+        let cell = unraw(&entry.cell.field);
+        let (kind, detail) = match (content, entry.sort.as_deref()) {
+            (Some(Layer::Leaf(_)), Some("KSequence")) => (
+                CollectionErrorKind::LeafItems,
+                format!(
+                    "the cell `{cell}` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a leaf's entry written by its items is not supported yet: write it with a name bound to such a value"
+                ),
+            ),
+            (Some(Layer::Leaf(_)), Some(sort)) => (
+                CollectionErrorKind::ContentSort,
+                format!(
+                    "the cell `{cell}` holds a leaf of sort `{sort}`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's"
+                ),
+            ),
+            (Some(Layer::Group(group)), _) => (
+                CollectionErrorKind::ContentSort,
+                format!(
+                    "the cell `{cell}` holds a group `{}`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), which is no group's cell term",
+                    group.name
+                ),
+            ),
+            _ => continue,
+        };
+        let error = CollectionError::new(kind, detail);
         let range = entry
             .field
             .located
@@ -1044,6 +1116,7 @@ fn judge_sentence(
     };
     if judged.is_ok() {
         group_record_on_leaf(subject.iter().chain(&result), &tree.groups)?;
+        items_off_the_computation(subject.iter().chain(&result))?;
         presence_in_constructor_record(subject.iter().chain(&result), &tree.groups)?;
         for key in &tree.keys {
             kept_key(key, &subject, &result)?;

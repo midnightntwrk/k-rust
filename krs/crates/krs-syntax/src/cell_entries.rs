@@ -844,8 +844,14 @@ impl Marks {
             EntrySpelling::KCell(_) => Mark::Computation,
             EntrySpelling::InstanceList(_) => Mark::InstanceList,
             EntrySpelling::InstanceSet(_) => Mark::InstanceSet,
+            // `k::k![..]` lists a computation's items. On a cell that holds a computation it is
+            // the computation's mark, as brackets and `KCell(..)` are; on any other cell of a
+            // sentence it is the term of sort `K` the items make, judged by the cell's sort
+            // once admitted (the collector's `items_off_the_computation`). An initializer reads
+            // it as the computation's mark on every cell.
             EntrySpelling::KMacro(_)
-                if self.form == EntryForm::Initializer || (cells_child && computation) =>
+                if self.form == EntryForm::Initializer
+                    || ((cells_child || readable) && computation) =>
             {
                 Mark::Computation
             }

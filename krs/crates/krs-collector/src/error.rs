@@ -129,8 +129,12 @@ pub enum CollectionErrorKind {
     InstanceChildMultiplicity,
     /// An entry value the table admits by its marks whose sort is not below its cell's: in an
     /// initializer, a term on a group cell, a group record on a leaf, a record of another group;
-    /// in a sentence, a group record on a leaf whose sort holds no cell term.
+    /// in a sentence, a group record on a leaf whose sort holds no cell term, and `k::k![..]`, a
+    /// term of sort `K`, on a leaf of another sort or a group.
     ContentSort,
+    /// `k::k![..]` on a leaf of sort `KSequence`: a term of the leaf's own sort, written by its
+    /// items, which a sentence's leaf entry does not lower yet.
+    LeafItems,
     /// `Some(..)` or `None` as a field of a constructor record at a configuration position,
     /// which the macro reads as a group record's `?` child presence: a constructor's field is a
     /// term, and no KRS term is an `Option`.
@@ -314,7 +318,9 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::CollectionOverwrite
             | CollectionErrorKind::InstanceChildMultiplicity => codes::analysis::COLLECTION_ENTRY,
             CollectionErrorKind::FixedCellsOnly => codes::expand::CELL_COLLECTION_PLACEMENT,
-            CollectionErrorKind::ContentSort => codes::analysis::INVALID_TERM,
+            CollectionErrorKind::ContentSort | CollectionErrorKind::LeafItems => {
+                codes::analysis::INVALID_TERM
+            }
             CollectionErrorKind::NotADeclaration => codes::expand::NOT_A_DECLARATION,
         };
         let diagnostic = Diagnostic::error(

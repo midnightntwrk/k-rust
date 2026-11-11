@@ -730,14 +730,20 @@ impl<'a> StateRuleBuilder<'a> {
                 cell_field_identity(facade, &field_owner, entry.name(), entry.name().span());
             let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
                 let computation = path.segments.iter().any(|segment| segment.ident == "KCell");
-                if computation != matches!(entry.value(), StateTerm::KSequence(_)) {
+                let sequence = matches!(entry.value(), StateTerm::KSequence(_));
+                if computation && !sequence {
                     return Err(ExpandError::new(
                         expand::CELL_STATE_FAMILY_MISMATCH,
                         path.span(),
                         "cell wrapper and rule state family disagree",
                     ));
                 }
-                let wrapper = if computation {
+                // `Cell(k::k![..])` is a leaf's wrapper around the computation's item notation,
+                // the term of sort `K` its items make: whether the cell holds one is the
+                // collector's question, by the cell's kind and sort, from the same spelling,
+                // answered before anything lowers the entry. The wire carries the items in
+                // their state's family.
+                let wrapper = if sequence {
                     CellWrapper::KCell
                 } else {
                     CellWrapper::Cell

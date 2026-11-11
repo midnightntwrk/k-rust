@@ -909,7 +909,19 @@ fn parse_machine_pattern_record(
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
         let looks_up = sentence == ReadableSentence::Rule;
-        let value = if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {
+        let value = if let Some(error) = computation_items_value(&content, |content| {
+            if let Some(state) = parse_readable_pattern_state(content, looks_up, faults)? {
+                return Ok(MachinePatternCell::State(Box::new(state)));
+            }
+            let (pattern, signs) = parse_pattern_with_signs(content)?;
+            readable_cell_pattern(pattern, signs).map(|(pattern, tree)| MachinePatternCell::Term {
+                pattern: Box::new(pattern),
+                tree: Box::new(tree),
+            })
+        }) {
+            skip_value(&content)?;
+            MachinePatternCell::Refused(Box::new(error))
+        } else if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket)
             && crate::list_notation::in_pattern_step()
@@ -1170,7 +1182,18 @@ fn parse_machine_result_record(
                     || (ident == "Some" && fork.peek(syn::token::Paren))
             })
         };
-        let value = if presence {
+        let value = if let Some(error) = computation_items_value(&content, |content| {
+            if presence {
+                return parse_readable_result_state(content, StateFamily::Optional).map(drop);
+            }
+            let expression = content.call(crate::term::parse_term_expression)?;
+            TermExpression::from_expression(expression)
+                .map(drop)
+                .map_err(ParseError::from)
+        }) {
+            skip_value(&content)?;
+            MachineResultCell::Refused(Box::new(error))
+        } else if presence {
             // A `?` group's present record whose children write their own presences is written
             // without them, as a record at a cell's position is ([`value_presences`]).
             match value_presences(&content, StateMacroContext::Expression) {
@@ -1278,6 +1301,39 @@ fn record_child_entry(content: ParseStream<'_>) -> Option<crate::SyntaxError> {
             map.span(),
         ))
     })
+}
+
+/// The term reader's refusal of a record value that is `k::k![..]`, alone or in `Some(..)`, read
+/// as the clause reads the value (`read`, on a fork), or `None` for any other value. The
+/// computation's item notation is a term of sort `K`, which the readable route reads at no cell
+/// yet: whether it fits the cell (its kind, then its sort, or the limit on a leaf of sort
+/// `KSequence`) is the collector's question, from the same spelling, answered first; the cell is
+/// neither read nor written, the refusal carried ([`read_with_pairing_deferred`]).
+fn computation_items_value<T>(
+    content: ParseStream<'_>,
+    read: impl FnOnce(ParseStream<'_>) -> Result<T, ParseError>,
+) -> Option<crate::SyntaxError> {
+    let fork = content.fork();
+    let mut value = TokenStream::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.extend([fork.parse::<TokenTree>().ok()?]);
+    }
+    let trees = value.clone().into_iter().collect::<Vec<_>>();
+    let items = match trees.as_slice() {
+        [TokenTree::Ident(some), TokenTree::Group(inside)]
+            if some == "Some" && inside.delimiter() == proc_macro2::Delimiter::Parenthesis =>
+        {
+            inside.stream()
+        }
+        _ => value,
+    };
+    let Ok(Expr::Macro(invocation)) = syn::parse2::<Expr>(items) else {
+        return None;
+    };
+    if invocation.mac.path.segments.last()?.ident != "k" {
+        return None;
+    }
+    read(&content.fork()).err().map(syntax_error)
 }
 
 /// A result's `Some(..)` or `None` ([`parse_readable_result_state`]). A present content whose
@@ -1526,6 +1582,41 @@ fn readable_form_step(
     Ok(())
 }
 
+/// `k::k![..]` waits for its cell's judgement only beside a bracketed subject value, which names
+/// the clause's computation: a clause without one has no reading the collector judges, so the
+/// term reader's refusal of the notation is the clause's ([`computation_items_value`]).
+fn items_without_computation(
+    subject_cells: &[(Ident, MachinePatternCell)],
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<(), ParseError> {
+    if subject_cells
+        .iter()
+        .any(|(_, pattern)| matches!(pattern, MachinePatternCell::Bracket(_)))
+    {
+        return Ok(());
+    }
+    let items = subject_cells
+        .iter()
+        .filter_map(|(_, pattern)| match pattern {
+            MachinePatternCell::Refused(error) => Some(error),
+            _ => None,
+        })
+        .chain(result_cells.iter().filter_map(|(_, value)| match value {
+            MachineResultCell::Refused(error) => Some(error),
+            _ => None,
+        }))
+        .find(|error| {
+            matches!(
+                error.kind(),
+                crate::SyntaxErrorKind::UnsupportedTermExpression { .. }
+            )
+        });
+    match items {
+        Some(error) => Err((**error).clone().into()),
+        None => Ok(()),
+    }
+}
+
 pub(super) fn parse_machine_clause(
     input: ParseStream<'_>,
     attributes: &[Attribute],
@@ -1569,6 +1660,7 @@ pub(super) fn parse_machine_clause(
         .collect::<Vec<_>>();
     let present = item_less_presences(&pattern_record);
     let result_cells = parse_machine_result_record(input, &states, &present, &result_faults)?;
+    items_without_computation(&subject_cells, &result_cells)?;
     let subject_cells = with_overwritten_cells(subject_cells, &result_cells)?;
     let mut layout = RuleClauseLayout {
         label: TokenRange::for_tokens(name)?,
