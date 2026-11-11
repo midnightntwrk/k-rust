@@ -1145,7 +1145,7 @@ fn a_notation_fault_waits_for_the_cells_kind() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: [..] } => { k: [..], pc: 0 };",
-            "`[..]` and `[rest @ ..]` name no element",
+            "the pattern's `..` keeps the rest of the list",
         ),
         (
             "for Machine; x: { k: [Go(), ..], env: { y -> n, .. } } => { k: [..], env: [.., n] };",

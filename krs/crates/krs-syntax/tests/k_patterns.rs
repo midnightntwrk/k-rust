@@ -105,13 +105,25 @@ fn a_k_value_with_a_back_reads_as_list_elements() {
     }
 }
 
+/// `k: [..]` matches whatever the computation holds, as `KCell(..)` does, so a result that
+/// writes items before its `..` puts them in front of it: a head with no item.
+#[test]
+fn an_item_less_pattern_matches_any_computation_and_a_result_puts_items_in_front() {
+    let block = block("a: { k: [..], acc: 0 } => { k: [Op::Boundary, ..] };");
+    let clause = &block.clauses()[0];
+    assert_eq!(clause.computation_cell().unwrap(), "k");
+    let head = clause.head().unwrap();
+    assert!(!head.exact() && !head.subject() && head.following().is_empty());
+    assert!(matches!(
+        clause.head_result(),
+        Some(RuleHeadResult::Replace(_))
+    ));
+    clause.provenance().unwrap();
+}
+
 #[test]
 fn unsupported_shapes_are_rejected_with_their_reason() {
     for (clause, reason) in [
-        (
-            "a: { k: [..], acc: 0 } => { k: [Op::Boundary, ..] };",
-            "`[..]` matches any computation",
-        ),
         (
             "a: { k: [Run { n }, ..] } => { k: [Op::Boundary] };",
             "so the result ends in `..` too",

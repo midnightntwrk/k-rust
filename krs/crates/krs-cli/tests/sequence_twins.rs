@@ -332,3 +332,79 @@ fn a_wildcard_item_of_an_instance_computation_child_is_one_item() {
         of(&lines, "claim-tk")
     );
 }
+
+/// Item 3: a subject `[..]` matches whatever the cell holds, and a result `[a, ..]` puts `a` in
+/// front of it, keeping the rest: at a top sequence leaf, the computation cell and a List leaf,
+/// as at an instance's child and through `KCell(..)`.
+#[test]
+fn an_item_less_subject_whose_result_writes_items_keeps_its_rest() {
+    const KC: &str = "k::configuration::";
+    let rule = |body: &str| readable(body, false);
+    let lines = verdicts(&[
+        (
+            "aux",
+            rule("go: { aux: [..], out: [a, ..] } => { aux: [a, ..], out: [..] };"),
+        ),
+        (
+            "cells-aux",
+            cells(
+                "a: KItem,\n    rest: List,\n    ",
+                &format!("aux: {KC}KCell(..), out: {KC}Cell([a, rest @ ..])"),
+                &format!("aux: {KC}KCell(a, ..), out: {KC}Cell(rest)"),
+                false,
+            ),
+        ),
+        (
+            "k",
+            rule("go: { k: [..], out: [a, ..] } => { k: [a, ..], out: [..] };"),
+        ),
+        (
+            "claim-aux",
+            readable(
+                "go: { aux: [..], out: [a, ..] } => { aux: [a, ..], out: [..] };",
+                true,
+            ),
+        ),
+        (
+            "ll",
+            rule("go: { k: [Put(a, b), ..], ll: [..] } => { k: [..], ll: [a, ..] };"),
+        ),
+        (
+            "ll-named",
+            rule("go: { k: [Put(a, b), ..], ll: l } => { k: [..], ll: [a, ..l] };"),
+        ),
+        (
+            "ll-back",
+            rule("go: { k: [Put(a, b), ..], ll: [..] } => { k: [..], ll: [.., a] };"),
+        ),
+        (
+            "tk",
+            rule(
+                "go: { k: [Put(a, b), ..], th: { me @ Th { tk: [..], .. }, .. } } => { k: [..], th: { Th { tk: [a, ..], ..me }, .. } };",
+            ),
+        ),
+    ]);
+    expect_test::expect![[r"
+        aux: rule [go]: <aux> .K => A:KItem ... </aux> <out> ListItem(A:KItem) Krs_RestOut:List => Krs_RestOut:List </out>
+        cells-aux: rule [go]: <aux> .K => A:KItem ... </aux> <out> ListItem(A:KItem) Rest:List => Rest:List </out>
+        k: rule [go]: <k> .K => A:KItem ... </k> <out> ListItem(A:KItem) Krs_RestOut:List => Krs_RestOut:List </out>
+        claim-aux: claim [go]: <aux> .K => A:KItem ... </aux> <out> ListItem(A:KItem) Krs_RestOut:List => Krs_RestOut:List </out>
+        ll: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List </ll>
+        ll-named: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> L:List => ListItem(A:Int) L:List </ll>
+        ll-back: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Krs_RestLl:List => Krs_RestLl:List ListItem(A:Int) </ll>
+        tk: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <th> <tk> .K ~> Tail0:K => A:Int ~> Tail0:K </tk> ... </th>"]]
+    .assert_eq(&lines.join("\n"));
+    let cell = |line: &str, name: &str| {
+        let start = line.find(&format!("<{name}>")).unwrap();
+        let end = line.find(&format!("</{name}>")).unwrap();
+        line[start..end].to_owned()
+    };
+    assert_eq!(
+        cell(of(&lines, "aux"), "aux"),
+        cell(of(&lines, "cells-aux"), "aux")
+    );
+    assert_eq!(
+        cell(of(&lines, "ll"), "ll").replace("Krs_RestLl", "L"),
+        cell(of(&lines, "ll-named"), "ll")
+    );
+}

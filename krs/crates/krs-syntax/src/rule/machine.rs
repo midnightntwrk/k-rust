@@ -44,9 +44,9 @@ enum MachinePatternCell {
     /// the clause is assembled.
     Bracket(proc_macro2::Group),
     /// A bracketed value whose list notation refuses it as a list's elements, the notation's
-    /// refusal: `[..]` names no element. Whether brackets fit the cell at all is the cell's
-    /// kind's question, answered first, so the cell is neither read nor written, the refusal
-    /// carried ([`read_with_pairing_deferred`]).
+    /// refusal (a second rest, `[rest @ ..]`). Whether brackets fit the cell at all is the
+    /// cell's kind's question, answered first, so the cell is neither read nor written, the
+    /// refusal carried ([`read_with_pairing_deferred`]).
     Refused(Box<crate::SyntaxError>),
 }
 
@@ -2135,8 +2135,10 @@ enum InstanceReading {
 
 impl BracketReadings {
     fn of(group: &proc_macro2::Group, result: Option<&MachineResultCell>) -> Self {
-        // A computation cell the result leaves out is only read.
-        let computation = bracket_prefix(group).is_ok()
+        // A computation cell the result leaves out is only read. An item-less `[..]` it keeps is
+        // read by what it means on each kind instead ([`read_machine_clause`]).
+        let computation = !item_less_kept(group, result)
+            && bracket_prefix(group).is_ok()
             && match result {
                 None => true,
                 Some(MachineResultCell::Bracket(result)) => bracket_items(result).is_ok(),
@@ -2173,13 +2175,14 @@ impl BracketReadings {
         };
         // A list's result may also be one term, the whole new list; the
         // anonymous `..` is one rest, on both sides or neither.
-        let elements = list_pattern(group).is_ok_and(|pattern| match result {
-            None => true,
-            Some(MachineResultCell::Term(_)) => !pattern.rest.is_shared(),
-            Some(MachineResultCell::Bracket(result)) => list_result(result)
-                .is_ok_and(|result| result.rest.is_shared() == pattern.rest.is_shared()),
-            Some(_) => false,
-        });
+        let elements = !item_less_kept(group, result)
+            && list_pattern(group).is_ok_and(|pattern| match result {
+                None => true,
+                Some(MachineResultCell::Term(_)) => !pattern.rest.is_shared(),
+                Some(MachineResultCell::Bracket(result)) => list_result(result)
+                    .is_ok_and(|result| result.rest.is_shared() == pattern.rest.is_shared()),
+                Some(_) => false,
+            });
         // An instance record's child is its cell's entry, judged by the child's kind, and the
         // same record read as a term is the term reader's: `k::k![..]` is a sequence's items to
         // one and no term to the other. The term readings of such a value are then none.
@@ -2259,6 +2262,16 @@ fn instances_only_refusals(
         .collect()
 }
 
+/// Whether the bracketed subject value `group` is the item-less `[..]` and its result `result`
+/// leaves the cell out or writes `[..]` again: the rule matches whatever the cell holds and keeps
+/// it.
+fn item_less_kept(group: &proc_macro2::Group, result: Option<&MachineResultCell>) -> bool {
+    is_dots(&group.stream())
+        && result.is_none_or(|result| {
+            matches!(result, MachineResultCell::Bracket(result) if is_dots(&result.stream()))
+        })
+}
+
 /// Reads a cell-record clause's bracketed values ([`read_machine_readings`]),
 /// with an item-less `[..]` read by what it means. `[..]` names no item,
 /// element or instance, so it matches whatever its cell holds, and with no
@@ -2284,11 +2297,9 @@ fn read_machine_clause(
         };
         let result = result_cells
             .iter()
-            .find(|(result_cell, _)| result_cell.unraw() == cell.unraw());
-        let kept = result.is_none_or(|(_, result)| {
-            matches!(result, MachineResultCell::Bracket(result) if is_dots(&result.stream()))
-        });
-        (is_dots(&group.stream()) && kept).then(|| (cell, group.span()))
+            .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
+            .map(|(_, result)| result);
+        item_less_kept(group, result).then(|| (cell, group.span()))
     });
     let (Ok(list), Some((cell, span))) = (&instances, item_less) else {
         return instances;
@@ -2541,8 +2552,9 @@ fn read_brackets(
             }
             MachinePatternCell::Bracket(group) if is_elements(cell) => match list_pattern(group) {
                 Ok(pattern) => MachinePatternCell::List(Box::new(pattern)),
-                // `[..]`, which names no element, or brackets of another list mistake: a list's
-                // notation, which the cell's kind answers before ([`read_with_pairing_deferred`]).
+                // `[rest @ ..]`, which names no element, or brackets of another list mistake: a
+                // list's notation, which the cell's kind answers before
+                // ([`read_with_pairing_deferred`]).
                 Err(ParseError::Structured(error)) if defer_pairing && is_list_notation(&error) => {
                     MachinePatternCell::Refused(Box::new(error))
                 }
@@ -2622,7 +2634,9 @@ fn read_brackets(
 /// Reads a bracketed subject value as the computation cell's
 /// `[p1, .., pn, ..]` (at least `n` items, the rest kept) or `[p1, .., pn]`
 /// (exactly `n` items). The cell holds the continuation, which a rule reads
-/// from its front: `..` ends the pattern and is anonymous.
+/// from its front: `..` ends the pattern and is anonymous. With no item,
+/// `[..]` matches whatever the cell holds, as `KCell(..)` does, and a result
+/// `[r1, .., rm, ..]` puts its items in front of it.
 fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
     let parser = |input: ParseStream<'_>| {
         let sequence;
@@ -2639,12 +2653,6 @@ fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
                     return Err(syn::Error::new(
                         dots.spans[0],
                         "`..` may only end a k pattern: the computation cell is matched from its front, the next step first",
-                    ));
-                }
-                if items.is_empty() {
-                    return Err(syn::Error::new(
-                        dots.spans[0],
-                        "`[..]` matches any computation: leave `k` out of the rule to keep it unchanged, or name the items the rule consumes",
                     ));
                 }
                 tail = Some(dots);
@@ -2802,9 +2810,9 @@ fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
     let (items, rest, back) = list_parts(entries)?;
     let rest = match rest {
         None => RuleListRest::Exact,
-        Some((start, ..)) if items.is_empty() && back.is_empty() => {
+        Some((start, _, Some(_))) if items.is_empty() && back.is_empty() => {
             return Err(list_error(
-                "`[..]` and `[rest @ ..]` name no element: leave the cell out of the rule to keep it unchanged, or bind the whole list with `cell: rest`",
+                "`[rest @ ..]` names no element: it is the whole list, so bind it with `cell: rest`",
                 start,
             ));
         }
