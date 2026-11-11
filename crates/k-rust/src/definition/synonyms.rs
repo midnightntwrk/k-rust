@@ -309,6 +309,24 @@ pub(crate) fn synonym_overlaps<'a>(
             (id, heads)
         })
         .collect::<BTreeMap<_, _>>();
+    // A module's injected sentences are drawn from one module-independent list, so a head
+    // absent from that list's unbound sorts has no injected meaning in any module. Only an
+    // alias with such a head needs its module's injected sentences, whose computation builds
+    // the module's signature view; they are computed then, at most once per module.
+    let injectable = crate::inner::grammar_injectable_sentences(definition)
+        .into_iter()
+        .flat_map(crate::inner::unbound_sorts)
+        .map(SortHead::from)
+        .collect::<BTreeSet<_>>();
+    let injected_heads = |id: ModuleId| {
+        let mut injected = BTreeMap::new();
+        for sentence in crate::inner::grammar_injected_sentences(definition, id) {
+            for sort in crate::inner::unbound_sorts(sentence) {
+                injected.entry(SortHead::from(sort)).or_insert(sentence);
+            }
+        }
+        injected
+    };
     let mut overlaps = Vec::new();
     let mut reported = BTreeSet::new();
     for &id in definition.dependency_order() {
@@ -320,12 +338,7 @@ pub(crate) fn synonym_overlaps<'a>(
             .into_iter()
             .collect::<BTreeSet<_>>();
         visible_modules.insert(id);
-        let mut injected = BTreeMap::new();
-        for sentence in crate::inner::grammar_injected_sentences(definition, id) {
-            for sort in crate::inner::unbound_sorts(sentence) {
-                injected.entry(SortHead::from(sort)).or_insert(sentence);
-            }
-        }
+        let mut injected = None;
         let visible = definition.sentences(id);
         let has_cells = visible.iter().any(|sentence| {
             matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(super::AttributeKey::Cell))
@@ -356,8 +369,13 @@ pub(crate) fn synonym_overlaps<'a>(
                     .filter(|module| visible_modules.contains(module))
                     .find_map(|module| declared[module].get(&SortHead::from(alias)).copied())
                     .or_else(|| {
+                        let head = SortHead::from(alias);
+                        if !injectable.contains(&head) {
+                            return None;
+                        }
                         injected
-                            .get(&SortHead::from(alias))
+                            .get_or_insert_with(|| injected_heads(id))
+                            .get(&head)
                             .copied()
                             .map(AliasMeaning::Positioned)
                     })

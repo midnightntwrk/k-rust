@@ -548,6 +548,32 @@ pub(crate) fn grammar_injected_sentences(
     signature.split_off(signature_end)
 }
 
+/// Every sentence [`grammar_injected_sentences`] can return, for any module of `resolved`:
+/// ML-SYNTAX's signature, from which `add_implicit_ml_syntax` appends only what the module's
+/// signature lacks, then the cell productions of RULE-CELLS, from which
+/// `inject_rule_cell_sentences` appends only the missing ones. The list does not depend on the
+/// module, so a caller asking whether a sort could occur in some module's injected sentences
+/// can rule it out without building that module's signature.
+pub(crate) fn grammar_injectable_sentences(resolved: &ResolvedDefinition) -> Vec<&Sentence> {
+    let mut sentences = resolved
+        .module_id("ML-SYNTAX")
+        .map(|module| resolved.signature_sentences(module))
+        .unwrap_or_default();
+    if let Some(rule_cells) = resolved.module_id("RULE-CELLS") {
+        sentences.extend(
+            resolved
+                .module(rule_cells)
+                .local_sentences
+                .iter()
+                .map(std::sync::Arc::as_ref)
+                .filter(|sentence| {
+                    matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Cell))
+                }),
+        );
+    }
+    sentences
+}
+
 fn inject_rule_cell_sentences<'a>(
     resolved: &'a ResolvedDefinition,
     visible: &mut Vec<&'a Sentence>,
