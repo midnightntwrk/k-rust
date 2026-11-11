@@ -2666,13 +2666,66 @@ fn readable_bracket_reading(
         .filter(|candidate| candidate.names.iter().any(|name| name == &cell.name))
         .collect::<Vec<_>>();
     // An item-less `[..]` is read as `_` with its instance list beside it.
-    // `_` is what it means on a `Cell` leaf. The computation cell has no `_`
-    // entry (its entry is its items in brackets) and keeps the instance
-    // list, as every other cell does, whose kind's mistake it names.
+    // `_` is what it means on a `Cell` leaf. Every other cell keeps the
+    // instance list: a collection's instances, and on a group its kind's
+    // mistake. On a sequence leaf (`KCell`, whose entry is its items in
+    // brackets, never `_`) the list constrains and binds nothing, so the rule
+    // is the one that leaves the cell out ([`readable_list_reading`]). A rule
+    // names a cell, though: where no other entry stands beside the leaf's,
+    // leaving it out leaves no rule, and the leaf is what `[..]` matches on
+    // a computation, whatever it holds, kept: the head with no item, as
+    // `KCell(..)` is.
+    let item_less = item_less_brackets(&alternative.extra).is_some();
+    let wrapper = |name: &str| match target
+        .cells
+        .iter()
+        .filter(|candidate| candidate.names.iter().any(|candidate| candidate == name))
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [candidate] => candidate.leaf_wrapper(),
+        _ => None,
+    };
+    let another_entry_stands = rule.head.is_some()
+        || rule.extras.iter().any(|extra| match extra {
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell: read, .. } => read.name != cell.name,
+            extra => item_less_brackets(extra).is_none_or(|read| {
+                !matches!(
+                    wrapper(&read.name),
+                    Some(krs_ir::CellWrapper::Cell | krs_ir::CellWrapper::KCell)
+                )
+            }),
+        });
+    if item_less
+        && !another_entry_stands
+        && wrapper(&cell.name) == Some(krs_ir::CellWrapper::KCell)
+        && let Some(index) = rule.extras.iter().position(|extra| {
+            matches!(
+                extra,
+                krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell: read, .. } if read.name == cell.name
+            )
+        })
+    {
+        let krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell: read, .. } = rule.extras.remove(index)
+        else {
+            unreachable!("the position matched a cell read");
+        };
+        rule.head = Some(krs_ir::ProtocolHeadRuleHead {
+            items: Vec::new(),
+            exact: false,
+            tail_key: None,
+            result: None,
+        });
+        rule.computation_cell = Some(krs_ir::HeadRuleComputationCell {
+            key: read.key,
+            name: read.name,
+            result_key: None,
+        });
+        return Ok(rule);
+    }
     let keeps_instances = |candidate: &HeadRuleCellTarget| {
         candidate.is_collection()
-            || (item_less_brackets(&alternative.extra).is_some()
-                && candidate.leaf_wrapper() != Some(krs_ir::CellWrapper::Cell))
+            || (item_less && candidate.leaf_wrapper() != Some(krs_ir::CellWrapper::Cell))
     };
     if let [candidate] = named.as_slice()
         && keeps_instances(candidate)

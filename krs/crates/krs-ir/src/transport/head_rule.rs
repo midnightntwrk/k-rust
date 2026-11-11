@@ -884,16 +884,16 @@ fn computation_result_pairs<T>(
     result_key.is_some() == head.is_some_and(|head| head.result.is_some())
 }
 
-/// An open computation-cell pattern matches at least one item (`[..]` is
-/// rejected: it would match any computation); a `for Sort` table's head is
-/// one item that the rule rewrites, never a whole cell or a read.
+/// A `for Sort` table's head is one item that the rule rewrites, never a
+/// whole cell or a read. A cell-record clause's head may match no item: an
+/// open `[..]` matches whatever the computation cell holds.
 fn validate_head<T>(
     head: Option<&ProtocolHeadRuleHead<T>>,
     term_table: bool,
 ) -> Result<(), StateTransportError> {
     if let Some(head) = head
-        && ((head.items.is_empty() && !head.exact)
-            || (term_table && (head.items.len() != 1 || head.exact || head.result.is_none())))
+        && term_table
+        && (head.items.len() != 1 || head.exact || head.result.is_none())
     {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::HeadRuleComputationItems,
