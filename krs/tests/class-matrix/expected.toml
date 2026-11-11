@@ -844,16 +844,18 @@ match = 'init/k/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},k::builtin::map::empt
 class = "cell-wrapper"
 at = "entry"
 
+# COHERE R2-3: `k::k![..]` off the computation is the term of sort `K` its items make: on a `?`
+# cell it lacks its presence, on a leaf of another sort or a group its sort is not below the
+# cell's, and a leaf of sort `KSequence` (`init/k-leaf`) starts holding it.
 [[refuse]]
-match = 'init/{counter,env,frame,job,pc,stack}/{k::k![0],k::k![],k::k![pgm]}'
-class = "cell-wrapper"
+match = 'init/counter/{k::k![0],k::k![],k::k![pgm]}'
+class = "optional-without-presence"
 at = "entry"
 
-# A leaf of sort `KSequence` is no computation, whose items `k::k![..]` lists.
 [[refuse]]
-match = 'init/k-leaf/{k::k![Cmd::Go()],k::k![]}'
-class = "cell-wrapper"
-at = "entry"
+match = 'init/{env,frame,job,pc,stack}/{k::k![0],k::k![],k::k![pgm]}'
+class = "content-sort"
+at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/{result,subject}/k/{0,Frame \{ ret: x \},x}'
@@ -1219,6 +1221,13 @@ match = 'init/k/{[0],[],k::k![0],k::k![]}'
 class = "unused-configuration-variable"
 at = "item"
 
+# COHERE R2-3: a leaf of sort `KSequence` starts holding the sequence `k::k![..]` lists, admitted;
+# the base's `SAVED` input, which only the default `saved: saved` reads, is then read by no cell.
+[[refuse]]
+match = 'init/k-leaf/{k::k![Cmd::Go()],k::k![]}'
+class = "unused-configuration-variable"
+at = "item"
+
 # wildcard-outside-pattern
 [[refuse]]
 match = '{claim,readable}/result/{counter,env,frame,job,k,pc,stack}/_'
@@ -1324,9 +1333,14 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = 'init/kinds/{account,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::k![pgm]'
-class = "cell-wrapper"
+match = 'init/kinds/{counter,ogroup,olist,omap}/k::k![pgm]'
+class = "optional-without-presence"
 at = "entry"
+
+[[refuse]]
+match = 'init/kinds/{account,bag,env,frame,job,pc,seq,set,stack}/k::k![pgm]'
+class = "content-sort"
+at = "spelling"
 
 [[refuse]]
 match = 'init/kinds/{code,prog}/pgm'

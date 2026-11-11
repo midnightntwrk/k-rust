@@ -366,11 +366,10 @@ impl FixedCellInitializer {
         self.absent.as_ref()
     }
 
-    /// The refusal of the first named wrapper whose value is of the other wrapper's family
-    /// (`Cell::new(k::k![..])`: `KCell` requires `k!`; `KCell::new(x)`: it requires one), the
-    /// cell's own, then its children's in source order. The value is the cell's content, judged
-    /// against the cell's kind as a plain entry's value is, first; this is raised only where that
-    /// judgement admits it.
+    /// The refusal of the first `KCell::new(v)` whose value is no `k::k![..]` (a term, a map),
+    /// the cell's own, then its children's in source order: `KCell::new` takes the computation's
+    /// items. The wrapper is the value's mark, judged against the cell's kind, and the value
+    /// against the cell, first; this is raised only where both admit it.
     #[must_use]
     pub fn wrapper_family(&self) -> Option<SyntaxError> {
         if let Some(error) = &self.wrapper_family {
@@ -1471,11 +1470,15 @@ fn parse_initializer_cell(
             // the other wrapper's family is read by its own, so the cell's kind answers it
             // first, and the wrapper's refusal waits ([`FixedCellInitializer::wrapper_family`]).
             let named = wrapper.ident == "KCell";
+            // `Cell::new(k::k![..])` is a `KSequence` leaf's sequence, which the collector gives
+            // the leaf's wrapper once the cell's kind and sort admit it.
             let (value, computation) = match parse_initializer_state_term(argument, named) {
                 Ok(value) => (value, named),
                 Err(error) => match parse_initializer_state_term(argument, !named) {
                     Ok(value) => {
-                        wrapper_family = Some(error);
+                        if named {
+                            wrapper_family = Some(error);
+                        }
                         (value, !named)
                     }
                     Err(_) => return Err(error),
@@ -1781,7 +1784,29 @@ fn unwrapped_value(tokens: TokenStream) -> TokenStream {
                 )
             });
             if wrapper {
-                return group.stream();
+                // The wrapper is the value's mark, judged against the cell's kind as a
+                // `cells!` entry's is: `Cell(v)` a leaf's value, `KCell(items)` a computation's
+                // items, `KCell(v)` around anything else.
+                let computation = path
+                    .as_ref()
+                    .and_then(|path| path.segments.iter().rev().nth(1))
+                    .is_some_and(|segment| segment.ident == "KCell");
+                let inside = group.stream();
+                let items = computation
+                    .then(|| crate::state_macro::qualified_macro_payload(&inside))
+                    .flatten()
+                    .filter(|(name, _)| name == "k")
+                    .map_or(inside, |(_, items)| items);
+                let mut argument = proc_macro2::Group::new(Delimiter::Parenthesis, items);
+                argument.set_span(group.span());
+                // The wrapper's path without its `::new`, so the mark is located where the
+                // value is written.
+                let wrapper = &prefix[..prefix.len().saturating_sub(3)];
+                return wrapper
+                    .iter()
+                    .cloned()
+                    .chain([TokenTree::Group(argument)])
+                    .collect();
             }
             let presence = matches!(prefix, [TokenTree::Ident(some)] if some == "Some")
                 || matches!(prefix, [.., TokenTree::Ident(absent), TokenTree::Punct(bang)]
@@ -1831,7 +1856,7 @@ fn parse_initializer_state_term(
                 .island_of(Some(mac.path.clone())),
             )),
             _ => Err(unsupported_body(
-                "`KCell` requires `k!`; `Cell` accepts ordinary terms or `map!`",
+                "`KCell::new` takes the computation's items, `k::k![..]`, and `Cell::new` a leaf's value: a term, `k::map![..]` or `k::k![..]`",
                 expression.span(),
             )),
         };

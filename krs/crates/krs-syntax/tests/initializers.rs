@@ -623,8 +623,9 @@ fn literals_are_keyed_across_the_initializer_terms() {
 
 #[test]
 fn an_entry_that_names_its_rust_wrapper_is_read_as_the_value_it_wraps() {
-    // `Cell::new(v)` and `KCell::new(v)`, at any depth, are the Rust form of a cell's value `v`:
-    // the table judges `v` by its cell's kind, as it judges a plain value, at `v`.
+    // `Cell::new(v)` and `KCell::new(v)`, at any depth, are the Rust form of a cell's value `v`
+    // under its wrapper's mark: the table judges the mark against the cell's kind, as a `cells!`
+    // entry's, and `v` as a plain value.
     let source = "pub fn init(pgm: Stmt) -> Self { Self { \
          k: k::configuration::KCell::new(k::k![pgm]), \
          frame: Frame { ret: k::configuration::Cell::new(0) }, \
@@ -647,11 +648,11 @@ fn an_entry_that_names_its_rust_wrapper_is_read_as_the_value_it_wraps() {
         [
             (
                 "k",
-                "KMacro(EntrySeq { items: [ConfigVar(\"pgm\")], rest: None, more_rests: 0 })",
+                "KCell(EntrySeq { items: [ConfigVar(\"pgm\")], rest: None, more_rests: 0 })",
             ),
             (
                 "frame",
-                "Record(EntryRecord { head: \"Frame\", fields: [(\"ret\", Literal(\"0\"))], tail: Exact })",
+                "Record(EntryRecord { head: \"Frame\", fields: [(\"ret\", Cell(Literal(\"0\")))], tail: Exact })",
             ),
             (
                 "pc",
@@ -659,7 +660,7 @@ fn an_entry_that_names_its_rust_wrapper_is_read_as_the_value_it_wraps() {
             ),
             (
                 "counter",
-                "Present(Literal(\"0\"))",
+                "Present(Cell(Literal(\"0\")))",
             ),
             (
                 "shelf",
@@ -671,7 +672,7 @@ fn an_entry_that_names_its_rust_wrapper_is_read_as_the_value_it_wraps() {
     let (_, at) = k.located.iter().find(|(path, _)| path.is_empty()).unwrap();
     assert_eq!(
         at.first().start().column,
-        source.find("k::k![pgm]").unwrap()
+        source.find("k::configuration::KCell::new").unwrap()
     );
 }
 

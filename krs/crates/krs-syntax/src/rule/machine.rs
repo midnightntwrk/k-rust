@@ -881,6 +881,24 @@ fn record_rest_error(span: proc_macro2::Span, reason: String) -> ParseError {
     crate::SyntaxError::new(crate::SyntaxErrorKind::RustSyntax(reason), span).into()
 }
 
+/// [`computation_items_value`] of a subject record value, read as the clause reads one.
+fn pattern_items_value(
+    content: ParseStream<'_>,
+    looks_up: bool,
+    faults: &PartFaults,
+) -> Option<crate::SyntaxError> {
+    computation_items_value(content, |content| {
+        if let Some(state) = parse_readable_pattern_state(content, looks_up, faults)? {
+            return Ok(MachinePatternCell::State(Box::new(state)));
+        }
+        let (pattern, signs) = parse_pattern_with_signs(content)?;
+        readable_cell_pattern(pattern, signs).map(|(pattern, tree)| MachinePatternCell::Term {
+            pattern: Box::new(pattern),
+            tree: Box::new(tree),
+        })
+    })
+}
+
 fn parse_machine_pattern_record(
     input: ParseStream<'_>,
     sentence: ReadableSentence,
@@ -927,16 +945,7 @@ fn parse_machine_pattern_record(
         content.parse::<Token![:]>()?;
         let value_start = content.fork();
         let looks_up = sentence == ReadableSentence::Rule;
-        let value = if let Some(error) = computation_items_value(&content, |content| {
-            if let Some(state) = parse_readable_pattern_state(content, looks_up, faults)? {
-                return Ok(MachinePatternCell::State(Box::new(state)));
-            }
-            let (pattern, signs) = parse_pattern_with_signs(content)?;
-            readable_cell_pattern(pattern, signs).map(|(pattern, tree)| MachinePatternCell::Term {
-                pattern: Box::new(pattern),
-                tree: Box::new(tree),
-            })
-        }) {
+        let value = if let Some(error) = pattern_items_value(&content, looks_up, faults) {
             skip_value(&content)?;
             MachinePatternCell::Refused(Box::new(error))
         } else if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {

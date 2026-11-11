@@ -165,7 +165,8 @@ struct PendingDescriptor {
     /// A fixed configuration's initializer that disagrees with its declaration, located: kept
     /// until the initializer's entries are judged by the cells' declared kinds, since a value of
     /// the wrong kind is the author's mistake, which the entry's class answers, and only a
-    /// disagreement the judged entries leave is the expander's.
+    /// disagreement the judged entries leave is the expander's
+    /// ([`resolve::decide_neutral_leaves`]).
     deferred: Option<CollectionError>,
 }
 
@@ -489,11 +490,7 @@ fn resolution_tables(
         )
         .ok()
         .and_then(|(.., cells)| cells);
-        let judged = resolve::admit_initializer(pending, index, builtins, authored.as_ref())?;
-        match &descriptor.deferred {
-            Some(error) => Err(error.clone()),
-            None => Ok(judged),
-        }
+        resolve::admit_initializer(pending, index, builtins, authored.as_ref())
     };
     let dropped = resolve::decide_neutral_leaves(pending, builtins, &mut admit).map_err(
         |(index, key, error)| match key {

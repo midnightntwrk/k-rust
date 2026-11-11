@@ -328,7 +328,9 @@ impl<'a> EntryReading<'a> {
                 }
                 Ok(EntrySpelling::Present(Box::new(inner)))
             }
-            "Cell" if self.form == EntryForm::Cells => {
+            // In an initializer, `Cell::new(v)` and `KCell::new(..)` read as these marks
+            // (`crate::initializer`'s `unwrapped_value`).
+            "Cell" if matches!(self.form, EntryForm::Cells | EntryForm::Initializer) => {
                 let inner = self.marked(content, false)?;
                 content.parse::<Option<Token![,]>>()?;
                 if !content.is_empty() {
@@ -336,7 +338,7 @@ impl<'a> EntryReading<'a> {
                 }
                 Ok(EntrySpelling::Cell(Box::new(inner)))
             }
-            "KCell" if self.form == EntryForm::Cells => {
+            "KCell" if matches!(self.form, EntryForm::Cells | EntryForm::Initializer) => {
                 Ok(EntrySpelling::KCell(self.seq(content)?))
             }
             _ => {

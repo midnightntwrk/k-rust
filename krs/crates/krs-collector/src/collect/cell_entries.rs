@@ -591,7 +591,6 @@ pub(super) fn judge_initializer(
         groups,
     }
     .judge_located()
-    .map(drop)
     .map_err(|(at, refusal)| {
         refused(
             EntryForm::Initializer,
@@ -602,7 +601,10 @@ pub(super) fn judge_initializer(
             &refusal,
             groups,
         )
-    })
+    })?;
+    // `k::k![..]` off the computation is a term of sort `K`, as in a sentence: a `KSequence`
+    // leaf starts holding it, a leaf of another sort or a group does not.
+    items_off_the_computation(&entries, false)
 }
 
 /// The content-sort refusal of an initializer value the table admits by its marks but whose

@@ -335,9 +335,15 @@ fn a_value_of_another_kind_than_its_cell_is_the_table_s_refusal_at_the_value() {
     // initial content, of the cell's declared kind, so the table answers a value of another kind
     // at the value, and rustc says nothing of it.
     let cases = [
-        // cell-wrapper: a term on the computation cell, a computation on a leaf.
+        // cell-wrapper: a term on the computation cell, the computation's wrapper on a leaf.
         ("k", "0", "krs::analysis::cell-wrapper"),
-        ("pc", "k::k![0]", "krs::analysis::cell-wrapper"),
+        (
+            "pc",
+            "k::configuration::KCell::new(k::k![0])",
+            "krs::analysis::cell-wrapper",
+        ),
+        // content-sort: the computation's item notation, a term of sort `K`, on an `Int` leaf.
+        ("pc", "k::k![0]", "krs::analysis::invalid-term"),
         // optional-without-presence, presence-on-plain-cell; a value that is no entry has its
         // marks judged too.
         ("counter", "0", "krs::analysis::optional-presence"),
@@ -439,14 +445,22 @@ impl Machine {
 }
 "#;
 
+/// [`K_LEAF`] without its `SAVED` input, for an initializer whose `saved` reads none.
+fn without_saved(source: &str) -> String {
+    source.replace(
+        "        #[k::config_var(name = \"SAVED\")] saved: KSequence,\n",
+        "",
+    )
+}
+
 /// A leaf of sort `KSequence` holds one term of that sort, as a `KSequence` field does, on every
 /// route: a name bound to one writes it (a configuration variable, a subject's binder, a `cells!`
-/// remainder), and so does `Cell(k::k![..])` in `cells!`
-/// ([`the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_route`]).
+/// remainder), and so does `k::k![..]` by its items, in an initializer and inside `Cell(..)` in
+/// `cells!` ([`the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_route`]).
 /// The computation's own marks are refused there for what the leaf holds, not as on the
-/// computation: `k::k![..]` in an initializer and `KCell(..)` in `cells!` are `cell-wrapper`,
-/// brackets in an initializer, a readable record, a claim and inside `Cell(..)` are
-/// `invalid-list-notation`.
+/// computation: `KCell::new(..)` in an initializer and `KCell(..)` in `cells!` are
+/// `cell-wrapper`, brackets in an initializer, a readable record, a claim and inside `Cell(..)`
+/// are `invalid-list-notation`.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -470,10 +484,22 @@ fn a_leaf_of_sort_k_is_written_by_a_term_of_that_sort_on_every_route() {
             "k::claims! {{\n    for Machine;\n    use Cmd::*;\n\n    #[k::claim(all_paths)]\n    c: {{ k: [Save()], saved: {subject} }} => {{ k: [], saved: {result} }};\n}}\n"
         )
     };
-    let library =
-        |saved: &str, sentences: &str| format!("{}{sentences}", K_LEAF.replace("SAVED", saved));
+    let library = |saved: &str, sentences: &str| {
+        format!(
+            "{}{sentences}",
+            K_LEAF.replace("saved: SAVED", &format!("saved: {saved}"))
+        )
+    };
     let admitted = [
         ("initializer-variable", library("saved", "")),
+        (
+            "initializer-k",
+            without_saved(&library("k::k![Cmd::Bump()]", "")),
+        ),
+        (
+            "initializer-k-empty",
+            without_saved(&library("k::k![]", "")),
+        ),
         ("readable-binder", library("saved", &readable("s", "s"))),
         (
             "cells-remainder",
@@ -493,16 +519,13 @@ fn a_leaf_of_sort_k_is_written_by_a_term_of_that_sort_on_every_route() {
     let brackets = "krs::analysis::invalid-list-notation";
     let refused = [
         (
-            "initializer-k",
-            library("k::k![Cmd::Bump()]", ""),
+            "initializer-kcell",
+            without_saved(&library(
+                "k::configuration::KCell::new(k::k![Cmd::Bump()])",
+                "",
+            )),
             wrapper,
-            "k::k![Cmd::Bump()]",
-        ),
-        (
-            "initializer-k-empty",
-            library("k::k![]", ""),
-            wrapper,
-            "k::k![]",
+            "k::configuration::KCell::new(k::k![Cmd::Bump()])",
         ),
         (
             "initializer-brackets",
@@ -644,11 +667,10 @@ impl Machine {
 /// 4): one construct, the computation's item notation, the term of sort `K` its items make. A
 /// sentence's leaf entry is judged by the leaf's sort
 /// ([`the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_route`]): on
-/// an `Int` leaf, as here, `invalid-term` on every route; a `cells!` instance child's is lowered
-/// as the computation's sequence, whose sort the compiler checks. Still apart: an initializer
-/// reads it as the computation's mark on every cell (`cell-wrapper`, the principles' reading of
-/// an initializer's `k::k![..]`), and a readable instance child refuses it in the term reader.
-/// This pins each route's class, so a drift is seen.
+/// an `Int` leaf, as here, `invalid-term` on every route, an initializer's too; a `cells!`
+/// instance child's is lowered as the computation's sequence, whose sort the compiler checks.
+/// Still apart: a readable List collection's instance child, whose brackets' list reading meets
+/// the term reader first. This pins each route's class, so a drift is seen.
 #[test]
 fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route() {
     let target = shared_fixture_target();
@@ -727,8 +749,8 @@ fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route()
             "readable-instance-child: krs::syntax::unsupported-term-expression",
             "cells-leaf: krs::analysis::invalid-term",
             "cells-instance-child: krs::analysis::invalid-term",
-            "initializer-value: krs::analysis::cell-wrapper",
-            "initializer-constructor: krs::analysis::cell-wrapper",
+            "initializer-value: krs::analysis::invalid-term",
+            "initializer-constructor: krs::analysis::invalid-term",
         ]
     "#]]
     .assert_debug_eq(&classes);
@@ -950,25 +972,30 @@ fn the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_
 }
 
 /// A value written with its Rust wrapper, `Cell::new(v)` or `KCell::new(v)`, at any depth, is the
-/// value `v` (COHERE F2): KRS judges `v` against its cell's kind as it judges the plain value,
-/// with the plain value's line at `v`, before rustc reads anything of it. So `k::k![..]` on a
-/// leaf of sort `KSequence` is the initializer's `cell-wrapper` in either spelling (rustc's
-/// `E0308` for the `KCell::new` one), a term alone on the computation is too (rustc's `E0308` for
-/// `Cell::new(pgm)`), and a group's child the same. A wrapper of the other family than its value
-/// (`Cell::new(k::k![..])`, `KCell::new(x)`) is the reader's refusal once the value has been
-/// judged; one of the value's family is admitted as the plain value is.
+/// value `v` under that wrapper's mark (COHERE F2, R2-3): KRS judges the wrapper against the
+/// cell's kind, as a `cells!` entry's `Cell(..)` and `KCell(..)`, and `v` as the plain value, with
+/// the plain value's line, before rustc reads anything of it. So `Cell::new(k::k![..])` on a
+/// leaf of sort `KSequence` starts it with the same sequence as `k::k![..]`; `KCell::new(..)` there
+/// is `cell-wrapper`, the computation's wrapper on a leaf, as is `Cell::new(..)` on the
+/// computation; a term alone on the computation is `cell-wrapper` in either spelling. A
+/// `KCell::new(..)` around no `k::k![..]` is the reader's refusal once the rest is admitted.
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "One table of twins, wrapped beside plain, and the family refusals."
+    reason = "One table of twins, wrapped beside plain, and the wrappers' refusals."
 )]
 fn a_value_written_with_its_rust_wrapper_is_judged_as_the_value_it_wraps() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let k_leaf = |k: &str, saved: &str| {
-        K_LEAF
+        let source = K_LEAF
             .replace("saved: SAVED", &format!("saved: {saved}"))
-            .replace("k: k::k![pgm]", &format!("k: {k}"))
+            .replace("k: k::k![pgm]", &format!("k: {k}"));
+        if saved.contains("saved") {
+            source
+        } else {
+            without_saved(&source)
+        }
     };
     let admitted = [
         (
@@ -979,93 +1006,90 @@ fn a_value_written_with_its_rust_wrapper_is_judged_as_the_value_it_wraps() {
             ),
         ),
         ("plain-both", k_leaf("k::k![pgm]", "saved")),
-    ];
-    for (name, source) in admitted {
-        let manifest = package(temporary.path(), &format!("wrapped-{name}"), &source);
-        let (success, stderr) = check(target.path(), &manifest);
-        assert!(success, "{name}: {stderr}");
-    }
-    let twins = [
         (
-            "k-leaf-items",
-            k_leaf(
-                "k::k![pgm]",
-                "k::configuration::KCell::new(k::k![Cmd::Bump()])",
-            ),
-            k_leaf("k::k![pgm]", "k::k![Cmd::Bump()]"),
-            "k::k![Cmd::Bump()]",
-        ),
-        (
-            "k-leaf-items-in-cell",
+            "items-wrapped",
             k_leaf(
                 "k::k![pgm]",
                 "k::configuration::Cell::new(k::k![Cmd::Bump()])",
             ),
-            k_leaf("k::k![pgm]", "k::k![Cmd::Bump()]"),
-            "k::k![Cmd::Bump()]",
         ),
-        (
-            "computation-term",
-            k_leaf("k::configuration::Cell::new(pgm)", "saved"),
-            k_leaf("pgm", "saved"),
-            "pgm",
-        ),
+        ("items-plain", k_leaf("k::k![pgm]", "k::k![Cmd::Bump()]")),
     ];
     let mut lines = Vec::new();
-    for (name, wrapped, plain, at) in twins {
-        let mut headlines = Vec::new();
-        for (spelling, source) in [("wrapped", wrapped), ("plain", plain)] {
-            let manifest = package(
-                temporary.path(),
-                &format!("wrapped-{name}-{spelling}"),
-                &source,
-            );
-            let (success, stderr) = check(target.path(), &manifest);
-            assert!(!success, "{name} {spelling}: {stderr}");
-            let errors = stderr
+    for (name, source) in admitted {
+        let manifest = package(temporary.path(), &format!("wrapped-{name}"), &source);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(success, "{name}: {stderr}");
+        if name.starts_with("items") {
+            let k = emitted_k(target.path(), &manifest);
+            let saved = k
                 .lines()
-                .filter(|line| line.starts_with("error"))
-                .collect::<Vec<_>>();
-            assert_eq!(errors.len(), 1, "{name} {spelling}: {stderr}");
-            let location = location_at(&source, source.rfind(at).unwrap());
-            assert!(
-                stderr.contains(&location),
-                "{name} {spelling}: {location}: {stderr}"
-            );
-            headlines.push(errors[0].to_owned());
+                .map(str::trim)
+                .filter(|line| line.starts_with("<saved>"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            lines.push(format!("{name}: {saved}"));
         }
-        assert_eq!(
-            headlines[0], headlines[1],
-            "{name}: the wrapper changes nothing"
-        );
-        lines.push(format!("{name}: {}", headlines[0]));
     }
-    let family = [
+    assert_eq!(
+        lines[0].split_once(": ").unwrap().1,
+        lines[1].split_once(": ").unwrap().1,
+        "the wrapper changes nothing"
+    );
+    let (wrapped, plain) = (
+        k_leaf("k::configuration::Cell::new(pgm)", "saved"),
+        k_leaf("pgm", "saved"),
+    );
+    let refused = [
         (
-            "cell-around-items",
+            "computation-term-wrapped",
+            wrapped,
+            "k::configuration::Cell::new(pgm)",
+        ),
+        ("computation-term-plain", plain, "pgm, saved"),
+        (
+            "computation-in-a-leaf-s-cell",
             k_leaf("k::configuration::Cell::new(k::k![pgm])", "saved"),
+            "k::configuration::Cell::new(k::k![pgm])",
+        ),
+        (
+            "leaf-in-a-computation-s-kcell",
+            k_leaf(
+                "k::k![pgm]",
+                "k::configuration::KCell::new(k::k![Cmd::Bump()])",
+            ),
+            "k::configuration::KCell::new(k::k![Cmd::Bump()])",
         ),
         (
             "kcell-around-a-term",
-            k_leaf("k::k![pgm]", "k::configuration::KCell::new(saved)"),
+            k_leaf("k::configuration::KCell::new(pgm)", "saved"),
+            "pgm), saved",
         ),
     ];
-    for (name, source) in family {
+    let mut headlines = Vec::new();
+    for (name, source, at) in refused {
         let manifest = package(temporary.path(), &format!("wrapped-{name}"), &source);
         let (success, stderr) = check(target.path(), &manifest);
         assert!(!success, "{name}: {stderr}");
-        let headline = stderr
+        let errors = stderr
             .lines()
-            .find(|line| line.starts_with("error"))
-            .unwrap_or_else(|| panic!("{name}: {stderr}"));
-        lines.push(format!("{name}: {headline}"));
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{name}: {stderr}");
+        let location = location_at(&source, source.rfind(at).unwrap());
+        assert!(stderr.contains(&location), "{name}: {location}: {stderr}");
+        headlines.push(errors[0].to_owned());
+        lines.push(format!("{name}: {}", errors[0]));
     }
+    assert_eq!(headlines[0], headlines[1], "a term alone, wrapped or not");
     expect_test::expect![[r#"
         [
-            "k-leaf-items: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, and a `k::cells!` rule's `k::configuration::Cell(k::k![..])` by its items; write its entry as `x`",
-            "k-leaf-items-in-cell: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, and a `k::cells!` rule's `k::configuration::Cell(k::k![..])` by its items; write its entry as `x`",
-            "computation-term: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation; write its entry as `k::k![x]`",
-            "cell-around-items: error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `KCell` requires `k!`; `Cell` accepts ordinary terms or `map!`",
+            "items-wrapped: <saved> bump </saved>",
+            "items-plain: <saved> bump </saved>",
+            "computation-term-wrapped: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation, nor is a leaf's `Cell::new(..)`; write its entry as `k::k![x]`",
+            "computation-term-plain: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation, nor is a leaf's `Cell::new(..)`; write its entry as `k::k![x]`",
+            "computation-in-a-leaf-s-cell: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation, nor is a leaf's `Cell::new(..)`; write its entry as `k::k![x]`",
+            "leaf-in-a-computation-s-kcell: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `KCell::new(..)` wraps a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort, alone or in `Cell::new(..)`; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, or `k::k![..]` by its items (inside the leaf's `Cell(..)` in `k::cells!`); write its entry as `x`",
             "kcell-around-a-term: error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `KCell::new` requires an explicit `k!` payload",
         ]
     "#]].assert_debug_eq(&lines);
@@ -1196,4 +1220,50 @@ fn a_readable_instance_child_s_items_are_judged_as_a_readable_leaf_s() {
             "int-child-subject: error[krs::analysis::invalid-term]: the cell `tn` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's",
         ]
     "#]].assert_debug_eq(&lines);
+}
+
+/// An initializer's `k::k![..]` on a leaf of sort `KSequence` is that leaf's initial content,
+/// the sequence of its items (COHERE R2-3), as a `cells!` entry's is: the configuration starts
+/// the leaf holding it, emitted as K's initial configuration and seen by `krs run`.
+#[test]
+fn a_k_leaf_starts_with_the_sequence_its_initializer_lists() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let source =
+        without_saved(&K_LEAF.replace("saved: SAVED", "saved: k::k![Cmd::Bump(), Cmd::Save()]"));
+    let manifest = package(temporary.path(), "k-leaf-initial", &source);
+    let k = emitted_k(target.path(), &manifest);
+    let initial = k
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("<saved>"))
+        .unwrap_or_else(|| panic!("no `saved` cell:\n{k}"));
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "save").unwrap();
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
+    let run = process
+        .args(["run", "--manifest-path"])
+        .arg(&manifest)
+        .args(["--package", "k-leaf-initial", "--definition", "main"])
+        .arg(&program)
+        .args(["--depth", "0"])
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let state = String::from_utf8(run.stdout).unwrap();
+    let saved = state.split_whitespace().collect::<Vec<_>>().join(" ");
+    let saved = &saved[saved.find("<saved>").unwrap()..=saved.find("</saved>").unwrap() + 7];
+    expect_test::expect![[r#"
+        [
+            "<saved> bump ~> save </saved>",
+            "<saved> bump ~> save ~> .K </saved>",
+        ]
+    "#]]
+    .assert_debug_eq(&[initial, saved]);
 }

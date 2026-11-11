@@ -428,17 +428,18 @@ impl Refusal {
                     EntryForm::Cells => {
                         "`KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one"
                     }
-                    // A value on the computation lacks its items' notation; `k::k![..]` on any
-                    // other cell writes a computation's items where none stand.
+                    // A value on the computation lacks its items' notation; `KCell::new(..)` on
+                    // any other cell wraps a computation's items where none stand, and a leaf's
+                    // `Cell::new(..)` a leaf's value.
                     EntryForm::Initializer if is_computation(own) => {
-                        "a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation"
+                        "a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation, nor is a leaf's `Cell::new(..)`"
                     }
                     EntryForm::Initializer => match own.last() {
                         Some(Layer::Group(_)) => {
-                            "`k::k![..]` lists a computation's items, which only a computation cell holds, and a group's initial value is its record"
+                            "`KCell::new(..)` wraps a computation's items and `Cell::new(..)` a leaf's value, and a group's initial value is its record"
                         }
                         _ => {
-                            "`k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort"
+                            "`KCell::new(..)` wraps a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort, alone or in `Cell::new(..)`"
                         }
                     },
                     EntryForm::Readable | EntryForm::Claim | EntryForm::Pattern => {
@@ -755,7 +756,7 @@ fn k_leaf(layers: &[Layer], sort: Option<&str>) -> Option<&'static str> {
     (matches!(layers.last(), Some(Layer::Leaf(Notation::Plain)))
         && sort == Some(krs_ir::BuiltinSort::KSequence.spec().marker_name))
     .then_some(
-        "a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, and a `k::cells!` rule's `k::configuration::Cell(k::k![..])` by its items",
+        "a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, or `k::k![..]` by its items (inside the leaf's `Cell(..)` in `k::cells!`)",
     )
 }
 
@@ -887,13 +888,12 @@ impl Marks {
             EntrySpelling::InstanceList(_) => Mark::InstanceList,
             EntrySpelling::InstanceSet(_) => Mark::InstanceSet,
             // `k::k![..]` lists a computation's items. On a cell that holds a computation it is
-            // the computation's mark, as brackets and `KCell(..)` are; on any other cell of a
-            // sentence it is the term of sort `K` the items make, judged by the cell's sort
-            // once admitted (the collector's `items_off_the_computation`). An initializer reads
-            // it as the computation's mark on every cell.
+            // the computation's mark, as brackets and `KCell(..)` are; on any other cell it is
+            // the term of sort `K` the items make, judged by the cell's sort once admitted (the
+            // collector's `items_off_the_computation`), in an initializer as in a sentence.
             EntrySpelling::KMacro(_)
-                if self.form == EntryForm::Initializer
-                    || ((cells_child || readable) && computation) =>
+                if (self.form == EntryForm::Initializer || cells_child || readable)
+                    && computation =>
             {
                 Mark::Computation
             }
@@ -910,6 +910,8 @@ impl Marks {
         let cells = self.whole_cells_entry();
         match layer {
             Layer::Optional => mark == Mark::Presence,
+            // An initializer's leaf value written with its wrapper, `Cell::new(v)`.
+            Layer::Leaf(_) if self.form == EntryForm::Initializer && mark == Mark::Leaf => true,
             Layer::Instances(Order::List) if cells => mark == Mark::InstanceList,
             Layer::Leaf(_) if cells => mark == Mark::Leaf,
             Layer::Instances(Order::List) | Layer::Leaf(Notation::List | Notation::Cons) => {

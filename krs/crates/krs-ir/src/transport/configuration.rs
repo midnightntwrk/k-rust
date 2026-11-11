@@ -1803,7 +1803,10 @@ fn validate_wrapper_state<S: ConfigurationValidationStage>(
     value: &ProtocolInitializerStateTerm<Term<S>>,
 ) -> Result<(), StateTransportError> {
     match (wrapper, value) {
-        (CellWrapper::KCell, ProtocolInitializerStateTerm::KSequence(_))
+        // A leaf's `Cell(..)` holds a sequence where the leaf's declared sort is `KSequence`
+        // (`saved: k::k![..]`), which the collector decides against the declaration: a
+        // computation's or a `KSequence` leaf's content is one family, whatever its wrapper.
+        (CellWrapper::KCell | CellWrapper::Cell, ProtocolInitializerStateTerm::KSequence(_))
         | (
             CellWrapper::Cell,
             ProtocolInitializerStateTerm::Term(_) | ProtocolInitializerStateTerm::Map(_),

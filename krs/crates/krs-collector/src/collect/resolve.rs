@@ -478,6 +478,7 @@ pub(super) fn decide_neutral_leaves(
             })
             .collect::<HashMap<_, _>>()
     };
+    let leaf_wrappers = declared_leaf_wrappers(pending);
     let mut dropped = DroppedKeys::new();
     for index in 0..pending.len() {
         let mut computations = Vec::new();
@@ -485,12 +486,15 @@ pub(super) fn decide_neutral_leaves(
             continue;
         };
         decide_leaves(&mut initializer.cells, &kinds, &mut computations, false);
-        if admit(pending, index).map_err(|error| (index, None, error))?
+        let judged = admit(pending, index).map_err(|error| (index, None, error))?;
+        if judged
             && let Some(initializer) = configuration_initializer(&mut pending[index])
             && holds_neutral_leaf(&initializer.cells)
         {
             decide_leaves(&mut initializer.cells, &kinds, &mut computations, true);
         }
+        settle_deferred(&mut pending[index], judged, &leaf_wrappers)
+            .map_err(|error| (index, None, error))?;
         let descriptor = &mut pending[index];
         let HostDescriptorPayload::FixedConfiguration(configuration) = &mut descriptor.host.payload
         else {
@@ -717,6 +721,74 @@ fn configuration_initializer(
             Some(&mut configuration.initializer)
         }
         _ => None,
+    }
+}
+
+/// The wrapper each declared leaf field of `pending` states, by its resolved identity.
+fn declared_leaf_wrappers(
+    pending: &[PendingDescriptor],
+) -> HashMap<(TypeId, TypeId), krs_ir::CellWrapper> {
+    pending
+        .iter()
+        .filter_map(|descriptor| match &descriptor.host.payload {
+            HostDescriptorPayload::Cell(declaration) => Some(declaration.as_ref()),
+            HostDescriptorPayload::FixedConfiguration(configuration) => {
+                Some(&configuration.declaration)
+            }
+            _ => None,
+        })
+        .flat_map(|declaration| &declaration.fields)
+        .filter_map(|field| match &field.content {
+            krs_ir::ProtocolCellContent::Leaf { wrapper, .. } => {
+                Some((field.reference.cell.resolve(), *wrapper))
+            }
+            krs_ir::ProtocolCellContent::Nested { .. } => None,
+        })
+        .collect()
+}
+
+/// Settles a configuration's kept disagreement with its declaration once its entries are
+/// `judged`: a `KSequence` leaf's `k::k![..]` is that leaf's sequence, whose wrapper is the
+/// leaf's (`wrappers`), which the macro, reading `k!` as the computation's, did not know; only a
+/// disagreement the judged entries leave is the expander's, raised here.
+fn settle_deferred(
+    descriptor: &mut PendingDescriptor,
+    judged: bool,
+    wrappers: &HashMap<(TypeId, TypeId), krs_ir::CellWrapper>,
+) -> Result<(), CollectionError> {
+    if judged && let Some(initializer) = configuration_initializer(descriptor) {
+        leaf_sequence_wrappers(&mut initializer.cells, wrappers);
+    }
+    if descriptor.deferred.is_some() && judged && descriptor.host.validate_state_ownership().is_ok()
+    {
+        descriptor.deferred = None;
+    }
+    descriptor.deferred.clone().map_or(Ok(()), Err)
+}
+
+/// Gives each leaf of `cells`, at any depth, that holds a `KSequence` state under the
+/// computation's wrapper the wrapper its declaration states (`wrappers`): once the table has
+/// judged the entries, a sequence on a leaf is that leaf's of sort `KSequence`.
+fn leaf_sequence_wrappers(
+    cells: &mut [krs_ir::HostInitializerCell],
+    wrappers: &HashMap<(TypeId, TypeId), krs_ir::CellWrapper>,
+) {
+    for cell in cells {
+        match &mut cell.content {
+            krs_ir::ProtocolInitializerCellContent::Leaf {
+                wrapper,
+                value: krs_ir::ProtocolInitializerStateTerm::KSequence(_),
+                ..
+            } => {
+                if let Some(declared) = wrappers.get(&cell.field.cell.resolve()) {
+                    *wrapper = *declared;
+                }
+            }
+            krs_ir::ProtocolInitializerCellContent::Nested { children, .. } => {
+                leaf_sequence_wrappers(children, wrappers);
+            }
+            _ => {}
+        }
     }
 }
 
