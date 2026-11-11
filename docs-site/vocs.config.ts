@@ -85,6 +85,7 @@ export default defineConfig({
         { text: 'Prologue: A definition and its steps', link: '/lean/a-definition-and-its-steps' },
         { text: '1. Terms', link: '/lean/terms' },
         { text: '2. Signature', link: '/lean/signature' },
+        { text: '3. Values', link: '/lean/values' },
         { text: 'State of the core', link: '/lean/state-of-the-core' },
       ],
     },

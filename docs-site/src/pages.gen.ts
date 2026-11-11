@@ -23,6 +23,7 @@ type Page =
   | { path: '/lean/signature'; render: 'static' }
   | { path: '/lean/state-of-the-core'; render: 'static' }
   | { path: '/lean/terms'; render: 'static' }
+  | { path: '/lean/values'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }
