@@ -24,6 +24,92 @@ pub enum Order {
     Map,
 }
 
+/// A result instance as [`Order::twins`] reads it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ResultInstance {
+    /// Whether it is an instance record that names no instance it updates (`..label`), so that
+    /// its collection's identity decides which subject instance, if any, it is.
+    pub free: bool,
+    /// Whether its record ends in `..`, which keeps the children it does not name of an instance
+    /// that is there.
+    pub open: bool,
+}
+
+impl Order {
+    /// The subject instance each free result instance is, by what identifies an instance of a
+    /// collection of this order. A subject instance and a result instance that are one instance
+    /// are that instance updated, so `..` in the result's record keeps the children it does not
+    /// name; a result instance that is none is created, and its `..` takes the template's
+    /// defaults.
+    ///
+    /// - A Map collection identifies an instance by its key, its first child: a result instance
+    ///   whose key is provably the key a subject instance matched (`same_key`) is that instance,
+    ///   the first such one still free.
+    /// - A List collection identifies an instance by its position, counted from the front before
+    ///   the rest and from the back after it: the result's instance at a position is the
+    ///   subject's at the same one. At the back, where an instance is created or removed and
+    ///   never changed in place, a result instance that names every child replaces the instance
+    ///   with those children, which is the same change, so only one whose `..` keeps children is
+    ///   paired.
+    /// - A Set collection is a set of its instances, which no child identifies apart from the
+    ///   others: no instance is paired.
+    ///
+    /// `subject_free` holds, front then back, whether each subject instance is still free (no
+    /// result instance updates it by its label), the first `subject_front` at the front; `result`
+    /// holds the result's front and back. `same_key(index, back, position)` says whether the
+    /// result instance at `position` of its front (`back` false) or back writes the key subject
+    /// instance `index` matched. Each pair is `(index, (back, position))`.
+    #[must_use]
+    pub fn twins(
+        self,
+        subject_free: &[bool],
+        subject_front: usize,
+        result: [&[ResultInstance]; 2],
+        same_key: impl Fn(usize, bool, usize) -> bool,
+    ) -> Vec<(usize, (bool, usize))> {
+        let mut twins = Vec::new();
+        let mut taken = subject_free.iter().map(|free| !free).collect::<Vec<_>>();
+        match self {
+            Self::List => {
+                let [front, back] = result;
+                for (position, instance) in front.iter().enumerate().take(subject_front) {
+                    if instance.free && !taken[position] {
+                        taken[position] = true;
+                        twins.push((position, (false, position)));
+                    }
+                }
+                let subject_back = subject_free.len().saturating_sub(subject_front);
+                for from_end in 0..subject_back.min(back.len()) {
+                    let index = subject_free.len() - 1 - from_end;
+                    let position = back.len() - 1 - from_end;
+                    let instance = back[position];
+                    if instance.free && instance.open && !taken[index] {
+                        taken[index] = true;
+                        twins.push((index, (true, position)));
+                    }
+                }
+            }
+            Self::Map => {
+                for (back, items) in [(false, result[0]), (true, result[1])] {
+                    for (position, instance) in items.iter().enumerate() {
+                        if !instance.free {
+                            continue;
+                        }
+                        if let Some(index) = (0..taken.len())
+                            .find(|&index| !taken[index] && same_key(index, back, position))
+                        {
+                            taken[index] = true;
+                            twins.push((index, (back, position)));
+                        }
+                    }
+                }
+            }
+            Self::Set => {}
+        }
+        twins
+    }
+}
+
 /// The notation a leaf's sort has inside its value.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Notation {
@@ -424,7 +510,10 @@ pub struct EntryKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{CellKind, CellView, Content, GroupKind, Layer, Multiplicity, Notation, Order};
+    use super::{
+        CellKind, CellView, Content, GroupKind, Layer, Multiplicity, Notation, Order,
+        ResultInstance,
+    };
 
     struct Field {
         name: &'static str,
@@ -529,5 +618,56 @@ mod tests {
             vec![Layer::Optional, Layer::Instances(Order::Map)]
         );
         assert_eq!(entry.own.layers, vec![Layer::Leaf(Notation::Plain)]);
+    }
+
+    /// A Map instance is the subject's whose key it keeps, the first still free; a List
+    /// instance the subject's at its position from its end, at the back only when its `..` keeps
+    /// children; a label's update and a Set instance pair nothing.
+    #[test]
+    fn a_result_instance_is_the_subject_instance_its_collection_identifies() {
+        let open = ResultInstance {
+            free: true,
+            open: true,
+        };
+        let exact = ResultInstance {
+            free: true,
+            open: false,
+        };
+        let update = ResultInstance {
+            free: false,
+            open: false,
+        };
+        // Subject keys 1, 2, 1; result keys 2, 1, 1, 3.
+        let subject_keys = [1, 2, 1];
+        let result_keys = [2, 1, 1, 3];
+        let same =
+            |index: usize, _: bool, position: usize| subject_keys[index] == result_keys[position];
+        assert_eq!(
+            Order::Map.twins(&[true; 3], 3, [&[open, exact, open, open], &[]], same),
+            vec![(1, (false, 0)), (0, (false, 1)), (2, (false, 2))]
+        );
+        assert_eq!(
+            Order::Map.twins(
+                &[false, true, true],
+                3,
+                [&[open, exact, update, open], &[]],
+                same
+            ),
+            vec![(1, (false, 0)), (2, (false, 1))]
+        );
+        assert_eq!(
+            Order::Set.twins(&[true; 3], 3, [&[open, open, open, open], &[]], same),
+            vec![]
+        );
+        // Front: two subject instances, three result ones; back: two and two, the last exact.
+        assert_eq!(
+            Order::List.twins(
+                &[true, false, true, true],
+                2,
+                [&[open, open, exact], &[open, exact]],
+                |_, _, _| false
+            ),
+            vec![(0, (false, 0)), (2, (true, 0))]
+        );
     }
 }

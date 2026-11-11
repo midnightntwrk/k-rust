@@ -56,7 +56,7 @@
 //! readable record's top-level map read has no result side and reads its value as a fresh
 //! binder.
 
-use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order};
+use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order, ResultInstance};
 
 pub use krs_ir::cell_kind::EntryKind;
 
@@ -1787,6 +1787,89 @@ pub fn keeps_key(written: &EntrySpelling, matched: Option<&EntrySpelling>) -> bo
     }
 }
 
+/// The subject instance each result instance record is, by its collection's identity of an
+/// instance ([`Order::twins`]): `subject` and `result` are the two sides' instance lists of a
+/// collection of `group`'s instances ordered by `order`. A Map instance is the subject's whose
+/// key it keeps ([`keeps_key`]), a List instance the subject's at its position, and a record
+/// that updates a label (`..label`) is the instance the label names, not a twin. Each pair is
+/// the subject's item and the index of the result's.
+fn instance_twins<'s>(
+    order: Order,
+    group: &GroupKind,
+    subject: &'s EntrySpelling,
+    result: &EntrySpelling,
+) -> Vec<(&'s EntrySpelling, usize)> {
+    let (Some(subject), Some(result)) = (sequence(unaliased(subject)), sequence(unaliased(result)))
+    else {
+        return Vec::new();
+    };
+    let updates = result
+        .items
+        .iter()
+        .filter_map(|item| record_of(item, group))
+        .filter_map(|record| match &record.tail {
+            RecordTail::Update(label) => Some(label.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let free = subject
+        .items
+        .iter()
+        .map(|item| match item {
+            EntrySpelling::Alias(label, _) | EntrySpelling::Binder(label) => {
+                !updates.contains(&label.as_str())
+            }
+            _ => true,
+        })
+        .collect::<Vec<_>>();
+    let reading = |items: &[EntrySpelling]| {
+        items
+            .iter()
+            .map(|item| {
+                record_of(item, group).map_or(
+                    ResultInstance {
+                        free: false,
+                        open: false,
+                    },
+                    |record| ResultInstance {
+                        free: !matches!(record.tail, RecordTail::Update(_)),
+                        open: record.tail == RecordTail::Open,
+                    },
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let (front, back) = (reading(result.front()), reading(result.back()));
+    let split = result.front().len();
+    let at = |back: bool, position: usize| if back { split + position } else { position };
+    let key = group.key(order);
+    let child = |item: &'s EntrySpelling, key: &str| -> Option<&'s EntrySpelling> {
+        record_of(item, group)?
+            .fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    };
+    order
+        .twins(
+            &free,
+            subject.front().len(),
+            [&front, &back],
+            |index, back, position| {
+                key.is_some_and(|key| {
+                    record_of(&result.items[at(back, position)], group)
+                        .and_then(|record| record.fields.iter().find(|(name, _)| name == key))
+                        .is_some_and(|(_, written)| {
+                            keeps_key(written, child(&subject.items[index], key))
+                        })
+                })
+            },
+        )
+        .into_iter()
+        .map(|(index, (back, position))| (&subject.items[index], at(back, position)))
+        .collect()
+}
+
 /// A result's content against its other side, at the entry's cell or at a child's: its rest,
 /// then each child of the group and instance records it writes, against the child's own.
 /// `whole` is whether the content stands where the result writes a group whole, as one term
@@ -1916,6 +1999,10 @@ fn pair_records(
         }
         ([Layer::Instances(order), Layer::Group(group), ..], _) => {
             let items = sequence(spelling).map_or(&[][..], |seq| &seq.items[..]);
+            let twins = match other {
+                Other::Matched(subject) => instance_twins(*order, group, subject, spelling),
+                Other::Unmatched | Other::Created => Vec::new(),
+            };
             for (step, item) in items.iter().enumerate() {
                 let Some(record) = record_of(item, group) else {
                     continue;
@@ -1924,9 +2011,18 @@ fn pair_records(
                 if matches!(item, EntrySpelling::Alias(..)) {
                     path.push(0);
                 }
-                let other = other
-                    .instance(record, bound)
-                    .ok_or(Refusal::RecordUpdateBase)?;
+                // The subject instance the record is, by its collection's identity, else the
+                // instance its update names, else none: a created instance.
+                let twin = twins
+                    .iter()
+                    .find(|(_, at)| *at == step)
+                    .map(|(subject, _)| Other::Matched(unaliased(subject)));
+                let other = match twin {
+                    Some(twin) => twin,
+                    None => other
+                        .instance(record, bound)
+                        .ok_or(Refusal::RecordUpdateBase)?,
+                };
                 if !keyed(*order, group, record, other) {
                     return Err(Refusal::MapCollectionKey);
                 }
@@ -1987,11 +2083,22 @@ fn absence_uncreated(
         ([Layer::Group(group), ..], _) => record_of(subject, group).and_then(|record| {
             fields_uncreated(group, record, result.and_then(|result| record_of(result, group)))
         }),
-        ([Layer::Instances(_), Layer::Group(group), ..], inner) => {
+        ([Layer::Instances(order), Layer::Group(group), ..], inner) => {
             sequence(inner).and_then(|seq| {
+                let twins = result.map_or_else(Vec::new, |result| {
+                    instance_twins(*order, group, inner, result)
+                });
                 seq.items.iter().enumerate().find_map(|(step, item)| {
                     let record = record_of(item, group)?;
-                    let updated = match item {
+                    let twin = twins
+                        .iter()
+                        .find(|(subject, _)| std::ptr::eq(*subject, item))
+                        .and_then(|&(_, at)| {
+                            result
+                                .and_then(|result| sequence(unaliased(result)))
+                                .and_then(|seq| record_of(&seq.items[at], group))
+                        });
+                    let updated = twin.or_else(|| match item {
                         EntrySpelling::Alias(label, _) => result
                             .and_then(|result| sequence(unaliased(result)))
                             .and_then(|seq| {
@@ -2003,7 +2110,7 @@ fn absence_uncreated(
                                     })
                             }),
                         _ => None,
-                    };
+                    });
                     let at = fields_uncreated(group, record, updated);
                     let at = if matches!(item, EntrySpelling::Alias(..)) {
                         within(0, at)
@@ -2116,7 +2223,18 @@ fn list_ends(
                     }
                     _ => false,
                 });
-            if back && (!written || updated) {
+            // A back instance the result's record at its position keeps children of is that
+            // instance updated in place too.
+            let twinned = match (stack.get(1), other) {
+                (Some(Layer::Group(group)), Some(other)) => {
+                    let split = sequence(unaliased(other)).map_or(0, |seq| seq.front().len());
+                    instance_twins(Order::List, group, spelling, other)
+                        .iter()
+                        .any(|&(_, at)| at >= split)
+                }
+                _ => false,
+            };
+            if back && (!written || updated || twinned) {
                 return Err(Refusal::ListBackKept);
             }
             Ok(())

@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use krs_ir::cell_kind::{Multiplicity, Order};
 use krs_ir::{
     CellWrapper, ConfigurationSentenceKind, Descriptor, DescriptorClaim, DescriptorClaimBinder,
     DescriptorConfigurationReference, DescriptorConfigurationRule, DescriptorHeadRule,
@@ -27,7 +28,7 @@ use krs_syntax::ProvenanceRole;
 use super::catalog::ProductionSignature;
 use super::error::DescriptorLoweringError;
 use super::origin::{key_range, role_key};
-use super::references::{declared_multiplicity, require_cell_field};
+use super::references::{declared_kind, declared_multiplicity, require_cell_field};
 
 /// What a readable rule's elaboration records beside its descriptor, which the descriptor
 /// cannot say: compiler-internal, never on the wire. An authored `cells!` rule has none.
@@ -817,7 +818,16 @@ impl Elaborator<'_> {
                     .cell(&declaration.declaration)
                     .map_err(|_| Unelaborated("a cell the declarations lack"))?
                     .fields;
-                let (before, after) = instances(before, after, children, ordinal, names, keys)?;
+                let Multiplicity::Many(order) =
+                    declared_kind(declared, self.declarations).multiplicity()
+                else {
+                    return Err(Unelaborated("an instance list on no collection"));
+                };
+                let twin_of = after.map_or_else(BTreeMap::new, |after| {
+                    result_subjects(order, children, before, after)
+                });
+                let (before, after) =
+                    instances(before, after, (children, &twin_of), ordinal, names, keys)?;
                 Ok((
                     cell(field, ProtocolRuleStateTerm::Instances(before))?,
                     after
@@ -1133,14 +1143,14 @@ fn first_in<'t>(term: &'t DescriptorTerm, name: &str) -> Option<&'t ProvenanceKe
 /// A readable collection entry as `cells!` writes it: the other instances, `..` on both sides, are
 /// one instances frame the subject binds (`instances<ordinal> @ ..`) and the result keeps
 /// (`..instances<ordinal>`); an instance's open `k` is a sequence frame its pattern binds
-/// (`tail<n> @ ..`), which the result instance updating it (`..label`) keeps. Brackets on a list
-/// leaf child hold the list's elements, as on a list leaf cell; an open list's rest is bound and
-/// kept the same way. Every other part of an instance is written as the readable entry writes
-/// it.
+/// (`tail<n> @ ..`), which the result instance that is the same instance keeps, the subject
+/// instance `twin_of` gives it ([`result_subjects`]). Brackets on a list leaf child hold the
+/// list's elements, as on a list leaf cell; an open list's rest is bound and kept the same way.
+/// Every other part of an instance is written as the readable entry writes it.
 fn instances(
     before: &ProtocolRuleInstances<DescriptorTerm>,
     after: Option<&ProtocolRuleInstances<DescriptorTerm>>,
-    children: &[krs_ir::DescriptorCellField],
+    (children, twin_of): (&[krs_ir::DescriptorCellField], &ResultSubjects),
     ordinal: usize,
     names: &mut Names,
     keys: &mut NodeKeys<'_>,
@@ -1150,69 +1160,70 @@ fn instances(
 )> {
     let authored_rest = matches!(before.rest, ProtocolRuleFrame::Bind { .. });
     let rest = instances_rest(&before.rest, ordinal, names);
-    // Each labelled subject instance's tails, by child, which the result instance updating it
-    // reuses.
+    // Each subject instance's tails, by child, which the result instance that is it reuses.
     let mut tails = BTreeMap::new();
     let mut side = |instances: &ProtocolRuleInstances<DescriptorTerm>,
                     pattern: bool,
-                    tails: &mut BTreeMap<(String, String), String>|
+                    tails: &mut BTreeMap<(usize, String), String>|
      -> Elaborated<ProtocolRuleInstances<DescriptorTerm>> {
-        let mut instance = |instance: &krs_ir::ProtocolRuleInstance<DescriptorTerm>| {
-            // A pattern's instance binds tails under its label; a result's reuses those of the
-            // instance it updates.
-            let label = match (&instance.rest, pattern) {
-                (_, true) => instance.label.clone(),
-                (ProtocolInstanceRest::Update { label }, false) => Some(label.clone()),
-                _ => None,
-            };
-            let mut instance = instance.clone();
-            for field in &mut instance.fields {
-                let ProtocolRuleStateTerm::KSequence(sequence) = &mut field.value else {
-                    continue;
-                };
-                let list = list_leaf_sort(children, &field.field);
-                let key = match &sequence.tail {
-                    ProtocolRuleFrame::Exact => None,
-                    ProtocolRuleFrame::Anonymous { key }
-                    | ProtocolRuleFrame::Bind { key, .. }
-                    | ProtocolRuleFrame::Reuse { key, .. } => Some(key.clone()),
-                };
-                // An open list's rest is a term of the leaf's sort; an open `k`'s is a frame.
-                let binding = key
-                    .as_ref()
-                    .map(|_| {
-                        let kind = list.map_or(ProtocolRuleBindingKind::KSequenceFrame, |sort| {
-                            ProtocolRuleBindingKind::Term { sort: sort.clone() }
-                        });
-                        let child = (label.as_deref(), field.field.as_str());
-                        instance_tail(names, tails, pattern, child, kind)
-                    })
-                    .transpose()?;
-                if list.is_some() {
-                    let term = list_child(sequence, key.zip(binding), keys);
-                    field.value = ProtocolRuleStateTerm::Term(term);
-                    continue;
-                }
-                sequence.notation = DescriptorKSequenceNotation::Comma;
-                if let (Some(key), Some(binding)) = (key, binding) {
-                    sequence.tail = if pattern {
-                        ProtocolRuleFrame::Bind { key, binding }
-                    } else {
-                        ProtocolRuleFrame::Reuse { key, binding }
+        let mut instance =
+            |(at, instance): ((bool, usize), &krs_ir::ProtocolRuleInstance<DescriptorTerm>)| {
+                // A pattern's instance binds tails under its index; a result's reuses those of the
+                // subject instance it is.
+                let subject = pattern
+                    .then(|| at.1 + usize::from(at.0) * instances.front.len())
+                    .or_else(|| twin_of.get(&at).copied());
+                let mut instance = instance.clone();
+                for field in &mut instance.fields {
+                    let ProtocolRuleStateTerm::KSequence(sequence) = &mut field.value else {
+                        continue;
                     };
+                    let list = list_leaf_sort(children, &field.field);
+                    let key = match &sequence.tail {
+                        ProtocolRuleFrame::Exact => None,
+                        ProtocolRuleFrame::Anonymous { key }
+                        | ProtocolRuleFrame::Bind { key, .. }
+                        | ProtocolRuleFrame::Reuse { key, .. } => Some(key.clone()),
+                    };
+                    // An open list's rest is a term of the leaf's sort; an open `k`'s is a frame.
+                    let binding = key
+                        .as_ref()
+                        .map(|_| {
+                            let kind = list
+                                .map_or(ProtocolRuleBindingKind::KSequenceFrame, |sort| {
+                                    ProtocolRuleBindingKind::Term { sort: sort.clone() }
+                                });
+                            let child = (subject, field.field.as_str());
+                            instance_tail(names, tails, pattern, child, kind)
+                        })
+                        .transpose()?;
+                    if list.is_some() {
+                        let term = list_child(sequence, key.zip(binding), keys);
+                        field.value = ProtocolRuleStateTerm::Term(term);
+                        continue;
+                    }
+                    sequence.notation = DescriptorKSequenceNotation::Comma;
+                    if let (Some(key), Some(binding)) = (key, binding) {
+                        sequence.tail = if pattern {
+                            ProtocolRuleFrame::Bind { key, binding }
+                        } else {
+                            ProtocolRuleFrame::Reuse { key, binding }
+                        };
+                    }
                 }
-            }
-            Ok(instance)
-        };
+                Ok(instance)
+            };
         let front = instances
             .front
             .iter()
-            .map(&mut instance)
+            .enumerate()
+            .map(|(position, one)| instance(((false, position), one)))
             .collect::<Elaborated<Vec<_>>>()?;
         let back = instances
             .back
             .iter()
-            .map(&mut instance)
+            .enumerate()
+            .map(|(position, one)| instance(((true, position), one)))
             .collect::<Elaborated<Vec<_>>>()?;
         let rest = match (&instances.rest, &rest) {
             (ProtocolRuleFrame::Exact, _) => ProtocolRuleFrame::Exact,
@@ -1255,9 +1266,42 @@ fn instances(
     Ok((before, after))
 }
 
-/// The tail of an open instance child `(label, field)`: a pattern's `..` binds a fresh one, kept
-/// under its instance's label, and a result's `..` reuses the tail of the same child of the
-/// instance it updates, the one `label` names.
+/// The subject instance of each result instance of an instance list, by its `(back, position)`.
+type ResultSubjects = BTreeMap<(bool, usize), usize>;
+
+/// The subject instance each result instance is, by its `(back, position)`, as an index into the
+/// subject's instances counted front then back: the one its label's update names (`..label`),
+/// else the one its collection identifies with it ([`super::cell_states::instance_twins`]).
+fn result_subjects(
+    order: Order,
+    children: &[krs_ir::DescriptorCellField],
+    before: &ProtocolRuleInstances<DescriptorTerm>,
+    after: &ProtocolRuleInstances<DescriptorTerm>,
+) -> ResultSubjects {
+    let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
+    let mut twin_of = BTreeMap::new();
+    for (back, items) in [(false, &after.front), (true, &after.back)] {
+        for (position, instance) in items.iter().enumerate() {
+            let ProtocolInstanceRest::Update { label } = &instance.rest else {
+                continue;
+            };
+            if let Some(index) = subjects
+                .iter()
+                .position(|subject| subject.label.as_ref() == Some(label))
+            {
+                twin_of.insert((back, position), index);
+            }
+        }
+    }
+    for (index, at) in super::cell_states::instance_twins(order, children, before, after) {
+        twin_of.insert(at, index);
+    }
+    twin_of
+}
+
+/// The tail of an open instance child `(subject, field)`: a pattern's `..` binds a fresh one, kept
+/// under its instance's index, and a result's `..` reuses the tail of the same child of the
+/// subject instance it is, the one at `subject`.
 /// The name the subject's instance rest `rest` is bound under: the author's (`r @ ..`), else a
 /// name of the elaboration's, which the result's `..` keeps; none for an exact list.
 fn instances_rest(rest: &ProtocolRuleFrame, ordinal: usize, names: &mut Names) -> Option<String> {
@@ -1275,21 +1319,21 @@ fn instances_rest(rest: &ProtocolRuleFrame, ordinal: usize, names: &mut Names) -
 
 fn instance_tail(
     names: &mut Names,
-    tails: &mut BTreeMap<(String, String), String>,
+    tails: &mut BTreeMap<(usize, String), String>,
     pattern: bool,
-    (label, field): (Option<&str>, &str),
+    (subject, field): (Option<usize>, &str),
     kind: ProtocolRuleBindingKind<DescriptorSortReference>,
 ) -> Elaborated<String> {
     if pattern {
         let tail = names.frame(&format!("tail{}", names.tails), kind);
         names.tails += 1;
-        if let Some(label) = label {
-            tails.insert((label.to_owned(), field.to_owned()), tail.clone());
+        if let Some(subject) = subject {
+            tails.insert((subject, field.to_owned()), tail.clone());
         }
         return Ok(tail);
     }
-    label
-        .and_then(|label| tails.get(&(label.to_owned(), field.to_owned())))
+    subject
+        .and_then(|subject| tails.get(&(subject, field.to_owned())))
         .cloned()
         .ok_or(Unelaborated(
             "an open instance child no updated instance keeps",

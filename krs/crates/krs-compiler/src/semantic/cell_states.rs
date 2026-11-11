@@ -21,7 +21,7 @@ use super::catalog::semantic_sort_ref;
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 use super::references::{declared_kind, declared_multiplicity, require_cell_field};
-use krs_ir::cell_kind::{CellKind, Layer, Multiplicity};
+use krs_ir::cell_kind::{CellKind, Layer, Multiplicity, Order, ResultInstance};
 
 /// A rule cell state as transported.
 pub(super) type DescriptorState = ProtocolRuleStateTerm<DescriptorTerm>;
@@ -1107,6 +1107,105 @@ impl InstanceDeclaration<'_> {
     }
 }
 
+/// The subject instance each result instance that updates no label is, by its collection's
+/// identity of an instance ([`Order::twins`]): `order` is the collection's, `children` its
+/// instance's declared children, whose first is a Map collection's key. Each pair is
+/// `(subject index, (back, position))`, the subject's instances counted front then back.
+pub(super) fn instance_twins(
+    order: Order,
+    children: &[DescriptorCellField],
+    before: &ProtocolRuleInstances<DescriptorTerm>,
+    after: &ProtocolRuleInstances<DescriptorTerm>,
+) -> Vec<(usize, (bool, usize))> {
+    fn child<'i>(
+        instance: &'i ProtocolRuleInstance<DescriptorTerm>,
+        name: &str,
+    ) -> Option<&'i DescriptorState> {
+        instance
+            .fields
+            .iter()
+            .find(|field| field.field == name)
+            .map(|field| &field.value)
+    }
+    let updated = |label: &str| {
+        after.front.iter().chain(&after.back).any(|instance| {
+            matches!(&instance.rest, ProtocolInstanceRest::Update { label: base } if base == label)
+        })
+    };
+    let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
+    let free = subjects
+        .iter()
+        .map(|subject| !subject.label.as_deref().is_some_and(updated))
+        .collect::<Vec<_>>();
+    let reading = |items: &[ProtocolRuleInstance<DescriptorTerm>]| {
+        items
+            .iter()
+            .map(|instance| ResultInstance {
+                free: !matches!(instance.rest, ProtocolInstanceRest::Update { .. }),
+                open: matches!(instance.rest, ProtocolInstanceRest::Open),
+            })
+            .collect::<Vec<_>>()
+    };
+    let (front, back) = (reading(&after.front), reading(&after.back));
+    let key = children.first().map(|key| key.rust_field.as_str());
+    order.twins(
+        &free,
+        before.front.len(),
+        [&front, &back],
+        |index, back, position| {
+            let result = if back {
+                &after.back[position]
+            } else {
+                &after.front[position]
+            };
+            key.is_some_and(|key| {
+                child(result, key).is_some_and(|written| {
+                    child(subjects[index], key).is_some_and(|matched| keeps_key(written, matched))
+                })
+            })
+        },
+    )
+}
+
+/// Whether a result instance's key `written` is provably the key `matched` its subject instance
+/// matched, so that the two are one instance: the subject's own binder for the key (an alias's
+/// binder included), or the same literal or token the subject matched.
+fn keeps_key(written: &DescriptorState, matched: &DescriptorState) -> bool {
+    let (ProtocolRuleStateTerm::Term(written), ProtocolRuleStateTerm::Term(matched)) =
+        (written, matched)
+    else {
+        return false;
+    };
+    let unaliased = match matched {
+        DescriptorTerm::As { pattern, .. } => pattern,
+        matched => matched,
+    };
+    match (written, matched, unaliased) {
+        (
+            DescriptorTerm::Variable { name: written, .. },
+            DescriptorTerm::Variable { name: bound, .. } | DescriptorTerm::As { name: bound, .. },
+            _,
+        ) => written == bound,
+        (
+            DescriptorTerm::Literal {
+                literal: written, ..
+            },
+            _,
+            DescriptorTerm::Literal { literal, .. },
+        ) => written == literal,
+        (
+            DescriptorTerm::BuiltinToken {
+                sort: written_sort,
+                value: written,
+                ..
+            },
+            _,
+            DescriptorTerm::BuiltinToken { sort, value, .. },
+        ) => written_sort == sort && written == value,
+        _ => false,
+    }
+}
+
 /// Lowers a collection (`*`) cell's entry (KF-023, R8).
 #[expect(
     clippy::too_many_lines,
@@ -1279,7 +1378,14 @@ pub(super) fn lower_instances_clause(
                 }
             }
         }
+        // A result instance that updates no label is the subject instance its collection
+        // identifies it with, if any: that instance updated, whose `..` keeps its children.
+        for (index, at) in instance_twins(order, instance_declaration.fields, before, after) {
+            kept_by[index] = Some(at);
+        }
     }
+    // The result instances a subject instance is, each emitted with it.
+    let paired = kept_by.iter().flatten().copied().collect::<BTreeSet<_>>();
     let mut lowered = LoweredInstances {
         lowering,
         descriptor: &descriptor,
@@ -1313,7 +1419,9 @@ pub(super) fn lower_instances_clause(
                 (Some(_), None) => segment.push(lowered.removed(subject)?),
                 (Some(_), Some((_, result_position))) => {
                     let result_items = result_items.expect("a result was given");
-                    if result_position < next_result {
+                    // A Set's or Map's instances have no order, so only a List's result can
+                    // reorder its matched instances.
+                    if result_position < next_result && list {
                         return Err(entry_error(
                             &result_items[result_position].key,
                             format!(
@@ -1321,21 +1429,26 @@ pub(super) fn lower_instances_clause(
                             ),
                         ));
                     }
-                    for created in &result_items[next_result..result_position] {
-                        segment.push(lowered.created(created)?);
+                    for (position, created) in result_items
+                        .iter()
+                        .enumerate()
+                        .take(result_position)
+                        .skip(next_result)
+                    {
+                        if !paired.contains(&(back, position)) {
+                            segment.push(lowered.created(created)?);
+                        }
                     }
                     segment.push(lowered.kept(subject, Some(&result_items[result_position]))?);
-                    next_result = result_position + 1;
+                    next_result = next_result.max(result_position + 1);
                 }
             }
-            let _ = back;
         }
         if let Some(result_items) = result_items {
-            for created in &result_items[next_result..] {
-                if matches!(created.rest, ProtocolInstanceRest::Update { .. }) {
-                    continue;
+            for (position, created) in result_items.iter().enumerate().skip(next_result) {
+                if !paired.contains(&(back, position)) {
+                    segment.push(lowered.created(created)?);
                 }
-                segment.push(lowered.created(created)?);
             }
         }
         segments.push(segment);
