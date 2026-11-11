@@ -27,7 +27,7 @@ use std::fmt;
 use crate::{
     definition::{Definition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{InternalLabel, Term, TermParts},
+    kast::{InternalLabel, Term, TermMetadata},
     kompile::{SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
@@ -78,12 +78,9 @@ pub(crate) fn guard_or_patterns_pass(
                 diagnostics: vec![plain_error(error.to_string())],
             })?;
         for sentence in &mut module.local_sentences {
-            let sentence = crate::definition::sentence_mut(sentence);
-            let attributes = sentence.attributes().clone();
-            let mut fresh = FreshNames::for_sentence(sentence);
             // A condition is matched against nothing, so only the body has positions to name.
-            let roots = match sentence {
-                Sentence::Rule { body, .. } | Sentence::Context { body, .. } => vec![body],
+            let body = match &**sentence {
+                Sentence::Rule { body, .. } | Sentence::Context { body, .. } => body,
                 Sentence::SyntaxSort { .. }
                 | Sentence::SortSynonym { .. }
                 | Sentence::SyntaxLexical { .. }
@@ -95,17 +92,31 @@ pub(crate) fn guard_or_patterns_pass(
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => continue,
             };
-            for root in roots {
-                let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-                *root = transform(taken, &injector, &mut fresh).map_err(|error| {
-                    GuardOrPatternsError {
-                        diagnostics: vec![Diagnostic::error_at(
-                            DiagnosticCode::InvalidOrPattern,
-                            error.to_string(),
-                            &attributes,
-                        )],
-                    }
+            let mut fresh = FreshNames::for_sentence(sentence);
+            let transformed =
+                transform(body, &injector, &mut fresh).map_err(|error| GuardOrPatternsError {
+                    diagnostics: vec![Diagnostic::error_at(
+                        DiagnosticCode::InvalidOrPattern,
+                        error.to_string(),
+                        sentence.attributes(),
+                    )],
                 })?;
+            // A body the walk leaves as it is keeps the sentence the shared input allocation.
+            let Some(transformed) = transformed else {
+                continue;
+            };
+            match crate::definition::sentence_mut(sentence) {
+                Sentence::Rule { body, .. } | Sentence::Context { body, .. } => *body = transformed,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => unreachable!("only a rule or a context has a body"),
             }
         }
     }
@@ -123,54 +134,104 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
     }
 }
 
-// Invariant: each call rewrites an internal `Or` application into an `As` pattern with a fresh `_Gen` alias, returns `As` and `Rewrite` terms unchanged, and otherwise recurses into `Apply` arguments and `Sequence` items; the finite depth of `term` bounds the recursion.
+// Invariant: each call rewrites an internal `Or` application into an `As` pattern with a fresh `_Gen` alias, leaves `As` and `Rewrite` terms as they are, and otherwise recurses into `Apply` arguments and `Sequence` items, left to right; the finite depth of `term` bounds the recursion.
+/// `term` with its guarded disjunctions named, or `None` when that is `term` itself.
+///
+/// A node is rebuilt from its unannotated form under its outermost annotation, so a node whose
+/// annotation is not in the form `with_metadata` builds (one layer, not the default) is rebuilt
+/// even when nothing below it changes: `None` is returned exactly when the rebuilt term would be
+/// identical to `term`, and the caller then keeps `term`, its allocation included.
 fn transform(
-    term: Term,
+    term: &Term,
     injector: &SortInjector<'_, '_>,
     fresh: &mut FreshNames,
-) -> Result<Term, crate::kompile::SortInjectionError> {
-    let metadata = term.metadata().cloned();
-    let rebuilt = match term.into_unannotated().into_parts() {
-        TermParts::Apply { label, arguments } if label.is(InternalLabel::Or) => {
-            let application = Term::Apply { label, arguments };
-            let application = match metadata.clone() {
-                Some(metadata) => application.with_metadata(metadata),
-                None => application,
-            };
+) -> Result<Option<Term>, crate::kompile::SortInjectionError> {
+    let metadata = term.metadata();
+    let unannotated = term.unannotated();
+    let rebuilt = match unannotated {
+        Term::Apply { label, .. } if label.is(InternalLabel::Or) => {
+            let application = annotate(unannotated.clone(), metadata);
             let sort = injector.term_sort_before_shape_normalization(&application, None)?;
-            Term::As {
+            Some(Term::As {
                 pattern: Box::new(application),
                 alias: Box::new(Term::Variable {
                     name: fresh.mint("_Gen"),
                     sort: Some(sort),
                 }),
-            }
+            })
         }
         // A term outside every rewrite is on both sides of the rule, and on the right-hand side
         // an `#Or` would denote the disjunction of its alternatives rather than the term it
         // matched. Inside a rewrite a term is on one side only, and under an `#as` the alias
         // already names the matched term, so the walk stops at both.
-        boundary @ (TermParts::As { .. } | TermParts::Rewrite { .. }) => Term::from(boundary),
-        TermParts::Apply { label, arguments } => Term::Apply {
-            label,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| transform(argument, injector, fresh))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        TermParts::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| transform(item, injector, fresh))
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        leaf @ (TermParts::InjectedLabel(_)
-        | TermParts::Variable { .. }
-        | TermParts::Token { .. }) => Term::from(leaf),
-        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        Term::As { .. }
+        | Term::Rewrite { .. }
+        | Term::InjectedLabel(_)
+        | Term::Variable { .. }
+        | Term::Token { .. } => None,
+        Term::Apply { label, arguments } => {
+            transform_items(arguments, injector, fresh)?.map(|arguments| Term::Apply {
+                label: label.clone(),
+                arguments,
+            })
+        }
+        Term::Sequence(items) => transform_items(items, injector, fresh)?.map(Term::Sequence),
+        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
     };
-    Ok(match metadata {
-        Some(metadata) => rebuilt.with_metadata(metadata),
-        None => rebuilt,
+    Ok(match rebuilt {
+        Some(rebuilt) => Some(annotate(rebuilt, metadata)),
+        None if annotation_is_rebuilt_form(term) => None,
+        None => Some(annotate(unannotated.clone(), metadata)),
     })
+}
+
+/// `items` with each item transformed, or `None` when every item is kept as it is.
+fn transform_items(
+    items: &[Term],
+    injector: &SortInjector<'_, '_>,
+    fresh: &mut FreshNames,
+) -> Result<Option<Vec<Term>>, crate::kompile::SortInjectionError> {
+    let mut rebuilt: Option<Vec<Term>> = None;
+    for (index, item) in items.iter().enumerate() {
+        let transformed = transform(item, injector, fresh)?;
+        match (&mut rebuilt, transformed) {
+            (Some(rebuilt), transformed) => {
+                rebuilt.push(transformed.unwrap_or_else(|| item.clone()));
+            }
+            (None, Some(transformed)) => {
+                let mut items_so_far = Vec::with_capacity(items.len());
+                items_so_far.extend_from_slice(&items[..index]);
+                items_so_far.push(transformed);
+                rebuilt = Some(items_so_far);
+            }
+            (None, None) => {}
+        }
+    }
+    Ok(rebuilt)
+}
+
+fn annotate(term: Term, metadata: Option<&TermMetadata>) -> Term {
+    match metadata {
+        Some(metadata) => term.with_metadata(metadata.clone()),
+        None => term,
+    }
+}
+
+/// Whether `annotate(term.unannotated().clone(), term.metadata())` is `term`: `term` has no
+/// annotation, or one layer whose metadata is not the default (`with_metadata` drops a default
+/// annotation and merges into an existing layer, so it never builds the other shapes).
+fn annotation_is_rebuilt_form(term: &Term) -> bool {
+    match term {
+        Term::Annotated {
+            term: inner,
+            metadata,
+        } => !matches!(**inner, Term::Annotated { .. }) && *metadata != TermMetadata::default(),
+        Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Variable { .. }
+        | Term::Sequence(_)
+        | Term::Apply { .. }
+        | Term::Token { .. } => true,
+    }
 }
