@@ -578,7 +578,7 @@
       "error[krs::analysis::ambiguous-cell-sort]: cell declaration `Frame` is the content of more than one cell field (`current`, `saved`), so its K cell sort is ambiguous; declare one struct per nested cell"
     ],
     "group-literal": [
-      "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!"
+      "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`"
     ],
     "cell-bag": [
       "error[krs::syntax::invalid-cell-attribute]: invalid `cell` attribute: cell bags are unsupported by K's LLVM and Haskell backends; use cell_type = \"Set\", \"Map\", or \"List\""

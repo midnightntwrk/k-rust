@@ -1332,7 +1332,7 @@ fn alternatives_over_a_whole_group_cell_are_refused_at_the_bar() {
             "group-child-fragments: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `pc`: write `Frame { pc: A | B, .. }`",
             "group-child-alias: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `frame` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Frame { child: A | B, .. }`), or write one rule per alternative",
             "optional-group: error[krs::analysis::invalid-pattern-or]: `|` cannot join alternatives of the whole `mark` cell: a group cell's entry is a set of cells, each placed by its label, and no single rule matches one set or another; write the alternatives inside the record, at the child they test (`Mark { child: A | B, .. }`), or write one rule per alternative; the alternatives differ only in `seen`: write `Mark { seen: A | B, .. }`",
-            "cells-entry: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: nested cell entries are a binder, `_`, or fragment!",
+            "cells-entry: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`",
         ]
     "#]]
     .assert_debug_eq(&refused);
@@ -4276,6 +4276,57 @@ impl Machine {
     }
 }
 "#;
+
+/// CELLS4 item 2: the `cells!` reader does not know which cells are leaves, so its refusal of an
+/// entry written as a term without a wrapper is true of either: such an entry is a nested cell's
+/// (a binder, `_` or a fragment), and a leaf's content stands inside its wrapper. A whole entry
+/// `k::rewrite!(a => b)` rewrites a content outside its wrapper, which stands inside it,
+/// `Cell(k::rewrite!(a => b))`. Each way out is accepted.
+#[test]
+fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cell = "k::configuration::Cell";
+    let frame = "frame: k::fragment![crate::Frame { pc: a, .. }]";
+    let refused = [
+        ("leaf-literal", whole_cells(false, "", &format!("acc: 0, {frame}, .."), "..")),
+        ("result-literal", whole_cells(true, "", &format!("acc: {cell}(a), .."), "acc: 1, ..")),
+        ("leaf-call", whole_cells(false, "", &format!("acc: {cell}(a), .."), "acc: int::add(a, 1), ..")),
+        ("group-literal", whole_cells(false, "", &format!("acc: {cell}(a), .."), "frame: 0, ..")),
+        ("group-call", whole_cells(true, "", &format!("acc: {cell}(a), .."), "frame: int::add(a, 1), ..")),
+        ("leaf-rewrite", single_body("\n    a: Int,", "acc: k::rewrite!(a => x)")),
+        (
+            "group-rewrite",
+            single_body(
+                "\n    f: Frame,",
+                "frame: k::rewrite!(f => k::fragment![crate::Frame { pc: x, gas: 0 }])",
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("unwrapped-{name}"), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        leaf-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 54:78
+        result-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:58
+        leaf-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:58
+        group-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
+        group-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
+        leaf-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:90
+        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"#]].assert_eq(&refused.join("\n"));
+    let accepted = [
+        ("leaf-literal", whole_cells(false, "", &format!("acc: {cell}(0), {frame}, .."), "..")),
+        ("leaf-rewrite", single_body("\n    a: Int,", &format!("acc: {cell}(k::rewrite!(a => x))"))),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("wrapped-{name}"), &source);
+        format!("{name}: {}", emitted_sentence(target.path(), &manifest, "make"))
+    });
+    expect_test::expect![[r#"
+        leaf-literal: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> 0 </acc> <frame> <pc> A:Int </pc> <gas> _ </gas> </frame>
+        leaf-rewrite: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>"#]].assert_eq(&accepted.join("\n"));
+}
 
 /// A `SINGLE_BODY` single-body rule `make` over `x: Int` and the binders of `parameters` that
 /// removes `make(x)` from the computation and rewrites the cells of `entries`.

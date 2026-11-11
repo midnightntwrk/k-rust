@@ -629,7 +629,7 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
             "k: Other(.K)",
             SyntaxErrorKind::InvalidStateMacro {
                 macro_name: "cells",
-                reason: "entries require `Cell(...)` or `KCell(...)`",
+                reason: "an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`",
             },
         ),
         (
@@ -1344,9 +1344,9 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
 
     let group_entry = SyntaxErrorKind::InvalidStateMacro {
         macro_name: "cells",
-        reason: "nested cell entries are a binder, `_`, or fragment!",
+        reason: "an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`",
     };
-    for source in ["frame: 3", "frame: f.x", "frame: crate::f"] {
+    for source in ["frame: 3", "frame: f.x", "frame: crate::f", "acc: 0", "acc: int::add(a, 1)"] {
         let error =
             krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
                 .unwrap_err();
@@ -1591,7 +1591,7 @@ fn a_result_instance_child_the_term_reader_refuses_waits_for_its_record() {
 fn a_fragment_child_s_notation_is_refused_for_what_it_is() {
     let group_entry = SyntaxErrorKind::InvalidStateMacro {
         macro_name: "cells",
-        reason: "nested cell entries are a binder, `_`, or fragment!",
+        reason: "an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`",
     };
     let list_rest = krs_syntax::parse_cells_expression(
         krs_syntax::parse::tokens_from_source(
@@ -1771,6 +1771,7 @@ fn a_rewrite_whose_side_is_an_entry_is_refused_for_what_it_writes() {
     let absence = "a `k::rewrite!` to `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `Some(Cell(..))` in its subject and `None` in its result";
     let some = "`Some(..)` on a side of a `k::rewrite!` names no content: it says that a `?` cell is present, and a rewrite changes a content where it stands; write `Some(..)` outside the rewrite, around the content it changes: `Some(Cell(k::rewrite!(a => b)))`";
     let wrapped = "`Cell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `Cell(..)` outside the rewrite, around the content it changes: `Cell(k::rewrite!(a => b))`";
+    let rewritten = "a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten";
     let computation = "`KCell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `KCell(..)` outside the rewrite, around the content it changes: `KCell(k::rewrite!(a => b), ..)`";
     for (source, reason) in [
         ("opt: k::rewrite!(None => Some(Cell(x))), ..", presence),
@@ -1781,8 +1782,10 @@ fn a_rewrite_whose_side_is_an_entry_is_refused_for_what_it_writes() {
         ("k: k::rewrite!(KCell(..) => KCell(1)), ..", computation),
         (
             "frame: k::rewrite!(f => k::fragment![Frame { pc: x, gas: 0 }]), ..",
-            "nested cell entries are a binder, `_`, or fragment!",
+            rewritten,
         ),
+        ("acc: k::rewrite!(a => x), ..", rewritten),
+        ("k: k::rewrite!(Cmd::Make { x } => ()), ..", rewritten),
     ] {
         let error =
             krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())

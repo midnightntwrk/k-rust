@@ -2713,11 +2713,7 @@ fn parse_entry_value(
             }
         }
         _ => {
-            return Err(state_error(
-                "cells",
-                "entries require `Cell(...)` or `KCell(...)`",
-                wrapper.span(),
-            ));
+            return Err(state_error("cells", UNWRAPPED_ENTRY, wrapper.span()));
         }
     };
     Ok((Some(wrapper), value))
@@ -3218,6 +3214,19 @@ fn starts_wrapped_entry(input: ParseStream<'_>) -> bool {
     fork.parse::<Path>().is_ok() && fork.peek(syn::token::Paren)
 }
 
+/// The reason given for an entry written as a term without a wrapper (`acc: 0`, `frame: 0`,
+/// `acc: int::add(a, 1)`, whose path is no wrapper). The reader does not know which cells are
+/// leaves, so the reason is true of either: an entry without a wrapper is a nested cell's, and a
+/// leaf's content stands inside its wrapper. A binder is a nested cell's spelling, so `acc: a` is
+/// read as one, and the collector, which knows the cell, refuses it on a leaf (`cell-wrapper`).
+const UNWRAPPED_ENTRY: &str = "an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`";
+
+/// The reason given for a whole entry `k::rewrite!(a => b)` whose sides are contents, not entries
+/// ([`rewritten_entry`]): a rewrite changes a content where it stands, and a leaf's content
+/// stands inside its wrapper (`Cell(k::rewrite!(a => b))`); a nested cell is
+/// rewritten child by child, inside its entry.
+const REWRITTEN_ENTRY: &str = "a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten";
+
 /// Parses a whole nested-cell entry value: a group binder, `_` (patterns
 /// only), or a complete `k::fragment!` term (KF-016).
 fn parse_group_entry(
@@ -3229,13 +3238,7 @@ fn parse_group_entry(
     while !input.is_empty() && !input.peek(Token![,]) && !starts_remainder(input) {
         tokens.extend([input.parse::<TokenTree>().map_err(SyntaxError::from)?]);
     }
-    let invalid = |span| {
-        state_error(
-            "cells",
-            "nested cell entries are a binder, `_`, or fragment!",
-            span,
-        )
-    };
+    let invalid = |span| state_error("cells", UNWRAPPED_ENTRY, span);
     if tokens.is_empty() {
         return Err(invalid(input.span()));
     }
@@ -3284,7 +3287,8 @@ fn parse_group_entry(
 /// rewrite in place states: a rule states it by its subject and its result. `Some(..)` and a
 /// wrapper are no content: they say that the cell is present and which cell holds the content,
 /// so they stand outside the rewrite, around the content it changes (`Some(Cell(k::rewrite!(o =>
-/// x)))`). `None` for any other entry, read as a group's.
+/// x)))`). Sides of any other spelling rewrite a content written outside its wrapper
+/// ([`REWRITTEN_ENTRY`]). `None` for an entry that is no `k::rewrite!`.
 fn rewritten_entry(tokens: &TokenStream) -> Option<SyntaxError> {
     let ("rewrite", payload) = qualified_macro_payload(tokens)
         .as_ref()
@@ -3322,13 +3326,14 @@ fn rewritten_entry(tokens: &TokenStream) -> Option<SyntaxError> {
                     .filter(|(_, present)| *present)
                     .map(|(head, _)| head)
                     .or_else(|| wrapper(side))
-            })?
-            .as_str()
+            })
+            .as_deref()
         {
-            "Some" => {
+            None => REWRITTEN_ENTRY,
+            Some("Some") => {
                 "`Some(..)` on a side of a `k::rewrite!` names no content: it says that a `?` cell is present, and a rewrite changes a content where it stands; write `Some(..)` outside the rewrite, around the content it changes: `Some(Cell(k::rewrite!(a => b)))`"
             }
-            "KCell" => {
+            Some("KCell") => {
                 "`KCell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `KCell(..)` outside the rewrite, around the content it changes: `KCell(k::rewrite!(a => b), ..)`"
             }
             _ => {
