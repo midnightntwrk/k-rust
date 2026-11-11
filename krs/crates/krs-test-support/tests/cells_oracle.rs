@@ -24,7 +24,7 @@ use syn::parse::Parser;
 use krs_test_support::class_matrix::cells_oracle::{
     CELLS_ONLY, CODES, ENTRY_CLASSES, Entries, EntryCase, Form, Group, LINT_CLASSES, Layer, Mark,
     Notation, Order, Outcome, READABLE_ONLY, RULE_CLASSES, Record, RecordRest, Rest, RestAt,
-    SORT_CLASSES, Seq, Spelling, Step, Template, abbreviate, advise, judge, mark, outcome,
+    SORT_CLASSES, Seq, Spelling, Step, Template, abbreviate, advise, entry_mark, judge, outcome,
     record_level, rule_outcome, rule_outcome_in, sentence_outcome,
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
@@ -2012,13 +2012,14 @@ fn marks(form: Form) -> &'static [&'static str] {
     }
 }
 
-fn mark_name(form: Form, spelling: &Spelling) -> String {
+/// The name of the mark `spelling` carries in `form` at a cell of `stack` ([`entry_mark`]).
+fn mark_name(form: Form, spelling: &Spelling, stack: &[Layer]) -> String {
     let readable = if form == Form::Claim {
         Form::Readable
     } else {
         form
     };
-    match (mark(readable, spelling, false), spelling) {
+    match (entry_mark(readable, spelling, stack), spelling) {
         (Mark::Presence, Spelling::Present(_)) => "presence:some",
         (Mark::Presence, Spelling::Missing) => "presence:none",
         (Mark::Presence, _) => "presence:absent",
@@ -2101,6 +2102,12 @@ fn domain() -> Vec<Tuple> {
             for path in paths {
                 for stack in STACKS {
                     for mark in marks(form) {
+                        // An initializer's computation mark, `k::k![..]`, is one only on a
+                        // computation: elsewhere it is the term of sort `K` its items make.
+                        if form == Form::Init && *mark == "comp" && !stack.ends_with("computation")
+                        {
+                            continue;
+                        }
                         domain.push((
                             form_name(form),
                             *side,
@@ -2194,7 +2201,7 @@ fn sweep_tuples() -> BTreeSet<Tuple> {
                     records: &[],
                     elsewhere: false,
                 };
-                let mark = mark_name(form, &declared_as(&probe.read(text)));
+                let mark = mark_name(form, &declared_as(&probe.read(text)), &stack);
                 for side in sides {
                     for (path, _) in sweep_paths(form, &paths) {
                         for name in &names {
@@ -2232,7 +2239,7 @@ fn check_5_the_generated_cases_cover_the_domain() {
             side_name(entry),
             path_name(&entry.entry.path),
             stack_name(&entry.entry.cell, &declared),
-            mark_name(entry.form, &entry.entry.spelling),
+            mark_name(entry.form, &entry.entry.spelling, &declared),
         ));
     }
     let domain = domain();

@@ -553,6 +553,22 @@ pub enum Mark {
     Value,
 }
 
+/// The mark `spelling` carries at a cell of `stack` in `form` ([`mark`]): an initializer's
+/// `k::k![..]` lists a computation's items, the computation's mark where the cell holds a
+/// computation; on any other cell it is the term of sort `K` its items make, a value whose sort
+/// the lattice checks (step 4).
+#[must_use]
+pub fn entry_mark(form: Form, spelling: &Spelling, stack: &[Layer]) -> Mark {
+    match spelling {
+        Spelling::KMacro(_)
+            if matches!(form, Form::Init) && stack.contains(&Layer::Computation) =>
+        {
+            Mark::Comp
+        }
+        _ => mark(form, spelling, false),
+    }
+}
+
 /// The mark `spelling` carries in `form`; `inside_leaf` reads it inside `Cell(..)`.
 #[must_use]
 pub const fn mark(form: Form, spelling: &Spelling, inside_leaf: bool) -> Mark {
@@ -567,7 +583,6 @@ pub const fn mark(form: Form, spelling: &Spelling, inside_leaf: bool) -> Mark {
         Spelling::KCell(_) if matches!(form, Form::Cells) => Mark::Comp,
         Spelling::InstList(_) if matches!(form, Form::Cells) => Mark::ListInst,
         Spelling::InstSet(_) if matches!(form, Form::Cells) => Mark::SetInst,
-        Spelling::KMacro(_) if matches!(form, Form::Init) => Mark::Comp,
         Spelling::Brackets(_) if !matches!(form, Form::Cells) => Mark::Seq,
         Spelling::MapLit(_) if matches!(form, Form::Init) => Mark::Map,
         Spelling::Braces(_) if matches!(form, Form::Readable | Form::Claim) => Mark::SetInst,
@@ -1011,7 +1026,7 @@ impl Judge<'_> {
         if self.side == Side::Initializer && matches!(outer, Layer::Instances(_)) {
             return self.judge(&stack[1..], spelling, depth);
         }
-        let mark = mark(self.form, spelling, false);
+        let mark = entry_mark(self.form, spelling, stack);
         if mark != Mark::Value {
             if admits(self.form, outer, mark) {
                 return self.inside(stack, spelling, depth);
@@ -2231,7 +2246,7 @@ fn complete(
     let Some(outer) = stack.first() else {
         return Some((spelling.clone(), 0));
     };
-    let mark = mark(form, spelling, false);
+    let mark = entry_mark(form, spelling, stack);
     let needs = if mark == Mark::Value {
         has_mark(form, outer)
     } else {

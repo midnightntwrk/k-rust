@@ -558,19 +558,19 @@ result, unmatched	*	* Map of G	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	cwi	cwi	
 ## init
 side	path	stack	other	Some(0)	k::absent!(0)	None	k::k![pgm]	k::k![Cmd::Go(), ..]	[0]	[0, ..]	k::map![0 -> 1]	0	G { a: 0, b: 0 }	G { a: 0 }	Cmd::Go()	pgm
 init	-	computation	-	pop	pop	nii	sort	ir	sort	ir	mna	cw	cw	cw	cw	cw
-init	-	leaf Int	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	sort	sort	sort
-init	-	leaf List	-	pop	pop	nii	cw	ir	sort	ir	mna	sort	sort	sort	sort	sort
-init	-	leaf Cons	-	pop	pop	nii	cw	ir	sort	ir	mna	sort	sort	sort	sort	sort
-init	-	leaf Map	-	pop	pop	nii	cw	ir	br	ir	sort	sort	sort	sort	sort	sort
-init	-	leaf Set	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	sort	sort	sort
-init	-	group G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
-init	-	? leaf Int	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	-	? leaf List	-	sort	sort	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
-init	-	? leaf Map	-	sort	sort	nii	cw	ir	br	ir	owp	owp	owp	owp	owp	owp
-init	-	? group G	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
-init	-	* List of G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
-init	-	* Set of G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
-init	-	* Map of G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
+init	-	leaf Int	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	sort	sort	sort
+init	-	leaf List	-	pop	pop	nii	sort	ir	sort	ir	mna	sort	sort	sort	sort	sort
+init	-	leaf Cons	-	pop	pop	nii	sort	ir	sort	ir	mna	sort	sort	sort	sort	sort
+init	-	leaf Map	-	pop	pop	nii	sort	ir	br	ir	sort	sort	sort	sort	sort	sort
+init	-	leaf Set	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	sort	sort	sort
+init	-	group G	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	rmc	sort	sort
+init	-	? leaf Int	-	sort	sort	nii	owp	ir	br	ir	mna	owp	owp	owp	owp	owp
+init	-	? leaf List	-	sort	sort	nii	owp	ir	owp	ir	mna	owp	owp	owp	owp	owp
+init	-	? leaf Map	-	sort	sort	nii	owp	ir	br	ir	owp	owp	owp	owp	owp	owp
+init	-	? group G	-	sort	sort	nii	owp	ir	br	ir	mna	owp	owp	rmc	owp	owp
+init	-	* List of G	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	rmc	sort	sort
+init	-	* Set of G	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	rmc	sort	sort
+init	-	* Map of G	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	rmc	sort	sort
 #
 ## readable more
 side	path	stack	other	[G { a: x, .. }, ..]	{ x, .. }	map![y -> x, ..]	Some(_)	Some(G { .. })	Some([..])	{ G { a: x, b: y } }	{ G { b: x, .. }, .. }
@@ -1088,19 +1088,19 @@ result, unmatched	*	* Map of G	-	cw	cw	wop
 ## init more
 side	path	stack	other	G { a: 0, ..base }	k::k![Cmd::Go(), ..pgm]	k::map![0 -> 1, ..env]
 init	-	computation	-	cw	sort|product:ir	mna
-init	-	leaf Int	-	sort	cw|product:ir	mna
-init	-	leaf List	-	sort	cw|product:ir	mna
-init	-	leaf Cons	-	sort	cw|product:ir	mna
-init	-	leaf Map	-	sort	cw|product:ir	sort
-init	-	leaf Set	-	sort	cw|product:ir	mna
-init	-	group G	-	sort	cw|product:ir	mna
-init	-	? leaf Int	-	owp	cw|product:ir	mna
-init	-	? leaf List	-	owp	cw|product:ir	mna
-init	-	? leaf Map	-	owp	cw|product:ir	owp
-init	-	? group G	-	owp	cw|product:ir	mna
-init	-	* List of G	-	sort	cw|product:ir	mna
-init	-	* Set of G	-	sort	cw|product:ir	mna
-init	-	* Map of G	-	sort	cw|product:ir	mna
+init	-	leaf Int	-	sort	sort|product:ir	mna
+init	-	leaf List	-	sort	sort|product:ir	mna
+init	-	leaf Cons	-	sort	sort|product:ir	mna
+init	-	leaf Map	-	sort	sort|product:ir	sort
+init	-	leaf Set	-	sort	sort|product:ir	mna
+init	-	group G	-	sort	sort|product:ir	mna
+init	-	? leaf Int	-	owp	owp|product:ir	mna
+init	-	? leaf List	-	owp	owp|product:ir	mna
+init	-	? leaf Map	-	owp	owp|product:ir	owp
+init	-	? group G	-	owp	owp|product:ir	mna
+init	-	* List of G	-	sort	sort|product:ir	mna
+init	-	* Set of G	-	sort	sort|product:ir	mna
+init	-	* Map of G	-	sort	sort|product:ir	mna
 #
 ## cells back
 side	path	stack	other	k::configuration::KCell(x, .., y)

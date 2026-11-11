@@ -541,35 +541,35 @@ pattern	line	Some(0)	k::absent!(0)	None	k::k![pgm]	k::k![Cmd::Go(), ..]	[0]	[0, 
 i01	-	pop	pop	nii	sort	ir	sort	ir	mna	cw	cw	cw	cw	cw
 i01	member	init	init	computation
 i01	principle	Initializer of the computation: k::k![pgm] and [0] sort (P3a: the computation's marks, brackets read by the declared type; the items' sorts to the lattice); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5: an initializer's value is complete, with no `None` and no anonymous rest); Some(0) and k::absent!(0) pop, k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm cw (P3c: a value on a computation, which k::k![pgm] writes). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i02	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	sort	sort	sort
+i02	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	sort	sort	sort
 i02	member	init	init	leaf Int
 i02	member	init	init	leaf Set
-i02	principle	Initializer of a plain Int or Set leaf: 0, both records, Cmd::Go() and pgm sort (no mark: the lattice judges each, a record of another sort included); [0] br (P3b: no List layer); k::k![pgm] cw (P3b); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i03	-	pop	pop	nii	cw	ir	sort	ir	mna	sort	sort	sort	sort	sort
+i02	principle	Initializer of a plain Int or Set leaf: 0, both records, Cmd::Go() and pgm sort (no mark: the lattice judges each, a record of another sort included); [0] br (P3b: no List layer); k::k![pgm] sort (off the computation it is the term of sort `K` its items make, which the lattice judges, COHERE R2-3); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i03	-	pop	pop	nii	sort	ir	sort	ir	mna	sort	sort	sort	sort	sort
 i03	member	init	init	leaf List
 i03	member	init	init	leaf Cons
-i03	principle	Initializer of a List or cons leaf: [0] sort (P3a: brackets by the declared type); 0, both records, Cmd::Go() and pgm sort (the lattice); k::k![pgm] cw (P3b); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i04	-	pop	pop	nii	cw	ir	br	ir	sort	sort	sort	sort	sort	sort
+i03	principle	Initializer of a List or cons leaf: [0] sort (P3a: brackets by the declared type); 0, both records, Cmd::Go() and pgm sort (the lattice); k::k![pgm] sort (off the computation it is the term of sort `K` its items make, which the lattice judges, COHERE R2-3); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i04	-	pop	pop	nii	sort	ir	br	ir	sort	sort	sort	sort	sort	sort
 i04	member	init	init	leaf Map
-i04	principle	Initializer of a Map leaf: k::map![0 -> 1] sort (P3a); 0, both records, Cmd::Go() and pgm sort (the lattice); [0] br (P3b); k::k![pgm] cw (P3b); Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i05	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
+i04	principle	Initializer of a Map leaf: k::map![0 -> 1] sort (P3a); 0, both records, Cmd::Go() and pgm sort (the lattice); [0] br (P3b); k::k![pgm] sort (off the computation it is the term of sort `K` its items make, which the lattice judges, COHERE R2-3); Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i05	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	rmc	sort	sort
 i05	member	init	init	group G
 i05	member	init	init	* List of G
 i05	member	init	init	* Set of G
 i05	member	init	init	* Map of G
-i05	principle	Initializer of the group G, and of a List, Set or Map collection of G, whose value is one instance's template (P5, S5.0g:D-5): G { a: 0, b: 0 } sort (a complete record, P6: records follow Rust's struct literals); G { a: 0 } rmc (L4 with P6: an initializer's record names every field; a kind refusal); 0, Cmd::Go() and pgm sort (the lattice); [0] br (P3b: brackets on the template, whose instance layer is not written), k::k![pgm] cw (P3b), k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i06	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
+i05	principle	Initializer of the group G, and of a List, Set or Map collection of G, whose value is one instance's template (P5, S5.0g:D-5): G { a: 0, b: 0 } sort (a complete record, P6: records follow Rust's struct literals); G { a: 0 } rmc (L4 with P6: an initializer's record names every field; a kind refusal); 0, Cmd::Go() and pgm sort (the lattice); [0] br (P3b: brackets on the template, whose instance layer is not written), k::k![pgm] sort (off the computation it is the term of sort `K` its items make, which the lattice judges, COHERE R2-3), k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i06	-	sort	sort	nii	owp	ir	br	ir	mna	owp	owp	owp	owp	owp
 i06	member	init	init	? leaf Int
-i06	principle	Initializer of `? leaf Int`: Some(0) and k::absent!(0) sort (P2's initializer presence marks, P3a; 0 is the template, its sort to the lattice); None nii (the form step, P5: write k::absent!(template)); [0] br (L3, as S5.0g:R7 words it: a `?` cell with no List layer); k::k![pgm] cw (P3b); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c: a value under `?`, its inside passing); the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i07	-	sort	sort	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
+i06	principle	Initializer of `? leaf Int`: Some(0) and k::absent!(0) sort (P2's initializer presence marks, P3a; 0 is the template, its sort to the lattice); None nii (the form step, P5: write k::absent!(template)); [0] br (L3, as S5.0g:R7 words it: a `?` cell with no List layer); k::k![pgm] owp (P3c: off the computation it is the term of sort `K` its items make, a value under `?`, its inside passing, COHERE R2-3); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c: a value under `?`, its inside passing); the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i07	-	sort	sort	nii	owp	ir	owp	ir	mna	owp	owp	owp	owp	owp
 i07	member	init	init	? leaf List
-i07	principle	Initializer of `? leaf List`: Some(0) and k::absent!(0) sort (P3a); [0] owp (P3c: the List leaf's brackets under `?`, S5.0g:R7); None nii and the two rests ir (the form step, P5); k::k![pgm] cw (P3b); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i08	-	sort	sort	nii	cw	ir	br	ir	owp	owp	owp	owp	owp	owp
+i07	principle	Initializer of `? leaf List`: Some(0) and k::absent!(0) sort (P3a); [0] owp (P3c: the List leaf's brackets under `?`, S5.0g:R7); None nii and the two rests ir (the form step, P5); k::k![pgm] owp (P3c: off the computation it is the term of sort `K` its items make, a value under `?`, its inside passing, COHERE R2-3); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i08	-	sort	sort	nii	owp	ir	br	ir	owp	owp	owp	owp	owp	owp
 i08	member	init	init	? leaf Map
-i08	principle	Initializer of `? leaf Map`: Some(0) and k::absent!(0) sort (P3a); k::map![0 -> 1] owp (P3c: the Map mark under `?`); [0] br (P3b, L3); None nii and the two rests ir (the form step, P5); k::k![pgm] cw (P3b); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-i09	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
+i08	principle	Initializer of `? leaf Map`: Some(0) and k::absent!(0) sort (P3a); k::map![0 -> 1] owp (P3c: the Map mark under `?`); [0] br (P3b, L3); None nii and the two rests ir (the form step, P5); k::k![pgm] owp (P3c: off the computation it is the term of sort `K` its items make, a value under `?`, its inside passing, COHERE R2-3); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i09	-	sort	sort	nii	owp	ir	br	ir	mna	owp	owp	rmc	owp	owp
 i09	member	init	init	? group G
-i09	principle	Initializer of `? group G`: Some(0) and k::absent!(0) sort (P3a; 0 is a template of another sort, the lattice's); [0] br (L3: no List layer); k::k![pgm] cw (P3b); k::map![0 -> 1] mna (P3b); 0, G { a: 0, b: 0 }, Cmd::Go() and pgm owp (P3c, the inside passing against G); G { a: 0 } rmc (S5.0g:P-R5: L4 refuses the advice Some(G { a: 0 }) again); None nii and the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i09	principle	Initializer of `? group G`: Some(0) and k::absent!(0) sort (P3a; 0 is a template of another sort, the lattice's); [0] br (L3: no List layer); k::k![pgm] owp (P3c: off the computation it is the term of sort `K` its items make, a value under `?`, its inside passing, COHERE R2-3); k::map![0 -> 1] mna (P3b); 0, G { a: 0, b: 0 }, Cmd::Go() and pgm owp (P3c, the inside passing against G); G { a: 0 } rmc (S5.0g:P-R5: L4 refuses the advice Some(G { a: 0 }) again); None nii and the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 #
 ## readable, claim more
 pattern	line	[G { a: x, .. }, ..]	{ x, .. }	map![y -> x, ..]	Some(_)	Some(G { .. })	Some([..])	{ G { a: x, b: y } }	{ G { b: x, .. }, .. }
@@ -905,7 +905,7 @@ pattern	line	G { a: 0, ..base }	k::k![Cmd::Go(), ..pgm]	k::map![0 -> 1, ..env]
 ix01	-	cw	sort|product:ir	mna
 ix01	member	init more	init	computation
 ix01	principle	Initializer of the computation: k::k![Cmd::Go(), ..pgm] sort by the principles (P3a: the computation's mark; P5 reads `..pgm` as a base, an update), the product's ir being E3 (a [cell-exception]: an item-sorted variable is an item, `k::k![x, pgm]`); G { a: 0, ..base } cw (P3c: a value on the computation); k::map![0 -> 1, ..env] mna (P3b). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-ix02	-	sort	cw|product:ir	mna
+ix02	-	sort	sort|product:ir	mna
 ix02	member	init more	init	leaf Int
 ix02	member	init more	init	leaf List
 ix02	member	init more	init	leaf Cons
@@ -914,18 +914,18 @@ ix02	member	init more	init	group G
 ix02	member	init more	init	* List of G
 ix02	member	init more	init	* Set of G
 ix02	member	init more	init	* Map of G
-ix02	principle	Initializer of a plain Int, List, cons or Set leaf, the group G or a collection of G (its template, S5.0g:D-5): G { a: 0, ..base } sort (P5: `..base` updates, so the record names its fields through the base; a term the lattice judges); k::k![Cmd::Go(), ..pgm] cw (P3b: the computation's mark elsewhere), the product's ir being E3's form-step answer, which shows on every stack; k::map![0 -> 1, ..env] mna (P3b). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-ix03	-	sort	cw|product:ir	sort
+ix02	principle	Initializer of a plain Int, List, cons or Set leaf, the group G or a collection of G (its template, S5.0g:D-5): G { a: 0, ..base } sort (P5: `..base` updates, so the record names its fields through the base; a term the lattice judges); k::k![Cmd::Go(), ..pgm] sort (a term of sort `K` off the computation, the lattice's, COHERE R2-3), the product's ir being E3's form-step answer, which shows on every stack; k::map![0 -> 1, ..env] mna (P3b). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix03	-	sort	sort|product:ir	sort
 ix03	member	init more	init	leaf Map
-ix03	principle	Initializer of a Map leaf: k::map![0 -> 1, ..env] sort (P3a; P5: `..env` is a base the literal updates, D2's #8 as the principles keep it); G { a: 0, ..base } sort (P5, the lattice); k::k![Cmd::Go(), ..pgm] cw (P3b), the product's ir being E3. No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-ix04	-	owp	cw|product:ir	mna
+ix03	principle	Initializer of a Map leaf: k::map![0 -> 1, ..env] sort (P3a; P5: `..env` is a base the literal updates, D2's #8 as the principles keep it); G { a: 0, ..base } sort (P5, the lattice); k::k![Cmd::Go(), ..pgm] sort (a term of sort `K` off the computation, the lattice's, COHERE R2-3), the product's ir being E3. No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix04	-	owp	owp|product:ir	mna
 ix04	member	init more	init	? leaf Int
 ix04	member	init more	init	? leaf List
 ix04	member	init more	init	? group G
-ix04	principle	Initializer of `? leaf Int`, `? leaf List` or `? group G`: G { a: 0, ..base } owp (P3c: a value under `?`, its inside passing); k::k![Cmd::Go(), ..pgm] cw (P3b), the product's ir being E3; k::map![0 -> 1, ..env] mna (P3b: no Map layer). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
-ix05	-	owp	cw|product:ir	owp
+ix04	principle	Initializer of `? leaf Int`, `? leaf List` or `? group G`: G { a: 0, ..base } owp (P3c: a value under `?`, its inside passing); k::k![Cmd::Go(), ..pgm] owp (P3c: a term of sort `K` under `?`, COHERE R2-3), the product's ir being E3; k::map![0 -> 1, ..env] mna (P3b: no Map layer). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix05	-	owp	owp|product:ir	owp
 ix05	member	init more	init	? leaf Map
-ix05	principle	Initializer of `? leaf Map`: k::map![0 -> 1, ..env] and G { a: 0, ..base } owp (P3c: values and the Map mark under `?`, their inside passing); k::k![Cmd::Go(), ..pgm] cw (P3b), the product's ir being E3. No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix05	principle	Initializer of `? leaf Map`: k::map![0 -> 1, ..env] and G { a: 0, ..base } owp (P3c: values and the Map mark under `?`, their inside passing); k::k![Cmd::Go(), ..pgm] owp (P3c: a term of sort `K` under `?`, COHERE R2-3), the product's ir being E3. No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 #
 ## children
 pattern	line	readable	claim	cells
