@@ -35,7 +35,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{
         FrontendSort, GeneratedCell, InternalLabel, Label, ProductionIdentity, Sort, Term,
-        TermParts, WellKnownModule,
+        TermMetadata, TermParts, WellKnownModule,
     },
     provenance::GeneratingPass,
 };
@@ -123,27 +123,30 @@ pub(crate) fn resolve_fresh_constants_pass(
         // or no counter cell.
         let mut first_counter_use = None;
         for sentence in &mut module.local_sentences {
-            let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
-            let original = sentence.clone();
             match transform_sentence(
-                original,
+                sentence,
                 &productions,
                 &generators,
                 &cell_labels,
                 counter_cell,
             ) {
                 Ok((transformed, counter)) => {
+                    // `None` is the sentence itself (`transform_sentence`): it stays the shared
+                    // allocation, and every fact below reads the same value either way.
+                    let after_sentence: &Sentence = transformed.as_ref().unwrap_or(sentence);
                     if let (Some(before), Some(after)) =
-                        (before_identity, production_identity(&transformed))
+                        (before_identity, production_identity(after_sentence))
                         && before != after
                     {
                         replacements.insert(before, after);
                     }
                     if counter == CounterUse::Advances && first_counter_use.is_none() {
-                        first_counter_use = Some(transformed.clone());
+                        first_counter_use = Some(after_sentence.clone());
                     }
-                    *sentence = transformed;
+                    if let Some(transformed) = transformed {
+                        *sentence = Arc::new(transformed);
+                    }
                 }
                 Err(message) => diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidFreshConstant,
@@ -213,7 +216,6 @@ pub(crate) fn resolve_fresh_constants_pass(
             module.local_sentences.push(Arc::new(configuration));
         }
         for sentence in &mut module.local_sentences {
-            let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             fix_generated_top_format(sentence);
             if let (Some(before), Some(after)) = (before_identity, production_identity(sentence))
@@ -234,7 +236,6 @@ pub(crate) fn resolve_fresh_constants_pass(
         .map_err(|error| error_from(error.to_string()))?;
     for module in &mut expanded.modules {
         for sentence in &mut module.local_sentences {
-            let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             fix_generated_top_format(sentence);
             if let (Some(before), Some(after)) = (before_identity, production_identity(sentence))
@@ -250,13 +251,16 @@ pub(crate) fn resolve_fresh_constants_pass(
 
 /// Lower `sentence`'s fresh variables; `counter_cell` says whether the configuration has the
 /// counter cell, which the generated top production, its initializer and claims then mention.
+///
+/// `None` stands for the sentence itself: the lowering of a sentence that it leaves identical in
+/// every stored part, annotations included, so the caller keeps the shared allocation.
 fn transform_sentence(
-    sentence: Sentence,
+    sentence: &Sentence,
     productions: &ProductionCatalog<'_>,
     generators: &BTreeMap<Sort, Label>,
     cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
     counter_cell: bool,
-) -> Result<(Sentence, CounterUse), String> {
+) -> Result<(Option<Sentence>, CounterUse), String> {
     let mut counter = CounterUse::None;
     let transformed = transform_sentence_counting(
         sentence,
@@ -277,14 +281,15 @@ enum CounterUse {
     Advances,
 }
 
+/// `transform_sentence`, with `None` for the sentence itself.
 fn transform_sentence_counting(
-    sentence: Sentence,
+    sentence: &Sentence,
     productions: &ProductionCatalog<'_>,
     generators: &BTreeMap<Sort, Label>,
     cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
     counter_cell: bool,
     counter: &mut CounterUse,
-) -> Result<Sentence, String> {
+) -> Result<Option<Sentence>, String> {
     match sentence {
         Sentence::Rule {
             body,
@@ -292,32 +297,43 @@ fn transform_sentence_counting(
             ensures,
             attributes,
         } => {
-            let original = Sentence::Rule {
-                body: body.clone(),
-                requires: requires.clone(),
-                ensures: ensures.clone(),
-                attributes: attributes.clone(),
-            };
-            let offsets = fresh_variables([&body, &requires, &ensures]);
+            let offsets = fresh_variables([body, requires, ensures]);
             let transformed_body = transform_term(body, &offsets, generators)?;
-            let with_fresh = Sentence::Rule {
-                body: add_fresh_cell(transformed_body, offsets.len()),
-                requires: transform_term(requires, &offsets, generators)?,
-                ensures: transform_term(ensures, &offsets, generators)?,
-                attributes,
+            let transformed_requires = transform_term(requires, &offsets, generators)?;
+            let transformed_ensures = transform_term(ensures, &offsets, generators)?;
+            // Without fresh variables `add_fresh_cell` adds nothing, so the rule with its fresh
+            // variables lowered is the rule itself exactly when no root changed.
+            let with_fresh = if offsets.is_empty()
+                && transformed_body.is_none()
+                && transformed_requires.is_none()
+                && transformed_ensures.is_none()
+            {
+                None
+            } else {
+                Some(Sentence::Rule {
+                    body: add_fresh_cell(
+                        transformed_body.unwrap_or_else(|| body.clone()),
+                        offsets.len(),
+                    ),
+                    requires: transformed_requires.unwrap_or_else(|| requires.clone()),
+                    ensures: transformed_ensures.unwrap_or_else(|| ensures.clone()),
+                    attributes: attributes.clone(),
+                })
             };
+            let lowered = with_fresh.as_ref().unwrap_or(sentence);
             if counter_cell
-                && with_fresh.attributes().has(AttributeKey::Initializer)
-                && rewrite_left(rule_body(&with_fresh))
+                && lowered.attributes().has(AttributeKey::Initializer)
+                && rewrite_left(rule_body(lowered))
                     .as_apply()
                     .is_some_and(|(label, _)| label.name == GeneratedCell::Top.initializer())
             {
-                return add_counter_initializer(with_fresh);
+                return add_counter_initializer(with_fresh.unwrap_or_else(|| sentence.clone()))
+                    .map(Some);
             }
-            if rule_defines_function(&original, productions) {
+            if rule_defines_function(sentence, productions) {
                 // An equation has no counter cell to draw from; the definition checks reject a
                 // fresh variable in it (`definition::checks::fresh_variables`).
-                Ok(original)
+                Ok(None)
             } else {
                 if !offsets.is_empty() {
                     *counter = CounterUse::Advances;
@@ -330,19 +346,25 @@ fn transform_sentence_counting(
             requires,
             attributes,
         } => {
-            let offsets = fresh_variables([&body, &requires]);
+            let offsets = fresh_variables([body, requires]);
             if !offsets.is_empty() {
                 *counter = CounterUse::Advances;
             }
-            Ok(Sentence::Context {
-                body: add_fresh_cell(transform_term(body, &offsets, generators)?, offsets.len()),
-                requires: transform_term(requires, &offsets, generators)?,
-                attributes,
-            })
+            let transformed_body = transform_term(body, &offsets, generators)?;
+            let transformed_requires = transform_term(requires, &offsets, generators)?;
+            if offsets.is_empty() && transformed_body.is_none() && transformed_requires.is_none() {
+                return Ok(None);
+            }
+            Ok(Some(Sentence::Context {
+                body: add_fresh_cell(
+                    transformed_body.unwrap_or_else(|| body.clone()),
+                    offsets.len(),
+                ),
+                requires: transformed_requires.unwrap_or_else(|| requires.clone()),
+                attributes: attributes.clone(),
+            }))
         }
-        production @ Sentence::Production { .. } if counter_cell => {
-            Ok(add_counter_to_top_production(production))
-        }
+        Sentence::Production { .. } if counter_cell => Ok(add_counter_to_top_production(sentence)),
         Sentence::Claim {
             body,
             requires,
@@ -357,34 +379,33 @@ fn transform_sentence_counting(
             // configuration's frame would instead claim that no `!` variable is instantiated.
             // Without the counter cell there is no counter to say anything about.
             let cell_labels = cell_labels.get_or_init(|| cell_labels_of(productions));
-            let body = if counter_cell
-                && mentions_label(&body, |name| cell_labels.contains(name))
-                && !mentions_label(&body, |name| name == GeneratedCell::Counter.label())
+            if counter_cell
+                && mentions_label(body, |name| cell_labels.contains(name))
+                && !mentions_label(body, |name| name == GeneratedCell::Counter.label())
             {
                 let mut names =
-                    super::super::fresh_names::FreshNames::for_terms([&body, &requires, &ensures]);
+                    super::super::fresh_names::FreshNames::for_terms([body, requires, ensures]);
                 let before = names.mint("_Gen");
                 let after = names.mint("?_Gen");
-                add_claim_counter_cell(body, before, after)
+                Ok(Some(Sentence::Claim {
+                    body: add_claim_counter_cell(body.clone(), before, after),
+                    requires: requires.clone(),
+                    ensures: ensures.clone(),
+                    attributes: attributes.clone(),
+                }))
             } else {
-                body
-            };
-            Ok(Sentence::Claim {
-                body,
-                requires,
-                ensures,
-                attributes,
-            })
+                Ok(None)
+            }
         }
-        sentence @ Sentence::Production { .. }
-        | sentence @ Sentence::SyntaxSort { .. }
-        | sentence @ Sentence::SortSynonym { .. }
-        | sentence @ Sentence::SyntaxLexical { .. }
-        | sentence @ Sentence::SyntaxAssociativity { .. }
-        | sentence @ Sentence::SyntaxPriority { .. }
-        | sentence @ Sentence::ContextAlias { .. }
-        | sentence @ Sentence::Configuration { .. }
-        | sentence @ Sentence::Bubble { .. } => Ok(sentence),
+        Sentence::Production { .. }
+        | Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => Ok(None),
     }
 }
 
@@ -490,72 +511,127 @@ fn fresh_variables<'a>(roots: impl IntoIterator<Item = &'a Term>) -> BTreeMap<St
     offsets
 }
 
+/// `term` with each fresh variable of `offsets` drawn from the counter through its sort's
+/// generator, every other node rebuilt with its outermost annotation (`with_metadata`); `None`
+/// when that is `term` itself.
+///
+/// A rebuilt node carries only the outermost annotation of the original, and none when that
+/// annotation is empty (`with_metadata` drops an empty one). So a node other than a lowered
+/// fresh variable rebuilds identically, annotation included, exactly when it has at most one
+/// annotation layer, that layer is not empty, and every child rebuilds identically; that node
+/// is reported as `None` and its children are not copied.
 fn transform_term(
-    term: Term,
+    term: &Term,
     offsets: &BTreeMap<String, usize>,
     generators: &BTreeMap<Sort, Label>,
-) -> Result<Term, String> {
-    let metadata = term.metadata().cloned();
-    match term.into_unannotated().into_parts() {
-        TermParts::Variable { name, sort } if offsets.contains_key(&name) => {
+) -> Result<Option<Term>, String> {
+    let metadata = term.metadata();
+    let keeps_annotation = match term {
+        Term::Annotated {
+            term: inner,
+            metadata,
+        } => !matches!(**inner, Term::Annotated { .. }) && *metadata != TermMetadata::default(),
+        Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Variable { .. }
+        | Term::Sequence(_)
+        | Term::Apply { .. }
+        | Term::Token { .. } => true,
+    };
+    let rebuild = |node: Term| with_metadata(node, metadata.cloned());
+    let child = |transformed: Option<Term>, original: &Term| {
+        transformed.unwrap_or_else(|| original.clone())
+    };
+    match term.unannotated() {
+        Term::Variable { name, sort } if offsets.contains_key(name) => {
             let sort = sort
-                .or_else(|| metadata.and_then(|metadata| metadata.sort))
+                .clone()
+                .or_else(|| metadata.and_then(|metadata| metadata.sort.clone()))
                 .ok_or_else(|| "Fresh constant used without a declared sort.".to_owned())?;
             let generator = generators
                 .get(&sort)
                 .ok_or_else(|| format!("No fresh generator defined for sort {sort}"))?;
-            Ok(Term::Apply {
+            Ok(Some(Term::Apply {
                 label: generator.clone(),
                 arguments: vec![Term::apply(
                     "_+Int_",
                     vec![
                         fresh_counter(),
                         Term::Token {
-                            token: offsets[&name].to_string(),
+                            token: offsets[name].to_string(),
                             sort: Sort::builtin(BuiltinSort::Int),
                         },
                     ],
                 )],
+            }))
+        }
+        Term::Apply { label, arguments } => {
+            Ok(match transform_terms(arguments, offsets, generators)? {
+                None if keeps_annotation => None,
+                new_arguments => Some(rebuild(Term::Apply {
+                    label: label.clone(),
+                    arguments: new_arguments.unwrap_or_else(|| arguments.clone()),
+                })),
             })
         }
-        TermParts::Apply { label, arguments } => Ok(with_metadata(
-            Term::Apply {
-                label,
-                arguments: arguments
-                    .into_iter()
-                    .map(|argument| transform_term(argument, offsets, generators))
-                    .collect::<Result<_, _>>()?,
-            },
-            metadata,
-        )),
-        TermParts::Rewrite { left, right } => Ok(with_metadata(
-            Term::Rewrite {
-                left: Box::new(transform_term(*left, offsets, generators)?),
-                right: Box::new(transform_term(*right, offsets, generators)?),
-            },
-            metadata,
-        )),
-        TermParts::As { pattern, alias } => Ok(with_metadata(
-            Term::As {
-                pattern: Box::new(transform_term(*pattern, offsets, generators)?),
-                alias: Box::new(transform_term(*alias, offsets, generators)?),
-            },
-            metadata,
-        )),
-        TermParts::Sequence(items) => Ok(with_metadata(
-            Term::Sequence(
-                items
-                    .into_iter()
-                    .map(|item| transform_term(item, offsets, generators))
-                    .collect::<Result<_, _>>()?,
-            ),
-            metadata,
-        )),
-        leaf @ (TermParts::InjectedLabel(_)
-        | TermParts::Variable { .. }
-        | TermParts::Token { .. }) => Ok(with_metadata(Term::from(leaf), metadata)),
-        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+        Term::Rewrite { left, right } => {
+            let new_left = transform_term(left, offsets, generators)?;
+            let new_right = transform_term(right, offsets, generators)?;
+            if new_left.is_none() && new_right.is_none() && keeps_annotation {
+                return Ok(None);
+            }
+            Ok(Some(rebuild(Term::Rewrite {
+                left: Box::new(child(new_left, left)),
+                right: Box::new(child(new_right, right)),
+            })))
+        }
+        Term::As { pattern, alias } => {
+            let new_pattern = transform_term(pattern, offsets, generators)?;
+            let new_alias = transform_term(alias, offsets, generators)?;
+            if new_pattern.is_none() && new_alias.is_none() && keeps_annotation {
+                return Ok(None);
+            }
+            Ok(Some(rebuild(Term::As {
+                pattern: Box::new(child(new_pattern, pattern)),
+                alias: Box::new(child(new_alias, alias)),
+            })))
+        }
+        Term::Sequence(items) => Ok(match transform_terms(items, offsets, generators)? {
+            None if keeps_annotation => None,
+            new_items => Some(rebuild(Term::Sequence(
+                new_items.unwrap_or_else(|| items.clone()),
+            ))),
+        }),
+        leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => {
+            Ok((!keeps_annotation).then(|| rebuild(leaf.clone())))
+        }
+        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
     }
+}
+
+/// [`transform_term`] of each of `terms` in order, `None` when every one is `None`; the items
+/// before the first change are copied only once one changes.
+fn transform_terms(
+    terms: &[Term],
+    offsets: &BTreeMap<String, usize>,
+    generators: &BTreeMap<Sort, Label>,
+) -> Result<Option<Vec<Term>>, String> {
+    let mut transformed: Option<Vec<Term>> = None;
+    for (index, term) in terms.iter().enumerate() {
+        let new = transform_term(term, offsets, generators)?;
+        match (&mut transformed, new) {
+            (Some(items), new) => items.push(new.unwrap_or_else(|| term.clone())),
+            (None, Some(new)) => {
+                let mut items = Vec::with_capacity(terms.len());
+                items.extend_from_slice(&terms[..index]);
+                items.push(new);
+                transformed = Some(items);
+            }
+            (None, None) => {}
+        }
+    }
+    Ok(transformed)
 }
 
 fn add_fresh_cell(body: Term, count: usize) -> Term {
@@ -650,21 +726,16 @@ fn add_counter_initializer(sentence: Sentence) -> Result<Sentence, String> {
     })
 }
 
-fn add_counter_to_top_production(sentence: Sentence) -> Sentence {
-    let Sentence::Production {
-        label,
-        parameters,
-        sort,
-        mut items,
-        attributes,
-    } = sentence
-    else {
+/// The generated top production with the counter cell's nonterminal before its closing
+/// terminal, or `None` when `sentence` is not that production or already has the nonterminal.
+fn add_counter_to_top_production(sentence: &Sentence) -> Option<Sentence> {
+    let Sentence::Production { label, items, .. } = sentence else {
         unreachable!()
     };
-    if label
+    if !label
         .as_ref()
         .is_some_and(|label| label.name == GeneratedCell::Top.label())
-        && !items.iter().any(|item| {
+        || items.iter().any(|item| {
             matches!(
                 item,
                 ProductionItem::NonTerminal { sort, .. }
@@ -672,36 +743,48 @@ fn add_counter_to_top_production(sentence: Sentence) -> Sentence {
             )
         })
     {
-        let position = items.len().saturating_sub(1);
-        items.insert(
-            position,
-            ProductionItem::NonTerminal {
-                sort: Sort::builtin(BuiltinSort::GeneratedCounterCell),
-                name: None,
-            },
-        );
+        return None;
     }
-    Sentence::Production {
-        label,
-        parameters,
-        sort,
-        items,
-        attributes,
-    }
+    let mut production = sentence.clone();
+    let Sentence::Production { items, .. } = &mut production else {
+        unreachable!()
+    };
+    let position = items.len().saturating_sub(1);
+    items.insert(
+        position,
+        ProductionItem::NonTerminal {
+            sort: Sort::builtin(BuiltinSort::GeneratedCounterCell),
+            name: None,
+        },
+    );
+    Some(production)
 }
 
-fn fix_generated_top_format(sentence: &mut Sentence) {
+/// Give the generated top production its `format` ([`generated_top_format`]); every other
+/// sentence is left as it is, still shared.
+fn fix_generated_top_format(sentence: &mut Arc<Sentence>) {
+    let Some(format) = generated_top_format(sentence) else {
+        return;
+    };
+    let Sentence::Production { attributes, .. } = crate::definition::sentence_mut(sentence) else {
+        unreachable!("only a production has a generated top format")
+    };
+    attributes.set(AttributeKey::Format, json!(format));
+}
+
+/// The `format` of the generated top production, `None` for any other sentence and for a
+/// generated top production without a nonterminal besides the counter cell's.
+fn generated_top_format(sentence: &Sentence) -> Option<String> {
     let Sentence::Production {
         label: Some(label),
         items,
-        attributes,
         ..
     } = sentence
     else {
-        return;
+        return None;
     };
     if label.name != GeneratedCell::Top.label() {
-        return;
+        return None;
     }
     #[expect(
         clippy::wildcard_enum_match_arm,
@@ -719,9 +802,7 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
             _ => None,
         })
         .collect::<Vec<_>>();
-    let Some(last) = positions.last().copied() else {
-        return;
-    };
+    let last = positions.last().copied()?;
     let format = if positions.len() == 1 {
         format!("%{}", positions[0])
     } else {
@@ -732,7 +813,7 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
         format.push_str(&format!("%d%n%{}", last + 2));
         format
     };
-    attributes.set(AttributeKey::Format, json!(format));
+    Some(format)
 }
 
 /// The configuration `<generatedTop> <root/> <generatedCounter> N </generatedCounter>
