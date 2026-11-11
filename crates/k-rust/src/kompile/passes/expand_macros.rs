@@ -262,45 +262,48 @@ pub(crate) fn expand_macros_pass(
                 | Sentence::ContextAlias { .. }
                 | Sentence::Rule { .. }
                 | Sentence::Configuration { .. }
-                | Sentence::Bubble { .. } => {
-                    crate::definition::sentence_mut(sentence);
-                    continue;
-                }
+                | Sentence::Bubble { .. } => continue,
             };
-            // Copying, expanding and checking the sentence walk its terms recursively, so they
-            // run with stack in proportion to the deepest term the expansion may hold.
+            // Copying, expanding, checking and comparing the sentence walk its terms
+            // recursively, so they run with stack in proportion to the deepest term the
+            // expansion may hold.
             let zone = stack_zone(sentence_depth(sentence));
             with_stack(zone, || {
-                let sentence = crate::definition::sentence_mut(sentence);
-                let original = sentence.clone();
-                match expander.expand_sentence(original) {
-                    Ok(expanded) => {
-                        *sentence = expanded;
+                match expander.expand_sentence((**sentence).clone()) {
+                    Ok(mut expanded) => {
                         // A parameter that occurs more than once copies its argument, and a copy
                         // of a quantifier binds its name again: rename the copies apart.
-                        super::rename_copies_apart(sentence);
+                        super::rename_copies_apart(&mut expanded);
                         let internal_labels = internal_labels.get_or_insert_with(|| {
                             checks::internal_labels(expander.productions, expander.sorts)
                         });
                         diagnostics.extend(check_functions_with_internal_labels(
-                            &[sentence],
+                            &[&expanded],
                             expander.productions,
                             internal_labels,
                         ));
-                        diagnostics.extend(check_smt_lemmas(&[sentence], expander.productions));
+                        diagnostics.extend(check_smt_lemmas(&[&expanded], expander.productions));
                         diagnostics.extend(check_macro_existentials(
-                            sentence,
+                            &expanded,
                             &expander.existentials,
                             expander.productions,
                         ));
                         if reports_unexpanded_macros
-                            && contains_macro_symbol(sentence, expander.productions)
+                            && contains_macro_symbol(&expanded, expander.productions)
                         {
                             diagnostics.push(Diagnostic::error(
                                 DiagnosticCode::InvalidMacroExpansion,
                                 "Rule contains macro symbol that was not expanded",
-                                sentence,
+                                &expanded,
                             ));
+                        }
+                        // Expansion rebuilds every term it walks, so most sentences come back
+                        // as a copy of their input. A result identical to the input under the
+                        // strict comparison resolution reuses by (terms with their metadata,
+                        // attributes with their receipts) is the same value: the input
+                        // allocation stands for it, and the copy is dropped.
+                        if !crate::definition::resolve::sentences_identical(&expanded, sentence) {
+                            *sentence = std::sync::Arc::new(expanded);
                         }
                     }
                     Err(diagnostic) => diagnostics.push(located_at(diagnostic, sentence)),

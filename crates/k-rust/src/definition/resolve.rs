@@ -1091,7 +1091,7 @@ pub(crate) fn measured_sentences_identical(left: &Sentence, right: &Sentence) ->
     sentences_identical(left, right)
 }
 
-fn sentences_identical(left: &Sentence, right: &Sentence) -> bool {
+pub(crate) fn sentences_identical(left: &Sentence, right: &Sentence) -> bool {
     // Identity is reflexive, and a pass shares every sentence it leaves unchanged with its input.
     if std::ptr::eq(left, right) {
         return true;
