@@ -4042,6 +4042,68 @@ fn an_exact_cells_subject_is_judged_by_the_cells_its_author_names() {
     "#]].assert_debug_eq(&refused);
 }
 
+/// A `WHOLE` `cells!` rule (`claim` false) or claim `make` over `x: Int` and `a: Int` whose
+/// subject is `subject` and whose result's payload is `result`, as written.
+fn whole_payloads(claim: bool, subject: &str, result: &str) -> String {
+    let attribute = if claim {
+        "#[k::claim(one_path, label = \"make\")]"
+    } else {
+        "#[k::rule(label = \"make\")]"
+    };
+    format!(
+        "{}{attribute}\npub fn make(\n    x: Int,\n    a: Int,\n    k::cells! {{ {subject} }}: Machine,\n) -> Machine {{\n    k::cells! {{ {result} }}\n}}\n",
+        WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+    )
+}
+
+/// CELLS3 item 2: a `cells!` result that names no cell, `cells! {}` or `cells! { .. }`, leaves
+/// every cell as it is, which is what `..state` says: a claim is the claim with `..state`, and a
+/// rule changes no cell, refused as the `..state` twin is, whatever the subject's rest.
+#[test]
+fn a_cells_result_naming_no_cell_leaves_every_cell_as_it_is() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let k = "k: k::configuration::KCell(Cmd::Make { x }, ..), acc: k::configuration::Cell(a)";
+    let mut lines = Vec::new();
+    for claim in [false, true] {
+        let form = if claim { "claim" } else { "rule" };
+        let line = |name: &str, subject: &str, result: &str| {
+            let manifest = library_package(
+                temporary.path(),
+                &format!("unchanged-{form}-{name}"),
+                &whole_payloads(claim, subject, result),
+            );
+            if claim {
+                emitted_sentence(target.path(), &manifest, "make")
+            } else {
+                first_error(target.path(), &manifest)
+            }
+        };
+        let twin = line("reuse", &format!("{k}, state @ .."), "..state");
+        for (name, subject, result) in [
+            ("named-empty", format!("{k}, state @ .."), ""),
+            ("named-rest", format!("{k}, state @ .."), ".."),
+            ("anonymous-empty", format!("{k}, .."), ""),
+            ("anonymous-rest", format!("{k}, .."), ".."),
+        ] {
+            assert_eq!(line(name, &subject, result), twin, "{form}-{name}");
+        }
+        lines.push(twin);
+        // An exact subject has no `..state` twin; its claim reads `frame` (`_`). (Its rule's
+        // first located line is the no-effect lint of `frame: _`.)
+        if claim {
+            lines.push(line("exact-empty", &format!("{k}, frame: _"), ""));
+        }
+    }
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 54:5",
+            "claim [make]: <k> make ( X:Int ) ... </k> <acc> A:Int </acc> [one-path]",
+            "claim [make]: <k> make ( X:Int ) ... </k> <acc> A:Int </acc> _ [one-path]",
+        ]
+    "#]].assert_debug_eq(&lines);
+}
+
 /// CELLSX: a `cells!` record without a rest that leaves a cell out describes no configuration,
 /// since every configuration holds each of its cells; it is refused at the record, which says
 /// which cells it leaves out, in a rule, a claim, a single-body rule, a context and a context

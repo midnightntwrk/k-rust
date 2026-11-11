@@ -1460,6 +1460,10 @@ pub struct CellsExpression {
     remainder: StateMacroRemainder,
     payload_key: Option<ProvenanceKey>,
     remainder_key: Option<ProvenanceKey>,
+    /// The macro's delimiters, where the caller has them: the payload's range when it holds no
+    /// token, a result that names no cell (`cells! {}`). Without them such a payload has no key,
+    /// as an empty K sequence's has none without its invocation.
+    invocation: Option<TokenRange>,
     /// The anchors of the cells' standalone keying.
     anchors: Vec<ProvenanceAnchor>,
     /// The refusal of the first entry part whose fault waits for the judgement of the entry
@@ -1592,8 +1596,9 @@ impl CellsExpression {
         keys: &mut KeyAllocator,
         position: StatePosition,
     ) -> Result<(), SyntaxError> {
-        let range = TokenRange::for_tokens(&self.tokens)?;
-        self.payload_key = Some(key_at(keys, position, RuleRole::CellsPayload, range)?);
+        if let Some(range) = payload_range(&self.tokens, self.invocation)? {
+            self.payload_key = Some(key_at(keys, position, RuleRole::CellsPayload, range)?);
+        }
         for entry in &mut self.entries {
             let field = key_at(
                 keys,
@@ -1734,11 +1739,14 @@ pub fn parse_cells_expression(tokens: TokenStream) -> Result<CellsExpression, Sy
 ///
 /// # Errors
 ///
-/// As [`parse_cells_expression`], but for such an item.
+/// As [`parse_cells_expression`], but for such an item. `invocation` is the macro's delimiters,
+/// the range of a payload that holds no token.
 pub(crate) fn parse_cells_expression_judged_later(
     tokens: TokenStream,
+    invocation: Option<TokenRange>,
 ) -> Result<CellsExpression, SyntaxError> {
-    parse_cells(tokens, StateMacroContext::Expression, false)
+    parse_unkeyed_cells(tokens, StateMacroContext::Expression, false, invocation)
+        .and_then(CellsExpression::keyed_standalone)
 }
 
 /// Parses a `cells!` pattern payload together with lossless source trivia.
@@ -2227,13 +2235,14 @@ fn parse_cells(
     context: StateMacroContext,
     looks_up: bool,
 ) -> Result<CellsExpression, SyntaxError> {
-    parse_unkeyed_cells(tokens, context, looks_up).and_then(CellsExpression::keyed_standalone)
+    parse_unkeyed_cells(tokens, context, looks_up, None).and_then(CellsExpression::keyed_standalone)
 }
 
 fn parse_unkeyed_cells(
     tokens: TokenStream,
     context: StateMacroContext,
     looks_up: bool,
+    invocation: Option<TokenRange>,
 ) -> Result<CellsExpression, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
@@ -2312,11 +2321,13 @@ fn parse_unkeyed_cells(
                 }
                 input.parse::<Token![,]>().map_err(SyntaxError::from)?;
             }
-            // A result that names no cell and keeps the rest of the state (`..state`) leaves
-            // every cell as its subject found it: the state the subject denotes, unchanged.
+            // A result that names no cell leaves every cell as its subject found it, since a
+            // `cells!` result leaves each cell it does not name as it is, whether it ends in
+            // `..state`, in `..` or in nothing: the state the subject denotes, unchanged.
             // Whether the sentence may say that is its own form's to judge (a rule that writes
-            // no cell repeats forever; a claim that a state reaches itself is no mistake).
-            if entries.is_empty() && !matches!(remainder, StateMacroRemainder::Reuse { .. }) {
+            // no cell repeats forever; a claim that a state reaches itself is no mistake). A
+            // pattern names at least one cell, as a readable subject does.
+            if entries.is_empty() && context == StateMacroContext::Pattern {
                 return Err(state_error(
                     "cells",
                     "at least one cell clause is required",
@@ -2330,6 +2341,7 @@ fn parse_unkeyed_cells(
                 remainder,
                 payload_key: None,
                 remainder_key: None,
+                invocation,
                 anchors: Vec::new(),
                 carried,
             })
@@ -4148,6 +4160,7 @@ mod presences {
         );
         let result = parse_cells_expression_judged_later(
             quote!(ocell: k::fragment![crate::O { oo: Some(1), op: None, on: 0 }]),
+            None,
         )
         .expect("the result's presences wait");
         assert!(

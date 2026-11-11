@@ -738,8 +738,13 @@ impl StateRuleItem {
                 let result_type = parse_configuration_type(result_type)?;
                 let result_macro = parse_result_macro(&item)?;
                 validate_cells_path(&result_macro.path, result_macro.span())?;
+                let delimiters = result_macro.delimiter.span();
                 let result = crate::state_macro::parse_cells_expression_judged_later(
                     result_macro.tokens.clone(),
+                    Some(crate::TokenRange::new(
+                        delimiters.open(),
+                        delimiters.close(),
+                    )),
                 )?;
                 Some(StateRuleResult {
                     result_macro,

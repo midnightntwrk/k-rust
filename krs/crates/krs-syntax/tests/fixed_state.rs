@@ -619,13 +619,6 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
 
     for (source, expected_kind) in [
         (
-            "",
-            SyntaxErrorKind::InvalidStateMacro {
-                macro_name: "cells",
-                reason: "at least one cell clause is required",
-            },
-        ),
-        (
             "k: KCell(.K), k: KCell(.K)",
             SyntaxErrorKind::InvalidStateMacro {
                 macro_name: "cells",
@@ -695,6 +688,37 @@ fn a_results_anonymous_rest_is_no_remainder() {
             reason: "the configuration remainder must be last",
         }
     );
+}
+
+/// A result that names no cell, with `..` or without it, leaves every cell as it is: it parses,
+/// with no entry and no remainder, as `..state` alone parses with no entry. A pattern that names
+/// no cell is refused.
+#[test]
+fn a_result_naming_no_cell_is_every_cell_unchanged() {
+    for source in ["", "..", "..,"] {
+        let expression = krs_syntax::parse_cells_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap();
+        assert!(expression.entries().is_empty(), "{source:?}");
+        assert!(
+            matches!(expression.remainder(), StateMacroRemainder::Exact),
+            "{source:?}"
+        );
+    }
+    for source in ["", "..", "state @ .."] {
+        let error =
+            krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+                .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason: "at least one cell clause is required",
+            },
+            "{source:?}"
+        );
+    }
 }
 
 #[test]
