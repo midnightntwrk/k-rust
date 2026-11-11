@@ -78,6 +78,10 @@ export const matchingLogic8: Lesson = {
           hl: { i: [at(interp, '| φ ⇒ ψ =>'), at(interp, '| ∃∃ x φ =>'), at(interp, '| ⊥ =>')] },
           notes: [note('i', at(interp, '| φ ⇒ ψ =>'), 'An element is in `φ ⇒ ψ` if, when it is in `φ`, it is in `ψ`.', '→')],
         },
+        {
+          hl: { i: span(interp, '| μ X φ =>', '      B m') },
+          notes: [note('i', at(interp, '| μ X φ =>'), '`μX. φ`: the least set `X` closed under `φ`. Its one use in this course: a sort holds exactly what its constructors build (lesson 9).', 'μ X φ')],
+        },
       ],
     },
     {

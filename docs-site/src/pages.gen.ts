@@ -28,6 +28,7 @@ type Page =
   | { path: '/lean/state-of-the-core'; render: 'static' }
   | { path: '/lean/step'; render: 'static' }
   | { path: '/lean/terms'; render: 'static' }
+  | { path: '/lean/theory'; render: 'static' }
   | { path: '/lean/values'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
