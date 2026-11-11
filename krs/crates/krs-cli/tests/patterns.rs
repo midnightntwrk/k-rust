@@ -113,7 +113,7 @@ k::rules! {
 
 /// The acceptance examples E1 (dispatch-request) and E2 (halt-bug-rst), a condition over two
 /// steps, and an expectation.
-const PATTERNS: &str = r#"
+const PATTERNS: &str = r#"#![deny(non_snake_case)]
 use spec::{IF, Low};
 
 k::patterns! {
@@ -215,8 +215,9 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 
 /// Two conjuncts and more on one part (FB56 P1): a part's conditions are one conjunction, so
 /// each spelling, attributes or `&&` or both, gives the part one `requires` whose conjuncts are
-/// joined by `andThenBool` in source order.
-const CONJUNCTS: &str = r"
+/// joined by `andThenBool` in source order. The generated part names are no lint of the
+/// author's (P4a): the package denies `non_snake_case`.
+const CONJUNCTS: &str = r"#![deny(non_snake_case)]
 use spec::Low;
 
 k::patterns! {

@@ -696,6 +696,13 @@ fn expand_head_rule(
     let fn_token = original.sig.fn_token;
     let name_ident = &original.sig.ident;
     let name = name_ident.unraw().to_string();
+    // A pattern part after step 1 is an item named `<clause>__step<n>` or `<clause>__unless<n>`
+    // (FB-49), which the pattern's ids and anchors read, so the generated name is kept and its
+    // case is no lint of the author's.
+    let generated_name = clause
+        .pattern()
+        .filter(|part| part.step != 1 || part.unless)
+        .map(|_| quote!(#[allow(non_snake_case)]));
     // A clause's one sort is its subject's and its result's: the sentence
     // keys the authored sort as both types.
     let result_type_key = ledger.define(rule.result_type_key())?;
@@ -813,6 +820,7 @@ fn expand_head_rule(
         #scoped_binders
 
         #(#attrs)*
+        #generated_name
         #visibility #fn_token #name_ident(__krs_symbolic_subject: #sort_alias) -> #sort_alias {
             let _krs_binding_check = || { #(#binding_checks)* };
             let _ = __krs_symbolic_subject;

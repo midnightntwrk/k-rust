@@ -296,6 +296,7 @@ fn __krs_head_rule_descriptor_243a17f67657e0b6() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_243a17f67657e0b6);
+#[allow(non_snake_case)]
 pub fn down__unless2(
     __krs_symbolic_subject: __KrsBlockSort_61d42b1ed8f000ce,
 ) -> __KrsBlockSort_61d42b1ed8f000ce {
@@ -469,6 +470,7 @@ fn __krs_head_rule_descriptor_6ac06c155c1a532a() -> ::core::result::Result<
     })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_6ac06c155c1a532a);
+#[allow(non_snake_case)]
 pub fn down__step2(
     __krs_symbolic_subject: __KrsBlockSort_61d42b1ed8f000ce,
 ) -> __KrsBlockSort_61d42b1ed8f000ce {
