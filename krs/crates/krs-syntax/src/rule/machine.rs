@@ -716,12 +716,26 @@ fn parse_readable_child(
     if let [TokenTree::Group(group)] = trees.as_slice()
         && group.delimiter() == proc_macro2::Delimiter::Bracket
     {
-        let mut items = Vec::new();
-        let mut tail = StateMacroRemainder::Exact;
         let chunks = top_level_items(group.stream());
         let count = chunks.len();
+        // An instance child is a cell, so its brackets mean what they mean at a cell of its
+        // kind outside every instance. A pattern's `..` before its last item (a back, `[.., x]`
+        // or `[x, .., y]`, or a second rest) is no computation's items, whose rest ends them:
+        // the brackets are read as the term their list notation denotes, as a `cells!` instance
+        // child's are, and the child's kind judges that reading. A builtin List child matches
+        // its back; a computation child refuses an item after its rest, and a Set child
+        // brackets, as at their own cell.
+        if context == StateMacroContext::Pattern
+            && chunks[..count.saturating_sub(1)].iter().any(is_dots)
+        {
+            return Ok(StateTerm::Term(read(tokens)?));
+        }
+        let mut items = Vec::new();
+        let mut tail = StateMacroRemainder::Exact;
         for (index, chunk) in chunks.into_iter().enumerate() {
             if is_dots(&chunk) {
+                // A result's `..` before an item would keep the subject's rest in front of it,
+                // and the sequence a result child holds keeps its rest after its items only.
                 if index + 1 != count {
                     return Err(readable_error(
                         chunk.span(),
