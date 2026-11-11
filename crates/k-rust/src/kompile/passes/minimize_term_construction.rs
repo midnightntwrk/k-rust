@@ -29,6 +29,7 @@ use crate::{
 };
 
 use super::super::{TermConversionError, TermConverter};
+use super::remove_unit::reannotation_keeps;
 
 /// Reuse left-hand-side subterms that also occur on a rule's right-hand side through `#as`
 /// aliases, before KORE emission.
@@ -84,19 +85,20 @@ pub(crate) fn minimize_term_construction_pass(
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => continue,
             }
-            let sentence = crate::definition::sentence_mut(sentence);
+            // The rule is read in place: the minimizer numbers its subterms by address and
+            // mints its names locally, so a rule it leaves unchanged stays shared, uncopied.
             let Sentence::Rule {
                 body,
                 requires,
                 ensures,
                 ..
-            } = sentence
+            } = &**sentence
             else {
-                unreachable!("copy-on-write keeps the sentence decided above");
+                unreachable!("the kind is decided above");
             };
-            let fresh = FreshNames::for_terms([&*body, &*requires, &*ensures]);
+            let fresh = FreshNames::for_terms([body, requires, ensures]);
             let mut identities = Identities::default();
-            for term in [&*body, &*requires, &*ensures] {
+            for term in [body, requires, ensures] {
                 identities.number(term);
             }
             let mut minimizer = Minimizer::new(
@@ -118,7 +120,23 @@ pub(crate) fn minimize_term_construction_pass(
                 minimizer.transform(requires, Position::Right, false),
                 minimizer.transform(ensures, Position::Right, false),
             ];
-            [*body, *requires, *ensures] = minimized;
+            if minimized.iter().all(Option::is_none) {
+                continue;
+            }
+            let Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            } = crate::definition::sentence_mut(sentence)
+            else {
+                unreachable!("copy-on-write keeps the sentence decided above");
+            };
+            for (term, minimized) in [body, requires, ensures].into_iter().zip(minimized) {
+                if let Some(minimized) = minimized {
+                    *term = minimized;
+                }
+            }
         }
     }
     Ok(output)
@@ -347,38 +365,54 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
     }
 
     // Invariant: a right-position `term` that is a key of `self.cache` becomes its variable without descending; otherwise each call rebuilds `term` from its transformed immediate subterms, so the finite `term` bounds the recursion.
-    fn transform(&self, term: &Term, position: Position, in_bad: bool) -> Term {
+    /// The term `term` becomes, or `None` when that is `term` itself, identical in every stored
+    /// part: the term is then kept as it is rather than rebuilt node by node.
+    fn transform(&self, term: &Term, position: Position, in_bad: bool) -> Option<Term> {
         crate::stack::guarded(|| self.transform_level(term, position, in_bad))
     }
 
     /// One level of [`Self::transform`], which runs it with stack for one more level.
-    fn transform_level(&self, term: &Term, position: Position, in_bad: bool) -> Term {
+    fn transform_level(&self, term: &Term, position: Position, in_bad: bool) -> Option<Term> {
         let identity = self.identities.of(term);
         if position == Position::Right
             && let Some(variable) = self.cache.get(&identity)
         {
-            return variable.clone();
+            return Some(variable.clone());
         }
-        let metadata = term.metadata().cloned();
         let bare = term.unannotated();
+        // `None`: the node rebuilt without its annotation is `bare` itself.
         let transformed = match bare {
-            Term::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.transform(left, Position::Left, in_bad)),
-                right: Box::new(self.transform(right, Position::Right, in_bad)),
+            Term::Rewrite { left, right } => match (
+                self.transform(left, Position::Left, in_bad),
+                self.transform(right, Position::Right, in_bad),
+            ) {
+                (None, None) => None,
+                (new_left, new_right) => Some(Term::Rewrite {
+                    left: Box::new(new_left.unwrap_or_else(|| (**left).clone())),
+                    right: Box::new(new_right.unwrap_or_else(|| (**right).clone())),
+                }),
             },
-            Term::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.transform(pattern, position, in_bad)),
-                alias: Box::new(self.transform(alias, position, in_bad)),
+            Term::As { pattern, alias } => match (
+                self.transform(pattern, position, in_bad),
+                self.transform(alias, position, in_bad),
+            ) {
+                (None, None) => None,
+                (new_pattern, new_alias) => Some(Term::As {
+                    pattern: Box::new(new_pattern.unwrap_or_else(|| (**pattern).clone())),
+                    alias: Box::new(new_alias.unwrap_or_else(|| (**alias).clone())),
+                }),
             },
-            Term::Sequence(items) => Term::Sequence(
+            Term::Sequence(items) => rebuilt(
+                items,
                 items
                     .iter()
                     .map(|item| self.transform(item, position, in_bad))
                     .collect(),
-            ),
+            )
+            .map(Term::Sequence),
             Term::Apply { label, arguments } => {
                 let hook = self.hook(label);
-                let arguments = if hook == Some("MAP.element") {
+                let transformed = if hook == Some("MAP.element") {
                     arguments
                         .iter()
                         .enumerate()
@@ -392,29 +426,32 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
                         .map(|argument| self.transform(argument, position, blocked))
                         .collect()
                 };
-                Term::Apply {
+                rebuilt(arguments, transformed).map(|arguments| Term::Apply {
                     label: label.clone(),
                     arguments,
-                }
+                })
             }
-            leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => {
-                leaf.clone()
-            }
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
             Term::Annotated { .. } => unreachable!(),
         };
-        let transformed = match metadata {
-            Some(metadata) => transformed.with_metadata(metadata),
-            None => transformed,
+        let transformed = if transformed.is_none() && reannotation_keeps(term) {
+            None
+        } else {
+            let transformed = transformed.unwrap_or_else(|| bare.clone());
+            Some(match term.metadata() {
+                Some(metadata) => transformed.with_metadata(metadata.clone()),
+                None => transformed,
+            })
         };
         if position == Position::Left
             && !in_bad
             && self.used_on_rhs.contains(&identity)
             && let Some(variable) = self.cache.get(&identity)
         {
-            Term::As {
-                pattern: Box::new(transformed),
+            Some(Term::As {
+                pattern: Box::new(transformed.unwrap_or_else(|| term.clone())),
                 alias: Box::new(variable.clone()),
-            }
+            })
         } else {
             transformed
         }
@@ -436,6 +473,20 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
             })
             .and_then(|attributes| attributes.string(AttributeKey::Hook))
     }
+}
+
+/// `terms` with each one `transformed` replaced (`Some`), or `None` when none is.
+fn rebuilt(terms: &[Term], transformed: Vec<Option<Term>>) -> Option<Vec<Term>> {
+    if transformed.iter().all(Option::is_none) {
+        return None;
+    }
+    Some(
+        terms
+            .iter()
+            .zip(transformed)
+            .map(|(term, transformed)| transformed.unwrap_or_else(|| term.clone()))
+            .collect(),
+    )
 }
 
 /// The children of `term`, each with its annotations removed ([`Term::unannotated`]).
@@ -570,5 +621,36 @@ endmodule
             expand(&after, &aliases).to_string(),
             expand(&before, &BTreeMap::new()).to_string()
         );
+    }
+
+    /// A rule the stage leaves as it is, here one whose right-hand side rebuilds nothing its
+    /// left-hand side matched, is the sentence the stage received, shared rather than copied;
+    /// a rule it minimizes is a new sentence.
+    #[test]
+    fn a_rule_with_nothing_to_share_is_the_input_sentence() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Val ::= "v" [symbol(v)]
+  syntax Exp ::= Val | pair(Exp, Exp) [symbol(pair)] | wrap(Exp) [symbol(wrap)]
+  configuration <k> v </k>
+  rule <k> pair(V:Val, E) => pair(E, wrap(pair(V:Val, E))) </k> [label(swap)]
+  rule <k> wrap(E) => E </k> [label(unwrap)]
+endmodule
+"#,
+            "minimize term construction",
+        );
+        let shared = |label| {
+            let [before] = labelled(&run.input, "MAIN", label)[..] else {
+                panic!("one rule {label}")
+            };
+            let [after] = labelled(run.output(), "MAIN", label)[..] else {
+                panic!("one rule {label}")
+            };
+            std::ptr::eq(before, after)
+        };
+        assert!(shared("unwrap"));
+        assert!(!shared("swap"));
     }
 }
