@@ -31,8 +31,8 @@ text_sha256 = "134de03d79ab6b20c5875240e7213345e829895fd14e866bc4837b7a27b9a6f8"
 source_map_sha256 = "2dadd6d85eb385b972743ef5b06b855e532f52db837fc318db18fd2d5c89eca1"
 
 [macro_output.imp."tests/imp/expanded-definition/src/imp.rs"]
-text_sha256 = "af18d154199002aa92239e326d9cb7e7579d31d2ba042fee028c8afacfe896b3"
-source_map_sha256 = "506f60b1b77c11468e2cb2be3ce1aaa929b8f7a0fc0387b5d92d6be25bd70311"
+text_sha256 = "702350e00ded4a12006c16c5b190cc82f3d89c22de394d9339d493026a1cc963"
+source_map_sha256 = "d6affeb335b979c1617aa7f6db4c4623f1dee858858d04eb2a2b9aefea1a675a"
 
 [macro_output.imp."tests/imp/expanded-definition/src/lib.rs"]
 text_sha256 = "a9fed310ab5d2ae6c5c7802a5ddd77c0adbed7fffdfb672ece0d37fca2498ba9"
