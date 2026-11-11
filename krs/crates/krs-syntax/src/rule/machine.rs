@@ -2922,9 +2922,26 @@ fn assemble_machine_clause(
                     "a bracketed cell value is read before the clause is assembled",
                 ));
             }
-            // A subject value its notation refuses names nothing: the cell is neither read nor
-            // written, and its result, which pairs with no reading, is left out with it.
-            MachinePatternCell::Refused(error) => unpaired((**error).clone().into())?,
+            // A subject value its notation refuses is lowered by no reading, and its result,
+            // which pairs with none, is left out with it. The clause still names the cell,
+            // which is read as `_`: the refusal is carried until the cell's kind has answered
+            // ([`read_with_pairing_deferred`]), and a clause whose every cell were left out
+            // would name none.
+            MachinePatternCell::Refused(error) => {
+                unpaired((**error).clone().into())?;
+                let wildcard = Pat::Wild(syn::PatWild {
+                    attrs: Vec::new(),
+                    underscore_token: Token![_](cell.span()),
+                });
+                let (before, before_tree) =
+                    readable_cell_pattern(wildcard, NegativeLiteralSpans::default())?;
+                extras.push(RuleExtra::RewriteCell {
+                    cell: cell.clone(),
+                    before: Box::new(before),
+                    before_tree: Box::new(before_tree),
+                    after: None,
+                });
+            }
             MachinePatternCell::Term {
                 pattern,
                 tree: before_tree,

@@ -723,15 +723,21 @@ fn several_rests_are_refused_where_they_mean_nothing() {
     }
 }
 
-/// A rule, an equation and a claim keep the one-rest rule: their results use one binding.
+/// A rule, an equation and a claim keep the one-rest rule: their results use one binding. The
+/// brackets are the `bus` cell's whether or not the record names the computation cell beside
+/// them, so a record whose only cell is `bus` gets the same refusal, at the same rest (EDOTS
+/// item 3: such a clause once left the record no cell and failed the configuration's check).
 #[test]
 fn every_other_sentence_keeps_one_rest() {
     let target = shared_fixture_target();
-    for sentences in [
+    let errors = [
         "k::rules! { for Machine; use StepOp::*; r: { k: [Fetch(), ..], bus: [.., x, ..] } => { k: [..] }; }",
+        "k::rules! { for Machine; use StepOp::*; r: { bus: [.., x, ..] } => {}; }",
         "k::claims! { for Machine; use StepOp::*; #[k::claim(one_path)] c: { k: [Fetch(), ..], bus: [.., x, ..] } => { k: [..] }; }",
+        "k::claims! { for Machine; use StepOp::*; #[k::claim(one_path)] c: { bus: [.., x, ..] } => {}; }",
         "#[k::function(total, internal)]\npub fn Second(list: k::Term<List>) -> k::Term<k::KItem>;\nk::equations! { for Second; second: [.., x, ..] => x; }",
-    ] {
+    ]
+    .map(|sentences| {
         let temporary = temp_dir();
         let (spec, _) = workspace(temporary.path(), &format!("{SPEC}\n{sentences}\n"), None);
         let error = check_error(target.path(), &spec);
@@ -741,5 +747,27 @@ fn every_other_sentence_keeps_one_rest() {
             ),
             "{sentences}: {error}"
         );
-    }
+        let location = check_location(target.path(), &spec);
+        (error, location)
+    });
+    assert_eq!(errors[0], errors[1], "a rule with and without `k`");
+    assert_eq!(errors[2], errors[3], "a claim with and without `k`");
+}
+
+/// The source the first error of `krs check` stands at in `manifest`'s library, up to the end of
+/// the brackets it is in: `..]` at a list's second rest.
+fn check_location(target: &Path, manifest: &Path) -> String {
+    let (_, _, stderr) = krs(target, manifest, "check", &[]);
+    let (line, column) = stderr
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("--> "))
+        .and_then(|location| location.split_once("src/lib.rs:"))
+        .and_then(|(_, location)| {
+            let (line, column) = location.split_once(':')?;
+            Some((line.parse::<usize>().ok()?, column.parse::<usize>().ok()?))
+        })
+        .unwrap_or_else(|| panic!("an error located in the library:\n{stderr}"));
+    let source = fs::read_to_string(manifest.with_file_name("src").join("lib.rs")).unwrap();
+    let text = &source.lines().nth(line - 1).unwrap()[column - 1..];
+    text[..=text.find(']').unwrap_or(text.len() - 1)].to_owned()
 }
