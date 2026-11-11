@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "definition.catalog.production"
 //! name = "production-catalog construction"
-//! sites = ["ResolvedDefinition::production_catalog", "ProductionCatalog::from_deduplicated_arcs", "ProductionCatalog::from_arc_productions", "ProductionCatalog::from_productions", "ProductionCatalog", "ProductionCatalog::new", "ProductionCatalog::from_visible", "build_indexes"]
+//! sites = ["ResolvedDefinition::production_catalog", "ProductionCatalog::from_deduplicated_arcs", "ProductionCatalog::from_arc_productions", "ProductionCatalog::from_productions", "ProductionCatalog", "ProductionCatalog::new", "ProductionCatalog::from_visible", "ProductionCatalog::from_catalog_sentences"]
 //! variable = "n = visible productions; l = local productions; k = productions sharing one SentenceKey or ProductionKey bucket; eq = sentence-equivalence cost; p = canonical production payload bytes"
 //! counters = ["KompileProductionCatalogsBuilt", "KompileProductionIdentityDigests", "KompileSentenceEquivalenceChecks"]
 //! consumes = [{ type = "k_rust::definition::ResolvedDefinition", role = "resolved definition" }]
@@ -17,7 +17,8 @@
 //! ```
 //!
 //! Production catalogs group visible productions and build label, sort, hook, and identity indexes in declaration order.
-//! Construction costs O(n log n + buckets * eq) with indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds.
+//! Construction keeps the production list; each index is built at its first query, so the bounds above are the cost of a catalog whose every index is queried.
+//! `Counter::KompileProductionCatalogsBuilt` measures builds.
 //!
 //! Deterministic indexes over the productions visible from a resolved module.
 
@@ -256,22 +257,33 @@ impl std::error::Error for FreshGeneratorError {}
 ///
 /// IDs follow deterministic dependency-first sentence order. Productions equal under
 /// [`sentence_equivalent`] are collapsed before IDs are assigned.
+///
+/// Every index but `local` is built on first use. Each one is a function of `productions`
+/// alone, which is fixed at construction: a catalog sentence is either a borrow or a shared
+/// `Arc` that nobody mutates in place (a writer's `Arc::make_mut` copies a shared sentence and
+/// leaves this one as it was). So an index built at its first query equals the one the
+/// constructor would have built, whatever the order of the queries. No index construction
+/// reports an error or a diagnostic; the only check inside them is a debug assertion over that
+/// same content, and `Attributes::merge` conflicts are resolved to the merged value as before.
+///
+/// `local` stays eager: building it later would mean keeping the local sentences, and holding
+/// their `Arc`s would raise their strong counts, so a stage's `sentence_mut` would copy a
+/// sentence it now mutates in place.
 #[derive(Clone, Debug)]
 pub struct ProductionCatalog<'a> {
     productions: Vec<CatalogSentence<'a>>,
-    identities: Vec<ProductionIdentity>,
-    by_identity: BTreeMap<ProductionIdentity, ProductionId>,
     local: BTreeSet<ProductionId>,
-    by_label: BTreeMap<LabelHead, Vec<ProductionId>>,
-    by_sort: BTreeMap<SortHead, Vec<ProductionId>>,
-    token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
-    function_labels: BTreeSet<LabelHead>,
-    signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
+    identities: OnceLock<Vec<ProductionIdentity>>,
+    by_identity: OnceLock<BTreeMap<ProductionIdentity, ProductionId>>,
+    by_label: OnceLock<BTreeMap<LabelHead, Vec<ProductionId>>>,
+    by_sort: OnceLock<BTreeMap<SortHead, Vec<ProductionId>>>,
+    token_by_sort: OnceLock<BTreeMap<Sort, Vec<ProductionId>>>,
+    function_labels: OnceLock<BTreeSet<LabelHead>>,
+    signatures: OnceLock<BTreeMap<LabelHead, BTreeSet<ProductionSignature>>>,
     /// Merged attributes of the labels declared by more than one production; a label with one
     /// production reads that production's attributes (see [`Self::attributes_for`]).
-    merged_attributes_by_label: BTreeMap<LabelHead, Attributes>,
-    result_production_by_label: BTreeMap<LabelHead, ProductionId>,
-    macro_labels: BTreeSet<LabelHead>,
+    merged_attributes_by_label: OnceLock<BTreeMap<LabelHead, Attributes>>,
+    macro_labels: OnceLock<BTreeSet<LabelHead>>,
     by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
     marker: PhantomData<&'a Sentence>,
 }
@@ -291,17 +303,35 @@ impl CatalogSentence<'_> {
     }
 }
 
-struct CatalogIndexes {
-    identities: Vec<ProductionIdentity>,
-    by_identity: BTreeMap<ProductionIdentity, ProductionId>,
-    by_label: BTreeMap<LabelHead, Vec<ProductionId>>,
-    by_sort: BTreeMap<SortHead, Vec<ProductionId>>,
-    token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
-    function_labels: BTreeSet<LabelHead>,
-    signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
-    merged_attributes_by_label: BTreeMap<LabelHead, Attributes>,
-    result_production_by_label: BTreeMap<LabelHead, ProductionId>,
-    macro_labels: BTreeSet<LabelHead>,
+/// The fields of a catalog production.
+struct ProductionFields<'s> {
+    label: Option<&'s Label>,
+    parameters: &'s [Sort],
+    sort: &'s Sort,
+    items: &'s [ProductionItem],
+    attributes: &'s Attributes,
+}
+
+impl<'s> ProductionFields<'s> {
+    fn of(sentence: &'s Sentence) -> Self {
+        let Sentence::Production {
+            label,
+            parameters,
+            sort,
+            items,
+            attributes,
+        } = sentence
+        else {
+            unreachable!("production catalogs contain only productions")
+        };
+        Self {
+            label: label.as_ref(),
+            parameters,
+            sort,
+            items,
+            attributes,
+        }
+    }
 }
 
 impl<'a> ProductionCatalog<'a> {
@@ -351,36 +381,17 @@ impl<'a> ProductionCatalog<'a> {
         productions: Vec<&'a Sentence>,
         local_sentences: impl IntoIterator<Item = &'a Sentence>,
     ) -> Self {
-        let local_sentences = local_sentences
-            .into_iter()
-            .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
-            .collect::<Vec<_>>();
-        let mut catalog = Self {
-            productions: productions
+        let mut catalog = Self::from_catalog_sentences(
+            productions
                 .into_iter()
                 .map(CatalogSentence::Borrowed)
                 .collect(),
-            identities: Vec::new(),
-            by_identity: BTreeMap::new(),
-            local: BTreeSet::new(),
-            by_label: BTreeMap::new(),
-            by_sort: BTreeMap::new(),
-            token_by_sort: BTreeMap::new(),
-            function_labels: BTreeSet::new(),
-            signatures: BTreeMap::new(),
-            merged_attributes_by_label: BTreeMap::new(),
-            result_production_by_label: BTreeMap::new(),
-            macro_labels: BTreeSet::new(),
-            by_key: OnceLock::new(),
-            marker: PhantomData,
-        };
+        );
         catalog.local = local_sentences
             .into_iter()
+            .filter(|sentence| matches!(sentence, Sentence::Production { .. }))
             .filter_map(|local| catalog.find_equivalent(local))
             .collect();
-        let indexes = build_indexes(&catalog.productions);
-        catalog.apply_indexes(indexes);
-        measure::bump(Counter::KompileProductionCatalogsBuilt);
         catalog
     }
 
@@ -388,51 +399,38 @@ impl<'a> ProductionCatalog<'a> {
         productions: Vec<Arc<Sentence>>,
         local_sentences: impl IntoIterator<Item = Arc<Sentence>>,
     ) -> Self {
-        let local_sentences = local_sentences
-            .into_iter()
-            .filter(|sentence| matches!(&**sentence, Sentence::Production { .. }))
-            .collect::<Vec<_>>();
-
-        let mut catalog = Self {
-            productions: productions
+        let mut catalog = Self::from_catalog_sentences(
+            productions
                 .into_iter()
                 .map(CatalogSentence::Shared)
                 .collect(),
-            identities: Vec::new(),
-            by_identity: BTreeMap::new(),
-            local: BTreeSet::new(),
-            by_label: BTreeMap::new(),
-            by_sort: BTreeMap::new(),
-            token_by_sort: BTreeMap::new(),
-            function_labels: BTreeSet::new(),
-            signatures: BTreeMap::new(),
-            merged_attributes_by_label: BTreeMap::new(),
-            result_production_by_label: BTreeMap::new(),
-            macro_labels: BTreeSet::new(),
-            by_key: OnceLock::new(),
-            marker: PhantomData,
-        };
+        );
         catalog.local = local_sentences
             .into_iter()
+            .filter(|sentence| matches!(&**sentence, Sentence::Production { .. }))
             .filter_map(|local| catalog.find_equivalent(local.as_ref()))
             .collect();
-        let indexes = build_indexes(&catalog.productions);
-        catalog.apply_indexes(indexes);
-        measure::bump(Counter::KompileProductionCatalogsBuilt);
         catalog
     }
 
-    fn apply_indexes(&mut self, indexes: CatalogIndexes) {
-        self.identities = indexes.identities;
-        self.by_identity = indexes.by_identity;
-        self.by_label = indexes.by_label;
-        self.by_sort = indexes.by_sort;
-        self.token_by_sort = indexes.token_by_sort;
-        self.function_labels = indexes.function_labels;
-        self.signatures = indexes.signatures;
-        self.merged_attributes_by_label = indexes.merged_attributes_by_label;
-        self.result_production_by_label = indexes.result_production_by_label;
-        self.macro_labels = indexes.macro_labels;
+    /// A catalog of `productions` with no local production and no index built yet.
+    fn from_catalog_sentences(productions: Vec<CatalogSentence<'a>>) -> Self {
+        measure::bump(Counter::KompileProductionCatalogsBuilt);
+        Self {
+            productions,
+            local: BTreeSet::new(),
+            identities: OnceLock::new(),
+            by_identity: OnceLock::new(),
+            by_label: OnceLock::new(),
+            by_sort: OnceLock::new(),
+            token_by_sort: OnceLock::new(),
+            function_labels: OnceLock::new(),
+            signatures: OnceLock::new(),
+            merged_attributes_by_label: OnceLock::new(),
+            macro_labels: OnceLock::new(),
+            by_key: OnceLock::new(),
+            marker: PhantomData,
+        }
     }
 
     pub fn from_visible(sentences: impl IntoIterator<Item = &'a Sentence>) -> Self {
@@ -455,14 +453,44 @@ impl<'a> ProductionCatalog<'a> {
         self.productions[id.0].as_ref()
     }
 
+    fn fields(&self) -> impl Iterator<Item = (ProductionId, ProductionFields<'_>)> + '_ {
+        self.productions()
+            .map(|(id, production)| (id, ProductionFields::of(production)))
+    }
+
+    /// The content identity of every production, by position.
+    fn identities(&self) -> &[ProductionIdentity] {
+        self.identities.get_or_init(|| {
+            self.productions()
+                .map(|(_, production)| {
+                    production_identity(production)
+                        .expect("production catalogs contain only productions")
+                })
+                .collect()
+        })
+    }
+
     /// Return the content identity aligned with `id`.
     pub fn identity(&self, id: ProductionId) -> ProductionIdentity {
-        self.identities[id.0]
+        self.identities()[id.0]
     }
 
     /// Find the catalog position for a content identity.
     pub fn lookup(&self, identity: &ProductionIdentity) -> Option<ProductionId> {
-        self.by_identity.get(identity).copied()
+        self.by_identity
+            .get_or_init(|| {
+                let mut by_identity = BTreeMap::new();
+                for (index, identity) in self.identities().iter().enumerate() {
+                    let previous = by_identity.insert(*identity, ProductionId(index));
+                    debug_assert!(
+                        previous.is_none(),
+                        "distinct catalog productions have the same ProductionIdentity"
+                    );
+                }
+                by_identity
+            })
+            .get(identity)
+            .copied()
     }
 
     /// Find the smallest ID structurally equivalent to `source`.
@@ -505,20 +533,58 @@ impl<'a> ProductionCatalog<'a> {
         self.local.contains(&id)
     }
 
+    fn by_label(&self) -> &BTreeMap<LabelHead, Vec<ProductionId>> {
+        self.by_label.get_or_init(|| {
+            let mut by_label = BTreeMap::<_, Vec<_>>::new();
+            for (id, production) in self.fields() {
+                if let Some(label) = production.label {
+                    by_label.entry(LabelHead::from(label)).or_default().push(id);
+                }
+            }
+            by_label
+        })
+    }
+
     pub fn productions_for(&self, label: &LabelHead) -> &[ProductionId] {
-        self.by_label.get(label).map_or(&[], Vec::as_slice)
+        self.by_label().get(label).map_or(&[], Vec::as_slice)
     }
 
     pub fn productions_for_sort(&self, sort: &SortHead) -> &[ProductionId] {
-        self.by_sort.get(sort).map_or(&[], Vec::as_slice)
+        self.by_sort
+            .get_or_init(|| {
+                let mut by_sort = BTreeMap::<_, Vec<_>>::new();
+                for (id, production) in self.fields() {
+                    by_sort
+                        .entry(SortHead::from(production.sort))
+                        .or_default()
+                        .push(id);
+                }
+                by_sort
+            })
+            .get(sort)
+            .map_or(&[], Vec::as_slice)
     }
 
     pub fn token_productions_for(&self, sort: &Sort) -> &[ProductionId] {
-        self.token_by_sort.get(sort).map_or(&[], Vec::as_slice)
+        self.token_by_sort
+            .get_or_init(|| {
+                let mut token_by_sort = BTreeMap::<_, Vec<_>>::new();
+                for (id, production) in self.fields() {
+                    if production.attributes.has(AttributeKey::Token) {
+                        token_by_sort
+                            .entry(production.sort.clone())
+                            .or_default()
+                            .push(id);
+                    }
+                }
+                token_by_sort
+            })
+            .get(sort)
+            .map_or(&[], Vec::as_slice)
     }
 
     pub fn defined_labels(&self) -> impl ExactSizeIterator<Item = &LabelHead> {
-        self.by_label.keys()
+        self.by_label().keys()
     }
 
     pub fn local_labels(&self) -> BTreeSet<LabelHead> {
@@ -529,30 +595,80 @@ impl<'a> ProductionCatalog<'a> {
     }
 
     pub fn function_labels(&self) -> &BTreeSet<LabelHead> {
-        &self.function_labels
+        self.function_labels.get_or_init(|| {
+            self.fields()
+                .filter(|(_, production)| production.attributes.has(AttributeKey::Function))
+                .filter_map(|(_, production)| production.label.map(LabelHead::from))
+                .collect()
+        })
     }
 
     pub fn signatures(&self) -> &BTreeMap<LabelHead, BTreeSet<ProductionSignature>> {
-        &self.signatures
+        self.signatures.get_or_init(|| {
+            let mut signatures = BTreeMap::<_, BTreeSet<_>>::new();
+            for (_, production) in self.fields() {
+                let Some(label) = production.label else {
+                    continue;
+                };
+                if !production.parameters.is_empty() {
+                    continue;
+                }
+                signatures
+                    .entry(LabelHead::from(label))
+                    .or_default()
+                    .insert(ProductionSignature {
+                        arguments: production
+                            .items
+                            .iter()
+                            .filter_map(|item| match item {
+                                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                                ProductionItem::RegexTerminal { .. }
+                                | ProductionItem::Terminal(_) => None,
+                            })
+                            .collect(),
+                        result: production.sort.clone(),
+                    });
+            }
+            signatures
+        })
     }
 
     pub fn signatures_for(&self, label: &LabelHead) -> Option<&BTreeSet<ProductionSignature>> {
-        self.signatures.get(label)
+        self.signatures().get(label)
     }
 
     /// The attributes of `label`'s productions merged into one set: the production's own
     /// attributes when a single production declares the label, since merging one set returns
     /// an equal set.
     pub fn attributes_for(&self, label: &LabelHead) -> Option<&Attributes> {
-        match self.by_label.get(label)?.as_slice() {
+        match self.by_label().get(label)?.as_slice() {
             [id] => Some(self.production(*id).attributes()),
-            _ => self.merged_attributes_by_label.get(label),
+            _ => self
+                .merged_attributes_by_label
+                .get_or_init(|| {
+                    // A single production's attributes are read in place: copying every
+                    // production's attribute map into the index duplicated them once per
+                    // catalog.
+                    self.by_label()
+                        .iter()
+                        .filter(|(_, ids)| ids.len() > 1)
+                        .map(|(head, ids)| {
+                            let merged = Attributes::merge(
+                                ids.iter().map(|id| self.production(*id).attributes()),
+                            )
+                            .unwrap_or_else(|error| error.merged);
+                            (head.clone(), merged)
+                        })
+                        .collect()
+                })
+                .get(label),
         }
     }
 
     /// The first production's result, with an explicit branch when it mentions its binder.
     pub fn result_sort_of(&self, label: &LabelHead) -> Option<LabelResultSort<'_>> {
-        let production = *self.result_production_by_label.get(label)?;
+        // The first production of the label: `by_label` holds no empty list.
+        let production = *self.by_label().get(label)?.first()?;
         let Sentence::Production {
             parameters, sort, ..
         } = self.production(production)
@@ -572,7 +688,16 @@ impl<'a> ProductionCatalog<'a> {
 
     /// The heads of macro-like productions' labels (the empty head for an unlabelled one).
     pub fn macro_labels(&self) -> &BTreeSet<LabelHead> {
-        &self.macro_labels
+        self.macro_labels.get_or_init(|| {
+            self.fields()
+                .filter(|(_, production)| production.attributes.has_any(&AttributeKey::MACRO_LIKE))
+                .map(|(_, production)| {
+                    production
+                        .label
+                        .map_or_else(|| LabelHead::new(""), LabelHead::from)
+                })
+                .collect()
+        })
     }
 
     pub fn fresh_generators(&self) -> Result<BTreeMap<Sort, Label>, FreshGeneratorError> {
@@ -611,104 +736,6 @@ impl<'a> ProductionCatalog<'a> {
             })
             .collect()
     }
-}
-
-fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
-    let mut indexes = CatalogIndexes {
-        identities: Vec::new(),
-        by_identity: BTreeMap::new(),
-        by_label: BTreeMap::new(),
-        by_sort: BTreeMap::new(),
-        token_by_sort: BTreeMap::new(),
-        function_labels: BTreeSet::new(),
-        signatures: BTreeMap::new(),
-        merged_attributes_by_label: BTreeMap::new(),
-        result_production_by_label: BTreeMap::new(),
-        macro_labels: BTreeSet::new(),
-    };
-    for (index, sentence) in productions.iter().enumerate() {
-        let id = ProductionId(index);
-        let sentence = sentence.as_ref();
-        let identity =
-            production_identity(sentence).expect("production catalogs contain only productions");
-        indexes.identities.push(identity);
-        let previous = indexes.by_identity.insert(identity, id);
-        debug_assert!(
-            previous.is_none(),
-            "distinct catalog productions have the same ProductionIdentity"
-        );
-        let Sentence::Production {
-            label,
-            parameters,
-            sort,
-            items,
-            attributes,
-        } = sentence
-        else {
-            unreachable!()
-        };
-        indexes
-            .by_sort
-            .entry(SortHead::from(sort))
-            .or_default()
-            .push(id);
-        if attributes.has(AttributeKey::Token) {
-            indexes
-                .token_by_sort
-                .entry(sort.clone())
-                .or_default()
-                .push(id);
-        }
-        if attributes.has_any(&AttributeKey::MACRO_LIKE) {
-            indexes.macro_labels.insert(
-                label
-                    .as_ref()
-                    .map_or_else(|| LabelHead::new(""), LabelHead::from),
-            );
-        }
-        let Some(label) = label else {
-            continue;
-        };
-        let head = LabelHead::from(label);
-        indexes.by_label.entry(head.clone()).or_default().push(id);
-        if attributes.has(AttributeKey::Function) {
-            indexes.function_labels.insert(head.clone());
-        }
-        if parameters.is_empty() {
-            indexes
-                .signatures
-                .entry(head)
-                .or_default()
-                .insert(ProductionSignature {
-                    arguments: items
-                        .iter()
-                        .filter_map(|item| match item {
-                            ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
-                            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => {
-                                None
-                            }
-                        })
-                        .collect(),
-                    result: sort.clone(),
-                });
-        }
-    }
-
-    for (head, ids) in &indexes.by_label {
-        // A single production's attributes are read in place: copying every production's
-        // attribute map into the index duplicated them once per catalog.
-        if ids.len() > 1 {
-            indexes.merged_attributes_by_label.insert(
-                head.clone(),
-                Attributes::merge(ids.iter().map(|id| productions[id.0].as_ref().attributes()))
-                    .unwrap_or_else(|error| error.merged),
-            );
-        }
-        indexes
-            .result_production_by_label
-            .insert(head.clone(), ids[0]);
-    }
-    indexes
 }
 
 impl ResolvedDefinition {

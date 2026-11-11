@@ -6282,7 +6282,7 @@ symbol = "ProductionCatalog::from_visible"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/definition/catalog.rs"
-symbol = "build_indexes"
+symbol = "ProductionCatalog::from_catalog_sentences"
 
 [[node.cost]]
 mode = "ResolvedDefinition::production_catalog via from_deduplicated_arcs"
