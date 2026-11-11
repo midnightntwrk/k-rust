@@ -1037,7 +1037,7 @@ fn query_answers_through_the_stopped_run() {
     fs::write(dir.join("PATTERNS.toml"), CLOCK_PATTERNS).unwrap();
     let (document, status) = query(&dir.join("FLOW.toml"));
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 11, "{document:#}");
+    assert_eq!(document["version"], 12, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": ["CLOCK.frame"], "after": [], "count": 1}),
@@ -1118,6 +1118,7 @@ fn forged(record: &Value, witness: Value) -> Value {
             record["answer"].as_str().unwrap(),
             &witness,
             &record["baseline_run_sha256"],
+            &record["cause"],
         )
         .to_string()
     );

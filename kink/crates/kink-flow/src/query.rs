@@ -11,7 +11,9 @@
 //! - a corpus without `[stop]`: one `search_pattern_kore` per (pattern, program), which explores
 //!   the definition's own reachable states;
 //! - a chain (`steps`), on either corpus: the program's run, with the corpus's stop where it has
-//!   one, which matches the chain along its paths (`Searcher::run_chain`, route `chain-run`);
+//!   one, which matches the chain along its paths (`Searcher::run_chain`, route `chain-run`),
+//!   under the work budget of a run of the program other than its baseline, as a mutant's run
+//!   is bounded (`crate::pattern::ChainWork`: `max(work_factor × P, P_max)` polls);
 //! - a corpus with `[stop]`: the program's run as every campaign of the command makes it (the
 //!   stop's rules, the program's count and the stop's condition, in one execute request), which
 //!   matches every state it reaches against the pattern (`Searcher::run_stopped`). A stop is part
@@ -27,10 +29,12 @@
 //! a query is that a program a bound cuts is `comparable-prefix`, not `comparable`, and a `no`
 //! keeps requiring `comparable`.
 //!
-//! **The cache** holds only `hit` and a final `no`, one record per (pattern, program):
+//! **The cache** holds `hit`, a final `no` and a chain's `unknown` that its run's bound of polls
+//! decided (`crate::pattern`, "The chain route"), one record per (pattern, program):
 //! `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory,
 //! written atomically, `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness,
-//! baseline_run_sha256, record_sha256}`, a hit's `witness` its facts (`{depth, state, bindings,
+//! baseline_run_sha256, cause, record_sha256}`, `cause` an `unknown`'s, null for a hit and a `no`,
+//! a hit's `witness` its facts (`{depth, state, bindings,
 //! rules}`, the state and the bindings as whole KORE text; `crate::pattern`, "A witness"; a
 //! chain's also holds its `steps`, `crate::pattern`, "The chain route"): the document prints it
 //! when it is written, a cached hit as a live one, so the printing is in no
@@ -49,9 +53,15 @@
 //! the bytes it had before the stopped route existed. A chain's key ([`chain_answer_key`]) is
 //! the same key with the chain's lowering ([`CHAIN_LOWERING_VERSION`]) in place of a pattern's,
 //! the chain's digest in place of the pattern's, the chain route's modality with the cap of
-//! partial occurrences per path ([`crate::pattern::chain_modality`]) and the program's stop, null
-//! on a corpus without `[stop]`, so it never equals a single pattern's key; its records are kept
-//! beside the single patterns', under the chain's digest. A record is used only when its key is
+//! partial occurrences per path ([`crate::pattern::chain_modality`]), the program's stop, null
+//! on a corpus without `[stop]`, and the bound of polls of the chain's run in the budget
+//! (`budget.max_polls`, [`ChainWork`]: `max(work_factor × P, P_max)`, from the program's and the
+//! corpus's baseline polls), so it never equals a single pattern's key; its records are kept
+//! beside the single patterns', under the chain's digest. A chain run the bound cut is cut at the
+//! same poll on every host, so its `unknown` is a function of the key and is stored too; a run the
+//! clock stopped never is. Such an `unknown` rests on the clock only where the clock stopped a
+//! baseline run of the command, which on a faster host could count polls and so give another
+//! bound: its row's `clock_stopped` is then `baseline`. A record is used only when its key is
 //! exactly the current one and its `record_sha256` recomputes; a `no` also only while the program's current result record
 //! is comparable with the baseline run digest the `no` was given against. A used record's answer is
 //! judged again with the current command's facts (the definition exclusions of this command's load,
@@ -62,7 +72,9 @@
 //! of the cache directory (whoever can write it can forge an answer, as for every kink cache) and
 //! on the key naming every input; it does not rest on k-rust's determinism: a `hit` and a final
 //! `no` are facts about the definition and the program, which a later search can only fail to
-//! re-derive (an unknown), never contradict. `--verify` re-derives every answer of the selected
+//! re-derive (an unknown), never contradict. A cached chain `unknown` claims nothing about the
+//! chain: it withholds an answer, and that a run under the same key withholds it too rests on
+//! k-rust's count of polls being a function of the request, which `--verify` re-derives. `--verify` re-derives every answer of the selected
 //! patterns live, compares it with each stored record a command without `--verify` would use
 //! (the answer, and for a hit what is a fact of it: the witness's depth and state, and its
 //! bindings, rules and a chain's steps where both sides carry them, [`same_witness`]),
@@ -133,10 +145,10 @@ use crate::{
     lock::{Lock, LockKind, Settle},
     manifest::{FlowManifest, ManifestError},
     pattern::{
-        Answer, CHAIN_LOWERING_VERSION, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredChain,
-        LoweredPattern, Lowering, PatternEntry, PatternExpect, PatternForm, PatternList,
-        PatternSource, Route, SearchOutcome, Searcher, chain_modality, judge, search_modality,
-        stopped_modality,
+        Answer, CHAIN_LOWERING_VERSION, ChainWork, Facts, INVALID_PATTERN, LOWERING_VERSION,
+        LoweredChain, LoweredPattern, Lowering, PatternEntry, PatternExpect, PatternForm,
+        PatternList, PatternSource, Route, SearchOutcome, Searcher, chain_modality, judge,
+        search_modality, stopped_modality,
     },
     results::{
         BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
@@ -219,7 +231,16 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// names, else the patterns the manifest declares ([`crate::pattern::declared_patterns`]); a
 /// refusal of the declared patterns is the `pattern_list` refusal a list's is. Every answer, exit
 /// status, lock row and key of a version 10 document is unchanged.
-pub const QUERY_VERSION: u64 = 11;
+/// Version 12 (CHAIN-STOPLESS-WORK) bounds every chain run by its work budget,
+/// `max(work_factor × P, P_max)` polls (`crate::pattern::ChainWork`): a chain's row may answer
+/// `unknown` where a version 11 run went on until it ended or `time_ms` stopped it, its cause
+/// naming the bound and `[budget] work_factor`; such a row is read from the cache (`cached`
+/// true) on the next query, and its `clock_stopped` is `baseline` where the clock stopped a
+/// baseline run of the command. A chain on a corpus none of whose programs has a comparable
+/// baseline is not run and is `unknown` (`no-work-bound`). A chain's key names the bound
+/// (`budget.max_polls`), so every chain answer is asked again once. Every single pattern's
+/// answer, row and witness is unchanged.
+pub const QUERY_VERSION: u64 = 12;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -245,12 +266,18 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// their key holds a `stop`, which no earlier record's does, so no stored answer changes meaning;
 /// v9, FB-51: a hit's witness is kept as facts, `{depth, state, bindings, rules}`, the state and
 /// each binding as whole KORE text, where a v8 witness held the text cut to 4000 characters and a
-/// rendering; the answers mean what they meant).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v9";
+/// rendering; the answers mean what they meant; v10, CHAIN-STOPLESS-WORK: a record holds
+/// `cause`, which its digest covers, null for a hit and a `no`; a chain's record may hold an
+/// `unknown`, the answer of a run its bound of polls cut, with its cause, and a chain's key names
+/// that bound, `budget.max_polls`; a hit and a `no` mean what they meant).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v10";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.
 pub const PATTERN_DIRECTORY: &str = "patterns";
+/// The name a chain's `unknown` cause gives a corpus that derives no bound of polls for it
+/// ([`ChainWork::derived`]).
+pub const NO_WORK_BOUND: &str = "no-work-bound";
 /// Every answer a row can have, in the order `counts` lists them.
 pub const ANSWERS: [&str; 5] = ["hit", "no", "unknown", INVALID_PATTERN, "error"];
 
@@ -309,8 +336,10 @@ pub fn answer_key(
 
 /// The key of a chain's cached answer (module docs): [`answer_key`] with the chain's lowering,
 /// its digest `chain` in the pattern's place, the chain route's modality with `partial_cap`, the
-/// cap of partial occurrences per path the run kept, and `stop`, the program's stop, null on a
-/// corpus without `[stop]`.
+/// cap of partial occurrences per path the run kept, `stop`, the program's stop, null on a
+/// corpus without `[stop]`, and the budget's `max_polls`, the bound of polls of the run
+/// (`work`, [`ChainWork`]), null where none is derived.
+#[allow(clippy::too_many_arguments)]
 pub fn chain_answer_key(
     build: Sha256Digest,
     execution: ExecutionDigest,
@@ -319,8 +348,10 @@ pub fn chain_answer_key(
     budget: crate::manifest::Budget,
     stop: Option<Value>,
     partial_cap: usize,
+    work: Option<ChainWork>,
 ) -> Value {
     let mut key = answer_key(build, execution, program, chain, budget, None);
+    key["budget"]["max_polls"] = json!(work.map(|work| work.bound));
     key["lowering"] = json!(CHAIN_LOWERING_VERSION);
     key["modality"] = chain_modality(partial_cap);
     key["stop"] = stop.unwrap_or(Value::Null);
@@ -342,12 +373,13 @@ pub fn answer_path(
         .join(format!("{program}.json"))
 }
 
-/// The digest a record carries: of its key, answer, witness and baseline run digest.
+/// The digest a record carries: of its key, answer, witness, baseline run digest and cause.
 pub fn record_sha256(
     key: &Value,
     answer: &str,
     witness: &Value,
     baseline_run_sha256: &Value,
+    cause: &Value,
 ) -> Sha256Digest {
     payload_digest(
         PATTERN_RECORD_DOMAIN,
@@ -356,6 +388,7 @@ pub fn record_sha256(
             "answer": answer,
             "witness": witness,
             "baseline_run_sha256": baseline_run_sha256,
+            "cause": cause,
         }))
         .as_bytes(),
     )
@@ -366,16 +399,19 @@ struct Stored {
     answer: String,
     witness: Value,
     baseline_run_sha256: Value,
+    /// An `unknown`'s cause; null for a hit and a `no`.
+    cause: Value,
 }
 
 impl Stored {
     /// The search outcome the record stands for. A `no` is stored only as `judge` gave it, on a
-    /// completed search that received no undecided solver answer, so it stands for that search.
+    /// completed search that received no undecided solver answer, so it stands for that search;
+    /// an `unknown` only for a chain run its bound of polls cut, with the cause it gave.
     fn outcome(&self) -> SearchOutcome {
-        if self.answer == "hit" {
-            SearchOutcome::Hit(self.witness.clone())
-        } else {
-            SearchOutcome::Complete { smt_unknowns: 0 }
+        match self.answer.as_str() {
+            "hit" => SearchOutcome::Hit(self.witness.clone()),
+            "unknown" => SearchOutcome::WorkCut(self.cause.as_str().unwrap_or_default().to_owned()),
+            _ => SearchOutcome::Complete { smt_unknowns: 0 },
         }
     }
 }
@@ -385,9 +421,17 @@ fn read_record(path: &Path, key: &Value) -> Option<Stored> {
     let answer = record["answer"].as_str()?.to_owned();
     let witness = record.get("witness")?.clone();
     let baseline = record.get("baseline_run_sha256")?.clone();
+    let cause = record.get("cause")?.clone();
     let well_formed = match answer.as_str() {
-        "hit" => witness.is_object() && baseline.is_null(),
-        "no" => witness.is_null() && baseline.is_string(),
+        "hit" => witness.is_object() && baseline.is_null() && cause.is_null(),
+        "no" => witness.is_null() && baseline.is_string() && cause.is_null(),
+        // A chain run its bound of polls cut, which only a chain's key names.
+        "unknown" => {
+            witness.is_null()
+                && baseline.is_null()
+                && cause.is_string()
+                && key["lowering"] == CHAIN_LOWERING_VERSION
+        }
         _ => false,
     };
     (record["schema"] == RECORD_SCHEMA
@@ -395,7 +439,7 @@ fn read_record(path: &Path, key: &Value) -> Option<Stored> {
         && well_formed
         && record["record_sha256"].as_str()
             == Some(
-                record_sha256(key, &answer, &witness, &baseline)
+                record_sha256(key, &answer, &witness, &baseline, &cause)
                     .to_string()
                     .as_str(),
             ))
@@ -403,6 +447,7 @@ fn read_record(path: &Path, key: &Value) -> Option<Stored> {
         answer,
         witness,
         baseline_run_sha256: baseline,
+        cause,
     })
 }
 
@@ -599,6 +644,8 @@ fn query_unnamed(
         route,
         reader: runner.end_reader(),
         partial_cap,
+        poll_floor: poll_floor(&update.rows),
+        bound_clock: update.rows.iter().any(|row| row.clock_stopped),
     };
     for entry in list
         .patterns
@@ -1173,6 +1220,40 @@ struct Context<'a> {
     reader: &'a EndReader,
     /// The cap of partial occurrences per path every chain run keeps.
     partial_cap: usize,
+    /// `P_max`, the largest baseline polls of the corpus's comparable programs, the floor of
+    /// every chain run's work budget ([`ChainWork`]); `None` when no program counted any.
+    poll_floor: Option<u64>,
+    /// Whether the clock stopped a baseline run of this command: a faster host could give that
+    /// program polls, which could change `P_max` and its own bound, so an answer a chain run's
+    /// work budget decided rests on the clock ([`chain_clock`]).
+    bound_clock: bool,
+}
+
+/// The polls of a program's baseline run (`P`, `ProgramResult::polls`) as the command judges it:
+/// its live run under `--verify`, else its record.
+fn baseline_polls(row: &ProgramRow) -> Option<u64> {
+    row.live
+        .as_ref()
+        .or(row.record.as_ref())
+        .filter(|record| crate::results::ResultClass::can_kill(&record["class"]))
+        .and_then(|record| record["polls"].as_u64())
+}
+
+/// `P_max` of `rows`: the largest baseline polls of the corpus's comparable programs, `None`
+/// when none counted any (as the campaign's floor of a mutant's bound, `search`).
+fn poll_floor(rows: &[ProgramRow]) -> Option<u64> {
+    rows.iter().filter_map(baseline_polls).max()
+}
+
+/// The `clock_stopped` of an answer a chain run's work budget decided (`unknown`, a run its
+/// bound of polls cut or no bound at all): `baseline` when the clock stopped a baseline run of
+/// the command, whose polls a faster host could count and so give another bound; else null.
+fn chain_clock(context: &Context<'_>) -> Value {
+    if context.bound_clock {
+        json!("baseline")
+    } else {
+        Value::Null
+    }
 }
 
 /// One (pattern, program) row and whether it found no error, its witness printed for the reader
@@ -1268,6 +1349,12 @@ fn ask_facts(
             Asked::Chain(_) => Route::ChainRun,
         },
     };
+    // The chain run's work budget, from this program's baseline polls and the corpus's largest.
+    let work = ChainWork::derived(
+        context.manifest.budget,
+        baseline_polls(result),
+        context.poll_floor,
+    );
     let keyed = context.build.map(|build| {
         let budget = context.manifest.budget;
         let key = match (asked, context.route) {
@@ -1295,6 +1382,7 @@ fn ask_facts(
                 budget,
                 context.manifest.program_stop(program),
                 context.partial_cap,
+                work,
             ),
         };
         (
@@ -1311,23 +1399,30 @@ fn ask_facts(
         .as_ref()
         .and_then(|(key, path)| read_record(path, key))
         .filter(|stored| {
-            stored.answer == "hit"
+            stored.answer != "no"
                 || (result.class() == Some("comparable")
                     && stored.baseline_run_sha256.as_str() == baseline_run.as_deref())
         });
     if !context.verify
         && let Some(stored) = &stored
     {
-        let answer = judge(&stored.outcome(), &facts);
+        let outcome = stored.outcome();
+        let answer = judge(&outcome, &facts);
         accounting["from_cache"] = json!(accounting["from_cache"].as_u64().unwrap_or(0) + 1);
-        return (
-            unstopped(finish_row(row, &answer, true, None, claimed)),
-            true,
-        );
+        let mut row = finish_row(row, &answer, true, None, claimed);
+        row["clock_stopped"] = match outcome {
+            SearchOutcome::WorkCut(cause) if answer.cause.as_ref() == Some(&cause) => {
+                chain_clock(context)
+            }
+            _ => Value::Null,
+        };
+        return (row, true);
     }
-    let (outcome, wall_ms) = match (asked, context.route) {
-        (Asked::Pattern(lowered), Route::Search) => searcher.search(&test.initial_state, lowered),
-        (Asked::Pattern(lowered), _) => {
+    let (outcome, wall_ms) = match (asked, context.route, work) {
+        (Asked::Pattern(lowered), Route::Search, _) => {
+            searcher.search(&test.initial_state, lowered)
+        }
+        (Asked::Pattern(lowered), _, _) => {
             let (outcome, state, wall_ms) = searcher.run_stopped(
                 context.manifest.campaign_stop(),
                 &test.id,
@@ -1340,17 +1435,32 @@ fn ask_facts(
             facts.state = state;
             (outcome, wall_ms)
         }
-        (Asked::Chain(chain), _) => {
+        (Asked::Chain(chain), _, Some(work)) => {
             let (outcome, state, wall_ms) = searcher.run_chain(
                 context.manifest.campaign_stop(),
                 &test.id,
                 &test.initial_state,
                 chain,
                 context.partial_cap,
+                work,
                 context.exclusions,
             );
             facts.state = state;
             (outcome, wall_ms)
+        }
+        // A chain whose corpus gives no bound of polls is not run (`crate::pattern`, the chain
+        // route): a run bounded by the clock alone would answer what the host allows.
+        (Asked::Chain(_), _, None) => {
+            let outcome = SearchOutcome::Incomplete(format!(
+                "no program of the corpus has a comparable baseline run, so no baseline counted \
+                 the polls from which a chain run's work budget is derived (max(work_factor × P, \
+                 P_max), [budget] work_factor), and the chain is not run, since a run bounded by \
+                 time_ms alone answers what the host allows ({NO_WORK_BOUND})"
+            ));
+            let answer = judge(&outcome, &facts);
+            let mut row = finish_row(row, &answer, false, None, claimed);
+            row["clock_stopped"] = chain_clock(context);
+            return (row, answer.answer != "error");
         }
     };
     let answer = judge(&outcome, &facts);
@@ -1365,6 +1475,9 @@ fn ask_facts(
     } else if matches!(&outcome, SearchOutcome::ClockStopped(cause) if answer.cause.as_ref() == Some(cause))
     {
         Some("search")
+    } else if matches!(&outcome, SearchOutcome::WorkCut(cause) if answer.cause.as_ref() == Some(cause))
+    {
+        context.bound_clock.then_some("baseline")
     } else if matches!(outcome, SearchOutcome::Complete { .. })
         && result.clock_stopped
         && judge(
@@ -1407,12 +1520,21 @@ fn ask_facts(
         }
         return (row, ok);
     }
+    // An `unknown` is stored only where the chain run's bound of polls decided it: the cut is a
+    // function of the request, which the key names with the bound.
+    let cut =
+        matches!(&outcome, SearchOutcome::WorkCut(cause) if answer.cause.as_ref() == Some(cause));
     if let Some((key, path)) = &keyed
-        && matches!(answer.answer, "hit" | "no")
+        && (matches!(answer.answer, "hit" | "no") || cut)
     {
         let witness = answer.witness.clone().unwrap_or(Value::Null);
         let baseline = if answer.answer == "no" {
             json!(baseline_run)
+        } else {
+            Value::Null
+        };
+        let cause = if cut {
+            json!(answer.cause)
         } else {
             Value::Null
         };
@@ -1424,7 +1546,9 @@ fn ask_facts(
             "answer": answer.answer,
             "witness": witness,
             "baseline_run_sha256": baseline,
-            "record_sha256": record_sha256(key, answer.answer, &witness, &baseline).to_string(),
+            "cause": cause,
+            "record_sha256": record_sha256(key, answer.answer, &witness, &baseline, &cause)
+                .to_string(),
         });
         match context.store.write_json(path, &record) {
             Ok(()) => {

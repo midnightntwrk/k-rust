@@ -32,16 +32,32 @@
 //! **The chain route** ([`Route::ChainRun`], [`Searcher::run_chain`]): a chain is asked of a
 //! program by the program's run as the stopped route makes it, with the corpus's stop, or with no
 //! stop on a corpus without `[stop]` (every path then ends where the definition's run ends), the
-//! manifest's `max_depth`, `baseline_max_work` and `time_ms`, matching the chain along every path
-//! it explores (kink-campaign `Stop::execute_result_chain_matching`) with proof agreement on every
-//! part, under a cap of partial occurrences per path (kink-campaign `CHAIN_PARTIAL_CAP`), and
-//! kink-campaign `judge_chain_matches` answers it; [`judge`] then applies the premises every route
-//! shares. A chain is never asked by a search, also on a corpus without `[stop]`: the run's
-//! matcher is the one evaluation of a chain, and the run has a counted work bound
-//! (`baseline_max_work`), where a search has only the clock. A run that matches a chain merges
-//! two states only when their paths' chain progress agrees, so it can explore more states than
-//! the program's run without the chain, and `baseline_max_work` can then cut it where that run
-//! completes: the answer is `unknown` for the work bound, never for the chain. A hit's witness is
+//! manifest's `max_depth`, `baseline_max_work` and `time_ms`, and the chain run's work budget
+//! ([`ChainWork`]), matching the chain along every path it explores (kink-campaign
+//! `Stop::execute_result_chain_matching`) with proof agreement on every part, under a cap of
+//! partial occurrences per path (kink-campaign `CHAIN_PARTIAL_CAP`), and kink-campaign
+//! `judge_chain_matches` answers it; [`judge`] then applies the premises every route shares. A
+//! chain is never asked by a search, also on a corpus without `[stop]`: the run's matcher is the
+//! one evaluation of a chain, and the run has a counted work bound, where a search has only the
+//! clock. A run that matches a chain merges two states only when their paths' chain progress
+//! agrees, so it can explore more states than the program's run without the chain, and so more
+//! than the program's baseline run, which completed. A chain run is therefore a run of the program
+//! other than its baseline, as a mutant's run is, and it is bounded as a mutant's run is: by
+//! `max(work_factor × P, P_max)` polls (k-rust `max_polls`), `P` the polls of the program's
+//! baseline run and `P_max` the largest of the corpus's comparable programs (FB45-KINK), so a run
+//! asked of a program does at most `work_factor` program-worths of work, on every corpus: a stop
+//! ends each path at its last stop event, but bounds neither a path that meets no stop event
+//! before `max_depth` nor the number of paths, so with `[stop]` too the clock was the only bound
+//! of a chain run's total work without `baseline_max_work`. `baseline_max_work`, a bound of a run
+//! of the baseline's definition, still applies, and the run ends at whichever bound it reaches
+//! first; both are counted. A program whose baseline is not comparable has no `P`: its bound is
+//! `P_max`, and a `no` is withheld there anyway (the baseline premise of [`judge`]), while a hit
+//! within the bound stands. A corpus none of whose programs counted polls gives no bound, and the
+//! chain is not run: its answer is `unknown`, never one the clock decides. A run a bound cut is
+//! `unknown` for the work bound, never for the chain; one the bound of polls cut
+//! ([`SearchOutcome::WorkCut`]) is cut at the same poll on every host, so its `unknown` is a
+//! function of the request, which a query caches under the key that names the bound
+//! ([`crate::query`]). A hit's witness is
 //! the completion's last step at the top level (`depth`, `state`), `bindings` every variable of
 //! the chain's steps that the author wrote, once each (the steps' own bindings, which the run
 //! reports), `rules` null, and `steps`, each step's `{step, depth, state, bindings}`
@@ -356,6 +372,71 @@ pub fn chain_modality(partial_cap: usize) -> Value {
         "result_modality": "state-set",
         "partial_cap": partial_cap,
     })
+}
+
+/// The work budget of a chain run (module docs, the chain route; `[budget] work_factor`): a bound
+/// of polls (k-rust `max_polls`), `max(work_factor × P, P_max)`, where `P` is the polls of the
+/// program's baseline run and `P_max` the largest `P` of the corpus's comparable programs, the
+/// bound of every mutant's run of the program ([`Budget::poll_bound`]). A chain run is a run of
+/// the program other than its baseline, as a mutant's run is, so it does at most `work_factor`
+/// program-worths of work, and at least the work of the corpus's most expensive baseline. A
+/// program whose baseline is not comparable has no `P`, and its bound is `P_max`. The bound only
+/// stops a run: a run it does not stop is the run without it (k-rust, "Poll budget"), and the
+/// count is a function of the request and the definition, so a run it stops is decided
+/// ([`SearchOutcome::WorkCut`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChainWork {
+    /// The bound of polls.
+    pub bound: u64,
+    /// `P`, the polls of the program's baseline run; `None` where that run is not comparable.
+    pub baseline: Option<u64>,
+    /// `work_factor`.
+    pub factor: u64,
+}
+
+impl ChainWork {
+    /// The work budget of a chain run of a program whose baseline run counted `baseline` polls,
+    /// in a corpus whose comparable programs' largest count is `floor`; `None` when no program of
+    /// the corpus counted any (`floor` and `baseline` both `None`): no bound is derived then.
+    #[must_use]
+    pub fn derived(budget: Budget, baseline: Option<u64>, floor: Option<u64>) -> Option<Self> {
+        let floor = floor.into_iter().chain(baseline).max()?;
+        Some(Self {
+            bound: budget.poll_bound(baseline.unwrap_or(0), floor),
+            baseline,
+            factor: budget.work_factor,
+        })
+    }
+
+    /// What a cause says of a run the bound cut: `the chain run used more than 5 × the program's
+    /// baseline's 1234 polls (6170), its work budget ([budget] work_factor)`, or, where the
+    /// corpus's floor is the bound, that the run used more than that many polls, the polls of the
+    /// corpus's most expensive baseline run. A function of the bound and the baseline's count,
+    /// never of a clock.
+    #[must_use]
+    pub fn clause(self) -> String {
+        let Self {
+            bound,
+            baseline,
+            factor,
+        } = self;
+        match baseline {
+            Some(baseline) if baseline.saturating_mul(factor) >= bound => format!(
+                "the chain run used more than {factor} × the program's baseline's {baseline} polls \
+                 ({bound}), its work budget ([budget] work_factor)"
+            ),
+            Some(baseline) => format!(
+                "the chain run used more than {bound} polls, its work budget: the polls of the \
+                 corpus's most expensive baseline run, above {factor} × this program's baseline's \
+                 {baseline} ([budget] work_factor)"
+            ),
+            None => format!(
+                "the chain run used more than {bound} polls, its work budget: the polls of the \
+                 corpus's most expensive baseline run, since this program's baseline run is not \
+                 comparable and gives no count of its own ([budget] work_factor)"
+            ),
+        }
+    }
 }
 
 /// How a (pattern, program) is asked (module docs): a single pattern by a pattern search of the
@@ -1075,6 +1156,11 @@ pub enum SearchOutcome {
     /// entry. The cause is the reader's text; this variant is the fact a lock reads: on a faster
     /// host the search could have hit or completed ([`crate::query`]).
     ClockStopped(String),
+    /// A chain run's work budget ([`ChainWork`], `[budget] work_factor`) cut the run before it
+    /// found a decided answer: the cause. Unlike [`Self::ClockStopped`], where the bound stops
+    /// the run is a function of the request and the definition, so the answer is decided, and a
+    /// query caches it under the key that names the bound ([`crate::query`]).
+    WorkCut(String),
     /// k-rust refused the search: its message.
     Failed(String),
 }
@@ -1219,9 +1305,9 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
             witness: Some(witness.clone()),
         },
         SearchOutcome::Failed(message) => Answer::error(message.clone()),
-        SearchOutcome::Incomplete(cause) | SearchOutcome::ClockStopped(cause) => {
-            Answer::unknown(cause.clone())
-        }
+        SearchOutcome::Incomplete(cause)
+        | SearchOutcome::ClockStopped(cause)
+        | SearchOutcome::WorkCut(cause) => Answer::unknown(cause.clone()),
         SearchOutcome::Complete { smt_unknowns } => {
             let would = "the exploration completed with no match, but a no is not given";
             // The short-circuit reading is judged on the search's own list ([`outcome`]).
@@ -1510,9 +1596,10 @@ impl Searcher {
     /// `initial` as [`Self::run_stopped`] makes it, under `stop` ([`kink_campaign::Stop::NONE`] on
     /// a corpus without `[stop]`), matching `chain` along its paths with proof agreement on every
     /// part and at most `partial_cap` partial occurrences per path; its outcome, the exclusion of
-    /// the initial state read with the run's lists, and its wall time. The run's work bound is
-    /// `baseline_max_work`, the bound of the program's baseline run; where the manifest sets none,
-    /// the run is bounded as that run is, by `max_depth` and the clock.
+    /// the initial state read with the run's lists, and its wall time. The run is bounded by
+    /// `work`, its bound of polls ([`ChainWork`]), and by `baseline_max_work` where the manifest
+    /// sets it, the bound of a run of the baseline's definition, whichever it reaches first; both
+    /// are counted. A run `work` cut is [`SearchOutcome::WorkCut`].
     #[allow(clippy::too_many_arguments)]
     pub fn run_chain(
         &mut self,
@@ -1521,6 +1608,7 @@ impl Searcher {
         initial: &Pattern,
         chain: &LoweredChain,
         partial_cap: usize,
+        work: ChainWork,
         exclusions: &DefinitionExclusions,
     ) -> (SearchOutcome, Option<Exclusion>, u64) {
         let started = Instant::now();
@@ -1533,6 +1621,7 @@ impl Searcher {
             execution_budget(self.budget),
             ResultRun {
                 max_work: self.budget.baseline_max_work,
+                max_polls: Some(work.bound),
                 ..ResultRun::default()
             },
             chain.request(partial_cap),
@@ -1555,6 +1644,7 @@ impl Searcher {
                     }
                     MatchAnswer::No => SearchOutcome::Complete { smt_unknowns: 0 },
                     MatchAnswer::Unknown(unknown) => {
+                        let clause = work.clause();
                         let words = RunWords {
                             system: if stop.is_none() {
                                 "the system without a stop"
@@ -1562,6 +1652,7 @@ impl Searcher {
                                 "the truncated system"
                             },
                             cap: Some(partial_cap),
+                            poll: Some(&clause),
                             ..CHAIN_WORDS
                         };
                         let cause = run_cause(
@@ -1573,6 +1664,10 @@ impl Searcher {
                         );
                         if matches!(unknown, MatchUnknown::Clock) {
                             SearchOutcome::ClockStopped(cause)
+                        } else if matches!(unknown, MatchUnknown::Incomplete { .. })
+                            && matched.execution.as_ref().is_some_and(poll_cut)
+                        {
+                            SearchOutcome::WorkCut(cause)
                         } else {
                             SearchOutcome::Incomplete(cause)
                         }
@@ -1776,6 +1871,17 @@ struct RunWords<'a> {
     work: &'a str,
     /// A chain's cap of partial occurrences per path.
     cap: Option<usize>,
+    /// What a cause says of a run its bound of polls cut ([`ChainWork::clause`]).
+    poll: Option<&'a str>,
+}
+
+/// Whether the bound of polls cut `execution`: a leaf of it is `poll-bound` (k-rust: its last,
+/// the state the run was expanding when the bound stopped it).
+fn poll_cut(execution: &kink_native::execution::AdaptedExecution) -> bool {
+    execution
+        .leaves()
+        .iter()
+        .any(|leaf| leaf.halt == HaltClass::PollBound)
 }
 
 /// The words of a single pattern's stopped run.
@@ -1788,6 +1894,7 @@ const STOPPED_WORDS: RunWords<'static> = RunWords {
     unmatched: "the stopped run reports no state matches",
     work: "",
     cap: None,
+    poll: None,
 };
 
 /// The words of a chain's run; [`Searcher::run_chain`] sets `system` and `cap`.
@@ -1802,6 +1909,7 @@ const CHAIN_WORDS: RunWords<'static> = RunWords {
            agrees, so it can explore more states than the program's run without the chain under \
            the same bound: the work bound cut it, not the chain",
     cap: None,
+    poll: None,
 };
 
 /// What a hit is read from, as a cause names it.
@@ -1960,17 +2068,29 @@ fn run_cause<R: Reach>(
                         .baseline_max_work
                         .map_or_else(|| "unset".to_owned(), |work| work.to_string())
                 ),
+                HaltClass::PollBound => format!(
+                    "a poll-bound leaf: {}",
+                    words.poll.unwrap_or("the run reached its bound of polls")
+                ),
                 halt => format!("a {} leaf", crate::results::kebab(&format!("{halt:?}"))),
             };
+            // The bound of polls ends the run, so its leaf is the last: where another leaf is
+            // the first, the cause also names the cut.
+            let polls = match (words.poll, execution) {
+                (Some(clause), Some(execution))
+                    if *halt != HaltClass::PollBound && poll_cut(execution) =>
+                {
+                    format!("; the run then ended at a poll-bound leaf: {clause}")
+                }
+                _ => String::new(),
+            };
+            let cut =
+                matches!(halt, HaltClass::WorkBound | HaltClass::PollBound) || !polls.is_empty();
             format!(
                 "{would}: the run did not explore {} to its ends ({name}: \
-                 {leaves} leaf/leaves ended where the system goes on, the first: {first}){}",
+                 {leaves} leaf/leaves ended where the system goes on, the first: {first}{polls}){}",
                 words.system,
-                if matches!(halt, HaltClass::WorkBound) {
-                    words.work
-                } else {
-                    ""
-                }
+                if cut { words.work } else { "" }
             )
         }
         MatchUnknown::DiagnosedLeaf { halt, leaves } => format!(
@@ -2741,7 +2861,9 @@ mod tests {
     #[track_caller]
     fn incomplete(outcome: &SearchOutcome, cause: &str) {
         match outcome {
-            SearchOutcome::Incomplete(why) | SearchOutcome::ClockStopped(why) => {
+            SearchOutcome::Incomplete(why)
+            | SearchOutcome::ClockStopped(why)
+            | SearchOutcome::WorkCut(why) => {
                 assert!(why.contains(cause), "{why}");
             }
             other => panic!("expected an unknown with {cause:?}, got {other:?}"),

@@ -428,7 +428,7 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
     let patterns = dir.join("PATTERNS.toml");
     let (document, status) = plain(&manifest, &patterns);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 11);
+    assert_eq!(document["version"], 12);
     assert_eq!(
         answers(&document),
         expect(&[
@@ -588,7 +588,8 @@ fn a_chain_is_answered_along_the_paths_of_a_run() {
             &forged["key"],
             "hit",
             &forged["witness"],
-            &forged["baseline_run_sha256"]
+            &forged["baseline_run_sha256"],
+            &forged["cause"]
         )
         .to_string()
     );
@@ -751,6 +752,207 @@ steps = [
         }
         assert_eq!(obligation(&document, pattern)["status"], "undecided");
     }
+}
+
+/// A definition whose run fans out and merges again: `flip(N)` steps to `hop(N)` or to `skip(N)`,
+/// each of which steps to `flip(N - 1)`, so the run without a chain merges the two paths at each
+/// `flip`, while a chain whose first step binds the value of each `hop` keeps one partial
+/// occurrence per value, and the run that matches it merges no two paths that hopped at
+/// different values.
+const FAN: &str = r#"
+module FAN-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= flip(Int) [symbol(flip)]
+endmodule
+
+module FAN
+  imports FAN-SYNTAX
+  imports INT
+  imports BOOL
+  syntax KItem ::= hop(Int)  [symbol(hop)]
+                 | skip(Int) [symbol(skip)]
+                 | "done"    [symbol(done)]
+  configuration <k> $PGM:Pgm </k>
+
+  rule [hop]:  <k> flip(N) => hop(N) ... </k> requires N >Int 0
+  rule [skip]: <k> flip(N) => skip(N) ... </k> requires N >Int 0
+  rule [back]: <k> hop(N) => flip(N -Int 1) ... </k>
+  rule [over]: <k> skip(N) => flip(N -Int 1) ... </k>
+  rule [last]: <k> flip(0) => done ... </k>
+endmodule
+"#;
+
+/// A chain no path of the fan completes: no `hop` is of a value above 100.
+const FAN_CHAIN: &str = r#"
+[[pattern]]
+id = "high-hop-then-done"
+steps = [
+  { pattern = "<k> hop(H:Int) ... </k>" },
+  { pattern = "<k> done ... </k> requires H >Int 100" },
+]
+"#;
+
+/// The fan's corpus, without `[stop]` and without `baseline_max_work`, under `work_factor`, and a
+/// clock that decides no run.
+fn fan_corpus(test: &str, work_factor: u64) -> PathBuf {
+    fan_corpus_with(test, &format!("work_factor = {work_factor}"))
+}
+
+/// The fan's corpus with `budget`, more lines of its `[budget]`.
+fn fan_corpus_with(test: &str, budget: &str) -> PathBuf {
+    spec_dir(
+        test,
+        "fan.k",
+        "FAN",
+        FAN,
+        &format!(
+            "[budget]\ntime_ms = {NO_CLOCK_MS}\n{budget}\n\n[[program]]\nid = \"fan\"\ntext = \
+             \"flip(6)\"\n"
+        ),
+        FAN_CHAIN,
+    )
+}
+
+/// A corpus none of whose programs has a comparable baseline counts no polls from which a chain
+/// run's work budget is derived: the chain is not run, and its answer is `unknown`, naming that,
+/// never one the clock decides. `max_depth` cuts the fan's baseline, which is then `unknown`.
+#[test]
+fn a_corpus_without_baseline_polls_runs_no_chain() {
+    let dir = fan_corpus_with("chain-work-none", "max_depth = 3");
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    assert_eq!(document["programs"][0]["class"], "unknown", "{document:#}");
+    let unasked = row(&document, "high-hop-then-done", "fan");
+    assert_eq!(
+        (
+            &unasked["answer"],
+            &unasked["wall_ms"],
+            &unasked["cached"],
+            &unasked["clock_stopped"]
+        ),
+        (&json!("unknown"), &Value::Null, &json!(false), &Value::Null),
+        "{unasked:#}"
+    );
+    let cause = unasked["cause"].as_str().unwrap();
+    for expected in [
+        "(no-work-bound)",
+        "[budget] work_factor",
+        "no program of the corpus",
+    ] {
+        assert!(cause.contains(expected), "{expected:?} in {cause}");
+    }
+    assert!(records(&dir).is_empty(), "{:?}", records(&dir));
+}
+
+/// CHAIN-STOPLESS-WORK: a chain run is bounded by the work budget of a run of the program other
+/// than its baseline, `max(work_factor × P, P_max)` polls, also on a corpus without `[stop]` and
+/// without `baseline_max_work`, where the clock was its only total bound. The fan's chain run
+/// splits the paths its baseline merges, so under `work_factor = 1` (bound `P`, the baseline's
+/// own polls) the bound cuts it: the answer is `unknown` for the work bound, its cause naming the
+/// bound and `[budget] work_factor`, not the clock, and it is stored, so the next query reads the
+/// same answer from the cache, which `--verify` re-derives. Under a larger `work_factor` the same
+/// chain is a decided `no`, under another key.
+#[test]
+fn a_chain_run_is_bounded_by_its_work_budget() {
+    let dir = fan_corpus("chain-work-cut", 1);
+    let (manifest, patterns) = (dir.join("FLOW.toml"), dir.join("PATTERNS.toml"));
+    let (document, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_UNANSWERED, "{document:#}");
+    assert_eq!(document["version"], 12);
+    let polls = document["programs"][0]["polls"]
+        .as_u64()
+        .or_else(|| read_json(&result_record(&dir, &document, "fan"))["polls"].as_u64())
+        .unwrap_or_else(|| panic!("the fan's baseline counts its polls: {document:#}"));
+    let cut = row(&document, "high-hop-then-done", "fan");
+    assert_eq!(
+        (
+            &cut["answer"],
+            &cut["route"],
+            &cut["cached"],
+            &cut["clock_stopped"]
+        ),
+        (
+            &json!("unknown"),
+            &json!("chain-run"),
+            &json!(false),
+            &Value::Null
+        ),
+        "{cut:#}"
+    );
+    let cause = cut["cause"].as_str().unwrap();
+    for expected in [
+        "(incomplete: ",
+        "a poll-bound leaf: the chain run used more than 1 × the program's baseline's ",
+        &format!("{polls} polls ({polls}), its work budget ([budget] work_factor)"),
+        "the work bound cut it, not the chain",
+    ] {
+        assert!(cause.contains(expected), "{expected:?} in {cause}");
+    }
+    assert!(!cause.contains("time_ms"), "{cause}");
+    assert_eq!(
+        obligation(&document, "high-hop-then-done")["status"],
+        "undecided"
+    );
+    assert_eq!(
+        obligation(&document, "high-hop-then-done")["clock_stopped"],
+        json!([])
+    );
+    // The record: the unknown with its cause, under a key that names the bound.
+    let path = pattern_record(&dir, &document, "high-hop-then-done", "fan");
+    let record = read_json(&path);
+    assert_eq!(record["answer"], "unknown", "{record:#}");
+    assert_eq!(record["cause"], cut["cause"]);
+    assert_eq!(record["witness"], Value::Null);
+    assert_eq!(record["key"]["budget"]["max_polls"], polls, "{record:#}");
+    assert_eq!(
+        record["key"]["schema_version"],
+        "kink-flow/pattern-answer/v10"
+    );
+
+    // The next query reads the same answer from the cache; --verify re-derives it.
+    let (again, status) = plain(&manifest, &patterns);
+    assert_eq!(status, EXIT_UNANSWERED, "{again:#}");
+    let cached_row = row(&again, "high-hop-then-done", "fan");
+    assert_eq!(
+        (
+            &cached_row["answer"],
+            &cached_row["cause"],
+            &cached_row["cached"]
+        ),
+        (&cut["answer"], &cut["cause"], &json!(true)),
+        "{cached_row:#}"
+    );
+    assert_eq!(again["pattern_cache"]["from_cache"], 1, "{again:#}");
+    let (verified, status) = verify(&manifest, &patterns);
+    assert_eq!(status, EXIT_UNANSWERED, "{verified:#}");
+    assert_eq!(verified["mismatches"], json!([]), "{verified:#}");
+    assert_eq!(
+        row(&verified, "high-hop-then-done", "fan")["verify"],
+        "match"
+    );
+
+    // A larger work budget lets the run end: a decided no, under another key.
+    let wide = fan_corpus("chain-work-wide", 1_000);
+    let (decided, status) = plain(&wide.join("FLOW.toml"), &wide.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_YES, "{decided:#}");
+    let no = row(&decided, "high-hop-then-done", "fan");
+    assert_eq!(
+        (&no["answer"], &no["cached"]),
+        (&json!(NO), &json!(false)),
+        "{no:#}"
+    );
+    let record = read_json(&pattern_record(
+        &wide,
+        &decided,
+        "high-hop-then-done",
+        "fan",
+    ));
+    assert_eq!(
+        record["key"]["budget"]["max_polls"],
+        polls * 1_000,
+        "{record:#}"
+    );
+    assert_eq!(record["cause"], Value::Null);
 }
 
 /// The `time_ms` of a test whose expected outcome comes from a deterministic bound: nextest stops a
@@ -1276,7 +1478,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 11, "{document:#}");
+    assert_eq!(document["version"], 12, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),
@@ -1791,7 +1993,7 @@ fn the_first_query_records_one_witness_per_pattern() {
     let dir = fixture("witness", "witness-first");
     let (document, status) = locked_query(&dir, false, false);
     assert_eq!(status, EXIT_YES, "{document:#}");
-    assert_eq!(document["version"], 11);
+    assert_eq!(document["version"], 12);
     let first = owed(&[
         ("above-five", "hit", Some("B")),
         ("result-hundred", "open", None),
@@ -2058,7 +2260,7 @@ fn a_refuted_claim_is_explained_by_the_parts_of_its_pattern() {
     let dir = fixture("explain", "explain-claims");
     let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
     assert_eq!(status, REFUTED_STATUS, "{document:#}");
-    assert_eq!(document["version"], 11);
+    assert_eq!(document["version"], 12);
     let conjunct = "requires conjunct 1: C:Int <=Int size ( L:List )";
 
     let one = explained(&document, "request-during-write", "boot");
@@ -2482,7 +2684,8 @@ fn explanations_change_no_answer_and_are_read_from_the_cache() {
             &forged["key"],
             "hit",
             &forged["witness"],
-            &forged["baseline_run_sha256"]
+            &forged["baseline_run_sha256"],
+            &forged["cause"]
         )
         .to_string()
     );
@@ -2763,7 +2966,7 @@ programs = ["add"]
         );
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_YES, "{document:#}");
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["version"], 12);
         let hit = row(&document, "filled", "twelve");
         assert_eq!(hit["answer"], "hit", "{hit:#}");
         let witness = &hit["witness"];
@@ -2913,7 +3116,7 @@ programs = ["add"]
         let (document, status) = plain(&dir.join("FLOW.toml"), &patterns);
         assert_eq!(status, REFUTED_STATUS, "{document:#}");
         assert_eq!(document["schema"], "kink-flow-query");
-        assert_eq!(document["version"], 11);
+        assert_eq!(document["version"], 12);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -3272,7 +3475,8 @@ programs = ["add"]
                 &record["key"],
                 "hit",
                 &witness,
-                &record["baseline_run_sha256"]
+                &record["baseline_run_sha256"],
+                &record["cause"]
             )
             .to_string()
         );
@@ -3436,8 +3640,16 @@ programs = ["add"]
         record["answer"] = json!("no");
         record["witness"] = Value::Null;
         record["baseline_run_sha256"] = run_sha256.clone();
-        record["record_sha256"] =
-            json!(record_sha256(&record["key"], "no", &Value::Null, &run_sha256).to_string());
+        record["record_sha256"] = json!(
+            record_sha256(
+                &record["key"],
+                "no",
+                &Value::Null,
+                &run_sha256,
+                &Value::Null
+            )
+            .to_string()
+        );
         let forged = serde_json::to_string(&record).unwrap();
         fs::write(&path, &forged).unwrap();
 
