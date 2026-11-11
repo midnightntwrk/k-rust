@@ -20,7 +20,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 26;
+pub const COUNTER_SCHEMA_VERSION: u64 = 27;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -1132,6 +1132,111 @@ pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
     imp::without_counting(work)
 }
 
+/// How one kompile stage shared the sentences it received, summed over every run of the stage
+/// in the process: the rows of the `stages` object of the `KRUST_COUNTERS` document.
+///
+/// A sentence is a `new_allocation` when no sentence of the stage's input is that allocation,
+/// whatever module it moved to; `equal` counts the new allocations that equal (`==`, which
+/// ignores term annotations and provenance-only attributes) the input sentence they replace, and
+/// `identical` those of them that equal it in every stored part, annotations and receipts
+/// included, so that returning the input sentence would have built the same value. `copies` is
+/// the stage's share of `kompile.sentence_copies`.
+#[cfg(feature = "measure")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StageSentences {
+    pub runs: u64,
+    pub received: u64,
+    pub returned: u64,
+    pub new_allocations: u64,
+    pub equal: u64,
+    pub identical: u64,
+    pub copies: u64,
+}
+
+#[cfg(feature = "measure")]
+impl StageSentences {
+    /// The dump keys of the fields, in the order [`Self::values`] gives them.
+    pub const FIELDS: [&'static str; 7] = [
+        "runs",
+        "received",
+        "returned",
+        "new_allocations",
+        "equal",
+        "identical",
+        "copies",
+    ];
+
+    pub fn values(&self) -> [u64; 7] {
+        [
+            self.runs,
+            self.received,
+            self.returned,
+            self.new_allocations,
+            self.equal,
+            self.identical,
+            self.copies,
+        ]
+    }
+
+    fn accumulate(&mut self, other: &Self) {
+        self.runs += other.runs;
+        self.received += other.received;
+        self.returned += other.returned;
+        self.new_allocations += other.new_allocations;
+        self.equal += other.equal;
+        self.identical += other.identical;
+        self.copies += other.copies;
+    }
+}
+
+/// Process-wide, not thread-local like the counters: a stage runs on whichever thread holds a
+/// stack deep enough for its terms, and the rows are read once at exit.
+#[cfg(feature = "measure")]
+static STAGE_SENTENCES: std::sync::Mutex<Vec<(&'static str, StageSentences)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "measure")]
+static STAGE_SENTENCES_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the stage table is collected. Its comparisons walk each changed sentence, and the
+/// test builds, which all enable `measure`, compile many definitions, so the table is off until
+/// an executable that writes it (`krust` under `KRUST_COUNTERS`) turns it on.
+#[cfg(feature = "measure")]
+pub fn stage_sentences_enabled() -> bool {
+    STAGE_SENTENCES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(feature = "measure")]
+pub fn set_stage_sentences_enabled(enabled: bool) {
+    STAGE_SENTENCES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Add one run's row to the stage's row; a stage first seen is appended, so the table keeps
+/// the order in which stages first ran. Work under [`without_counting`] is not added.
+#[cfg(feature = "measure")]
+pub fn add_stage_sentences(stage: &'static str, row: StageSentences) {
+    if imp::suppressed() {
+        return;
+    }
+    let mut table = STAGE_SENTENCES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match table.iter_mut().find(|(name, _)| *name == stage) {
+        Some((_, total)) => total.accumulate(&row),
+        None => table.push((stage, row)),
+    }
+}
+
+/// Every stage's row, in the order the stages first ran.
+#[cfg(feature = "measure")]
+pub fn stage_sentences() -> Vec<(&'static str, StageSentences)> {
+    STAGE_SENTENCES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
 #[cfg(feature = "measure")]
 mod imp {
     use std::cell::Cell;
@@ -1179,6 +1284,11 @@ mod imp {
             };
             work()
         })
+    }
+
+    /// Whether the current thread runs under `without_counting`.
+    pub fn suppressed() -> bool {
+        SUPPRESS.with(Cell::get)
     }
 
     /// Zero every counter of the current thread.

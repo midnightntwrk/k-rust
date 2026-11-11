@@ -174,6 +174,8 @@ fn start_trace(
 fn main() -> ExitCode {
     #[cfg(feature = "measure")]
     k_rust_kore::measure::set_output_counting_enabled(env::var_os("KRUST_COUNTERS").is_some());
+    #[cfg(feature = "measure")]
+    k_rust_kore::measure::set_stage_sentences_enabled(env::var_os("KRUST_COUNTERS").is_some());
     // A measurement of the condition memo's share: `KRUST_CONDITION_MEMO=off` turns it off for
     // the run (measure builds only; it changes the work and no output).
     #[cfg(feature = "measure")]
@@ -211,6 +213,23 @@ fn write_counters_if_requested() {
     while let Some((name, value)) = counters.next() {
         let separator = if counters.peek().is_some() { "," } else { "" };
         text.push_str(&format!("    \"{name}\": {value}{separator}\n"));
+    }
+    // The per-stage sentence table (`StageSentences`), one line per kompile stage in the order
+    // the stages first ran; empty for a command that runs no kompile stage.
+    text.push_str("  },\n  \"stages\": {\n");
+    let mut stages = k_rust_kore::measure::stage_sentences()
+        .into_iter()
+        .peekable();
+    while let Some((stage, row)) = stages.next() {
+        let fields = k_rust_kore::measure::StageSentences::FIELDS
+            .iter()
+            .zip(row.values())
+            .map(|(field, value)| format!("\"{field}\": {value}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let separator = if stages.peek().is_some() { "," } else { "" };
+        let stage = serde_json::Value::from(stage);
+        text.push_str(&format!("    {stage}: {{{fields}}}{separator}\n"));
     }
     text.push_str("  }\n}\n");
     if let Err(error) = fs::write(&path, text) {

@@ -1084,6 +1084,13 @@ fn iter_identical<'a>(
     }
 }
 
+/// The strict equality reuse decides by, for the per-stage table of a `measure` build: a copy
+/// identical to the sentence it replaces could have been that sentence.
+#[cfg(feature = "measure")]
+pub(crate) fn measured_sentences_identical(left: &Sentence, right: &Sentence) -> bool {
+    sentences_identical(left, right)
+}
+
 fn sentences_identical(left: &Sentence, right: &Sentence) -> bool {
     // Identity is reflexive, and a pass shares every sentence it leaves unchanged with its input.
     if std::ptr::eq(left, right) {

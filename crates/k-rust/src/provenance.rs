@@ -1207,6 +1207,16 @@ fn sentence_origins(
     built_set(origins)
 }
 
+/// The sentence of `before` that each sentence of `after` replaces, paired as the origin recorder
+/// pairs them: the per-stage table of a `measure` build asks which copies equal what they replace.
+#[cfg(feature = "measure")]
+pub(crate) fn measured_counterparts(
+    before: &[Arc<Sentence>],
+    after: &[Arc<Sentence>],
+) -> Vec<Option<usize>> {
+    sentence_counterparts(before, after)
+}
+
 /// Sentence equality that answers for one shared sentence without walking it.
 fn same_sentence(left: &Sentence, right: &Sentence) -> bool {
     std::ptr::eq(left, right) || left == right

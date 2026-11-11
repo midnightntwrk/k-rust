@@ -1195,6 +1195,8 @@ fn run_stage(
     state: &mut PipelineState,
     options: &CompileOptions,
 ) -> Result<StageOutput, CompileError> {
+    #[cfg(feature = "measure")]
+    let copies_before = stage_sentence_copies();
     let input = PassInput::new(current);
     let output = (stage.run)(&input, state).map_err(|error| CompileError {
         stage: stage.name,
@@ -1202,13 +1204,24 @@ fn run_stage(
         diagnostics: options.diagnostics.apply(error.diagnostics),
     })?;
     let output = match output {
-        PassOutcome::Unchanged => return Ok((None, None)),
+        PassOutcome::Unchanged => {
+            #[cfg(feature = "measure")]
+            record_stage_sentences(stage.name, &current.definition, None, copies_before);
+            return Ok((None, None));
+        }
         PassOutcome::Changed(definition) => definition,
     };
     let output = match stage.provenance {
         Provenance::Driver(pass) => record_generated_origins(&current.definition, output, pass),
         Provenance::None | Provenance::Internal(_) => output,
     };
+    #[cfg(feature = "measure")]
+    record_stage_sentences(
+        stage.name,
+        &current.definition,
+        Some(&output),
+        copies_before,
+    );
     #[cfg(debug_assertions)]
     assert_no_dangling_application_identities(&output);
     let next_resolved = match current.resolved.get() {
@@ -1217,6 +1230,106 @@ fn run_stage(
         None => None,
     };
     Ok((Some(output), next_resolved))
+}
+
+#[cfg(feature = "measure")]
+fn stage_sentence_copies() -> u64 {
+    k_rust_kore::measure::snapshot().get(k_rust_kore::measure::Counter::KompileSentenceCopies)
+}
+
+/// Add one stage run to the `measure` build's per-stage table (`StageSentences`): `output` is
+/// what the stage returned, after its origins were recorded, or `None` when it returned its
+/// input unchanged.
+#[cfg(feature = "measure")]
+fn record_stage_sentences(
+    stage: &'static str,
+    input: &Definition,
+    output: Option<&Definition>,
+    copies_before: u64,
+) {
+    use k_rust_kore::measure;
+    if !measure::stage_sentences_enabled() {
+        return;
+    }
+    let copies = stage_sentence_copies().wrapping_sub(copies_before);
+    // The comparisons are the table's own work, not the compile's: no counter moves for them.
+    let row = measure::without_counting(|| stage_sentences_row(input, output.unwrap_or(input)));
+    measure::add_stage_sentences(stage, measure::StageSentences { copies, ..row });
+}
+
+/// How `output` shares the sentences of `input`.
+///
+/// Stages add, remove, reorder and move sentences between modules, so there is no positional
+/// correspondence. A returned sentence is a new allocation when it is none of the input's
+/// allocations, in any module: `input` is alive here, so no allocation of it can have been freed
+/// and its address reused by an output sentence. A new allocation is compared with the input
+/// sentence of the same-named module that it replaces, as the origin recorder pairs them
+/// (`provenance::measured_counterparts`); one that replaces none (a generated sentence, or one
+/// in a new module) counts as new and unequal. A removed sentence counts in `received` only.
+#[cfg(feature = "measure")]
+fn stage_sentences_row(
+    input: &Definition,
+    output: &Definition,
+) -> k_rust_kore::measure::StageSentences {
+    use std::{collections::HashSet, sync::Arc};
+
+    use crate::definition::Sentence;
+
+    let count = |definition: &Definition| {
+        definition
+            .modules
+            .iter()
+            .map(|module| module.local_sentences.len() as u64)
+            .sum::<u64>()
+    };
+    let mut row = k_rust_kore::measure::StageSentences {
+        runs: 1,
+        received: count(input),
+        returned: count(output),
+        ..Default::default()
+    };
+    if std::ptr::eq(input, output) {
+        return row;
+    }
+    let received = input
+        .modules
+        .iter()
+        .flat_map(|module| module.local_sentences.iter().map(Arc::as_ptr))
+        .collect::<HashSet<*const Sentence>>();
+    for module in &output.modules {
+        let new = module
+            .local_sentences
+            .iter()
+            .enumerate()
+            .filter(|(_, sentence)| !received.contains(&Arc::as_ptr(sentence)))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        row.new_allocations += new.len() as u64;
+        if new.is_empty() {
+            continue;
+        }
+        let before = input
+            .modules
+            .iter()
+            .find(|candidate| candidate.name == module.name)
+            .map(|candidate| candidate.local_sentences.as_slice())
+            .unwrap_or_default();
+        let counterparts =
+            crate::provenance::measured_counterparts(before, &module.local_sentences);
+        for index in new {
+            let Some(replaced) = counterparts[index] else {
+                continue;
+            };
+            let (replaced, sentence) = (&*before[replaced], &*module.local_sentences[index]);
+            if replaced == sentence {
+                row.equal += 1;
+                if crate::definition::resolve::measured_sentences_identical(replaced, sentence) {
+                    row.identical += 1;
+                }
+            }
+        }
+    }
+    row
 }
 
 /// What one stage gives: its output when it changed the definition, and the resolution of that
