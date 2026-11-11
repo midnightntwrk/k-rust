@@ -650,18 +650,13 @@ advice = "none"
 
 [class.rule-changes-no-cell]
 code = "krs::analysis::rule-changes-no-cell"
-doc = "a rule that writes no cell; judged on the whole rule"
+doc = "a rule that writes no cell, a single-body rule whose subject marks no change included; judged on the whole rule"
 advice = "none"
 
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal, a collection's unit, element or concatenation, or a collection literal that writes entries (`map![k -> v]`, `set![a, b]`, the collection it builds, whatever calls KRS builds it with; NT-28) at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify; the update or the union is written as its call"
 advice = ["terms/rule/subject-root/Cmd::Hold(x)", "notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)", "notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
-
-[class.single-body-without-rewrite]
-code = "krs::syntax::invalid-local-rewrite"
-doc = "a single-body rule whose subject holds no `k::rewrite!`, so the rule changes nothing: a sentence's mistake, not a construct's position"
-advice = "terms/local-rule/subject/k::rewrite!(_ => 1)"
 
 [class.smt-lemma-untranslatable]
 code = "krs::analysis::smt-lemma-untranslatable"
@@ -2263,10 +2258,12 @@ match = 'import/{constant/value-root,init/item-root}/Hold(x)'
 class = "unbound-name"
 at = "spelling"
 
-# single-body-without-rewrite (NT-2): a single-body rule's whole subject that holds no rewrite
+# rule-changes-no-cell (NT-2, CELLS4): a single-body rule's whole subject that holds no rewrite
+# keeps every cell, so it changes none, as a rule whose result restates its subject does: a
+# sentence's mistake, not a construct's position
 [[refuse]]
 match = '{import,notation,terms}/local-rule/subject-root/*'
-class = "single-body-without-rewrite"
+class = "rule-changes-no-cell"
 at = "item"
 
 # alternatives-bind-unequally (NT-2 review, KEYS): alternatives in a subject that bind other names, at a sibling whose product refuses it for another reason first;
