@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "kore.printer.build"
 //! name = "construction of KORE pretty-print documents"
-//! sites = ["definition_ops", "module_ops", "sentence_ops", "push_declaration_pattern", "parameters_task", "sorts_task", "attributes_task", "attributes_ops", "compact_text", "SyntaxOps::next", "Printer::print_definition", "Printer::print_definition_parts", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "Printer::write_source", "expand", "sorted_connective", "sorted_binder", "fixpoint", "two_sorted", "push_grouped", "delimited_task", "owned_text"]
+//! sites = ["definition_ops", "module_ops", "sentence_ops", "push_declaration_pattern", "parameters_task", "sorts_task", "attributes_task", "attributes_ops", "compact_text", "SyntaxOps::next", "Printer::print_definition", "Printer::print_definition_parts", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "Printer::write_source", "expand", "sorted_connective", "sorted_binder", "fixpoint", "two_sorted", "push_grouped", "delimited_task"]
 //! variable = "N = KORE syntax nodes; definition_ops and module_ops add a constant number of ops per module and sentence, sentence_ops seeds the SyntaxOps task stack with a constant number of tasks per sentence plus one per sort parameter, argument sort, and attribute, and the SyntaxOps task stack produces patterns, sorts, symbols, and variables, reading each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's ops the same way, so their construction time is measured together with rendering"
 //! counters = ["KoreTextNodesWritten", "KoreTextDistinctNodes", "KoreTextBytesWritten"]
 //! span = "per call"
@@ -15,7 +15,7 @@
 //! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling fixed task sequences and delimited groups directly onto that stack; a sentence's fixed structure (its group, its body nest, and its parameter, sort, and attribute lists) is pushed onto the same stack as tasks, so no op is copied or shifted after it is produced.
 //! A pattern is printed by feeding `SyntaxOps` straight to the renderer (`Printer::write_pattern`), so neither its op sequence nor its text is held whole; `print_pattern` is the same path into a byte buffer.
 //! `SyntaxOps` reads a pattern only through `PatternSource::node`, so `Printer::write_source` prints any pattern source, such as backend terms externalized node by node, with the same ops as the materialized pattern, and without the pattern itself being held whole either.
-//! Static syntax tokens borrow their text while generated names and quoted values own theirs; both yield the same text bytes to the renderer.
+//! Static syntax tokens and the names of borrowed syntax borrow their text, while names moved out of owned nodes and generated texts (headers, quoted values, a variable's `name:`) own theirs; both yield the same text bytes to the renderer.
 //! Definitions and modules are op iterators (`definition_ops`, `module_ops`) that start each sentence's `SyntaxOps` only when the renderer reaches it, so neither a whole definition's document nor a whole sentence's is held.
 //! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; KoreText counters record source nodes, distinct source nodes and output bytes.
 //!
@@ -187,7 +187,7 @@ impl Printer {
         )
     }
 
-    fn render_ops(self, ops: impl Iterator<Item = Op>) -> String {
+    fn render_ops<'a>(self, ops: impl Iterator<Item = Op<'a>>) -> String {
         let mut output = Vec::new();
         render(ops, self.render_mode(), self.options.width, &mut output)
             .expect("writing to a Vec does not fail");
@@ -266,11 +266,11 @@ impl Display for Variable {
 }
 
 /// The ops of a definition: its attributes, then each module after a hard line.
-fn definition_ops<'a>(
-    attributes: &Attributes,
-    modules: impl IntoIterator<Item = &'a Module>,
+fn definition_ops<'a, 'm: 'a>(
+    attributes: &'a Attributes,
+    modules: impl IntoIterator<Item = &'m Module>,
     indent: usize,
-) -> impl Iterator<Item = Op> {
+) -> impl Iterator<Item = Op<'a>> {
     attributes_ops(attributes, indent).chain(
         modules.into_iter().flat_map(move |module| {
             std::iter::once(Op::HardLine).chain(module_ops(module, indent))
@@ -281,7 +281,7 @@ fn definition_ops<'a>(
 /// The ops of a module: its header, its sentences each after a hard line and nested by
 /// `indent` when there are any, then the `endmodule` line with the module attributes. A
 /// sentence's ops are produced when the iterator reaches it.
-fn module_ops(module: &Module, indent: usize) -> impl Iterator<Item = Op> {
+fn module_ops(module: &Module, indent: usize) -> impl Iterator<Item = Op<'_>> {
     let body = (!module.sentences.is_empty()).then(|| {
         std::iter::once(Op::NestStart(indent))
             .chain(module.sentences.iter().flat_map(move |sentence| {
@@ -422,7 +422,7 @@ fn parameters_task<'a>(parameters: &'a [String]) -> SyntaxTask<'a, &'a Pattern> 
         "}",
         parameters
             .iter()
-            .map(|parameter| SyntaxTask::Text(parameter.clone().into())),
+            .map(|parameter| SyntaxTask::Text(Cow::Borrowed(parameter))),
     )
 }
 
@@ -454,7 +454,7 @@ enum SyntaxTask<'a, S> {
     Sort(Cow<'a, Sort>),
     Symbol(Cow<'a, Symbol>),
     Variable(Cow<'a, Variable>),
-    Text(Cow<'static, str>),
+    Text(Cow<'a, str>),
     Line(&'static str),
     NestStart,
     NestEnd,
@@ -484,9 +484,9 @@ impl<'a, S> SyntaxOps<'a, S> {
 }
 
 impl<'a, S: PatternSource<'a>> Iterator for SyntaxOps<'a, S> {
-    type Item = Op;
+    type Item = Op<'a>;
 
-    fn next(&mut self) -> Option<Op> {
+    fn next(&mut self) -> Option<Op<'a>> {
         let indent = self.indent;
         let stack = &mut self.stack;
         // Invariant: the ops returned so far, followed by the ops of the tasks on `stack` taken
@@ -506,11 +506,6 @@ impl<'a, S: PatternSource<'a>> Iterator for SyntaxOps<'a, S> {
         }
         None
     }
-}
-
-/// The text of a name, moved out of an owned node or copied from a borrowed one.
-fn owned_text(name: Cow<'_, str>) -> Cow<'static, str> {
-    Cow::Owned(name.into_owned())
 }
 
 /// Replace a syntax node or `Delimited` task by its children on `stack`, in reverse output order.
@@ -568,7 +563,7 @@ fn expand<'a, S: PatternSource<'a>>(stack: &mut Vec<SyntaxTask<'a, S>>, task: Sy
         SyntaxTask::Sort(sort) => {
             let (name, arguments) = match sort {
                 Cow::Borrowed(Sort::Variable(name)) => {
-                    stack.push(SyntaxTask::Text(name.clone().into()));
+                    stack.push(SyntaxTask::Text(Cow::Borrowed(name)));
                     return;
                 }
                 Cow::Borrowed(Sort::Application { name, arguments }) => (
@@ -584,7 +579,7 @@ fn expand<'a, S: PatternSource<'a>>(stack: &mut Vec<SyntaxTask<'a, S>>, task: Sy
                 },
             };
             stack.push(delimited_task("{", "}", sort_arguments(arguments)));
-            stack.push(SyntaxTask::Text(owned_text(name)));
+            stack.push(SyntaxTask::Text(name));
         }
         SyntaxTask::Symbol(symbol) => {
             let (name, sort_parameters) = match symbol {
@@ -595,7 +590,7 @@ fn expand<'a, S: PatternSource<'a>>(stack: &mut Vec<SyntaxTask<'a, S>>, task: Sy
                 Cow::Owned(symbol) => (Cow::Owned(symbol.name), Cow::Owned(symbol.sort_parameters)),
             };
             stack.push(delimited_task("{", "}", sort_arguments(sort_parameters)));
-            stack.push(SyntaxTask::Text(owned_text(name)));
+            stack.push(SyntaxTask::Text(name));
         }
         SyntaxTask::Variable(variable) => {
             let (text, sort) = match variable {
@@ -1103,7 +1098,7 @@ pub(crate) mod tests {
 
         use super::super::{
             PrintOptions, Printer, SyntaxOps, SyntaxTask,
-            document::{Doc, RenderMode, whole_document_render},
+            document::{Doc, Op, RenderMode, whole_document_render},
             sentence_ops,
         };
         use crate::kore::ast::{
@@ -1111,7 +1106,7 @@ pub(crate) mod tests {
         };
 
         fn syntax_doc<'a>(root: SyntaxTask<'a, &'a Pattern>, indent: usize) -> Doc {
-            Doc::from_ops(SyntaxOps::new(root, indent).collect())
+            Doc::from_ops(SyntaxOps::new(root, indent).map(Op::into_owned).collect())
         }
 
         fn pattern_doc(pattern: &Pattern, indent: usize) -> Doc {

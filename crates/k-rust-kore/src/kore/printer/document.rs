@@ -46,12 +46,14 @@ use crate::measure::{self, Algorithm};
 #[cfg(test)]
 #[derive(Clone, Debug)]
 pub(super) struct Doc {
-    ops: Vec<Op>,
+    ops: Vec<Op<'static>>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) enum Op {
-    Text(Cow<'static, str>),
+pub(super) enum Op<'a> {
+    /// Text borrowed from the syntax being printed or owned when generated or moved out of an
+    /// owned node; the renderer reads only the string, so both give the same output.
+    Text(Cow<'a, str>),
     Line(&'static str),
     HardLine,
     NestStart(usize),
@@ -62,7 +64,7 @@ pub(super) enum Op {
 
 #[cfg(test)]
 impl Doc {
-    pub(super) fn from_ops(ops: Vec<Op>) -> Self {
+    pub(super) fn from_ops(ops: Vec<Op<'static>>) -> Self {
         Self { ops }
     }
 
@@ -107,7 +109,7 @@ impl Doc {
         self
     }
 
-    pub(super) fn into_ops(self) -> impl Iterator<Item = Op> {
+    pub(super) fn into_ops(self) -> impl Iterator<Item = Op<'static>> {
         self.ops.into_iter()
     }
 
@@ -117,6 +119,22 @@ impl Doc {
             self.ops.push(Op::GroupEnd);
         }
         self
+    }
+}
+
+#[cfg(test)]
+impl Op<'_> {
+    /// The same op with its text owned, so a test can hold it in a [`Doc`].
+    pub(super) fn into_owned(self) -> Op<'static> {
+        match self {
+            Op::Text(text) => Op::Text(Cow::Owned(text.into_owned())),
+            Op::Line(flat) => Op::Line(flat),
+            Op::HardLine => Op::HardLine,
+            Op::NestStart(amount) => Op::NestStart(amount),
+            Op::NestEnd(amount) => Op::NestEnd(amount),
+            Op::GroupStart => Op::GroupStart,
+            Op::GroupEnd => Op::GroupEnd,
+        }
     }
 }
 
@@ -141,8 +159,8 @@ pub(super) enum RenderMode {
 /// full indentation gives, so the lines break where they would with full indentation; past
 /// the width no group fits anyway, so the indentation there carries no layout and writing it
 /// in full would make the text of a deep term quadratic in its depth.
-pub(super) fn render<W: io::Write + ?Sized>(
-    ops: impl IntoIterator<Item = Op>,
+pub(super) fn render<'a, W: io::Write + ?Sized>(
+    ops: impl IntoIterator<Item = Op<'a>>,
     mode: RenderMode,
     width: usize,
     output: &mut W,
@@ -221,9 +239,9 @@ enum Mode {
 /// non-empty identifiers, so the zero-width ops between two text ops are bounded in number and
 /// the queue's length is bounded by a constant times the line width, independent of the
 /// document's size.
-fn fits(
-    lookahead: &mut VecDeque<Op>,
-    source: &mut impl Iterator<Item = Op>,
+fn fits<'a>(
+    lookahead: &mut VecDeque<Op<'a>>,
+    source: &mut impl Iterator<Item = Op<'a>>,
     mut remaining: usize,
 ) -> bool {
     let mut depth = 0usize;
@@ -344,7 +362,7 @@ fn indented_whole_document_render(
 }
 
 #[cfg(test)]
-fn whole_document_flat_widths(ops: &[Op]) -> Vec<Option<usize>> {
+fn whole_document_flat_widths(ops: &[Op<'_>]) -> Vec<Option<usize>> {
     let mut result = vec![None; ops.len()];
     let mut stack: Vec<(usize, Option<usize>)> = Vec::new();
     for (index, op) in ops.iter().enumerate() {
