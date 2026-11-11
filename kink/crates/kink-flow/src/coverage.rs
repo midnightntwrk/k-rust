@@ -302,9 +302,12 @@
 //! `undecided` atom has no known truth, so it fixes nothing.
 //!
 //! An atom with a pair is `covered` by the programs of the pair (`pair`: each side's valuation,
-//! outcome and programs). One without is `open`, or [`UNDECIDED`] where a comparable program's
-//! record of the condition left a combination out (`truncated_by`): a record keeps the least
-//! combinations up to a bound, so the pair may be among those it left out. An undecided
+//! outcome and programs, the first pair in the rows' order). Those programs discharge it
+//! together, not each alone, and other rows may give other pairs: `prune` reads every pair of
+//! the rows ([`crate::prune`], "Pair obligations"). One without is `open`, or [`UNDECIDED`]
+//! where a comparable program's record of the condition left a combination out
+//! (`truncated_by`): a record keeps the least combinations up to a bound, so the pair may be
+//! among those it left out. An undecided
 //! requirement is neither covered nor open (`counts.undecided`); it keeps its target, so
 //! `summary.open`, what is left to settle, counts it. Its target and an open one's name the
 //! valuation needed (`needed`): a recorded combination with the atom's truth negated, where the
@@ -2465,7 +2468,8 @@ fn syntax_family(
 
 /// What the coverage document's `item` of the family `family` states of each program, as an
 /// obligation of the corpus ([`crate::prune`]), `binders` being the syntax family's binders (the
-/// values every comparable record kept of each template binder).
+/// values every comparable record kept of each template binder) and `rules` the rules family's
+/// items.
 ///
 /// - A flip (tier 2) that kink's verdict makes an obligation (`distinguished`, `undistinguished`,
 ///   `unreached`, `unknown`, or `argued` while one of these) is one: its discharger is its
@@ -2478,11 +2482,23 @@ fn syntax_family(
 ///   not false, `covered` a truth): its dischargers are the comparable programs its covering
 ///   list names (`covered_by`, `reached_by` or `fired_by`) when it is covered; its unknown cells
 ///   are the programs whose record left its outcome undecided (a requirement's `undecided_by`), or
-///   left out a combination or a value it may hold (a unique-cause requirement's `truncated_by`,
-///   a field value's binder's `truncated_by`). A covered item whose list names no program is
-///   `unnamed`: some fact covers it that names no case.
+///   left out a value it may hold (a field value's binder's `truncated_by`). A covered item
+///   whose list names no program is `unnamed`: some fact covers it that names no case. Each such
+///   item is discharged by one program: its covering list names each program whose own run or
+///   record covers it (a rule's firing, an outcome class of a condition or an operand, a
+///   production or field value touched, a window one path took as consecutive steps, a syntax
+///   path one fired instance touched).
+/// - A unique-cause requirement (`level` [`MCDC`]) that is an obligation is none of these: a pair
+///   of combinations covers it, which two programs' records may give, so it is read as a pair
+///   obligation over every pair its rule's combinations give ([`crate::prune::Reading::Pairs`],
+///   [`unique_cause_cells`]).
 #[must_use]
-pub fn cover_cells(family: &str, item: &Value, binders: &[Value]) -> crate::prune::Reading {
+pub fn cover_cells(
+    family: &str,
+    item: &Value,
+    binders: &[Value],
+    rules: &[Value],
+) -> crate::prune::Reading {
     use crate::flips::{DISTINGUISHED, UNDISTINGUISHED, UNKNOWN, UNREACHED};
     use crate::prune::{Cells, Reading};
     let mut unknown = Vec::new();
@@ -2523,6 +2539,9 @@ pub fn cover_cells(family: &str, item: &Value, binders: &[Value]) -> crate::prun
     }
     if item["obligation"] == false || !item["covered"].is_boolean() {
         return Reading::None;
+    }
+    if item["level"] == MCDC {
+        return unique_cause_cells(item, rules);
     }
     let covered = item["covered"] == true;
     let mut dischargers = Vec::new();
@@ -3306,23 +3325,10 @@ fn mcdc_requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]
             _ => None,
         };
         // A unique-cause pair: a held and a refuted combination in which the operand has the two
-        // truths and every other atom one decided truth.
-        let pair = rows
-            .iter()
-            .filter(|held| decided(held) == Some(true))
-            .flat_map(|held| rows.iter().map(move |refuted| (held, refuted)))
-            .find(|(held, refuted)| {
-                decided(refuted) == Some(false)
-                    && two_valued(held)
-                        .zip(two_valued(refuted))
-                        .is_some_and(|(a, b)| a != b)
-                    && (0..atoms.len())
-                        .filter(|other| other != ordinal)
-                        .all(|other| {
-                            let value = truth(held, other);
-                            value != "undecided" && value == truth(refuted, other)
-                        })
-            });
+        // truths and every other atom one decided truth; the first in the rows' order.
+        let pair = unique_cause_pairs(rows, atoms.len(), *ordinal)
+            .into_iter()
+            .next();
         // Where there is none, the valuations that would make one with a recorded combination:
         // the operand's truth negated, where the condition then takes the other outcome.
         let mut needed = Vec::<Value>::new();
@@ -3395,6 +3401,113 @@ fn mcdc_requirements(name: &str, rule_id: &str, rule: &Value, entered: &[String]
         }));
     }
     items
+}
+
+/// What a combination row is to the unique-cause pairs of the atom at `ordinal` (module
+/// documentation, "Unique-cause MC/DC").
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PairSide {
+    /// A decided side: its guard outcome is decided, the atom has a two-valued truth and every
+    /// other atom a decided one, so it is one side of a pair with each decided side of the
+    /// other outcome that differs from it in the atom alone.
+    Decided,
+    /// The row may be a side: the atom is not undefined, and its guard outcome or the truth of
+    /// the atom or of another atom is not decided (`undecided`, or a `stopped` outcome).
+    Open,
+    /// The row is no side: the atom is undefined, a decided truth that is neither of the two.
+    No,
+}
+
+/// What `row`, a combination of a condition of `atoms` atoms, is to the unique-cause pairs of the
+/// atom at `ordinal`.
+fn pair_side(row: &Value, atoms: usize, ordinal: usize) -> PairSide {
+    let truth = |at: usize| row["truths"][at].as_str().unwrap_or_default();
+    let open = match truth(ordinal) {
+        "true" | "false" => false,
+        "undecided" => true,
+        _ => return PairSide::No,
+    } || crate::guards::decided(row["outcome"].as_str().unwrap_or_default()).is_none()
+        || (0..atoms)
+            .filter(|other| *other != ordinal)
+            .any(|other| truth(other) == "undecided");
+    if open {
+        PairSide::Open
+    } else {
+        PairSide::Decided
+    }
+}
+
+/// The unique-cause pairs of the atom at `ordinal` among `rows`, the combinations of a condition
+/// of `atoms` atoms (module documentation, "Unique-cause MC/DC"): each held and refuted decided
+/// side in which the atom has the two truths and every other atom the same decided truth, held
+/// sides in the rows' order and each one's refuted sides in it.
+fn unique_cause_pairs(rows: &[Value], atoms: usize, ordinal: usize) -> Vec<(&Value, &Value)> {
+    let truth = |row: &Value, at: usize| row["truths"][at].as_str().unwrap_or_default().to_owned();
+    let side = |row: &Value, held: bool| {
+        pair_side(row, atoms, ordinal) == PairSide::Decided
+            && crate::guards::decided(row["outcome"].as_str().unwrap_or_default()) == Some(held)
+    };
+    rows.iter()
+        .filter(|held| side(held, true))
+        .flat_map(|held| rows.iter().map(move |refuted| (held, refuted)))
+        .filter(|(held, refuted)| {
+            side(refuted, false)
+                && truth(held, ordinal) != truth(refuted, ordinal)
+                && (0..atoms)
+                    .filter(|other| *other != ordinal)
+                    .all(|other| truth(held, other) == truth(refuted, other))
+        })
+        .collect()
+}
+
+/// What the unique-cause requirement `item` states of each program, as an obligation of the
+/// corpus ([`crate::prune`], "Pair obligations"), `rules` being the rules family's items, whose
+/// item of the requirement's rule keeps the condition's combinations: each pair over every row,
+/// not only the one the item shows (`pair`), as the programs of its two sides; the programs of
+/// a decided side (each may pair with a combination an unknown cell holds); and the unknown
+/// cells, the programs whose record left a combination out (`truncated_by`) or whose row may be
+/// a side ([`PairSide::Open`]). Where the rule's combinations or the atom are not found, the
+/// requirement is read as `unnamed`: every program's cell is unknown.
+fn unique_cause_cells(item: &Value, rules: &[Value]) -> crate::prune::Reading {
+    use crate::prune::{Cells, PairCells, Reading};
+    let combinations = rules
+        .iter()
+        .find(|rule| rule["id"] == item["rule"])
+        .map(|rule| &rule["guard"]["combinations"]);
+    let found = combinations.and_then(|combinations| {
+        let atoms = combinations["atoms"].as_array()?;
+        let ordinal = atoms.iter().position(|atom| *atom == item["node"])?;
+        let rows = combinations["rows"].as_array()?;
+        Some((combinations, rows, atoms.len(), ordinal))
+    });
+    let Some((combinations, rows, atoms, ordinal)) = found else {
+        return Reading::Obligation(Cells {
+            dischargers: Vec::new(),
+            unknown: Vec::new(),
+            unnamed: true,
+        });
+    };
+    let pairs = unique_cause_pairs(rows, atoms, ordinal)
+        .into_iter()
+        .map(|(held, refuted)| [ids(&held["programs"]), ids(&refuted["programs"])])
+        .collect::<Vec<_>>();
+    let programs = |kind: PairSide| {
+        without(
+            rows.iter()
+                .filter(|row| pair_side(row, atoms, ordinal) == kind)
+                .flat_map(|row| ids(&row["programs"]))
+                .collect(),
+            &[],
+        )
+    };
+    let mut unknown = ids(&item["truncated_by"]);
+    unknown.extend(ids(&combinations["truncated_by"]));
+    unknown.extend(programs(PairSide::Open));
+    Reading::Pairs(PairCells {
+        pairs,
+        sides: programs(PairSide::Decided),
+        unknown: without(unknown, &[]),
+    })
 }
 
 /// The target text of a unique-cause requirement `requirement` of the rule named `name`: the
@@ -5537,5 +5650,73 @@ mod tests {
             &json!({"status": "killed", "killer": "p1", "executed": executed}),
         );
         assert_eq!(item["causes"], json!([]));
+    }
+
+    /// A unique-cause requirement reads as a pair obligation over every pair its rule's
+    /// combinations give, not only the one the item shows: here A of `A andThenBool B` pairs
+    /// (true, true) of x with (false, true) of y and of z; w's (true, true) is also a held side,
+    /// and v's (false, true) refuted with B undecided is no decided side but may be one, as may
+    /// what u's truncated record left out. The item shows x with y alone.
+    #[test]
+    fn a_unique_cause_requirement_reads_every_pair_of_its_rows() {
+        use crate::prune::{PairCells, Reading};
+        fn row(truths: [&str; 2], outcome: &str, programs: &[&str]) -> Value {
+            json!({"truths": truths, "outcome": outcome, "programs": programs})
+        }
+        let rules = [json!({
+            "id": "rule:r",
+            "guard": {"combinations": {
+                "atoms": ["0.0", "0.1"],
+                "rows": [
+                    row(["true", "true"], "held", &["x", "w"]),
+                    row(["false", "true"], "refuted-false", &["y"]),
+                    row(["false", "true"], "refuted-decided", &["z"]),
+                    row(["false", "undecided"], "refuted-false", &["v"]),
+                    row(["undefined", "true"], "refuted-undefined", &["t"]),
+                ],
+                "truncated_by": ["u"],
+            }},
+        })];
+        let item = json!({
+            "id": "requirement:r:A:mcdc", "rule": "rule:r", "level": MCDC, "node": "0.0",
+            "status": "covered", "covered": true, "covered_by": ["x", "w", "y"],
+            "truncated_by": ["u"],
+        });
+        let strings = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            cover_cells("requirements", &item, &[], &rules),
+            Reading::Pairs(PairCells {
+                pairs: vec![
+                    [strings(&["x", "w"]), strings(&["y"])],
+                    [strings(&["x", "w"]), strings(&["z"])],
+                ],
+                sides: strings(&["x", "w", "y", "z"]),
+                unknown: strings(&["u", "v"]),
+            })
+        );
+        // The first pair is the one the item shows (`mcdc_requirements`).
+        let rows = rules[0]["guard"]["combinations"]["rows"]
+            .as_array()
+            .unwrap();
+        let (held, refuted) = unique_cause_pairs(rows, 2, 0)[0];
+        assert_eq!(
+            (&held["programs"], &refuted["programs"]),
+            (&json!(["x", "w"]), &json!(["y"]))
+        );
+        // B's pairs: none; v's row may be a side, t's is no side of A but a decided side of B.
+        let b = json!({"rule": "rule:r", "level": MCDC, "node": "0.1", "covered": false});
+        assert_eq!(
+            cover_cells("requirements", &b, &[], &rules),
+            Reading::Pairs(PairCells {
+                pairs: Vec::new(),
+                sides: strings(&["x", "w", "y", "z", "t"]),
+                unknown: strings(&["u", "v"]),
+            })
+        );
+        // A rule whose combinations are not found reads as unnamed: every cell unknown.
+        assert!(matches!(
+            cover_cells("requirements", &item, &[], &[]),
+            Reading::Obligation(cells) if cells.unnamed
+        ));
     }
 }

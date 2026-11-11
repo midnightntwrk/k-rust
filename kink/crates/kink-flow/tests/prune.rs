@@ -7,6 +7,8 @@
 //! the other's only alternative on what addition discharges; `s1` and `s2` each subtract, and a
 //! pattern claims `s1`; `m1` and `m2` each multiply, and a mutation that makes a product count up
 //! forever leaves both cells unknown under the work budget, with no other program that kills it.
+//! A unique-cause requirement (`[coverage] mcdc`, the mcdc fixture's definition) is discharged
+//! by a pair of programs together, so each side of its only pair is kept.
 
 mod flow_support;
 
@@ -248,7 +250,7 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     );
     assert_eq!(document["unanswered"]["complete"], true);
     assert_eq!(document["schema"], "kink-flow-prune");
-    assert_eq!(document["version"], 2);
+    assert_eq!(document["version"], 3);
     assert_eq!(document["cases"], 6);
     let redundant = document["redundant"]
         .as_array()
@@ -609,4 +611,104 @@ fn the_command_line_prints_the_report_and_refuses_bad_input() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(i32::from(EXIT_UNASKED)));
+}
+
+/// A corpus of the mcdc fixture's definition with `[coverage] mcdc` selecting `both` (A
+/// andThenBool B) and the programs `programs` (each `(id, text)`).
+fn mcdc_corpus(name: &str, programs: &[(&str, &str)]) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("kink-flow-prune-{}", std::process::id()))
+        .join(name);
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::copy(flow("mcdc").join("mcdc.k"), dir.join("mcdc.k")).unwrap();
+    let mut manifest = "[coverage]\nmcdc = [\"MCDC.both\"]\n\n[spec]\nentry = \"mcdc.k\"\n\
+                        main_module = \"MCDC\"\nsyntax_module = \"MCDC-SYNTAX\"\n"
+        .to_owned();
+    for (id, text) in programs {
+        manifest.push_str(&format!(
+            "\n[[program]]\nid = \"{id}\"\ntext = \"{text}\"\n"
+        ));
+    }
+    fs::write(dir.join("FLOW.toml"), manifest).unwrap();
+    dir
+}
+
+const BOTH_A: &str = "requirement:MCDC.both:A:Bool:mcdc";
+
+/// FB54-PRUNE, PRUNE-MCDC-PAIR: A of `both` has one unique-cause pair, `x`'s (true, true),
+/// where the condition holds, with `y`'s (false, true), where it is refuted; no other program
+/// gives either. Its covering list names both, but neither discharges it alone, so both are
+/// kept as its sole dischargers, though every other obligation `y` discharges has another
+/// discharger (`z`'s (true, false) and `w`'s (false, false) are refuted too, and `w` has A
+/// false). With `y2` also giving (false, true), `y` and `y2` are each redundant alone, each
+/// naming the pair that holds without it, and the walk removes `y2` and keeps `y`. Lazily and
+/// with `--full` the decisions are the same.
+#[test]
+fn each_side_of_a_unique_cause_pair_is_kept() {
+    let programs = [
+        ("x", "both(true, true)"),
+        ("y", "both(false, true)"),
+        ("z", "both(true, false)"),
+        ("w", "both(false, false)"),
+    ];
+    let sole = json!({"reason": "sole-discharger", "family": "requirements", "id": BOTH_A});
+    let dir = mcdc_corpus("mcdc-pair", &programs);
+    let (lazy, status) = prune(&dir, CommandFiles::default(), &[]);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    let (full, status) = prune(&dir, CommandFiles::default(), &["--full"]);
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(decisions(&lazy), decisions(&full));
+    for case in ["x", "y"] {
+        let kept = entry(&full["kept"], case);
+        assert!(
+            kept["reasons"].as_array().unwrap().contains(&sole),
+            "{kept:#}"
+        );
+    }
+    assert_eq!(
+        entry(&full["kept"], "y")["reasons"],
+        json!([sole]),
+        "{full:#}"
+    );
+    assert_eq!(ids(&full["removable"]["cases"]), ["w"], "{full:#}");
+
+    let dir = mcdc_corpus(
+        "mcdc-pair-side",
+        &[
+            programs.as_slice(),
+            &[("y2", "both(false, true) ; both(false, true)")],
+        ]
+        .concat(),
+    );
+    let (lazy, status) = prune(&dir, CommandFiles::default(), &[]);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    let (full, status) = prune(&dir, CommandFiles::default(), &["--full"]);
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(decisions(&lazy), decisions(&full));
+    assert_eq!(ids(&full["removable"]["cases"]), ["w", "y2"], "{full:#}");
+    let y = entry(&full["redundant"], "y");
+    assert_eq!(y["removable"], false, "{y:#}");
+    // Once the walk removed `w` and `y2`, `y` is also A's only reached-false case.
+    assert!(y["kept_for"].as_array().unwrap().contains(&sole), "{y:#}");
+    let pair = |refuted: &str| {
+        json!({"family": "requirements", "id": BOTH_A,
+               "pairs": [{"held": ["x"], "refuted": [refuted]}], "complete": true})
+    };
+    assert!(
+        y["obligations"].as_array().unwrap().contains(&pair("y2")),
+        "{y:#}"
+    );
+    let y2 = entry(&full["redundant"], "y2");
+    assert!(
+        y2["obligations"].as_array().unwrap().contains(&pair("y")),
+        "{y2:#}"
+    );
+    let text = kink_flow::prune::text_rendering(&full).unwrap();
+    assert!(
+        text.contains(&format!(
+            "requirements {BOTH_A} (also the pair held by x and refuted by y2)"
+        )),
+        "{text}"
+    );
 }

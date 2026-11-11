@@ -11,17 +11,23 @@
 //! - `patterns`: a pattern is hit, discharged by every case whose answer is a hit
 //!   ([`crate::query::hit_cells`]); every pattern is an obligation of the corpus, with or without
 //!   `programs` ([`crate::query`], "The obligation");
-//! - each coverage family's items (`rules`, `requirements` with their unique-cause level,
-//!   `syntax`, `rule_windows`, `syntax_paths`, `flips`), discharged by the cases the item's
-//!   covering list names ([`crate::coverage::cover_cells`]);
+//! - each coverage family's items (`rules`, `requirements`, `syntax`, `rule_windows`,
+//!   `syntax_paths`, `flips`), discharged by the cases the item's covering list names
+//!   ([`crate::coverage::cover_cells`]). Each is covered by one case's own run or record: a
+//!   rule's firing, an outcome class of a condition or of an operand, a production or a field
+//!   value a fired instance touched, a window one path took as consecutive steps, a syntax path
+//!   one fired instance touched, a flip's killer;
+//! - the unique-cause level of the `requirements` family (`[coverage] mcdc`), which no list of
+//!   single dischargers states: a pair of cases may discharge it together ("Pair obligations"
+//!   below);
 //! - `arguments`: an argued item's invariant evidence that holds, discharged by every case whose
 //!   run read a step of the item's rules ([`crate::coverage::argument_cells`]).
 //!
 //! Each obligation's row gives, per case, a decided discharge, a decided non-discharge, or an
 //! unknown cell (an answer neither decided nor refuted: a timeout, an unknown, a record that left
-//! a combination out). An unknown cell never discharges. An obligation with no case that can
-//! discharge it in any corpus (an `equivalent` mutation, a refused flip, an out-of-scope rule) is
-//! none.
+//! a value or a combination out). An unknown cell never discharges. An obligation with no case
+//! that can discharge it in any corpus (an `equivalent` mutation, a refused flip, an
+//! out-of-scope rule) is none.
 //!
 //! The report is computed, never read from a stored document: `prune` runs `coverage` (tier 2,
 //! the flips where the front end derives them) in process, then the kill search and the pattern
@@ -52,9 +58,13 @@
 //!   survive, a hitter of a pattern that expects `no`, the case whose run gave an argued item's
 //!   invariant evidence its failing state, and a case whose own expectation is unmet. Removing
 //!   it would hide the finding, not a redundancy.
-//! - A case that is the only decided discharger of an obligation.
+//! - A case that is the only decided discharger of an obligation; of a pair obligation, a case
+//!   without which no decided pair discharges it.
 //! - A case whose cell on an obligation is unknown while no other case discharges that
 //!   obligation: removing it could lose the only potential discharger.
+//! - A case whose decided row is a side of a pair obligation that no decided pair discharges
+//!   without it, while another case's cell on it is unknown or its baseline undecided
+//!   (`unknown-partner`): what that case holds may be the other side of a pair with its row.
 //! - A case whose baseline run is undecided (class `timeout` or `unknown`: kink did not ask it of
 //!   any mutant or pattern) while some obligation has no decided discharger: each of its cells
 //!   is unknown, so the rule above applies to every obligation.
@@ -62,15 +72,65 @@
 //! So the report only ever under-states what is prunable: every unknown counts against removal.
 //! The document counts the unknown cells (`unanswered`).
 //!
+//! # Pair obligations
+//!
+//! A unique-cause requirement of an atom `a` ([`crate::coverage`], "Unique-cause MC/DC") is
+//! covered by two valuation combinations the comparable cases' records hold, one where the
+//! condition held and one where it was refuted, in which `a` has the two truths and every other
+//! atom the same decided truth. The two may be two cases' records, so its covering list (both
+//! sides of the one pair the item shows) is not a list of cases each of which discharges it
+//! alone: where only `x` holds one side and only `y` the other, neither is redundant. Its
+//! obligation over a set S of cases, P(S), is a disjunction over every pair the rule's
+//! combination rows give (`guard.combinations`, not only the item's `pair`): some pair with a
+//! case of its held side and a case of its refuted side in S. One case is on both sides of a
+//! pair whose two combinations its own record holds. Reading P(S) as "S holds a case of the
+//! covering list" would call `x` and `y` each redundant and remove one of them.
+//!
+//! The pairs are of decided sides: a row whose guard outcome is decided, `a` two-valued and
+//! every other atom decided ([`crate::coverage::cover_cells`]). A case's cell is unknown where
+//! its record may hold a side the rows do not show: a row whose outcome (`undecided`,
+//! `stopped`), truth of `a` or truth of another atom is undecided, `a` not undefined; or a record
+//! that left a combination out (`truncated_by`). A case of an undecided baseline holds no record,
+//! so what it would hold may be a side too. P(S) is the decided discharge; each rule above
+//! reads it where a single-case obligation reads "a decided discharger in S":
+//!
+//! - sole-discharger: c is kept when P(S) and not P(S ∖ {c}); for a single-case obligation that
+//!   is c being its only decided discharger in S;
+//! - unknown: when not P(S ∖ {c}), c is kept when its cell is unknown, and, where c's row is a
+//!   decided side, when another case of S has an unknown cell or an undecided baseline
+//!   (`unknown-partner`, those cases its `with`);
+//! - baseline-undecided: when not P(S ∖ {c}), as for every obligation;
+//! - refutes: no unique-cause outcome refutes a universal claim. The requirement states no
+//!   expectation; `open` and `undecided` state only that no recorded pair discharges it, which a
+//!   case added to the corpus can change; an argued one's evidence is read with `arguments`.
+//!
+//! Removing a case c that no rule keeps from S loses no pair that may hold over S. Either P(S ∖
+//! {c}), and a decided pair discharges the obligation without c; or neither P(S ∖ {c}) nor
+//! P(S), since c is not kept as a sole discharger. Then no decided pair holds over S, and a pair
+//! that may hold has a side that a case u of an unknown cell or an undecided baseline may hold.
+//! u is not c, which neither rule keeps, so u is in S ∖ {c}; c's cell is decided, so c holds no
+//! side beyond its rows; and none of c's rows is the other side, since c is kept as a partner
+//! when one is a decided side and such a u is in S ∖ {c}. So every pair that may hold over S
+//! may hold over S ∖ {c}, and the report only ever under-states what is prunable.
+//!
+//! The walk ("Redundant alone, and removable together") never falsifies P: a case whose removal
+//! would is kept as a sole discharger. So where P holds over the corpus it holds over the kept
+//! cases; where it does not, every case of an unknown cell or an undecided baseline is kept at
+//! every step (P(S ∖ {c}) never holds), and, where there is one, every case of a decided side.
+//! The coverage rows are the same in both modes (one coverage run, complete), so a lazy report
+//! and a `--full` one read the same pairs and decide the same.
+//!
 //! # Redundant alone, and removable together
 //!
 //! A case is redundant alone when it is not kept by any rule above against the whole corpus:
-//! every obligation it discharges has another decided discharger, and every obligation on which
-//! its cell is unknown has a decided discharger. That is not the same as removable together: two
-//! cases can each be the other's only alternative. So the report also gives one set removable
-//! together, built greedily: walking the cases in reverse manifest order, a case is removed when
-//! the same rules, read against the cases still kept, keep it nowhere. Each obligation then keeps
-//! a decided discharger among the kept cases (or every unknown cell it had), whatever is removed.
+//! every obligation it discharges has another decided discharger (a pair obligation, a decided
+//! pair without it), and every obligation on which its cell is unknown has a decided
+//! discharger. That is not the same as removable together: two cases can each be the other's
+//! only alternative. So the report also gives one set removable together, built greedily:
+//! walking the cases in reverse manifest order, a case is removed when the same rules, read
+//! against the cases still kept, keep it nowhere. Each obligation then keeps a decided
+//! discharger among the kept cases (a pair obligation, a decided pair), or every unknown cell
+//! it had, whatever is removed.
 //!
 //! The order is reverse manifest order because every command that names one discharger of an
 //! obligation names, by default, an early case: a mutation's killer is the first killing case of
@@ -118,9 +178,13 @@
 //! - A mutation that expects to survive and is killed, and a pattern that expects `no` and is
 //!   hit, keep every refuting case: their rows are asked whole.
 //! - A case that is not redundant alone is kept by the walk without asking anything: each rule
-//!   only weakens as S shrinks (a discharger outside S counts for nothing), so a case some rule
-//!   keeps against the whole corpus is kept against every S. The document gives no reason the
+//!   of a single-case obligation only weakens as S shrinks (a discharger outside S counts for
+//!   nothing), and a pair obligation's rules keep, against each S the walk reaches, every case
+//!   they keep against the whole corpus ("Pair obligations"), so a case some rule keeps against
+//!   the whole corpus is kept against every S of the walk. The document gives no reason the
 //!   walk found for it.
+//! - The coverage rows, the pair obligations' included, are complete in both modes: `prune`
+//!   runs the same coverage either way, and asks none of their cells.
 //! - Within a family a cell's value does not depend on which other cells were asked: under tier
 //!   1 an outcome is a function of its key ([`crate::search`], module docs, the schedule
 //!   paragraph) and a pattern answer of its own key ([`crate::query`]). Where the caches are off
@@ -128,12 +192,14 @@
 //!   report is a function of its inputs.
 //!
 //! In a lazy report the evidence holds the cells asked, not every cell: each obligation of a
-//! `redundant` entry lists the other known dischargers (`others`) with whether its row is
-//! complete (`complete`), the entry counts the obligations on which the case's own cell was not
-//! asked (`unasked`), and each family and `unanswered` say whether every cell was asked
-//! (`complete`). A distinguished flip's row is never complete: its kill search stops at its
-//! first killer (limit `flips`). `accounting.cells` counts each family's cells: the matrix size,
-//! those the ordinary search held, and those asked one at a time after it.
+//! `redundant` entry lists the other known dischargers (`others`; a pair obligation, the pairs
+//! that hold without the case, `pairs`, each `{held, refuted}` naming its sides' other cases)
+//! with whether its row is complete (`complete`), the entry counts the obligations on which the
+//! case's own cell was not asked (`unasked`), and each family and `unanswered` say whether
+//! every cell was asked (`complete`). A distinguished flip's row is never complete: its kill
+//! search stops at its first killer (limit `flips`). `accounting.cells` counts each family's
+//! cells: the matrix size, those the ordinary search held, and those asked one at a time after
+//! it.
 //!
 //! # The corpus record
 //!
@@ -173,8 +239,15 @@ pub const PRUNE_SCHEMA: &str = "kink-flow-prune";
 /// corpus_own}`, the `mutations` and `patterns` families) and `complete`; each `redundant`
 /// entry's obligations and unknown cells with `complete`, and its `unasked`; `unanswered`'s
 /// `complete`; `accounting.cells`; and the limit `lazy` of a lazy report. Every field of
-/// version 1 keeps its name and, under `--full`, its value.
-pub const PRUNE_VERSION: u64 = 2;
+/// version 1 keeps its name and, under `--full`, its value. Version 3 reads a unique-cause
+/// requirement as a pair obligation (module docs, "Pair obligations"), which a pair of cases
+/// may discharge together, where version 2 read its covering list as single dischargers and
+/// could call both cases of its only pair redundant: its entries of a `redundant` case's
+/// `obligations` and `unknown` name the pairs that hold without the case (`pairs`, each
+/// `{held, refuted}`) in place of `others` and `dischargers`, and a kept case's reason may be
+/// `unknown-partner` (`{reason, family, id, with}`). A corpus whose coverage has no unique-cause
+/// requirement gives version 2's document but for its version.
+pub const PRUNE_VERSION: u64 = 3;
 
 /// The order the removable set is built in (`removable.order`, module docs).
 pub const REVERSE_MANIFEST_ORDER: &str = "reverse-manifest";
@@ -274,6 +347,20 @@ pub struct Cells {
     pub unnamed: bool,
 }
 
+/// What a pair obligation's rows state of each case ([`Reading::Pairs`], module docs, "Pair
+/// obligations").
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PairCells {
+    /// Each pair that discharges the obligation: the cases of its held side and of its refuted
+    /// side, a case of each together discharging it.
+    pub pairs: Vec<[Vec<String>; 2]>,
+    /// The cases whose row is a decided side, of a pair or not: each may make a pair with what
+    /// an unknown cell holds.
+    pub sides: Vec<String>,
+    /// The cases whose cell is unknown: what they hold may be a side of a pair.
+    pub unknown: Vec<String>,
+}
+
 /// What a document's row states, read as a fact of the corpus.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Reading {
@@ -281,6 +368,9 @@ pub enum Reading {
     None,
     /// An existential obligation of the corpus, with its cells.
     Obligation(Cells),
+    /// An existential obligation that a pair of cases discharges together (a unique-cause
+    /// requirement), with its pairs and cells.
+    Pairs(PairCells),
     /// A universal claim that the listed cases' decided cells refute: a finding each of them is
     /// evidence of.
     Refuted(Vec<String>),
@@ -444,12 +534,57 @@ struct Obligation {
     /// The search that gave the row stopped at its first discharger (a distinguished flip):
     /// the cells after it were never asked, and are read as non-discharge (limit `flips`).
     stopped: bool,
+    /// For a pair obligation, its pairs and sides; `dischargers` is then the cases of every
+    /// pair's sides, and `unknown` its unknown cells (module docs, "Pair obligations").
+    pairing: Option<Pairing>,
+}
+
+/// A pair obligation's pairs and sides, by case index ([`PairCells`]).
+struct Pairing {
+    /// Each pair's held side and refuted side, each in manifest order.
+    pairs: Vec<[Vec<usize>; 2]>,
+    /// The cases of a decided side, in manifest order.
+    sides: Vec<usize>,
 }
 
 impl Obligation {
     /// Every cell of the row is known.
     fn complete(&self) -> bool {
         self.unasked.is_empty() && !self.stopped
+    }
+
+    /// Whether a decided discharge holds over the cases `kept`, the case at `without` left out:
+    /// a known decided discharger among them, or, for a pair obligation, a pair with a case of
+    /// each side among them.
+    fn holds(&self, kept: &[bool], without: Option<usize>) -> bool {
+        let considered = |at: &usize| kept[*at] && Some(*at) != without;
+        match &self.pairing {
+            None => self.dischargers.iter().any(considered),
+            Some(pairing) => pairing
+                .pairs
+                .iter()
+                .any(|[one, other]| one.iter().any(considered) && other.iter().any(considered)),
+        }
+    }
+
+    /// For a pair obligation, each pair that holds over every case but the one at `at`, as its
+    /// sides without `at`, each pair once; `None` for another obligation.
+    fn pairs_without(&self, at: usize) -> Option<Vec<[Vec<usize>; 2]>> {
+        let pairing = self.pairing.as_ref()?;
+        let mut pairs = Vec::new();
+        for sides in &pairing.pairs {
+            let [one, other] = sides.clone().map(|mut side| {
+                side.retain(|case| *case != at);
+                side
+            });
+            if !one.is_empty()
+                && !other.is_empty()
+                && !pairs.contains(&[one.clone(), other.clone()])
+            {
+                pairs.push([one, other]);
+            }
+        }
+        Some(pairs)
     }
 }
 
@@ -460,10 +595,15 @@ enum Keep {
     Claimed(String),
     /// Its decided cell refutes a universal claim (family, id).
     Refutes(&'static str, String),
-    /// It is the only kept decided discharger of the obligation at this index.
+    /// It is the only kept decided discharger of the obligation at this index (a pair
+    /// obligation: no kept decided pair holds without it).
     Sole(usize),
     /// Its cell is unknown on the obligation at this index, which no kept case discharges.
     Unknown(usize),
+    /// Its decided row is a side of the pair obligation at this index, which no kept pair
+    /// discharges, while these kept cases' cells are unknown: what one holds may make a pair
+    /// with it.
+    Partner(usize, Vec<usize>),
     /// Its baseline is undecided (its class), and these obligations have no kept discharger.
     Undecided(String, Vec<usize>),
 }
@@ -990,6 +1130,34 @@ impl Facts {
                         unasked: Vec::new(),
                         source: None,
                         stopped: false,
+                        pairing: None,
+                    });
+                }
+                Reading::Pairs(cells) => {
+                    let pairs = cells
+                        .pairs
+                        .iter()
+                        .map(|sides| sides.each_ref().map(|side| indices(side)))
+                        .filter(|[one, other]| !one.is_empty() && !other.is_empty())
+                        .collect::<Vec<_>>();
+                    let mut dischargers = Vec::new();
+                    for at in pairs.iter().flatten().flatten() {
+                        insert(&mut dischargers, *at);
+                    }
+                    // A case on a pair's side may still hold a side its rows do not show, so
+                    // its unknown cell stays one (module docs, "Pair obligations").
+                    facts.obligations.push(Obligation {
+                        family,
+                        id: text(id),
+                        dischargers,
+                        unknown: indices(&cells.unknown),
+                        unasked: Vec::new(),
+                        source: None,
+                        stopped: false,
+                        pairing: Some(Pairing {
+                            pairs,
+                            sides: indices(&cells.sides),
+                        }),
                     });
                 }
             };
@@ -1032,6 +1200,7 @@ impl Facts {
                     unasked: Vec::new(),
                     source: Some(Source::Mutation(mutation)),
                     stopped: false,
+                    pairing: None,
                 };
                 let mut known = killer.into_iter().collect::<Vec<_>>();
                 for entry in row["executed"].as_array().into_iter().flatten() {
@@ -1106,6 +1275,7 @@ impl Facts {
                     unasked: Vec::new(),
                     source: Some(Source::Pattern(pattern)),
                     stopped: false,
+                    pairing: None,
                 };
                 let mut known = Vec::new();
                 for row in rows.iter().filter(|row| row["pattern"] == obligation["id"]) {
@@ -1132,6 +1302,9 @@ impl Facts {
             }
         }
         // The coverage families, each by its own name, which is also its prune family's.
+        let rules = coverage["families"]["rules"]["items"]
+            .as_array()
+            .map_or(&[][..], Vec::as_slice);
         for family in PRUNE_FAMILIES
             .into_iter()
             .filter(|family| FAMILIES.contains(family))
@@ -1144,7 +1317,7 @@ impl Facts {
                     &mut facts,
                     family,
                     &item["id"],
-                    crate::coverage::cover_cells(family, item, binders),
+                    crate::coverage::cover_cells(family, item, binders, rules),
                 );
                 if family == "flips"
                     && facts.obligations.len() > before
@@ -1239,12 +1412,7 @@ impl Facts {
         kept: &[bool],
         ask: &mut dyn Ask,
     ) -> Result<(), Refusal> {
-        let others = |obligation: &Obligation| {
-            obligation
-                .dischargers
-                .iter()
-                .any(|other| *other != at && kept[*other])
-        };
+        let others = |obligation: &Obligation| obligation.holds(kept, Some(at));
         let obligation = &self.obligations[index];
         if obligation.unasked.is_empty() || others(obligation) {
             return Ok(());
@@ -1278,17 +1446,29 @@ impl Facts {
         for index in 0..self.obligations.len() {
             self.settle(index, at, kept, ask)?;
             let obligation = &self.obligations[index];
-            let others = obligation
-                .dischargers
-                .iter()
-                .any(|other| *other != at && kept[*other]);
-            if others {
+            if obligation.holds(kept, Some(at)) {
                 continue;
             }
-            if obligation.dischargers.contains(&at) {
+            // `at` is among `kept`, so a discharge that holds over them now needs it.
+            if obligation.holds(kept, None) {
                 keeps.push(Keep::Sole(index));
             } else if obligation.unknown.contains(&at) {
                 keeps.push(Keep::Unknown(index));
+            } else if let Some(pairing) = &obligation.pairing
+                && pairing.sides.contains(&at)
+            {
+                // A decided side may pair with what a kept unknown cell holds, a case of an
+                // undecided baseline's included (module docs, "Pair obligations").
+                let with = (0..self.cases.len())
+                    .filter(|other| {
+                        *other != at
+                            && kept[*other]
+                            && (obligation.unknown.contains(other) || self.undecided(*other))
+                    })
+                    .collect::<Vec<_>>();
+                if !with.is_empty() {
+                    keeps.push(Keep::Partner(index, with));
+                }
             } else if self.undecided(at) {
                 open.push(index);
             }
@@ -1319,6 +1499,12 @@ impl Facts {
                 value["reason"] = json!("unknown");
                 value
             }
+            Keep::Partner(index, with) => {
+                let mut value = self.reference(*index);
+                value["reason"] = json!("unknown-partner");
+                value["with"] = json!(self.ids(with.iter().copied()));
+                value
+            }
             Keep::Undecided(class, open) => json!({
                 "reason": "baseline-undecided",
                 "class": class,
@@ -1332,6 +1518,20 @@ impl Facts {
             .into_iter()
             .map(|at| self.cases[at].clone())
             .collect()
+    }
+
+    /// A pair obligation's pairs as the evidence names them: each `{held, refuted}`, the cases
+    /// of its side where the condition held and of the one where it was refuted.
+    fn pairs_value(&self, pairs: &[[Vec<usize>; 2]]) -> Value {
+        json!(
+            pairs
+                .iter()
+                .map(|[held, refuted]| json!({
+                    "held": self.ids(held.iter().copied()),
+                    "refuted": self.ids(refuted.iter().copied()),
+                }))
+                .collect::<Vec<_>>()
+        )
     }
 
     /// The document of these facts, with the rows each case's removal moves in `locks` and
@@ -1371,28 +1571,40 @@ impl Facts {
                     .obligations
                     .iter()
                     .filter(|obligation| obligation.dischargers.contains(&at))
-                    .map(|obligation| {
-                        json!({
+                    .map(|obligation| match obligation.pairs_without(at) {
+                        None => json!({
                             "family": obligation.family,
                             "id": obligation.id,
                             "others": self.ids(
                                 obligation.dischargers.iter().copied().filter(|other| *other != at)
                             ),
                             "complete": obligation.complete(),
-                        })
+                        }),
+                        Some(pairs) => json!({
+                            "family": obligation.family,
+                            "id": obligation.id,
+                            "pairs": self.pairs_value(&pairs),
+                            "complete": obligation.complete(),
+                        }),
                     })
                     .collect::<Vec<_>>();
                 let unknown = self
                     .obligations
                     .iter()
                     .filter(|obligation| obligation.unknown.contains(&at))
-                    .map(|obligation| {
-                        json!({
+                    .map(|obligation| match obligation.pairs_without(at) {
+                        None => json!({
                             "family": obligation.family,
                             "id": obligation.id,
                             "dischargers": self.ids(obligation.dischargers.iter().copied()),
                             "complete": obligation.complete(),
-                        })
+                        }),
+                        Some(pairs) => json!({
+                            "family": obligation.family,
+                            "id": obligation.id,
+                            "pairs": self.pairs_value(&pairs),
+                            "complete": obligation.complete(),
+                        }),
                     })
                     .collect::<Vec<_>>();
                 json!({
@@ -1701,7 +1913,11 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
                 format!(
                     "{} (also {}{})",
                     reference(o),
-                    list(&o["others"]),
+                    if o["pairs"].is_array() {
+                        pairs_text(&o["pairs"])
+                    } else {
+                        list(&o["others"])
+                    },
                     if o["complete"] == false {
                         ", of the cases asked"
                     } else {
@@ -1801,12 +2017,39 @@ fn reason_text(keep: &Value, reference: &dyn Fn(&Value) -> String) -> String {
             "its cell is unknown on {}, which no other case discharges",
             reference(keep)
         ),
+        Some("unknown-partner") => format!(
+            "its combination may pair on {} with what the unknown cell of {} holds, and no other \
+             pair discharges it",
+            reference(keep),
+            strings(&keep["with"]).join(", ")
+        ),
         Some("baseline-undecided") => format!(
             "its baseline is {} and {} obligations have no discharger",
             keep["class"].as_str().unwrap_or("?"),
             keep["obligations"].as_array().map_or(0, Vec::len)
         ),
         _ => "?".to_owned(),
+    }
+}
+
+/// A pair obligation's pairs (`{held, refuted}`) as the text rendering names them.
+fn pairs_text(pairs: &Value) -> String {
+    let pairs = pairs
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|pair| {
+            format!(
+                "the pair held by {} and refuted by {}",
+                strings(&pair["held"]).join(", "),
+                strings(&pair["refuted"]).join(", ")
+            )
+        })
+        .collect::<Vec<_>>();
+    if pairs.is_empty() {
+        "no pair".to_owned()
+    } else {
+        pairs.join(", or ")
     }
 }
 
@@ -1818,4 +2061,144 @@ fn strings(value: &Value) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The facts of `cases` (each `(id, class)`) with the one pair obligation `pairs`, `sides`
+    /// and `unknown`, by case index.
+    fn facts(
+        cases: &[(&str, &str)],
+        pairs: &[[&[usize]; 2]],
+        sides: &[usize],
+        unknown: &[usize],
+    ) -> Facts {
+        let pairs = pairs
+            .iter()
+            .map(|sides| sides.map(<[usize]>::to_vec))
+            .collect::<Vec<_>>();
+        let mut dischargers = Vec::new();
+        for at in pairs.iter().flatten().flatten() {
+            insert(&mut dischargers, *at);
+        }
+        Facts {
+            cases: cases.iter().map(|(id, _)| (*id).to_owned()).collect(),
+            classes: cases.iter().map(|(_, class)| (*class).to_owned()).collect(),
+            obligations: vec![Obligation {
+                family: "requirements",
+                id: "requirement:r:A:mcdc".to_owned(),
+                dischargers,
+                unknown: unknown.to_vec(),
+                unasked: Vec::new(),
+                source: None,
+                stopped: false,
+                pairing: Some(Pairing {
+                    pairs,
+                    sides: sides.to_vec(),
+                }),
+            }],
+            keeps: vec![Vec::new(); cases.len()],
+            families: Vec::new(),
+            lazy: false,
+            cells: [Asked::default(); 2],
+        }
+    }
+
+    fn complete() -> Complete {
+        Complete([Value::Null, Value::Null, Value::Null])
+    }
+
+    /// Why the case at `at` is kept against `kept`.
+    fn keeps(facts: &mut Facts, at: usize, kept: &[bool]) -> Vec<Keep> {
+        facts.keeps(at, kept, &mut complete()).unwrap()
+    }
+
+    /// A pair whose sides two cases give keeps both, each its sole discharger; a case on both
+    /// sides of a pair is its sole discharger alone.
+    #[test]
+    fn each_side_of_an_only_pair_is_kept() {
+        let cases = [("x", "result"), ("y", "result"), ("z", "result")];
+        let mut split = facts(&cases, &[[&[0], &[1]]], &[0, 1], &[]);
+        let all = [true; 3];
+        assert_eq!(keeps(&mut split, 0, &all), [Keep::Sole(0)]);
+        assert_eq!(keeps(&mut split, 1, &all), [Keep::Sole(0)]);
+        assert_eq!(keeps(&mut split, 2, &all), []);
+        let mut own = facts(&cases, &[[&[2], &[2]]], &[2], &[]);
+        assert_eq!(keeps(&mut own, 2, &all), [Keep::Sole(0)]);
+    }
+
+    /// Of two cases on one side, each is redundant alone, and the walk removes the later one and
+    /// keeps the other; the evidence names the pair that holds without each.
+    #[test]
+    fn of_two_cases_on_one_side_one_is_removable() {
+        let cases = [("x", "result"), ("y", "result"), ("y2", "result")];
+        let mut facts = facts(&cases, &[[&[0], &[1, 2]]], &[0, 1, 2], &[]);
+        let document = facts
+            .document(&[], &[Value::Null, Value::Null], &mut complete())
+            .unwrap();
+        assert_eq!(document["removable"]["cases"], json!(["y2"]));
+        let redundant = document["redundant"].as_array().unwrap();
+        assert_eq!(
+            redundant
+                .iter()
+                .map(|entry| (&entry["case"], &entry["removable"], &entry["kept_for"]))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    &json!("y"),
+                    &json!(false),
+                    &json!([{"reason": "sole-discharger", "family": "requirements",
+                             "id": "requirement:r:A:mcdc"}])
+                ),
+                (&json!("y2"), &json!(true), &json!([])),
+            ]
+        );
+        assert_eq!(
+            redundant[0]["obligations"],
+            json!([{"family": "requirements", "id": "requirement:r:A:mcdc",
+                    "pairs": [{"held": ["x"], "refuted": ["y2"]}], "complete": true}])
+        );
+        assert_eq!(
+            document["kept"],
+            json!([{"case": "x", "class": "result", "reasons": [
+                {"reason": "sole-discharger", "family": "requirements",
+                 "id": "requirement:r:A:mcdc"}]}])
+        );
+    }
+
+    /// With no decided pair, a decided side is kept while another case's cell is unknown or its
+    /// baseline undecided, since what that case holds may be its other side; a case that is no
+    /// side is not, and neither is a side once no such case is kept.
+    #[test]
+    fn a_decided_side_is_kept_while_an_unknown_may_complete_its_pair() {
+        let cases = [
+            ("x", "result"),
+            ("y", "result"),
+            ("u", "result"),
+            ("z", "result"),
+            ("b", "timeout"),
+        ];
+        let mut facts = facts(&cases, &[], &[0, 1], &[2]);
+        let all = [true; 5];
+        assert_eq!(keeps(&mut facts, 0, &all), [Keep::Partner(0, vec![2, 4])]);
+        assert_eq!(keeps(&mut facts, 2, &all), [Keep::Unknown(0)]);
+        assert_eq!(keeps(&mut facts, 3, &all), []);
+        assert_eq!(
+            keeps(&mut facts, 4, &all),
+            [Keep::Undecided("timeout".to_owned(), vec![0])]
+        );
+        assert_eq!(
+            keeps(&mut facts, 1, &[true, true, false, true, true]),
+            [Keep::Partner(0, vec![4])]
+        );
+        assert_eq!(keeps(&mut facts, 1, &[true, true, false, true, false]), []);
+        let value = facts.keep_value(&Keep::Partner(0, vec![2, 4]));
+        assert_eq!(
+            value,
+            json!({"reason": "unknown-partner", "family": "requirements",
+                   "id": "requirement:r:A:mcdc", "with": ["u", "b"]})
+        );
+    }
 }

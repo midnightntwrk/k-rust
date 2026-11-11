@@ -2524,10 +2524,12 @@ A corpus discharges existential obligations, each of the shape "some program doe
 | --- | --- | --- | --- |
 | `mutations` | each mutation a program can kill (`killed`, `survived`, `timeout`, `unknown`) | every program whose cell of the kill matrix is a proved difference (`killed_by` of `run --full`) | the programs whose executed entry is neither `agree` nor `distinguish` (the kill matrix's `undecided`) |
 | `patterns` | each pattern, with or without `programs` ("The obligation and its witness") | every program whose answer is a hit (`hitters` of `query --full`) | `unanswered`: neither a hit nor a final `no` |
-| `rules`, `requirements`, `syntax`, `rule_windows`, `syntax_paths` | each item the family counts | when covered, the programs its covering list names (`fired_by`, `covered_by`, `reached_by`) | a requirement's `undecided_by`; a unique-cause requirement's `truncated_by`; a field value's binder's `truncated_by` |
+| `rules`, `requirements`, `syntax`, `rule_windows`, `syntax_paths` | each item the family counts, but a unique-cause requirement | when covered, the programs its covering list names (`fired_by`, `covered_by`, `reached_by`) | a requirement's `undecided_by`; a field value's binder's `truncated_by` |
+| `requirements`, unique-cause level (`[coverage] mcdc`) | each unique-cause requirement | a pair of programs together ("Pair obligations" below) | the programs whose record left a combination out (`truncated_by`) or holds a combination with an undecided outcome or truth |
 | `flips` | each flip kink's verdict makes one (`distinguished`, `undistinguished`, `unreached`, `unknown`) | its `killer` | its `causes` and `timed_out` programs |
 | `arguments` | each argued item whose invariant evidence `holds` | the programs whose run read a step of the item's rules (`stepped_by`) | none |
 
+Each item of the coverage families but a unique-cause requirement is covered by one program's own run or record: a rule's firing, an outcome class of a condition or of an operand, a production or field value a fired instance touched, a window one path took as consecutive steps, a syntax path one fired instance touched, a flip's killer, an argued item's stepped rule.
 An unknown cell never discharges.
 An obligation no program of any corpus can discharge (an `equivalent`, `unkillable`, `not-admitted` or `invalid-mutation` mutation, a refused or equivalent flip, an out-of-scope rule) is none.
 A flip's kill search stops at its first killer, so its killer is its only decided discharger.
@@ -2544,12 +2546,33 @@ Only a front end with a corpus layout knows its corpus's own lists, so `corpus_o
 
 - A program a claim names: a pattern's `programs`, since removing it makes the pattern list refuse (`no program of the manifest has the id`). Nothing else of the manifest, the mutation lists or the pattern lists names a program: a mutation's `expect` states a verdict, not a program.
 - A program whose decided cell refutes a universal claim, since removing it would hide a finding: a killer of a mutation that expects to survive, a hitter of a pattern that expects `no`, the program whose run gave an argued item's evidence its failing state, a program whose own expectation is unmet.
-- A program that is the only decided discharger of an obligation.
+- A program that is the only decided discharger of an obligation; of a pair obligation, a program without which no decided pair discharges it.
 - A program whose cell on an obligation is unknown while no other program discharges that obligation: removing it could lose the only potential discharger.
+- A program whose decided combination is a side of a pair obligation that no decided pair discharges without it, while another program's cell on it is unknown or its baseline undecided (`unknown-partner`): what that program holds may be the other side of a pair with it.
 - A program whose baseline is `timeout` or `unknown` while some obligation has no decided discharger: kink asked it of no mutant and no pattern, so each of its cells is unknown.
 
 So the report only ever under-states what is prunable.
 `unanswered` counts the unknown cells (`cells`) and lists the programs with an undecided baseline (`undecided_cases`).
+
+### Pair obligations
+
+A unique-cause requirement ("Unique-cause MC/DC") is covered by two valuation combinations, one where the condition held and one where it was refuted, in which its atom has the two truths and every other atom the same decided truth.
+Two programs' records may give the two, so its `covered_by` (both sides of the one `pair` the item shows) is not a list of programs each of which discharges it alone: where only `x` holds one side and only `y` the other, both are kept.
+The obligation holds over a set of programs when some pair of the rule's combination rows (`guard.combinations`, every pair they give, not only the item's `pair`) has a program of its held side and a program of its refuted side in the set; one program may be on both sides.
+The pairs are of decided combinations (a decided outcome, the atom two-valued, every other atom decided).
+A program's cell is unknown where its record may hold a combination the rows do not show: it left one out (`truncated_by`), or one of its combinations has an undecided outcome (`undecided`, `stopped`) or an undecided truth, the atom not undefined.
+
+The rules above read "a decided pair holds" where a single-program obligation reads "a decided discharger is kept":
+
+- `sole-discharger`: a decided pair holds over the programs considered and none holds without the program;
+- `unknown`: no decided pair holds without the program, and its cell is unknown;
+- `unknown-partner` (`with`): no decided pair holds without the program, its combination is a decided side, and the programs `with`, considered, have an unknown cell or an undecided baseline: a combination one of them holds may pair with it;
+- `baseline-undecided`: no decided pair holds without the program.
+
+No unique-cause outcome refutes a universal claim: the requirement states no expectation, and `open` or `undecided` states only that no recorded pair discharges it.
+Removing a program no rule keeps loses no pair that may hold: either a decided pair holds without it, or no decided pair holds and none that may hold uses it, since its cell is decided and none of its combinations can meet an unknown one.
+The walk below keeps every decided pair that holds over the corpus, since a program whose removal would break the last one is its sole discharger; where none holds, it keeps every program with an unknown cell or an undecided baseline, and, where there is one, every program with a decided side.
+The coverage rows are complete in both modes, so the lazy report and `--full` read the same pairs.
 
 ### Redundant alone, removable together
 
@@ -2557,12 +2580,12 @@ A program is redundant alone when no rule above keeps it against the whole corpu
 Two programs can each be the other's only alternative, so being redundant alone is not being removable together.
 The report gives both:
 
-- `redundant`: each program redundant alone (`{case, class, obligations, unknown, unasked, removable, kept_for, lock}`), with each obligation it is known to discharge and the other known dischargers (`obligations`, `{family, id, others, complete}`), each obligation on which its cell is known to be unknown with its known dischargers (`unknown`, `{family, id, dischargers, complete}`), how many obligations its own cell was not asked on (`unasked`), whether the removable set removes it, and, where it does not, what kept it when the walk reached it (`kept_for`); `complete` is whether every cell of the obligation's row was asked, so that `others` (`dischargers`) is every one;
+- `redundant`: each program redundant alone (`{case, class, obligations, unknown, unasked, removable, kept_for, lock}`), with each obligation it is known to discharge and the other known dischargers (`obligations`, `{family, id, others, complete}`), each obligation on which its cell is known to be unknown with its known dischargers (`unknown`, `{family, id, dischargers, complete}`), a pair obligation's entry in either naming instead the pairs that hold without the program (`{family, id, pairs, complete}`, each pair `{held, refuted}` with its sides' other programs), how many obligations its own cell was not asked on (`unasked`), whether the removable set removes it, and, where it does not, what kept it when the walk reached it (`kept_for`); `complete` is whether every cell of the obligation's row was asked, so that `others` (`dischargers`) is every one;
 - `removable`: one set removable together (`{order, cases, lock}`), built by walking the programs in reverse manifest order (`order` `reverse-manifest`) and removing each program the rules above, read against the programs still kept, keep nowhere;
-- `kept`: each program that is not redundant alone (`{case, class, reasons}`), each reason `{reason, family, id}` with `reason` one of `claimed` (the family `patterns`), `refutes` (the claim's family, `expectations` with the program's own id for its own expectation), `sole-discharger` and `unknown`, or `{reason: "baseline-undecided", class, obligations}`.
+- `kept`: each program that is not redundant alone (`{case, class, reasons}`), each reason `{reason, family, id}` with `reason` one of `claimed` (the family `patterns`), `refutes` (the claim's family, `expectations` with the program's own id for its own expectation), `sole-discharger` and `unknown`, or `{reason: "unknown-partner", family, id, with}` (a pair obligation), or `{reason: "baseline-undecided", class, obligations}`.
 
 Every list is in manifest order.
-After the walk each obligation keeps a decided discharger among the kept programs, or every unknown cell it had.
+After the walk each obligation keeps a decided discharger among the kept programs (a pair obligation, a decided pair), or every unknown cell it had.
 The order is reverse manifest order because a command that names one discharger names an early program: a mutation's killer is the first killing program of the search order, whose groups are each in manifest order, and a pattern's witness the first hitter in manifest order, while no record names another.
 Removing the latest programs first keeps those, so the corpus record's rows move least.
 The set is a function of the corpus and of this order, maximal under the order (no kept program can then be removed), not minimum: a smallest removable set is a set cover problem, which `prune` does not attempt.
@@ -2580,7 +2603,7 @@ None needs every cell, so without `--full` the `mutations` and `patterns` rows a
   Each cell is asked through the code its full command asks it with: a mutation's full row over the one program, under the corpus's floor of polls, served by the outcome cache when its record is current; a pattern's one row, served by the pattern cache likewise.
   `--lock`'s records only order the searches (each recorded killer and witness first); none is read as a cell.
 - A mutation that expects to survive and is killed, and a pattern that expects `no` and is hit, keep every refuting program: their rows are asked whole.
-- A program that is not redundant alone is kept by the walk with nothing asked: a rule only weakens as the programs considered shrink.
+- A program that is not redundant alone is kept by the walk with nothing asked: a rule of a single-program obligation only weakens as the programs considered shrink, and a pair obligation's rules keep, at each step of the walk, every program they keep against the whole corpus ("Pair obligations").
 
 The evidence then holds the cells asked: `others` and `unknown` are the known ones, `unasked` counts the obligations a program's own cell was not asked on, and each family's and `unanswered`'s `complete` say whether every cell was asked; `limits` adds `lazy`.
 A distinguished flip's row is never complete in either mode, since its kill search stops at its first killer.
