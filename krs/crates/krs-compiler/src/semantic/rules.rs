@@ -157,8 +157,9 @@ pub(super) fn check_group_descendants(
             if selected.contains_key(&field.reference.cell) {
                 let mut descendants = Vec::new();
                 below(nested, declarations, 0, &mut descendants)?;
-                if let Some(descendant) =
-                    descendants.into_iter().find(|cell| selected.contains_key(cell))
+                if let Some(descendant) = descendants
+                    .into_iter()
+                    .find(|cell| selected.contains_key(cell))
                 {
                     return Ok(Some((field.rust_field.clone(), descendant)));
                 }

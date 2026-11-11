@@ -346,7 +346,8 @@ mod tests {
             "invalid term: invalid anonymous sort"
         );
         // Where the sentence is known, the term's refusal names it.
-        let refused = StateTransportError::InvalidTerm(StateTermReason::EmptyRewriteOutsideKSequence);
+        let refused =
+            StateTransportError::InvalidTerm(StateTermReason::EmptyRewriteOutsideKSequence);
         assert_eq!(
             [
                 crate::ItemKind::Configuration,
@@ -355,7 +356,12 @@ mod tests {
                 crate::ItemKind::Context,
                 crate::ItemKind::ContextAlias,
             ]
-            .map(|item| refused.in_sentence(item).split(':').next().unwrap().to_owned()),
+            .map(|item| refused
+                .in_sentence(item)
+                .split(':')
+                .next()
+                .unwrap()
+                .to_owned()),
             [
                 "invalid initializer term",
                 "invalid rule term",

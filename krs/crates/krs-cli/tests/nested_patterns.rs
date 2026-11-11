@@ -4332,12 +4332,40 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
     let cell = "k::configuration::Cell";
     let frame = "frame: k::fragment![crate::Frame { pc: a, .. }]";
     let refused = [
-        ("leaf-literal", whole_cells(false, "", &format!("acc: 0, {frame}, .."), "..")),
-        ("result-literal", whole_cells(true, "", &format!("acc: {cell}(a), .."), "acc: 1, ..")),
-        ("leaf-call", whole_cells(false, "", &format!("acc: {cell}(a), .."), "acc: int::add(a, 1), ..")),
-        ("group-literal", whole_cells(false, "", &format!("acc: {cell}(a), .."), "frame: 0, ..")),
-        ("group-call", whole_cells(true, "", &format!("acc: {cell}(a), .."), "frame: int::add(a, 1), ..")),
-        ("leaf-rewrite", single_body("\n    a: Int,", "acc: k::rewrite!(a => x)")),
+        (
+            "leaf-literal",
+            whole_cells(false, "", &format!("acc: 0, {frame}, .."), ".."),
+        ),
+        (
+            "result-literal",
+            whole_cells(true, "", &format!("acc: {cell}(a), .."), "acc: 1, .."),
+        ),
+        (
+            "leaf-call",
+            whole_cells(
+                false,
+                "",
+                &format!("acc: {cell}(a), .."),
+                "acc: int::add(a, 1), ..",
+            ),
+        ),
+        (
+            "group-literal",
+            whole_cells(false, "", &format!("acc: {cell}(a), .."), "frame: 0, .."),
+        ),
+        (
+            "group-call",
+            whole_cells(
+                true,
+                "",
+                &format!("acc: {cell}(a), .."),
+                "frame: int::add(a, 1), ..",
+            ),
+        ),
+        (
+            "leaf-rewrite",
+            single_body("\n    a: Int,", "acc: k::rewrite!(a => x)"),
+        ),
         (
             "group-rewrite",
             single_body(
@@ -4359,12 +4387,24 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         leaf-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:90
         group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"#]].assert_eq(&refused.join("\n"));
     let accepted = [
-        ("leaf-literal", whole_cells(false, "", &format!("acc: {cell}(0), {frame}, .."), "..")),
-        ("leaf-rewrite", single_body("\n    a: Int,", &format!("acc: {cell}(k::rewrite!(a => x))"))),
+        (
+            "leaf-literal",
+            whole_cells(false, "", &format!("acc: {cell}(0), {frame}, .."), ".."),
+        ),
+        (
+            "leaf-rewrite",
+            single_body(
+                "\n    a: Int,",
+                &format!("acc: {cell}(k::rewrite!(a => x))"),
+            ),
+        ),
     ]
     .map(|(name, source)| {
         let manifest = library_package(temporary.path(), &format!("wrapped-{name}"), &source);
-        format!("{name}: {}", emitted_sentence(target.path(), &manifest, "make"))
+        format!(
+            "{name}: {}",
+            emitted_sentence(target.path(), &manifest, "make")
+        )
     });
     expect_test::expect![[r#"
         leaf-literal: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> 0 </acc> <frame> <pc> A:Int </pc> <gas> _ </gas> </frame>
@@ -5039,7 +5079,10 @@ fn group_and_descendant_stands_at_the_cell_named_twice() {
             let line = first_error(target.path(), &manifest);
             let (_, at) = line.rsplit_once(" @ ").unwrap();
             let (row, column) = at.split_once(':').unwrap();
-            let text = source.lines().nth(row.parse::<usize>().unwrap() - 1).unwrap();
+            let text = source
+                .lines()
+                .nth(row.parse::<usize>().unwrap() - 1)
+                .unwrap();
             let named = &text[column.parse::<usize>().unwrap() - 1..][..2];
             lines.push(format!("{form}-{name}: {line} ({named})"));
         }

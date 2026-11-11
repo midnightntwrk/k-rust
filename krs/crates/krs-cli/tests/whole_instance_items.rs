@@ -1160,5 +1160,6 @@ fn a_back_instance_updated_in_place_is_refused_as_its_labelled_twin() {
                     <lval> V:Int +Int X:Int </lval>
                     <lmem> M:Int </lmem>
                 </lob>)
-            </lobs>"#]].assert_eq(rule(&emitted_k(target.path(), &manifest), "last"));
+            </lobs>"#]]
+    .assert_eq(rule(&emitted_k(target.path(), &manifest), "last"));
 }

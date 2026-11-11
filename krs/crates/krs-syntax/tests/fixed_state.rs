@@ -1346,7 +1346,13 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
         macro_name: "cells",
         reason: "an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`",
     };
-    for source in ["frame: 3", "frame: f.x", "frame: crate::f", "acc: 0", "acc: int::add(a, 1)"] {
+    for source in [
+        "frame: 3",
+        "frame: f.x",
+        "frame: crate::f",
+        "acc: 0",
+        "acc: int::add(a, 1)",
+    ] {
         let error =
             krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
                 .unwrap_err();

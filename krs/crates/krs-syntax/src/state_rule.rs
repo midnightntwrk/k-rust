@@ -1547,7 +1547,9 @@ pub fn rule_changes_no_cell_reason(rule: &str) -> String {
 pub(crate) fn rule_changes_no_cell(item: &ItemFn, span: proc_macro2::Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::RuleChangesNoCell {
-            reason: rule_changes_no_cell_reason(&syn::ext::IdentExt::unraw(&item.sig.ident).to_string()),
+            reason: rule_changes_no_cell_reason(
+                &syn::ext::IdentExt::unraw(&item.sig.ident).to_string(),
+            ),
         },
         span,
     )

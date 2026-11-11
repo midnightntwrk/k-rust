@@ -1094,7 +1094,12 @@ fn collection_in_named_cell(
             ),
         );
         return Err(
-            match entry.field.name_range.as_ref().or(entry.field.range.as_ref()) {
+            match entry
+                .field
+                .name_range
+                .as_ref()
+                .or(entry.field.range.as_ref())
+            {
                 Some(range) => error.with_source_range(range.clone()),
                 None => error,
             },

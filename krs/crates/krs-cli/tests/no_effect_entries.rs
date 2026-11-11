@@ -244,15 +244,27 @@ fn an_exact_subject_s_entries_name_their_cells_and_owe_no_lint() {
         let manifest = package(&temporary.path().join(form), "no-effect", library);
         let (success, _, stderr) = krs(target.path(), &manifest, &["check"]);
         assert!(success, "{form}: {stderr}");
-        lines.push(format!("{form}: {:?}", warnings(&stderr, manifest.parent().unwrap())));
+        lines.push(format!(
+            "{form}: {:?}",
+            warnings(&stderr, manifest.parent().unwrap())
+        ));
         // Without the entry, the record leaves `frame` out.
-        let dropped = library.replace(",\n        frame: _\n", "\n").replace("        frame: _\n    }", "    }");
-        let manifest = package(&temporary.path().join(format!("{form}-dropped")), "no-effect", &dropped);
+        let dropped = library
+            .replace(",\n        frame: _\n", "\n")
+            .replace("        frame: _\n    }", "    }");
+        let manifest = package(
+            &temporary.path().join(format!("{form}-dropped")),
+            "no-effect",
+            &dropped,
+        );
         let (success, _, stderr) = krs(target.path(), &manifest, &["check"]);
         assert!(!success, "{form}: {dropped}");
         lines.push(format!(
             "{form} without `frame: _`: {}",
-            stderr.lines().find(|line| line.starts_with("error")).unwrap()
+            stderr
+                .lines()
+                .find(|line| line.starts_with("error"))
+                .unwrap()
         ));
     }
     expect_test::expect![[r#"
