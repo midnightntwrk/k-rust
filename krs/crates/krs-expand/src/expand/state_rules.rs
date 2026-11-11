@@ -739,11 +739,10 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 // `Cell(k::k![..])` is a leaf's wrapper around the computation's item notation,
-                // the term of sort `K` its items make: whether the cell holds one is the
-                // collector's question, by the cell's kind and sort, from the same spelling,
-                // answered before anything lowers the entry. The wire carries the items in
-                // their state's family.
-                let wrapper = if sequence {
+                // the term of sort `K` its items make: a leaf holds it where its declared sort is
+                // `KSequence`, which the collector and the lowering judge from the declaration.
+                // The wire carries the wrapper as written.
+                let wrapper = if computation {
                     CellWrapper::KCell
                 } else {
                     CellWrapper::Cell

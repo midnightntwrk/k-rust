@@ -441,10 +441,12 @@ impl Machine {
 
 /// A leaf of sort `KSequence` holds one term of that sort, as a `KSequence` field does, on every
 /// route: a name bound to one writes it (a configuration variable, a subject's binder, a `cells!`
-/// remainder), and the computation's notations, which list a sequence's items, are refused there
-/// for what the leaf holds, not as on the computation: `k::k![..]` in an initializer and
-/// `KCell(..)` in `cells!` are `cell-wrapper`, brackets in an initializer, a readable record, a
-/// claim and inside `Cell(..)` are `invalid-list-notation`.
+/// remainder), and so does `Cell(k::k![..])` in `cells!`
+/// ([`the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_route`]).
+/// The computation's own marks are refused there for what the leaf holds, not as on the
+/// computation: `k::k![..]` in an initializer and `KCell(..)` in `cells!` are `cell-wrapper`,
+/// brackets in an initializer, a readable record, a claim and inside `Cell(..)` are
+/// `invalid-list-notation`.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -640,12 +642,13 @@ impl Machine {
 
 /// The inventory of `k::k![..]` where a leaf's term stands (COHERE F1, AUDIT-R A1-4, RDRA item
 /// 4): one construct, the computation's item notation, the term of sort `K` its items make. A
-/// sentence's leaf entry, readable or `cells!`, is judged by the leaf's sort, one class on both
-/// routes ([`the_computation_s_items_on_a_sentence_s_leaf_are_one_verdict_on_every_route`]). Still
-/// apart: an initializer reads it as the computation's mark on every cell (`cell-wrapper`, the
-/// principles' reading of an initializer's `k::k![..]`), a readable instance child refuses it in
-/// the term reader, and a `cells!` instance child's is lowered as the computation's sequence,
-/// whose sort the compiler checks. This pins each route's class, so a drift is seen.
+/// sentence's leaf entry is judged by the leaf's sort
+/// ([`the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_route`]): on
+/// an `Int` leaf, as here, `invalid-term` on every route; a `cells!` instance child's is lowered
+/// as the computation's sequence, whose sort the compiler checks. Still apart: an initializer
+/// reads it as the computation's mark on every cell (`cell-wrapper`, the principles' reading of
+/// an initializer's `k::k![..]`), and a readable instance child refuses it in the term reader.
+/// This pins each route's class, so a drift is seen.
 #[test]
 fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route() {
     let target = shared_fixture_target();
@@ -731,28 +734,46 @@ fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route()
     .assert_debug_eq(&classes);
 }
 
-/// A leaf's name, its library around a sentence, and its routes: each a name, a sentence and
-/// the spelling its refusal is at.
-type Leaf<'a> = (
-    &'a str,
-    &'a dyn Fn(&str) -> String,
-    [(&'a str, String, &'a str); 6],
-);
+/// The K source `krs emit-k` writes for the package.
+fn emitted_k(target: &Path, manifest: &Path) -> String {
+    let package = manifest
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap();
+    let output = manifest.with_file_name("emitted");
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
+    let run = process
+        .args(["emit-k", "--manifest-path"])
+        .arg(manifest)
+        .args(["--package", package, "--definition", "main", "--output"])
+        .arg(&output)
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    fs::read_to_string(output.join("definition.k")).unwrap()
+}
 
 /// `k::k![..]`, the computation's item notation, is the term of sort `K` its items make
-/// (`a ~> b ~> rest`). Where a sentence's leaf entry writes it, readable or `cells!`, subject or
-/// result, rule or claim, the collector judges it by the leaf's sort once the entries are
-/// admitted, with one line on every route, at the notation: on a leaf of sort `KSequence` it is
-/// a term of the leaf's own sort, written by its items, which a leaf's entry does not lower yet,
-/// a stated limit; on a leaf of another sort its sort is not below the leaf's, the sort-mismatch
-/// class `invalid-term`, naming the leaf's sort. A clause the readable route reads no
-/// computation of (no bracketed value) keeps the term reader's refusal.
+/// (`a ~> b ~> rest`), judged where a sentence's leaf entry writes it by the leaf's sort. On a
+/// leaf of sort `KSequence` a `cells!` rule or claim, subject or result, writes it inside the
+/// leaf's `Cell(..)` and it is lowered as the computation's items are (the leaf's cell holds
+/// `bump ~> R`); a readable record, which writes a computation's items in its brackets, does not
+/// read the notation yet, a limit with one line on the readable rule's and claim's routes. On a
+/// leaf of another sort its sort is not below the leaf's, the sort-mismatch class
+/// `invalid-term`, naming the leaf's sort, with one line on every route, at the notation.
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "One table of routes per leaf, each with its spelling and its place."
+    reason = "One table per leaf and route family, each with its spelling and its place."
 )]
-fn the_computation_s_items_on_a_sentence_s_leaf_are_one_verdict_on_every_route() {
+fn the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_route() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let k_leaf = |sentences: &str| {
@@ -778,139 +799,152 @@ fn the_computation_s_items_on_a_sentence_s_leaf_are_one_verdict_on_every_route()
             "#[k::rule]\npub fn r(\n    k::cells! {{ k: k::configuration::KCell(Cmd::{save}(), tail @ ..), {subject}, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
         )
     };
-    let leaves: [Leaf<'_>; 2] = [
-        (
-            "k-leaf",
-            &k_leaf,
-            [
-                (
-                    "readable-subject",
-                    readable("Save", "saved: k::k![Bump()]", "saved: k::k![]"),
-                    "k::k![Bump()]",
-                ),
-                (
-                    "readable-result",
-                    readable("Save", "saved: _", "saved: k::k![Bump()]"),
-                    "k::k![Bump()]",
-                ),
-                (
-                    "claim-result",
-                    claim("Save", "saved: _", "saved: k::k![Bump()]"),
-                    "k::k![Bump()]",
-                ),
-                (
-                    "cells-subject",
-                    cells(
-                        "Save",
-                        "saved: k::configuration::Cell(k::k![Cmd::Bump(), r @ ..])",
-                        "saved: k::configuration::Cell(k::k![..r])",
-                    ),
-                    "k::k![Cmd::Bump(), r @ ..]",
-                ),
-                (
-                    "cells-result",
-                    cells(
-                        "Save",
-                        "saved: k::configuration::Cell(_)",
-                        "saved: k::configuration::Cell(k::k![Cmd::Bump()])",
-                    ),
-                    "k::k![Cmd::Bump()]",
-                ),
-                (
-                    "cells-claim-result",
-                    cells(
-                        "Save",
-                        "saved: k::configuration::Cell(_)",
-                        "saved: k::configuration::Cell(k::k![])",
-                    )
-                    .replace("#[k::rule]", "#[k::claim(all_paths, label = \"c\")]"),
-                    "k::k![]",
-                ),
-            ],
-        ),
-        (
-            "int-leaf",
-            &int_leaf,
-            [
-                (
-                    "readable-subject",
-                    readable("Go", "pc: k::k![1]", "pc: 0"),
-                    "k::k![1]",
-                ),
-                (
-                    "readable-result",
-                    readable("Go", "pc: _", "pc: k::k![1]"),
-                    "k::k![1]",
-                ),
-                (
-                    "claim-result",
-                    claim("Go", "pc: _", "pc: k::k![1]"),
-                    "k::k![1]",
-                ),
-                (
-                    "cells-subject",
-                    cells(
-                        "Go",
-                        "pc: k::configuration::Cell(k::k![1])",
-                        "pc: k::configuration::Cell(0)",
-                    ),
-                    "k::k![1]",
-                ),
-                (
-                    "cells-result",
-                    cells(
-                        "Go",
-                        "pc: k::configuration::Cell(_)",
-                        "pc: k::configuration::Cell(k::k![1])",
-                    ),
-                    "k::k![1]",
-                ),
-                (
-                    "cells-claim-result",
-                    cells(
-                        "Go",
-                        "pc: k::configuration::Cell(_)",
-                        "pc: k::configuration::Cell(k::k![1])",
-                    )
-                    .replace("#[k::rule]", "#[k::claim(all_paths, label = \"c\")]"),
-                    "k::k![1]",
-                ),
-            ],
-        ),
-    ];
-    let mut verdicts = Vec::new();
-    for (leaf, library, routes) in leaves {
+    let cells_claim = |save: &str, subject: &str, result: &str| {
+        cells(save, subject, result).replace("#[k::rule]", "#[k::claim(all_paths, label = \"c\")]")
+    };
+    let refused = |name: &str, routes: Vec<(&str, String, &str)>| {
         let mut lines = Vec::new();
-        for (route, sentence, at) in routes {
-            let source = library(&sentence);
-            let manifest = package(temporary.path(), &format!("items-{leaf}-{route}"), &source);
+        for (route, source, at) in routes {
+            let manifest = package(temporary.path(), &format!("items-{name}-{route}"), &source);
             let (success, stderr) = check(target.path(), &manifest);
-            assert!(!success, "{leaf} {route}: {stderr}");
+            assert!(!success, "{name} {route}: {stderr}");
             let errors = stderr
                 .lines()
                 .filter(|line| line.starts_with("error"))
                 .collect::<Vec<_>>();
-            assert_eq!(errors.len(), 1, "{leaf} {route}: {stderr}");
+            assert_eq!(errors.len(), 1, "{name} {route}: {stderr}");
             let location = location_at(&source, source.find(at).unwrap());
             assert!(
                 stderr.contains(&location),
-                "{leaf} {route}: {location}: {stderr}"
+                "{name} {route}: {location}: {stderr}"
             );
-            lines.push((route, errors[0].to_owned()));
+            lines.push((route.to_owned(), errors[0].to_owned()));
         }
         let (_, first) = &lines[0];
         for (route, line) in &lines {
             assert_eq!(
                 line, first,
-                "{leaf}: the {route} is told as the readable subject is"
+                "{name}: the {route} is told as the first route is"
             );
         }
-        verdicts.push(format!("{leaf}: {first}"));
+        format!("{name}: {first}")
+    };
+    let mut verdicts = vec![
+        refused(
+            "k-leaf-readable",
+            vec![
+                (
+                    "readable-subject",
+                    k_leaf(&readable("Save", "saved: k::k![Bump()]", "saved: k::k![]")),
+                    "k::k![Bump()]",
+                ),
+                (
+                    "readable-result",
+                    k_leaf(&readable("Save", "saved: _", "saved: k::k![Bump()]")),
+                    "k::k![Bump()]",
+                ),
+                (
+                    "claim-result",
+                    k_leaf(&claim("Save", "saved: _", "saved: k::k![Bump()]")),
+                    "k::k![Bump()]",
+                ),
+            ],
+        ),
+        refused(
+            "int-leaf",
+            vec![
+                (
+                    "readable-subject",
+                    int_leaf(&readable("Go", "pc: k::k![1]", "pc: 0")),
+                    "k::k![1]",
+                ),
+                (
+                    "readable-result",
+                    int_leaf(&readable("Go", "pc: _", "pc: k::k![1]")),
+                    "k::k![1]",
+                ),
+                (
+                    "claim-result",
+                    int_leaf(&claim("Go", "pc: _", "pc: k::k![1]")),
+                    "k::k![1]",
+                ),
+                (
+                    "cells-subject",
+                    int_leaf(&cells(
+                        "Go",
+                        "pc: k::configuration::Cell(k::k![1])",
+                        "pc: k::configuration::Cell(0)",
+                    )),
+                    "k::k![1]",
+                ),
+                (
+                    "cells-result",
+                    int_leaf(&cells(
+                        "Go",
+                        "pc: k::configuration::Cell(_)",
+                        "pc: k::configuration::Cell(k::k![1])",
+                    )),
+                    "k::k![1]",
+                ),
+                (
+                    "cells-claim-result",
+                    int_leaf(&cells_claim(
+                        "Go",
+                        "pc: k::configuration::Cell(_)",
+                        "pc: k::configuration::Cell(k::k![1])",
+                    )),
+                    "k::k![1]",
+                ),
+            ],
+        ),
+    ];
+    let admitted = [
+        (
+            "cells-subject",
+            k_leaf(&cells(
+                "Save",
+                "saved: k::configuration::Cell(k::k![Cmd::Bump(), r @ ..])",
+                "saved: k::configuration::Cell(k::k![..r])",
+            )),
+        ),
+        (
+            "cells-result",
+            k_leaf(&cells(
+                "Save",
+                "saved: k::configuration::Cell(_)",
+                "saved: k::configuration::Cell(k::k![Cmd::Bump()])",
+            )),
+        ),
+        (
+            "cells-claim-result",
+            k_leaf(&cells_claim(
+                "Save",
+                "saved: k::configuration::Cell(_)",
+                "saved: k::configuration::Cell(k::k![Cmd::Bump()])",
+            )),
+        ),
+    ];
+    for (route, source) in admitted {
+        let manifest = package(temporary.path(), &format!("items-k-leaf-{route}"), &source);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(success, "{route}: {stderr}");
+        if !route.contains("claim") {
+            let k = emitted_k(target.path(), &manifest);
+            let saved = k
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("<saved>") && !line.contains("$SAVED"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            verdicts.push(format!("k-leaf-{route}: {saved}"));
+        }
     }
     expect_test::expect![[r#"
         [
-            "k-leaf: error[krs::analysis::invalid-term]: the cell `saved` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a leaf's entry written by its items is not supported yet: write it with a name bound to such a value",
+            "k-leaf-readable: error[krs::analysis::invalid-term]: the cell `saved` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the rule with `k::cells!`, where `k::configuration::Cell(k::k![..])` writes it",
             "int-leaf: error[krs::analysis::invalid-term]: the cell `pc` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's",
+            "k-leaf-cells-subject: <saved> bump ~> R:K => .K ~> R:K </saved>",
+            "k-leaf-cells-result: <saved> _ => bump </saved>",
         ]
     "#]].assert_debug_eq(&verdicts);
 }
@@ -1028,8 +1062,8 @@ fn a_value_written_with_its_rust_wrapper_is_judged_as_the_value_it_wraps() {
     }
     expect_test::expect![[r#"
         [
-            "k-leaf-items: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, and no KRS term lists a sequence's items, so a name bound to such a value writes it; write its entry as `x`",
-            "k-leaf-items-in-cell: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, and no KRS term lists a sequence's items, so a name bound to such a value writes it; write its entry as `x`",
+            "k-leaf-items: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, and a `k::cells!` rule's `k::configuration::Cell(k::k![..])` by its items; write its entry as `x`",
+            "k-leaf-items-in-cell: error[krs::analysis::cell-wrapper]: the cell `saved` holds a leaf of sort `KSequence`, and the entry's wrapper is not that content's: `k::k![..]` lists a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort; a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, and a `k::cells!` rule's `k::configuration::Cell(k::k![..])` by its items; write its entry as `x`",
             "computation-term: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation; write its entry as `k::k![x]`",
             "cell-around-items: error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `KCell` requires `k!`; `Cell` accepts ordinary terms or `map!`",
             "kcell-around-a-term: error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `KCell::new` requires an explicit `k!` payload",

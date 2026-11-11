@@ -749,14 +749,13 @@ fn is_computation(layers: &[Layer]) -> bool {
 }
 
 /// What a leaf of sort `KSequence` holds, where `layers` and `sort` are one's: one term of that
-/// sort, as a `KSequence` field holds one, and not a computation's items, which only a
-/// computation cell holds. Its sort is the computation's, so a refusal of the computation's
-/// notation on it says that it is none.
+/// sort, as a `KSequence` field holds one, not a computation. Its sort is the computation's, so a
+/// refusal of the computation's notation on it says that it is none, and how its term is written.
 fn k_leaf(layers: &[Layer], sort: Option<&str>) -> Option<&'static str> {
     (matches!(layers.last(), Some(Layer::Leaf(Notation::Plain)))
         && sort == Some(krs_ir::BuiltinSort::KSequence.spec().marker_name))
     .then_some(
-        "a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, and no KRS term lists a sequence's items, so a name bound to such a value writes it",
+        "a leaf of sort `KSequence` is no computation: it holds one term of that sort, as a `KSequence` field does, which a name bound to such a value writes, and a `k::cells!` rule's `k::configuration::Cell(k::k![..])` by its items",
     )
 }
 

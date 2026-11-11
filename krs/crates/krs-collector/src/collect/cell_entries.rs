@@ -455,7 +455,7 @@ pub(super) fn judge_readable(
     .judge_located();
     if judged.is_ok() {
         group_record_on_leaf(subject.iter().chain(&result), target.groups())?;
-        items_off_the_computation(subject.iter().chain(&result))?;
+        items_off_the_computation(subject.iter().chain(&result), true)?;
         presence_in_constructor_record(subject.iter().chain(&result), target.groups())?;
     }
     subject_limit(&judged, authored)?;
@@ -728,12 +728,15 @@ fn group_record_on_leaf<'e, 'a: 'e>(
 /// Refuses the first admitted entry of a sentence whose value is `k::k![..]` on a cell that is not
 /// the computation, through its presence and its `Cell(..)`: the computation's item notation,
 /// which denotes the term of sort `K` its items make in order (`a ~> b ~> rest`). On a leaf or a
-/// group of another sort it is a term whose sort is not below the cell's (`ContentSort`); on a
-/// leaf of sort `KSequence` it is that leaf's own sort, which no sentence's leaf entry lowers yet
-/// (`LeafItems`, a limit). The table admits it as the term it is ([`cell_entries`]'s marks: the
-/// computation's mark only where the cell holds a computation).
+/// group of another sort it is a term whose sort is not below the cell's (`ContentSort`). On a
+/// leaf of sort `KSequence` it is that leaf's own sort: `cells!` lowers it as it lowers the
+/// computation's items, and a readable record (`readable`), which writes a computation's items in
+/// its brackets, has no reading of the notation, a limit (`LeafItems`). The table admits it as the
+/// term it is ([`cell_entries`]'s marks: the computation's mark only where the cell holds a
+/// computation).
 fn items_off_the_computation<'e, 'a: 'e>(
     entries: impl IntoIterator<Item = &'e Entry<'a>>,
+    readable: bool,
 ) -> Result<(), CollectionError> {
     for entry in entries {
         let Some(spelling) = &entry.field.spelling else {
@@ -759,10 +762,11 @@ fn items_off_the_computation<'e, 'a: 'e>(
             .find(|layer| !matches!(layer, Layer::Optional));
         let cell = unraw(&entry.cell.field);
         let (kind, detail) = match (content, entry.sort.as_deref()) {
+            (Some(Layer::Leaf(_)), Some("KSequence")) if !readable => continue,
             (Some(Layer::Leaf(_)), Some("KSequence")) => (
                 CollectionErrorKind::LeafItems,
                 format!(
-                    "the cell `{cell}` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a leaf's entry written by its items is not supported yet: write it with a name bound to such a value"
+                    "the cell `{cell}` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the rule with `k::cells!`, where `k::configuration::Cell(k::k![..])` writes it"
                 ),
             ),
             (Some(Layer::Leaf(_)), Some(sort)) => (
@@ -1113,7 +1117,7 @@ fn judge_sentence(
     };
     if judged.is_ok() {
         group_record_on_leaf(subject.iter().chain(&result), &tree.groups)?;
-        items_off_the_computation(subject.iter().chain(&result))?;
+        items_off_the_computation(subject.iter().chain(&result), false)?;
         presence_in_constructor_record(subject.iter().chain(&result), &tree.groups)?;
         for key in &tree.keys {
             kept_key(key, &subject, &result)?;

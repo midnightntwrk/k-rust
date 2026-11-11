@@ -2522,7 +2522,10 @@ fn validate_rule_wrapper<T>(
             }
             validate_rule_wrapper(wrapper, value)
         }
-        (Some(CellWrapper::KCell), ProtocolRuleStateTerm::KSequence(_))
+        // A leaf's `Cell(..)` holds a sequence where the leaf's declared sort is `KSequence`
+        // (`Cell(k::k![..])`), which the lowering checks against the declaration: a
+        // computation's or a `KSequence` leaf's content is one family, whatever its wrapper.
+        (Some(CellWrapper::KCell | CellWrapper::Cell), ProtocolRuleStateTerm::KSequence(_))
         | (
             Some(CellWrapper::Cell),
             ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_),
