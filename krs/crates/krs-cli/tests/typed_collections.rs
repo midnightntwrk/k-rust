@@ -2855,6 +2855,12 @@ fn every_term_kind_at_an_element_position_names_the_position() {
             "true",
         ),
         (
+            "rewrite-dot-k",
+            "#[k::rule]\npub fn probe(\n    k::cells! { k: k::configuration::KCell(k::rewrite!(StmtSyntax::Skip() => ()), ..), env: k::configuration::Cell(map![k::id!(\"$x\") -> k::rewrite!(_ => ()), ..]), .. }: Machine,\n) {}\n".to_owned(),
+            stored("()", "K", env_value, "a Value"),
+            "()",
+        ),
+        (
             "read-bytes",
             "k::rules! {\n    for Machine;\n    use StmtSyntax::*;\n\n    #[k::requires(set::contains(k::bytes!(b\"a\"), x))]\n    probe: { k: [Skip(), ..], seen: x } => { k: [..] };\n}\n".to_owned(),
             read("k::bytes!(..)", "Bytes", seen, "an Id"),

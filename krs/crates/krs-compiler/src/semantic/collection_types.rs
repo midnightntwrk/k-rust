@@ -2262,11 +2262,19 @@ impl<'a> Walker<'a> {
                 position: position.clone(),
                 read: false,
             };
-            // A `k::rewrite!` stores both of its sides at the position.
+            // A `k::rewrite!` stores both of its sides at the position; a `()` (.K) right side,
+            // which has no term, is the element site of its own key.
             let sides = match operand {
-                DescriptorTerm::Rewrite { from, to, .. } => std::iter::once(from.as_ref())
-                    .chain(to.as_deref())
-                    .collect(),
+                DescriptorTerm::Rewrite {
+                    from, to, to_key, ..
+                } => {
+                    if to.is_none() {
+                        self.typing.elements.insert(to_key.clone(), site.clone());
+                    }
+                    std::iter::once(from.as_ref())
+                        .chain(to.as_deref())
+                        .collect()
+                }
                 operand => vec![operand],
             };
             for side in sides {
