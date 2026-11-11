@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "kore.printer.fits"
 //! name = "bounded look-ahead for the flat layout of a KORE document group"
-//! sites = ["fits"]
+//! sites = ["fits", "width_of"]
 //! variable = "w = remaining line width at the group; k = ops read ahead, which stops at the group's end, at a hard line, or at the first op whose flat width exceeds w"
 //! counters = []
 //! no_counter = "the fits look-ahead has no dedicated counter"
@@ -31,7 +31,7 @@
 //! Wadler-style documents render with a mode stack whose height is the group nesting depth.
 //! The renderer pulls ops from an iterator and writes each one to an `io::Write` as soon as its layout is decided, so neither the whole document nor the whole text has to be held in memory.
 //! A group opened in broken context is laid out flat exactly when its flat width fits in the rest of the line; `fits` decides that by reading ahead only until the answer is known, which bounds the ops held in memory by the line width rather than by the document.
-//! ASCII text uses its byte length as its character width; other text retains the Unicode scalar count used by layout.
+//! Rendering and the fits look-ahead measure text through `width_of`: ASCII text uses its byte length as its character width; other text retains the Unicode scalar count used by layout.
 //! A line is indented by its nesting, but by no more than the line width: past the width no group fits and every group breaks, so the layout is decided with the nesting itself while the leading spaces written stop at the width, and the text of a term nested N levels deep is O(N) rather than O(N²) characters.
 //! No dedicated counter measures printing.
 //!
@@ -164,15 +164,11 @@ pub(super) fn render<W: io::Write + ?Sized>(
         match op {
             Op::Text(value) => {
                 output.write_all(value.as_bytes())?;
-                column += if value.is_ascii() {
-                    value.len()
-                } else {
-                    value.chars().count()
-                };
+                column += width_of(&value);
             }
             Op::Line(flat) if modes.last() == Some(&Mode::Flat) => {
                 output.write_all(flat.as_bytes())?;
-                column += flat.chars().count();
+                column += width_of(flat);
             }
             Op::Line(_) | Op::HardLine => {
                 output.write_all(b"\n")?;
@@ -257,11 +253,21 @@ fn fits(
                 ""
             }
         };
-        match remaining.checked_sub(flat.chars().count()) {
+        match remaining.checked_sub(width_of(flat)) {
             Some(left) => remaining = left,
             None => return false,
         }
         index += 1;
+    }
+}
+
+/// The width layout gives `text`: its Unicode scalar count. An ASCII string has one byte per
+/// scalar, so its byte length is that count, read without decoding.
+fn width_of(text: &str) -> usize {
+    if text.is_ascii() {
+        text.len()
+    } else {
+        text.chars().count()
     }
 }
 
