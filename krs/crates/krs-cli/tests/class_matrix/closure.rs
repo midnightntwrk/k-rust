@@ -239,9 +239,13 @@ fn spelled(sentence: &str) -> String {
     let occurrences = |name: &str| all.iter().filter(|token| **token == name).count();
     for variable in variables(&all) {
         let annotated = |sort: &str| format!(" ~> {variable}:{sort}");
-        // An explicit computation rest on both sides of the cell's rewrite, or alone.
+        // An explicit computation rest on both sides of `k`'s rewrite, or alone: both rewritten
+        // or neither, so another cell's rest (an instance's computation child) stays as written.
         let rest = annotated("K");
-        if occurrences(variable) == 2 && text.matches(&rest).count() == 2 {
+        if occurrences(variable) == 2
+            && text.matches(&rest).count() == 2
+            && text.contains(&format!("{rest} </k>"))
+        {
             text = text.replacen(&format!("{rest} => "), " => ", 1);
             text = text.replacen(&format!("{rest} </k>"), " ... </k>", 1);
         } else if occurrences(variable) == 1 && text.contains(&format!("{rest} </k>")) {
@@ -424,6 +428,16 @@ fn digests(text: &str, prefix: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only `k`'s rest is read as its `...`: another cell's computation rest, an instance's
+    /// computation child's, keeps both its occurrences.
+    #[test]
+    fn another_cell_s_computation_rest_is_kept_on_both_sides() {
+        assert_eq!(
+            normalize("<k> c ( X:Int ) => .K ... </k> <tk> Y:KItem ~> T:K => X:Int ~> T:K </tk>"),
+            "<k> c ( V0:Int ) => .K ... </k> <tk> _:KItem ~> V1:K => V0:Int ~> V1:K </tk>"
+        );
+    }
 
     #[test]
     fn the_anonymous_variable_keeps_its_name_at_every_occurrence() {
