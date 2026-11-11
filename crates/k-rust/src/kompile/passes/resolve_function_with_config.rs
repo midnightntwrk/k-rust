@@ -271,23 +271,11 @@ pub(crate) fn resolve_config_var_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            // Only rules and claims change. The kind is decided before taking a mutable sentence,
-            // which copies a shared one, so every other kind stays shared.
-            match &**sentence {
-                Sentence::Rule { .. } | Sentence::Claim { .. } => {}
-                Sentence::SyntaxSort { .. }
-                | Sentence::SortSynonym { .. }
-                | Sentence::SyntaxLexical { .. }
-                | Sentence::Production { .. }
-                | Sentence::SyntaxAssociativity { .. }
-                | Sentence::SyntaxPriority { .. }
-                | Sentence::ContextAlias { .. }
-                | Sentence::Context { .. }
-                | Sentence::Configuration { .. }
-                | Sentence::Bubble { .. } => continue,
-            }
-            let sentence = crate::definition::sentence_mut(sentence);
-            let (body, requires, ensures) = match sentence {
+            // Only the body of a rule or claim changes, and only when its top rewrite's left
+            // side is the generated top cell and the sentence reads the configuration. The new
+            // body is decided on the shared sentence, and only a sentence that gets one is
+            // copied (`sentence_mut`), so every other sentence stays the input's allocation.
+            let (body, requires, ensures) = match &**sentence {
                 Sentence::Rule {
                     body,
                     requires,
@@ -309,28 +297,24 @@ pub(crate) fn resolve_config_var_pass(
                 | Sentence::ContextAlias { .. }
                 | Sentence::Context { .. }
                 | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
+            };
+            let Some(new_body) = configuration_bound_body(body, requires, ensures) else {
+                continue;
+            };
+            match crate::definition::sentence_mut(sentence) {
+                Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => *body = new_body,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => {
                     unreachable!("copy-on-write keeps the kind decided above")
-                }
-            };
-            if contains_rewrite(body)
-                && [body as &Term, requires as &Term, ensures as &Term]
-                    .into_iter()
-                    .any(contains_exact_configuration_variable)
-            {
-                let left = rewrite_left(body);
-                if matches!(
-                    left.unannotated(),
-                    Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
-                ) {
-                    let right = rewrite_right(body);
-                    *body = Term::Rewrite {
-                        left: Box::new(Term::As {
-                            pattern: Box::new(left),
-                            alias: Box::new(configuration_variable()),
-                        }),
-                        right: Box::new(right),
-                    };
                 }
             }
         }
@@ -371,6 +355,35 @@ pub(crate) fn resolve_config_var_pass(
         return Err(ResolveFunctionWithConfigError { diagnostics });
     }
     Ok(output)
+}
+
+/// The body of a rule or claim with the generated top cell on the left of its top rewrite bound
+/// to the configuration variable (`<generatedTop>(..) #as #Configuration => ..`), when the
+/// sentence has a rewrite, reads the configuration variable in its body or conditions, and that
+/// left side is the generated top cell; `None` leaves the body as it is.
+fn configuration_bound_body(body: &Term, requires: &Term, ensures: &Term) -> Option<Term> {
+    if !(contains_rewrite(body)
+        && [body, requires, ensures]
+            .into_iter()
+            .any(contains_exact_configuration_variable))
+    {
+        return None;
+    }
+    let left = rewrite_left(body);
+    if !matches!(
+        left.unannotated(),
+        Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
+    ) {
+        return None;
+    }
+    let right = rewrite_right(body);
+    Some(Term::Rewrite {
+        left: Box::new(Term::As {
+            pattern: Box::new(left),
+            alias: Box::new(configuration_variable()),
+        }),
+        right: Box::new(right),
+    })
 }
 
 /// Whether the root of the left-hand side of `body` (the left side of its top rewrite, or `body`
