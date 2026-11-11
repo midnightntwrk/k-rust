@@ -598,10 +598,28 @@ fn an_observer_outside_the_package_graph_is_refused_saying_where_it_must_be() {
     );
     assert_eq!(output.status.code(), Some(2), "{}", stdout(&output));
     let text = stderr(&output);
+    // FB56: and that it is not in the graph `--manifest-path` names (the definition's package
+    // manifest, `Cargo.toml` where krs runs), and how it joins it: as a member of the workspace
+    // whose manifest is the workspace root's.
+    let joins = format!(
+        "the package `elsewhere-views` is not in the package graph Cargo resolves for \
+         --manifest-path `Cargo.toml`; a package joins that graph as a workspace member: list its \
+         directory in `members = [..]` of the workspace manifest `{}` and, where the package's \
+         directory is not inside the workspace's, set `package.workspace` in the package's own \
+         Cargo.toml to the workspace's directory",
+        workspace
+            .directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("Cargo.toml")
+            .display()
+    );
     for said in [
         "missing-package",
         "in the observer `elsewhere-views:main`",
         "the observer's package is one of the package graph Cargo resolves for --manifest-path, a workspace member or a dependency of one: the observer composes the definition it compares, so both must come from one Cargo resolution",
+        &joins,
     ] {
         assert!(text.contains(said), "{said}\n{text}");
     }

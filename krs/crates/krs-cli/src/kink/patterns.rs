@@ -3,7 +3,11 @@
 //!
 //! **Preparing a package.** A patterns package is a Cargo package of the graph Cargo resolves for
 //! `--manifest-path`, outside the definition's closure, that depends on the definition's package
-//! and declares one KRS definition facet. The front end composes that facet with the definition
+//! and declares one KRS definition facet. A package the graph does not hold is refused saying
+//! so, with the manifest `--manifest-path` names, and how a sibling package joins that graph: as
+//! a workspace member, listed in the workspace manifest's `members` (and, outside the workspace's
+//! directory, naming it in its own `package.workspace`), as an observer's package is told
+//! (`crate::command::outside_the_graph`). The front end composes that facet with the definition
 //! the command selected, as it composes an observer (`crate::command::patterns_definition`), for
 //! its Definition IR only, and emits its `k::patterns!` clauses
 //! ([`krs_compiler::emit_patterns`]). Nothing of the package enters `definition.k`, the

@@ -453,7 +453,12 @@ fn refusals_and_laziness(workspace: &Workspace) {
             .starts_with("patterns[0].krs: the KRS patterns package `absent` cannot be prepared: "),
         "{detail}"
     );
-    assert!(detail.contains("no package `absent`"), "{detail}");
+    assert!(
+        detail.contains(
+            "the package `absent` is not in the package graph Cargo resolves for --manifest-path"
+        ),
+        "{detail}"
+    );
 
     // Only a command that asks the declared patterns builds the package: a query of a list,
     // and a verb that asks no pattern, answer as though the package were not there.

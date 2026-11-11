@@ -2471,11 +2471,23 @@ fn query_asks_the_patterns_flow_toml_declares() {
     let document = json(&output);
     let detail = document["pattern_list"]["detail"].as_str().unwrap();
     assert!(detail.starts_with("patterns[1].krs: "), "{document:#}");
-    assert!(
-        detail.contains(
-            "the KRS patterns package `counter-patterns` cannot be prepared: no package \
-             `counter-patterns` is in the package graph"
-        ),
+    // FB56: the refusal says the package is not in the graph `--manifest-path` names (krs's
+    // default, `Cargo.toml` of the package directory), and how a package joins it: as a member
+    // of the workspace whose manifest it names.
+    let workspace = project.path().canonicalize().unwrap().join("Cargo.toml");
+    let expected = format!(
+        "the KRS patterns package `counter-patterns` cannot be prepared: a KRS patterns package \
+         is a workspace member or a dependency of one, as the definition it reads is, and the \
+         package `counter-patterns` is not in the package graph Cargo resolves for \
+         --manifest-path `Cargo.toml`; a package joins that graph as a workspace member: list \
+         its directory in `members = [..]` of the workspace manifest `{}` and, where the \
+         package's directory is not inside the workspace's, set `package.workspace` in the \
+         package's own Cargo.toml to the workspace's directory",
+        workspace.display()
+    );
+    assert_eq!(
+        detail.strip_prefix("patterns[1].krs: "),
+        Some(expected.as_str()),
         "{document:#}"
     );
 }

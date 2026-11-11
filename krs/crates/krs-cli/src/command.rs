@@ -1095,15 +1095,38 @@ const VIEW_FUNCTION_HELP: &str = "if this function is a view (a function of one 
 const OBSERVER_DEPENDENCY_HELP: &str = "the observer composes the packages it depends on whose facets --dependency names, as any definition does: name the package's facet with --dependency PACKAGE:DEFINITION (one outside the compared definition's closure is composed into the observer only)";
 
 /// Where the observer's package must be, said where planning finds no package of its name
-/// ([`krs_diagnostic::codes::plan::MISSING_PACKAGE`]).
-const OBSERVER_PACKAGE_HELP: &str = "the observer's package is one of the package graph Cargo resolves for --manifest-path, a workspace member or a dependency of one: the observer composes the definition it compares, so both must come from one Cargo resolution, or its views would be built against another copy of that definition; add the observer's package to that workspace, or run from a workspace that holds both";
+/// ([`krs_diagnostic::codes::plan::MISSING_PACKAGE`]), before how it joins that graph
+/// ([`outside_the_graph`]).
+const OBSERVER_PACKAGE_HELP: &str = "the observer's package is one of the package graph Cargo resolves for --manifest-path, a workspace member or a dependency of one: the observer composes the definition it compares, so both must come from one Cargo resolution, or its views would be built against another copy of that definition";
+
+/// That `package` is not in the package graph Cargo resolves for `manifest_path` (`metadata`, its
+/// resolution), and how a package joins that graph: as a member of its workspace, listed in the
+/// workspace manifest's `members` and, outside the workspace's directory, naming the workspace in
+/// its own `package.workspace`. Said where a command names a package of that graph that it does
+/// not hold: an observer's ([`observer_refusal`]) or a KRS patterns package.
+fn outside_the_graph(
+    package: &str,
+    manifest_path: &Path,
+    metadata: &crate::CargoMetadata,
+) -> String {
+    let workspace = metadata.workspace_root.as_deref().map_or_else(
+        || manifest_path.to_path_buf(),
+        |root| Path::new(root).join("Cargo.toml"),
+    );
+    format!(
+        "the package `{package}` is not in the package graph Cargo resolves for --manifest-path `{}`; a package joins that graph as a workspace member: list its directory in `members = [..]` of the workspace manifest `{}` and, where the package's directory is not inside the workspace's, set `package.workspace` in the package's own Cargo.toml to the workspace's directory",
+        manifest_path.display(),
+        workspace.display()
+    )
+}
 
 /// The observer `name`'s refusal `error`: each of its diagnostics noting the observer, one that
 /// refuses a function for being program syntax without one saying what a view function must be,
 /// one that finds a package of no selected facet saying how to compose it, and one that finds no
-/// package of the observer's name saying where it must be; a refusal without diagnostics as text
-/// naming the observer.
-fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
+/// package of the observer's name saying where it must be and, given `outside` (once the package
+/// graph is read, [`outside_the_graph`]), that it is not in that graph and how it joins it; a
+/// refusal without diagnostics as text naming the observer.
+fn observer_refusal(name: &str, outside: Option<&str>, error: &CommandError) -> CommandError {
     let note = format!(
         "in the observer `{name}`, the definition krs composes to resolve and evaluate the views, the stop condition or the observations"
     );
@@ -1118,6 +1141,7 @@ fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
                     diagnostic.help.push(OBSERVER_DEPENDENCY_HELP.to_owned());
                 } else if code == krs_diagnostic::codes::plan::MISSING_PACKAGE.as_str() {
                     diagnostic.help.push(OBSERVER_PACKAGE_HELP.to_owned());
+                    diagnostic.help.extend(outside.map(str::to_owned));
                 }
                 diagnostic.notes.push(note.clone());
             }
@@ -1207,10 +1231,11 @@ fn prepare_observer_with(
     if subject {
         return Ok(None);
     }
-    let refuse = |error: CommandError| observer_refusal(name, &error);
+    let refuse = |error: CommandError| observer_refusal(name, None, &error);
     let metadata = cargo_metadata(&request.manifest_path).map_err(refuse)?;
-    let (prepared, _) =
-        composed_facet(request, selector, &metadata, sources, composed).map_err(refuse)?;
+    let outside = outside_the_graph(package, &request.manifest_path, &metadata);
+    let (prepared, _) = composed_facet(request, selector, &metadata, sources, composed)
+        .map_err(|error| observer_refusal(name, Some(&outside), &error))?;
     require_route(prepared.lowered.definition(), Route::NativeRust).map_err(refuse)?;
     let definition = prepared.lowered.definition().clone();
     // A store inside the workspace is not used, as for the definition the case runs on, whose
@@ -1366,7 +1391,8 @@ fn patterns_facet(
             .any(|candidate| candidate.name == package) =>
         {
             Err(CommandError::InvalidRequest(format!(
-                "no package `{package}` is in the package graph Cargo resolves for --manifest-path: a KRS patterns package is a workspace member or a dependency of one, as the definition it reads is"
+                "a KRS patterns package is a workspace member or a dependency of one, as the definition it reads is, and {}",
+                outside_the_graph(package, &request.manifest_path, metadata)
             )))
         }
         [] => Err(CommandError::InvalidRequest(format!(
