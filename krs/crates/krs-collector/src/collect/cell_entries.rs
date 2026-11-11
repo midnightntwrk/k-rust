@@ -487,6 +487,9 @@ pub(super) fn judge_readable(
     }
     subject_limit(&judged, authored)?;
     if judged.is_ok() {
+        collection_in_named_cell(id, &subject, &result, |cell, holder| {
+            target.lies_in(cell, holder)
+        })?;
         overwritten_collection(&subject, &result)?;
         for key in target
             .instance_key()
@@ -1048,6 +1051,47 @@ fn constructor_presence(
     }
 }
 
+/// The refusal of an admitted result entry over a collection that lies inside a cell the
+/// sentence names (`lies_in`), such as its group bound whole in the subject (`objs: o` beside
+/// `Objs::obj: { .. }`): that cell's entry already names every cell below it, the collection's
+/// instances included, so the sentence names the collection twice, as a rule naming a group and
+/// a leaf inside it does (`group-and-descendant`, which the rule's lowering gives the leaf). It
+/// is asked before [`overwritten_collection`]: the subject does match the collection's
+/// instances, through the cell, so the entry overwrites no collection the subject leaves out. At
+/// the collection's entry.
+fn collection_in_named_cell(
+    id: &StableItemId,
+    subject: &[Entry<'_>],
+    result: &[Entry<'_>],
+    lies_in: impl Fn(&DescriptorCellIdentity, &DescriptorCellIdentity) -> bool,
+) -> Result<(), CollectionError> {
+    for entry in result
+        .iter()
+        .filter(|entry| matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_))))
+    {
+        let Some(holder) = subject
+            .iter()
+            .chain(result)
+            .find(|named| lies_in(entry.cell, named.cell))
+        else {
+            continue;
+        };
+        let error = CollectionError::new(
+            CollectionErrorKind::GroupAndDescendant,
+            cell_entries::group_and_descendant_reason(
+                id.item_name(),
+                unraw(&holder.cell.field),
+                unraw(&entry.cell.field),
+            ),
+        );
+        return Err(match &entry.field.range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        });
+    }
+    Ok(())
+}
+
 /// The refusal of an admitted result entry over a collection the subject does not match (Q1's
 /// overwrite of a `*` cell, design S5 §2.3). The entry replaces every instance the collection
 /// holds, whatever they are, which needs a pattern over the whole collection; a readable
@@ -1182,7 +1226,14 @@ fn judge_entries(
         }
         _ => return Ok(Vec::new()),
     };
-    let lints = judge_sentence(index, reference, subject, result, rewrite, claim, authored)?;
+    let lints = judge_sentence(
+        index,
+        (id, reference),
+        (subject, result),
+        rewrite,
+        claim,
+        authored,
+    )?;
     Ok(lints
         .into_iter()
         .map(|(cell, range, lint)| linted(id, &cell, range, lint))
@@ -1214,9 +1265,8 @@ type EntryLint = (String, Option<SourceRange>, Lint);
 /// writes the instance's key only as it matched it ([`kept_key`]).
 fn judge_sentence(
     index: &DescriptorIndex<'_>,
-    reference: &krs_ir::DescriptorConfigurationReference,
-    subject: &DescriptorCells,
-    result: Option<&DescriptorCells>,
+    (id, reference): (&StableItemId, &krs_ir::DescriptorConfigurationReference),
+    (subject, result): (&DescriptorCells, Option<&DescriptorCells>),
     rewrite: Rewrite,
     claim: bool,
     authored: &LocatedCells,
@@ -1268,6 +1318,9 @@ fn judge_sentence(
         group_record_on_leaf(subject.iter().chain(&result), &tree.groups)?;
         items_off_the_computation(subject.iter().chain(&result), false)?;
         presence_in_constructor_record(subject.iter().chain(&result), &tree.groups)?;
+        collection_in_named_cell(id, &subject, &result, |cell, holder| {
+            tree.lies_in(cell, holder)
+        })?;
         overwritten_collection(&subject, &result)?;
         for key in &tree.keys {
             kept_key(key, &subject, &result)?;
@@ -1727,6 +1780,20 @@ impl<'i, 'a> Tree<'i, 'a> {
                 self.walk(nested, inner, index, (&below, Some(at)), &deeper);
             }
         }
+    }
+
+    /// Whether the cell `cell` lies inside the cell `holder`, at any depth.
+    fn lies_in(&self, cell: &DescriptorCellIdentity, holder: &DescriptorCellIdentity) -> bool {
+        let Some((index, _)) = self.cell(cell) else {
+            return false;
+        };
+        std::iter::successors(self.parents[index], |&parent| {
+            self.parents[parent].filter(|&above| above < parent)
+        })
+        .any(|parent| {
+            let (_, above, owner) = &self.cells[parent];
+            **owner == holder.owner && above.field().rust_field == holder.field
+        })
     }
 
     /// The cell `identity` names: its index, its ancestors, outermost first, itself, and its

@@ -4777,3 +4777,81 @@ fn a_cells_result_over_a_cell_its_subject_leaves_out_overwrites_it_as_a_readable
     "#]]
     .assert_debug_eq(&refused);
 }
+
+/// CELLS3 item 3: a result entry over a collection whose group the subject names whole, `objs`
+/// beside `Objs::obj: { .. }`, overwrites no collection the subject leaves out: the subject's
+/// entry of `objs` matches every instance there. The rule names the group and a cell inside it,
+/// as a leaf written beside its matched group does, and gets that refusal, `group-and-descendant`,
+/// on every route, at the collection's entry.
+#[test]
+fn a_result_collection_inside_a_group_its_subject_names_is_named_twice() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut refused = Vec::new();
+    for claim in [false, true] {
+        let form = if claim { "claim" } else { "rule" };
+        let (block, attribute) = if claim {
+            ("claims", "#[k::claim(one_path)]\n    ")
+        } else {
+            ("rules", "")
+        };
+        for (name, source) in [
+            (
+                "readable",
+                format!(
+                    "{OVERWRITE}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {attribute}make: {{ k: [Make {{ x }}, ..], objs: o }} => {{ k: [..], obj: {{ Obj {{ oid: 1, val: 2 }} }} }};\n}}\n"
+                ),
+            ),
+            (
+                "cells",
+                overwrite_cells(
+                    claim,
+                    "objs: _, ",
+                    "crate::Objs::obj: { crate::Obj { oid: 1, val: 2 } }",
+                ),
+            ),
+            (
+                "cells-empty",
+                overwrite_cells(claim, "objs: _, ", "crate::Objs::obj: { }"),
+            ),
+        ] {
+            let manifest = library_package(
+                temporary.path(),
+                &format!("named-twice-{form}-{name}"),
+                &source,
+            );
+            refused.push((
+                format!("{form}-{name}"),
+                first_error(target.path(), &manifest),
+            ));
+        }
+    }
+    expect_test::expect![[r#"
+        [
+            (
+                "rule-readable",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 50:63",
+            ),
+            (
+                "rule-cells",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+            ),
+            (
+                "rule-cells-empty",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+            ),
+            (
+                "claim-readable",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 51:63",
+            ),
+            (
+                "claim-cells",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+            ),
+            (
+                "claim-cells-empty",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+            ),
+        ]
+    "#]].assert_debug_eq(&refused);
+}

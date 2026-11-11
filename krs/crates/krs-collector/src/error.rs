@@ -118,6 +118,9 @@ pub enum CollectionErrorKind {
     /// A readable result entry over a collection the subject does not match: Q1's overwrite of
     /// every instance, which the table admits and no lowering expresses yet.
     CollectionOverwrite,
+    /// A result's collection entry inside a cell the sentence also names, whose entry already
+    /// names the collection ([`krs_syntax::cell_entries::group_and_descendant_reason`]).
+    GroupAndDescendant,
     /// A `?` cell's `Some(..)`, a collection's instance list or a group cell's entry in a
     /// context alias or an equation's function context, which the table admits and those
     /// sentences' lowerings, which read fixed leaf cells only, do not express yet
@@ -318,6 +321,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::CollectionOverwrite
             | CollectionErrorKind::InstanceChildMultiplicity => codes::analysis::COLLECTION_ENTRY,
             CollectionErrorKind::FixedCellsOnly => codes::expand::CELL_COLLECTION_PLACEMENT,
+            CollectionErrorKind::GroupAndDescendant => codes::analysis::GROUP_AND_DESCENDANT,
             CollectionErrorKind::ContentSort | CollectionErrorKind::LeafItems => {
                 codes::analysis::INVALID_TERM
             }

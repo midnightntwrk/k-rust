@@ -558,6 +558,18 @@ pub fn fixed_cells_only_reason(cell: &str, entry: UnreadEntry) -> String {
     )
 }
 
+/// Why a rule naming the group cell `group` and the cell `descendant` inside it is refused: the
+/// entry of `group` already names every cell below it, so `descendant` would be named twice
+/// (KF-016). The compiler answers it for the cells a rule's lowering names, and the collector for
+/// a result's collection entry inside a cell the sentence names, whose instances that entry
+/// matches through the cell (`objs: o` beside `Objs::obj: { .. }`), which no lowering reaches.
+#[must_use]
+pub fn group_and_descendant_reason(rule: &str, group: &str, descendant: &str) -> String {
+    format!(
+        "rule `{rule}` selects the nested cell `{group}` and the cell `{descendant}` inside it; the whole-cell entry `{group}` already names every cell below it, so select one or the other"
+    )
+}
+
 /// Where `spelling`, an admitted entry of a cell whose own kind is `stack`, names a child of one
 /// of its collection's instance records as a `?` cell's `Some(..)` or `None`: the path to the
 /// first such child, in reading order, its name, and whether it is `Some(..)`. Inside one

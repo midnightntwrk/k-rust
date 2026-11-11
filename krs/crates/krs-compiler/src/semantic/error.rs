@@ -1800,11 +1800,11 @@ impl fmt::Display for DescriptorLoweringError {
                 group,
                 descendant,
                 ..
-            } => write!(
-                formatter,
-                "rule `{}` selects the nested cell `{group}` and the cell `{descendant}` inside it; the whole-cell entry `{group}` already names every cell below it, so select one or the other",
-                rule.item_name()
-            ),
+            } => formatter.write_str(&krs_syntax::cell_entries::group_and_descendant_reason(
+                rule.item_name(),
+                group,
+                descendant,
+            )),
             Self::AmbiguousCellSort {
                 declaration,
                 fields,

@@ -1036,6 +1036,25 @@ impl HeadRuleTarget {
         &self.groups
     }
 
+    /// Whether the cell `cell` lies inside the cell `holder`, at any depth.
+    pub(super) fn lies_in(
+        &self,
+        cell: &krs_ir::DescriptorCellIdentity,
+        holder: &krs_ir::DescriptorCellIdentity,
+    ) -> bool {
+        let Some(index) = self
+            .cells
+            .iter()
+            .position(|target| target.identity == *cell)
+        else {
+            return false;
+        };
+        std::iter::successors(self.cells[index].parent, |&parent| {
+            self.cells[parent].parent.filter(|&above| above < parent)
+        })
+        .any(|parent| self.cells[parent].identity == *holder)
+    }
+
     /// The one cell a readable record entry `name` names, with what the entry is judged
     /// against: the layers of its `?` and `*` ancestors and its own; `None` where no cell, or
     /// more than one, has the name, which the rule's resolution reports.
