@@ -88,8 +88,9 @@ pub(crate) fn add_implicit_computation_cell_pass(
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => continue,
             }
+            // Whether the body is wrapped is decided on the shared sentence; only a sentence
+            // that is wrapped is copied, so every other one stays the input's allocation.
             let wrapping = cells.wrapping(sentence, productions, configuration_productions);
-            let sentence = crate::definition::sentence_mut(sentence);
             let computation = match wrapping {
                 Ok(None) => continue,
                 Ok(Some(cell)) => cell.label,
@@ -103,7 +104,7 @@ pub(crate) fn add_implicit_computation_cell_pass(
                     });
                 }
             };
-            let body = match sentence {
+            let body = match crate::definition::sentence_mut(sentence) {
                 Sentence::Rule { body, .. }
                 | Sentence::Claim { body, .. }
                 | Sentence::Context { body, .. } => body,
