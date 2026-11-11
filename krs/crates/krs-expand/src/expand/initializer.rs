@@ -267,112 +267,13 @@ fn inject_initializer_cell_list(
         // An initializer's value is its cell's whole initial content, of the cell's declared
         // kind, which the collector judges the value against (its presence, its sequence or
         // map notation, a group record's children): rustc sees one stand-in of whichever type
-        // the field declares, so it judges nothing of the kind first. The wire's key functions
-        // still name each cell and child.
-        if !cell.names_wrapper() {
-            field.expr = cell_stand_in(cell, facade, bindings);
-            if field.colon_token.is_none() {
-                field.colon_token = Some(syn::token::Colon::default());
-            }
-            continue;
-        }
-        // A value that names its Rust wrapper (`Cell::new(..)`, `KCell::new(..)`) is handed
-        // to rustc as written. `Some(value)` of an optional cell: the value takes the wrapper
-        // (KF-023, R7). `k::absent!(template)` is checked as the `Some(template)` it would be
-        // present, so its template has the field's type.
-        if let (Some(absent), syn::Expr::Macro(_)) = (cell.absent(), &field.expr) {
-            // rustc reports a template of another type at the invocation.
-            let span = absent.span();
-            let template = &cell.field().expr;
-            let some = respanned(quote!(::core::option::Option::Some), span);
-            let mut argument =
-                proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, quote!(#template));
-            argument.set_span(span);
-            field.expr = parse_quote!(#some #argument);
-        }
-        let expression = if cell.is_optional() {
-            match &mut field.expr {
-                syn::Expr::Call(call) if call.args.len() == 1 => {
-                    call.args.first_mut().expect("`Some(..)` has one argument")
-                }
-                other => {
-                    return Err(ExpandError::new(
-                        expand::INITIALIZER_CELL_SHAPE,
-                        other.span(),
-                        "an optional cell's initializer is `Some(value)` or `k::absent!(template)`",
-                    ));
-                }
-            }
-        } else {
-            &mut field.expr
-        };
-        let has_colon = field.colon_token.is_some();
-        inject_initializer_value(expression, cell, facade, bindings)?;
-        if !has_colon {
+        // the field declares, so it judges nothing of the kind first. A value written with its
+        // Rust wrapper (`Cell::new(v)`, `KCell::new(v)`, at any depth) is the value `v`, which
+        // the collector judges as it judges a plain value, so rustc sees no wrapper either. The
+        // wire's key functions still name each cell and child.
+        field.expr = cell_stand_in(cell, facade, bindings);
+        if field.colon_token.is_none() {
             field.colon_token = Some(syn::token::Colon::default());
-        }
-    }
-    Ok(())
-}
-
-fn inject_initializer_value(
-    expression: &mut syn::Expr,
-    cell: &FixedCellInitializer,
-    facade: &Path,
-    bindings: &[Ident],
-) -> crate::Result<()> {
-    match cell.content() {
-        // A kind-neutral leaf names no wrapper: the declared cell's kind decides it, so the
-        // stand-in is the cell's whole value, of whichever cell type the field declares.
-        InitializerCellContent::Leaf {
-            value,
-            neutral: true,
-            ..
-        } => {
-            *expression = initializer_value_stand_in(&[value], facade, bindings);
-        }
-        InitializerCellContent::Leaf {
-            value,
-            computation,
-            inferred_constructor: true,
-            ..
-        } => {
-            // The wrapper stands for the value the author wrote, so rustc
-            // reports a value whose kind is not the cell's (a `k!` sequence
-            // in a leaf cell) at that value.
-            let value = initializer_value_stand_in(&[value], facade, bindings);
-            let wrapper = if *computation {
-                quote!(#facade::configuration::KCell::new)
-            } else {
-                quote!(#facade::configuration::Cell::new)
-            };
-            let span = expression.span();
-            let wrapper = respanned(wrapper, span);
-            let mut argument =
-                proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, quote!(#value));
-            argument.set_span(span);
-            *expression = parse_quote!(#wrapper #argument);
-        }
-        InitializerCellContent::Leaf {
-            value,
-            inferred_constructor: false,
-            ..
-        } => {
-            if let syn::Expr::Call(call) = expression
-                && let Some(argument) = call.args.first_mut()
-            {
-                *argument = initializer_value_stand_in(&[value], facade, bindings);
-            }
-        }
-        InitializerCellContent::Nested { children, .. } => {
-            let syn::Expr::Struct(nested) = expression else {
-                return Err(ExpandError::new(
-                    expand::INITIALIZER_CELL_SHAPE,
-                    expression.span(),
-                    "a nested fixed-cell initializer must be a struct expression",
-                ));
-            };
-            inject_initializer_cell_list(nested, children, facade, bindings)?;
         }
     }
     Ok(())

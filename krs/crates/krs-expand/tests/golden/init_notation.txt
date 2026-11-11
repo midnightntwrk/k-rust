@@ -9,10 +9,10 @@ pub fn init(ready: Bool, cap: Int) -> Self {
             let _ = &ready;
             ::k::configuration::__term()
         },
-        limit: k::configuration::Cell::new({
+        limit: {
             let _ = &cap;
             ::k::configuration::__term()
-        }),
+        },
     }
 }
 #[doc(hidden)]

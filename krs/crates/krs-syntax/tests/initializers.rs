@@ -263,8 +263,6 @@ fn a_group_record_update_is_read_as_its_children_and_refused_once_the_cell_s_kin
             source.find("G {").unwrap(),
             "{source}"
         );
-        // rustc is handed no part of the update.
-        assert!(!initializer.cells()[0].names_wrapper());
     }
     let complete = krs_syntax::InitializerFunction::parse_source(
         "fn init() -> Self { Self { frame: G { a: 0, b: 1 } } }",
@@ -624,45 +622,56 @@ fn literals_are_keyed_across_the_initializer_terms() {
 }
 
 #[test]
-fn an_entry_that_names_its_rust_wrapper_carries_no_spelling_to_judge() {
-    // `Cell::new(..)` and `KCell::new(..)` are the Rust form of the value's kind, which rustc
-    // checks against the field's type; every other entry, a group record of inferred values
-    // included, is read for the table to judge by its cell's kind.
-    let initializer = krs_syntax::InitializerFunction::parse_source(
-        "pub fn init(pgm: Stmt) -> Self { Self { \
+fn an_entry_that_names_its_rust_wrapper_is_read_as_the_value_it_wraps() {
+    // `Cell::new(v)` and `KCell::new(v)`, at any depth, are the Rust form of a cell's value `v`:
+    // the table judges `v` by its cell's kind, as it judges a plain value, at `v`.
+    let source = "pub fn init(pgm: Stmt) -> Self { Self { \
          k: k::configuration::KCell::new(k::k![pgm]), \
          frame: Frame { ret: k::configuration::Cell::new(0) }, \
          pc: 0, \
-         counter: Some(0), \
+         counter: Some(k::configuration::Cell::new(0)), \
          shelf: Shelf { bag: Obj { key: 0 } } \
-         } }",
-    )
-    .unwrap();
+         } }";
+    let initializer = krs_syntax::InitializerFunction::parse_source(source).unwrap();
     let fields = initializer.entry_fields().unwrap();
     let read = fields
         .iter()
         .map(|field| {
             (
                 field.key.get_ident().unwrap().to_string(),
-                field.spelling.is_some(),
+                format!("{:?}", field.spelling.as_ref().unwrap()),
             )
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        read,
+    expect_test::expect![[r#"
         [
-            ("k".to_owned(), false),
-            ("frame".to_owned(), false),
-            ("pc".to_owned(), true),
-            ("counter".to_owned(), true),
-            ("shelf".to_owned(), true),
+            (
+                "k",
+                "KMacro(EntrySeq { items: [ConfigVar(\"pgm\")], rest: None, more_rests: 0 })",
+            ),
+            (
+                "frame",
+                "Record(EntryRecord { head: \"Frame\", fields: [(\"ret\", Literal(\"0\"))], tail: Exact })",
+            ),
+            (
+                "pc",
+                "Literal(\"0\")",
+            ),
+            (
+                "counter",
+                "Present(Literal(\"0\"))",
+            ),
+            (
+                "shelf",
+                "Record(EntryRecord { head: \"Shelf\", fields: [(\"bag\", Record(EntryRecord { head: \"Obj\", fields: [(\"key\", Literal(\"0\"))], tail: Exact }))], tail: Exact })",
+            ),
         ]
-    );
-    assert!(
-        fields
-            .iter()
-            .filter(|field| field.spelling.is_none())
-            .all(|field| field.located.is_empty())
+    "#]].assert_debug_eq(&read);
+    let k = &fields[0];
+    let (_, at) = k.located.iter().find(|(path, _)| path.is_empty()).unwrap();
+    assert_eq!(
+        at.first().start().column,
+        source.find("k::k![pgm]").unwrap()
     );
 }
 

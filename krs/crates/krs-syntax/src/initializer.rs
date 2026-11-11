@@ -1,5 +1,5 @@
 use krs_ir::ProvenanceKey;
-use proc_macro2::TokenStream;
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::parse::ParseStream;
@@ -280,6 +280,11 @@ pub struct FixedCellInitializer {
     /// Where a group record's update `..base` is: the record is read as the children it names,
     /// and its refusal waits until the cell's kind has answered ([`Self::record_update`]).
     record_update: Option<proc_macro2::Span>,
+    /// A named wrapper whose value is of the other wrapper's family (`Cell::new(k::k![..])`,
+    /// `KCell::new(v)` for a term or a map): the value is read by its own family, judged as a
+    /// plain entry's value is, and this refusal waits until it has been
+    /// ([`Self::wrapper_family`]).
+    wrapper_family: Option<SyntaxError>,
 }
 
 impl FixedCellInitializer {
@@ -361,24 +366,20 @@ impl FixedCellInitializer {
         self.absent.as_ref()
     }
 
-    /// Whether the cell, or a cell inside it, names its Rust wrapper (`Cell::new(..)`,
-    /// `KCell::new(..)`): the author spelled the Rust form of the value's kind, which rustc
-    /// checks against the field's type, so the macro hands rustc that value as written. A value
-    /// that holds a record update never is: its `..base` is no Rust value of the record's type,
-    /// so the update is KRS's to judge ([`Self::record_update`]), and rustc sees no part of it.
+    /// The refusal of the first named wrapper whose value is of the other wrapper's family
+    /// (`Cell::new(k::k![..])`: `KCell` requires `k!`; `KCell::new(x)`: it requires one), the
+    /// cell's own, then its children's in source order. The value is the cell's content, judged
+    /// against the cell's kind as a plain entry's value is, first; this is raised only where that
+    /// judgement admits it.
     #[must_use]
-    pub fn names_wrapper(&self) -> bool {
-        self.record_update().is_none() && self.writes_wrapper()
-    }
-
-    fn writes_wrapper(&self) -> bool {
+    pub fn wrapper_family(&self) -> Option<SyntaxError> {
+        if let Some(error) = &self.wrapper_family {
+            return Some(error.clone());
+        }
         match &self.content {
-            InitializerCellContent::Leaf {
-                inferred_constructor,
-                ..
-            } => !inferred_constructor,
+            InitializerCellContent::Leaf { .. } => None,
             InitializerCellContent::Nested { children, .. } => {
-                children.iter().any(Self::writes_wrapper)
+                children.iter().find_map(Self::wrapper_family)
             }
         }
     }
@@ -665,40 +666,24 @@ impl InitializerFunction {
     }
 
     /// The body's fields as the entry-admission table reads them
-    /// ([`crate::cell_entry::EntryReading::fields`]), each configuration variable read as one;
+    /// ([`crate::cell_entry::EntryReading::fields`]), each configuration variable read as one and
+    /// each value written with its Rust wrapper read as the value it wraps ([`unwrapped_value`]);
     /// `None` where a part of the body is no field.
     #[must_use]
     pub fn entry_fields(&self) -> Option<Vec<crate::cell_entry::CellsField>> {
         let variables = self.variable_names();
-        let mut fields = crate::cell_entry::EntryReading::new(
-            crate::cell_entry::EntryForm::Initializer,
-            &variables,
-        )
-        .fields(&self.body.fields.to_token_stream())?;
-        // An entry that names its Rust wrapper is rustc's to check ([`FixedCellInitializer::
-        // names_wrapper`]), so it carries no spelling to judge.
-        for field in &mut fields {
-            if self.cells.iter().any(|cell| {
-                cell.names_wrapper()
-                    && field
-                        .key
-                        .get_ident()
-                        .is_some_and(|key| key.unraw() == cell.name().unraw())
-            }) {
-                field.spelling = None;
-                field.located.clear();
-            }
-        }
-        Some(fields)
+        crate::cell_entry::EntryReading::new(crate::cell_entry::EntryForm::Initializer, &variables)
+            .fields(&unwrapped_fields(&self.body.fields))
     }
 
     /// The refusal the reader leaves until the entries are judged by their cells' kinds: the
-    /// first cell's group record update ([`FixedCellInitializer::record_update`]).
+    /// first cell's group record update ([`FixedCellInitializer::record_update`]) or named
+    /// wrapper of the other family ([`FixedCellInitializer::wrapper_family`]).
     #[must_use]
     pub fn deferred_refusal(&self) -> Option<SyntaxError> {
         self.cells
             .iter()
-            .find_map(FixedCellInitializer::record_update)
+            .find_map(|cell| cell.record_update().or_else(|| cell.wrapper_family()))
     }
 
     /// The names the configuration variables bind, in authored parameter order.
@@ -1430,9 +1415,11 @@ fn parse_initializer_cell(
             constructor_key: None,
             absent_key: None,
             record_update: None,
+            wrapper_family: None,
         });
     }
     let mut record_update = None;
+    let mut wrapper_family = None;
     let content = match &field.expr {
         // A call reaches here only as a cell form: a `Some(..)` the optional cell's start above
         // does not take (other than one value, with attributes, or with generic arguments), or
@@ -1480,8 +1467,20 @@ fn parse_initializer_cell(
                     path.span(),
                 ));
             };
-            let computation = wrapper.ident == "KCell";
-            let value = parse_initializer_state_term(argument, computation)?;
+            // The wrapped value is the entry's value, judged as a plain entry's is: a value of
+            // the other wrapper's family is read by its own, so the cell's kind answers it
+            // first, and the wrapper's refusal waits ([`FixedCellInitializer::wrapper_family`]).
+            let named = wrapper.ident == "KCell";
+            let (value, computation) = match parse_initializer_state_term(argument, named) {
+                Ok(value) => (value, named),
+                Err(error) => match parse_initializer_state_term(argument, !named) {
+                    Ok(value) => {
+                        wrapper_family = Some(error);
+                        (value, !named)
+                    }
+                    Err(_) => return Err(error),
+                },
+            };
             InitializerCellContent::Leaf {
                 constructor: path.clone(),
                 value,
@@ -1607,6 +1606,7 @@ fn parse_initializer_cell(
         constructor_key: None,
         absent_key: None,
         record_update,
+        wrapper_family,
     })
 }
 
@@ -1705,6 +1705,97 @@ fn is_cell_constructor(func: &Expr) -> bool {
         (Some(method), Some(wrapper))
             if method.ident == "new" && (wrapper.ident == "Cell" || wrapper.ident == "KCell")
     )
+}
+
+/// An initializer's fields, `name: value`, each value [`unwrapped_value`]: what the entry reader
+/// reads of them.
+fn unwrapped_fields(
+    fields: &syn::punctuated::Punctuated<syn::FieldValue, syn::Token![,]>,
+) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    for field in fields {
+        let member = &field.member;
+        let value = unwrapped_value(field.expr.to_token_stream());
+        tokens.extend(quote::quote!(#member: #value,));
+    }
+    tokens
+}
+
+/// `tokens`, an initializer cell's value, with each Rust wrapper `Cell::new(v)` or
+/// `KCell::new(v)` replaced by `v`, at any depth of `Some(..)`, `k::absent!(..)` and group
+/// struct literals: a value written with its wrapper is the value `v`, which is judged as a
+/// plain value is. Every token keeps its span, so the entry reader locates `v` where it is
+/// written.
+fn unwrapped_value(tokens: TokenStream) -> TokenStream {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    match trees.as_slice() {
+        [prefix @ .., TokenTree::Group(body)]
+            if body.delimiter() == Delimiter::Brace
+                && !prefix.is_empty()
+                && syn::parse2::<syn::Path>(prefix.iter().cloned().collect()).is_ok() =>
+        {
+            let mut fields = TokenStream::new();
+            let mut item = Vec::new();
+            let mut items = Vec::new();
+            for tree in body.stream() {
+                if matches!(&tree, TokenTree::Punct(comma) if comma.as_char() == ',') {
+                    items.push((std::mem::take(&mut item), Some(tree)));
+                } else {
+                    item.push(tree);
+                }
+            }
+            items.push((item, None));
+            for (item, comma) in items {
+                match item.as_slice() {
+                    [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..]
+                        if colon.as_char() == ':' && !value.is_empty() =>
+                    {
+                        fields.extend([
+                            TokenTree::Ident(name.clone()),
+                            TokenTree::Punct(colon.clone()),
+                        ]);
+                        fields.extend(unwrapped_value(value.iter().cloned().collect()));
+                    }
+                    _ => fields.extend(item),
+                }
+                fields.extend(comma);
+            }
+            let mut group = proc_macro2::Group::new(Delimiter::Brace, fields);
+            group.set_span(body.span());
+            prefix
+                .iter()
+                .cloned()
+                .chain([TokenTree::Group(group)])
+                .collect()
+        }
+        [prefix @ .., TokenTree::Group(group)] if group.delimiter() == Delimiter::Parenthesis => {
+            let head = prefix.iter().cloned().collect::<TokenStream>();
+            let path = syn::parse2::<syn::Path>(head.clone()).ok();
+            let wrapper = path.as_ref().is_some_and(|path| {
+                let mut reversed = path.segments.iter().rev();
+                matches!(
+                    (reversed.next(), reversed.next()),
+                    (Some(method), Some(wrapper))
+                        if method.ident == "new"
+                            && (wrapper.ident == "Cell" || wrapper.ident == "KCell")
+                )
+            });
+            if wrapper {
+                return group.stream();
+            }
+            let presence = matches!(prefix, [TokenTree::Ident(some)] if some == "Some")
+                || matches!(prefix, [.., TokenTree::Ident(absent), TokenTree::Punct(bang)]
+                    if absent == "absent" && bang.as_char() == '!');
+            if !presence {
+                return tokens;
+            }
+            let mut inner =
+                proc_macro2::Group::new(Delimiter::Parenthesis, unwrapped_value(group.stream()));
+            inner.set_span(group.span());
+            head.into_iter().chain([TokenTree::Group(inner)]).collect()
+        }
+        _ => tokens,
+    }
 }
 
 fn parse_initializer_state_term(
