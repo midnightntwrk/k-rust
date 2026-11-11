@@ -20,6 +20,7 @@
 //! `ParserScannerWinnerComputations` counts cache misses.
 
 use std::collections::BTreeMap;
+use std::sync::{Mutex, PoisonError};
 
 use regex_automata::{Anchored, Input, MatchKind, meta::Regex as LongestRegex};
 
@@ -417,13 +418,37 @@ fn compile_longest_regex(
     } else {
         format!(r"(?:{source})")
     };
-    LongestRegex::builder()
+    // Every module grammar of a run compiles the same lexeme and layout patterns again, so the
+    // compiled regexes are shared within the process. A compiled regex is a function of the
+    // pattern text and of the builder configuration; the configuration below is the same constant
+    // for every call (no syntax, size-limit or engine option is set besides the match kind), so
+    // the pattern text alone is the key, and an entry is the regex this call would build. A clone
+    // shares the immutable automaton and gets its own search cache, which holds no match
+    // results, so a shared regex matches exactly as a freshly built one. Only successful builds
+    // are stored: a pattern that fails is built again by each grammar that compiles it, and each
+    // reports the error under its own `reported_source`, as without the cache. An option added
+    // to the builder must be added to the key.
+    static COMPILED: Mutex<BTreeMap<String, LongestRegex>> = Mutex::new(BTreeMap::new());
+    if let Some(regex) = COMPILED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&pattern)
+    {
+        return Ok(regex.clone());
+    }
+    let regex = LongestRegex::builder()
         .configure(LongestRegex::config().match_kind(MatchKind::All))
         .build(&pattern)
         .map_err(|error| ParseError::InvalidRegex {
             regex: reported_source.to_owned(),
             message: error.to_string(),
-        })
+        })?;
+    COMPILED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(pattern)
+        .or_insert_with(|| regex.clone());
+    Ok(regex)
 }
 
 fn lexeme_key(item: &Item) -> Option<LexemeKey> {
