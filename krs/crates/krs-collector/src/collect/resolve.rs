@@ -1357,7 +1357,15 @@ impl HeadRuleTarget {
             .enumerate()
             .filter(|(index, _)| *index != anchor)
             .partition(|(index, _)| below(*index));
-        let cells = cells
+        // Each kept cell's index in the scoped target, which a kept cell's `parent` names: the
+        // anchor and the cells outside it are no cells of the instance's level, so a cell whose
+        // parent is the anchor is a top-level cell of that level.
+        let scoped_index = cells
+            .iter()
+            .enumerate()
+            .map(|(position, (index, _))| (*index, position))
+            .collect::<HashMap<_, _>>();
+        let mut cells = cells
             .into_iter()
             .map(|(index, cell)| {
                 let mut cell = cell.clone();
@@ -1394,7 +1402,12 @@ impl HeadRuleTarget {
                 });
                 cell
             })
-            .collect();
+            .collect::<Vec<_>>();
+        for cell in &mut cells {
+            cell.parent = cell
+                .parent
+                .and_then(|parent| scoped_index.get(&parent).copied());
+        }
         // The key of the instance the sentence is about, and every cell inside it.
         let key = (0..self.cells.len())
             .filter(|&index| {
@@ -5072,6 +5085,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["k", "pc"]
         );
+        // A scoped cell's parent indexes the scoped cells: the group's own children are the
+        // top-level cells of its level, so a walk up from one ends there.
+        assert!(core.cells.iter().all(|cell| cell.parent.is_none()));
+        assert!(!core.lies_in(&core.cells[1].identity, &core.cells[0].identity));
         assert_eq!(core.owner(), "the group `Core`");
         assert_eq!(state.owner(), "configuration `State`");
         let outside = core.outside("mem").unwrap();
