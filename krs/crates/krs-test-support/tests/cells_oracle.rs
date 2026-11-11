@@ -7226,11 +7226,15 @@ fn record_checks(
 
 /// KEYCHANGE, judged on the K: a result's record `T { k: v, ..me }` of a Map collection's
 /// instance, where `v` is not provably the key the subject instance labelled `me` matched (its
-/// binder, a name an alias binds to it, or the same literal), is `me` moved: `me` removed and an
-/// instance created under `v` whose unnamed children are `me`'s. A created instance's `...` takes
-/// its template's defaults, so the creation must write every child the group declares and keep
-/// no frame. P6's record check leaves these rows unjudged (K writes the cell twice); this reads
-/// the creations `(.Bag => <cell> .. </cell>)` themselves, one written whole per moved record.
+/// binder, a name an alias binds to it, or the same literal), is `me` moved: an instance created
+/// under `v` whose unnamed children are `me`'s, and `me` removed unless the result keeps it.
+/// P6's record check leaves these rows unjudged (K writes the cell twice); this reads the K's
+/// creations and removals themselves. Each moved record needs its own creation
+/// `(.Bag => <cell> .. </cell>)` that writes every child the group declares with no frame (a
+/// created `...` takes the template's defaults), whose key is the record's where it writes a
+/// literal, and whose every child the record leaves unnamed is the same child of an instance
+/// the subject matches (its term, or the name its pattern is held by, `p #as V`). Each moved label
+/// the result does not keep needs a removal `(<cell> .. </cell> => .Bag)`.
 fn moved_records_are_created_whole(
     case: &Case,
     entry: &EntryCase,
@@ -7243,25 +7247,86 @@ fn moved_records_are_created_whole(
     else {
         return;
     };
-    let moved = moved_records(group, &entry.entry.spelling, entry.context.other.as_ref());
-    if moved == 0 {
+    let (moved, kept) = moved_records(group, &entry.entry.spelling, entry.context.other.as_ref());
+    if moved.is_empty() {
         return;
     }
-    *counts.entry("moved records judged").or_default() += moved;
+    *counts.entry("moved records judged").or_default() += moved.len();
+    let cell = entry.entry.cell.as_str();
     let children = group
         .children
         .iter()
         .map(|(child, _)| child.as_str())
         .collect::<Vec<_>>();
-    let whole = whole_creations(k, &entry.entry.cell, &children);
-    if whole < moved {
+    let rewrites = cell_rewrites(k);
+    let sides = |subject: bool| {
+        rewrites
+            .iter()
+            .filter(|rewrite| rewrite.cell == cell)
+            .filter(|rewrite| {
+                (if subject {
+                    rewrite.result
+                } else {
+                    rewrite.subject
+                })
+                .trim()
+                    == ".Bag"
+            })
+            .filter_map(|rewrite| {
+                k_cells(
+                    if subject {
+                        rewrite.subject
+                    } else {
+                        rewrite.result
+                    },
+                    cell,
+                )
+                .first()
+                .copied()
+            })
+            .collect::<Vec<_>>()
+    };
+    let (removals, creations) = (sides(true), sides(false));
+    let subject_view = side_view(k, false);
+    let matched = k_cells(&subject_view, cell);
+    let mut used = vec![false; creations.len()];
+    for record in &moved {
+        let found = creations.iter().enumerate().position(|(at, content)| {
+            !used[at] && creation_carries(content, &children, record, &matched)
+        });
+        match found {
+            Some(at) => used[at] = true,
+            None => failures.push(format!(
+                "{}: the record moving `{}` under another key has no creation of `{cell}` that \
+                 writes every child without a frame, its key, and `{}`'s own {:?}: a moved \
+                 instance's unnamed children are its own, and a created `...` takes the \
+                 template's defaults",
+                case.id, record.label, record.label, record.unnamed
+            )),
+        }
+    }
+    let removed = moved
+        .iter()
+        .map(|record| record.label.as_str())
+        .filter(|label| !kept.contains(*label))
+        .collect::<BTreeSet<_>>();
+    if removals.len() < removed.len() {
         failures.push(format!(
-            "{}: {moved} record(s) move their instance under another key, but the K creates {whole} \
-             instance(s) of `{}` writing every child without a frame: a moved instance's \
-             unnamed children are its own, and a created `...` takes the template's defaults",
-            case.id, entry.entry.cell
+            "{}: the result moves {removed:?} and keeps none of them, but the K removes {} \
+             instance(s) of `{cell}`: a move removes the instance it moves",
+            case.id,
+            removals.len()
         ));
     }
+}
+
+/// A result record that moves its labelled instance under another key.
+struct Moved {
+    label: String,
+    /// The children the record leaves unnamed, which the move takes from the instance.
+    unnamed: Vec<String>,
+    /// The key it writes, where it is a literal.
+    key: Option<String>,
 }
 
 /// The instance records of `group` an instance sequence spells, each with its label (`me @`).
@@ -7301,16 +7366,23 @@ fn key_names(spelling: &Spelling, names: &mut Vec<String>) -> Option<String> {
             names.push(name.clone());
             key_names(inner, names)
         }
+        Spelling::Cell(inner) => key_names(inner, names),
         Spelling::Literal(literal) => literal.clone(),
         _ => None,
     }
 }
 
-/// How many of a result's Map instance records move their labelled instance: an update
-/// `..label` writing a key that is not provably the key the labelled subject instance matched.
-fn moved_records(group: &Group, result: &Spelling, subject: Option<&Spelling>) -> usize {
+/// A result's Map instance records that move their labelled instance (an update `..label`
+/// writing a key not provably the key the labelled subject instance matched), and the labels
+/// the result keeps: written back whole (`me`) or updated in place by another record.
+fn moved_records(
+    group: &Group,
+    result: &Spelling,
+    subject: Option<&Spelling>,
+) -> (Vec<Moved>, BTreeSet<String>) {
+    let mut kept = BTreeSet::new();
     let Some((key, _)) = group.children.first() else {
-        return 0;
+        return (Vec::new(), kept);
     };
     let field = |record: &Record| {
         record
@@ -7320,54 +7392,123 @@ fn moved_records(group: &Group, result: &Spelling, subject: Option<&Spelling>) -
             .map(|(_, value)| value.clone())
     };
     let subjects = subject.map_or_else(Vec::new, |subject| instance_records(group, subject));
-    instance_records(group, result)
-        .iter()
-        .filter(|(_, record)| {
-            let (RecordRest::Update(label), Some(written)) = (&record.rest, field(record)) else {
+    if let Some(items) = seq_items(result) {
+        kept.extend(items.iter().filter_map(|item| match item {
+            Spelling::Binder(name) => Some(name.clone()),
+            _ => None,
+        }));
+    }
+    let mut moved = Vec::new();
+    for (_, record) in instance_records(group, result) {
+        let RecordRest::Update(label) = &record.rest else {
+            continue;
+        };
+        let Some(written) = field(&record) else {
+            kept.insert(label.clone());
+            continue;
+        };
+        let provably_kept = subjects
+            .iter()
+            .find(|(at, _)| at.as_deref() == Some(label.as_str()))
+            .and_then(|(_, record)| field(record))
+            .is_some_and(|matched| {
+                let mut names = Vec::new();
+                let literal = key_names(&matched, &mut names);
+                match unwrapped(&written) {
+                    Spelling::Binder(name) => names.contains(name),
+                    Spelling::Literal(Some(value)) => literal.as_deref() == Some(value.as_str()),
+                    _ => false,
+                }
+            });
+        if provably_kept {
+            kept.insert(label.clone());
+            continue;
+        }
+        moved.push(Moved {
+            label: label.clone(),
+            unnamed: group
+                .children
+                .iter()
+                .map(|(child, _)| child.clone())
+                .filter(|child| !record.fields.iter().any(|(name, _)| name == child))
+                .collect(),
+            key: match unwrapped(&written) {
+                Spelling::Literal(Some(value)) => Some(value.clone()),
+                _ => None,
+            },
+        });
+    }
+    (moved, kept)
+}
+
+/// A spelling below a leaf's `Cell(..)`.
+fn unwrapped(spelling: &Spelling) -> &Spelling {
+    match spelling {
+        Spelling::Cell(inner) => unwrapped(inner),
+        other => other,
+    }
+}
+
+/// The items of an instance sequence.
+fn seq_items(spelling: &Spelling) -> Option<&[Spelling]> {
+    match spelling {
+        Spelling::Brackets(seq)
+        | Spelling::Braces(seq)
+        | Spelling::InstList(seq)
+        | Spelling::InstSet(seq) => Some(&seq.items),
+        _ => None,
+    }
+}
+
+/// Whether a creation's K `content` writes the moved `record`: every one of `children`, no
+/// frame, the record's literal key, and each child the record leaves unnamed as the same child
+/// of one instance the subject matches (`matched`): its term, or the name its pattern is held
+/// by (`( p #as V:S )`).
+fn creation_carries(content: &str, children: &[&str], record: &Moved, matched: &[&str]) -> bool {
+    let child = |content: &str, name: &str| {
+        k_cells(content, name)
+            .first()
+            .map(|found| found.trim().to_owned())
+    };
+    let written = child_cells(content);
+    if top_level_frame(content) || !children.iter().all(|name| written.contains(name)) {
+        return false;
+    }
+    if let (Some(key), Some(name)) = (&record.key, children.first())
+        && child(content, name).as_deref() != Some(key.as_str())
+    {
+        return false;
+    }
+    matched.iter().any(|instance| {
+        record.unnamed.iter().all(|name| {
+            let (Some(created), Some(source)) = (child(content, name), child(instance, name))
+            else {
                 return false;
             };
-            let Some(matched) = subjects
-                .iter()
-                .find(|(at, _)| at.as_deref() == Some(label.as_str()))
-                .and_then(|(_, record)| field(record))
-            else {
-                return true;
-            };
-            let mut names = Vec::new();
-            let literal = key_names(&matched, &mut names);
-            !match &written {
-                Spelling::Binder(name) => names.contains(name),
-                Spelling::Literal(Some(value)) => literal.as_deref() == Some(value.as_str()),
-                _ => false,
-            }
+            let source = source.trim_start_matches('(').trim_end_matches(')').trim();
+            source == created || source.ends_with(&format!("#as {created}"))
         })
-        .count()
+    })
 }
 
-/// How many instances of `cell` the K creates whole, `(.Bag => <cell> .. </cell>)` writing every
-/// one of `children` with no top-level frame.
-fn whole_creations(k: &str, cell: &str, children: &[&str]) -> usize {
-    cell_rewrites(k)
-        .into_iter()
-        .filter(|rewrite| rewrite.cell == cell && rewrite.subject.trim() == ".Bag")
-        .filter_map(|rewrite| k_cells(rewrite.result, cell).first().copied())
-        .filter(|content| {
-            let written = child_cells(content);
-            !top_level_frame(content) && children.iter().all(|child| written.contains(child))
-        })
-        .count()
-}
-
-/// KEYCHANGE's check reads the creation, not the record: a move written whole passes, and a
-/// creation whose `...` takes the template's defaults for the moved instance's children fails.
+/// KEYCHANGE's check reads the creation, not the record: a move written whole with the moved
+/// instance's own children passes; a creation whose `...` takes the template's defaults, one
+/// that writes a default or another value for a carried child, or one under another key fails.
 #[test]
 fn a_moved_instance_is_created_with_its_own_children() {
-    let whole = "(<acc> <aid> Z:Int </aid> <bal> MeBal:Int </bal> </acc> => .Bag) \
-                 (.Bag => <acc> <aid> 5 </aid> <bal> MeBal:Int </bal> </acc>)";
-    let defaults = "(<acc> <aid> Z:Int </aid> ... </acc> => .Bag) \
-                    (.Bag => <acc> <aid> 5 </aid> ... </acc>)";
-    assert_eq!(whole_creations(whole, "acc", &["aid", "bal"]), 1);
-    assert_eq!(whole_creations(defaults, "acc", &["aid", "bal"]), 0);
+    let moved = Moved {
+        label: "me".to_owned(),
+        unnamed: vec!["bal".to_owned()],
+        key: Some("5".to_owned()),
+    };
+    let children = ["aid", "bal"];
+    let matched = ["<aid> Z:Int </aid> <bal> ( 1 #as MeBal:Int ) </bal>"];
+    let carries = |content: &str| creation_carries(content, &children, &moved, &matched);
+    assert!(carries("<aid> 5 </aid> <bal> MeBal:Int </bal>"));
+    assert!(!carries("<aid> 5 </aid> ..."));
+    assert!(!carries("<aid> 5 </aid> <bal> 0 </bal>"));
+    assert!(!carries("<aid> 5 </aid> <bal> V9:Int </bal>"));
+    assert!(!carries("<aid> 6 </aid> <bal> MeBal:Int </bal>"));
 }
 
 fn record_frames_agree(
