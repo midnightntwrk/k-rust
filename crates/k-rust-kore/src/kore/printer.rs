@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "kore.printer.build"
 //! name = "construction of KORE pretty-print documents"
-//! sites = ["definition_ops", "module_ops", "sentence_doc", "pattern_doc", "syntax_doc", "SyntaxOps::next", "Printer::print_definition", "Printer::print_definition_parts", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "Printer::write_source", "attributes_doc", "declaration_pattern_doc", "delimited", "join", "expand", "sorted_connective", "sorted_binder", "fixpoint", "two_sorted", "push_grouped", "delimited_task", "owned_text"]
-//! variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack, which reads each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
+//! sites = ["definition_ops", "module_ops", "sentence_ops", "push_declaration_pattern", "parameters_task", "sorts_task", "attributes_task", "attributes_ops", "compact_text", "SyntaxOps::next", "Printer::print_definition", "Printer::print_definition_parts", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "Printer::write_source", "expand", "sorted_connective", "sorted_binder", "fixpoint", "two_sorted", "push_grouped", "delimited_task", "owned_text"]
+//! variable = "N = KORE syntax nodes; definition_ops and module_ops add a constant number of ops per module and sentence, sentence_ops seeds the SyntaxOps task stack with a constant number of tasks per sentence plus one per sort parameter, argument sort, and attribute, and the SyntaxOps task stack produces patterns, sorts, symbols, and variables, reading each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's ops the same way, so their construction time is measured together with rendering"
 //! counters = ["KoreTextNodesWritten", "KoreTextDistinctNodes", "KoreTextBytesWritten"]
 //! span = "per call"
 //!
@@ -12,11 +12,11 @@
 //! ```
 //!
 //! KORE pretty printing produces a sequence of ops and renders it through `document::render`, which writes to an `io::Write` as it goes.
-//! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling fixed task sequences and delimited groups directly onto that stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
+//! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling fixed task sequences and delimited groups directly onto that stack; a sentence's fixed structure (its group, its body nest, and its parameter, sort, and attribute lists) is pushed onto the same stack as tasks, so no op is copied or shifted after it is produced.
 //! A pattern is printed by feeding `SyntaxOps` straight to the renderer (`Printer::write_pattern`), so neither its op sequence nor its text is held whole; `print_pattern` is the same path into a byte buffer.
 //! `SyntaxOps` reads a pattern only through `PatternSource::node`, so `Printer::write_source` prints any pattern source, such as backend terms externalized node by node, with the same ops as the materialized pattern, and without the pattern itself being held whole either.
 //! Static syntax tokens borrow their text while generated names and quoted values own theirs; both yield the same text bytes to the renderer.
-//! Definitions and modules are op iterators (`definition_ops`, `module_ops`) that build each sentence's `Doc` only when the renderer reaches it, so a whole definition's document is never held; a sentence is built as a `Doc` first and then rendered by the same function.
+//! Definitions and modules are op iterators (`definition_ops`, `module_ops`) that start each sentence's `SyntaxOps` only when the renderer reaches it, so neither a whole definition's document nor a whole sentence's is held.
 //! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; KoreText counters record source nodes, distinct source nodes and output bytes.
 //!
 //! Compact and width-aware textual KORE printing.
@@ -29,7 +29,7 @@ use std::{
     io,
 };
 
-use document::{Doc, Op, RenderMode, render};
+use document::{Op, RenderMode, render};
 
 #[cfg(feature = "measure")]
 use crate::measure::Counter;
@@ -108,8 +108,8 @@ impl Printer {
     /// The text `print_definition` gives for a definition with these attributes and modules,
     /// without gathering borrowed modules into an owned `Definition` first.
     ///
-    /// Each sentence's document is built only when the renderer reaches it, so the memory held
-    /// beyond the modules and the text is one sentence's ops plus the fits look-ahead.
+    /// Each sentence's ops are produced only when the renderer reaches them, so the memory held
+    /// beyond the modules and the text is one sentence's task stack plus the fits look-ahead.
     pub fn print_definition_parts<'a>(
         self,
         attributes: &Attributes,
@@ -126,7 +126,7 @@ impl Printer {
 
     pub fn print_sentence(self, sentence: &Sentence) -> String {
         let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
-        self.render(sentence_doc(sentence, self.options.indent))
+        self.render_ops(sentence_ops(sentence, self.options.indent))
     }
 
     pub fn print_pattern(self, pattern: &Pattern) -> String {
@@ -187,10 +187,6 @@ impl Printer {
         )
     }
 
-    fn render(self, document: Doc) -> String {
-        render_to_string(document, self.render_mode(), self.options.width)
-    }
-
     fn render_ops(self, ops: impl Iterator<Item = Op>) -> String {
         let mut output = Vec::new();
         render(ops, self.render_mode(), self.options.width, &mut output)
@@ -224,12 +220,6 @@ impl<W: io::Write + ?Sized> io::Write for CountingWriter<'_, W> {
     }
 }
 
-fn render_to_string(document: Doc, mode: RenderMode, width: usize) -> String {
-    let mut output = Vec::new();
-    render(document.into_ops(), mode, width, &mut output).expect("writing to a Vec does not fail");
-    String::from_utf8(output).expect("rendered ops are UTF-8 strings")
-}
-
 macro_rules! impl_compact_display {
     ($type:ty, $method:ident) => {
         impl Display for $type {
@@ -245,43 +235,33 @@ impl_compact_display!(Module, print_module);
 impl_compact_display!(Sentence, print_sentence);
 impl_compact_display!(Pattern, print_pattern);
 
+/// The compact text of a syntax task: its ops rendered flat on an unbounded line.
+fn compact_text<'a>(task: SyntaxTask<'a, &'a Pattern>) -> String {
+    let options = PrintOptions::compact();
+    Printer::new(options).render_ops(SyntaxOps::new(task, options.indent))
+}
+
 impl Display for Attributes {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&render_to_string(
-            attributes_doc(self, PrintOptions::compact().indent),
-            RenderMode::Compact,
-            usize::MAX,
-        ))
+        formatter.write_str(&compact_text(attributes_task(self)))
     }
 }
 
 impl Display for Sort {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&render_to_string(
-            sort_doc(self, PrintOptions::compact().indent),
-            RenderMode::Compact,
-            usize::MAX,
-        ))
+        formatter.write_str(&compact_text(SyntaxTask::Sort(Cow::Borrowed(self))))
     }
 }
 
 impl Display for Symbol {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&render_to_string(
-            symbol_doc(self, PrintOptions::compact().indent),
-            RenderMode::Compact,
-            usize::MAX,
-        ))
+        formatter.write_str(&compact_text(SyntaxTask::Symbol(Cow::Borrowed(self))))
     }
 }
 
 impl Display for Variable {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&render_to_string(
-            variable_doc(self, PrintOptions::compact().indent),
-            RenderMode::Compact,
-            usize::MAX,
-        ))
+        formatter.write_str(&compact_text(SyntaxTask::Variable(Cow::Borrowed(self))))
     }
 }
 
@@ -291,7 +271,7 @@ fn definition_ops<'a>(
     modules: impl IntoIterator<Item = &'a Module>,
     indent: usize,
 ) -> impl Iterator<Item = Op> {
-    attributes_doc(attributes, indent).into_ops().chain(
+    attributes_ops(attributes, indent).chain(
         modules.into_iter().flat_map(move |module| {
             std::iter::once(Op::HardLine).chain(module_ops(module, indent))
         }),
@@ -300,72 +280,76 @@ fn definition_ops<'a>(
 
 /// The ops of a module: its header, its sentences each after a hard line and nested by
 /// `indent` when there are any, then the `endmodule` line with the module attributes. A
-/// sentence's document is built when the iterator reaches it.
+/// sentence's ops are produced when the iterator reaches it.
 fn module_ops(module: &Module, indent: usize) -> impl Iterator<Item = Op> {
     let body = (!module.sentences.is_empty()).then(|| {
         std::iter::once(Op::NestStart(indent))
             .chain(module.sentences.iter().flat_map(move |sentence| {
-                std::iter::once(Op::HardLine).chain(sentence_doc(sentence, indent).into_ops())
+                std::iter::once(Op::HardLine).chain(sentence_ops(sentence, indent))
             }))
             .chain(std::iter::once(Op::NestEnd(indent)))
     });
     std::iter::once(Op::Text(Cow::Owned(format!("module {}", module.name))))
         .chain(body.into_iter().flatten())
         .chain([Op::HardLine, Op::Text(Cow::Borrowed("endmodule "))])
-        .chain(attributes_doc(&module.attributes, indent).into_ops())
+        .chain(attributes_ops(&module.attributes, indent))
 }
 
-fn sentence_doc(sentence: &Sentence, indent: usize) -> Doc {
+/// The ops of a sentence, produced on demand by `SyntaxOps` from a stack seeded with the
+/// sentence's fixed structure.
+///
+/// Each arm pushes, as one group, the tasks whose ops are in order the ops of the sentence's
+/// layout: the keyword and header texts, `Line(" ")` separators, the declared sorts, symbols,
+/// and patterns as syntax tasks, `[...]`, `{...}` and `(...)` lists as `Delimited` tasks, and
+/// the alias and axiom bodies between `NestStart` and `NestEnd`, which `SyntaxOps` emits with
+/// the same `indent`. A group or nest is never empty here (it holds a keyword text or a line),
+/// so both markers are always emitted, and a `Delimited` task emits the ops of a
+/// group-wrapped list with the nested items between `,`/line separators, or the open and close
+/// text alone when the list is empty: the sequence the layout of a sentence consists of.
+fn sentence_ops(sentence: &Sentence, indent: usize) -> SyntaxOps<'_, &Pattern> {
+    use SyntaxTask as T;
+    let mut stack = Vec::new();
     match sentence {
-        Sentence::Import { module, attributes } => Doc::concat([
-            Doc::text(format!("import {module}")),
-            Doc::line(),
-            attributes_doc(attributes, indent),
-        ])
-        .group(),
+        Sentence::Import { module, attributes } => push_grouped(
+            &mut stack,
+            [
+                T::Text(format!("import {module}").into()),
+                T::Line(" "),
+                attributes_task(attributes),
+            ],
+        ),
         Sentence::SortDeclaration {
             hooked,
             name,
             parameters,
             attributes,
-        } => Doc::concat([
-            Doc::text(format!(
-                "{}sort {name}",
-                if *hooked { "hooked-" } else { "" }
-            )),
-            delimited(
-                "{",
-                "}",
-                parameters
-                    .iter()
-                    .map(|parameter| Doc::text(parameter.clone())),
-                indent,
-            ),
-            Doc::line(),
-            attributes_doc(attributes, indent),
-        ])
-        .group(),
+        } => push_grouped(
+            &mut stack,
+            [
+                T::Text(format!("{}sort {name}", if *hooked { "hooked-" } else { "" }).into()),
+                parameters_task(parameters),
+                T::Line(" "),
+                attributes_task(attributes),
+            ],
+        ),
         Sentence::SymbolDeclaration {
             hooked,
             symbol,
             argument_sorts,
             result_sort,
             attributes,
-        } => Doc::concat([
-            Doc::text(if *hooked { "hooked-symbol " } else { "symbol " }),
-            symbol_doc(symbol, indent),
-            delimited(
-                "(",
-                ")",
-                argument_sorts.iter().map(|sort| sort_doc(sort, indent)),
-                indent,
-            ),
-            Doc::text(" : "),
-            sort_doc(result_sort, indent),
-            Doc::line(),
-            attributes_doc(attributes, indent),
-        ])
-        .group(),
+        } => push_grouped(
+            &mut stack,
+            [
+                T::Text(if *hooked { "hooked-symbol " } else { "symbol " }.into()),
+                T::Symbol(Cow::Borrowed(symbol)),
+                sorts_task(argument_sorts),
+                T::Text(" : ".into()),
+                T::Sort(Cow::Borrowed(result_sort)),
+                T::Line(" "),
+                attributes_task(attributes),
+            ],
+        ),
         Sentence::AliasDeclaration {
             alias,
             argument_sorts,
@@ -373,103 +357,93 @@ fn sentence_doc(sentence: &Sentence, indent: usize) -> Doc {
             left,
             right,
             attributes,
-        } => Doc::concat([
-            Doc::text("alias "),
-            symbol_doc(alias, indent),
-            delimited(
-                "(",
-                ")",
-                argument_sorts.iter().map(|sort| sort_doc(sort, indent)),
-                indent,
-            ),
-            Doc::text(" : "),
-            sort_doc(result_sort, indent),
-            Doc::text(" where"),
-            Doc::concat([
-                Doc::line(),
-                pattern_doc(left, indent),
-                Doc::text(" :="),
-                Doc::line(),
-                pattern_doc(right, indent),
-                Doc::line(),
-                attributes_doc(attributes, indent),
-            ])
-            .nest(indent),
-        ])
-        .group(),
+        } => push_grouped(
+            &mut stack,
+            [
+                T::Text("alias ".into()),
+                T::Symbol(Cow::Borrowed(alias)),
+                sorts_task(argument_sorts),
+                T::Text(" : ".into()),
+                T::Sort(Cow::Borrowed(result_sort)),
+                T::Text(" where".into()),
+                T::NestStart,
+                T::Line(" "),
+                T::Pattern(&**left),
+                T::Text(" :=".into()),
+                T::Line(" "),
+                T::Pattern(&**right),
+                T::Line(" "),
+                attributes_task(attributes),
+                T::NestEnd,
+            ],
+        ),
         Sentence::Axiom {
             parameters,
             pattern,
             attributes,
-        } => declaration_pattern_doc("axiom", parameters, pattern, attributes, indent),
+        } => push_declaration_pattern(&mut stack, "axiom", parameters, pattern, attributes),
         Sentence::Claim {
             parameters,
             pattern,
             attributes,
-        } => declaration_pattern_doc("claim", parameters, pattern, attributes, indent),
+        } => push_declaration_pattern(&mut stack, "claim", parameters, pattern, attributes),
     }
+    SyntaxOps { stack, indent }
 }
 
-fn declaration_pattern_doc(
-    keyword: &str,
-    parameters: &[String],
-    pattern: &Pattern,
-    attributes: &Attributes,
-    indent: usize,
-) -> Doc {
-    Doc::concat([
-        Doc::text(keyword),
-        delimited(
-            "{",
-            "}",
-            parameters
-                .iter()
-                .map(|parameter| Doc::text(parameter.clone())),
-            indent,
-        ),
-        Doc::concat([
-            Doc::line(),
-            pattern_doc(pattern, indent),
-            Doc::line(),
-            attributes_doc(attributes, indent),
-        ])
-        .nest(indent),
-    ])
-    .group()
+/// The layout of an axiom or claim: the keyword, its sort parameters in braces, and the
+/// pattern and attributes nested, as one group.
+fn push_declaration_pattern<'a>(
+    stack: &mut Vec<SyntaxTask<'a, &'a Pattern>>,
+    keyword: &'static str,
+    parameters: &'a [String],
+    pattern: &'a Pattern,
+    attributes: &'a Attributes,
+) {
+    push_grouped(
+        stack,
+        [
+            SyntaxTask::Text(keyword.into()),
+            parameters_task(parameters),
+            SyntaxTask::NestStart,
+            SyntaxTask::Line(" "),
+            SyntaxTask::Pattern(pattern),
+            SyntaxTask::Line(" "),
+            attributes_task(attributes),
+            SyntaxTask::NestEnd,
+        ],
+    );
 }
 
-fn attributes_doc(attributes: &Attributes, indent: usize) -> Doc {
-    delimited(
-        "[",
-        "]",
-        attributes
-            .0
+/// Sort parameter names in braces.
+fn parameters_task<'a>(parameters: &'a [String]) -> SyntaxTask<'a, &'a Pattern> {
+    delimited_task(
+        "{",
+        "}",
+        parameters
             .iter()
-            .map(|pattern| pattern_doc(pattern, indent)),
-        indent,
+            .map(|parameter| SyntaxTask::Text(parameter.clone().into())),
     )
 }
 
-fn sort_doc(sort: &Sort, indent: usize) -> Doc {
-    syntax_doc(SyntaxTask::<&Pattern>::Sort(Cow::Borrowed(sort)), indent)
-}
-
-fn symbol_doc(symbol: &Symbol, indent: usize) -> Doc {
-    syntax_doc(
-        SyntaxTask::<&Pattern>::Symbol(Cow::Borrowed(symbol)),
-        indent,
+/// Argument sorts in parentheses.
+fn sorts_task<'a>(sorts: &'a [Sort]) -> SyntaxTask<'a, &'a Pattern> {
+    delimited_task(
+        "(",
+        ")",
+        sorts
+            .iter()
+            .map(|sort| SyntaxTask::Sort(Cow::Borrowed(sort))),
     )
 }
 
-fn variable_doc(variable: &Variable, indent: usize) -> Doc {
-    syntax_doc(
-        SyntaxTask::<&Pattern>::Variable(Cow::Borrowed(variable)),
-        indent,
-    )
+/// An attribute list in brackets.
+fn attributes_task(attributes: &Attributes) -> SyntaxTask<'_, &Pattern> {
+    delimited_task("[", "]", attributes.0.iter().map(SyntaxTask::Pattern))
 }
 
-fn pattern_doc(pattern: &Pattern, indent: usize) -> Doc {
-    syntax_doc(SyntaxTask::Pattern(pattern), indent)
+fn attributes_ops(attributes: &Attributes, indent: usize) -> SyntaxOps<'_, &Pattern> {
+    SyntaxOps::new(attributes_task(attributes), indent)
 }
 
 /// A unit of printing work: a syntax node to expand (a pattern given by the source `S`, or a
@@ -491,10 +465,6 @@ enum SyntaxTask<'a, S> {
         close: &'static str,
         items: Vec<Self>,
     },
-}
-
-fn syntax_doc<'a, S: PatternSource<'a>>(root: SyntaxTask<'a, S>, indent: usize) -> Doc {
-    Doc::from_ops(SyntaxOps::new(root, indent).collect())
 }
 
 /// The ops of one pattern, sort, symbol, or variable, in output order, produced on demand from
@@ -858,43 +828,6 @@ fn delimited_task<'a, S>(
     }
 }
 
-fn delimited(
-    open: &str,
-    close: &str,
-    documents: impl IntoIterator<Item = Doc>,
-    indent: usize,
-) -> Doc {
-    let documents: Vec<_> = documents.into_iter().collect();
-    if documents.is_empty() {
-        return Doc::text(format!("{open}{close}"));
-    }
-
-    Doc::concat([
-        Doc::text(open),
-        Doc::concat([
-            Doc::line_break(),
-            join(documents, Doc::concat([Doc::text(","), Doc::line()])),
-        ])
-        .nest(indent),
-        Doc::line_break(),
-        Doc::text(close),
-    ])
-    .group()
-}
-
-fn join(documents: Vec<Doc>, separator: Doc) -> Doc {
-    let mut iterator = documents.into_iter();
-    let Some(first) = iterator.next() else {
-        return Doc::from_ops(Vec::new());
-    };
-    let mut joined = vec![first];
-    for document in iterator {
-        joined.push(separator.clone());
-        joined.push(document);
-    }
-    Doc::concat(joined)
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fmt::Write as _;
@@ -1166,11 +1099,192 @@ pub(crate) mod tests {
     pub(crate) mod streaming {
         use proptest::prelude::*;
 
+        use std::borrow::Cow;
+
         use super::super::{
-            PrintOptions, Printer, document::RenderMode, document::whole_document_render,
-            pattern_doc,
+            PrintOptions, Printer, SyntaxOps, SyntaxTask,
+            document::{Doc, RenderMode, whole_document_render},
+            sentence_ops,
         };
-        use crate::kore::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+        use crate::kore::ast::{
+            Associativity, Attributes, Pattern, Sentence, Sort, Symbol, Variable, VariableKind,
+        };
+
+        fn syntax_doc<'a>(root: SyntaxTask<'a, &'a Pattern>, indent: usize) -> Doc {
+            Doc::from_ops(SyntaxOps::new(root, indent).collect())
+        }
+
+        fn pattern_doc(pattern: &Pattern, indent: usize) -> Doc {
+            syntax_doc(SyntaxTask::Pattern(pattern), indent)
+        }
+
+        fn sort_doc(sort: &Sort, indent: usize) -> Doc {
+            syntax_doc(SyntaxTask::Sort(Cow::Borrowed(sort)), indent)
+        }
+
+        fn symbol_doc(symbol: &Symbol, indent: usize) -> Doc {
+            syntax_doc(SyntaxTask::Symbol(Cow::Borrowed(symbol)), indent)
+        }
+
+        /// A list in `open` and `close` built with the document combinators: the oracle for
+        /// the `Delimited` task.
+        fn delimited(
+            open: &str,
+            close: &str,
+            documents: impl IntoIterator<Item = Doc>,
+            indent: usize,
+        ) -> Doc {
+            let documents: Vec<_> = documents.into_iter().collect();
+            if documents.is_empty() {
+                return Doc::text(format!("{open}{close}"));
+            }
+            let mut joined = Vec::new();
+            for (index, document) in documents.into_iter().enumerate() {
+                if index > 0 {
+                    joined.push(Doc::concat([Doc::text(","), Doc::line()]));
+                }
+                joined.push(document);
+            }
+            Doc::concat([
+                Doc::text(open),
+                Doc::concat([Doc::line_break(), Doc::concat(joined)]).nest(indent),
+                Doc::line_break(),
+                Doc::text(close),
+            ])
+            .group()
+        }
+
+        fn attributes_doc(attributes: &Attributes, indent: usize) -> Doc {
+            delimited(
+                "[",
+                "]",
+                attributes
+                    .0
+                    .iter()
+                    .map(|pattern| pattern_doc(pattern, indent)),
+                indent,
+            )
+        }
+
+        fn parameters_doc(parameters: &[String], indent: usize) -> Doc {
+            delimited(
+                "{",
+                "}",
+                parameters
+                    .iter()
+                    .map(|parameter| Doc::text(parameter.clone())),
+                indent,
+            )
+        }
+
+        fn sorts_doc(sorts: &[Sort], indent: usize) -> Doc {
+            delimited(
+                "(",
+                ")",
+                sorts.iter().map(|sort| sort_doc(sort, indent)),
+                indent,
+            )
+        }
+
+        /// A sentence's layout built with the document combinators, which copy (`concat`) and
+        /// shift (`nest`, `group`) op vectors: the oracle for `sentence_ops`.
+        fn sentence_doc(sentence: &Sentence, indent: usize) -> Doc {
+            fn declaration(
+                keyword: &str,
+                parameters: &[String],
+                pattern: &Pattern,
+                attributes: &Attributes,
+                indent: usize,
+            ) -> Doc {
+                Doc::concat([
+                    Doc::text(keyword),
+                    parameters_doc(parameters, indent),
+                    Doc::concat([
+                        Doc::line(),
+                        pattern_doc(pattern, indent),
+                        Doc::line(),
+                        attributes_doc(attributes, indent),
+                    ])
+                    .nest(indent),
+                ])
+                .group()
+            }
+            match sentence {
+                Sentence::Import { module, attributes } => Doc::concat([
+                    Doc::text(format!("import {module}")),
+                    Doc::line(),
+                    attributes_doc(attributes, indent),
+                ])
+                .group(),
+                Sentence::SortDeclaration {
+                    hooked,
+                    name,
+                    parameters,
+                    attributes,
+                } => Doc::concat([
+                    Doc::text(format!(
+                        "{}sort {name}",
+                        if *hooked { "hooked-" } else { "" }
+                    )),
+                    parameters_doc(parameters, indent),
+                    Doc::line(),
+                    attributes_doc(attributes, indent),
+                ])
+                .group(),
+                Sentence::SymbolDeclaration {
+                    hooked,
+                    symbol,
+                    argument_sorts,
+                    result_sort,
+                    attributes,
+                } => Doc::concat([
+                    Doc::text(if *hooked { "hooked-symbol " } else { "symbol " }),
+                    symbol_doc(symbol, indent),
+                    sorts_doc(argument_sorts, indent),
+                    Doc::text(" : "),
+                    sort_doc(result_sort, indent),
+                    Doc::line(),
+                    attributes_doc(attributes, indent),
+                ])
+                .group(),
+                Sentence::AliasDeclaration {
+                    alias,
+                    argument_sorts,
+                    result_sort,
+                    left,
+                    right,
+                    attributes,
+                } => Doc::concat([
+                    Doc::text("alias "),
+                    symbol_doc(alias, indent),
+                    sorts_doc(argument_sorts, indent),
+                    Doc::text(" : "),
+                    sort_doc(result_sort, indent),
+                    Doc::text(" where"),
+                    Doc::concat([
+                        Doc::line(),
+                        pattern_doc(left, indent),
+                        Doc::text(" :="),
+                        Doc::line(),
+                        pattern_doc(right, indent),
+                        Doc::line(),
+                        attributes_doc(attributes, indent),
+                    ])
+                    .nest(indent),
+                ])
+                .group(),
+                Sentence::Axiom {
+                    parameters,
+                    pattern,
+                    attributes,
+                } => declaration("axiom", parameters, pattern, attributes, indent),
+                Sentence::Claim {
+                    parameters,
+                    pattern,
+                    attributes,
+                } => declaration("claim", parameters, pattern, attributes, indent),
+            }
+        }
 
         /// The printed text of `pattern` by the two-pass whole-document renderer, the oracle
         /// for the streaming path.
@@ -1302,6 +1416,93 @@ pub(crate) mod tests {
                         }),
                 ]
             })
+        }
+
+        fn attributes() -> impl Strategy<Value = Attributes> {
+            prop::collection::vec(pattern(), 0..3).prop_map(Attributes)
+        }
+
+        fn parameters() -> impl Strategy<Value = Vec<String>> {
+            prop::collection::vec(name(), 0..3)
+        }
+
+        /// Every sentence kind, with patterns from [`pattern`].
+        fn sentence() -> impl Strategy<Value = Sentence> {
+            let sorts = || prop::collection::vec(sort(), 0..3);
+            prop_oneof![
+                (name(), attributes())
+                    .prop_map(|(module, attributes)| Sentence::Import { module, attributes }),
+                (any::<bool>(), name(), parameters(), attributes()).prop_map(
+                    |(hooked, name, parameters, attributes)| Sentence::SortDeclaration {
+                        hooked,
+                        name,
+                        parameters,
+                        attributes,
+                    }
+                ),
+                (any::<bool>(), symbol(), sorts(), sort(), attributes()).prop_map(
+                    |(hooked, symbol, argument_sorts, result_sort, attributes)| {
+                        Sentence::SymbolDeclaration {
+                            hooked,
+                            symbol,
+                            argument_sorts,
+                            result_sort,
+                            attributes,
+                        }
+                    }
+                ),
+                (
+                    symbol(),
+                    sorts(),
+                    sort(),
+                    pattern(),
+                    pattern(),
+                    attributes()
+                )
+                    .prop_map(
+                        |(alias, argument_sorts, result_sort, left, right, attributes)| {
+                            Sentence::AliasDeclaration {
+                                alias,
+                                argument_sorts,
+                                result_sort,
+                                left: Box::new(left),
+                                right: Box::new(right),
+                                attributes,
+                            }
+                        }
+                    ),
+                (parameters(), pattern(), attributes()).prop_map(
+                    |(parameters, pattern, attributes)| Sentence::Axiom {
+                        parameters,
+                        pattern: Box::new(pattern),
+                        attributes,
+                    }
+                ),
+                (parameters(), pattern(), attributes()).prop_map(
+                    |(parameters, pattern, attributes)| Sentence::Claim {
+                        parameters,
+                        pattern: Box::new(pattern),
+                        attributes,
+                    }
+                ),
+            ]
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// The task-stack ops of a sentence are, op for op, the ops the document
+            /// combinators build for it, so the renderer receives the same sequence.
+            #[test]
+            fn sentence_ops_match_sentence_doc(
+                sentence in sentence(),
+                indent in 0usize..4,
+            ) {
+                prop_assert_eq!(
+                    format!("{:?}", sentence_ops(&sentence, indent).collect::<Vec<_>>()),
+                    format!("{:?}", sentence_doc(&sentence, indent).into_ops().collect::<Vec<_>>())
+                );
+            }
         }
 
         proptest! {

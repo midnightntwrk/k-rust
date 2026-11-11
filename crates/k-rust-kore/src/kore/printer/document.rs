@@ -40,6 +40,10 @@ use std::{borrow::Cow, collections::VecDeque, io};
 
 use crate::measure::{self, Algorithm};
 
+/// A whole document held as one op vector, built by combinators that copy and shift it. The
+/// printer produces its ops on demand instead; tests build documents to state layouts and to
+/// check the streamed ops against.
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(super) struct Doc {
     ops: Vec<Op>,
@@ -56,6 +60,7 @@ pub(super) enum Op {
     GroupEnd,
 }
 
+#[cfg(test)]
 impl Doc {
     pub(super) fn from_ops(ops: Vec<Op>) -> Self {
         Self { ops }
@@ -77,7 +82,6 @@ impl Doc {
         }
     }
 
-    #[cfg(test)]
     pub(super) fn hard_line() -> Self {
         Self {
             ops: vec![Op::HardLine],
