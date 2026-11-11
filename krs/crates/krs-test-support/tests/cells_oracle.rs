@@ -6819,7 +6819,7 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
         };
         // Records are judged on the whole text, as before the views: a created instance's
         // `...` takes its template's defaults, which no side view reads.
-        record_frames_agree(case, entry, k, &mut failures, &mut counts);
+        record_checks(case, entry, k, &mut failures, &mut counts);
         let mut roots = Vec::new();
         content_roots(
             &entry.entry.cell,
@@ -7210,6 +7210,164 @@ fn a_frame_beside_every_child_frames_nothing_and_beside_a_dropped_child_keeps_it
         &children[..1],
         "<la> _ => V0:Int </la> ..."
     ));
+}
+
+/// Check 6's record frames: P6's per-record frames, and KEYCHANGE's moved instances.
+fn record_checks(
+    case: &Case,
+    entry: &EntryCase,
+    k: &str,
+    failures: &mut Vec<String>,
+    counts: &mut BTreeMap<&'static str, usize>,
+) {
+    record_frames_agree(case, entry, k, failures, counts);
+    moved_records_are_created_whole(case, entry, k, failures, counts);
+}
+
+/// KEYCHANGE, judged on the K: a result's record `T { k: v, ..me }` of a Map collection's
+/// instance, where `v` is not provably the key the subject instance labelled `me` matched (its
+/// binder, a name an alias binds to it, or the same literal), is `me` moved: `me` removed and an
+/// instance created under `v` whose unnamed children are `me`'s. A created instance's `...` takes
+/// its template's defaults, so the creation must write every child the group declares and keep
+/// no frame. P6's record check leaves these rows unjudged (K writes the cell twice); this reads
+/// the creations `(.Bag => <cell> .. </cell>)` themselves, one written whole per moved record.
+fn moved_records_are_created_whole(
+    case: &Case,
+    entry: &EntryCase,
+    k: &str,
+    failures: &mut Vec<String>,
+    counts: &mut BTreeMap<&'static str, usize>,
+) {
+    let ([Layer::Instances(Order::Map), Layer::Group(group), ..], Side::Result) =
+        (entry.entry.stack.as_slice(), entry.entry.side)
+    else {
+        return;
+    };
+    let moved = moved_records(group, &entry.entry.spelling, entry.context.other.as_ref());
+    if moved == 0 {
+        return;
+    }
+    *counts.entry("moved records judged").or_default() += moved;
+    let children = group
+        .children
+        .iter()
+        .map(|(child, _)| child.as_str())
+        .collect::<Vec<_>>();
+    let whole = whole_creations(k, &entry.entry.cell, &children);
+    if whole < moved {
+        failures.push(format!(
+            "{}: {moved} record(s) move their instance under another key, but the K creates {whole} \
+             instance(s) of `{}` writing every child without a frame: a moved instance's \
+             unnamed children are its own, and a created `...` takes the template's defaults",
+            case.id, entry.entry.cell
+        ));
+    }
+}
+
+/// The instance records of `group` an instance sequence spells, each with its label (`me @`).
+fn instance_records(group: &Group, spelling: &Spelling) -> Vec<(Option<String>, Record)> {
+    let items = match spelling {
+        Spelling::Brackets(seq)
+        | Spelling::Braces(seq)
+        | Spelling::InstList(seq)
+        | Spelling::InstSet(seq) => &seq.items,
+        _ => return Vec::new(),
+    };
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Spelling::Record(record) | Spelling::Fragment(record) => Some((None, record.clone())),
+            Spelling::Alias(label, inner) => match &**inner {
+                Spelling::Record(record) | Spelling::Fragment(record) => {
+                    Some((Some(label.clone()), record.clone()))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|(_, record)| record.head == group.name)
+        .collect()
+}
+
+/// The names a matched key's spelling binds to the whole key (a binder, an alias's names), and
+/// its literal.
+fn key_names(spelling: &Spelling, names: &mut Vec<String>) -> Option<String> {
+    match spelling {
+        Spelling::Binder(name) => {
+            names.push(name.clone());
+            None
+        }
+        Spelling::Alias(name, inner) => {
+            names.push(name.clone());
+            key_names(inner, names)
+        }
+        Spelling::Literal(literal) => literal.clone(),
+        _ => None,
+    }
+}
+
+/// How many of a result's Map instance records move their labelled instance: an update
+/// `..label` writing a key that is not provably the key the labelled subject instance matched.
+fn moved_records(group: &Group, result: &Spelling, subject: Option<&Spelling>) -> usize {
+    let Some((key, _)) = group.children.first() else {
+        return 0;
+    };
+    let field = |record: &Record| {
+        record
+            .fields
+            .iter()
+            .find(|(field, _)| field == key)
+            .map(|(_, value)| value.clone())
+    };
+    let subjects = subject.map_or_else(Vec::new, |subject| instance_records(group, subject));
+    instance_records(group, result)
+        .iter()
+        .filter(|(_, record)| {
+            let (RecordRest::Update(label), Some(written)) = (&record.rest, field(record)) else {
+                return false;
+            };
+            let Some(matched) = subjects
+                .iter()
+                .find(|(at, _)| at.as_deref() == Some(label.as_str()))
+                .and_then(|(_, record)| field(record))
+            else {
+                return true;
+            };
+            let mut names = Vec::new();
+            let literal = key_names(&matched, &mut names);
+            !match &written {
+                Spelling::Binder(name) => names.contains(name),
+                Spelling::Literal(Some(value)) => literal.as_deref() == Some(value.as_str()),
+                _ => false,
+            }
+        })
+        .count()
+}
+
+/// How many instances of `cell` the K creates whole, `(.Bag => <cell> .. </cell>)` writing every
+/// one of `children` with no top-level frame.
+fn whole_creations(k: &str, cell: &str, children: &[&str]) -> usize {
+    cell_rewrites(k)
+        .into_iter()
+        .filter(|rewrite| rewrite.cell == cell && rewrite.subject.trim() == ".Bag")
+        .filter_map(|rewrite| k_cells(rewrite.result, cell).first().copied())
+        .filter(|content| {
+            let written = child_cells(content);
+            !top_level_frame(content) && children.iter().all(|child| written.contains(child))
+        })
+        .count()
+}
+
+/// KEYCHANGE's check reads the creation, not the record: a move written whole passes, and a
+/// creation whose `...` takes the template's defaults for the moved instance's children fails.
+#[test]
+fn a_moved_instance_is_created_with_its_own_children() {
+    let whole = "(<acc> <aid> Z:Int </aid> <bal> MeBal:Int </bal> </acc> => .Bag) \
+                 (.Bag => <acc> <aid> 5 </aid> <bal> MeBal:Int </bal> </acc>)";
+    let defaults = "(<acc> <aid> Z:Int </aid> ... </acc> => .Bag) \
+                    (.Bag => <acc> <aid> 5 </aid> ... </acc>)";
+    assert_eq!(whole_creations(whole, "acc", &["aid", "bal"]), 1);
+    assert_eq!(whole_creations(defaults, "acc", &["aid", "bal"]), 0);
 }
 
 fn record_frames_agree(
