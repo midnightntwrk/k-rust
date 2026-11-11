@@ -29,6 +29,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     fmt,
+    sync::Arc,
 };
 
 use crate::definition::AttributeKey;
@@ -315,6 +316,11 @@ pub(crate) fn concretize_cells_pass(
         let mut first_conjunction = None;
         let values = ValueFacts::new(resolved, module_id);
         for sentence in &mut module.local_sentences {
+            // The concretizer returns such a sentence itself, with no diagnostic and no fragment
+            // test, so it stays the shared allocation without being copied.
+            if kept_as_written(sentence, model) {
+                continue;
+            }
             let original = (**sentence).clone();
             let mut concretizer = Concretizer::new(model, productions, &values);
             match concretizer.sentence(original) {
@@ -326,7 +332,9 @@ pub(crate) fn concretize_cells_pass(
                             &transformed,
                         ));
                     }
-                    *crate::definition::sentence_mut(sentence) = transformed;
+                    // The concretizer built `transformed` from its own copy: it replaces the
+                    // shared sentence without copying that sentence again only to overwrite it.
+                    *sentence = Arc::new(transformed);
                 }
                 Err(message) => {
                     let message = if main_modules.contains(&module_id) {
@@ -1108,7 +1116,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     }
 
     fn sentence(&mut self, sentence: Sentence) -> Result<Sentence, String> {
-        if matches!(&sentence, Sentence::Claim { body, .. } if !contains_cell(body, self.model)) {
+        if kept_as_written(&sentence, self.model) {
+            self.start(&sentence);
             return Ok(sentence);
         }
         self.start(&sentence);
@@ -4580,6 +4589,25 @@ fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
             .function_labels()
             .contains(&LabelHead::from(label))
     })
+}
+
+/// Whether [`Concretizer::sentence`] returns `sentence` as it is, with no diagnostic and no
+/// fragment test: a sentence kind that has no body to complete (the last arm of
+/// `concretize_sentence`), or a claim whose body has no cell, which a claim over a configuration
+/// does not need completed.
+fn kept_as_written(sentence: &Sentence, model: &CellModel) -> bool {
+    match sentence {
+        Sentence::Claim { body, .. } => !contains_cell(body, model),
+        Sentence::Rule { .. } | Sentence::Context { .. } | Sentence::ContextAlias { .. } => false,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => true,
+    }
 }
 
 fn contains_cell(term: &Term, model: &CellModel) -> bool {
