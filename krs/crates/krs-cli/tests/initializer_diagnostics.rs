@@ -746,7 +746,7 @@ fn the_computation_s_items_where_a_leaf_s_term_stands_are_pinned_on_each_route()
     expect_test::expect![[r#"
         [
             "readable-leaf: krs::analysis::invalid-term",
-            "readable-instance-child: krs::syntax::unsupported-term-expression",
+            "readable-instance-child: krs::analysis::invalid-term",
             "cells-leaf: krs::analysis::invalid-term",
             "cells-instance-child: krs::analysis::invalid-term",
             "initializer-value: krs::analysis::invalid-term",
