@@ -6,6 +6,7 @@
 // fails instead of showing a stale highlight.
 
 import raw from '../../generated/lean-lessons.json'
+import coreRaw from '../../generated/lean-core.json'
 
 /** A ground term, with symbols and sorts by their KORE names. */
 export type Ground =
@@ -184,4 +185,21 @@ export function kItem(t: Ground): Ground {
 
 export function substText(σ: Binding[]): string {
   return `[${σ.map((b) => `X${b.var} ↦ ${kText(b.value)}`).join(', ')}]`
+}
+
+// ---- the core, quoted at the manifest's commit ----------------------------------------------
+// src/generated/lean-core.json: kcore-spec's text at the commit core-manifest.toml names, written
+// by docs-gen/core_sources.py beside the manifest. The core lessons quote only this, and are stamped
+// with its commit.
+
+const core = coreRaw as { commit: string; files: Record<string, string> }
+
+export const coreCommit = core.commit
+
+/** A file of kcore-spec at `coreCommit`, its lines numbered as in the file. */
+export function coreFile(path: string): Source {
+  const text = core.files[path]
+  if (text === undefined) throw new Error(`lean lessons: no core file ${path}`)
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  return { file: path, start: 1, end: body.split('\n').length, text: body }
 }

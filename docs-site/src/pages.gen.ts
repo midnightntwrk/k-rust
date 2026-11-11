@@ -21,6 +21,7 @@ type Page =
   | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
   | { path: '/lean'; render: 'static' }
   | { path: '/lean/state-of-the-core'; render: 'static' }
+  | { path: '/lean/terms'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }

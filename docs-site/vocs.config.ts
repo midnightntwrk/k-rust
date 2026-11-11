@@ -83,6 +83,7 @@ export default defineConfig({
       items: [
         { text: 'Overview', link: '/lean' },
         { text: 'Prologue: A definition and its steps', link: '/lean/a-definition-and-its-steps' },
+        { text: '1. Terms', link: '/lean/terms' },
         { text: 'State of the core', link: '/lean/state-of-the-core' },
       ],
     },

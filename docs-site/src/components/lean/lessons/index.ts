@@ -1,10 +1,11 @@
 // The course, in order. Each page under pages/lean names one of these lessons by its id.
 
 import { type Lesson, sourceAt } from '../lesson'
+import { terms1 } from './c1-terms'
 import { lesson1 } from './l1-definition'
 import { overview } from './overview'
 
-export const course: readonly Lesson[] = [overview, lesson1]
+export const course: readonly Lesson[] = [overview, lesson1, terms1]
 
 // A note names a line and perhaps a token by value. Only a lesson's first frame is rendered when the
 // site is built, so they are checked here: a stale annotation fails the build, not one frame of a page.
