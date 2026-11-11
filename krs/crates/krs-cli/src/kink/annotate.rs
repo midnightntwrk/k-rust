@@ -103,7 +103,20 @@
 //! `sentences[].part`, `data.assume_joined`, an argued item's standing, a refusal of a
 //! `[spec] assume_joined` name) by the KRS item that wrote it (`root:crate::plus_succ,
 //! crate::plus_zero#D`, kink-flow `FlowManifest::with_sentence_names`), where a reader of version
-//! 9 would read a K label there.
+//! 9 would read a K label there. Added to 10 without a new version, since every field a reader
+//! of 10 reads keeps what it denotes and only `query` documents gain the new fields, while the
+//! version is also the `krs_annotation` of every `coverage` lock section: the bindings of a
+//! `query` document's patterns that a KRS patterns package wrote are named by the binders of
+//! their clauses (below).
+//!
+//! A `query` document's pattern compiled from a KRS patterns package (`source` `{krs, item, file,
+//! line}`, [`super::patterns`]) writes each binder of its clause as a K variable of its steps
+//! (`before` as `Before`). Its entry of `patterns` gains `krs_variables`, `[{k, krs, sort}]`, the
+//! clause's binders by K variable, KRS name and K sort, and every binding of the pattern's
+//! witnesses (a row's witness, its chain steps' and its explanation parts', an obligation's
+//! explanation parts') whose `variable` is one of them gains `krs_variable`, the binder's KRS
+//! name. A variable no binder names (one the emission renamed apart per part, which no author
+//! named) is left as kink-flow names it.
 //!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
@@ -146,6 +159,35 @@ pub(crate) fn qualified(label: &str, module: &str) -> String {
 /// version would read an annotated document falsely, a field that keeps its name and changes
 /// what it denotes included.
 pub(crate) const ANNOTATION_VERSION: u64 = 10;
+
+/// Every binding inside `value` (each `bindings` array's `{variable, value}` objects) whose
+/// variable `names` holds gains `krs_variable`, the name `names` gives it.
+fn name_witness_bindings(value: &mut Value, names: &BTreeMap<String, String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                if key == "bindings"
+                    && let Value::Array(bindings) = value
+                {
+                    for binding in bindings {
+                        if let Some(name) = binding["variable"].as_str().and_then(|k| names.get(k))
+                        {
+                            binding["krs_variable"] = json!(name);
+                        }
+                    }
+                } else {
+                    name_witness_bindings(value, names);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                name_witness_bindings(item, names);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// The `krs` object of one table entry.
 fn krs_value(rule: &EmittedRule) -> Value {
@@ -205,6 +247,9 @@ pub(crate) struct Annotator {
     guards: Option<super::guards::GuardNames>,
     /// The syntax family at the KRS level ([`super::syntax`]).
     syntax: Option<std::sync::Arc<super::syntax::KrsSyntax>>,
+    /// The corpus's KRS patterns packages, whose clauses' binders name a query's bindings
+    /// ([`super::patterns`]).
+    patterns: Option<std::sync::Arc<super::patterns::KrsPackages>>,
 }
 
 impl Annotator {
@@ -283,6 +328,7 @@ impl Annotator {
             result_names: None,
             guards: None,
             syntax: None,
+            patterns: None,
         }
     }
 
@@ -324,6 +370,66 @@ impl Annotator {
     ) -> Self {
         self.syntax = Some(syntax);
         self
+    }
+
+    /// This annotator naming a `query` document's bindings of the patterns of the corpus's KRS
+    /// patterns packages by the binders their clauses write ([`Self::name_bindings`]).
+    pub(crate) fn naming_patterns(
+        mut self,
+        patterns: std::sync::Arc<super::patterns::KrsPackages>,
+    ) -> Self {
+        self.patterns = Some(patterns);
+        self
+    }
+
+    /// Name the bindings of each pattern a `query` document compiled from a KRS patterns package
+    /// (an entry of `patterns` whose `source` is `{krs, item, file, line}`) by the binders its
+    /// clause writes (module documentation): the entry gains `krs_variables` (`[{k, krs, sort}]`,
+    /// each binder by its K variable, its KRS name and its K sort), and every binding of a
+    /// witness of the pattern (a row's, and a step's and an explanation's within it, and an
+    /// obligation's explanations') whose variable is one of them gains `krs_variable`, its KRS
+    /// name. A variable the clause names no binder of (a part's own, which no author named) is
+    /// left as kink-flow names it.
+    fn name_bindings(&self, document: &mut Value) {
+        let Some(packages) = &self.patterns else {
+            return;
+        };
+        let mut binders = BTreeMap::<String, BTreeMap<String, String>>::new();
+        for entry in document["patterns"].as_array_mut().into_iter().flatten() {
+            let (Some(id), Some(package), Some(item)) = (
+                entry["id"].as_str().map(str::to_owned),
+                entry["source"]["krs"].as_str(),
+                entry["source"]["item"].as_str(),
+            ) else {
+                continue;
+            };
+            let Some(variables) = packages.binders(package, item) else {
+                continue;
+            };
+            entry["krs_variables"] = variables
+                .iter()
+                .map(
+                    |variable| json!({"k": variable.k, "krs": variable.krs, "sort": variable.sort}),
+                )
+                .collect();
+            binders.insert(
+                id,
+                variables
+                    .iter()
+                    .map(|variable| (variable.k.clone(), variable.krs.clone()))
+                    .collect(),
+            );
+        }
+        if binders.is_empty() {
+            return;
+        }
+        for (list, key) in [("rows", "pattern"), ("obligations", "id")] {
+            for object in document[list].as_array_mut().into_iter().flatten() {
+                if let Some(names) = object[key].as_str().and_then(|id| binders.get(id)) {
+                    name_witness_bindings(object, names);
+                }
+            }
+        }
     }
 
     /// The table's `krs` object of a sentence of `module` stored with `label` (bare or
@@ -412,6 +518,7 @@ impl Annotator {
         if let Some(names) = &self.result_names {
             names.annotate(document);
         }
+        self.name_bindings(document);
         let mut unnamed = Vec::new();
         let mut unmatched_guards = Vec::new();
         let programs = document["programs"]

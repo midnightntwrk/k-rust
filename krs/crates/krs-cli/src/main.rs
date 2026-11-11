@@ -269,8 +269,10 @@ The corpus is <package>/kink (or --corpus DIR):
                     implementation of the system, which compare runs on every case and
                     compares with the definition under its views; [[patterns]] declares
                     the patterns query and fuzz --pattern ask: files = \"GLOB\" matches
-                    kink pattern lists, as [[program]] files matches cases (krs = \"PACKAGE\",
-                    a KRS patterns package, is refused: krs does not build one yet)
+                    kink pattern lists, as [[program]] files matches cases; krs = \"PACKAGE\"
+                    names a KRS patterns package (k::patterns!, in a package of the Cargo
+                    graph that depends on this one and declares one definition facet),
+                    which query and fuzz --pattern build when they ask its patterns
   cases/            the cases' program files and typed-input documents; a program file
                     binds the main parameter, as krs run FILE does
   mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or

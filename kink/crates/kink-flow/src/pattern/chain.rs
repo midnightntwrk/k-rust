@@ -38,7 +38,7 @@
 //!
 //! A violation is [`super::INVALID_PATTERN`], with a message naming each variable and the parts.
 //!
-//! **Decoding** ([`decode_steps`]). `steps` is a non-empty array of tables with a non-empty
+//! **Decoding** ([`written_steps`], [`checked_steps`]). `steps` is a non-empty array of tables with a non-empty
 //! `pattern` and an optional non-empty `unless`; the first step has no `unless`, since no step
 //! comes before it; `pattern` and `steps` are exclusive. A violation is an error naming the key,
 //! as every decoding error is. A chain of one step without `unless` asks exactly what its
@@ -50,7 +50,9 @@
 //! a single pattern's digest takes them: the layout of the text, the `id` and the `note` are not
 //! in it. Each step's imports and exports are a function of the targets, so they are not in it.
 
-use super::{LoweredPattern, Lowering, PatternForm, generated, join, known_keys, non_empty};
+use super::{
+    LoweredPattern, Lowering, PatternForm, generated, join, known_keys, non_blank, string,
+};
 use crate::manifest::ManifestError;
 use k_rust::{
     k_rust_backend::definition::BackendDefinition,
@@ -87,22 +89,16 @@ pub struct StepText {
     pub unless: Option<String>,
 }
 
-/// Decode `steps` (module docs, "Decoding"), whose key is `key`: a chain of at least two steps,
-/// or the single pattern a chain of one step without `unless` is.
-pub(super) fn decode_steps(value: &TomlValue, key: &str) -> Result<PatternForm, ManifestError> {
+/// The steps of `steps` as written, whose key is `key`: an array of tables with a string
+/// `pattern` and an optional string `unless`, and no other key. [`checked_steps`] checks them.
+pub(super) fn written_steps(value: &TomlValue, key: &str) -> Result<Vec<StepText>, ManifestError> {
     let TomlValue::Array(items) = value else {
         return Err(ManifestError::new(
             key,
             "expected an array of step tables `{ pattern = \"...\", unless = \"...\" }`",
         ));
     };
-    if items.is_empty() {
-        return Err(ManifestError::new(
-            key,
-            "must not be empty: a chain has at least one step",
-        ));
-    }
-    let mut steps = items
+    items
         .iter()
         .enumerate()
         .map(|(index, item)| {
@@ -114,7 +110,7 @@ pub(super) fn decode_steps(value: &TomlValue, key: &str) -> Result<PatternForm, 
                 )
             })?;
             known_keys(table, &at, &["pattern", "unless"])?;
-            let pattern = non_empty(
+            let pattern = string(
                 table.get("pattern").ok_or_else(|| {
                     ManifestError::new(join(&at, "pattern"), "missing required key")
                 })?,
@@ -122,7 +118,32 @@ pub(super) fn decode_steps(value: &TomlValue, key: &str) -> Result<PatternForm, 
             )?;
             let unless = table
                 .get("unless")
-                .map(|unless| non_empty(unless, &join(&at, "unless")))
+                .map(|unless| string(unless, &join(&at, "unless")))
+                .transpose()?;
+            Ok(StepText { pattern, unless })
+        })
+        .collect()
+}
+
+/// Check `steps` (module docs, "Decoding"), whose key is `key`: a chain of at least two steps,
+/// or the single pattern a chain of one step without `unless` is. Every written chain passes
+/// here ([`super::WrittenPattern::checked`]).
+pub(super) fn checked_steps(steps: Vec<StepText>, key: &str) -> Result<PatternForm, ManifestError> {
+    if steps.is_empty() {
+        return Err(ManifestError::new(
+            key,
+            "must not be empty: a chain has at least one step",
+        ));
+    }
+    let mut steps = steps
+        .into_iter()
+        .enumerate()
+        .map(|(index, step)| {
+            let at = format!("{key}[{index}]");
+            let pattern = non_blank(step.pattern, &join(&at, "pattern"))?;
+            let unless = step
+                .unless
+                .map(|unless| non_blank(unless, &join(&at, "unless")))
                 .transpose()?;
             if index == 0 && unless.is_some() {
                 return Err(ManifestError::new(
@@ -1063,6 +1084,103 @@ mod tests {
         .unwrap();
         assert_eq!(chain, single);
         assert_eq!(chain.patterns[0].single(), Some(text));
+    }
+
+    /// A pattern a front end gives as written (`WrittenPattern`) is the entry a list's table of
+    /// the same fields decodes to, and the checks refuse it with the key the table's error names:
+    /// one check makes both.
+    #[test]
+    fn a_written_pattern_is_checked_as_a_table_is() {
+        use super::super::{WrittenForm, WrittenPattern};
+        let step = |pattern: &str, unless: Option<&str>| StepText {
+            pattern: pattern.into(),
+            unless: unless.map(Into::into),
+        };
+        let written = |steps: Vec<StepText>, programs: Option<Vec<&str>>, expect: Option<&str>| {
+            WrittenPattern {
+                id: "a".into(),
+                form: WrittenForm::Steps(steps),
+                programs: programs.map(|ids| ids.into_iter().map(Into::into).collect()),
+                expect: expect.map(Into::into),
+                note: Some("n".into()),
+            }
+            .checked("item p")
+        };
+        let single = PatternList::decode(
+            "[[pattern]]\nid = \"a\"\nnote = \"n\"\nprograms = [\"add\"]\npattern = \"<k> 1 </k>\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            written(vec![step("<k> 1 </k>", None)], Some(vec!["add"]), None).unwrap(),
+            single.patterns[0]
+        );
+        let chain = PatternList::decode(
+            "[[pattern]]\nid = \"a\"\nnote = \"n\"\nexpect = \"no\"\nsteps = [{ pattern = \"<k> 1 \
+             </k>\" }, { pattern = \"<k> 2 </k>\", unless = \"<k> 3 </k>\" }]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            written(
+                vec![
+                    step("<k> 1 </k>", None),
+                    step("<k> 2 </k>", Some("<k> 3 </k>"))
+                ],
+                None,
+                Some("no")
+            )
+            .unwrap(),
+            chain.patterns[0]
+        );
+        for (refused, key, message) in [
+            (
+                written(vec![], None, None),
+                "pattern \"a\".steps",
+                "must not be empty",
+            ),
+            (
+                written(vec![step("<k> 1 </k>", Some("<k> 2 </k>"))], None, None),
+                "pattern \"a\".steps[0].unless",
+                "the first step has no `unless`",
+            ),
+            (
+                written(vec![step("<k> 1 </k>", None), step(" ", None)], None, None),
+                "pattern \"a\".steps[1].pattern",
+                "must not be empty",
+            ),
+            (
+                written(
+                    vec![step("<k> 1 </k>", None)],
+                    Some(vec!["add"]),
+                    Some("no"),
+                ),
+                "pattern \"a\".expect",
+                "keep one of the two",
+            ),
+            (
+                written(vec![step("<k> 1 </k>", None)], Some(vec!["b", "b"]), None),
+                "pattern \"a\".programs[1]",
+                "duplicate program id",
+            ),
+            (
+                written(vec![step("<k> 1 </k>", None)], None, Some("yes")),
+                "pattern \"a\".expect",
+                "expected \"no\"",
+            ),
+        ] {
+            let error = refused.unwrap_err();
+            assert_eq!(error.key, key, "{error}");
+            assert!(error.message.contains(message), "{error}");
+        }
+        let error = WrittenPattern {
+            id: " ".into(),
+            form: WrittenForm::Pattern("<k> 1 </k>".into()),
+            programs: None,
+            expect: None,
+            note: None,
+        }
+        .checked("item p")
+        .unwrap_err();
+        assert_eq!(error.key, "item p.id", "{error}");
     }
 
     /// calc's lowering context and searcher definition, given to `body` on a thread with the

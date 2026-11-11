@@ -1279,11 +1279,12 @@ pub struct FrontEnd<'a> {
     /// terms, which have no such vocabulary.
     pub implementations: Option<&'a (dyn crate::compare::Vocabulary + Sync)>,
     /// The patterns of each `[[patterns]] krs` package of the manifest, which a front end that
-    /// compiles KRS provides ([`crate::pattern::KrsPatterns`]), and which `query` and a `fuzz`
-    /// pattern job ask in that entry's place ([`crate::pattern::declared_patterns`]); `None` for
-    /// a front end that compiles none, whose corpus with such an entry those commands refuse.
-    /// kink-flow's own front end reads K pattern lists only.
-    pub krs_patterns: Option<&'a crate::pattern::KrsPatterns>,
+    /// compiles KRS provides ([`crate::pattern::KrsPatternPackages`]), and which `query` and a
+    /// `fuzz` pattern job ask in that entry's place ([`crate::pattern::declared_patterns`]),
+    /// asking it for a package only when they read the declared patterns; `None` for a front end
+    /// that compiles none, whose corpus with such an entry those commands refuse. kink-flow's own
+    /// front end reads K pattern lists only.
+    pub krs_patterns: Option<&'a dyn crate::pattern::KrsPatternPackages>,
 }
 
 impl Default for FrontEnd<'_> {
@@ -1312,7 +1313,7 @@ impl std::fmt::Debug for FrontEnd<'_> {
             .field("derived", &self.derived)
             .field("invariants", &self.invariants.map(|_| ".."))
             .field("implementations", &self.implementations.map(|_| ".."))
-            .field("krs_patterns", &self.krs_patterns)
+            .field("krs_patterns", &self.krs_patterns.map(|_| ".."))
             .finish()
     }
 }

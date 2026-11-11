@@ -11,9 +11,12 @@
 //! `query` discharges by a witness ([`crate::query`]). Decoding is strict, as for `FLOW.toml` and
 //! `MUTATIONS.toml`: an unknown key, a value of the wrong type, a duplicate or empty id or program
 //! id, `expect` beside `programs`, and a claimed program the manifest does not have are errors
-//! naming the key. A corpus declares its lists in `FLOW.toml` (`[[patterns]]`), and the patterns
-//! a command asks are assembled from them, or from the one list the command line names
-//! ([`declared`]).
+//! naming the key. Decoding reads a table's keys and the types of their values
+//! ([`WrittenPattern`]), and then checks the pattern ([`WrittenPattern::checked`]); a front end
+//! that compiles patterns written in another language (a KRS patterns package) gives them as
+//! written, and they pass the same checks. A corpus declares its lists in `FLOW.toml`
+//! (`[[patterns]]`), and the patterns a command asks are assembled from them, or from the one
+//! list the command line names ([`declared`]).
 //!
 //! **Chains** ([`chain`]): a `[[pattern]]` may write `steps = [{ pattern = "...", unless =
 //! "..." }, ...]` in place of `pattern`: some path of the run passes states matching each step in
@@ -323,7 +326,7 @@ pub mod explain;
 pub use chain::{
     CHAIN_DOMAIN, CHAIN_LOWERING_VERSION, LoweredChain, LoweredStep, LoweredUnless, StepText,
 };
-pub use declared::{KrsPatterns, PatternSource, declared_patterns};
+pub use declared::{KrsPatternPackages, KrsPatterns, PatternSource, declared_patterns};
 
 /// The lowering of a pattern's K text to its KORE target ([`Lowering`]), a component of every
 /// cached answer's key: it changes whenever kink changes how a pattern's text becomes a target.
@@ -478,11 +481,20 @@ fn known_keys(table: &Table, prefix: &str, known: &[&str]) -> Result<(), Manifes
     }
 }
 
-fn non_empty(value: &TomlValue, key: &str) -> Result<String, ManifestError> {
-    match value.as_str() {
-        Some(text) if !text.trim().is_empty() => Ok(text.to_owned()),
-        Some(_) => Err(ManifestError::new(key, "must not be empty")),
-        None => Err(ManifestError::new(key, "expected a string")),
+/// The string `value`, whose key is `key`: a value of another type is an error naming the key.
+fn string(value: &TomlValue, key: &str) -> Result<String, ManifestError> {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| ManifestError::new(key, "expected a string"))
+}
+
+/// `text`, whose key is `key`, when it is not empty (layout alone is empty).
+fn non_blank(text: String, key: &str) -> Result<String, ManifestError> {
+    if text.trim().is_empty() {
+        Err(ManifestError::new(key, "must not be empty"))
+    } else {
+        Ok(text)
     }
 }
 
@@ -551,18 +563,124 @@ impl PatternList {
     }
 }
 
+/// A `[[pattern]]` as written, its fields apart and not yet checked: what a list's table holds
+/// once its keys and the types of their values are read, and what a front end that compiles
+/// patterns written in another language gives (`krs kink`, a KRS patterns package's
+/// `k::patterns!` clauses). [`WrittenPattern::checked`] makes every check a pattern passes
+/// whatever wrote it, so a list's table and a front end's pattern pass the same checks.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WrittenPattern {
+    /// `id`.
+    pub id: String,
+    /// `pattern` or `steps`.
+    pub form: WrittenForm,
+    /// `programs`, when written.
+    pub programs: Option<Vec<String>>,
+    /// `expect`, when written, as written.
+    pub expect: Option<String>,
+    /// `note`, when written.
+    pub note: Option<String>,
+}
+
+/// What a [`WrittenPattern`] asks, as written: one pattern's text (key `pattern`) or a chain's
+/// steps (key `steps`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WrittenForm {
+    Pattern(String),
+    Steps(Vec<StepText>),
+}
+
+impl WrittenPattern {
+    /// The pattern, checked as every pattern is: a non-empty `id`; a non-empty `pattern`, or
+    /// `steps` decoded by the chain's rules ([`chain`], "Decoding": at least one step, each text
+    /// non-empty, no `unless` on the first step, and one step without `unless` is that step's
+    /// pattern); a non-empty `programs` of non-empty ids, none twice; an `expect` of `"no"`; and
+    /// no `expect` beside `programs`. An error names the key, as a list's decoding does, the id
+    /// by `position.id` (the id names every other key). The entry has no source
+    /// ([`PatternEntry::source`]).
+    pub fn checked(self, position: &str) -> Result<PatternEntry, ManifestError> {
+        let id = non_blank(self.id, &join(position, "id"))?;
+        let key = pattern_key(&id);
+        let form = match self.form {
+            WrittenForm::Pattern(text) => {
+                PatternForm::Single(non_blank(text, &join(&key, "pattern"))?)
+            }
+            WrittenForm::Steps(steps) => chain::checked_steps(steps, &join(&key, "steps"))?,
+        };
+        let programs = match self.programs {
+            None => None,
+            Some(ids) if ids.is_empty() => {
+                return Err(ManifestError::new(
+                    join(&key, "programs"),
+                    "must not be empty; leave it out to ask every program",
+                ));
+            }
+            Some(ids) => {
+                let mut seen = BTreeSet::new();
+                let ids = ids
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, id)| {
+                        let item = format!("{}[{i}]", join(&key, "programs"));
+                        let id = non_blank(id, &item)?;
+                        if seen.insert(id.clone()) {
+                            Ok(id)
+                        } else {
+                            Err(ManifestError::new(item, "duplicate program id"))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Some(ids)
+            }
+        };
+        let expect = self
+            .expect
+            .map(|text| {
+                PatternExpect::parse(&text).ok_or_else(|| {
+                    ManifestError::new(
+                        join(&key, "expect"),
+                        "expected \"no\": the answer the corpus gives the pattern",
+                    )
+                })
+            })
+            .transpose()?;
+        if expect.is_some() && programs.is_some() {
+            return Err(ManifestError::new(
+                join(&key, "expect"),
+                "a pattern with `programs` claims those programs hit it, which contradicts `expect = \
+                 \"no\"`: keep one of the two",
+            ));
+        }
+        Ok(PatternEntry {
+            id,
+            form,
+            programs,
+            expect,
+            note: self.note,
+            source: None,
+        })
+    }
+}
+
+/// The `[[pattern]]` table at `index` of a list: its keys and the types of their values read
+/// ([`WrittenPattern`]), then checked as every pattern is ([`WrittenPattern::checked`]).
 fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, ManifestError> {
     let position = format!("pattern[{index}]");
     let table = value
         .as_table()
         .ok_or_else(|| ManifestError::new(&position, "expected a table"))?;
-    let id = non_empty(
+    let id = string(
         table
             .get("id")
             .ok_or_else(|| ManifestError::new(join(&position, "id"), "missing required key"))?,
         &join(&position, "id"),
     )?;
-    let key = pattern_key(&id);
+    // The other keys are named by the id; an empty one, which `checked` refuses, by the position.
+    let key = if id.trim().is_empty() {
+        position.clone()
+    } else {
+        pattern_key(&id)
+    };
     known_keys(
         table,
         &key,
@@ -575,8 +693,10 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
                 "a pattern is either one `pattern` or a chain of `steps`: keep one of the two",
             ));
         }
-        (Some(pattern), None) => PatternForm::Single(non_empty(pattern, &join(&key, "pattern"))?),
-        (None, Some(steps)) => chain::decode_steps(steps, &join(&key, "steps"))?,
+        (Some(pattern), None) => WrittenForm::Pattern(string(pattern, &join(&key, "pattern"))?),
+        (None, Some(steps)) => {
+            WrittenForm::Steps(chain::written_steps(steps, &join(&key, "steps"))?)
+        }
         (None, None) => {
             return Err(ManifestError::new(
                 join(&key, "pattern"),
@@ -586,36 +706,16 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
     };
     let note = table
         .get("note")
-        .map(|value| match value.as_str() {
-            Some(text) => Ok(text.to_owned()),
-            None => Err(ManifestError::new(join(&key, "note"), "expected a string")),
-        })
+        .map(|value| string(value, &join(&key, "note")))
         .transpose()?;
     let programs = match table.get("programs") {
         None => None,
-        Some(TomlValue::Array(ids)) => {
-            if ids.is_empty() {
-                return Err(ManifestError::new(
-                    join(&key, "programs"),
-                    "must not be empty; leave it out to ask every program",
-                ));
-            }
-            let mut seen = BTreeSet::new();
-            let ids = ids
-                .iter()
+        Some(TomlValue::Array(ids)) => Some(
+            ids.iter()
                 .enumerate()
-                .map(|(i, id)| {
-                    let item = format!("{}[{i}]", join(&key, "programs"));
-                    let id = non_empty(id, &item)?;
-                    if seen.insert(id.clone()) {
-                        Ok(id)
-                    } else {
-                        Err(ManifestError::new(item, "duplicate program id"))
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Some(ids)
-        }
+                .map(|(i, id)| string(id, &format!("{}[{i}]", join(&key, "programs"))))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         Some(_) => {
             return Err(ManifestError::new(
                 join(&key, "programs"),
@@ -623,33 +723,25 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
             ));
         }
     };
-    let expect =
-        match table.get("expect") {
-            None => None,
-            Some(value) => Some(value.as_str().and_then(PatternExpect::parse).ok_or_else(
-                || {
-                    ManifestError::new(
-                        join(&key, "expect"),
-                        "expected \"no\": the answer the corpus gives the pattern",
-                    )
-                },
-            )?),
-        };
-    if expect.is_some() && programs.is_some() {
-        return Err(ManifestError::new(
-            join(&key, "expect"),
-            "a pattern with `programs` claims those programs hit it, which contradicts `expect = \
-             \"no\"`: keep one of the two",
-        ));
-    }
-    Ok(PatternEntry {
+    let expect = table
+        .get("expect")
+        .map(|value| {
+            value.as_str().map(str::to_owned).ok_or_else(|| {
+                ManifestError::new(
+                    join(&key, "expect"),
+                    "expected \"no\": the answer the corpus gives the pattern",
+                )
+            })
+        })
+        .transpose()?;
+    WrittenPattern {
         id,
         form,
         programs,
         expect,
         note,
-        source: None,
-    })
+    }
+    .checked(&position)
 }
 
 /// A pattern lowered to its KORE target.

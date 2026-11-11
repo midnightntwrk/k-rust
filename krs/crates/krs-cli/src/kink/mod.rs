@@ -70,8 +70,15 @@
 //!
 //! `query` and a `fuzz` pattern job ask the patterns the corpus manifest declares (`[[patterns]]`,
 //! kink-flow's `pattern::declared_patterns`), else, for a corpus that declares none, the layout's
-//! `PATTERNS.toml`; `--patterns` names another list in place of either. A `[[patterns]] krs`
-//! package is refused for now: krs does not build KRS patterns packages yet.
+//! `PATTERNS.toml`; `--patterns` names another list in place of either. Whether the corpus
+//! declares patterns is read from the decoded manifest, which the command reads before it parses
+//! the verb's options. A `[[patterns]] krs` entry names a KRS patterns package, which the front
+//! end composes with the definition and whose `k::patterns!` clauses it emits as kink patterns
+//! when kink-flow first asks for them, and only then (the `patterns` submodule): no other verb,
+//! and no command that names a list, builds it. Each clause passes the checks a pattern list's
+//! `[[pattern]]` passes, and a package that does not build or emit refuses its entry with the
+//! reason. The `query` document names such a pattern's bindings by the binders its clause writes
+//! (`annotate`).
 //!
 //! `query` keeps the `[query]` section (each pattern's obligation and its one recorded witness,
 //! kept while it still hits) when it reads the corpus's own patterns, unless the command
@@ -107,6 +114,7 @@ mod implementations;
 mod inputs;
 mod invariant;
 mod observe;
+mod patterns;
 mod render;
 mod spelling;
 mod stop;
@@ -453,7 +461,8 @@ fn selection_refused(
             outcome.json(&document, EXIT_UNASKED)
         }
         KinkVerb::Flow { verb, options } => {
-            if let Ok(command) = flow_arguments(&corpus, *verb, options, request.locked)
+            // The command asks no pattern, so no layout pattern list is given to be read.
+            if let Ok(command) = flow_arguments(&corpus, *verb, options, request.locked, true)
                 .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
             {
                 let document = refused(&command, "krs-build", "krs-refused", &detail);
@@ -491,25 +500,14 @@ fn flow_command(
     measurement: &mut Measurement,
 ) -> KinkOutcome {
     let corpus = paths.corpus;
-    let spelling = spelling::KrsSpelling::new(request)
-        .with_own_mutations(layout_files(corpus, Verb::Run).mutations);
-    let mut command = match flow_arguments(corpus, verb, options, request.locked)
-        .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))
-    {
-        Ok(command) => command,
+    let spelling =
+        spelling::KrsSpelling::new(request).with_own_mutations(layout_mutations(corpus, Verb::Run));
+    let (command, declared) = match parsed_command(request, corpus, verb, options) {
+        Ok(parsed) => parsed,
         Err(message) => return outcome.usage(&message),
     };
-    // A command that keeps the corpus record by default is given the file it kept its lock in
-    // before version 24, so that kink-flow migrates it (its killers are read while the record
-    // has no section of the command) or, under `--locked`, refuses the corpus while it is there.
-    if let Some(legacy) = legacy_lock(corpus, verb, options) {
-        command.set_legacy_lock(legacy);
-    }
     let output = command.output();
-    // The corpus manifest is read before the package is built, so a corpus that cannot run is
-    // refused without a build.
-    let manifest_path = corpus.join(MANIFEST_FILE);
-    let declared = match corpus_manifest(&manifest_path, &request.root.definition) {
+    let declared = match declared {
         Ok(declared) => declared,
         Err(error) => {
             let document = command.manifest_refused(&error);
@@ -573,6 +571,11 @@ fn flow_command(
     }
     let definition = emit::definition_value(&shown, status);
     let observers = render::Observers::new(selection_request(request), outcome.sources.clone());
+    let packages = Arc::new(patterns::KrsPackages::new(
+        &declared.patterns,
+        selection_request(request),
+        outcome.sources.clone(),
+    ));
     // The lock's path as kink-flow reads it, and as documents show it: relative to the root
     // package, as `definition.path` is.
     let lock = corpus.join(LOCK_FILE);
@@ -587,6 +590,7 @@ fn flow_command(
             emitted: &emitted,
             kept,
             observers,
+            packages,
             lock,
         },
         &spelling,
@@ -594,6 +598,35 @@ fn flow_command(
         outcome,
         measurement,
     )
+}
+
+/// The verb's options parsed as kink-flow parses them, with the corpus manifest decoded
+/// beside them (or why it does not decode); the error is the usage message.
+///
+/// The corpus manifest is read before the package is built, so a corpus that cannot run is
+/// refused without a build, and before the options are parsed, since whether the layout's
+/// pattern list is the command's depends on whether the manifest declares patterns
+/// ([`layout_files`]). A manifest that does not decode is refused once the options parse; its
+/// layout gives no pattern list, which would only be read to be refused first.
+fn parsed_command(
+    request: &KinkRequest,
+    corpus: &Path,
+    verb: Verb,
+    options: &[String],
+) -> Result<(FlowCommand, Result<ManifestFile, ManifestError>), String> {
+    let declared = corpus_manifest(&corpus.join(MANIFEST_FILE), &request.root.definition);
+    let declares_patterns = declared
+        .as_ref()
+        .map_or(true, |declared| !declared.patterns.is_empty());
+    let mut command = flow_arguments(corpus, verb, options, request.locked, declares_patterns)
+        .and_then(|(files, options)| FlowCommand::parse(verb.as_str(), files, &options))?;
+    // A command that keeps the corpus record by default is given the file it kept its lock in
+    // before version 24, so that kink-flow migrates it (its killers are read while the record
+    // has no section of the command) or, under `--locked`, refuses the corpus while it is there.
+    if let Some(legacy) = legacy_lock(corpus, verb, options) {
+        command.set_legacy_lock(legacy);
+    }
+    Ok((command, declared))
 }
 
 /// Whether `command` judges a mutation list or the definition's condition flips, so that the
@@ -693,12 +726,14 @@ struct KeptLowering {
 }
 
 /// A command's emission and, when it judges mutations, the lowering kept with it, which
-/// [`run_flow`] releases once the front end's checks are made; and the observers the corpus's
-/// expectations name, prepared when one first names each.
+/// [`run_flow`] releases once the front end's checks are made; the observers the corpus's
+/// expectations name, prepared when one first names each; and the corpus's KRS patterns
+/// packages, each prepared when kink-flow first asks for its patterns ([`patterns`]).
 struct Built<'a> {
     emitted: &'a EmittedDefinition,
     kept: Option<KeptLowering>,
     observers: render::Observers,
+    packages: Arc<patterns::KrsPackages>,
     /// The corpus record's path as kink-flow reads it, and as documents show it.
     lock: (String, String),
 }
@@ -718,6 +753,7 @@ fn run_flow(
         emitted,
         kept,
         observers,
+        packages,
         lock,
     } = built;
     let output = command.output();
@@ -726,7 +762,7 @@ fn run_flow(
     let sources = outcome.sources.clone();
     let (guard_names, syntax) = front_syntax(emitted, &sources);
     let (manifest, names, resolvers) =
-        match bound_manifest(&command, declared, emitted, observers, &syntax) {
+        match bound_manifest(&command, declared, emitted, observers, &syntax, &packages) {
             Ok(bound) => bound,
             Err(mut document) => {
                 document["definition"] = definition;
@@ -737,7 +773,8 @@ fn run_flow(
     let annotator = naming_guards(
         names
             .annotator(emitted, &manifest, judged_list(&command))
-            .naming_syntax(syntax),
+            .naming_syntax(syntax)
+            .naming_patterns(Arc::clone(&packages)),
         &command,
         guard_names,
     );
@@ -748,32 +785,21 @@ fn run_flow(
         sources: &sources,
     });
     // `check --mutations`: kink-flow's check, with the front end's findings added to each row.
-    if let (FlowCommand::Check(options), Some(baseline)) = (&command, &baseline)
-        && let Some(path) = &options.mutations
-    {
-        let checked = measurement.timings.span("kink.check", |_| {
-            kink_flow::on_stack(|| {
-                let mut checked = kink_flow::cli::check_corpus_mutations(
-                    &manifest,
-                    MutationList::read(path),
-                    options.cache.as_deref(),
-                );
-                if let Some(rows) = checked.mutations.as_mut() {
-                    judged_checks(baseline, &manifest, options.cache.as_deref())
-                        .annotate_check(rows);
-                }
-                let (mut document, status) =
-                    kink_flow::cli::check_mutations_document(&checked, spelling);
-                annotator.annotate(&mut document);
-                (document, status)
-            })
-        });
-        let Some((mut document, status_code)) = checked else {
-            outcome
-                .notes
-                .push("krs kink: the check thread panicked".into());
-            outcome.status = EXIT_UNASKED;
-            return outcome;
+    if let Some(checked) = checked_mutations(
+        &command,
+        baseline.as_ref(),
+        &manifest,
+        spelling,
+        &annotator,
+        measurement,
+    ) {
+        let (mut document, status_code) = match checked {
+            Ok(checked) => checked,
+            Err(note) => {
+                outcome.notes.push(note.into());
+                outcome.status = EXIT_UNASKED;
+                return outcome;
+            }
         };
         document["definition"] = definition;
         return finish(outcome, &document, status_code, output);
@@ -821,6 +847,40 @@ fn run_flow(
         }
     };
     finish(outcome, &document, status_code, output)
+}
+
+/// The document and exit status of `check --mutations` (kink-flow's check, with the front end's
+/// findings over `baseline` added to each row, annotated by `annotator`), or the note that the
+/// check thread panicked; `None` for another command.
+fn checked_mutations(
+    command: &FlowCommand,
+    baseline: Option<&checks::Baseline<'_>>,
+    manifest: &kink_flow::FlowManifest,
+    spelling: &spelling::KrsSpelling,
+    annotator: &annotate::Annotator,
+    measurement: &mut Measurement,
+) -> Option<Result<(Value, u8), &'static str>> {
+    let (FlowCommand::Check(options), Some(baseline)) = (command, baseline) else {
+        return None;
+    };
+    let path = options.mutations.as_ref()?;
+    Some(measurement.timings.span("kink.check", |_| {
+        kink_flow::on_stack(|| {
+            let mut checked = kink_flow::cli::check_corpus_mutations(
+                manifest,
+                MutationList::read(path),
+                options.cache.as_deref(),
+            );
+            if let Some(rows) = checked.mutations.as_mut() {
+                judged_checks(baseline, manifest, options.cache.as_deref()).annotate_check(rows);
+            }
+            let (mut document, status) =
+                kink_flow::cli::check_mutations_document(&checked, spelling);
+            annotator.annotate(&mut document);
+            (document, status)
+        })
+        .ok_or("krs kink: the check thread panicked")
+    }))
 }
 
 /// `annotator`, naming the guard nodes of the rows by KRS construct by `guard_names` where
@@ -997,6 +1057,7 @@ fn bound_manifest(
     emitted: &EmittedDefinition,
     observers: render::Observers,
     syntax: &syntax::KrsSyntax,
+    packages: &Arc<patterns::KrsPackages>,
 ) -> Result<(kink_flow::FlowManifest, BoundNames, Resolvers), Value> {
     let manifest = declared
         .bind(Some(bound_spec(emitted)))
@@ -1021,7 +1082,6 @@ fn bound_manifest(
     let implementations =
         implementations::KrsImplementations::new(Arc::clone(&decoder), Arc::clone(&observers));
     let invariants = invariant::KrsInvariants::new(decoder);
-    let krs_patterns = krs_patterns(&manifest);
     Ok((
         manifest,
         BoundNames {
@@ -1032,19 +1092,19 @@ fn bound_manifest(
         Resolvers {
             invariants,
             implementations,
-            krs_patterns,
+            krs_patterns: Arc::clone(packages),
         },
     ))
 }
 
 /// The resolvers of a corpus's KRS spellings over the decoder's compile: of
 /// `[[coverage.invariant]]` ([`invariant`]), and `compare`'s cell vocabulary
-/// ([`implementations`]); and the patterns of the corpus's KRS patterns packages
-/// ([`krs_patterns`]).
+/// ([`implementations`]); and the corpus's KRS patterns packages, each prepared when kink-flow
+/// first asks for its patterns ([`patterns`]).
 struct Resolvers {
     invariants: invariant::KrsInvariants,
     implementations: implementations::KrsImplementations,
-    krs_patterns: kink_flow::pattern::KrsPatterns,
+    krs_patterns: Arc<patterns::KrsPackages>,
 }
 
 impl Resolvers {
@@ -1053,7 +1113,7 @@ impl Resolvers {
         FrontEnd {
             invariants: Some(&self.invariants),
             implementations: Some(&self.implementations),
-            krs_patterns: Some(&self.krs_patterns),
+            krs_patterns: Some(&*self.krs_patterns),
             ..FrontEnd::default()
         }
     }
@@ -1213,14 +1273,16 @@ const fn operand_flag(verb: Verb) -> Option<&'static str> {
     }
 }
 
-/// The files `verb` reads ([`layout_files`]), the list its [`operand_flag`] names replacing the
-/// layout's, and the options left for kink-flow's parser; the error is the usage message.
+/// The files `verb` reads ([`layout_files`], on a corpus whose manifest declares its patterns
+/// where `declares_patterns`), the list its [`operand_flag`] names replacing the layout's, and
+/// the options left for kink-flow's parser; the error is the usage message.
 fn command_files(
     corpus: &Path,
     verb: Verb,
     options: &[String],
+    declares_patterns: bool,
 ) -> Result<(CommandFiles, Vec<String>), String> {
-    let mut files = layout_files(corpus, verb);
+    let mut files = layout_files(corpus, verb, declares_patterns);
     let Some(flag) = operand_flag(verb) else {
         return Ok((files, options.to_vec()));
     };
@@ -1263,8 +1325,9 @@ fn flow_arguments(
     verb: Verb,
     options: &[String],
     locked: bool,
+    declares_patterns: bool,
 ) -> Result<(CommandFiles, Vec<String>), String> {
-    let (files, mut rest) = command_files(corpus, verb, options)?;
+    let (files, mut rest) = command_files(corpus, verb, options, declares_patterns)?;
     let named = |flag: &str| options.iter().any(|arg| arg == flag);
     // The lock a verb keeps by default: none for a run of another list.
     let default = match verb {
@@ -1303,31 +1366,21 @@ fn legacy_lock(corpus: &Path, verb: Verb, options: &[String]) -> Option<PathBuf>
 }
 
 /// The files a verb reads from the corpus layout: the mutations directory `mutations/`, else
-/// `MUTATIONS.toml`; `PATTERNS.toml`; `TEMPLATES.toml`. A verb that needs a list gets its
-/// layout path even when it is missing, so that kink-flow's refusal names the file the layout
-/// expects; a verb that only may read one gets it only when it exists. A verb's own flag
-/// (`--mutations`, `--patterns`, `--templates`) takes precedence ([`command_files`]).
+/// `MUTATIONS.toml` ([`layout_mutations`]); `PATTERNS.toml`; `TEMPLATES.toml`. A verb that needs
+/// a list gets its layout path even when it is missing, so that kink-flow's refusal names the
+/// file the layout expects; a verb that only may read one gets it only when it exists. A verb's
+/// own flag (`--mutations`, `--patterns`, `--templates`) takes precedence ([`command_files`]).
 ///
-/// A corpus whose manifest declares its patterns (`[[patterns]]`) has no layout pattern list:
-/// kink-flow then asks the declared patterns, and `PATTERNS.toml` is read only where `--patterns`
-/// names it. The layout's `PATTERNS.toml` is the default of a corpus that declares none.
-fn layout_files(corpus: &Path, verb: Verb) -> CommandFiles {
-    let directory = corpus.join("mutations");
-    let single = corpus.join("MUTATIONS.toml");
-    let mutations = if directory.is_dir() {
-        Some(directory)
-    } else if single.is_file() {
-        Some(single)
-    } else if verb == Verb::Run {
-        Some(directory)
-    } else {
-        None
-    };
+/// A corpus whose manifest declares its patterns (`[[patterns]]`, `declares_patterns`) has no
+/// layout pattern list: kink-flow then asks the declared patterns, and `PATTERNS.toml` is read
+/// only where `--patterns` names it. The layout's `PATTERNS.toml` is the default of a corpus that
+/// declares none.
+fn layout_files(corpus: &Path, verb: Verb, declares_patterns: bool) -> CommandFiles {
     let optional = |path: PathBuf| path.is_file().then_some(path);
     CommandFiles {
-        mutations,
+        mutations: layout_mutations(corpus, verb),
         patterns: match verb {
-            _ if declares_patterns(corpus) => None,
+            _ if declares_patterns => None,
             Verb::Query => Some(corpus.join("PATTERNS.toml")),
             _ => optional(corpus.join("PATTERNS.toml")),
         },
@@ -1335,35 +1388,21 @@ fn layout_files(corpus: &Path, verb: Verb) -> CommandFiles {
     }
 }
 
-/// Whether the corpus manifest declares its patterns: its top level has the key `patterns`. A
-/// manifest that cannot be read or is no TOML declares none here; the command refuses it when it
-/// decodes the manifest, as it refuses a `patterns` that is no array of `[[patterns]]` tables.
-fn declares_patterns(corpus: &Path) -> bool {
-    std::fs::read_to_string(corpus.join(MANIFEST_FILE))
-        .ok()
-        .and_then(|text| text.parse::<toml::Table>().ok())
-        .is_some_and(|top| top.contains_key("patterns"))
-}
-
-/// The patterns krs provides for each `[[patterns]] krs` package of `manifest`
-/// ([`kink_flow::pattern::KrsPatterns`]): none yet, since krs does not build a patterns package,
-/// so each entry is refused with that reason rather than skipped.
-fn krs_patterns(manifest: &kink_flow::FlowManifest) -> kink_flow::pattern::KrsPatterns {
-    manifest
-        .patterns
-        .iter()
-        .filter_map(|entry| match entry {
-            kink_flow::PatternsEntry::Krs { package } => Some((
-                package.clone(),
-                Err(format!(
-                    "the KRS patterns package {package:?}: krs kink does not build KRS patterns \
-                     packages yet; declare the patterns as kink pattern lists (`[[patterns]] \
-                     files = \"GLOB\"`) until it does"
-                )),
-            )),
-            kink_flow::PatternsEntry::Files { .. } => None,
-        })
-        .collect()
+/// The mutation list of the corpus layout: the mutations directory `mutations/`, else
+/// `MUTATIONS.toml`; for `run`, which needs one, `mutations/` when neither exists, so that the
+/// refusal names it.
+fn layout_mutations(corpus: &Path, verb: Verb) -> Option<PathBuf> {
+    let directory = corpus.join("mutations");
+    let single = corpus.join("MUTATIONS.toml");
+    if directory.is_dir() {
+        Some(directory)
+    } else if single.is_file() {
+        Some(single)
+    } else if verb == Verb::Run {
+        Some(directory)
+    } else {
+        None
+    }
 }
 
 /// The corpus manifest at `path`, decoded by kink-flow, when it declares a KRS corpus for the
@@ -1534,7 +1573,7 @@ fn finish(
 
 #[cfg(test)]
 mod tests {
-    use super::{MANIFEST_FILE, Verb, command_files, layout_files, shown_lock};
+    use super::{Verb, command_files, layout_files, shown_lock};
     use serde_json::json;
     use std::path::{Path, PathBuf};
 
@@ -1579,13 +1618,19 @@ mod tests {
                 "--output",
                 "verdicts",
             ]),
+            false,
         )
         .unwrap();
         assert_eq!(files.mutations, Some(PathBuf::from("other.toml")));
         assert_eq!(rest, strings(&["--full", "--output", "verdicts"]));
 
-        let (files, rest) =
-            command_files(corpus, Verb::Query, &strings(&["--patterns", "p.toml"])).unwrap();
+        let (files, rest) = command_files(
+            corpus,
+            Verb::Query,
+            &strings(&["--patterns", "p.toml"]),
+            false,
+        )
+        .unwrap();
         assert_eq!(files.patterns, Some(PathBuf::from("p.toml")));
         assert!(rest.is_empty());
 
@@ -1593,27 +1638,34 @@ mod tests {
             corpus,
             Verb::Fuzz,
             &strings(&["--templates", "t.toml", "--template", "a"]),
+            false,
         )
         .unwrap();
         assert_eq!(files.templates, Some(PathBuf::from("t.toml")));
         assert_eq!(rest, strings(&["--template", "a"]));
 
         // check's flag is kink-flow's own, so it stays among the options.
-        let (files, rest) =
-            command_files(corpus, Verb::Check, &strings(&["--mutations", "m.toml"])).unwrap();
+        let (files, rest) = command_files(
+            corpus,
+            Verb::Check,
+            &strings(&["--mutations", "m.toml"]),
+            false,
+        )
+        .unwrap();
         assert_eq!(files.mutations, None);
         assert_eq!(rest, strings(&["--mutations", "m.toml"]));
 
         // Without the flag the layout's list stands.
-        let (files, _) = command_files(corpus, Verb::Run, &[]).unwrap();
+        let (files, _) = command_files(corpus, Verb::Run, &[], false).unwrap();
         assert_eq!(files.mutations, Some(corpus.join("mutations")));
 
-        assert!(command_files(corpus, Verb::Run, &strings(&["--mutations"])).is_err());
+        assert!(command_files(corpus, Verb::Run, &strings(&["--mutations"]), false).is_err());
         assert!(
             command_files(
                 corpus,
                 Verb::Run,
-                &strings(&["--mutations", "a", "--mutations", "b"])
+                &strings(&["--mutations", "a", "--mutations", "b"]),
+                false,
             )
             .is_err()
         );
@@ -1621,36 +1673,37 @@ mod tests {
 
     /// A corpus whose manifest declares its patterns (`[[patterns]]`) has no layout pattern
     /// list, so kink-flow asks the declared patterns; one that declares none keeps the layout's
-    /// `PATTERNS.toml`; `--patterns` names the list in either case.
+    /// `PATTERNS.toml` (for `query` also when it is missing, so that the refusal names it);
+    /// `--patterns` names the list in either case.
     #[test]
     fn declared_patterns_replace_the_layouts_pattern_list() {
         let corpus =
             std::env::temp_dir().join(format!("krs-cli-declared-patterns-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&corpus);
         std::fs::create_dir_all(&corpus).unwrap();
-        std::fs::write(corpus.join("PATTERNS.toml"), "").unwrap();
-        let spec = "[spec]\nkrs = { definition = \"main\" }\n";
-        std::fs::write(corpus.join(MANIFEST_FILE), spec).unwrap();
+        let layout = corpus.join("PATTERNS.toml");
         assert_eq!(
-            layout_files(&corpus, Verb::Query).patterns,
-            Some(corpus.join("PATTERNS.toml"))
+            layout_files(&corpus, Verb::Query, false).patterns,
+            Some(layout.clone())
         );
+        assert_eq!(layout_files(&corpus, Verb::Fuzz, false).patterns, None);
+        std::fs::write(&layout, "").unwrap();
         assert_eq!(
-            layout_files(&corpus, Verb::Fuzz).patterns,
-            Some(corpus.join("PATTERNS.toml"))
+            layout_files(&corpus, Verb::Fuzz, false).patterns,
+            Some(layout.clone())
         );
-        std::fs::write(
-            corpus.join(MANIFEST_FILE),
-            format!("{spec}\n[[patterns]]\nfiles = \"patterns/*.toml\"\n"),
-        )
-        .unwrap();
         for verb in [Verb::Query, Verb::Fuzz] {
-            assert_eq!(layout_files(&corpus, verb).patterns, None, "{verb:?}");
-            let (files, _) = command_files(&corpus, verb, &[]).unwrap();
+            assert_eq!(layout_files(&corpus, verb, true).patterns, None, "{verb:?}");
+            let (files, _) = command_files(&corpus, verb, &[], true).unwrap();
             assert_eq!(files.patterns, None, "{verb:?}");
         }
-        let (files, rest) =
-            command_files(&corpus, Verb::Query, &strings(&["--patterns", "p.toml"])).unwrap();
+        let (files, rest) = command_files(
+            &corpus,
+            Verb::Query,
+            &strings(&["--patterns", "p.toml"]),
+            true,
+        )
+        .unwrap();
         assert_eq!(files.patterns, Some(PathBuf::from("p.toml")));
         assert!(rest.is_empty());
         let _ = std::fs::remove_dir_all(&corpus);

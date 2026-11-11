@@ -2372,8 +2372,8 @@ fn assert_witness_names_its_k_cell(row: &Value) {
 
 /// A corpus that declares its patterns in FLOW.toml (`[[patterns]] files`) is queried on them,
 /// not on the layout's PATTERNS.toml, and keeps their obligations in its lock; `--patterns`
-/// still names another list. A `[[patterns]] krs` package is refused, not skipped: krs does not
-/// build a patterns package yet.
+/// still names another list. A `[[patterns]] krs` package the Cargo graph does not have is
+/// refused with the reason, not skipped (`tests/kink_patterns.rs` asks a package's patterns).
 #[test]
 fn query_asks_the_patterns_flow_toml_declares() {
     let project = counter();
@@ -2437,7 +2437,10 @@ fn query_asks_the_patterns_flow_toml_declares() {
     let detail = document["pattern_list"]["detail"].as_str().unwrap();
     assert!(detail.starts_with("patterns[1].krs: "), "{document:#}");
     assert!(
-        detail.contains("krs kink does not build KRS patterns packages yet"),
+        detail.contains(
+            "the KRS patterns package `counter-patterns` cannot be prepared: no package \
+             `counter-patterns` is in the package graph"
+        ),
         "{document:#}"
     );
 }

@@ -23,7 +23,9 @@
 //! digest or key holds it.
 //!
 //! **KRS packages.** A `krs` entry names a KRS patterns package, whose patterns only a front end
-//! that compiles KRS provides ([`KrsPatterns`], `crate::cli::FrontEnd::krs_patterns`). kink-flow
+//! that compiles KRS provides ([`KrsPatternPackages`], `crate::cli::FrontEnd::krs_patterns`).
+//! The front end is asked for a package only when the assembly reaches its entry, so a command
+//! that names a list, and every command that asks no pattern, makes it compile none. kink-flow
 //! itself compiles none, so it refuses such an entry, naming the krs front end's command: a
 //! declared obligation is never silently skipped.
 
@@ -77,12 +79,28 @@ impl PatternSource {
     }
 }
 
-/// The patterns a front end compiled for each `[[patterns]] krs` package, by the package as the
-/// manifest names it: the package's patterns, each with its [`PatternSource::Krs`] source, in the
-/// order the package writes them, or why the front end provides none. The front end has already
-/// decoded them, so kink-flow takes them as they are, and checks only that their ids are unique
-/// across the corpus's patterns and that their claims name programs of the corpus.
+/// The patterns a front end compiles for the `[[patterns]] krs` packages of a manifest
+/// ([`declared_patterns`]): for the package `package`, as the manifest names it, the package's
+/// patterns, each with its [`PatternSource::Krs`] source, in the order the package writes them,
+/// or why the front end provides none; `None` for a package the front end was not given. The
+/// front end has checked each pattern as a list's is ([`super::WrittenPattern::checked`]), so
+/// kink-flow takes them as they are, and checks only that their ids are unique across the
+/// corpus's patterns and that their claims name programs of the corpus. It is asked only for a
+/// package whose entry the assembly reaches, so a front end may compile a package when first
+/// asked, and must give the same answer when asked again.
+pub trait KrsPatternPackages: Sync {
+    /// The patterns of `package`, or why there are none; `None` for a package not given.
+    fn patterns(&self, package: &str) -> Option<&Result<Vec<PatternEntry>, String>>;
+}
+
+/// Each package's patterns, compiled beforehand ([`KrsPatternPackages`]).
 pub type KrsPatterns = BTreeMap<String, Result<Vec<PatternEntry>, String>>;
+
+impl KrsPatternPackages for KrsPatterns {
+    fn patterns(&self, package: &str) -> Option<&Result<Vec<PatternEntry>, String>> {
+        self.get(package)
+    }
+}
 
 /// The refusal of a `[[patterns]] krs` entry where no front end provides KRS patterns.
 pub const NO_KRS_FRONT_END: &str = "a KRS patterns package, which only the krs front end \
@@ -94,13 +112,13 @@ pub const NO_PATTERNS: &str = "the corpus declares no patterns: declare them in 
      a KRS patterns package), or name a pattern list";
 
 /// The patterns a command asks (module docs): the list at `explicit` when the command line
-/// names one, else the manifest's `[[patterns]]`, with `krs` the patterns the front end compiled
-/// for each `krs` entry (`None` for a front end that compiles none). The error names the key, and
-/// for a declared list's own error, the list.
+/// names one, else the manifest's `[[patterns]]`, with `krs` the front end that compiles each
+/// `krs` entry's package (`None` for a front end that compiles none). The error names the key,
+/// and for a declared list's own error, the list.
 pub fn declared_patterns(
     manifest: &FlowManifest,
     explicit: Option<&Path>,
-    krs: Option<&KrsPatterns>,
+    krs: Option<&dyn KrsPatternPackages>,
 ) -> Result<PatternList, ManifestError> {
     if let Some(path) = explicit {
         return PatternList::read_as(path, &shown_path(&manifest.directory, path));
@@ -139,7 +157,7 @@ pub fn declared_patterns(
                 let key = declared.key(index);
                 let provided = krs
                     .ok_or_else(|| ManifestError::new(&key, NO_KRS_FRONT_END))?
-                    .get(package)
+                    .patterns(package)
                     .ok_or_else(|| {
                         ManifestError::new(
                             &key,

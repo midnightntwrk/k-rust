@@ -1062,17 +1062,28 @@ impl ObserverFailure {
     /// (the command's) and the observer's source roots, or the refusal's own text when it has
     /// none.
     fn render(self, sources: &crate::DiagnosticSources) -> String {
-        let Some(diagnostics) = self.error.diagnostics() else {
-            return self.error.to_string();
-        };
-        let mut all = sources.clone();
-        all.extend(self.sources);
-        diagnostics
-            .iter()
-            .map(|diagnostic| all.render_envelope(diagnostic, false))
-            .collect::<Vec<_>>()
-            .join("\n")
+        rendered_refusal(&self.error, sources, self.sources)
     }
+}
+
+/// The refusal `error` as text: each diagnostic rendered with `sources` (the command's) and
+/// `own`, the source roots of the packages the refused composition planned, or the refusal's own
+/// text when it has none.
+fn rendered_refusal(
+    error: &CommandError,
+    sources: &crate::DiagnosticSources,
+    own: crate::DiagnosticSources,
+) -> String {
+    let Some(diagnostics) = error.diagnostics() else {
+        return error.to_string();
+    };
+    let mut all = sources.clone();
+    all.extend(own);
+    diagnostics
+        .iter()
+        .map(|diagnostic| all.render_envelope(diagnostic, false))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// What a view function must be, said where the observer refuses a function that is program
@@ -1197,26 +1208,47 @@ fn prepare_observer_with(
         return Ok(None);
     }
     let refuse = |error: CommandError| observer_refusal(name, &error);
-    let measurement = &mut Measurement::disabled();
     let metadata = cargo_metadata(&request.manifest_path).map_err(refuse)?;
-    // The observer composes the given facets its own closure holds; another observer of the
-    // command may compose the others.
+    let (prepared, _) =
+        composed_facet(request, selector, &metadata, sources, composed).map_err(refuse)?;
+    require_route(prepared.lowered.definition(), Route::NativeRust).map_err(refuse)?;
+    let definition = prepared.lowered.definition().clone();
+    // A store inside the workspace is not used, as for the definition the case runs on, whose
+    // command warns about it.
+    let cache = StageCache::new(&definition, workspace_root).ok().flatten();
+    Ok(Some(exec::ObserverDefinition { definition, cache }))
+}
+
+/// The facet `selector` prepared as every command prepares its root facet, composed with the
+/// definition `request` selects and the dependency facets `request` gives that `selector`'s
+/// package's own dependency closure holds (a facet outside it may be another composition's,
+/// such as another observer's), which `composed` records, with `selector` itself where `request`
+/// gives it as a dependency; `sources` records the composition's source roots once it is
+/// planned. Returns the prepared definition and the composition's plan.
+fn composed_facet(
+    request: &CommandRequest,
+    selector: FacetSelector,
+    metadata: &crate::CargoMetadata,
+    sources: &mut crate::DiagnosticSources,
+    composed: &mut Vec<FacetSelector>,
+) -> Result<(PreparedDefinition, CollectorPlan), CommandError> {
+    let measurement = &mut Measurement::disabled();
     let given = request
         .dependencies
         .iter()
         .filter(|dependency| **dependency != selector)
         .cloned()
         .collect::<Vec<_>>();
-    let (held, _) = crate::plan::split_by_closure(&metadata, &selector.package, &given)
-        .map_err(|error| refuse(CommandError::Planning(error)))?;
+    let (held, _) = crate::plan::split_by_closure(metadata, &selector.package, &given)
+        .map_err(CommandError::Planning)?;
     let mut dependencies = vec![request.root.clone()];
     dependencies.extend(held.iter().cloned());
-    // The observer's own facet, given as a dependency too, is the observer: it is composed.
+    // The facet itself, given as a dependency too, is the composition's root: it is composed.
     composed.extend(held);
     if request.dependencies.contains(&selector) {
         composed.push(selector.clone());
     }
-    let observer = CommandRequest {
+    let composition = CommandRequest {
         command: Command::Check {
             backend: None,
             partition: false,
@@ -1226,32 +1258,150 @@ fn prepare_observer_with(
         ..request.clone()
     };
     let plan = plan_collector(
-        &observer,
-        &observer.dependencies,
-        &metadata,
+        &composition,
+        &composition.dependencies,
+        metadata,
         &mut measurement.timings,
-    )
-    .map_err(refuse)?;
+    )?;
     *sources = crate::DiagnosticSources::from_plan(&plan);
-    let directory = generate_collector(&metadata, &plan, measurement).map_err(refuse)?;
-    let executable =
-        build_collector_measured(&directory, &plan, None, measurement).map_err(refuse)?;
-    let collected = run_collector(&directory, &executable, measurement).map_err(refuse)?;
+    let directory = generate_collector(metadata, &plan, measurement)?;
+    let executable = build_collector_measured(&directory, &plan, None, measurement)?;
+    let collected = run_collector(&directory, &executable, measurement)?;
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
         &plan,
-        observer.profile,
+        composition.profile,
         false,
         measurement,
-    )
-    .map_err(refuse)?;
-    require_route(prepared.lowered.definition(), Route::NativeRust).map_err(refuse)?;
-    let definition = prepared.lowered.definition().clone();
-    // A store inside the workspace is not used, as for the definition the case runs on, whose
-    // command warns about it.
-    let cache = StageCache::new(&definition, workspace_root).ok().flatten();
-    Ok(Some(exec::ObserverDefinition { definition, cache }))
+    )?;
+    Ok((prepared, plan))
+}
+
+/// A KRS patterns package's Definition IR, prepared for `krs kink` ([`patterns_definition`]),
+/// and the source root of each package of its composition, by Cargo package name.
+#[cfg(feature = "kink")]
+pub(crate) struct PatternsDefinition {
+    pub(crate) definition: krs_ir_levels::DefinitionIr,
+    pub(crate) roots: BTreeMap<String, PathBuf>,
+}
+
+/// The KRS patterns package `package` (a Cargo package name) for the definition `request`
+/// selects: the package's one KRS definition facet composed with that definition and the
+/// dependency facets its closure holds, as an observer is ([`composed_facet`]), for its
+/// Definition IR only (no stage is compiled); or its refusal as text, each diagnostic noting the
+/// package and rendered with `sources` (the command's) and the package's source roots. A
+/// patterns package is one of the package graph Cargo resolves for `--manifest-path`, other than
+/// the definition's own, and declares exactly one definition facet.
+#[cfg(feature = "kink")]
+pub(crate) fn patterns_definition(
+    request: &CommandRequest,
+    package: &str,
+    sources: &crate::DiagnosticSources,
+) -> Result<PatternsDefinition, String> {
+    let mut own = crate::DiagnosticSources::default();
+    let mut composed = Vec::new();
+    let refuse = |error: CommandError| patterns_refusal(package, &error);
+    let prepared = cargo_metadata(&request.manifest_path)
+        .and_then(|metadata| {
+            let selector = patterns_facet(request, &metadata, package)?;
+            composed_facet(request, selector, &metadata, &mut own, &mut composed)
+        })
+        .map_err(refuse);
+    match prepared {
+        Ok((prepared, plan)) => Ok(PatternsDefinition {
+            definition: prepared.lowered.definition().clone(),
+            roots: plan
+                .facets()
+                .iter()
+                .filter_map(|facet| {
+                    Some((
+                        facet.package_name.clone(),
+                        facet.manifest_path.parent()?.to_path_buf(),
+                    ))
+                })
+                .collect(),
+        }),
+        Err(error) => Err(rendered_refusal(&error, sources, own)),
+    }
+}
+
+/// The facet of the patterns package `package` ([`patterns_definition`]): the one definition
+/// facet the package declares in `metadata`.
+#[cfg(feature = "kink")]
+fn patterns_facet(
+    request: &CommandRequest,
+    metadata: &crate::CargoMetadata,
+    package: &str,
+) -> Result<FacetSelector, CommandError> {
+    if matches!(&request.root.package, crate::PackageSelector::Name(root) if root == package) {
+        return Err(CommandError::InvalidRequest(format!(
+            "the KRS patterns package `{package}` is the definition's own package: patterns are written in a package of their own, which depends on the definition's"
+        )));
+    }
+    let mut facets = metadata
+        .packages
+        .iter()
+        .filter(|candidate| candidate.name == package)
+        .flat_map(|candidate| {
+            candidate
+                .metadata
+                .get("krs")
+                .and_then(|krs| krs.get("definitions"))
+                .and_then(serde_json::Value::as_object)
+                .into_iter()
+                .flat_map(|definitions| definitions.keys().cloned())
+        })
+        .collect::<Vec<_>>();
+    facets.sort();
+    facets.dedup();
+    match facets.as_slice() {
+        [definition] => Ok(FacetSelector {
+            package: crate::PackageSelector::Name(package.to_owned()),
+            definition: definition.clone(),
+        }),
+        [] if !metadata
+            .packages
+            .iter()
+            .any(|candidate| candidate.name == package) =>
+        {
+            Err(CommandError::InvalidRequest(format!(
+                "no package `{package}` is in the package graph Cargo resolves for --manifest-path: a KRS patterns package is a workspace member or a dependency of one, as the definition it reads is"
+            )))
+        }
+        [] => Err(CommandError::InvalidRequest(format!(
+            "the package `{package}` declares no KRS definition facet: a KRS patterns package declares one (`[package.metadata.krs.definitions.NAME]`)"
+        ))),
+        several => Err(CommandError::InvalidRequest(format!(
+            "the package `{package}` declares the KRS definition facets {}: a KRS patterns package declares one",
+            several
+                .iter()
+                .map(|facet| format!("`{facet}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
+/// The patterns package `package`'s refusal `error`: each of its diagnostics noting the
+/// package; a refusal without diagnostics as text naming it.
+#[cfg(feature = "kink")]
+fn patterns_refusal(package: &str, error: &CommandError) -> CommandError {
+    let note = format!(
+        "in the KRS patterns package `{package}`, which krs kink composes with the definition to compile its patterns"
+    );
+    match error.diagnostics() {
+        Some(diagnostics) => {
+            let mut diagnostics = diagnostics.into_owned();
+            for diagnostic in &mut diagnostics {
+                diagnostic.notes.push(note.clone());
+            }
+            CommandError::Diagnostics(diagnostics)
+        }
+        None => CommandError::InvalidRequest(format!(
+            "the KRS patterns package `{package}` cannot be prepared: {error}"
+        )),
+    }
 }
 
 fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
