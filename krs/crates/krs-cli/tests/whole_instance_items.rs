@@ -1147,7 +1147,7 @@ fn a_back_instance_updated_in_place_is_refused_as_its_labelled_twin() {
         "back-advised",
         &TWINS.replace("{RULES}", rules),
     );
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         rule [last]:
             <k> pupd X:Int => .K ... </k>
             <lobs>
@@ -1160,6 +1160,6 @@ fn a_back_instance_updated_in_place_is_refused_as_its_labelled_twin() {
                     <lval> V:Int +Int X:Int </lval>
                     <lmem> M:Int </lmem>
                 </lob>)
-            </lobs>"#]]
+            </lobs>"]]
     .assert_eq(rule(&emitted_k(target.path(), &manifest), "last"));
 }

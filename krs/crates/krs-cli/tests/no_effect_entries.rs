@@ -267,11 +267,11 @@ fn an_exact_subject_s_entries_name_their_cells_and_owe_no_lint() {
                 .unwrap()
         ));
     }
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         rule: []
         rule without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained
         claim: []
         claim without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained
         context: []
-        context without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained"#]].assert_eq(&lines.join("\n"));
+        context without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained"]].assert_eq(&lines.join("\n"));
 }

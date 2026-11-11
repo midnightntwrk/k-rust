@@ -4311,13 +4311,13 @@ fn a_single_body_rule_that_marks_no_change_changes_no_cell() {
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
     lines.sort();
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         computation: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
         empty: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
         named-rest: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
         rest: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
         result-twin: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 54:5
-        wildcard: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5"#]].assert_eq(&lines.join("\n"));
+        wildcard: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5"]].assert_eq(&lines.join("\n"));
 }
 
 /// CELLS4 item 2: the `cells!` reader does not know which cells are leaves, so its refusal of an
@@ -4378,14 +4378,14 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         let manifest = library_package(temporary.path(), &format!("unwrapped-{name}"), &source);
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         leaf-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 54:78
         result-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:58
         leaf-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:58
         group-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
         group-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
         leaf-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:90
-        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"#]].assert_eq(&refused.join("\n"));
+        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"]].assert_eq(&refused.join("\n"));
     let accepted = [
         (
             "leaf-literal",
@@ -4406,9 +4406,9 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
             emitted_sentence(target.path(), &manifest, "make")
         )
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         leaf-literal: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> 0 </acc> <frame> <pc> A:Int </pc> <gas> _ </gas> </frame>
-        leaf-rewrite: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>"#]].assert_eq(&accepted.join("\n"));
+        leaf-rewrite: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>"]].assert_eq(&accepted.join("\n"));
 }
 
 /// CELLS4 item 6: a term the configuration transport refuses names the sentence whose term it
@@ -4435,9 +4435,9 @@ fn a_term_the_transport_refuses_names_its_sentence() {
         let manifest = library_package(temporary.path(), &format!("transport-{name}"), &source);
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         rule: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid rule term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:8
-        context: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid context term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:4"#]].assert_eq(&lines.join("\n"));
+        context: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid context term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:4"]].assert_eq(&lines.join("\n"));
 }
 
 /// A `SINGLE_BODY` single-body rule `make` over `x: Int` and the binders of `parameters` that
@@ -5087,13 +5087,13 @@ fn group_and_descendant_stands_at_the_cell_named_twice() {
             lines.push(format!("{form}-{name}: {line} ({named})"));
         }
     }
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         rule-leaf-in-result: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 57:67 (pc)
         rule-leaf-in-subject: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 56:129 (pc)
         rule-readable: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 53:75 (pc)
         claim-leaf-in-result: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 57:67 (pc)
         claim-leaf-in-subject: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 56:129 (pc)
-        claim-readable: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 54:75 (pc)"#]].assert_eq(&lines.join("\n"));
+        claim-readable: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 54:75 (pc)"]].assert_eq(&lines.join("\n"));
 }
 
 /// CELLS3 item 4: a `k::rewrite!` written as a cell's whole entry whose sides are entries rather
