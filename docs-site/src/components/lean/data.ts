@@ -203,5 +203,5 @@ export function coreFile(path: string): Source {
   if (found === undefined) throw new Error(`lean lessons: no core file ${path}`)
   const { start, text } = typeof found === 'string' ? { start: 1, text: found } : found
   const body = text.endsWith('\n') ? text.slice(0, -1) : text
-  return { file: path.split('#')[0], start, end: start + body.split('\n').length - 1, text: body }
+  return { file: path.split('#')[0].replace(/^\.\.\//, ''), start, end: start + body.split('\n').length - 1, text: body }
 }

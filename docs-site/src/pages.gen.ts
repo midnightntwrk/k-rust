@@ -21,6 +21,7 @@ type Page =
   | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
   | { path: '/lean/evaluation'; render: 'static' }
   | { path: '/lean'; render: 'static' }
+  | { path: '/lean/matching-logic'; render: 'static' }
   | { path: '/lean/matching'; render: 'static' }
   | { path: '/lean/obligations'; render: 'static' }
   | { path: '/lean/signature'; render: 'static' }

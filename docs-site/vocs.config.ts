@@ -90,6 +90,7 @@ export default defineConfig({
         { text: '5. Evaluation', link: '/lean/evaluation' },
         { text: '6. Step', link: '/lean/step' },
         { text: '7. Obligations', link: '/lean/obligations' },
+        { text: '8. Matching logic', link: '/lean/matching-logic' },
         { text: 'State of the core', link: '/lean/state-of-the-core' },
       ],
     },
