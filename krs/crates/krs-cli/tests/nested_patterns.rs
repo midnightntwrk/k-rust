@@ -4928,3 +4928,246 @@ fn a_rewrite_whose_side_is_an_entry_is_refused_for_what_it_writes() {
     "#]]
     .assert_debug_eq(&emitted_sentence(target.path(), &manifest, "make"));
 }
+
+/// A machine whose `?` group `ogroup` (`Gp { pa, pb }`) starts present (`pa` 3, `pb` 4) when
+/// `present` and absent otherwise, beside a `KItem` cell `slot` that starts at 0.
+fn optional_group(present: bool) -> String {
+    let start = if present {
+        "Some(Gp { pa: 3, pb: 4 })"
+    } else {
+        "k::absent!(Gp { pa: 0, pb: 0 })"
+    };
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence}};
+use k::KResult;
+
+k::sorts! {{
+    Stmt;
+}}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {{
+    #[k::syntax("go")]
+    Go(),
+}}
+
+#[k::cell]
+pub struct Gp {{
+    #[k::cell]
+    pub pa: Int,
+    #[k::cell]
+    pub pb: Int,
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(multiplicity = "?", nested)]
+    pub ogroup: Option<Gp>,
+    #[k::cell]
+    pub slot: k::KItem,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {{
+        Self {{ k: k::k![pgm], ogroup: {start}, slot: 0 }}
+    }}
+}}
+"#
+    )
+}
+
+/// FZERO: `Some(..)` on a `?` group states that the group is present. The cell's place holds
+/// the present group or its absence (`.OgroupCell`), both values of the group's cell sort, so a
+/// bare `X:OgroupCell` or `_:OgroupCell` there matched the absent group too: every rule below
+/// stepped with `ogroup` absent, `Some(_) => None` deleted nothing, an overwrite created the
+/// group, and `x` carried the absence into `slot`. `Some(_)` and a `Some(x)` nothing else reads
+/// are the group with every child unconstrained, `Some(Gp { .. })`; a readable `Some(x)` the rule
+/// reads elsewhere is `Some(x @ Gp { .. })`, matched by its children's binders and rebuilt from
+/// them where read; a `cells!` rule writes it as the cell's alias where the result leaves the
+/// group as it was, and refuses it, a limit, where the result rewrites the group. Each rule is
+/// run with the group absent, where it is stuck, and present, where it steps.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of spellings, each with its K and its runs."
+)]
+fn a_present_optional_group_is_stated_present() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |present: bool, entries: &str| {
+        let (subject, result) = entries.split_once(" => ").unwrap();
+        format!(
+            "{}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    go: {{ k: [Go(), ..], {subject} }} => {{ k: [..]{result} }};\n}}\n",
+            optional_group(present)
+        )
+    };
+    let cells = |present: bool, entries: &str| {
+        let (subject, result) = entries.split_once(" => ").unwrap();
+        format!(
+            "{}#[k::rule(label = \"go\")]\nfn go(x: Gp, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), {subject}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail){result}, ..state }}\n}}\n",
+            optional_group(present)
+        )
+    };
+    let unconstrained = "<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>";
+    let rebuilt = "<ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup>";
+    // Each case: its name, whether it is a `cells!` rule, its entries, its K, and the cells the
+    // run with the group present ends with.
+    let cases: [(&str, bool, &str, String, &str); 11] = [
+        (
+            "some-x",
+            false,
+            "ogroup: Some(x) => ",
+            unconstrained.to_owned(),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> 0 </slot>",
+        ),
+        (
+            "some-wildcard",
+            false,
+            "ogroup: Some(_) => ",
+            unconstrained.to_owned(),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> 0 </slot>",
+        ),
+        (
+            "delete",
+            false,
+            "ogroup: Some(_) => , ogroup: None",
+            format!("({unconstrained} => .Bag)"),
+            ".OgroupCell <slot> 0 </slot>",
+        ),
+        (
+            "restated",
+            false,
+            "ogroup: Some(x) => , ogroup: Some(x)",
+            unconstrained.to_owned(),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> 0 </slot>",
+        ),
+        (
+            "overwrite",
+            false,
+            "ogroup: Some(x) => , ogroup: Some(Gp { pa: 1, pb: 1 })",
+            format!("({unconstrained} => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)"),
+            "<ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup> <slot> 0 </slot>",
+        ),
+        (
+            "read-elsewhere",
+            false,
+            "ogroup: Some(x), slot: _ => , slot: x",
+            format!("{rebuilt} <slot> _ => {rebuilt} </slot>"),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> <ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> </slot>",
+        ),
+        (
+            "moved-out",
+            false,
+            "ogroup: Some(x), slot: _ => , ogroup: None, slot: x",
+            format!("({rebuilt} => .Bag) <slot> _ => {rebuilt} </slot>"),
+            ".OgroupCell <slot> <ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> </slot>",
+        ),
+        (
+            "cells-some-x",
+            true,
+            "ogroup: Some(x) => ",
+            unconstrained.to_owned(),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> 0 </slot>",
+        ),
+        (
+            "cells-delete",
+            true,
+            "ogroup: Some(x) => , ogroup: None",
+            format!("({unconstrained} => .Bag)"),
+            ".OgroupCell <slot> 0 </slot>",
+        ),
+        (
+            "cells-restated",
+            true,
+            "ogroup: Some(x) => , ogroup: Some(x)",
+            unconstrained.to_owned(),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> 0 </slot>",
+        ),
+        (
+            "cells-read-elsewhere",
+            true,
+            "ogroup: Some(x), slot: k::configuration::Cell(_) => , slot: k::configuration::Cell(x)",
+            format!("( {unconstrained} #as X:OgroupCell ) <slot> _ => X:OgroupCell </slot>"),
+            "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> <ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> </slot>",
+        ),
+    ];
+    let mut emitted = Vec::new();
+    for (name, cells_rule, entries, cells_k, after) in &cases {
+        for present in [false, true] {
+            let source = if *cells_rule {
+                cells(present, entries)
+            } else {
+                readable(present, entries)
+            };
+            let manifest = library_package(
+                temporary.path(),
+                &format!("ogroup-{name}-{present}"),
+                &source,
+            );
+            let sentence = emitted_sentence(target.path(), &manifest, "go");
+            assert!(sentence.ends_with(cells_k.as_str()), "{name}: {sentence}");
+            if !present {
+                emitted.push(format!("{name}: {sentence}"));
+            }
+            let run = run_go(target.path(), &manifest);
+            if present {
+                assert!(
+                    run.starts_with("<generatedTop> <k> .K </k>") && run.contains(after),
+                    "{name} present: {run}"
+                );
+            } else {
+                assert!(
+                    run.starts_with(
+                        "<generatedTop> <k> go ~> .K </k> .OgroupCell <slot> 0 </slot>"
+                    ),
+                    "{name} absent: {run}"
+                );
+            }
+        }
+    }
+    expect_test::expect![[r#"
+        [
+            "some-x: rule [go]: <k> go => .K ... </k> <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>",
+            "some-wildcard: rule [go]: <k> go => .K ... </k> <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>",
+            "delete: rule [go]: <k> go => .K ... </k> (<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => .Bag)",
+            "restated: rule [go]: <k> go => .K ... </k> <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>",
+            "overwrite: rule [go]: <k> go => .K ... </k> (<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)",
+            "read-elsewhere: rule [go]: <k> go => .K ... </k> <ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup> <slot> _ => <ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup> </slot>",
+            "moved-out: rule [go]: <k> go => .K ... </k> (<ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup> => .Bag) <slot> _ => <ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup> </slot>",
+            "cells-some-x: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>",
+            "cells-delete: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> (<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => .Bag)",
+            "cells-restated: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>",
+            "cells-read-elsewhere: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> ( <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> #as X:OgroupCell ) <slot> _ => X:OgroupCell </slot>",
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+
+    // A claim states the same presence as a rule.
+    let claim = format!(
+        "{}k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(one_path)]\n    go: {{ k: [Go(), ..], ogroup: Some(x), slot: _ }} => {{ k: [..], slot: x }};\n}}\n",
+        optional_group(false)
+    );
+    let manifest = library_package(temporary.path(), "ogroup-claim", &claim);
+    assert_eq!(
+        emitted_sentence(target.path(), &manifest, "go"),
+        format!(
+            "claim [go]: <k> go => .K ... </k> {rebuilt} <slot> _ => {rebuilt} </slot> [one-path]"
+        )
+    );
+
+    // A `cells!` rule cannot rebuild the group `x` matched where the result rewrites it.
+    let manifest = library_package(
+        temporary.path(),
+        "ogroup-cells-moved-out",
+        &cells(
+            false,
+            "ogroup: Some(x), slot: k::configuration::Cell(_) => , ogroup: None, slot: k::configuration::Cell(x)",
+        ),
+    );
+    expect_test::expect!["error[krs::analysis::collection-entry]: not supported yet: `x` binds the present group `ogroup`, which the result rewrites, and the rule reads `x` elsewhere: a `cells!` rule cannot rebuild the group `x` matched from its children; bind them instead, `Some(k::fragment![crate::Gp { pa: pa, pb: pb }])`, and write that group where `x` is read"]
+        .assert_eq(&check_errors(target.path(), &manifest));
+}

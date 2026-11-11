@@ -692,6 +692,234 @@ fn present_content(state: &DescriptorState) -> Option<&DescriptorState> {
     }
 }
 
+/// The group an optional group cell `declared` holds; `None` for any other cell.
+fn optional_group<'d>(
+    declared: &'d DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<&'d StableItemId> {
+    match (
+        declared_multiplicity(declared, declarations),
+        &declared.content,
+    ) {
+        (Multiplicity::Optional, ProtocolCellContent::Nested { declaration }) => {
+            Some(&declaration.declaration)
+        }
+        _ => None,
+    }
+}
+
+/// The pattern of the present group `group` with every child unconstrained, `G { .. }` (the
+/// record that names none of them), at the authored node `key`.
+fn present_group(group: &StableItemId, key: &ProvenanceKey) -> DescriptorTerm {
+    DescriptorTerm::Cell {
+        key: key.clone(),
+        path_key: key.clone(),
+        declaration: group.clone(),
+        fields: Vec::new(),
+        open: true,
+        update: None,
+    }
+}
+
+/// The pattern `x @ G { .. }` the binder `x` at `key` names in `Some(x)` of the group `group`.
+fn present_group_alias(group: &StableItemId, key: &ProvenanceKey, name: &str) -> DescriptorTerm {
+    DescriptorTerm::As {
+        key: key.clone(),
+        binding_key: key.clone(),
+        name: name.to_owned(),
+        pattern: Box::new(present_group(group, key)),
+    }
+}
+
+/// The whole binder or `_` a subject's `Some(..)` holds, written bare or as a whole group.
+fn present_whole(state: &DescriptorState) -> Option<&DescriptorTerm> {
+    match present_content(state)? {
+        ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term)
+            if matches!(
+                term,
+                DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. }
+            ) =>
+        {
+            Some(term)
+        }
+        _ => None,
+    }
+}
+
+/// A readable rule with each subject `Some(x)` and `Some(_)` of an optional group written as the
+/// pattern it states; `None` where the rule has none.
+///
+/// `Some(..)` states that the cell is present. A variable of the group's cell sort does not: the
+/// sort's values are the present group and its absence, the sort's unit, which is what the
+/// cell's place in its parent holds while the cell is absent. The present group is the group's
+/// cell with every child unconstrained, `G { .. }`, so `Some(_)` is `Some(G { .. })` and `Some(x)`
+/// is `Some(x @ G { .. })`, which binds `x` to the present group's cell term; a result that puts
+/// the group back unchanged (`Some(x) => Some(x)`) leaves the cell as it was. The record update
+/// long form then takes `x` as it takes any alias over a group record (N7): matched by its
+/// children's binders, and each use of `x` the group rebuilt from them. The new nodes stand at
+/// the authored binder's or `_`'s key.
+///
+/// # Errors
+///
+/// A cell the declarations lack.
+pub(super) fn with_stated_present_groups(
+    rule: &krs_ir::DescriptorHeadRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorHeadRule>, DescriptorLoweringError> {
+    let mut stated = rule.clone();
+    let mut changed = false;
+    for extra in &mut stated.extras {
+        let krs_ir::ProtocolHeadRuleExtra::RewriteState {
+            cell,
+            before,
+            after,
+            result_key,
+        } = extra
+        else {
+            continue;
+        };
+        let declared = require_cell_field(&cell.cell, declarations)?;
+        let (Some(group), Some(whole)) = (
+            optional_group(declared, declarations),
+            present_whole(before),
+        ) else {
+            continue;
+        };
+        let pattern = match whole {
+            DescriptorTerm::Variable { key, name, .. } => {
+                // A result that puts the group back unchanged leaves the cell as it was.
+                if after.as_ref().and_then(present_whole).is_some_and(
+                    |other| matches!(other, DescriptorTerm::Variable { name: other, .. } if other == name),
+                ) {
+                    *after = None;
+                    *result_key = None;
+                }
+                present_group_alias(group, key, name)
+            }
+            DescriptorTerm::Wildcard { key } => present_group(group, key),
+            _ => continue,
+        };
+        *before = ProtocolRuleStateTerm::Present {
+            value: Box::new(ProtocolRuleStateTerm::Group(pattern)),
+        };
+        changed = true;
+    }
+    Ok(changed.then_some(stated))
+}
+
+/// A `cells!` rule with each subject `Some(x)` and `Some(_)` of an optional group written as the
+/// pattern it states, as [`with_stated_present_groups`] writes a readable rule's; `None` where
+/// the rule has none.
+///
+/// `Some(_)` is `Some(G { .. })`, and so is `Some(x)` where nothing else reads `x`, a result that
+/// puts the group back unchanged (`Some(x) => Some(x)`) included, which leaves the cell as it
+/// was. Where the rule reads `x` elsewhere and leaves the cell as it was, `x` is the alias of the
+/// present group, `Some(x @ G { .. })`, K's `( <g> .. </g> #as X )`. A `cells!` rule has no
+/// record update long form to rebuild `x` from its children, and an alias of a cell does not
+/// stand inside that cell's rewrite, so a binder the rule reads elsewhere on a group the result
+/// rewrites is a limit.
+///
+/// # Errors
+///
+/// A cell the declarations lack, and that limit (`krs::analysis::collection-entry`).
+pub(super) fn with_present_groups(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorConfigurationRule>, DescriptorLoweringError> {
+    let mut stated = rule.clone();
+    let mut changed = false;
+    for index in 0..rule.subject.cells.len() {
+        let subject = &rule.subject.cells[index];
+        let declared = require_cell_field(&subject.field.cell, declarations)?;
+        let (Some(group), Some(whole)) = (
+            optional_group(declared, declarations),
+            present_whole(&subject.value),
+        ) else {
+            continue;
+        };
+        let pattern = match whole {
+            DescriptorTerm::Wildcard { key } => present_group(group, key),
+            DescriptorTerm::Variable { key, name, .. } => {
+                let result = stated.result.as_ref().and_then(|result| {
+                    result
+                        .cells
+                        .iter()
+                        .position(|cell| cell.field.cell == subject.field.cell)
+                });
+                let restated = result.is_some_and(|position| {
+                    stated.result.as_ref().is_some_and(|cells| {
+                        matches!(
+                            present_whole(&cells.cells[position].value),
+                            Some(DescriptorTerm::Variable { name: other, .. }) if other == name
+                        )
+                    })
+                });
+                if restated && let (Some(position), Some(cells)) = (result, stated.result.as_mut())
+                {
+                    cells.cells.remove(position);
+                }
+                if variable_occurrences(&stated, name) <= 1 {
+                    // The binder names nothing the rule reads, so it is no binder of the rule.
+                    stated.bindings.retain(|binding| binding.name != *name);
+                    if let Some(claim) = stated.claim.as_mut() {
+                        claim.universals.retain(|binder| binder.name != *name);
+                    }
+                    present_group(group, key)
+                } else if result.is_some() && !restated {
+                    let children = declarations
+                        .cell(group)?
+                        .fields
+                        .iter()
+                        .map(|field| format!("{0}: {0}", field.rust_field))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(collection_error(
+                        descriptor,
+                        codes::analysis::COLLECTION_ENTRY,
+                        key,
+                        format!(
+                            "not supported yet: `{name}` binds the present group `{}`, which the result rewrites, and the rule reads `{name}` elsewhere: a `cells!` rule cannot rebuild the group `{name}` matched from its children; bind them instead, `Some(k::fragment![crate::{} {{ {children} }}])`, and write that group where `{name}` is read",
+                            declared.rust_field,
+                            group.item_name()
+                        ),
+                    ));
+                } else {
+                    present_group_alias(group, key, name)
+                }
+            }
+            _ => continue,
+        };
+        stated.subject.cells[index].value = ProtocolRuleStateTerm::Present {
+            value: Box::new(ProtocolRuleStateTerm::Group(pattern)),
+        };
+        changed = true;
+    }
+    Ok(changed.then_some(stated))
+}
+
+/// How many times the rule's terms read or bind the variable `name`.
+fn variable_occurrences(rule: &krs_ir::DescriptorConfigurationRule, name: &str) -> usize {
+    fn walk(value: &serde_json::Value, name: &str) -> usize {
+        match value {
+            serde_json::Value::Object(object) => {
+                let here = object.get("term_kind").and_then(serde_json::Value::as_str)
+                    == Some("variable")
+                    && object.get("name").and_then(serde_json::Value::as_str) == Some(name);
+                usize::from(here)
+                    + object
+                        .values()
+                        .map(|value| walk(value, name))
+                        .sum::<usize>()
+            }
+            serde_json::Value::Array(values) => values.iter().map(|value| walk(value, name)).sum(),
+            _ => 0,
+        }
+    }
+    // A rule that does not serialize reads its binder wherever it could.
+    serde_json::to_value(rule).map_or(usize::MAX, |value| walk(&value, name))
+}
+
 /// Lowers an optional (`?`) cell's entry (KF-023, R7): read, update, create
 /// (`None => Some(..)`), or delete (`Some(..) => None`).
 pub(super) fn lower_optional_clause(

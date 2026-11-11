@@ -215,6 +215,8 @@ pub(super) fn elaborate(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<Result<Elaboration, Unelaborated>, DescriptorLoweringError> {
+    let stated = super::cell_states::with_stated_present_groups(rule, declarations)?;
+    let rule = stated.as_ref().unwrap_or(rule);
     let (mut rule, hidden) =
         super::record_updates::head_rule_long_form_in(descriptor, rule, catalog, declarations)?;
     let closing = Closing {

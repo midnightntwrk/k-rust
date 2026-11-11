@@ -15135,7 +15135,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
-_:OgroupCell
+<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -15144,7 +15144,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
-V0:OgroupCell
+<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -15554,7 +15554,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
-(_:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+(<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -15563,7 +15563,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 claim [case-TAG]:
 <k> cTAG => .K ... </k>
-(V0:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+(<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -17144,7 +17144,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
-_:OgroupCell
+<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -17153,7 +17153,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
-V0:OgroupCell
+<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -17563,7 +17563,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
-(_:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+(<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -17572,7 +17572,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
-(V0:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+(<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """

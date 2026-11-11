@@ -817,6 +817,8 @@ pub(super) fn lower_configuration_rule_descriptor(
     let exact = matches!(rule.subject.remainder, ProtocolRuleFrame::Exact);
     let bracketed = super::group_records::with_computation_brackets(rule, declarations)?;
     let rule = bracketed.as_ref().unwrap_or(rule);
+    let stated = super::cell_states::with_present_groups(descriptor, rule, declarations)?;
+    let rule = stated.as_ref().unwrap_or(rule);
     let grouped = super::group_records::with_group_records(descriptor, rule, declarations)?;
     let rule = grouped.as_ref().unwrap_or(rule);
     let overwritten = with_overwritten_cells(rule, declarations)?;

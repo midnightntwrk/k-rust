@@ -1051,27 +1051,6 @@ fn emit_optional_clause(
                 }
                 Some(krs_ir::Presence::Absent) => None,
             };
-            // A kept `Some(_)` of a whole group cell states that the cell is present, with any
-            // content. A bare `_` beside the cells would state no cell at all, so the wildcard
-            // names the cell's sort, `_:OgroupCell`, as it does where the cell is deleted.
-            if whole
-                && matches!(post, Some(CellPost::Preserve))
-                && let DefinitionTermKind::Variable { variable } = term.kind()
-                && variable.kind() == krs_ir::SemanticIdKind::Wildcard
-            {
-                writer.push(&" ".repeat(indent));
-                emit_cell_image(
-                    clause.cell(),
-                    whole,
-                    term,
-                    clause.frame(),
-                    names,
-                    context,
-                    writer,
-                )?;
-                writer.record(clause.origin().key(), start, writer.source.len())?;
-                return Ok(());
-            }
             if let Some(post) = post {
                 let fixed = krs_ir::FixedCellClause::new(
                     clause.origin().clone(),
