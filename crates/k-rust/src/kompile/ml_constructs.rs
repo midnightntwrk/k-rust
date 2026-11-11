@@ -187,15 +187,15 @@ pub(crate) fn conjoin_condition(left: Term, right: Term) -> Term {
     }
 }
 
-/// `label` applied to `arguments`, with a pending conjunction whose choice no later stage can
-/// change any more replaced by the conjunction [`condition_conjunction`] chooses; any other
-/// application unchanged.
-pub(crate) fn settle_conjunction(label: Label, arguments: Vec<Term>) -> (Label, Vec<Term>) {
-    let decided = match &arguments[..] {
+/// The label of `label` applied to `arguments` once a pending conjunction whose choice no later
+/// stage can change any more is replaced by the conjunction [`condition_conjunction`] chooses;
+/// `None` when the application stays as it is (any other application, or a pending conjunction
+/// whose choice is still open).
+pub(crate) fn settle_conjunction(label: &Label, arguments: &[Term]) -> Option<Label> {
+    match arguments {
         [left, right] if label.name == PENDING_CONJUNCTION => decided_label(left, right),
         _ => None,
-    };
-    (decided.unwrap_or(label), arguments)
+    }
 }
 
 /// The label a sentence identifier hashes for `label`: `_andBool_` for a pending conjunction, so
@@ -1016,14 +1016,11 @@ mod tests {
 
     #[test]
     fn a_pending_conjunction_of_settled_operands_is_settled_for_the_fold() {
-        let (settled, _) =
-            settle_conjunction(Label::new(PENDING_CONJUNCTION), vec![truth(), truth()]);
-        assert_eq!(settled.name, AND_BOOL);
-        let (pending, _) = settle_conjunction(
-            Label::new(PENDING_CONJUNCTION),
-            vec![test("isOne"), truth()],
-        );
-        assert_eq!(pending.name, PENDING_CONJUNCTION);
+        let settled = settle_conjunction(&Label::new(PENDING_CONJUNCTION), &[truth(), truth()]);
+        assert_eq!(settled.map(|label| label.name), Some(AND_BOOL.to_owned()));
+        let pending =
+            settle_conjunction(&Label::new(PENDING_CONJUNCTION), &[test("isOne"), truth()]);
+        assert_eq!(pending, None);
     }
 
     #[test]

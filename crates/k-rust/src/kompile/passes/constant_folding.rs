@@ -45,7 +45,7 @@ use crate::{
         Sentence,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{Label, Sort, Term, TermParts},
+    kast::{Label, Sort, Term, TermMetadata},
     kore::{ast::KoreString, string::LiteralEncoding},
     provenance::GeneratingPass,
 };
@@ -115,7 +115,8 @@ pub(crate) fn constant_fold_pass(
         let folder = Folder::new(&views, module_id, &facts, &impure);
         for sentence in &mut module.local_sentences {
             // Only rules change. The kind is decided before taking a mutable sentence, which
-            // copies a shared one, so every other kind stays shared.
+            // copies a shared one, so every other kind stays shared, and so does a rule the fold
+            // leaves as it is.
             match &**sentence {
                 Sentence::Rule { .. } => {}
                 Sentence::SyntaxSort { .. }
@@ -130,19 +131,38 @@ pub(crate) fn constant_fold_pass(
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => continue,
             }
-            let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body,
                 requires,
                 ensures,
                 ..
-            } = sentence
+            } = &**sentence
+            else {
+                unreachable!("the kind was decided above");
+            };
+            let folded = (
+                folder.fold(body, Position::Both),
+                folder.fold(requires, Position::Right),
+                folder.fold(ensures, Position::Right),
+            );
+            // A rule the fold leaves as it is stays the shared input allocation.
+            if let (None, None, None) = folded {
+                continue;
+            }
+            let Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            } = crate::definition::sentence_mut(sentence)
             else {
                 unreachable!("copy-on-write keeps the kind decided above");
             };
-            *body = folder.fold(body.clone(), Position::Both);
-            *requires = folder.fold(requires.clone(), Position::Right);
-            *ensures = folder.fold(ensures.clone(), Position::Right);
+            for (root, folded) in [(body, folded.0), (requires, folded.1), (ensures, folded.2)] {
+                if let Some(folded) = folded {
+                    *root = folded;
+                }
+            }
         }
     }
     Ok(output)
@@ -177,50 +197,92 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     }
 
     // Invariant: `fold` rebuilds `term` bottom-up, folding an `Apply` in `Position::Right` only after its `arguments` are folded; each call recurses into the immediate subterms of `term`, so its finite depth bounds the recursion.
-    fn fold(&self, term: Term, position: Position) -> Term {
-        let metadata = term.metadata().cloned();
-        let rebuilt = match term.into_unannotated().into_parts() {
-            TermParts::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.fold(*left, Position::Left)),
-                right: Box::new(self.fold(*right, Position::Right)),
-            },
-            TermParts::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.fold(*pattern, position)),
-                alias: Box::new(self.fold(*alias, position)),
-            },
-            TermParts::Sequence(items) => Term::Sequence(
-                items
-                    .into_iter()
-                    .map(|item| self.fold(item, position))
-                    .collect(),
-            ),
-            TermParts::Apply { label, arguments } => {
-                let arguments = arguments
-                    .into_iter()
-                    .map(|argument| self.fold(argument, position))
-                    .collect::<Vec<_>>();
+    /// `term` folded, or `None` when the folded term is `term` itself.
+    ///
+    /// Each node is rebuilt from its unannotated form under its outermost annotation (an
+    /// application folded to a token takes no annotation). A node whose children, label and
+    /// value are kept is the node itself when its annotation is in the form `with_metadata`
+    /// builds ([`annotation_is_rebuilt_form`]); only then is `None` returned, and the caller
+    /// keeps `term`, its allocation included. The hooks are evaluated at the same nodes, on the
+    /// same labels and arguments, in the same order, whether a node is rebuilt or kept.
+    fn fold(&self, term: &Term, position: Position) -> Option<Term> {
+        let metadata = term.metadata();
+        let unannotated = term.unannotated();
+        let rebuilt = match unannotated {
+            Term::Rewrite { left, right } => {
+                let folded = (
+                    self.fold(left, Position::Left),
+                    self.fold(right, Position::Right),
+                );
+                match folded {
+                    (None, None) => None,
+                    (folded_left, folded_right) => Some(Term::Rewrite {
+                        left: Box::new(folded_left.unwrap_or_else(|| (**left).clone())),
+                        right: Box::new(folded_right.unwrap_or_else(|| (**right).clone())),
+                    }),
+                }
+            }
+            Term::As { pattern, alias } => {
+                let folded = (self.fold(pattern, position), self.fold(alias, position));
+                match folded {
+                    (None, None) => None,
+                    (folded_pattern, folded_alias) => Some(Term::As {
+                        pattern: Box::new(folded_pattern.unwrap_or_else(|| (**pattern).clone())),
+                        alias: Box::new(folded_alias.unwrap_or_else(|| (**alias).clone())),
+                    }),
+                }
+            }
+            Term::Sequence(items) => self.fold_items(items, position).map(Term::Sequence),
+            Term::Apply { label, arguments } => {
+                let folded = self.fold_items(arguments, position);
+                let folded_arguments = folded.as_deref().unwrap_or(arguments);
                 // A conjunction a pass added to a condition is decided once its operands are
                 // settled (tokens, here), so the fold evaluates it as the Bool conjunction it is.
-                let (label, arguments) =
-                    crate::kompile::ml_constructs::settle_conjunction(label, arguments);
+                let settled =
+                    crate::kompile::ml_constructs::settle_conjunction(label, folded_arguments);
                 // An application the fold does not evaluate keeps its meaning as written: the
                 // fold only replaces a term by a token that denotes the same value.
                 if position == Position::Right
-                    && let Some(token) = self.try_fold(&label, &arguments)
+                    && let Some(token) =
+                        self.try_fold(settled.as_ref().unwrap_or(label), folded_arguments)
                 {
-                    return token;
+                    return Some(token);
                 }
-                Term::Apply { label, arguments }
+                match (settled, folded) {
+                    (None, None) => None,
+                    (settled, folded) => Some(Term::Apply {
+                        label: settled.unwrap_or_else(|| label.clone()),
+                        arguments: folded.unwrap_or_else(|| arguments.clone()),
+                    }),
+                }
             }
-            leaf @ (TermParts::InjectedLabel(_)
-            | TermParts::Variable { .. }
-            | TermParts::Token { .. }) => Term::from(leaf),
-            TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
+            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
         };
-        match metadata {
-            Some(metadata) => rebuilt.with_metadata(metadata),
-            None => rebuilt,
+        match rebuilt {
+            Some(rebuilt) => Some(annotate(rebuilt, metadata)),
+            None if annotation_is_rebuilt_form(term) => None,
+            None => Some(annotate(unannotated.clone(), metadata)),
         }
+    }
+
+    /// `items` each folded at `position`, left to right, or `None` when every item is kept.
+    fn fold_items(&self, items: &[Term], position: Position) -> Option<Vec<Term>> {
+        let mut rebuilt: Option<Vec<Term>> = None;
+        for (index, item) in items.iter().enumerate() {
+            let folded = self.fold(item, position);
+            match (&mut rebuilt, folded) {
+                (Some(rebuilt), folded) => rebuilt.push(folded.unwrap_or_else(|| item.clone())),
+                (None, Some(folded)) => {
+                    let mut items_so_far = Vec::with_capacity(items.len());
+                    items_so_far.extend_from_slice(&items[..index]);
+                    items_so_far.push(folded);
+                    rebuilt = Some(items_so_far);
+                }
+                (None, None) => {}
+            }
+        }
+        rebuilt
     }
 
     /// The token an application folds to, `None` when it stays as written: an application of a
@@ -418,6 +480,33 @@ struct Application<'a> {
 
 /// The KORE sort the emitted definition writes for `sort`, as the backend holds it, and the
 /// encoding of the payloads of its domain values.
+/// `term` under `metadata`, as `with_metadata` places it.
+fn annotate(term: Term, metadata: Option<&TermMetadata>) -> Term {
+    match metadata {
+        Some(metadata) => term.with_metadata(metadata.clone()),
+        None => term,
+    }
+}
+
+/// Whether `annotate(term.unannotated().clone(), term.metadata())` is `term`: `term` has no
+/// annotation, or one layer whose metadata is not the default (`with_metadata` drops a default
+/// annotation and merges into an existing layer, so it never builds the other shapes).
+fn annotation_is_rebuilt_form(term: &Term) -> bool {
+    match term {
+        Term::Annotated {
+            term: inner,
+            metadata,
+        } => !matches!(**inner, Term::Annotated { .. }) && *metadata != TermMetadata::default(),
+        Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Variable { .. }
+        | Term::Sequence(_)
+        | Term::Apply { .. }
+        | Term::Token { .. } => true,
+    }
+}
+
 fn emitted(sort: &Sort) -> (BackendSort, LiteralEncoding) {
     (
         backend_sort(sort),
