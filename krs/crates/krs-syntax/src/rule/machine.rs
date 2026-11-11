@@ -44,10 +44,12 @@ enum MachinePatternCell {
     /// the clause is assembled.
     Bracket(proc_macro2::Group),
     /// A bracketed value whose list notation refuses it as a list's elements, the notation's
-    /// refusal (a second rest, `[rest @ ..]`). Whether brackets fit the cell at all is the
-    /// cell's kind's question, answered first, so the cell is neither read nor written, the
-    /// refusal carried ([`read_with_pairing_deferred`]).
-    Refused(Box<crate::SyntaxError>),
+    /// refusal (a second rest, `[rest @ ..]`), and the names its elements bind. Whether
+    /// brackets fit the cell at all is the cell's kind's question, answered first, so the cell
+    /// is neither read nor written, the refusal carried ([`read_with_pairing_deferred`]). The
+    /// value is still the pattern that binds its names: a result reading one is judged after
+    /// the pattern, whose refusal comes first.
+    Refused(Box<crate::SyntaxError>, Vec<Ident>),
 }
 
 #[derive(Clone)]
@@ -1075,7 +1077,7 @@ fn parse_machine_pattern_record(
         let looks_up = sentence == ReadableSentence::Rule;
         let value = if let Some(error) = pattern_items_value(&content, looks_up, faults) {
             skip_value(&content)?;
-            MachinePatternCell::Refused(Box::new(error))
+            MachinePatternCell::Refused(Box::new(error), Vec::new())
         } else if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket)
@@ -1823,7 +1825,7 @@ fn items_without_computation(
     let items = subject_cells
         .iter()
         .filter_map(|(_, pattern)| match pattern {
-            MachinePatternCell::Refused(error) => Some(error),
+            MachinePatternCell::Refused(error, _) => Some(error),
             _ => None,
         })
         .chain(result_cells.iter().filter_map(|(_, value)| match value {
@@ -2556,7 +2558,7 @@ fn read_brackets(
                 // list's notation, which the cell's kind answers before
                 // ([`read_with_pairing_deferred`]).
                 Err(ParseError::Structured(error)) if defer_pairing && is_list_notation(&error) => {
-                    MachinePatternCell::Refused(Box::new(error))
+                    MachinePatternCell::Refused(Box::new(error), list_binders(group))
                 }
                 Err(error) => return Err(error),
             },
@@ -2777,6 +2779,29 @@ fn list_parts<T, R>(entries: Vec<ListEntry<T, R>>) -> Result<ListParts<T, R>, Pa
 /// before it are the list's front and those after it its back. Only a
 /// builtin `List` has a back; analysis rejects one on a cons list.
 fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
+    let (items, rest, back) = list_parts(list_pattern_entries(group)?)?;
+    let rest = match rest {
+        None => RuleListRest::Exact,
+        Some((start, _, Some(_))) if items.is_empty() && back.is_empty() => {
+            return Err(list_error(
+                "`[rest @ ..]` names no element: it is the whole list, so bind it with `cell: rest`",
+                start,
+            ));
+        }
+        Some((_, dots, None)) => RuleListRest::Shared(TokenRange::for_tokens(&dots)?),
+        Some((_, _, Some(name))) => {
+            validate_authored_binder(&name.to_string(), name.span())?;
+            RuleListRest::Named(name)
+        }
+    };
+    Ok(ListPattern { items, rest, back })
+}
+
+/// The entries of a bracketed subject value read as a list's elements, before their rests are
+/// placed ([`list_parts`]): each element's pattern, and each rest with its name.
+fn list_pattern_entries(
+    group: &proc_macro2::Group,
+) -> Result<Vec<ListEntry<(Pat, NegativeLiteralSpans), Ident>>, ParseError> {
     let parser = |input: ParseStream<'_>| {
         let sequence;
         bracketed!(sequence in input);
@@ -2806,23 +2831,29 @@ fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
         }
         Ok(entries)
     };
-    let entries = parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?;
-    let (items, rest, back) = list_parts(entries)?;
-    let rest = match rest {
-        None => RuleListRest::Exact,
-        Some((start, _, Some(_))) if items.is_empty() && back.is_empty() => {
-            return Err(list_error(
-                "`[rest @ ..]` names no element: it is the whole list, so bind it with `cell: rest`",
-                start,
-            ));
-        }
-        Some((_, dots, None)) => RuleListRest::Shared(TokenRange::for_tokens(&dots)?),
-        Some((_, _, Some(name))) => {
-            validate_authored_binder(&name.to_string(), name.span())?;
-            RuleListRest::Named(name)
-        }
+    Ok(parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?)
+}
+
+/// The names the elements of the bracketed subject value `group` bind, its named rests among
+/// them, in source order, where its list notation refuses it ([`MachinePatternCell::Refused`]);
+/// none where its entries do not parse.
+fn list_binders(group: &proc_macro2::Group) -> Vec<Ident> {
+    let Ok(entries) = list_pattern_entries(group) else {
+        return Vec::new();
     };
-    Ok(ListPattern { items, rest, back })
+    let mut binders = Vec::new();
+    for entry in entries {
+        match entry {
+            ListEntry::Item((pattern, signs)) => {
+                if let Ok((pattern, _)) = readable_cell_pattern(pattern, signs) {
+                    binders.extend(pattern.bindings().iter().cloned());
+                }
+            }
+            ListEntry::Rest(_, _, Some(name)) => binders.push(name),
+            ListEntry::Rest(..) => {}
+        }
+    }
+    binders
 }
 
 /// Reads a bracketed result value as a list's elements (F6): `[e1, .., en]`
@@ -3335,8 +3366,9 @@ fn assemble_machine_clause(
             // which is read as `_`: the refusal is carried until the cell's kind has answered
             // ([`read_with_pairing_deferred`]), and a clause whose every cell were left out
             // would name none.
-            MachinePatternCell::Refused(error) => {
+            MachinePatternCell::Refused(error, binders) => {
                 unpaired((**error).clone().into())?;
+                extra_bindings.extend(binders.iter().cloned());
                 let wildcard = Pat::Wild(syn::PatWild {
                     attrs: Vec::new(),
                     underscore_token: Token![_](cell.span()),

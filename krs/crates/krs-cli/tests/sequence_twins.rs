@@ -408,3 +408,55 @@ fn an_item_less_subject_whose_result_writes_items_keeps_its_rest() {
         cell(of(&lines, "ll-named"), "ll")
     );
 }
+
+/// Item 4: a second rest is the pattern's own mistake, judged before the names its result
+/// reads: a list holds at most one rest whether or not the result reads the element between
+/// them, at a List, Set or sequence leaf, a Map or List collection, or a group.
+#[test]
+fn a_second_rest_is_refused_before_the_names_the_result_reads() {
+    let mut rows = Vec::new();
+    for cell in ["ll", "ss", "th", "jobs"] {
+        rows.push((
+            format!("{cell}-unread"),
+            readable(
+                &format!("go: {{ k: [Go(), ..], {cell}: [.., x, ..] }} => {{ k: [..] }};"),
+                false,
+            ),
+        ));
+        rows.push((
+            format!("{cell}-read"),
+            readable(
+                &format!(
+                    "go: {{ k: [Go(), ..], {cell}: [.., x, ..], out: _ }} => {{ k: [..], out: [x] }};"
+                ),
+                false,
+            ),
+        ));
+    }
+    rows.push((
+        "aux-read".to_owned(),
+        readable(
+            "go: { aux: [.., x, ..], out: _ } => { aux: [..], out: [x] };",
+            false,
+        ),
+    ));
+    rows.push((
+        "ll-read-by-k".to_owned(),
+        readable(
+            "go: { k: [Go(), ..], ll: [.., x, ..] } => { k: [x, ..] };",
+            true,
+        ),
+    ));
+    let named = rows
+        .iter()
+        .map(|(name, source)| (name.as_str(), source.clone()))
+        .collect::<Vec<_>>();
+    let lines = verdicts(&named);
+    let unread = of(&lines, "ll-unread").to_owned();
+    expect_test::expect!["error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`"]
+    .assert_eq(&unread);
+    for line in &lines {
+        let (name, verdict) = line.split_once(": ").unwrap();
+        assert_eq!(verdict, unread, "{name}");
+    }
+}
