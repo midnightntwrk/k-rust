@@ -228,8 +228,8 @@ fn a_record_update_in_a_pattern_is_refused_at_its_base() {
     "#]].assert_debug_eq(&outcomes);
 }
 
-/// A single-body rule whose subject marks no change is a mistake of the whole sentence, told at
-/// the fn's name; a construct its subject's root or its guard may not hold is a mistake told by
+/// A single-body rule whose subject marks no change is a mistake of the whole sentence, which
+/// changes no cell, told at its subject; a construct its subject's root or its guard may not hold is a mistake told by
 /// its spelling and position alone, so it is told first, as it is with a rewrite: alternatives,
 /// which the one term rewritten in place cannot be, a record update, a `let` block, and a rewrite
 /// in a guard. A binder list that declares a name the subject does not bind is a names mistake,
@@ -269,8 +269,8 @@ fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
                 (
                     false,
                     [
-                        "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result",
-                        "--> src/lib.rs:42:4",
+                        "error[krs::analysis::rule-changes-no-cell]: rule `idle` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing",
+                        "--> src/lib.rs:42:9",
                     ],
                 ),
             ),
@@ -319,8 +319,8 @@ fn a_single_body_rule_tells_a_misplaced_root_before_its_missing_rewrite() {
                 (
                     false,
                     [
-                        "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result",
-                        "--> src/lib.rs:42:4",
+                        "error[krs::analysis::rule-changes-no-cell]: rule `idle` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing",
+                        "--> src/lib.rs:42:23",
                     ],
                 ),
             ),

@@ -4277,6 +4277,49 @@ impl Machine {
 }
 "#;
 
+/// CELLS4 item 3: a single-body rule's subject is its before-state, and its after-state is the
+/// same state with each `k::rewrite!` taken to its right side. One that names no cell
+/// (`cells! { .. }`), or names cells and marks no change, keeps every cell: it changes none, the
+/// meaning of a rule whose result restates its subject, so it gets that rule's class and text,
+/// at its subject.
+#[test]
+fn a_single_body_rule_that_marks_no_change_changes_no_cell() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let unchanged = |entries: &str| {
+        format!(
+            "{SINGLE_BODY}#[k::rule(label = \"make\")]\npub fn make(\n    k::cells! {{ {entries} }}: Machine,\n) {{}}\n"
+        )
+    };
+    let mut lines = [
+        ("empty", unchanged("")),
+        ("rest", unchanged("..")),
+        ("named-rest", unchanged("state @ ..")),
+        ("wildcard", unchanged("acc: k::configuration::Cell(_), ..")),
+        ("computation", unchanged("k: k::configuration::KCell(..), ..")),
+        (
+            "result-twin",
+            whole_payloads(
+                false,
+                "k: k::configuration::KCell(Cmd::Make { x }, ..), acc: k::configuration::Cell(a), state @ ..",
+                "..state",
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("unchanged-single-{name}"), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    lines.sort();
+    expect_test::expect![[r#"
+        computation: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
+        empty: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
+        named-rest: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
+        rest: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5
+        result-twin: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 54:5
+        wildcard: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5"#]].assert_eq(&lines.join("\n"));
+}
+
 /// CELLS4 item 2: the `cells!` reader does not know which cells are leaves, so its refusal of an
 /// entry written as a term without a wrapper is true of either: such an entry is a nested cell's
 /// (a binder, `_` or a fragment), and a leaf's content stands inside its wrapper. A whole entry

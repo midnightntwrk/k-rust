@@ -1629,6 +1629,23 @@ pub fn parse_cells_pattern(tokens: TokenStream) -> Result<CellsExpression, Synta
     parse_cells(tokens, StateMacroContext::Pattern, true).and_then(CellsExpression::in_order)
 }
 
+/// Whether the `cells!` payload `tokens` names no cell: it is empty, or only the state's rest,
+/// `..` or `label @ ..`, with or without a trailing comma.
+pub(crate) fn names_no_cell(tokens: &TokenStream) -> bool {
+    let trees = crate::parse::strip_trailing_comma(tokens.clone())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let rest = |trees: &[TokenTree]| {
+        matches!(trees, [TokenTree::Punct(first), TokenTree::Punct(second)]
+            if first.as_char() == '.' && second.as_char() == '.')
+    };
+    match trees.as_slice() {
+        [] => true,
+        [TokenTree::Ident(_), TokenTree::Punct(at), tail @ ..] if at.as_char() == '@' => rest(tail),
+        all => rest(all),
+    }
+}
+
 /// Parses a `cells!` pattern payload, keeping a `KCell(..)` entry that writes an item after its
 /// sequence's tail for the caller that judges the entries' kinds first
 /// ([`KSequence::misplaced_tail`]).

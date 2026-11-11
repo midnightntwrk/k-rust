@@ -120,7 +120,7 @@ pub use state_rule::{
     FUNCTION_CONTEXT_REMAINDER, FUNCTION_CONTEXT_SHAPE, FunctionContext, StateClaimItem,
     StateContextAliasItem, StateRuleBinding, StateRuleBindingKind, StateRuleItem,
     StateRuleReferenceKind, cells_pattern_term_binders, is_cells_parameter,
-    parse_state_context_alias_item,
+    parse_state_context_alias_item, rule_changes_no_cell_reason,
 };
 pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,

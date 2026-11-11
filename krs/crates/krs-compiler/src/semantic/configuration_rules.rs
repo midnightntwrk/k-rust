@@ -1267,14 +1267,15 @@ fn lower_configuration_rule_clauses(
                 .map(ConfigurationClause::Fixed)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    // A context (KF-021) need not rewrite anything.
+    // A context (KF-021) need not rewrite anything. A single-body rule none of whose rewrites
+    // states a change keeps every cell: it changes none, as a rule whose result restates its
+    // subject does.
     if rule.result.is_none()
         && rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Context
         && !clauses.iter().any(states_change)
     {
-        return Err(DescriptorLoweringError::InvalidLocalRewrite {
-            item: Box::new(terms.descriptor.id().clone()),
-            reason: "a single-body rule must change something: no `k::rewrite!` of its subject changes a cell".to_owned(),
+        return Err(DescriptorLoweringError::RuleChangesNoCell {
+            rule: Box::new(terms.descriptor.id().clone()),
             range: semantic_origin(terms.descriptor, rule.pattern_key.clone(), "rule-pattern")?
                 .origin()
                 .exact_authored_range()

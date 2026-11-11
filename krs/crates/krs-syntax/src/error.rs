@@ -402,6 +402,12 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// A single-body rule whose subject marks no change: the rule changes no cell, as the rule
+    /// whose result restates its subject does (the compiler's `rule-changes-no-cell`).
+    RuleChangesNoCell {
+        /// Complete explanation ([`crate::rule_changes_no_cell_reason`]).
+        reason: String,
+    },
     /// A pattern holds a helper that would define a function, a `let` block or `k::matches!`
     /// (FB-49 item 7).
     PatternHelper {
@@ -591,6 +597,7 @@ impl SyntaxErrorKind {
             Self::InvalidConsList { .. } => codes::syntax::INVALID_CONS_LIST_ATTRIBUTE,
             Self::InvalidPattern { .. } => codes::syntax::INVALID_PATTERN,
             Self::PatternHelper { .. } => codes::analysis::PATTERN_HELPER,
+            Self::RuleChangesNoCell { .. } => codes::analysis::RULE_CHANGES_NO_CELL,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
@@ -947,6 +954,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidConsList { reason }
             | SyntaxErrorKind::InvalidPattern { reason }
             | SyntaxErrorKind::PatternHelper { reason }
+            | SyntaxErrorKind::RuleChangesNoCell { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason }
             | SyntaxErrorKind::InstanceChildMultiplicity { reason } => formatter.write_str(reason),
         }

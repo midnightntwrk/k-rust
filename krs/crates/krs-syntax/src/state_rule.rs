@@ -712,6 +712,19 @@ impl StateRuleItem {
         };
         let subject_macro = subject_macro.clone();
         validate_cells_path(&subject_macro.mac.path, subject_macro.span())?;
+        let subject_span = subject_macro.span();
+        // A single-body rule whose subject names no cell (`cells! { .. }`) keeps every cell: it
+        // changes none, as one whose subject names cells and marks no change does.
+        if form == StateRuleForm::Rule
+            && item.block.stmts.is_empty()
+            && match &item.sig.output {
+                ReturnType::Default => true,
+                ReturnType::Type(_, ty) => is_unit_type(ty),
+            }
+            && crate::state_macro::names_no_cell(&subject_macro.mac.tokens)
+        {
+            return Err(rule_changes_no_cell(&item, subject_span));
+        }
         // A sentence's entries are judged against their cells' kinds before an item after a
         // computation's rest is asked ([`Self::misplaced_tail`]), a claim's as a rule's.
         let subject = if form == StateRuleForm::Claim {
@@ -776,12 +789,7 @@ impl StateRuleItem {
         let rewrites = cells_rewrite_spans(&subject);
         match (&result, rewrites.first()) {
             (None, None) if form == StateRuleForm::Context => {}
-            (None, None) => {
-                return Err(local_rewrite_error(
-                    SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
-                    item.sig.ident.span(),
-                ));
-            }
+            (None, None) => return Err(rule_changes_no_cell(&item, subject_span)),
             (Some(_), Some(span)) => {
                 return Err(local_rewrite_error(REWRITE_WITH_RESULT.to_owned(), *span));
             }
@@ -1524,8 +1532,26 @@ pub(crate) fn check_context_shape(
 /// The reason given for a single-body rule with statements in its body.
 pub(crate) const SINGLE_BODY_BODY: &str = "a single-body rule (one that returns `()`) has an empty body `{}`; its subject's `k::rewrite!` islands say what changes";
 
-/// The reason given for a single-body rule without a rewrite.
-pub(crate) const SINGLE_BODY_WITHOUT_REWRITE: &str = "a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result";
+/// Why the rule `rule` changes no cell: every cell it names keeps its content, so where it
+/// applies it applies again, forever. The one text of that meaning, whether the rule's result
+/// restates its subject or a single-body rule's subject marks no change.
+#[must_use]
+pub fn rule_changes_no_cell_reason(rule: &str) -> String {
+    format!(
+        "rule `{rule}` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing"
+    )
+}
+
+/// The refusal of the single-body rule `item`, whose subject (at `span`) marks no change: its
+/// after-state is its before-state, so it changes no cell.
+pub(crate) fn rule_changes_no_cell(item: &ItemFn, span: proc_macro2::Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::RuleChangesNoCell {
+            reason: rule_changes_no_cell_reason(&syn::ext::IdentExt::unraw(&item.sig.ident).to_string()),
+        },
+        span,
+    )
+}
 
 /// The reason given for a rewrite in a rule that has a result.
 pub(crate) const REWRITE_WITH_RESULT: &str = "`k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state";

@@ -1790,11 +1790,9 @@ impl fmt::Display for DescriptorLoweringError {
             Self::PrivateProductionInSpec { production, .. } => {
                 formatter.write_str(&super::visibility::private_production_message(production))
             }
-            Self::RuleChangesNoCell { rule, .. } => write!(
-                formatter,
-                "rule `{}` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing",
-                rule.item_name()
-            ),
+            Self::RuleChangesNoCell { rule, .. } => {
+                formatter.write_str(&krs_syntax::rule_changes_no_cell_reason(rule.item_name()))
+            }
             Self::GroupAndDescendant {
                 rule,
                 group,

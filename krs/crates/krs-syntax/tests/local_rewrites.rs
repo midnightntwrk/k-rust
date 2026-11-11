@@ -152,15 +152,6 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
             "`other` on the right of `k::rewrite!` is not bound",
         ),
         (
-            ASSIGN
-                .replace(
-                    "k::rewrite!(StmtSyntax::Assign(name, value) => ())",
-                    "StmtSyntax::Assign(name, value)",
-                )
-                .replace("k::rewrite!(_ => value)", "value"),
-            "a single-body rule must change something",
-        ),
-        (
             ASSIGN.replace(
                 ") {}",
                 ") -> Machine { k::cells! { env: k::configuration::Cell(map![]), ..state } }",
@@ -180,6 +171,29 @@ fn misplaced_and_malformed_rewrites_are_rejected() {
         assert!(
             reason(&error).contains(expected),
             "expected {expected:?}, got {error}"
+        );
+    }
+    // A single-body rule whose subject marks no change, or names no cell, changes no cell: the
+    // meaning, and the class, of a rule whose result restates its subject.
+    let unchanged = ASSIGN
+        .replace(
+            "k::rewrite!(StmtSyntax::Assign(name, value) => ())",
+            "StmtSyntax::Assign(name, value)",
+        )
+        .replace("k::rewrite!(_ => value)", "value");
+    let start = ASSIGN.find("k::cells! {").unwrap();
+    let end = start + ASSIGN[start..].find("}: Machine").unwrap() + 1;
+    let empty = ASSIGN.replace(&ASSIGN[start..end], "k::cells! { .. }");
+    for source in [unchanged, empty] {
+        let error = StateRuleItem::parse_source(&source).unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::RuleChangesNoCell { .. }),
+            "{error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            krs_syntax::rule_changes_no_cell_reason("assign"),
+            "{source}"
         );
     }
 }

@@ -330,9 +330,9 @@ impl RuleItem {
     ///
     /// # Errors
     ///
-    /// Returns [`SyntaxErrorKind::InvalidLocalRewrite`] at the fn's name for
-    /// a single-body rule whose subject holds no `k::rewrite!`, and the
-    /// binder list's error at the binder.
+    /// Returns [`SyntaxErrorKind::RuleChangesNoCell`] at the subject for a
+    /// single-body rule whose subject holds no `k::rewrite!`, and the binder
+    /// list's error at the binder.
     pub fn check_sentence(&self) -> Result<(), SyntaxError> {
         self.unchanged
             .clone()
@@ -552,9 +552,9 @@ impl RuleItem {
             }
             (true, None) if form == ClauseForm::Context => {}
             (true, None) => {
-                unchanged = Some(crate::term::local_rewrite_error(
-                    crate::state_rule::SINGLE_BODY_WITHOUT_REWRITE.to_owned(),
-                    item.sig.ident.span(),
+                unchanged = Some(crate::state_rule::rule_changes_no_cell(
+                    item,
+                    argument.pat.span(),
                 ));
             }
             (true, Some(_)) => {

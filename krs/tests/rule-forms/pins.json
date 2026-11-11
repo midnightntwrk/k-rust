@@ -875,7 +875,7 @@
       "error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` belongs to a single-body rule, which returns `()`; a rule with a result already states the whole after-state"
     ],
     "local-rewrite-unchanged": [
-      "error[krs::syntax::invalid-local-rewrite]: a single-body rule must change something: mark what changes in its subject with `k::rewrite!(from => to)`, or return a result"
+      "error[krs::analysis::rule-changes-no-cell]: rule `assign` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing"
     ],
     "heat-cool-hole-not-left": [
       "error[krs::analysis::invalid-heat-cool]: a heat rule must match its hole on the left side; K adds 'requires notBool isKResult(HOLE)', a condition on that subterm, and `x` does not occur there"
