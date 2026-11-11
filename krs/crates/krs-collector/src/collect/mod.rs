@@ -369,7 +369,10 @@ fn collect_pending_descriptors(
             .map_err(|error| {
                 (
                     CollectionErrorKind::InvalidConfiguration,
-                    format!("invalid host configuration descriptor: {error}"),
+                    format!(
+                        "invalid host configuration descriptor: {}",
+                        error.in_sentence(host.id.item_kind())
+                    ),
                     error.at().cloned(),
                 )
             })
@@ -959,7 +962,10 @@ fn descriptor_contract_error(
         ),
         krs_ir::DescriptorError::State(error) => (
             CollectionErrorKind::ProvenanceMismatch,
-            format!("invalid stable configuration descriptor: {error}"),
+            format!(
+                "invalid stable configuration descriptor: {}",
+                error.in_sentence(id.item_kind())
+            ),
         ),
         error @ krs_ir::DescriptorError::WrongKind { .. } => (
             CollectionErrorKind::InvalidStableIdentity,

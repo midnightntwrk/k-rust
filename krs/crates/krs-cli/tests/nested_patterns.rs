@@ -4371,6 +4371,35 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         leaf-rewrite: rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>"#]].assert_eq(&accepted.join("\n"));
 }
 
+/// CELLS4 item 6: a term the configuration transport refuses names the sentence whose term it
+/// is. `()` (.K) as a rewrite's right side away from a whole K-sequence item reaches the
+/// transport from a single-body rule and from a context alike, and was framed "invalid
+/// initializer term" for both.
+#[test]
+fn a_term_the_transport_refuses_names_its_sentence() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let lines = [
+        (
+            "rule",
+            single_body("\n    a: Int,", "acc: k::configuration::Cell(k::rewrite!(a => ()))"),
+        ),
+        (
+            "context",
+            format!(
+                "{SINGLE_BODY}#[k::context(hole = h)]\nfn ctx(\n    h: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x: k::rewrite!(h => ()) }}, ..), .. }}: Machine,\n) {{}}\n"
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("transport-{name}"), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        rule: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid rule term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:8
+        context: error[krs::collect::invalid-configuration]: invalid host configuration descriptor: invalid context term: `()` (.K) is the right side of a `k::rewrite!` only as a whole K-sequence item @ 77:4"#]].assert_eq(&lines.join("\n"));
+}
+
 /// A `SINGLE_BODY` single-body rule `make` over `x: Int` and the binders of `parameters` that
 /// removes `make(x)` from the computation and rewrites the cells of `entries`.
 fn single_body(parameters: &str, entries: &str) -> String {

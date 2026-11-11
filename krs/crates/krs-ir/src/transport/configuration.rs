@@ -834,6 +834,23 @@ impl StateTransportError {
     }
 }
 
+impl StateTransportError {
+    /// This error as the sentence of kind `item` meets it: a term's refusal names the sentence
+    /// whose term it is (an initializer for a configuration, a rule, a claim, a context, a
+    /// context alias), since every sentence's terms are validated alike; any other error reads
+    /// as its [`fmt::Display`].
+    #[must_use]
+    pub fn in_sentence(&self, item: ItemKind) -> String {
+        match self {
+            Self::InvalidTerm(detail) => match item {
+                ItemKind::Configuration => format!("invalid initializer term: {detail}"),
+                item => format!("invalid {item} term: {detail}"),
+            },
+            other => other.to_string(),
+        }
+    }
+}
+
 impl fmt::Display for StateTransportError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -859,7 +876,7 @@ impl fmt::Display for StateTransportError {
                 formatter.write_str("configuration has more than one main variable")
             }
             Self::InvalidCellContent(detail) => write!(formatter, "invalid cell content: {detail}"),
-            Self::InvalidTerm(detail) => write!(formatter, "invalid initializer term: {detail}"),
+            Self::InvalidTerm(detail) => write!(formatter, "invalid term: {detail}"),
             Self::MissingProvenance(key) => write!(
                 formatter,
                 "descriptor provenance lacks `{}#{}`",

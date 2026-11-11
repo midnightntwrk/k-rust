@@ -343,7 +343,30 @@ mod tests {
         );
         assert_eq!(
             StateTransportError::InvalidTerm(StateTermReason::InvalidAnonymousSort).to_string(),
-            "invalid initializer term: invalid anonymous sort"
+            "invalid term: invalid anonymous sort"
+        );
+        // Where the sentence is known, the term's refusal names it.
+        let refused = StateTransportError::InvalidTerm(StateTermReason::EmptyRewriteOutsideKSequence);
+        assert_eq!(
+            [
+                crate::ItemKind::Configuration,
+                crate::ItemKind::Rule,
+                crate::ItemKind::Claim,
+                crate::ItemKind::Context,
+                crate::ItemKind::ContextAlias,
+            ]
+            .map(|item| refused.in_sentence(item).split(':').next().unwrap().to_owned()),
+            [
+                "invalid initializer term",
+                "invalid rule term",
+                "invalid claim term",
+                "invalid context term",
+                "invalid context alias term",
+            ]
+        );
+        assert_eq!(
+            StateTransportError::CellOwnerMismatch.in_sentence(crate::ItemKind::Rule),
+            "cell identity owner mismatch"
         );
     }
 
