@@ -192,14 +192,16 @@ export function substText(σ: Binding[]): string {
 // by docs-gen/core_sources.py beside the manifest. The core lessons quote only this, and are stamped
 // with its commit.
 
-const core = coreRaw as { commit: string; files: Record<string, string> }
+/** A file's text, or one axiom of a large file (key `path#label`) with the line it starts at. */
+const core = coreRaw as { commit: string; files: Record<string, string | { start: number; text: string }> }
 
 export const coreCommit = core.commit
 
 /** A file of kcore-spec at `coreCommit`, its lines numbered as in the file. */
 export function coreFile(path: string): Source {
-  const text = core.files[path]
-  if (text === undefined) throw new Error(`lean lessons: no core file ${path}`)
+  const found = core.files[path]
+  if (found === undefined) throw new Error(`lean lessons: no core file ${path}`)
+  const { start, text } = typeof found === 'string' ? { start: 1, text: found } : found
   const body = text.endsWith('\n') ? text.slice(0, -1) : text
-  return { file: path, start: 1, end: body.split('\n').length, text: body }
+  return { file: path.split('#')[0], start, end: start + body.split('\n').length - 1, text: body }
 }

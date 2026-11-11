@@ -149,7 +149,7 @@ a.row:hover { background: var(--bg); }
 .ph span:last-child { letter-spacing: .02em; opacity: .8; overflow: hidden; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 .ph span:first-child { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .body { flex: 1; overflow: auto; padding: 6px 0; position: relative; }
-.ln { display: grid; font: 12.5px/1.6 var(--f-mono); font-variant-ligatures: none; grid-template-columns: 44px minmax(0, 1fr); overflow-wrap: anywhere; transition: background .25s, opacity .25s; white-space: pre-wrap; }
+.ln { display: grid; font: 12.5px/1.6 var(--f-mono); font-variant-ligatures: none; grid-template-columns: var(--gutter, 44px) minmax(0, 1fr); overflow-wrap: anywhere; transition: background .25s, opacity .25s; white-space: pre-wrap; }
 .no { color: var(--faint); padding-right: 10px; text-align: right; user-select: none; }
 .ln.hl { background: var(--gold-tint); }
 .ln.hl .no { color: var(--gold); }
@@ -162,7 +162,7 @@ a.row:hover { background: var(--bg); }
 .tkTurn { color: var(--gold); font-weight: 600; }
 .tokenMark { background: var(--gold-tint); border-radius: 3px; box-shadow: inset 0 -2px 0 var(--gold); color: inherit; }
 /* An annotation sits in the code's own flow, under the gutter's column, so nothing is covered. */
-.noteRow { display: grid; font: 12.5px/1.6 var(--f-mono); grid-template-columns: 44px minmax(0, 1fr); padding-block: 5px; }
+.noteRow { display: grid; font: 12.5px/1.6 var(--f-mono); grid-template-columns: var(--gutter, 44px) minmax(0, 1fr); padding-block: 5px; }
 .noteOpen { animation: noteOpen .26s ease; display: grid; grid-template-rows: 1fr; }
 .noteClose { animation: noteClose .26s ease forwards; }
 .noteClip { min-height: 0; overflow: hidden; }

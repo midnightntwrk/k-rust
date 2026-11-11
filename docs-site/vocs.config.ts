@@ -86,6 +86,7 @@ export default defineConfig({
         { text: '1. Terms', link: '/lean/terms' },
         { text: '2. Signature', link: '/lean/signature' },
         { text: '3. Values', link: '/lean/values' },
+        { text: '4. Matching', link: '/lean/matching' },
         { text: 'State of the core', link: '/lean/state-of-the-core' },
       ],
     },

@@ -14,7 +14,7 @@ import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import '@fontsource/ibm-plex-mono/600.css'
 
-import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'vocs'
 
 import type { Source } from './data'
@@ -243,7 +243,8 @@ function PaneView({ pane, source, lines, notes }: { pane: Pane; source: Source; 
         <span>{subs(pane.label)}</span>
         <span>{source.file}{source.start > 1 ? ` ${source.start}–${source.start + rows.length - 1}` : ''}</span>
       </figcaption>
-      <div className={styles.body} ref={box}>
+      {/* The gutter grows with the number of digits of the last line number, so a number never wraps. */}
+      <div className={styles.body} ref={box} style={{ '--gutter': `${Math.max(44, String(source.start + rows.length - 1).length * 8 + 14)}px` } as CSSProperties}>
         {rows.map((row, i) => {
           const line = source.start + i
           const marks = (pointers.get(line) ?? []).filter((x) => !x.leaving).map((x) => x.n.token!)
