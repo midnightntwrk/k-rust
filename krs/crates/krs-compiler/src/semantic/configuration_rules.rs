@@ -916,9 +916,13 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?;
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     if matches!(rule.subject.remainder, ProtocolRuleFrame::Exact) && !omitted_siblings.is_empty() {
-        return Err(DescriptorLoweringError::unsupported_shape(
-            "configuration rule remainder",
-            "an exact subject must select every fixed leaf cell",
+        return Err(record_missing_cells(
+            descriptor,
+            &rule.pattern_key,
+            "subject",
+            &configuration.declaration,
+            declarations,
+            &selected,
         ));
     }
 
@@ -1013,6 +1017,96 @@ pub(super) fn lower_configuration_rule_descriptor(
         descriptor,
         rule.evaluation.as_ref(),
     )?))
+}
+
+/// The refusal of a `cells!` record with no rest (`..`, `state @ ..`) that leaves cells of its
+/// configuration out. A record without a rest is the whole state, as a Rust struct pattern
+/// without `..` names every field: every configuration holds each of its cells, so a whole state
+/// that leaves one out describes none. The record of the sentence's `side` (its subject, or a
+/// context alias's pattern) is at `key`, and names the cells `selected`; the refusal names each
+/// cell left out that no named cell lies in, by the spelling the record would name it with.
+fn record_missing_cells(
+    descriptor: &Descriptor,
+    key: &ProvenanceKey,
+    side: &str,
+    declaration: &krs_ir::DescriptorCellDeclaration,
+    declarations: &DescriptorIndex<'_>,
+    selected: &BTreeSet<krs_ir::DescriptorCellIdentity>,
+) -> DescriptorLoweringError {
+    let mut unnamed = Vec::new();
+    unnamed_cells(declaration, declarations, selected, 0, &mut unnamed);
+    let cells = match unnamed.as_slice() {
+        [] => "some of its cells".to_owned(),
+        [cell] => format!("`{cell}`"),
+        [init @ .., last] => format!(
+            "{} and `{last}`",
+            init.iter()
+                .map(|cell| format!("`{cell}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    let them = if unnamed.len() == 1 { "it" } else { "them" };
+    DescriptorLoweringError::RecordMissingCells {
+        reason: format!(
+            "the `cells!` {side} has no `..` and leaves out {cells}: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name {them}, or end the record with `..` to leave {them} unconstrained"
+        ),
+        range: semantic_origin(descriptor, key.clone(), "rule-pattern")
+            .ok()
+            .and_then(|origin| origin.origin().exact_authored_range().map(Box::new)),
+        item: None,
+    }
+}
+
+/// Pushes, in declaration order, each cell of `declaration` that neither `selected` nor any cell
+/// below it names, as a `cells!` record names it: a cell of the record's own declaration by its
+/// field, one inside a group through the group's struct (`Frame::gas`).
+fn unnamed_cells(
+    declaration: &krs_ir::DescriptorCellDeclaration,
+    declarations: &DescriptorIndex<'_>,
+    selected: &BTreeSet<krs_ir::DescriptorCellIdentity>,
+    depth: usize,
+    unnamed: &mut Vec<String>,
+) {
+    for field in &declaration.fields {
+        let cell = &field.reference.cell;
+        if selected.contains(cell) {
+            continue;
+        }
+        let nested = match &field.content {
+            ProtocolCellContent::Nested { declaration } if depth < 64 => {
+                declarations.cell(&declaration.declaration).ok()
+            }
+            _ => None,
+        };
+        if let Some(nested) = nested
+            && names_below(nested, declarations, selected, depth + 1)
+        {
+            unnamed_cells(nested, declarations, selected, depth + 1, unnamed);
+        } else if depth == 0 {
+            unnamed.push(cell.field.clone());
+        } else {
+            unnamed.push(format!("{}::{}", cell.owner.item_name(), cell.field));
+        }
+    }
+}
+
+/// Whether `selected` names a cell of `declaration` or below one of them.
+fn names_below(
+    declaration: &krs_ir::DescriptorCellDeclaration,
+    declarations: &DescriptorIndex<'_>,
+    selected: &BTreeSet<krs_ir::DescriptorCellIdentity>,
+    depth: usize,
+) -> bool {
+    declaration.fields.iter().any(|field| {
+        selected.contains(&field.reference.cell)
+            || match &field.content {
+                ProtocolCellContent::Nested { declaration } if depth < 64 => declarations
+                    .cell(&declaration.declaration)
+                    .is_ok_and(|nested| names_below(nested, declarations, selected, depth + 1)),
+                _ => false,
+            }
+    })
 }
 
 /// A rule whose result writes a cell its subject does not match, with that cell's whole content
@@ -1706,9 +1800,13 @@ pub(super) fn lower_context_alias_descriptor(
         .collect::<BTreeSet<_>>();
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     if matches!(alias.pattern.remainder, ProtocolRuleFrame::Exact) && !omitted_siblings.is_empty() {
-        return Err(DescriptorLoweringError::unsupported_shape(
-            "context alias remainder",
-            "an exact pattern must select every fixed leaf cell",
+        return Err(record_missing_cells(
+            descriptor,
+            &alias.pattern_key,
+            "pattern",
+            &configuration.declaration,
+            declarations,
+            &selected,
         ));
     }
     let body = FixedConfigurationPattern::new(
@@ -2487,8 +2585,14 @@ fn validate_frame_pair(
     node: &'static str,
 ) -> Result<(), DescriptorLoweringError> {
     let supported = match (subject, result) {
+        // A result without a rest writes the cells it names and leaves every other cell as it
+        // is, whatever rest the subject has: a cell a `cells!` result does not name is
+        // unchanged. A named rest the result does not put back (`state @ ..` with no `..state`)
+        // is kept so too: the configuration's rest is no term, so nothing can move it.
         (
-            ProtocolRuleFrame::Exact | ProtocolRuleFrame::Anonymous { .. },
+            ProtocolRuleFrame::Exact
+            | ProtocolRuleFrame::Anonymous { .. }
+            | ProtocolRuleFrame::Bind { .. },
             ProtocolRuleFrame::Exact,
         ) => true,
         (

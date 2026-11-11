@@ -3517,3 +3517,244 @@ fn a_presence_in_an_instance_child_s_record_waits_for_the_entries_as_outside_an_
         ]
     "#]].assert_debug_eq(&lines);
 }
+
+/// The configuration of the CELLSX witnesses, `{CONTEXT_ALIAS}` standing for the context alias
+/// `ca` its strict production evaluates through.
+const WHOLE: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("make({x})")]
+    Make { x: Int },
+    #[k::syntax("twice({e})")]
+    #[k::strict(using = ca)]
+    Twice { e: Stmt },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub gas: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub acc: Int,
+    #[k::cell(nested)]
+    pub frame: Frame,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], acc: 0, frame: Frame { pc: 0, gas: 0 } }
+    }
+}
+
+#[k::context_alias(name = ca, here = site)]
+fn ca(
+    k::cells! { CONTEXT_ALIAS }: Machine,
+) {
+}
+"#;
+
+/// The context alias pattern `WHOLE` holds unless a row writes its own.
+const WHOLE_ALIAS: &str = "k: k::configuration::KCell(site, tail @ ..), state @ ..";
+
+/// A `WHOLE` `cells!` rule (`claim` false) or claim `make` over the binders `x: Int` and
+/// `a: Int` and those of `parameters`, whose subject and result are `subject` and `result`
+/// after the computation cell's entry (`KCell(Make { x }, tail @ ..)` and `KCell(..tail)`).
+fn whole_cells(claim: bool, parameters: &str, subject: &str, result: &str) -> String {
+    let attribute = if claim {
+        "#[k::claim(one_path, label = \"make\")]"
+    } else {
+        "#[k::rule(label = \"make\")]"
+    };
+    format!(
+        "{}{attribute}\npub fn make(\n    x: Int,\n    a: Int,{parameters}\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, tail @ ..), {subject} }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result} }}\n}}\n",
+        WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+    )
+}
+
+/// CELLSX: a `cells!` record without a rest is the whole state. Naming every cell of the
+/// configuration, as a group (`frame: _`) or through its children (`Frame::pc`, `Frame::gas`),
+/// it is the rule or claim with every cell, admitted. A subject's named rest `state @ ..` whose
+/// result does not put it back keeps the cells the result does not name, as any `cells!` result
+/// does: the rule is the one with `..state`.
+#[test]
+fn a_cells_record_without_a_rest_names_every_cell() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = |name: &str, source: &str| {
+        let manifest = library_package(temporary.path(), &format!("whole-{name}"), source);
+        emitted_sentence(target.path(), &manifest, "make")
+    };
+    let all = "acc: k::configuration::Cell(a), frame: _";
+    let written =
+        "acc: k::configuration::Cell(x), frame: k::fragment![crate::Frame { pc: x, gas: 0 }]";
+    let leaves = "acc: k::configuration::Cell(a), crate::Frame::pc: k::configuration::Cell(p), crate::Frame::gas: k::configuration::Cell(g)";
+    let admitted = [
+        ("rule-every-cell", whole_cells(false, "", all, written)),
+        ("claim-every-cell", whole_cells(true, "", all, written)),
+        (
+            "rule-every-leaf",
+            whole_cells(
+                false,
+                "\n    p: Int,\n    g: Int,",
+                leaves,
+                "acc: k::configuration::Cell(x)",
+            ),
+        ),
+        (
+            "rule-named-rest-result-every-cell",
+            whole_cells(
+                false,
+                "",
+                "acc: k::configuration::Cell(a), state @ ..",
+                written,
+            ),
+        ),
+    ]
+    .map(|(name, source)| (name, emitted(name, &source)));
+    expect_test::expect![[r#"
+        [
+            (
+                "rule-every-cell",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> (_:FrameCell => <frame> <pc> X:Int </pc> <gas> 0 </gas> </frame>)",
+            ),
+            (
+                "claim-every-cell",
+                "claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> (_:FrameCell => <frame> <pc> X:Int </pc> <gas> 0 </gas> </frame>) [one-path]",
+            ),
+            (
+                "rule-every-leaf",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> <pc> P:Int </pc> <gas> G:Int </gas>",
+            ),
+            (
+                "rule-named-rest-result-every-cell",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> (_:FrameCell => <frame> <pc> X:Int </pc> <gas> 0 </gas> </frame>)",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&admitted);
+    // The readable twin names the same cells; a readable record leaves none out by its form.
+    let readable = format!(
+        "{}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    make: {{ k: [Make {{ x }}, ..], acc: a, frame: _ }} => {{ k: [..], acc: x, frame: Frame {{ pc: x, gas: 0 }} }};\n}}\n",
+        WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+    );
+    expect_test::expect![[r#"
+        "rule [make]: <k> make ( X:Int ) => .K ... </k> <acc> A:Int => X:Int </acc> (_:FrameCell => <frame> <pc> X:Int </pc> <gas> 0 </gas> </frame>)"
+    "#]]
+    .assert_debug_eq(&emitted("readable-every-cell", &readable));
+    // A named rest the result does not put back is the rest put back.
+    for claim in [false, true] {
+        let subject = "acc: k::configuration::Cell(a), state @ ..";
+        let [without, with] = [
+            ("without", "acc: k::configuration::Cell(x)"),
+            ("with", "acc: k::configuration::Cell(x), ..state"),
+        ]
+        .map(|(kind, result)| {
+            emitted(
+                &format!("named-rest-{claim}-{kind}"),
+                &whole_cells(claim, "", subject, result),
+            )
+        });
+        assert_eq!(without, with, "claim: {claim}");
+    }
+}
+
+/// CELLSX: a `cells!` record without a rest that leaves a cell out describes no configuration,
+/// since every configuration holds each of its cells; it is refused at the record, which says
+/// which cells it leaves out, in a rule, a claim, a single-body rule, a context and a context
+/// alias alike.
+#[test]
+fn a_cells_record_without_a_rest_that_leaves_a_cell_out_is_refused_at_the_record() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rewrite = "k: k::configuration::KCell(k::rewrite!(Cmd::Make { x } => ()), ..), acc: k::configuration::Cell(_)";
+    let refused = [
+        (
+            "rule",
+            whole_cells(false, "", "acc: k::configuration::Cell(a)", "acc: k::configuration::Cell(x)"),
+        ),
+        (
+            "claim",
+            whole_cells(true, "", "acc: k::configuration::Cell(a)", "acc: k::configuration::Cell(x)"),
+        ),
+        (
+            "rule-one-leaf",
+            whole_cells(
+                false,
+                "\n    p: Int,",
+                "acc: k::configuration::Cell(a), crate::Frame::pc: k::configuration::Cell(p)",
+                "acc: k::configuration::Cell(x)",
+            ),
+        ),
+        (
+            "single-body",
+            format!(
+                "{}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,\n    k::cells! {{ {rewrite} }}: Machine,\n) {{}}\n",
+                WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+            ),
+        ),
+        (
+            "context",
+            format!(
+                "{}#[k::context(hole = h)]\nfn make(\n    h: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x: h }}, ..) }}: Machine,\n) {{}}\n",
+                WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+            ),
+        ),
+        (
+            "context-alias",
+            WHOLE.replace(
+                "CONTEXT_ALIAS",
+                "k: k::configuration::KCell(site, tail @ ..), acc: k::configuration::Cell(0)",
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("whole-{name}"), &source);
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "rule",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 54:5",
+            ),
+            (
+                "claim",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 54:5",
+            ),
+            (
+                "rule-one-leaf",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `Frame::gas`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 55:5",
+            ),
+            (
+                "single-body",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 53:5",
+            ),
+            (
+                "context",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `acc` and `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name them, or end the record with `..` to leave them unconstrained @ 53:5",
+            ),
+            (
+                "context-alias",
+                "error[krs::analysis::record-missing-children]: the `cells!` pattern has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 47:5",
+            ),
+        ]
+    "#]].assert_debug_eq(&refused);
+}

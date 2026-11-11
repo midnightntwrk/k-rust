@@ -956,6 +956,16 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// A `cells!` record without a rest (`..`, `state @ ..`) that leaves cells of its
+    /// configuration out: an exact record names every cell.
+    RecordMissingCells {
+        /// Stable reason naming the cells left out.
+        reason: String,
+        /// Sole exact authored range of the record.
+        range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A configuration entry whose wrapper is not its cell's.
     CellWrapper {
         /// Stable reason naming the cell and the wrapper it takes.
@@ -1450,6 +1460,11 @@ macro_rules! by_subject_slots {
                 item: $open_item,
                 ..
             }
+            | DescriptorLoweringError::RecordMissingCells {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
             | DescriptorLoweringError::CellWrapper {
                 range: $open_range,
                 item: $open_item,
@@ -1897,6 +1912,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidConsoleCell { reason, .. }
             | Self::GroupInstance { reason, .. }
             | Self::CellCollection { reason, .. }
+            | Self::RecordMissingCells { reason, .. }
             | Self::CellWrapper { reason, .. }
             | Self::UnusedConfigurationVariable { reason, .. }
             | Self::UnsupportedInputDefault { reason, .. }
@@ -2015,6 +2031,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             },
             Self::InvalidConsoleCell { .. } => codes::analysis::CONSOLE_CELL,
             Self::CellCollection { code, .. } | Self::GroupInstance { code, .. } => code.clone(),
+            Self::RecordMissingCells { .. } => codes::analysis::RECORD_MISSING_CHILDREN,
             Self::InvalidFresh { problem, .. } => match problem {
                 FreshProblem::NoGenerator => codes::analysis::NO_FRESH_GENERATOR,
                 FreshProblem::DuplicateGenerator => codes::analysis::DUPLICATE_FRESH_GENERATOR,
