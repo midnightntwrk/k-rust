@@ -179,7 +179,10 @@ fn transform(
             }
         }
         Term::Rewrite { left, right } => {
-            match (transform(left, productions)?, transform(right, productions)?) {
+            match (
+                transform(left, productions)?,
+                transform(right, productions)?,
+            ) {
                 (None, None) => None,
                 (new_left, new_right) => Some(Term::Rewrite {
                     left: Box::new(new_left.unwrap_or_else(|| (**left).clone())),
@@ -188,7 +191,10 @@ fn transform(
             }
         }
         Term::As { pattern, alias } => {
-            match (transform(pattern, productions)?, transform(alias, productions)?) {
+            match (
+                transform(pattern, productions)?,
+                transform(alias, productions)?,
+            ) {
                 (None, None) => None,
                 (new_pattern, new_alias) => Some(Term::As {
                     pattern: Box::new(new_pattern.unwrap_or_else(|| (**pattern).clone())),

@@ -2016,14 +2016,10 @@ fn load_definition_impl(
             &load_options,
         )
         .map(|(loaded, syntax, timings)| (loaded, Some(syntax), timings)),
-        SourceLoad::Closure(roots) => load_import_closure_timed(
-            entry,
-            &options.module,
-            roots,
-            &mut resolver,
-            &load_options,
-        )
-        .map(|(loaded, timings)| (loaded, None, timings)),
+        SourceLoad::Closure(roots) => {
+            load_import_closure_timed(entry, &options.module, roots, &mut resolver, &load_options)
+                .map(|(loaded, timings)| (loaded, None, timings))
+        }
     };
     let (loaded, syntax, loader_timings) = loaded.inspect_err(|error| {
         if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {

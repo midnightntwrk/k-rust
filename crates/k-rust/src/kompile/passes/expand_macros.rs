@@ -2034,7 +2034,9 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             }
             // One typing of the rule gives the instance of its head and of every parametric
             // application below it.
-            let typing = with_stack(walk_zone(rule.sides.depth), || typer.typing(&rule.sides.sentence));
+            let typing = with_stack(walk_zone(rule.sides.depth), || {
+                typer.typing(&rule.sides.sentence)
+            });
             if let Some(head) = head {
                 head.instance.get_or_init(|| head_instance(&typing, head));
             }
