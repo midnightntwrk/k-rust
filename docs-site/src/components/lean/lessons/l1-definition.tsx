@@ -2,8 +2,7 @@
 
 // Lesson 1: peano.k, the KORE kompile writes for it, a run of it with krust, and what a run cannot
 // show. The KORE is kompile's output; the run is krust's output, captured by the generator's krun
-// script; the extra configurations and their successors were computed by Lean on the package's
-// data (Facts.lean).
+// script. That the configurations of the last scene have no next one is read off peano's two rules.
 
 import { type Ground, config, fmt, groundText, kItem, koreAxiom, lean, lineOf, peanoK, peanoLines, span, textSource } from '../data'
 import { type Lesson, note } from '../lesson'
@@ -96,8 +95,9 @@ const beyond = (at: number) => (
 
 export const lesson1: Lesson = {
   id: 'a-definition-and-its-steps',
-  number: 1,
+  number: 0,
   title: 'A definition and its steps',
+  against: 'cb071587',
   scenes: [
     {
       id: 'd1',
@@ -106,7 +106,8 @@ export const lesson1: Lesson = {
       frames: [
         { say: `You wrote a K definition, compiled it and ran a program. The run printed the configurations you expected. This lesson looks at what that shows, and at the gap a proof has to fill. Here's the definition again: ${peanoLines} lines.` },
         { hl: { k: [lineOf(k, 'rule <k> run(s(N))')] }, notes: [note('k', lineOf(k, 'rule <k> run(s(N))'), "When the k cell holds `run(s(N))`, replace it by `run(pred(s(N)))`.")], say: "Follow this rule. It mentions one cell and two uses of `s(N)`." },
-        { hl: { k: [lineOf(k, 'configuration')] }, say: 'A K definition isn\'t run as written. kompile translates it into ==KORE==, a small logical language: sort and symbol declarations, and axioms. The backends that run programs read KORE, and so does everything in this series.' },
+        { hl: { k: [lineOf(k, 'configuration')] }, say: 'A K definition isn\'t run as written. kompile translates it into ==KORE==, a small logical language: sort and symbol declarations, and axioms. The backends that run programs read KORE.' },
+        { say: 'This lesson shows KORE because it is what kompile writes. It is not the authority on what peano means: the theory Γ that this course builds later is built from the Lean definition, not read from this text.' },
       ],
     },
     {
@@ -125,7 +126,7 @@ export const lesson1: Lesson = {
             q: 'Your rule mentions only the k cell. Why does its axiom mention a counter cell at all?',
             options: ['The counter is incremented by every rule', 'A rule rewrites a whole configuration, so kompile completes it with the cells it leaves out, as variables that copy them unchanged', 'It is a debugging aid that backends ignore'],
             answer: 1,
-            why: 'The variable `DotVar0` appears on both sides, so the cell passes through unchanged. Lesson 4 turns that observation into a proved invariant.',
+            why: 'The variable `DotVar0` appears on both sides, so the cell passes through unchanged.',
           },
         },
         { hl: { k: [lineOf(k, 'rule <k> run(s(N))')], r: [lineOf(rule0, 'VarN'), lineOf(rule0, 'Lblpred')] }, notes: [note('r', lineOf(rule0, 'VarN'), "The two copies of `s(N)` became one shared subterm: `\\and` of the pattern and a fresh variable.", '\\and'), note('r', lineOf(rule0, 'Lblpred'), "The right-hand side reuses that variable.", "Var'Unds'Gen4")] },
@@ -147,7 +148,7 @@ export const lesson1: Lesson = {
             q: 'Why a negation, and not an attribute that says "try this one last"?',
             options: ['An attribute would be too slow to check', 'A KORE axiom is a logical statement, read without any order, so "last" has to be written as a condition', 'Attributes are not allowed on KORE axioms'],
             answer: 1,
-            why: 'Axioms in a theory have no order. This is why lesson 2 can compare two KORE texts up to the order of their sentences.',
+            why: 'Axioms in a theory have no order, so an order of equations has to be written as a condition.',
           },
         },
         { say: `For these ${peanoLines} lines, kompile writes ${emit.modules.length} modules and ${fmt(totalSentences)} sentences. The module \`PEANO\` alone has ${fmt(userModule.sentences)}, and ${fmt(emit.fixedInUser)} of those are the same text in every definition with the same imports.` },
@@ -182,8 +183,8 @@ export const lesson1: Lesson = {
       visual: beyond,
       frames: [
         { say: 'A run visits one path. These are the four configurations this one visited, in a line.' },
-        { say: "`done(s(z))` is a configuration too. No rule writes it, so no run from a program of the form `run(n)` reaches it. The package's step function, which lesson 3 explains, computes that it has no next configuration." },
-        { say: 'The fixed signature of every kompiled definition adds configurations no program writes, such as a k cell holding `#KConfigValue(.K)`.' },
+        { say: "`done(s(z))` is a configuration too. No rule writes it, so no run from a program of the form `run(n)` reaches it. Both rules need `run` in the k cell, so it has no next configuration." },
+        { say: 'The fixed signature of every kompiled definition adds configurations no program writes, such as a k cell holding `#KConfigValue(.K)`. No rule applies to it either.' },
         { say: 'And there are infinitely many more. A second run of the same program would show the same three steps. It says nothing about other inputs.' },
         {
           say: 'These two claims are about ==all== of those. A run cannot establish them. A proof can, once "next" has a precise meaning.',
@@ -213,10 +214,10 @@ export const lesson1: Lesson = {
     },
   ],
   checked: [
-    "The KORE in these scenes is kompile's output for `peano.k`, as krust's kompile wrote it. Lesson 2 shows the package's Lean definition generates this KORE, up to the order of its sentences, a fact the Lean kernel checks.",
+    "The KORE in these scenes is kompile's output for `peano.k`, as krust's kompile wrote it.",
     "The run is krust's output for this program, captured when the page's data was generated.",
-    "The next configurations in the last scene were computed by the package's executable step function. Lesson 3 shows it lists exactly the successors of the step relation.",
-    "Not checked: that kompile's KORE means what `peano.k` means. kompile is trusted, and the overview says so.",
+    "That the configurations of the last scene have no next one is read off peano's two rules: both need `run` in the k cell.",
+    "Not checked: that kompile's KORE means what `peano.k` means. kompile is trusted.",
   ],
   tryit: [
     {

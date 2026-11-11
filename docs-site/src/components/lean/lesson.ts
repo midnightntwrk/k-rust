@@ -64,6 +64,8 @@ export type Lesson = {
   title: string
   /** Absent for the overview. */
   number?: number
+  /** The kcore-spec commit the lesson was written against, shown with it so a stale lesson shows as stale. */
+  against: string
   scenes: readonly Scene[]
   quiz?: readonly Ask[]
   /** What the kernel, the build or a harness establishes about what the lesson showed. */

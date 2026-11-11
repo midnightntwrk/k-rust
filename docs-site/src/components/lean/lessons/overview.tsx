@@ -1,53 +1,12 @@
 'use client'
 
-// The overview: the running example, the map of the series, and what is checked today.
+// The overview: the running example and one run of it.
 
 import { lineOf, peanoK, span } from '../data'
 import { type Lesson, note } from '../lesson'
-import { A, Arrow, Board, Box, Label, Svg } from '../viz'
+import { A, Arrow, Box, Label, Svg } from '../viz'
 
 const k = peanoK
-
-const map = (at: number) => {
-  const muted = 'var(--muted)'
-  const ink = (n: number) => (at === n ? 'var(--ink)' : muted)
-  return (
-    <Svg viewBox="0 0 900 520" label="Map of the series: kompile turns peano.k into KORE; kcore gen reads the KORE into a Lean package holding the definition as a term, which prints back as the same KORE; Step, a Lean relation, says what a step of that definition is; properties of peano are proved about Step. The KORE also has a meaning of its own, a theory in matching logic; that Step agrees with it, soundness and completeness, is stated and not proved yet.">
-      <A show={at >= 0}>
-        <Box x={130} y={50} text="peano.k" sub="lesson 1" tone={at === 0 ? 'on' : 'plain'} />
-        <Arrow x1={180} y1={50} x2={360} y2={50} label="kompile" on={at === 0} />
-        <Box x={450} y={50} text="KORE" sub="lesson 1" tone={at === 0 ? 'on' : 'plain'} />
-      </A>
-      <A show={at >= 1}>
-        <Arrow x1={420} y1={76} x2={420} y2={134} on={at === 1} />
-        <Label x={410} y={109} anchor="end" text="kcore gen" tone={ink(1)} />
-        <Arrow x1={480} y1={134} x2={480} y2={76} on={at === 1} dash />
-        <Label x={490} y={109} text="prints back the same" tone={ink(1)} />
-        <Box x={450} y={160} w={280} text="the definition" aside="Lean term" sub="lesson 2" tone={at === 1 ? 'on' : 'plain'} />
-      </A>
-      <A show={at >= 2}>
-        <Arrow x1={500} y1={186} x2={640} y2={265} on={at === 2} />
-        <Label x={590} y={222} text="read as rewrites" tone={ink(2)} />
-        <Box x={690} y={295} w={250} text="Step" aside="Lean relation" sub="lesson 3" tone={at === 2 ? 'on' : 'plain'} />
-        <Label x={690} y={347} anchor="middle" text="what a step is" tone={muted} />
-      </A>
-      <A show={at >= 3}>
-        <Arrow x1={690} y1={360} x2={690} y2={426} label="used to prove" on={at === 3} />
-        <Box x={690} y={456} w={250} text="properties of peano" sub="proved · lesson 4" tone={at === 3 ? 'accent' : 'plain'} />
-      </A>
-      <A show={at >= 4}>
-        <Arrow x1={400} y1={186} x2={250} y2={265} on={at === 4} />
-        <Label x={312} y={222} anchor="end" text="its own meaning" tone={ink(4)} />
-        <Box x={190} y={295} w={250} text="Γ_D" aside="matching-logic theory" tone={at === 4 ? 'on' : 'plain'} />
-        <Arrow x1={320} y1={295} x2={560} y2={295} on={at === 4} dash tone="var(--gold)" />
-        <Arrow x1={560} y1={295} x2={320} y2={295} on={at === 4} dash tone="var(--gold)" />
-        <Box x={440} y={357} w={250} text="Step is sound and complete" sub="stated, not proved yet" tone="gold" dash />
-        <Label x={440} y={401} anchor="middle" text="would turn “proved about Step” into" tone={muted} />
-        <Label x={440} y={418} anchor="middle" text="“proved about peano's KORE”" tone={muted} />
-      </A>
-    </Svg>
-  )
-}
 
 const countDown = lineOf(k, 'rule <k> run(s(N))')
 const finish = lineOf(k, 'rule <k> run(z)')
@@ -113,37 +72,10 @@ const oneRun = (at: number) => {
   )
 }
 
-const status = [
-  {
-    title: 'Checked by the kernel',
-    items: [
-      { key: 'peano', text: <>nine properties of peano, four of them witnesses that the others are not true for an empty reason, and a run certificate</> },
-      { key: 'tie', text: <>the Lean definition is KCore's reading of peano's KORE, and prints back as that KORE up to the order of sentences</> },
-      { key: 'iff', text: <><code>step_iff</code>, for every definition that passes three checks: the executable step lists exactly the step relation's successors</> },
-      { key: 'kinds', text: <>determinism, and a cell every step keeps, for every definition, from one decision each</> },
-      { key: 'order', text: <><code>sameModels_of_reordered</code>: reordering a module's sentences keeps the models of its theory</> },
-    ],
-  },
-  {
-    title: 'Not proved yet',
-    items: [
-      { key: 'sc', text: <>that <code>Step</code> is sound and complete for the KORE's matching-logic theory: stated, <code>sorry</code></> },
-    ],
-  },
-  {
-    title: 'Trusted',
-    items: [
-      { key: 'kernel', text: <>the Lean kernel, and Lean's <code>Init</code> library</> },
-      { key: 'komp', text: <>kompile's translation of <code>peano.k</code> into KORE</> },
-      { key: 'reader', text: <>the reader from a KORE file's text to its syntax tree</> },
-      { key: 'read', text: <>and, to be read rather than trusted: the statements, and the definitions they are about</> },
-    ],
-  },
-]
-
 export const overview: Lesson = {
   id: 'overview',
   title: 'Overview: why a run is not enough',
+  against: 'cb071587',
   scenes: [
     {
       id: 'o1',
@@ -189,24 +121,6 @@ export const overview: Lesson = {
         { hl: { k: [finish] }, notes: [note('k', finish, "`run(z)` matches", 'run(z)')] },
         { say: 'This run establishes one fact: started on 2, the machine stops at `done(z)` after three steps.' },
         { say: 'How can we prove something holds for ==every== run?' },
-      ],
-    },
-    {
-      id: 'o2',
-      title: 'Two answers to one question',
-      visual: map,
-      // The map carries the explanation; each frame stays long enough to read what it adds.
-      frames: [{ ms: 3200 }, { ms: 4600 }, { ms: 4200 }, { ms: 4000 }, { ms: 5600 }],
-    },
-    {
-      id: 'o3',
-      title: 'How sure we are today',
-      visual: (at) => <Board columns={status} cols={3} lit={[[], ['Checked by the kernel'], ['Not proved yet'], ['Trusted']][at]} />,
-      frames: [
-        { say: 'The series keeps three kinds of claim apart. You should know which one you are reading at every step.' },
-        { say: 'Checked by the kernel, using only the axioms `propext`, `Classical.choice` and `Quot.sound`. If any of these were wrong, a proof would fail to check.' },
-        { say: 'Not proved yet. The most important one says `Step` is sound and complete for the matching-logic theory of the KORE. Until it is, a property of `Step` is a property of the KORE as Lean reads it.' },
-        { say: 'And trusted, not checked. A proof of the wrong statement checks just as well, so the statements are yours to read. Ready? Lesson 1 starts from the run itself.' },
       ],
     },
   ],

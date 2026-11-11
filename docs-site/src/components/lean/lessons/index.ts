@@ -2,12 +2,9 @@
 
 import { type Lesson, sourceAt } from '../lesson'
 import { lesson1 } from './l1-definition'
-import { lesson2 } from './l2-package'
-import { lesson3 } from './l3-step'
-import { lesson4 } from './l4-proofs'
 import { overview } from './overview'
 
-export const course: readonly Lesson[] = [overview, lesson1, lesson2, lesson3, lesson4]
+export const course: readonly Lesson[] = [overview, lesson1]
 
 // A note names a line and perhaps a token by value. Only a lesson's first frame is rendered when the
 // site is built, so they are checked here: a stale annotation fails the build, not one frame of a page.

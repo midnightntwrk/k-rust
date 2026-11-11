@@ -82,10 +82,7 @@ export default defineConfig({
       collapsed: false,
       items: [
         { text: 'Overview', link: '/lean' },
-        { text: '1. A definition and its steps', link: '/lean/a-definition-and-its-steps' },
-        { text: '2. The definition in Lean', link: '/lean/the-definition-in-lean' },
-        { text: '3. What a step means', link: '/lean/what-a-step-means' },
-        { text: "4. Proving peano's claims", link: '/lean/proving-peanos-claims' },
+        { text: 'Prologue: A definition and its steps', link: '/lean/a-definition-and-its-steps' },
       ],
     },
     {

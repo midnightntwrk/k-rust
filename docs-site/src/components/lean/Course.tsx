@@ -18,7 +18,6 @@ import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useM
 import { Link } from 'vocs'
 
 import type { Source } from './data'
-import { lean, shortCommit } from './data'
 import { course } from './lessons'
 import { spoken, subs } from './sub'
 import { type Ask, type Frame, type Lang, type Lesson, type Note, type Pane, type Scene, sourceAt } from './lesson'
@@ -372,7 +371,7 @@ function Rail({ current, done }: { current: Lesson; done: Readonly<Record<string
       </Link>
       <ol className={styles.lessons}>
         {course.map((l) => {
-          const n = l.number === undefined ? '00' : String(l.number).padStart(2, '0')
+          const n = l.number === undefined ? '00' : l.number === 0 ? 'P' : String(l.number).padStart(2, '0')
           return (
             <li key={l.id}>
               <Link to={l.number === undefined ? '/lean' : `/lean/${l.id}`} className={`${styles.row} ${done[l.id] ? styles.done : ''}`} aria-current={l === current ? 'page' : undefined}>
@@ -386,7 +385,7 @@ function Rail({ current, done }: { current: Lesson; done: Readonly<Record<string
       </ol>
       <div className={styles.railFoot}>
         <p>
-          Every pane and number comes from the kcore-spec Lean package at <code title={lean.provenance.kcoreSpecCommit}>{shortCommit}</code>, with Lean {lean.provenance.leanVersion}.
+          Each lesson names the kcore-spec commit it was written against.
           The package is not yet part of this repository.
         </p>
         <p>Space plays or pauses. ← and → step.</p>
@@ -514,7 +513,8 @@ function Player({ lesson, onFinish }: { lesson: Lesson; onFinish: () => void }) 
   return (
     <div className={styles.main}>
       <header className={styles.head}>
-        <span className={styles.eyebrow}>{lesson.number === undefined ? 'Overview' : `Lesson ${lesson.number} of ${course.length - 1}`}</span>
+        <span className={styles.eyebrow}>{lesson.number === undefined ? 'Overview' : lesson.number === 0 ? 'Prologue' : `Lesson ${lesson.number}`}</span>
+        <span className={styles.eyebrow}>written against kcore-spec <code style={{ textTransform: 'none' }}>{lesson.against}</code></span>
         <h1 className={styles.title}>{lesson.title}</h1>
         <span className={styles.sceneName}>Scene {pos.s + 1} of {lesson.scenes.length}: <b>{subs(scene.title)}</b></span>
       </header>

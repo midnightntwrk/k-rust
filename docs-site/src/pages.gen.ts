@@ -20,9 +20,6 @@ type Page =
   | { path: '/k-rust'; render: 'static' }
   | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
   | { path: '/lean'; render: 'static' }
-  | { path: '/lean/proving-peanos-claims'; render: 'static' }
-  | { path: '/lean/the-definition-in-lean'; render: 'static' }
-  | { path: '/lean/what-a-step-means'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }
