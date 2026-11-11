@@ -88,6 +88,7 @@ export default defineConfig({
         { text: '3. Values', link: '/lean/values' },
         { text: '4. Matching', link: '/lean/matching' },
         { text: '5. Evaluation', link: '/lean/evaluation' },
+        { text: '6. Step', link: '/lean/step' },
         { text: 'State of the core', link: '/lean/state-of-the-core' },
       ],
     },
