@@ -1109,6 +1109,292 @@ fn a_move_names_its_binders_apart_and_writes_a_created_instance() {
         krs run: stuck after 5 steps; <k> is empty"]].assert_eq(&format!("{}\n{}", &flat[start..end], stderr.trim()));
 }
 
+/// Objects whose group child `frame` a move carries, beside objects keyed by `oid` with `val` and
+/// a child whose field is `b_val` (`bval` in K), and a constructor with a field `b_val`.
+/// `{MOVES}` is the `cells!` move `cmvf`, in one spelling.
+const FRAMES: &str = r#"
+use k::KResult;
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence(cmd (Newf, Newo, Mvf, Cmvf, Pr, Three) > right seq (Seq))]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("newf {id} {a} {b}")] Newf { id: Int, a: Int, b: Int },
+    #[k::syntax("newo {id} {v} {b}")] Newo { id: Int, v: Int, b: Int },
+    #[k::syntax("mvf")] Mvf(),
+    #[k::syntax("cmvf")] Cmvf(),
+    #[k::syntax("pr {a} {b_val}")] Pr { a: Int, b_val: Int },
+    #[k::syntax("three")] Three(),
+    #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub fa: Int,
+    #[k::cell]
+    pub fb: Int,
+}
+
+#[k::cell]
+pub struct Fobj {
+    #[k::cell]
+    pub fid: Int,
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell]
+    pub fv: Int,
+}
+
+#[k::cell]
+pub struct Fobjs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub fobj: Fobj,
+}
+
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub oid: Int,
+    #[k::cell]
+    pub val: Int,
+    #[k::cell(name = "bval")]
+    pub b_val: Int,
+}
+
+#[k::cell]
+pub struct Objs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub obj: Obj,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub fobjs: Fobjs,
+    #[k::cell(nested)]
+    pub objs: Objs,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            fobjs: Fobjs { fobj: Fobj { fid: 0, frame: Frame { fa: 0, fb: 0 }, fv: 0 } },
+            objs: Objs { obj: Obj { oid: 0, val: 0, b_val: 0 } },
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use Cmd::*;
+
+    seq: Seq(s1, s2) => k::k![s1, s2];
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    newf: { k: [Newf(i, a, b), ..], fobj: { .. } } => { k: [..], fobj: { Fobj { fid: i, frame: Frame { fa: a, fb: b }, fv: 9 }, .. } };
+    newo: { k: [Newo(i, v, b), ..], obj: { .. } } => { k: [..], obj: { Obj { oid: i, val: v, b_val: b }, .. } };
+    // The group child the move takes is matched by an alias, whose inner pattern still constrains it.
+    mvf: { k: [Mvf(), ..], fobj: { me @ Fobj { fid: 1, frame: f @ Frame { fa: y, .. }, .. }, .. } } => { k: [..], fobj: { Fobj { fid: 2, ..me }, .. } };
+    // A record update's hidden binder (`o`.`b_val`) beside a move's (`o_b`.`val`).
+    pr: { k: [o @ Pr { a: 1, .. }, ..], obj: { o_b @ Obj { oid: 1, .. }, .. } } => { k: [Pr { a: 2, ..o }, ..], obj: { Obj { oid: 3, ..o_b }, .. } };
+    // Three labels whose children's paths read alike when joined.
+    three: { k: [Three(), ..], obj: { a @ Obj { oid: 1, .. }, a_b @ Obj { oid: 2, .. }, a_b_b @ Obj { oid: 3, .. }, .. } } => { k: [..], obj: { Obj { oid: 4, ..a }, Obj { oid: 5, ..a_b }, Obj { oid: 6, ..a_b_b }, .. } };
+}
+
+{MOVES}
+"#;
+
+/// The `cells!` move: instance 1 moved to key 3, its `frame` matched by the alias `f`.
+const FRAME_MOVE: &str = r#"
+#[k::rule(label = "cmvf")]
+fn cmvf(
+    f: Frame,
+    y: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cmvf(), tail @ ..),
+        Fobjs::fobj: { me @ k::fragment![crate::Fobj { fid: 1, frame: f @ k::fragment![crate::Frame { fa: y, .. }], .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Fobjs::fobj: { k::fragment![crate::Fobj { fid: 3, ..me }], ..instances0 },
+        ..state
+    }
+}
+"#;
+
+/// The same move in long form, every child named, `fv` as `me_fv`.
+const FRAME_MOVE_LONG: &str = r#"
+#[k::rule(label = "cmvf")]
+fn cmvf(
+    f: Frame,
+    y: k::Term<Int>,
+    me_fv: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cmvf(), tail @ ..),
+        Fobjs::fobj: { k::fragment![crate::Fobj { fid: 1, frame: f @ k::fragment![crate::Frame { fa: y, .. }], fv: me_fv }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Fobjs::fobj: { k::fragment![crate::Fobj { fid: 3, frame: f, fv: me_fv }], ..instances0 },
+        ..state
+    }
+}
+"#;
+
+/// A move takes a group child its pattern matches with an alias by that alias: the `cells!` move
+/// `cmvf` emits the K of its long form, which writes `frame: f`, and the readable `mvf`, whose
+/// alias its elaboration's long form folds away, holds the child by an added binder `#as` the
+/// same pattern. Each runs: the moved instance has the frame its pattern matched. A record
+/// update's hidden binder and a move's (`pr`), and three moves whose labels and children read
+/// alike when joined (`three`), each get a binder of their own, and their runs carry each value.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The pinned K of every move and the runs that show it are one witness."
+)]
+fn a_move_carries_a_group_child_and_names_its_binders_apart() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let frames = package_of(
+        temporary.path(),
+        "frames",
+        &FRAMES.replace("{MOVES}", FRAME_MOVE),
+    );
+    let long = package_of(
+        temporary.path(),
+        "frameslong",
+        &FRAMES.replace("{MOVES}", FRAME_MOVE_LONG),
+    );
+    let (success, stdout, stderr) = krs(target.path(), &frames, "check", &[]);
+    assert!(success, "{stdout}\n{stderr}");
+    let emitted = emitted_k(target.path(), &frames);
+    assert_eq!(
+        rule(&emitted, "cmvf"),
+        rule(&emitted_k(target.path(), &long), "cmvf")
+    );
+    let rules = ["mvf", "cmvf", "pr", "three"]
+        .map(|label| rule(&emitted, label))
+        .join("\n");
+    expect_test::expect![[r"
+        rule [mvf]:
+            <k> mvf => .K ... </k>
+            (<fobj>
+                <fid> 1 </fid>
+                ( <frame> <fa> Y:Int </fa> <fb> _ </fb> </frame> #as MeFrame:FrameCell )
+                <fv> MeFv:Int </fv>
+            </fobj> => .Bag)
+            (.Bag => <fobj>
+                <fid> 2 </fid>
+                MeFrame:FrameCell
+                <fv> MeFv:Int </fv>
+            </fobj>)
+        rule [cmvf]:
+            <k> cmvf ~> Tail:K => .K ~> Tail:K </k>
+            (<fobj>
+                <fid> 1 </fid>
+                ( <frame> <fa> Y:Int </fa> <fb> _ </fb> </frame> #as F:FrameCell )
+                <fv> MeFv:Int </fv>
+            </fobj> => .Bag)
+            (.Bag => <fobj>
+                <fid> 3 </fid>
+                F:FrameCell
+                <fv> MeFv:Int </fv>
+            </fobj>)
+        rule [pr]:
+            <k> pr 1 OBVal:Int => pr 2 OBVal:Int ... </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> OBVal2:Int </val>
+                <bval> OBBVal:Int </bval>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> 3 </oid>
+                <val> OBVal2:Int </val>
+                <bval> OBBVal:Int </bval>
+            </obj>)
+        rule [three]:
+            <k> three => .K ... </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> AVal:Int </val>
+                <bval> ABVal:Int </bval>
+            </obj> => .Bag)
+            (<obj>
+                <oid> 2 </oid>
+                <val> ABVal2:Int </val>
+                <bval> ABBVal:Int </bval>
+            </obj> => .Bag)
+            (<obj>
+                <oid> 3 </oid>
+                <val> ABBVal2:Int </val>
+                <bval> ABBBVal:Int </bval>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> 4 </oid>
+                <val> AVal:Int </val>
+                <bval> ABVal:Int </bval>
+            </obj>)
+            (.Bag => <obj>
+                <oid> 5 </oid>
+                <val> ABVal2:Int </val>
+                <bval> ABBVal:Int </bval>
+            </obj>)
+            (.Bag => <obj>
+                <oid> 6 </oid>
+                <val> ABBVal2:Int </val>
+                <bval> ABBBVal:Int </bval>
+            </obj>)"]]
+    .assert_eq(&rules);
+
+    let run = |name: &str, text: &str| {
+        let program = frames.with_file_name(format!("{name}.txt"));
+        fs::write(&program, text).unwrap();
+        let (success, stdout, stderr) =
+            krs(target.path(), &frames, "run", &[program.to_str().unwrap()]);
+        assert!(success, "{stdout}\n{stderr}");
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        let start = flat.find("<k>").unwrap();
+        let end = flat.find("</objs>").unwrap() + "</objs>".len();
+        format!("{}\n{}", &flat[start..end], stderr.trim())
+    };
+    let runs = [
+        run("mvf", "newf 1 4 5 mvf\n"),
+        run("cmvf", "newf 1 4 5 cmvf\n"),
+        run("pr", "newo 1 5 6 pr 1 7\n"),
+        run("three", "newo 1 1 2 newo 2 3 4 newo 3 5 6 three\n"),
+    ]
+    .join("\n");
+    expect_test::expect![[r"
+        <k> .K </k> <fobjs> <fobj> <fid> 2 </fid> <frame> <fa> 4 </fa> <fb> 5 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> <objs> .ObjCellMap </objs>
+        krs run: stuck after 3 steps; <k> is empty
+        <k> .K </k> <fobjs> <fobj> <fid> 3 </fid> <frame> <fa> 4 </fa> <fb> 5 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> <objs> .ObjCellMap </objs>
+        krs run: stuck after 3 steps; <k> is empty
+        <k> pr 2 7 ~> .K </k> <fobjs> .FobjCellMap </fobjs> <objs> <obj> <oid> 3 </oid> <val> 5 </val> <bval> 6 </bval> </obj> </objs>
+        krs run: stuck after 3 steps; <k> starts with `pr 2 7`
+        <k> .K </k> <fobjs> .FobjCellMap </fobjs> <objs> <obj> <oid> 4 </oid> <val> 1 </val> <bval> 2 </bval> </obj> <obj> <oid> 5 </oid> <val> 3 </val> <bval> 4 </bval> </obj> <obj> <oid> 6 </oid> <val> 5 </val> <bval> 6 </bval> </obj> </objs>
+        krs run: stuck after 7 steps; <k> is empty"]].assert_eq(&runs);
+}
+
 /// A List's back instance written on both sides, its result keeping children with `..`, is the
 /// instance updated in place, which KRS does not emit at the back: refused, as its labelled twin.
 /// The refusal's way out (CELLS4) names every child on both sides: the rule removes the instance

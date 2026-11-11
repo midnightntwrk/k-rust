@@ -2190,7 +2190,8 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
 /// How the long form of a move ([`moved_instances`]) takes one child of the labelled instance.
 #[derive(Clone, Debug)]
 enum Carried {
-    /// The child the subject matches with the binder `id`, which the creation writes.
+    /// The child the subject matches with the binder or alias `id`, which holds it whole and
+    /// which the creation writes.
     Binder {
         id: SemanticId,
         sort: SemanticSortRef,
@@ -2219,7 +2220,9 @@ impl Carried {
 /// ([`StateLowering::hidden_binder`]), so no two children, and no other binder, share a name.
 /// A move is refused where its long form has no binder for a child yet: a `?` or `*` child, which
 /// no instance record names, a child the record writes with a rest (no exact content), and a
-/// child the pattern matches with a construct that is not a leaf's term.
+/// child the pattern matches with a K sequence, a map or a group record (a pattern with no term
+/// that `#as` can hold). A child matched by a name or an alias is carried by that name, by `_` or
+/// not at all by an added binder, and by any other term pattern `p` by `p #as Binder`.
 fn carried_children(
     lowering: &mut impl StateLowering,
     descriptor: &Descriptor,
@@ -2276,51 +2279,16 @@ fn carried_children(
                     ),
                 ));
             }
-            let (kind, sort) = cell_kind_sort(declared);
+            let (_, sort) = cell_kind_sort(declared);
             let matched = subject.fields.iter().find(|field| field.field == *child);
-            let taken = match matched.map(|field| (field, &field.value)) {
-                Some((
-                    _,
-                    ProtocolRuleStateTerm::Term(DescriptorTerm::Variable { name, .. })
-                    | ProtocolRuleStateTerm::Group(DescriptorTerm::Variable { name, .. }),
-                )) => {
-                    let Some((bound, _)) = lowering.bound_sort(name, &sort) else {
-                        return Err(DescriptorLoweringError::unsupported_shape(
-                            "moved collection instance",
-                            "a carried child's binder has no sort the result binds it at",
-                        ));
-                    };
-                    Carried::Binder {
-                        id: SemanticId::new(name.clone())?,
-                        sort: bound,
-                    }
-                }
-                None
-                | Some((
-                    _,
-                    ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard { .. })
-                    | ProtocolRuleStateTerm::Group(DescriptorTerm::Wildcard { .. }),
-                )) => Carried::Hidden {
-                    id: lowering.hidden_binder(&label, child, &sort)?,
-                    sort,
-                },
-                Some((_, ProtocolRuleStateTerm::Term(_))) if kind == CellClauseKind::Content => {
-                    Carried::Hidden {
-                        id: lowering.hidden_binder(&label, child, &sort)?,
-                        sort,
-                    }
-                }
-                Some((field, _)) => {
-                    return Err(collection_error(
-                        descriptor,
-                        codes::analysis::COLLECTION_ENTRY,
-                        &field.key,
-                        format!(
-                            "not supported yet: {moving} that takes its child `{child}`, which the pattern matches with a construct no binder holds whole yet; match `{child}` with a name"
-                        ),
-                    ));
-                }
-            };
+            let taken = carry_child(
+                lowering,
+                descriptor,
+                (&label, child),
+                &sort,
+                matched,
+                &moving,
+            )?;
             carried
                 .entry(label.clone())
                 .or_default()
@@ -2328,6 +2296,69 @@ fn carried_children(
         }
     }
     Ok(carried)
+}
+
+/// How a move takes one child, `child` of the instance labelled `label`, which the instance's
+/// pattern writes as `matched` (`None`: it does not name it), at `sort` ([`carried_children`]).
+fn carry_child(
+    lowering: &mut impl StateLowering,
+    descriptor: &Descriptor,
+    (label, child): (&str, &str),
+    sort: &SemanticSortRef,
+    matched: Option<&krs_ir::ProtocolRuleInstanceField<DescriptorTerm>>,
+    moving: &str,
+) -> Result<Carried, DescriptorLoweringError> {
+    let sort = sort.clone();
+    Ok(match matched.map(|field| (field, &field.value)) {
+        // A binder, or an alias's name, holds the child whole: the creation writes it.
+        Some((
+            _,
+            ProtocolRuleStateTerm::Term(
+                DescriptorTerm::Variable { name, .. } | DescriptorTerm::As { name, .. },
+            )
+            | ProtocolRuleStateTerm::Group(
+                DescriptorTerm::Variable { name, .. } | DescriptorTerm::As { name, .. },
+            ),
+        )) => {
+            let Some((bound, _)) = lowering.bound_sort(name, &sort) else {
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "moved collection instance",
+                    "a carried child's binder has no sort the result binds it at",
+                ));
+            };
+            Carried::Binder {
+                id: SemanticId::new(name.clone())?,
+                sort: bound,
+            }
+        }
+        None
+        | Some((
+            _,
+            ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard { .. })
+            | ProtocolRuleStateTerm::Group(DescriptorTerm::Wildcard { .. }),
+        )) => Carried::Hidden {
+            id: lowering.hidden_binder(label, child, &sort)?,
+            sort,
+        },
+        // Another pattern `p` of a leaf or a group child is held by an added binder,
+        // `p #as Binder`, so it still constrains the instance it matches.
+        Some((_, ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_))) => {
+            Carried::Hidden {
+                id: lowering.hidden_binder(label, child, &sort)?,
+                sort,
+            }
+        }
+        Some((field, _)) => {
+            return Err(collection_error(
+                descriptor,
+                codes::analysis::COLLECTION_ENTRY,
+                &field.key,
+                format!(
+                    "not supported yet: {moving} that takes its child `{child}`, which the pattern matches with a K sequence, a map or a group record, a pattern no binder holds whole yet; write `{child}` in the result, or match it with a name, `_`, or an alias `name @ ..`"
+                ),
+            ));
+        }
+    })
 }
 
 /// Whether a new instance's child `value` is written exactly, with no rest of matched content

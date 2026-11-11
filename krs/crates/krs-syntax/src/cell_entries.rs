@@ -1770,10 +1770,13 @@ fn moved_label<'r>(
         return None;
     };
     let written = record_field(record, key)?;
+    // A whole instance named by one name, `label` (`Decl { .. }` labelled so), names no key, as the
+    // lowering reads it.
     let matched = subject.iter().find_map(|item| match item {
         EntrySpelling::Alias(name, instance) if name == label => {
             Some(record_of(instance, group).and_then(|record| record_field(record, key)))
         }
+        EntrySpelling::Binder(name) if name == label => Some(None),
         _ => None,
     })?;
     krs_ir::subject::moves_instance(
