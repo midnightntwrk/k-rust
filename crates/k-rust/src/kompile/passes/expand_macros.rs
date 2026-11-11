@@ -51,7 +51,7 @@ use std::{
 
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::DEFAULT_RULE_PRIORITY;
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -95,22 +95,47 @@ impl std::error::Error for ExpandMacrosError {}
 #[derive(Clone)]
 struct MacroRule {
     id: usize,
-    sentence: Sentence,
-    left: Term,
-    right: Term,
+    /// What the rule is as a sentence, shared by every module that sees the sentence.
+    sides: Rc<MacroSides>,
     recursive: bool,
-    /// The depth of the rule's sentence: instantiating the rule copies its right side, at most
-    /// this deep, into the term being expanded ([`Expander::instantiate`]).
-    depth: usize,
     /// The instance of a parametric head, typed only when a subject with that head is tried;
     /// `None` for a head whose production has no sort parameter.
     head_instance: Option<HeadInstance>,
     /// The instances of the parametric applications of the left side below its head, typed
     /// with the head; `None` when the left side has none.
     inner_instances: Option<InnerInstances>,
+}
+
+/// The parts of a macro rule that are functions of its sentence alone, and not of the module
+/// that sees it: a copy of the sentence, its two sides, its depth, whether its left side is
+/// nonlinear, and its rank. Whether the sentence is a macro rule, whether it is recursive, and
+/// its parametric sites read the module's productions, and stay in [`MacroRule`].
+struct MacroSides {
+    sentence: Sentence,
+    left: Term,
+    right: Term,
+    /// The depth of the rule's sentence: instantiating the rule copies its right side, at most
+    /// this deep, into the term being expanded ([`Expander::instantiate`]).
+    depth: usize,
     /// Whether a variable occurs more than once in the left side: matching then records where
     /// each binding stands in the subject, to compare a later occurrence with it.
     nonlinear: bool,
+    /// The rule's place in expansion order, or the diagnostic of its invalid `priority`.
+    rank: Result<MacroRank, Diagnostic>,
+}
+
+/// The [`MacroSides`] of the macro rules already built during one expansion of a definition,
+/// by the address of the sentence they were built from.
+///
+/// The memo borrows the sentences for `'definition` (the `PhantomData`), and every key is the
+/// address of a sentence borrowed for `'definition`: no keyed sentence is dropped or moved while
+/// the memo lives, so one address names one sentence, and the sides stored for it are the sides
+/// that sentence gives. A module seeing a rule another module saw reuses them instead of copying
+/// and projecting the rule again.
+#[derive(Default)]
+struct MacroRuleMemo<'definition> {
+    sides: FxHashMap<*const Sentence, Rc<MacroSides>>,
+    sentences: std::marker::PhantomData<&'definition Sentence>,
 }
 
 impl MacroRule {
@@ -226,11 +251,26 @@ pub(crate) fn expand_macros_pass(
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
     let views = resolved.views();
+    let mut memo = MacroRuleMemo::default();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let mut expander = match Expander::new(&views, module_id, module_id) {
+        // A module none of whose sentences is expanded is left as it is: the loop below
+        // reads nothing else of it. Its expander would be built only to be dropped, and the
+        // only effect of building one is the diagnostic of a failure, which every step that can
+        // fail reports in the same order as `Expander::new` ([`Preparation::new`]).
+        if !module
+            .local_sentences
+            .iter()
+            .any(|sentence| reports_unexpanded_macros(sentence).is_some())
+        {
+            if let Err(diagnostic) = Preparation::new(&views, module_id, module_id, &mut memo) {
+                diagnostics.push(diagnostic);
+            }
+            continue;
+        }
+        let mut expander = match Expander::with_memo(&views, module_id, module_id, &mut memo) {
             Ok(expander) => expander,
             Err(diagnostic) => {
                 diagnostics.push(diagnostic);
@@ -241,28 +281,8 @@ pub(crate) fn expand_macros_pass(
         // the first sentence of the module is expanded.
         let mut internal_labels = None;
         for sentence in &mut module.local_sentences {
-            // Rules that are not macro-like, claims and contexts are expanded; a macro-like rule
-            // defines an abbreviation and is not expanded itself. The decision also says whether
-            // a macro symbol left after expansion is reported: for rules and claims, not for
-            // contexts.
-            let reports_unexpanded_macros = match &**sentence {
-                Sentence::Rule { attributes, .. }
-                    if !attributes.has_any(&AttributeKey::MACRO_LIKE) =>
-                {
-                    true
-                }
-                Sentence::Claim { .. } => true,
-                Sentence::Context { .. } => false,
-                Sentence::SyntaxSort { .. }
-                | Sentence::SortSynonym { .. }
-                | Sentence::SyntaxLexical { .. }
-                | Sentence::Production { .. }
-                | Sentence::SyntaxAssociativity { .. }
-                | Sentence::SyntaxPriority { .. }
-                | Sentence::ContextAlias { .. }
-                | Sentence::Rule { .. }
-                | Sentence::Configuration { .. }
-                | Sentence::Bubble { .. } => continue,
+            let Some(reports_unexpanded_macros) = reports_unexpanded_macros(sentence) else {
+                continue;
             };
             // Copying, expanding, checking and comparing the sentence walk its terms
             // recursively, so they run with stack in proportion to the deepest term the
@@ -317,6 +337,30 @@ pub(crate) fn expand_macros_pass(
         diagnostics.sort();
         diagnostics.dedup();
         Err(ExpandMacrosError { diagnostics })
+    }
+}
+
+/// Whether the pass expands `sentence` and, if it does, whether a macro symbol left after
+/// expansion is reported. Rules that are not macro-like, claims and contexts are expanded; a
+/// macro-like rule defines an abbreviation and is not expanded itself. A macro symbol left is
+/// reported for rules and claims, not for contexts.
+fn reports_unexpanded_macros(sentence: &Sentence) -> Option<bool> {
+    match sentence {
+        Sentence::Rule { attributes, .. } if !attributes.has_any(&AttributeKey::MACRO_LIKE) => {
+            Some(true)
+        }
+        Sentence::Claim { .. } => Some(true),
+        Sentence::Context { .. } => Some(false),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
     }
 }
 
@@ -938,65 +982,100 @@ struct Expander<'view, 'definition> {
     red_zone: usize,
 }
 
-impl<'view, 'definition> Expander<'view, 'definition> {
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only the listed variants are special here"
-    )]
+/// What building an expander ([`Expander::with_memo`]) computes up to and including its last
+/// step that can fail.
+///
+/// Every step that can fail is here, in the order an expander takes them: the subsorts of the
+/// term module (which its sort injector reads first, failing with their cycle), its overloads,
+/// the rank of each macro rule in the order the macro module sees them, and, with a parametric
+/// macro rule, the typing view of the macro module. What the expander adds afterwards (the sort
+/// catalog, the sort injector, the typing view of the term module, the rules by head) cannot
+/// fail, so a preparation reports exactly the diagnostic an expander's construction reports.
+struct Preparation<'view, 'definition> {
+    productions: &'view ProductionCatalog<'definition>,
+    subsorts: &'view crate::definition::PartialOrder<Sort>,
+    overloads: &'view crate::definition::OverloadOrder<'definition>,
+    /// The macro rules of the macro module, in the order it sees them, each with its rank.
+    rules: Vec<(MacroRule, MacroRank)>,
+    /// Whether some macro rule's left side applies a parametric production, at its head or
+    /// below (matching compares the instances), or its right side places a binding at a
+    /// parametric argument ([`Expander::placed`]): the placement casts then written are
+    /// compared by the instances they leave. Instances are then read from typings.
+    parametric: bool,
+    /// The typing view of the macro module, present when `parametric`.
+    macro_typer: Option<SentenceTyper<'definition>>,
+}
+
+impl<'view, 'definition> Preparation<'view, 'definition> {
     fn new(
         views: &'view DefinitionViews<'definition>,
         term_module: ModuleId,
         macro_module: ModuleId,
+        memo: &mut MacroRuleMemo<'definition>,
     ) -> Result<Self, Diagnostic> {
         let definition = views.definition();
         let productions = views.production_catalog(term_module);
-        let sorts = views.sort_catalog(term_module);
-        let injector = SortInjector::with_views(views, term_module)
-            .map_err(|error| plain_error(error.to_string()))?;
-        let subsorts = views
-            .subsorts(term_module)
-            .map_err(|error| plain_error(error.to_string()))?;
+        // `SortInjector::with_views` reads the subsorts before anything else and fails exactly
+        // when they are cyclic, with this error.
+        let subsorts = views.subsorts(term_module).map_err(|cycle| {
+            plain_error(
+                crate::kompile::SortInjectionError::CircularSubsort(cycle.path.clone()).to_string(),
+            )
+        })?;
         let overloads = views
             .overloads(term_module)
             .map_err(|error| plain_error(error.to_string()))?;
+        let macro_heads = productions
+            .macro_labels()
+            .iter()
+            .map(LabelHead::as_str)
+            .collect::<FxHashSet<_>>();
         let selected = definition
             .sentences(macro_module)
             .into_iter()
             .enumerate()
+            .filter(|(_, sentence)| may_be_macro_rule(sentence, &macro_heads))
             .filter_map(|(id, sentence)| {
                 macro_rule_recursion(sentence, productions)
                     .map(|recursive| (id, sentence, recursive))
             })
             .collect::<Vec<_>>();
-        // Building a macro rule copies its sentence and projects its body, each a recursion as
-        // deep as the rule, so they run with stack for the deepest macro rule, measured without
-        // recursion. A parametric head is typed later, when it is first tried.
-        let depths = selected
+        // Building the sides of a macro rule copies its sentence and projects its body, each a
+        // recursion as deep as the rule, so the rules not built yet are built with stack for
+        // the deepest of them, measured without recursion. A parametric head is typed later,
+        // when it is first tried.
+        let missing = selected
             .iter()
-            .map(|(_, sentence, _)| sentence_depth(sentence))
+            .map(|(_, sentence, _)| *sentence)
+            .filter(|sentence| !memo.sides.contains_key(&std::ptr::from_ref(*sentence)))
+            .map(|sentence| (sentence, sentence_depth(sentence)))
             .collect::<Vec<_>>();
-        let rules_depth = depths.iter().copied().max().unwrap_or(0);
-        let mut all = with_stack(walk_zone(rules_depth), || {
-            selected
-                .into_iter()
-                .zip(&depths)
-                .map(|((id, sentence, recursive), depth)| {
-                    macro_rule(id, sentence, recursive, *depth)
-                })
-                .collect::<Vec<_>>()
+        let missing_depth = missing.iter().map(|(_, depth)| *depth).max().unwrap_or(0);
+        with_stack(walk_zone(missing_depth), || {
+            for (sentence, depth) in missing {
+                memo.sides
+                    .entry(std::ptr::from_ref(sentence))
+                    .or_insert_with(|| Rc::new(macro_sides(sentence, depth)));
+            }
         });
-        let priorities = all
+        let mut rules = selected
+            .into_iter()
+            .map(|(id, sentence, recursive)| MacroRule {
+                id,
+                sides: Rc::clone(&memo.sides[&std::ptr::from_ref(sentence)]),
+                recursive,
+                head_instance: None,
+                inner_instances: None,
+            })
+            .collect::<Vec<_>>();
+        let ranks = rules
             .iter()
-            .map(|rule| macro_priority(rule.sentence.attributes()))
+            .map(|rule| rule.sides.rank.clone())
             .collect::<Result<Vec<_>, _>>()?;
-        // Instances are read from typings when some macro rule's left side applies a
-        // parametric production, at its head or below (matching compares the instances), or
-        // its right side places a binding at a parametric argument ([`Self::placed`]): the
-        // placement casts then written are compared by the instances they leave.
-        let parametric = all.iter().any(|rule| {
-            applies_parametric(productions, &rule.left) || places_bindings(productions, &rule.right)
+        let parametric = rules.iter().any(|rule| {
+            applies_parametric(productions, &rule.sides.left)
+                || places_bindings(productions, &rule.sides.right)
         });
-        let mut typer = None;
         let mut macro_typer = None;
         if parametric {
             // Without a typing view of the macro module no instance of a macro rule can be
@@ -1010,7 +1089,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     ))
                 })?,
             );
-            for rule in &mut all {
+            for rule in &mut rules {
                 rule.head_instance =
                     parametric_head(productions, rule).map(|(path, parameters)| HeadInstance {
                         path,
@@ -1023,16 +1102,67 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     instances: OnceCell::new(),
                 });
             }
-            // A subject the term module's view cannot type has an unknown instance
-            // ([`Expander::subject_instance`]), which agrees only with a head that fixes no
-            // parameter, so this view may be absent.
-            typer = SentenceTyper::for_macro_expansion(
-                definition,
-                &definition.module(term_module).name,
-            )
-            .ok();
         }
-        let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
+        Ok(Self {
+            productions,
+            subsorts,
+            overloads,
+            rules: rules.into_iter().zip(ranks).collect(),
+            parametric,
+            macro_typer,
+        })
+    }
+}
+
+impl<'view, 'definition> Expander<'view, 'definition> {
+    fn new(
+        views: &'view DefinitionViews<'definition>,
+        term_module: ModuleId,
+        macro_module: ModuleId,
+    ) -> Result<Self, Diagnostic> {
+        Self::with_memo(
+            views,
+            term_module,
+            macro_module,
+            &mut MacroRuleMemo::default(),
+        )
+    }
+
+    /// [`Self::new`], with the sides of the macro rules `memo` holds reused and those of the
+    /// others added to it.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
+    fn with_memo(
+        views: &'view DefinitionViews<'definition>,
+        term_module: ModuleId,
+        macro_module: ModuleId,
+        memo: &mut MacroRuleMemo<'definition>,
+    ) -> Result<Self, Diagnostic> {
+        let Preparation {
+            productions,
+            subsorts,
+            overloads,
+            rules: mut all,
+            parametric,
+            macro_typer,
+        } = Preparation::new(views, term_module, macro_module, memo)?;
+        let definition = views.definition();
+        let sorts = views.sort_catalog(term_module);
+        // The injector fails only when the subsorts of the term module do, which the
+        // preparation found.
+        let injector = SortInjector::with_views(views, term_module)
+            .map_err(|error| plain_error(error.to_string()))?;
+        // A subject the term module's view cannot type has an unknown instance
+        // ([`Expander::subject_instance`]), which agrees only with a head that fixes no
+        // parameter, so this view may be absent.
+        let typer = if parametric {
+            SentenceTyper::for_macro_expansion(definition, &definition.module(term_module).name)
+                .ok()
+        } else {
+            None
+        };
         all.sort_by_key(|(_, priority)| *priority);
         let mut macros = BTreeMap::<LabelHead, Vec<MacroRule>>::new();
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
@@ -1040,7 +1170,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         for (rule, _) in all {
             // A root alias names the subject and constrains nothing: the rule is keyed by the
             // pattern it aliases.
-            let root = peel_aliases(&rule.left);
+            let root = peel_aliases(&rule.sides.left);
             match root.unannotated() {
                 Term::Apply { label, .. } => {
                     macros.entry(LabelHead::from(label)).or_default().push(rule)
@@ -1417,7 +1547,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         // replaced by its binding, so both depths follow from the depths of the bindings, which
         // the shape of the subject records at the positions of the left side's variables.
         let mut bindings = BTreeMap::new();
-        binding_shapes(&rule.left, subject, shape, &mut bindings);
+        binding_shapes(&rule.sides.left, subject, shape, &mut bindings);
         let depths = bindings
             .into_iter()
             .map(|(name, binding)| (name, binding.depth))
@@ -1425,13 +1555,13 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let subject_depth = shape.depth;
         // A placement cast the left side reads through is a node of the subject the left side
         // does not count.
-        debug_assert!(instance_depth(&rule.left, &depths) <= subject_depth);
-        let result_depth = instance_depth(&rule.right, &depths);
+        debug_assert!(instance_depth(&rule.sides.left, &depths) <= subject_depth);
+        let result_depth = instance_depth(&rule.sides.right, &depths);
         let diverges = |message: String| {
             Err(Diagnostic::error(
                 DiagnosticCode::InvalidMacroExpansion,
                 message,
-                &rule.sentence,
+                &rule.sides.sentence,
             ))
         };
         if chain.repeats(applied, shape.identity) {
@@ -1492,14 +1622,14 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     ) -> Result<Option<usize>, Diagnostic> {
         // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule is returned.
         for (index, rule) in rules.iter().enumerate() {
-            let Sentence::Rule { requires, .. } = &rule.sentence else {
+            let Sentence::Rule { requires, .. } = &rule.sides.sentence else {
                 unreachable!()
             };
             if requires != &truth() {
                 return Err(Diagnostic::error(
                     DiagnosticCode::InvalidMacroExpansion,
                     "Cannot compute macros with side conditions.",
-                    &rule.sentence,
+                    &rule.sides.sentence,
                 ));
             }
             let agreement = instance.map_or(Agreement::Agrees, |instance| {
@@ -1509,7 +1639,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 continue;
             }
             let mut matching = Matching::new(rule);
-            let matched = self.matches(&mut matching, &rule.left, subject)?;
+            let matched = self.matches(&mut matching, &rule.sides.left, subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
                 match self.instance_checks_hold(&matching.checks, at) {
                     Ok(true) => {}
@@ -1552,26 +1682,26 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         shape: Shape,
         settled: &[bool],
     ) -> (Term, Known) {
-        self.red_zone = self.red_zone.max(stack_zone(rule.depth));
+        self.red_zone = self.red_zone.max(stack_zone(rule.sides.depth));
         let mut bindings = BTreeMap::new();
-        take_bindings(&rule.left, subject, shape, &mut bindings);
+        take_bindings(&rule.sides.left, subject, shape, &mut bindings);
         let mut bindings = bindings
             .into_iter()
             .map(|(name, (binding, shape))| (name, (binding, shape, 0)))
             .collect::<BTreeMap<_, _>>();
-        rule.right.visit_preorder(&mut |term| {
+        rule.sides.right.visit_preorder(&mut |term| {
             if let Term::Variable { name, .. } = term
                 && let Some((_, _, uses)) = bindings.get_mut(name.as_str())
             {
                 *uses += 1;
             }
         });
-        let settled = settled_variables(&rule.left, settled);
-        if let Term::Apply { label, .. } = rule.left.unannotated() {
+        let settled = settled_variables(&rule.sides.left, settled);
+        if let Term::Apply { label, .. } = rule.sides.left.unannotated() {
             self.macro_label.clone_from(&label.name);
         }
         self.binder_sorts.clear();
-        let mut pending = vec![&rule.left];
+        let mut pending = vec![&rule.sides.left];
         // Invariant: `binder_sorts` holds the first sort written, in preorder, for each variable of the left side's subterms visited so far, and `pending` holds the subterms not yet visited; each iteration visits one node of the left side.
         while let Some(term) = pending.pop() {
             if let Term::Variable { name, sort } = term.unannotated()
@@ -1587,7 +1717,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         }
         with_stack(self.red_zone, || {
             self.substitute(
-                rule.right.clone(),
+                rule.sides.right.clone(),
                 &mut bindings,
                 &settled,
                 &mut BTreeMap::new(),
@@ -1866,7 +1996,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             }
             // One typing of the rule gives the instance of its head and of every parametric
             // application below it.
-            let typing = with_stack(walk_zone(rule.depth), || typer.typing(&rule.sentence));
+            let typing = with_stack(walk_zone(rule.sides.depth), || typer.typing(&rule.sides.sentence));
             if let Some(head) = head {
                 head.instance.get_or_init(|| head_instance(&typing, head));
             }
@@ -2635,7 +2765,7 @@ impl<'pattern> Matching<'pattern, '_> {
         Self {
             bindings: BTreeMap::new(),
             paths: BTreeMap::new(),
-            nonlinear: rule.nonlinear,
+            nonlinear: rule.sides.nonlinear,
             inner: rule.inner_typing(),
             pattern_path: Vec::new(),
             subject_path: Vec::new(),
@@ -3572,7 +3702,7 @@ fn undecided_instance(rule: &MacroRule, subject: &Term, instance: &Instance) -> 
             "Cannot decide whether this macro rule applies to {} {instance}: its left side matches, but the instance of its parametric head is not known ({reason}), so the rule is not shown to be an equation about that instance.",
             shown(subject)
         ),
-        &rule.sentence,
+        &rule.sides.sentence,
     )
 }
 
@@ -3586,7 +3716,7 @@ fn undecided_inner_instance(rule: &MacroRule, subject: &Term, reason: &str) -> D
             "Cannot decide whether this macro rule applies to {}: its left side matches, but the instance of a parametric application in it is not known ({reason}), so the rule is not shown to be an equation about the instances of the subject's applications.",
             shown(subject)
         ),
-        &rule.sentence,
+        &rule.sides.sentence,
     )
 }
 
@@ -3609,11 +3739,11 @@ fn parametric_head(
     productions: &ProductionCatalog<'_>,
     rule: &MacroRule,
 ) -> Option<(Vec<u32>, usize)> {
-    let Term::Apply { label, .. } = peel_aliases(&rule.left).unannotated() else {
+    let Term::Apply { label, .. } = peel_aliases(&rule.sides.left).unannotated() else {
         return None;
     };
     let (parameters, ..) = production_parameters(productions, label)?;
-    let Sentence::Rule { body, .. } = &rule.sentence else {
+    let Sentence::Rule { body, .. } = &rule.sides.sentence else {
         return None;
     };
     // The body field, then the rewrite's left side, then the pattern (child 0) of each root
@@ -3704,11 +3834,11 @@ fn inner_parametric_sites(
     productions: &ProductionCatalog<'_>,
     rule: &MacroRule,
 ) -> Vec<(Vec<u32>, Vec<u32>, usize)> {
-    let Sentence::Rule { body, .. } = &rule.sentence else {
+    let Sentence::Rule { body, .. } = &rule.sides.sentence else {
         return Vec::new();
     };
     let mut head = Vec::new();
-    let mut root = rule.left.unannotated();
+    let mut root = rule.sides.left.unannotated();
     while let Term::As { pattern, .. } = root {
         head.push(0);
         root = pattern.unannotated();
@@ -3834,23 +3964,42 @@ fn macro_rule_recursion(sentence: &Sentence, productions: &ProductionCatalog<'_>
     )
 }
 
-/// The macro rule `sentence`, which [`macro_rule_recursion`] accepts, with its two sides
-/// projected out of its body. Copying and projecting recurse over the rule's depth.
-fn macro_rule(id: usize, sentence: &Sentence, recursive: bool, depth: usize) -> MacroRule {
+/// Whether `sentence` may be a macro rule, by a test that reads no production's attributes:
+/// [`macro_rule_recursion`] accepts no sentence this rejects.
+///
+/// That function accepts a rule that is macro-like itself, or whose head's production
+/// attributes (`attributes_for` the head's label) are macro-like. Those attributes are the
+/// attributes of the label's one production, or the merge of those of its productions, and a
+/// merge keeps only keys some of them carry; either way some production of that label is
+/// macro-like, and its label is among `macro_heads`, the module's `macro_labels`.
+fn may_be_macro_rule(sentence: &Sentence, macro_heads: &FxHashSet<&str>) -> bool {
+    let Sentence::Rule {
+        body, attributes, ..
+    } = sentence
+    else {
+        return false;
+    };
+    attributes.has_any(&AttributeKey::MACRO_LIKE)
+        || RuleHead::of(body)
+            .label()
+            .is_some_and(|label| macro_heads.contains(label.name.as_str()))
+}
+
+/// The sides of the macro rule `sentence`, which [`macro_rule_recursion`] accepts, `depth`
+/// deep: its two sides projected out of its body, and its rank. Copying and projecting recurse
+/// over the rule's depth.
+fn macro_sides(sentence: &Sentence, depth: usize) -> MacroSides {
     let Sentence::Rule { body, .. } = sentence else {
         unreachable!("only rules are macro rules")
     };
     let left = rewrite_projection(body, false);
-    MacroRule {
-        id,
+    MacroSides {
         sentence: sentence.clone(),
         right: rewrite_projection(body, true),
-        recursive,
         depth,
-        head_instance: None,
-        inner_instances: None,
         nonlinear: has_repeated_variable(&left),
         left,
+        rank: macro_priority(sentence.attributes()),
     }
 }
 
