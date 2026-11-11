@@ -4484,11 +4484,11 @@ symbol = "KeyView"
 
 [[node.cost]]
 mode = "lookup (every nested equation-condition decision outside an execution and outside any run with a console)"
-bound = "no allocation: the key's own part (the rule id, the anchor, the q predicates) is hashed where it is (term hashes are cached), and one set lookup of that hash ends the lookup where no kept key has the part; otherwise the memo's copies of the known list and the active set are found, each by one comparison with the copy last found at the caller's place, O(k) predicates and O(a) keys compared down to the first difference, and where that fails one hash lookup by content that hashes them; then one map lookup, whose own part compares by content and whose shared parts by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss copies the q predicate handles, for a verdict kept after the decision, which it pays (backend.simplify.term, rule condition)."
+bound = "no allocation: the key's own part (the rule id, the anchor, the q predicates) is hashed where it is (term hashes are cached), and one set lookup of that hash ends the lookup where no kept key has the part; otherwise the memo's copies of the known list and the active set are found, each by one comparison with the copy last found at the caller's place, O(k) predicates compared down to the first difference and, for the active set, its size and kept hash and then O(a) nodes walked to the part it shares with the copy, the keys above that part compared pairwise (the copy's hashed once where both have many there), and where that fails one hash lookup by content, which hashes the known list and reads the active set's kept hash; then one map lookup, whose own part compares by content and whose shared parts by allocation. A hit replays f facts and e diagnostics in place of the decision; a miss copies the q predicate handles, for a verdict kept after the decision, which it pays (backend.simplify.term, rule condition)."
 
 [[node.cost]]
 mode = "retention"
-bound = "per kept verdict: its key's own part (q predicate handles, the anchor handle, a shared rule id), the hash of that part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list, active set and rule id, one copy (k predicate handles, a keys) shared by every key that names it, and at most 4,096 noted places of a caller's copy per kind. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
+bound = "per kept verdict: its key's own part (q predicate handles, the anchor handle, a shared rule id), the hash of that part, its f facts, and one shared handle per diagnostic of the e it emitted (the diagnostics' content is shared with every other copy); per distinct known list and rule id, one copy (k predicate handles), and per distinct active set one handle on it, which keeps its a nodes alive and is counted as holding all of them, each shared by every key that names it, and at most 4,096 noted places of a caller's copy per kind. At most 65,536 verdicts and an estimate of 64 MiB of these allocations; reaching either clears the memo. The term nodes the keys hold are shared handles, kept alive until the outermost scope (a proof, or an outermost condition) closes or the memo clears."
 
 [[node]]
 kind = "algorithm"
@@ -4653,7 +4653,7 @@ bound = "the context checks (thread flags); the record's copy of the known list 
 
 [[node.cost]]
 mode = "retention"
-bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), per distinct path condition, one copy (p binding and replacement handles), and per distinct nonempty active set, one copy (a rule-identifier and anchor pairs), each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
+bound = "per recorded simplification: its key (r pairs, a subject handle, a shared known list, a shared path condition), and the simplification's shared handles; per distinct known list, one copy (k predicate handles), per distinct path condition, one copy (p binding and replacement handles), and per distinct nonempty active set, one handle on it, which keeps its a nodes (a rule identifier and an anchor each) alive and is counted as holding all of them, each shared by every key that names it, with at most 4,096 noted places of a caller's copy each; one address per term node counted. At most 65,536 records and an estimate of 64 MiB of these allocations and of the term nodes the subjects and results hold, each node counted once at a fixed size per node (a node count: what a node holds on the heap beyond its place is left out, and conjuncts and rule names nested entries share are counted at each); reaching either clears the record. The term nodes the keys and the simplifications hold are shared handles, kept alive until the proof's scope closes or the record clears."
 
 [[node]]
 kind = "algorithm"
@@ -5057,7 +5057,7 @@ bound = "matching records forced literal equalities without scanning their subje
 
 [[node.cost]]
 mode = "rule condition"
-bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active; an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
+bound = "one nested predicate simplification per evaluated rule condition, with its own budget of max_iterations, skipped when the (rule, term) key is already active, which one walk of the d keys active around it decides by their cached hashes; the condition's set of active keys is the one around it with its key added, one node sharing that set, so a recursion of depth d through equation conditions holds d nodes at once (ActiveConditions); an equation whose map or set pattern matches the term in several ways has one condition per matching, evaluated in the matcher's order until one holds"
 
 [[node.cost]]
 mode = "Unspecified application (UnspecifiedEvaluation)"
@@ -7075,6 +7075,11 @@ symbol = "sentence_mut"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "stage_sentence_copies"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
 symbol = "AnchorPath::child"
 
@@ -7291,7 +7296,7 @@ id = "definition.resolve.sentences"
 provenance = "declared"
 area = "definition"
 name = "visible-sentence selection with bucketed equivalence deduplication"
-variable = "n_m = visible sentences for module m; v_m = modules module m imports transitively; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
+variable = "n_m = visible sentences for module m; v_m = modules module m imports transitively; s_m = candidate sentences of module m's signature; g = sentences of the added module's signature; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 table = "Algorithm::ALL"
 registry_name = "DefinitionResolveSentences"
 
@@ -7304,6 +7309,16 @@ symbol = "ResolvedDefinition::select_sentence_locations"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/resolve.rs"
 symbol = "ResolvedDefinition::select_sentence_locations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::select_signature_locations"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "ResolvedDefinition::signature_sentences_absent_from"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7323,6 +7338,14 @@ symbol = "united_inputs"
 [[node.cost]]
 mode = "one module's first sentences or sentence_arcs call"
 bound = "O(v_m + n_m + n_m x a x A + u x (z + A)) expected"
+
+[[node.cost]]
+mode = "one module's first signature_sentences call"
+bound = "O(M + v_m log v_m + s_m) expected, after sentence_classes"
+
+[[node.cost]]
+mode = "signature_sentences_absent_from_signature or _visible"
+bound = "O(g + n_m) expected"
 
 [[node.cost]]
 mode = "first selection of a resolution (sentence_classes)"
@@ -8662,6 +8685,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/definition/mod.rs"
 symbol = "sentence_mut"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "stage_sentence_copies"
+
 [[node.cost]]
 mode = "one pass-owned replacement map"
 bound = "O(N log R)"
@@ -8730,6 +8758,11 @@ symbol = "unique_id_text"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/mod.rs"
 symbol = "sentence_mut"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "stage_sentence_copies"
 
 [[node.cost]]
 mode = "one definition"
@@ -9149,7 +9182,7 @@ id = "kore.printer.build"
 provenance = "declared"
 area = "kore"
 name = "construction of KORE pretty-print documents"
-variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack, which reads each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
+variable = "N = KORE syntax nodes; definition_ops and module_ops add a constant number of ops per module and sentence, sentence_ops seeds the SyntaxOps task stack with a constant number of tasks per sentence plus one per sort parameter, argument sort, and attribute, and the SyntaxOps task stack produces patterns, sorts, symbols, and variables, reading each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's ops the same way, so their construction time is measured together with rendering"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "KorePrinterBuild"
@@ -9172,17 +9205,37 @@ symbol = "module_ops"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "sentence_doc"
+symbol = "sentence_ops"
 
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "pattern_doc"
+symbol = "push_declaration_pattern"
 
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "syntax_doc"
+symbol = "parameters_task"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "sorts_task"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "attributes_task"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "attributes_ops"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "compact_text"
 
 [[node.sites]]
 crate = "k-rust-kore"
@@ -9227,26 +9280,6 @@ symbol = "Printer::write_source"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "attributes_doc"
-
-[[node.sites]]
-crate = "k-rust-kore"
-file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "declaration_pattern_doc"
-
-[[node.sites]]
-crate = "k-rust-kore"
-file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "delimited"
-
-[[node.sites]]
-crate = "k-rust-kore"
-file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "join"
-
-[[node.sites]]
-crate = "k-rust-kore"
-file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "expand"
 
 [[node.sites]]
@@ -9282,11 +9315,6 @@ symbol = "delimited_task"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "owned_text"
-
-[[node.sites]]
-crate = "k-rust-kore"
-file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "CountingWriter::write"
 
 [[node.cost]]
@@ -9315,6 +9343,11 @@ symbol = "fits"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer/document.rs"
 symbol = "fits"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer/document.rs"
+symbol = "width_of"
 
 [[node.cost]]
 mode = "one group in broken context"
@@ -9351,7 +9384,7 @@ symbol = "write_spaces"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
-symbol = "Printer::render"
+symbol = "Printer::render_ops"
 
 [[node.cost]]
 mode = "compact or broken layout"
