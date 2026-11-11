@@ -74,7 +74,7 @@
 #   S5.0:R3: any @ in a result is refused (S5.0's ruling 3) (README.md §12 lane 3, S5.0 rulings; scope: readable, claim, cells; any stack)
 #   S5.0:R4: any @ in an initializer is refused (S5.0's ruling 4) (README.md §12 lane 3, S5.0 rulings; scope: init; any stack)
 #   S5.0g:D-1: a result pairs its rests at every content root, a group or instance record's children included (README.md §12 lane 3, S5.0g D-1; scope: readable, claim, cells; stacks with group or *)
-#   S5.0g:D-2: a Map collection's instance is keyed by its first child; an update writes the key, if at all, as its subject's key binder (with S5.0g's ruling 2), else map-collection-key (README.md §12 lane 3, S5.0g D-2 and "ruled next"; scope: readable, claim, cells; stacks with * Map)
+#   S5.0g:D-2: a Map collection's instance is keyed by its first child; a created instance writes it, else map-collection-key; an update keeps it in place where it writes the key its subject matched (S5.0g's ruling 2), and otherwise moves the instance to the key it writes (KEYCHANGE) (README.md §12 lane 3, S5.0g D-2 and "ruled next"; scope: readable, claim, cells; stacks with * Map)
 #   S5.0g:D-3: a fragment of the position's group is read as its record, for pairing and Q1's lint (README.md §12 lane 3, S5.0g D-3; scope: readable, claim, cells; stacks with group or *)
 #   S5.0g:D-4: k::fragment![crate::G { a: x }] is record-missing-children, as its readable form (README.md §12 lane 3, S5.0g D-4; scope: readable, claim, cells; stacks with group or *)
 #   S5.0g:D-5: a * value is one instance's template at every depth (README.md §12 lane 3, S5.0g D-5; scope: init; any stack)
@@ -950,24 +950,24 @@ ch02	member	? group H	None	Some(H { l: [x], b: 0 })
 ch02	member	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x, ..], ..me }, ..]
 ch02	member	* List of T	[me @ T { n: y, .. }, ..]	[T { n: 0, ..me }, ..]
 ch02	member	* List of T	[..]	[T { k: [x], n: 0 }, ..]
+ch02	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }
 ch02	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: z, ..me }, .. }
+ch02	member	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }
 ch02	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { l: [x], ..me }, .. }
 ch02	member	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x, ..], ..me }, .. }
 ch02	member	* Map of A	{ .. }	{ A { id: 5, l: [x] }, .. }
+ch02	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }
 ch02	member	* Map of A	{ .. }	{ A { id: 5, .. }, .. }
 ch02	member	* List of T	[..]	[T { n: 0, .. }, ..]
 ch02	member	group W	-	W { g: G { a: x, .. }, n: 0 }
 ch02	member	group W	-	W { g: G { a: x, b: y }, n: 0 }
 ch02	member	group W	-	W { g: G { a: x, b: y, .. }, n: 0 }
 ch02	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }
+ch02	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }
 ch02	member	? group G	None	Some(G { a: x, .. })
 ch02	principle	sort in every form (P1, P6): each child's rest pairs with its own other side, and each value to the lattice. An exact child over a framed one or none; a created instance's exact child or bare `..` (template fields, P6); an update `..me` of a shown instance keeping or naming its key as the subject's binder or literal (S5.0g:D-2, S5.0g:R9); a vacuous `..` (S5.0g:R4); a `?` cell created over `None` taking its template's fields for a bare `..` (S5.0g:P-R13); an overwritten group's group child's bare `..`, which keeps the children it leaves unnamed (S5.0:F3 with EDOTS).
 ch03	answers	map-collection-key	map-collection-key	map-collection-key
-ch03	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }
-ch03	member	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }
-ch03	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }
 ch03	member	* Map of A	{ .. }	{ A { l: [x], .. }, .. }
-ch03	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }
 ch03	principle	map-collection-key in every form: a Map collection's instance keeps its key, its first child (S5.0g:D-2): an update of a shown instance writing it as anything but its subject's key binder or the same literal (S5.0g:R9), or a key the labelled instance does not name, is a key change (P0); a created instance must write it (S5.0g:key).
 ch04	answers	cir	cir	sort
 ch04	member	group C	-	C { c: [x], n: 0 }

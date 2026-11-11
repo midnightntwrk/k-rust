@@ -3975,15 +3975,12 @@ fn an_update_whose_label_the_subject_does_not_show_is_created_or_has_no_base() {
     ]);
 }
 
-/// D-2 (S5.0g), narrowed by ruling 2 (P0): an update (`..me`) changes the instance in place, and
-/// a Map collection's instance is keyed by its first child, its identity (design §2.3, §7). An
-/// update that writes the key as the binder its subject matched it with means the same instance,
-/// admitted; any other key value (a literal, another name, a computed value), or a key the
-/// labelled instance does not name, is `map-collection-key`. An update's unnamed non-key child
-/// is Q1's overwrite; a Set collection keys none.
-/// R9 (S5.0g review, P0): an update writing a Map collection's key as the same literal its
-/// subject matched it with writes provably the matched key, so the instance's identity is
-/// unchanged; another literal, or the literal another instance matched, is another key.
+/// D-2 (S5.0g), with ruling 2 (P0) and KEYCHANGE: a Map collection's instance is keyed by its
+/// first child, its identity (design §2.3, §7). An update (`..me`) writing provably the key its
+/// subject matched (its binder, or the same literal, R9) is the same instance changed in place;
+/// any other key value (another literal, another name, a computed value, a key the labelled
+/// instance does not name) is the labelled instance moved to that key, removed and created with
+/// its own other children, so it is admitted too. A created instance must write its key.
 #[test]
 fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
     let map = vec![
@@ -3993,7 +3990,6 @@ fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
             children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
         }),
     ];
-    let refused = Outcome::Refuse("map-collection-key");
     probes_agree(&[
         (
             child_probe(
@@ -4029,7 +4025,7 @@ fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
                 "{ A { id: 6, ..me }, .. }",
                 Some("{ me @ A { id: 5, .. }, .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(
@@ -4038,13 +4034,13 @@ fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
                 "{ A { id: 5, ..me }, .. }",
                 Some("{ me @ A { id: z, .. }, other @ A { id: 5, .. }, .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
     ]);
 }
 
 #[test]
-fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
+fn an_update_of_a_map_collections_instance_under_another_key_moves_it() {
     let account = |order| {
         vec![
             Layer::Instances(order),
@@ -4055,12 +4051,11 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
         ]
     };
     let (map, set) = (account(Order::Map), account(Order::Set));
-    let refused = Outcome::Refuse("map-collection-key");
     let me = Some("{ me @ A { id: z, .. }, .. }");
     probes_agree(&[
         (
             child_probe(Form::Readable, &map, "{ A { id: 5, ..me }, .. }", me),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(Form::Claim, &map, "{ A { id: z, ..me }, .. }", me),
@@ -4077,7 +4072,7 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
         ),
         (
             child_probe(Form::Readable, &map, "{ A { id: y, ..me }, .. }", me),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(
@@ -4086,7 +4081,7 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
                 "{ A { id: k::builtin::int::add(z, 1), ..me }, .. }",
                 me,
             ),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(
@@ -4095,7 +4090,7 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
                 "{ A { id: z, ..me }, .. }",
                 Some("{ me @ A { id: y, .. }, other @ A { id: z, .. }, .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(
@@ -4104,7 +4099,7 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
                 "{ A { id: 5, ..me }, .. }",
                 Some("{ me @ A { bal: y, .. }, .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(
@@ -4113,7 +4108,7 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
                 "{ k::fragment![crate::A { id: 5, ..me }], .. }",
                 Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             child_probe(Form::Readable, &map, "{ A { bal: 5, ..me }, .. }", me),
@@ -5186,7 +5181,7 @@ const CITATIONS: [(&str, &str, &str, Scope); 50] = [
     ),
     (
         "S5.0g:D-2",
-        "a Map collection's instance is keyed by its first child; an update writes the key, if at all, as its subject's key binder (with S5.0g's ruling 2), else map-collection-key",
+        "a Map collection's instance is keyed by its first child; a created instance writes it, else map-collection-key; an update keeps it in place where it writes the key its subject matched (S5.0g's ruling 2), and otherwise moves the instance to the key it writes (KEYCHANGE)",
         "README.md §12 lane 3, S5.0g D-2 and \"ruled next\"",
         Scope {
             forms: RULE_FORMS,

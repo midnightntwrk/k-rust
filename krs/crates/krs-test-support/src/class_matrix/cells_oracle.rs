@@ -42,8 +42,9 @@
 //!    cell's child. An update whose label no subject instance has creates an instance where the
 //!    sentence binds the label elsewhere, and has no base (`record-update-base`) where it binds
 //!    it nowhere (P0, P-R3). A Map collection's instance is keyed by its first child: a created instance
-//!    writes it (P5), and an update writes it, if at all, as the binder its subject matched it
-//!    with (P0); otherwise `map-collection-key` (§2.3, §7).
+//!    writes it (P5), else `map-collection-key` (§2.3, §7); an update keys its instance always,
+//!    in place where it keeps the key its subject matched (P0), and otherwise moving the instance
+//!    to the key it writes (KEYCHANGE).
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -1415,7 +1416,7 @@ impl Judge<'_> {
                         let Some(other) = other.instance(record, self.context) else {
                             return refuse("record-update-base", Step::Pairing, 0);
                         };
-                        if !keyed(*order, group, record, other) {
+                        if !keyed(*order, group, record) {
                             return refuse("map-collection-key", Step::Pairing, 0);
                         }
                         self.pair_fields(group, record, other, true)?;
@@ -1643,48 +1644,22 @@ fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
     }
 }
 
-/// Whether a result's instance record of `group`, in a collection ordered by `order`, with
-/// `other` its other side ([`Other::instance`]), keys its instance as its collection does
-/// (§2.3, §7). A Map collection's instance is keyed by its first child, its identity: written at
-/// creation and never changed by an update. A created instance writes it (P5: a bare `..` gives
-/// the template's fields, and the template states no identity). An update (`..me`) changes the
-/// instance in place: it writes the key, if at all, as what is provably the key its subject
-/// matched, the key's own binder or the same literal, which means the same instance (P0); any
-/// other key value, or a key the labelled instance does not name, is a key change. A List or
-/// Set collection has no key.
-fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool {
-    fn named<'r>(record: &'r Record, key: &str) -> Option<&'r Spelling> {
-        record
-            .fields
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value)
-    }
+/// Whether a result's instance record of `group`, in a collection ordered by `order`, keys its
+/// instance as its collection does (§2.3, §7). A Map collection's instance is keyed by its first
+/// child, its identity. A created instance writes it (P5: a bare `..` gives the template's
+/// fields, and the template states no identity). An update (`..me`) keys its instance always:
+/// where it writes provably the key its subject matched (the key's own binder or the same
+/// literal, P0), or no key, it is that instance changed in place; any other key is another entry
+/// of the map, so the update is the labelled instance moved there, removed and created under
+/// the key it writes with its own other children (KEYCHANGE, BUILT-DOTS), which the long form
+/// naming every child already writes. A List or Set collection has no key.
+fn keyed(order: Order, group: &Group, record: &Record) -> bool {
     let Some(key) = key(order, group) else {
         return true;
     };
-    match (&record.rest, named(record, key)) {
-        (RecordRest::Update(_), Some(value)) => {
-            // A created instance (an update of a value matched elsewhere) writes its key, as
-            // any created instance does (P5).
-            let Other::Matched(subject) = other else {
-                return other == Other::Created;
-            };
-            let matched = record_of(subject, group).and_then(|record| named(record, key));
-            match (value, matched) {
-                (
-                    Spelling::Binder(written),
-                    Some(Spelling::Binder(bound) | Spelling::Alias(bound, _)),
-                ) => written == bound,
-                (Spelling::Literal(Some(written)), Some(matched)) => matches!(
-                    unaliased(matched),
-                    Spelling::Literal(Some(literal)) if literal == written
-                ),
-                _ => false,
-            }
-        }
-        (RecordRest::Update(_), None) => true,
-        (RecordRest::Exact | RecordRest::Open, written) => written.is_some(),
+    match &record.rest {
+        RecordRest::Update(_) => true,
+        RecordRest::Exact | RecordRest::Open => record.fields.iter().any(|(name, _)| name == key),
     }
 }
 

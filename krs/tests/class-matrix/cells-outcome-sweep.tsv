@@ -1297,14 +1297,14 @@ readable	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x, ..], ..me }, ..
 readable	* List of T	[me @ T { n: y, .. }, ..]	[T { n: 0, ..me }, ..]	sort
 readable	* List of T	[..]	[T { k: [x], n: 0 }, ..]	sort
 readable	* List of T	[..]	[T { k: [x, ..], n: 0 }, ..]	rm
-readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }	map-collection-key
+readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
 readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: z, ..me }, .. }	sort
-readable	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }	map-collection-key
+readable	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }	sort
 readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { l: [x], ..me }, .. }	sort
 readable	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x], ..me }, .. }	rm
 readable	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x, ..], ..me }, .. }	sort
 readable	* Map of A	{ .. }	{ A { id: 5, l: [x] }, .. }	sort
-readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }	map-collection-key
+readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }	sort
 readable	* Map of A	{ .. }	{ A { l: [x], .. }, .. }	map-collection-key
 readable	* Map of A	{ .. }	{ A { id: 5, .. }, .. }	sort
 readable	* List of T	[..]	[T { n: 0, .. }, ..]	sort
@@ -1318,7 +1318,7 @@ readable	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	rm
 readable	* List of T	[..]	[T { k: [x], ..me }, ..]	sort
 readable	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }	rm
 readable	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
-readable	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }	map-collection-key
+readable	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }	sort
 readable	? group G	None	Some(G { a: x, .. })	sort
 readable	? leaf List	None	Some([x, ..])	rm
 readable	? group G	None	Some(G { a: x })	rmc
@@ -1336,14 +1336,14 @@ claim	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x, ..], ..me }, ..]	s
 claim	* List of T	[me @ T { n: y, .. }, ..]	[T { n: 0, ..me }, ..]	sort
 claim	* List of T	[..]	[T { k: [x], n: 0 }, ..]	sort
 claim	* List of T	[..]	[T { k: [x, ..], n: 0 }, ..]	rm
-claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }	map-collection-key
+claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
 claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: z, ..me }, .. }	sort
-claim	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }	map-collection-key
+claim	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }	sort
 claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { l: [x], ..me }, .. }	sort
 claim	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x], ..me }, .. }	rm
 claim	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x, ..], ..me }, .. }	sort
 claim	* Map of A	{ .. }	{ A { id: 5, l: [x] }, .. }	sort
-claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }	map-collection-key
+claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }	sort
 claim	* Map of A	{ .. }	{ A { l: [x], .. }, .. }	map-collection-key
 claim	* Map of A	{ .. }	{ A { id: 5, .. }, .. }	sort
 claim	* List of T	[..]	[T { n: 0, .. }, ..]	sort
@@ -1357,7 +1357,7 @@ claim	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	rm
 claim	* List of T	[..]	[T { k: [x], ..me }, ..]	sort
 claim	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }	rm
 claim	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
-claim	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }	map-collection-key
+claim	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }	sort
 claim	? group G	None	Some(G { a: x, .. })	sort
 claim	? leaf List	None	Some([x, ..])	rm
 claim	? group G	None	Some(G { a: x })	rmc
@@ -1375,14 +1375,14 @@ cells	* List of T	[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]	[k::fragm
 cells	* List of T	[me @ k::fragment![crate::T { n: y, .. }], ..]	[k::fragment![crate::T { n: 0, ..me }], ..]	sort
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x], n: 0 }], ..]	sort
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], n: 0 }], ..]	rm
-cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	map-collection-key
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
 cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: z, ..me }], .. }	sort
-cells	* Map of A	{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	map-collection-key
+cells	* Map of A	{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
 cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { l: [x], ..me }], .. }	sort
 cells	* Map of A	{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }	{ k::fragment![crate::A { l: [x], ..me }], .. }	rm
 cells	* Map of A	{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	sort
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { id: 5, l: [x] }], .. }	sort
-cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: y, ..me }], .. }	map-collection-key
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: y, ..me }], .. }	sort
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x], .. }], .. }	map-collection-key
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { id: 5, .. }], .. }	sort
 cells	* List of T	[..]	[k::fragment![crate::T { n: 0, .. }], ..]	sort
@@ -1396,7 +1396,7 @@ cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], ..me }], ..]	rm
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x], ..me }], ..]	record-remainder-in-cells-term
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	rm
 cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
-cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 6, ..me }], .. }	map-collection-key
+cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 6, ..me }], .. }	sort
 cells	? group G	None	Some(k::fragment![crate::G { a: x, .. }])	sort
 cells	? leaf List	None	Some(k::configuration::Cell([x, ..]))	rm
 cells	? group G	None	Some(k::fragment![crate::G { a: x }])	rmc
