@@ -1255,6 +1255,47 @@ fn kast_parses_a_program_as_text_and_json() {
 }
 
 #[test]
+fn kast_parses_with_a_definition_whose_unimported_module_has_a_malformed_rule() {
+    let (root, definition) = fixture();
+    let source = fs::read_to_string(&definition).unwrap();
+    fs::write(
+        &definition,
+        format!("{source}\nmodule UNUSED\n  imports MAIN\n  rule 1 +\nendmodule\n"),
+    )
+    .unwrap();
+    let kast = |module: &str| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kast",
+                definition.to_str().unwrap(),
+                "--module",
+                module,
+                "--sort",
+                "Exp",
+                "--expression",
+                "42",
+                "--no-prelude",
+            ])
+            .output()
+            .unwrap()
+    };
+    let parsed = kast("MAIN");
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(parsed.stdout).unwrap(),
+        "#token(\"42\",\"Int\")\n"
+    );
+    // The module the program is parsed in still has its rules parsed.
+    assert!(!kast("UNUSED").status.success());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kast_parses_and_rejects_a_batch_with_one_frontend_load() {
     let (root, definition) = fixture();
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))

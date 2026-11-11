@@ -855,7 +855,8 @@ pub fn load_with_options_timed(
 /// main module's import closure (`docs/compatibility.md`, beside the acceptance boundary).
 ///
 /// Selection follows full outer validation and precedes backend exclusion and inner parsing.
-/// Generic, structured, and prepared-definition loading retain their separate policies.
+/// [`load_import_closure_timed`] keeps the same modules for named roots without a syntax module;
+/// generic, structured, and prepared-definition loading retain their separate policies.
 /// The returned syntax name was resolved before backend exclusion; its fallback warning is
 /// included in the loaded diagnostics under the supplied diagnostic policy.
 pub fn load_for_compilation(
@@ -887,13 +888,48 @@ pub fn load_for_compilation_timed(
         &SourceTable::default(),
         &[],
         &[],
-        Some(selection::CompilationSelection { syntax_module }),
+        Some(selection::ModuleSelection::Compilation { syntax_module }),
     )?;
     Ok((
         loaded,
         syntax.expect("compilation loading selects a syntax module"),
         timings,
     ))
+}
+
+/// Load the modules a command reads from a source definition, with their inner syntax parsed:
+/// the main module, the configuration module ([`LoadOptions::configuration_module`], else the
+/// main module), each module of `roots` that the definition has, the modules
+/// [`load_for_compilation`] keeps whatever its roots, and the transitive imports of all of these.
+/// Every other module is dropped before inner parsing.
+///
+/// A name of `roots` the definition lacks selects nothing; the caller reports it when it looks
+/// the module up in the loaded definition. A module of `roots` that carries an excluded attribute
+/// is removed by backend exclusion as from [`load_with_options`], so a lookup after the load finds
+/// it exactly when an unselected load would.
+///
+/// Errors and warnings of the dropped modules are not reported, as fresh compilation does not
+/// report them; outer validation still covers every module of every loaded file. Also returns the
+/// wall-clock duration of every load phase in execution order.
+pub fn load_import_closure_timed(
+    entry: ResolvedSource,
+    main_module: impl Into<String>,
+    roots: &[&str],
+    resolver: &mut impl SourceResolver,
+    options: &LoadOptions,
+) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
+    load_impl(
+        entry,
+        main_module,
+        resolver,
+        options,
+        None,
+        &SourceTable::default(),
+        &[],
+        &[],
+        Some(selection::ModuleSelection::Roots(roots)),
+    )
+    .map(|(loaded, _, timings)| (loaded, timings))
 }
 
 /// Load a new source graph against a prepared definition and validate any re-read declarations.
@@ -957,7 +993,7 @@ fn load_impl(
     base_sources: &SourceTable,
     provided_sources: &[String],
     prepared_modules: &[PreparedModuleDeclaration],
-    compilation: Option<selection::CompilationSelection<'_>>,
+    selection: Option<selection::ModuleSelection<'_>>,
 ) -> Result<(LoadedDefinition, Option<String>, PhaseTimings), LoadError> {
     let main_module = main_module.into();
     let span_started = web_time::Instant::now();
@@ -1031,7 +1067,7 @@ fn load_impl(
         loader.diagnostics,
         options,
         false,
-        compilation,
+        selection,
         &mut timings,
     )?;
     timings.set_span_seconds(span_started.elapsed().as_secs_f64());
@@ -1125,7 +1161,7 @@ fn finish_load(
     diagnostics: Vec<Diagnostic>,
     options: &LoadOptions,
     remove_unused_default_configuration: bool,
-    compilation: Option<selection::CompilationSelection<'_>>,
+    selection: Option<selection::ModuleSelection<'_>>,
     timings: &mut PhaseTimings,
 ) -> Result<(LoadedDefinition, Option<String>), LoadError> {
     let (definition, resolved) = timings.time(load_phase::APPLY_SORT_SYNONYMS, || {
@@ -1146,16 +1182,26 @@ fn finish_load(
     }
 
     let (definition, syntax_module) = timings.time(load_phase::SELECT_MODULES, || {
-        let (definition, syntax_module) = if let Some(compilation) = compilation {
-            let syntax = resolve_syntax_module(&resolved, compilation.syntax_module)?;
-            if let Some(warning) = syntax.fallback_warning {
-                diagnostics.push(warning);
+        let (definition, syntax_module) = match selection {
+            Some(selection::ModuleSelection::Compilation { syntax_module }) => {
+                let syntax = resolve_syntax_module(&resolved, syntax_module)?;
+                if let Some(warning) = syntax.fallback_warning {
+                    diagnostics.push(warning);
+                }
+                let definition = selection::select_modules(
+                    definition,
+                    &resolved,
+                    Some(&syntax.name),
+                    &[],
+                    options,
+                )?;
+                (definition, Some(syntax.name))
             }
-            let definition =
-                selection::select_modules(definition, &resolved, &syntax.name, options)?;
-            (definition, Some(syntax.name))
-        } else {
-            (definition, None)
+            Some(selection::ModuleSelection::Roots(named)) => (
+                selection::select_modules(definition, &resolved, None, named, options)?,
+                None,
+            ),
+            None => (definition, None),
         };
         drop(resolved);
         let mut definition =

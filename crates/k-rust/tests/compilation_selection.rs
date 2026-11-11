@@ -6,7 +6,8 @@ use k_rust::{
     diagnostic::{DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
     outer::{
         LoadError, LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation,
-        load_structured, load_with_options, load_with_prepared_base, lower, parse,
+        load_import_closure_timed, load_structured, load_with_options, load_with_prepared_base,
+        lower, parse,
     },
 };
 
@@ -69,6 +70,57 @@ fn malformed_unselected_bubble_is_omitted_but_selected_syntax_still_fails() {
         panic!("expected selected bubble parse failure, got {error:?}");
     };
     assert_eq!(error.module, "UNUSED");
+}
+
+fn closure(source: &str, roots: &[&str]) -> Result<LoadedDefinition, LoadError> {
+    load_import_closure_timed(
+        ResolvedSource::new("closure.k", source),
+        "MAIN",
+        roots,
+        &mut |_: &str, required: &str| Err(format!("unexpected require: {required}")),
+        &LoadOptions::default(),
+    )
+    .map(|(loaded, _)| loaded)
+}
+
+#[test]
+fn closure_loading_keeps_named_roots_and_omits_a_malformed_unimported_module() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "ok" [symbol(ok)]
+          rule ok => ok
+        endmodule
+        module MAIN-SYNTAX
+          imports MAIN
+          rule ok => ok
+        endmodule
+        module UNUSED
+          imports MAIN
+          rule ok =>
+        endmodule
+    "#};
+    let loaded = closure(source, &[]).unwrap();
+    assert_eq!(names(&loaded), ["MAIN"]);
+    assert!(has_rule(&loaded, "MAIN"));
+    // A named root the definition lacks selects nothing and is not an error of the load.
+    let loaded = closure(source, &["MAIN-SYNTAX", "ABSENT"]).unwrap();
+    assert_eq!(names(&loaded), ["MAIN", "MAIN-SYNTAX"]);
+    assert!(has_rule(&loaded, "MAIN-SYNTAX"));
+    for error in [
+        closure(source, &["UNUSED"]).unwrap_err(),
+        load_with_options(
+            ResolvedSource::new("closure.k", source),
+            "MAIN",
+            &mut |_: &str, required: &str| Err(format!("unexpected require: {required}")),
+            &LoadOptions::default(),
+        )
+        .unwrap_err(),
+    ] {
+        let LoadError::RuleParsing(k_rust::inner::RuleError::Parse(error)) = error else {
+            panic!("expected the bubble parse failure of UNUSED, got {error:?}");
+        };
+        assert_eq!(error.module, "UNUSED");
+    }
 }
 
 #[test]

@@ -74,7 +74,7 @@ use k_rust::{
     },
     outer::{
         LoadOptions, PreparedModuleDeclaration, SourceResolver, SyntaxModule,
-        load_for_compilation_timed, load_with_options_timed, load_with_prepared_base_timed,
+        load_for_compilation_timed, load_import_closure_timed, load_with_prepared_base_timed,
         prepared_module_declarations, resolve_syntax_module,
     },
     timings::{PhaseTiming, PhaseTimings, TIMINGS_SCHEMA_VERSION},
@@ -551,7 +551,9 @@ struct KcompileArgs {
 
 #[derive(Debug, Args)]
 struct KastArgs {
-    /// K definition file whose grammar should parse the program.
+    /// K definition file whose grammar should parse the program. Only MODULE, the modules
+    /// `kcompile` keeps for any main module, and their imports are loaded past the module
+    /// structure, so an error in another module is not reported.
     #[arg(value_name = "DEFINITION")]
     definition: PathBuf,
 
@@ -761,7 +763,9 @@ struct KrunArgs {
     expression: Option<String>,
 
     /// Source definition followed by an optional program file. With `--definition`, this is only
-    /// the optional program file.
+    /// the optional program file. Of a source definition, only the main module, the syntax
+    /// module, the modules `kcompile` keeps for any main module, and their imports are loaded past
+    /// the module structure, so an error in another module is not reported.
     #[arg(value_names = ["SOURCE_DEFINITION", "PROGRAM_FILE"], num_args = 0..=2)]
     inputs: Vec<PathBuf>,
 
@@ -1058,7 +1062,9 @@ struct KoreMatchDisjunctionArgs {
         .multiple(true)
 ))]
 struct KproveArgs {
-    /// K definition or specification containing the claims to prove.
+    /// K definition or specification containing the claims to prove. Only the main module, the
+    /// definition module, the modules `kcompile` keeps for any main module, and their imports are
+    /// loaded past the module structure, so an error in another module is not reported.
     #[arg(value_name = "DEFINITION")]
     definition: Option<PathBuf>,
 
@@ -1911,21 +1917,41 @@ impl From<KproveArgs> for KproveOptions {
     }
 }
 
+/// Which modules of a source definition a command keeps past the outer syntax.
+#[derive(Clone, Copy)]
+enum SourceLoad<'a> {
+    /// A fresh compilation with this syntax module (`None`: the default one), as
+    /// [`load_for_compilation_timed`] selects.
+    Compilation { syntax_module: Option<&'a str> },
+    /// The import closure of the main module, the configuration module and these modules, as
+    /// [`load_import_closure_timed`] selects. A command lists every module it reads by name, so no
+    /// module outside the closure contributes to what it computes.
+    Closure(&'a [&'a str]),
+}
+
+/// Load the import closure of the main module and the configuration module (see
+/// [`SourceLoad::Closure`]).
 fn load_definition(
     options: &CommonOptions,
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
 ) -> Result<k_rust::outer::LoadedDefinition, Box<dyn Error>> {
-    load_definition_impl(options, backend, configuration_module, None).map(|(loaded, _, _)| loaded)
+    load_definition_impl(
+        options,
+        backend,
+        configuration_module,
+        SourceLoad::Closure(&[]),
+    )
+    .map(|(loaded, _, _)| loaded)
 }
 
 /// Load a definition from the command line, recording entry-source resolution and every loader
-/// phase in the returned timings.
+/// phase in the returned timings. The syntax module is returned for a compilation load.
 fn load_definition_impl(
     options: &CommonOptions,
     backend: Option<CompilationBackend>,
     configuration_module: Option<&str>,
-    compilation_syntax: Option<Option<&str>>,
+    selection: SourceLoad<'_>,
 ) -> Result<
     (
         k_rust::outer::LoadedDefinition,
@@ -1962,34 +1988,32 @@ fn load_definition_impl(
             };
             Ok::<_, Box<dyn Error>>((resolver, entry, load_options))
         })?;
-    if let Some(syntax) = compilation_syntax {
-        let (loaded, syntax, loader_timings) = load_for_compilation_timed(
+    let loaded = match selection {
+        SourceLoad::Compilation { syntax_module } => load_for_compilation_timed(
             entry,
             &options.module,
-            syntax,
+            syntax_module,
             &mut resolver,
             &load_options,
         )
-        .inspect_err(|error| {
-            if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
-                emit_diagnostics(diagnostics);
-            }
-        })?;
-        timings.extend(loader_timings);
-        timings.set_span_seconds(span_started.elapsed().as_secs_f64());
-        Ok((loaded, Some(syntax), timings))
-    } else {
-        let (loaded, loader_timings) =
-            load_with_options_timed(entry, &options.module, &mut resolver, &load_options)
-                .inspect_err(|error| {
-                    if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
-                        emit_diagnostics(diagnostics);
-                    }
-                })?;
-        timings.extend(loader_timings);
-        timings.set_span_seconds(span_started.elapsed().as_secs_f64());
-        Ok((loaded, None, timings))
-    }
+        .map(|(loaded, syntax, timings)| (loaded, Some(syntax), timings)),
+        SourceLoad::Closure(roots) => load_import_closure_timed(
+            entry,
+            &options.module,
+            roots,
+            &mut resolver,
+            &load_options,
+        )
+        .map(|(loaded, timings)| (loaded, None, timings)),
+    };
+    let (loaded, syntax, loader_timings) = loaded.inspect_err(|error| {
+        if let k_rust::outer::LoadError::SourceDiagnostics(diagnostics) = error {
+            emit_diagnostics(diagnostics);
+        }
+    })?;
+    timings.extend(loader_timings);
+    timings.set_span_seconds(span_started.elapsed().as_secs_f64());
+    Ok((loaded, syntax, timings))
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
@@ -2023,7 +2047,9 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             &options.common,
             Some(options.backend),
             configuration_module,
-            Some(options.syntax_module.as_deref()),
+            SourceLoad::Compilation {
+                syntax_module: options.syntax_module.as_deref(),
+            },
         )?;
         (
             loaded,
@@ -2564,8 +2590,22 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         if common.module.is_empty() {
             return Err("--main-module is required with a source definition".into());
         }
-        let (mut loaded, _, load_timings) =
-            load_definition_impl(common, Some(CompilationBackend::Rust), None, None)?;
+        // The run reads the main module (its configuration and compiled theory) and the syntax
+        // module (the program grammar). The syntax module is resolved after the load, against
+        // the modules backend exclusion leaves; rooting the one name that resolution looks up
+        // besides the main module keeps it in the load exactly when an unselected load would
+        // have it, so resolution, its fallback warning and its errors are unchanged.
+        let default_syntax_module = format!("{}-SYNTAX", common.module);
+        let syntax_root = options
+            .syntax_module
+            .as_deref()
+            .unwrap_or(&default_syntax_module);
+        let (mut loaded, _, load_timings) = load_definition_impl(
+            common,
+            Some(CompilationBackend::Rust),
+            None,
+            SourceLoad::Closure(&[syntax_root]),
+        )?;
         let syntax_module =
             resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
         if let Some(warning) = syntax_module.fallback_warning {

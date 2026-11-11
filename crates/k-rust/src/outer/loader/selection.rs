@@ -14,7 +14,8 @@
 //! Module selection traverses imports and configuration reachability before backend exclusion.
 //! Work is O(modules x (modules + imports) x log modules) because every root runs its own transitive-import traversal; no dedicated counter.
 //!
-//! Module selection for fresh compilation, before backend exclusion and inner parsing.
+//! Module selection for fresh compilation and for the loads of the commands that read named
+//! modules of a source definition, before backend exclusion and inner parsing.
 
 use std::collections::BTreeSet;
 
@@ -26,8 +27,16 @@ use crate::{
 
 use super::{LoadError, LoadOptions, is_configuration_sentence};
 
-pub(super) struct CompilationSelection<'a> {
-    pub syntax_module: Option<&'a str>,
+/// Which modules a load keeps before backend exclusion and inner parsing.
+pub(super) enum ModuleSelection<'a> {
+    /// A fresh compilation: the loader resolves the syntax module ([`resolve_syntax_module`]),
+    /// roots it, and refuses it when backend exclusion would remove it.
+    Compilation { syntax_module: Option<&'a str> },
+    /// A load for a command that reads the main module, the configuration module and the named
+    /// modules: each name the definition has is a root. A name the definition lacks roots nothing
+    /// and is left for the caller to report; a named module that backend exclusion removes is
+    /// removed as it would be from an unselected load.
+    Roots(&'a [&'a str]),
 }
 
 /// The syntax root and the optional missing-default diagnostic.
@@ -72,21 +81,32 @@ pub fn resolve_syntax_module(
     })
 }
 
-/// The modules a fresh compilation keeps: the roots [`load_for_compilation`] lists and their
+/// The modules a load keeps: the roots [`load_for_compilation`] lists (with `syntax` as the
+/// syntax module, or none) and the modules of `named` that the definition has, with their
 /// transitive imports, in the definition's order.
+///
+/// A module denotes in the view of its import closure: its grammar, its sorts, the parse of its
+/// rule bodies and of a program in it are functions of the sentences of that closure. A module
+/// outside the closure of every root contributes no sentence to any view the caller reads, so
+/// dropping it changes nothing the caller computes from a definition it accepts; what changes is
+/// that errors and warnings of the dropped modules are no longer reported.
 ///
 /// [`load_for_compilation`]: super::load_for_compilation
 pub(super) fn select_modules(
     mut definition: Definition,
     resolved: &ResolvedDefinition,
-    syntax: &str,
+    syntax: Option<&str>,
+    named: &[&str],
     options: &LoadOptions,
 ) -> Result<Definition, LoadError> {
     let main = resolved.main_module_id();
-    let syntax = resolved
-        .module_id(syntax)
-        .expect("syntax selection was resolved");
-    // Both roots are protected even when the default syntax module exists but is excluded.
+    let syntax = syntax.map(|syntax| {
+        resolved
+            .module_id(syntax)
+            .expect("syntax selection was resolved")
+    });
+    // Both roots are protected even when the default syntax module exists but is excluded. The
+    // main module's refusal is the one backend exclusion would give.
     for attribute in &options.excluded_module_attributes {
         if resolved.module(main).attributes.get(attribute).is_some() {
             return Err(LoadError::ExcludedMainModule {
@@ -94,7 +114,9 @@ pub(super) fn select_modules(
                 attribute: attribute.clone(),
             });
         }
-        if resolved.module(syntax).attributes.get(attribute).is_some() {
+        if let Some(syntax) = syntax
+            && resolved.module(syntax).attributes.get(attribute).is_some()
+        {
             return Err(LoadError::ExcludedSyntaxModule {
                 module: resolved.module(syntax).name.clone(),
                 attribute: attribute.clone(),
@@ -108,7 +130,9 @@ pub(super) fn select_modules(
     let configuration = resolved
         .module_id(configuration)
         .ok_or_else(|| LoadError::MissingConfigurationModule(configuration.into()))?;
-    let mut roots = BTreeSet::from([main, syntax, configuration]);
+    let mut roots = BTreeSet::from([main, configuration]);
+    roots.extend(syntax);
+    roots.extend(named.iter().filter_map(|name| resolved.module_id(name)));
     // Compilation reads these whether or not a root imports them (`FRONTEND_UTILITY_MODULES` of
     // `definition::checks::kompile_checks` states where).
     for name in [
