@@ -3166,3 +3166,78 @@ fn a_result_entrys_record_keeps_the_children_its_rest_leaves_unnamed() {
         ]
     "#]].assert_debug_eq(&refused);
 }
+
+/// EDOTS item 2: a readable record's own `..` stands for the cells it does not name, which a
+/// subject leaves unconstrained and a result unchanged, as leaving them out already does, so a
+/// rule or claim with it is the one without it. A named rest, `rest @ ..` or `..rest`, would
+/// name those cells as one value, which they are not; and `..` ends the record.
+#[test]
+fn a_records_own_rest_is_the_record_without_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (name, claim, with, without) in [
+        (
+            "claim-subject",
+            true,
+            ("frame: Frame { pc: p, .. }, ..", ""),
+            ("frame: Frame { pc: p, .. }", ""),
+        ),
+        (
+            "claim-result",
+            true,
+            ("", "frame: Frame { pc: x, gas: 0 }, .."),
+            ("", "frame: Frame { pc: x, gas: 0 }"),
+        ),
+        (
+            "rule-subject",
+            false,
+            ("frame: Frame { pc: p, .. }, ..", ""),
+            ("frame: Frame { pc: p, .. }", ""),
+        ),
+        (
+            "rule-result",
+            false,
+            ("", "frame: Frame { pc: x, gas: 0 }, .."),
+            ("", "frame: Frame { pc: x, gas: 0 }"),
+        ),
+    ] {
+        let [with, without] =
+            [("with", with), ("without", without)].map(|(kind, (subject, result))| {
+                let manifest = library_package(
+                    temporary.path(),
+                    &format!("own-rest-{name}-{kind}"),
+                    &kept_readable(claim, subject, result),
+                );
+                emitted_sentence(target.path(), &manifest, "make")
+            });
+        assert_eq!(with, without, "{name}");
+    }
+    let refused = [
+        ("named-subject", kept_readable(true, "rest @ ..", "")),
+        ("named-result", kept_readable(false, "", "..rest")),
+        (
+            "not-last",
+            kept_readable(true, "..,frame: Frame { pc: p, .. }", ""),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("own-rest-{name}"), &source);
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "named-subject",
+                "error[krs::syntax::rust-syntax]: `rest @ ..` names a record's rest, the cells the record does not name, which a subject leaves unconstrained: it is several cells, and no value a name can stand for; write `..`, or leave it out @ 101:34",
+            ),
+            (
+                "named-result",
+                "error[krs::syntax::rust-syntax]: `..rest` puts back a record's rest by name, but a record's rest, the cells the record does not name, is several cells and no value a name can stand for, and a result keeps them unchanged without one; write `..`, or leave it out @ 100:51",
+            ),
+            (
+                "not-last",
+                "error[krs::syntax::rust-syntax]: `..` ends a record: it stands for the cells the record does not name, so every cell it names comes before it @ 101:34",
+            ),
+        ]
+    "#]].assert_debug_eq(&refused);
+}

@@ -808,6 +808,61 @@ fn shorthand_pattern(cell: &Ident) -> Result<Pat, ParseError> {
     Ok(Pat::parse_single.parse2(cell.to_token_stream())?)
 }
 
+/// Reads a readable record's record-level rest where `content` is at one, and whether it was:
+/// an anonymous `..`, which ends the record. The cells a record does not name are what they
+/// would otherwise be: in a subject, which matches the running configuration, unconstrained,
+/// and in a result, unchanged, which is what leaving them out already means there, so `..`
+/// adds nothing and is read as its absence. A named rest, `name @ ..` in a subject or `..name`
+/// in a result, would name those cells as one value, which they are not: they are several
+/// cells, each kept as it is, and the record keeps them without a name.
+fn record_rest(content: ParseStream<'_>, context: StateMacroContext) -> Result<bool, ParseError> {
+    let named_pattern = {
+        let fork = content.fork();
+        fork.call(Ident::parse_any).is_ok()
+            && fork.parse::<Token![@]>().is_ok()
+            && fork.peek(Token![..])
+    };
+    if named_pattern {
+        let name = content.call(Ident::parse_any)?;
+        return Err(record_rest_error(
+            name.span(),
+            format!(
+                "`{} @ ..` names a record's rest, the cells the record does not name, which a subject leaves unconstrained: it is several cells, and no value a name can stand for; write `..`, or leave it out",
+                name.unraw()
+            ),
+        ));
+    }
+    if !content.peek(Token![..]) {
+        return Ok(false);
+    }
+    let dots = content.parse::<Token![..]>()?;
+    if context == StateMacroContext::Expression && content.peek(Ident::peek_any) {
+        let name = content.call(Ident::parse_any)?;
+        return Err(record_rest_error(
+            name.span(),
+            format!(
+                "`..{}` puts back a record's rest by name, but a record's rest, the cells the record does not name, is several cells and no value a name can stand for, and a result keeps them unchanged without one; write `..`, or leave it out",
+                name.unraw()
+            ),
+        ));
+    }
+    if content.peek(Token![,]) {
+        content.parse::<Token![,]>()?;
+    }
+    if !content.is_empty() {
+        return Err(record_rest_error(
+            dots.spans[0],
+            "`..` ends a record: it stands for the cells the record does not name, so every cell it names comes before it".to_owned(),
+        ));
+    }
+    Ok(true)
+}
+
+/// The refusal of a readable record's misplaced or named record-level rest ([`record_rest`]).
+fn record_rest_error(span: proc_macro2::Span, reason: String) -> ParseError {
+    crate::SyntaxError::new(crate::SyntaxErrorKind::RustSyntax(reason), span).into()
+}
+
 fn parse_machine_pattern_record(
     input: ParseStream<'_>,
     sentence: ReadableSentence,
@@ -820,6 +875,9 @@ fn parse_machine_pattern_record(
     })?;
     let mut cells = Vec::new();
     while !content.is_empty() {
+        if record_rest(&content, StateMacroContext::Pattern)? {
+            break;
+        }
         let cell = content.call(Ident::parse_any)?;
         if cells
             .iter()
@@ -1040,6 +1098,9 @@ fn parse_machine_result_record(
     })?;
     let mut cells = Vec::new();
     while !content.is_empty() {
+        if record_rest(&content, StateMacroContext::Expression)? {
+            break;
+        }
         let cell = content.call(Ident::parse_any)?;
         if cells
             .iter()
