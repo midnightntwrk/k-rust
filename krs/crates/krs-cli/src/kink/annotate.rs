@@ -29,7 +29,9 @@
 //! labels, `krs` inside a reading's `rule`, and `krs_rules` beside a witness's steps (`null` for
 //! a step it does not name). A query witness's state lists its cells by their K labels (kink-flow's
 //! `evidence`, "A query witness"), and each entry whose cell the configuration declares gains
-//! `krs_cell`, the cell's Rust path ([`super::cells`]); its values are printed by krs-unparse over
+//! `krs_cell`, the cell's Rust path ([`super::cells`]), as does each part of a query
+//! explanation that leaves a cell out (an entry of a row's or an obligation's `explain.parts`
+//! whose `cell` is that cell's K label); its values are printed by krs-unparse over
 //! the emitted K, the printer `krs run` prints configurations with (without reversing aliases), so
 //! they already spell constructors as KRS does. A compiled rule with no label, or with one that
 //! is not in the table, was written by no rule KRS emitted (K generates it from a production or
@@ -107,7 +109,8 @@
 //! of 10 reads keeps what it denotes and only `query` documents gain the new fields, while the
 //! version is also the `krs_annotation` of every `coverage` lock section: the bindings of a
 //! `query` document's patterns that a KRS patterns package wrote are named by the binders of
-//! their clauses (below).
+//! their clauses (below), and each explanation part that leaves a cell out names the cell by
+//! its Rust path (`krs_cell`, above).
 //!
 //! A `query` document's pattern compiled from a KRS patterns package (`source` `{krs, item, file,
 //! line}`, [`super::patterns`]) writes each binder of its clause as a K variable of its steps
@@ -646,7 +649,6 @@ impl Annotator {
         // K labels: the cell by its Rust path, where the configuration declares it.
         if object.contains_key("depth")
             && object.contains_key("rendering")
-            && let Some(names) = &self.result_names
             && let Some(Value::Array(cells)) = object
                 .get_mut("state")
                 .and_then(|state| state.get_mut("cells"))
@@ -657,14 +659,36 @@ impl Annotator {
                     .and_then(Value::as_array)
                     .and_then(|path| path.last())
                     .and_then(Value::as_str)
-                    .and_then(|label| label.strip_prefix('<')?.strip_suffix('>'))
-                    .and_then(|name| names.path_of(name))
-                    .map(str::to_owned);
+                    .and_then(|label| self.cell_path(label));
                 if let Some(path) = path {
                     cell.insert("krs_cell".into(), json!(path));
                 }
             }
         }
+        // A query explanation (a row's or an obligation's `explain`): each part that leaves a
+        // cell out names it by its K label (`cell`), and gains the cell's Rust path as a witness's
+        // cell does.
+        if let Some(Value::Array(parts)) = object
+            .get_mut("explain")
+            .and_then(|explain| explain.get_mut("parts"))
+        {
+            for part in parts.iter_mut().filter_map(Value::as_object_mut) {
+                let path = part
+                    .get("cell")
+                    .and_then(Value::as_str)
+                    .and_then(|label| self.cell_path(label));
+                if let Some(path) = path {
+                    part.insert("krs_cell".into(), json!(path));
+                }
+            }
+        }
+    }
+
+    /// The Rust path of the cell a document names by its K label `label` (`<k>`), where the
+    /// configuration declares it ([`super::cells`]).
+    fn cell_path(&self, label: &str) -> Option<String> {
+        let name = label.strip_prefix('<')?.strip_suffix('>')?;
+        self.result_names.as_ref()?.path_of(name).map(str::to_owned)
     }
 }
 

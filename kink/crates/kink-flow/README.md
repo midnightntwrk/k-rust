@@ -2353,6 +2353,7 @@ Each part is `{part, kind, cell, conjunct, dropped_conjuncts, digest, outcome, c
 `outcome` is `hit` (the first program that hits, in `program`), `no` (every program a final `no`), `unknown`, `error` or `invalid-pattern` (with the first such program and its `cause`), or `vacuous`.
 A part that is `unknown` is no lead: its `cause` says why.
 `witness`, on a hit, is the part's value where the derived pattern matches, `{depth, state, bindings, rendering}`: for a cell, `state.cells` holds that cell's entry, printed in full as a witness prints a cell its pattern names; for a conjunct, `bindings` holds the values of its variables.
+Under `krs kink`, a cell's part also names its cell by Rust path, `krs_cell`, as a witness's cell entry does.
 `leads` lists the parts that hit.
 `explanations` is `{enabled, asked, from_cache, records_written}`: the (derived pattern, program) pairs this command asked, how many the cache answered and the records written.
 

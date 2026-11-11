@@ -2348,6 +2348,41 @@ fn an_edit_of_the_specification_leaves_patches_running_or_stale() {
     }
 }
 
+/// FB56: a refuted claim's explanation names the cell a part leaves out by its Rust path,
+/// beside its K label, as the witness names its cells. c3 counts down from 3, so no state holds
+/// a count above 5; without the condition the pattern hits.
+fn assert_a_refuted_claim_names_its_cell(project: &Project) {
+    project.write(
+        "kink/refuted-patterns.toml",
+        "[[pattern]]\nid = \"high\"\npattern = \"<k> count(N:Int) </k> requires N >Int 5\"\n\
+         programs = [\"c3\"]\n",
+    );
+    let output = project.kink("query", &["--patterns", "kink/refuted-patterns.toml"]);
+    assert_status(&output, 1);
+    let document = json(&output);
+    let row = &document["rows"][0];
+    assert_eq!(row["answer"], "no", "{document:#}");
+    let parts = row["explain"]["parts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the refuted claim is explained: {row:#}"));
+    let cell = parts
+        .iter()
+        .find(|part| part["kind"] == "cell")
+        .unwrap_or_else(|| panic!("a part leaves the cell out: {row:#}"));
+    assert_eq!(
+        (&cell["part"], &cell["cell"], &cell["krs_cell"]),
+        (&json!("cell <k>"), &json!("<k>"), &json!("k")),
+        "{row:#}"
+    );
+    // A conjunct part names no cell, and gains no Rust path.
+    let conjunct = parts
+        .iter()
+        .find(|part| part["kind"] == "conjunct")
+        .unwrap_or_else(|| panic!("a part leaves the condition out: {row:#}"));
+    assert_eq!(conjunct["outcome"], "hit", "{row:#}");
+    assert_eq!(conjunct.get("krs_cell"), None, "{row:#}");
+}
+
 /// A query row's witness lists its state by its cells: the `<k>` the pattern names printed in
 /// full, each cell named by its Rust path too.
 fn assert_witness_names_its_k_cell(row: &Value) {
@@ -2586,6 +2621,8 @@ fn query_and_fuzz_name_rules_by_their_items() {
     // Another list keeps no lock: the section describes the corpus with its own list.
     assert_eq!(document.get("lock"), None, "{document:#}");
     assert_eq!(project.read("kink/kink.lock"), lock);
+
+    assert_a_refuted_claim_names_its_cell(&project);
 
     project.write(
         "kink/TEMPLATES.toml",
