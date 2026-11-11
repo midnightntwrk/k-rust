@@ -44,7 +44,9 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term, TermParts},
+    kast::{
+        GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term, TermMetadata, TermParts,
+    },
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
@@ -201,7 +203,10 @@ pub(crate) fn resolve_fun_pass(
         // Invariant: `sentences` holds the transformed form of every sentence of `module.local_sentences` before `sentence`, and `resolver.productions` and `resolver.rules` the lambdas generated from them, and `first_negation` locates the first of them whose lowering negates a match; each iteration consumes one sentence.
         for sentence in &module.local_sentences {
             let (productions, rules) = (resolver.productions.len(), resolver.rules.len());
-            let transformed = resolver.transform_sentence((**sentence).clone());
+            // `None` is the sentence itself (`Resolver::transform_sentence`), which stays the
+            // shared allocation; every fact below reads the same value either way.
+            let transformed = resolver.transform_sentence(sentence);
+            let lowered: &Sentence = transformed.as_ref().unwrap_or(sentence);
             // The lambda productions and rules lifted out of a sentence derive from it.
             for generated in resolver.productions[productions..]
                 .iter_mut()
@@ -209,20 +214,30 @@ pub(crate) fn resolve_fun_pass(
             {
                 generated
                     .attributes_mut()
-                    .union_input_addresses(transformed.attributes());
+                    .union_input_addresses(lowered.attributes());
             }
             if resolver.negates_match && first_negation.is_none() {
                 first_negation = Some(Diagnostic::error(
                     DiagnosticCode::InvalidLocalFunction,
                     super::missing_bool_message("A `:/=K` match"),
-                    &transformed,
+                    lowered,
                 ));
             }
-            sentences.push(transformed);
+            sentences.push(transformed.map_or_else(|| Arc::clone(sentence), Arc::new));
         }
-        extend_unique(&mut sentences, resolver.productions);
-        extend_unique(&mut sentences, resolver.rules);
-        module.local_sentences = sentences.into_iter().map(Arc::new).collect();
+        if resolver.productions.is_empty() && resolver.rules.is_empty() {
+            module.local_sentences = sentences;
+        } else {
+            // A lifted lambda equal to a sentence already in the module adds its input
+            // addresses to that sentence (`extend_unique`), which takes the sentences by value.
+            let mut sentences = sentences
+                .into_iter()
+                .map(Arc::unwrap_or_clone)
+                .collect::<Vec<_>>();
+            extend_unique(&mut sentences, resolver.productions);
+            extend_unique(&mut sentences, resolver.rules);
+            module.local_sentences = sentences.into_iter().map(Arc::new).collect();
+        }
         if let Some(missing_bool) = first_negation
             && !super::import_bool(module, resolved)
         {
@@ -268,79 +283,159 @@ struct Resolver<'a, 'view, 'definition> {
 }
 
 impl Resolver<'_, '_, '_> {
-    fn transform_sentence(&mut self, sentence: Sentence) -> Sentence {
+    /// `sentence` with its local functions lifted to lambdas, or `None` when that is `sentence`
+    /// itself, identical in every stored part. Only a rule's, context's or context alias's body
+    /// and conditions are lowered.
+    fn transform_sentence(&mut self, sentence: &Sentence) -> Option<Sentence> {
         match sentence {
             Sentence::Rule {
                 body,
                 requires,
                 ensures,
                 attributes,
-            } => Sentence::Rule {
-                body: self.transform(body),
-                requires: self.transform(requires),
-                ensures: self.transform(ensures),
-                attributes,
-            },
+            } => {
+                let new_body = self.transform_term(body);
+                let new_requires = self.transform_term(requires);
+                let new_ensures = self.transform_term(ensures);
+                if new_body.is_none() && new_requires.is_none() && new_ensures.is_none() {
+                    return None;
+                }
+                Some(Sentence::Rule {
+                    body: new_body.unwrap_or_else(|| body.clone()),
+                    requires: new_requires.unwrap_or_else(|| requires.clone()),
+                    ensures: new_ensures.unwrap_or_else(|| ensures.clone()),
+                    attributes: attributes.clone(),
+                })
+            }
             Sentence::Context {
                 body,
                 requires,
                 attributes,
-            } => Sentence::Context {
-                body: self.transform(body),
-                requires: self.transform(requires),
-                attributes,
-            },
+            } => {
+                let new_body = self.transform_term(body);
+                let new_requires = self.transform_term(requires);
+                if new_body.is_none() && new_requires.is_none() {
+                    return None;
+                }
+                Some(Sentence::Context {
+                    body: new_body.unwrap_or_else(|| body.clone()),
+                    requires: new_requires.unwrap_or_else(|| requires.clone()),
+                    attributes: attributes.clone(),
+                })
+            }
             Sentence::ContextAlias {
                 body,
                 requires,
                 attributes,
-            } => Sentence::ContextAlias {
-                body: self.transform(body),
-                requires: self.transform(requires),
-                attributes,
-            },
-            sentence @ Sentence::SyntaxSort { .. }
-            | sentence @ Sentence::SortSynonym { .. }
-            | sentence @ Sentence::SyntaxLexical { .. }
-            | sentence @ Sentence::Production { .. }
-            | sentence @ Sentence::SyntaxAssociativity { .. }
-            | sentence @ Sentence::SyntaxPriority { .. }
-            | sentence @ Sentence::Claim { .. }
-            | sentence @ Sentence::Configuration { .. }
-            | sentence @ Sentence::Bubble { .. } => sentence,
+            } => {
+                let new_body = self.transform_term(body);
+                let new_requires = self.transform_term(requires);
+                if new_body.is_none() && new_requires.is_none() {
+                    return None;
+                }
+                Some(Sentence::ContextAlias {
+                    body: new_body.unwrap_or_else(|| body.clone()),
+                    requires: new_requires.unwrap_or_else(|| requires.clone()),
+                    attributes: attributes.clone(),
+                })
+            }
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         }
     }
 
+    /// [`Self::transform_term`] on an owned term.
     fn transform(&mut self, term: Term) -> Term {
-        if let Some((label, arguments)) = special_application(&term) {
-            return self.resolve_application(label, arguments, Attributes::default());
+        self.transform_term(&term).unwrap_or(term)
+    }
+
+    /// `term` with each local function application lowered to a call of its lifted lambda
+    /// ([`Self::resolve_application`]), in preorder, or `None` when the result is `term` itself.
+    ///
+    /// Every node without a local function application at or below it is rebuilt as it is,
+    /// except an annotation, which is put back with [`Term::with_metadata`]: that drops an empty
+    /// annotation and merges an annotation into an annotated child, so an annotation node is kept
+    /// as it is only when its metadata is not empty, its child is not annotated, and its child
+    /// is kept. A local function application, annotated or not, is always rebuilt.
+    fn transform_term(&mut self, term: &Term) -> Option<Term> {
+        if let Some((label, arguments)) = special_application(term) {
+            return Some(self.resolve_application(label, arguments, Attributes::default()));
         }
-        match term.into_parts() {
-            TermParts::Annotated { term, metadata } => {
-                self.transform(*term).with_metadata(metadata)
+        match term {
+            Term::Annotated {
+                term: inner,
+                metadata,
+            } => match self.transform_term(inner) {
+                None if *metadata != TermMetadata::default()
+                    && !matches!(**inner, Term::Annotated { .. }) =>
+                {
+                    None
+                }
+                transformed => Some(
+                    transformed
+                        .unwrap_or_else(|| (**inner).clone())
+                        .with_metadata(metadata.clone()),
+                ),
+            },
+            Term::Rewrite { left, right } => {
+                let new_left = self.transform_term(left);
+                let new_right = self.transform_term(right);
+                if new_left.is_none() && new_right.is_none() {
+                    return None;
+                }
+                Some(Term::Rewrite {
+                    left: Box::new(new_left.unwrap_or_else(|| (**left).clone())),
+                    right: Box::new(new_right.unwrap_or_else(|| (**right).clone())),
+                })
             }
-            TermParts::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(self.transform(*left)),
-                right: Box::new(self.transform(*right)),
-            },
-            TermParts::As { pattern, alias } => Term::As {
-                pattern: Box::new(self.transform(*pattern)),
-                alias: Box::new(self.transform(*alias)),
-            },
-            TermParts::Sequence(items) => {
-                Term::Sequence(items.into_iter().map(|item| self.transform(item)).collect())
+            Term::As { pattern, alias } => {
+                let new_pattern = self.transform_term(pattern);
+                let new_alias = self.transform_term(alias);
+                if new_pattern.is_none() && new_alias.is_none() {
+                    return None;
+                }
+                Some(Term::As {
+                    pattern: Box::new(new_pattern.unwrap_or_else(|| (**pattern).clone())),
+                    alias: Box::new(new_alias.unwrap_or_else(|| (**alias).clone())),
+                })
             }
-            TermParts::Apply { label, arguments } => Term::Apply {
-                label,
-                arguments: arguments
-                    .into_iter()
-                    .map(|argument| self.transform(argument))
-                    .collect(),
-            },
-            leaf @ (TermParts::InjectedLabel(_)
-            | TermParts::Variable { .. }
-            | TermParts::Token { .. }) => Term::from(leaf),
+            Term::Sequence(items) => self.transform_terms(items).map(Term::Sequence),
+            Term::Apply { label, arguments } => {
+                self.transform_terms(arguments)
+                    .map(|arguments| Term::Apply {
+                        label: label.clone(),
+                        arguments,
+                    })
+            }
+            Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. } => None,
         }
+    }
+
+    /// [`Self::transform_term`] of each of `terms` in order, `None` when every one is `None`;
+    /// the items before the first change are copied only once one changes.
+    fn transform_terms(&mut self, terms: &[Term]) -> Option<Vec<Term>> {
+        let mut transformed: Option<Vec<Term>> = None;
+        for (index, term) in terms.iter().enumerate() {
+            let new = self.transform_term(term);
+            match (&mut transformed, new) {
+                (Some(items), new) => items.push(new.unwrap_or_else(|| term.clone())),
+                (None, Some(new)) => {
+                    let mut items = Vec::with_capacity(terms.len());
+                    items.extend_from_slice(&terms[..index]);
+                    items.push(new);
+                    transformed = Some(items);
+                }
+                (None, None) => {}
+            }
+        }
+        transformed
     }
 
     fn resolve_application(
