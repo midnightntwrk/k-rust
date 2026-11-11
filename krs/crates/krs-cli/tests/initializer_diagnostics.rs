@@ -1267,3 +1267,126 @@ fn a_k_leaf_starts_with_the_sequence_its_initializer_lists() {
     "#]]
     .assert_debug_eq(&[initial, saved]);
 }
+
+/// CELLS2 item 3: a wrapper type written as a call, `Cell(v)` or `KCell(items)`, the `k::cells!`
+/// spelling of a cell's value, is the value its `::new` twin writes (`Cell::new(v)`,
+/// `KCell::new(k::k![items])`), at any depth: the same configuration where admitted, the same
+/// refusal where not. Its own spelling mistakes name the call.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of spellings and their `::new` twins, each with its configuration or its refusal."
+)]
+fn a_wrapper_written_as_a_call_is_the_value_its_new_twin_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let configuration = |k: &str| {
+        let k = krs_test_support::without_source_comments(k);
+        let start = k.find("configuration").expect("a configuration");
+        k[start..]
+            .lines()
+            .map(str::trim)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let cell = "k::configuration::Cell";
+    let kcell = "k::configuration::KCell";
+    let twins = [
+        ("pc", format!("{cell}(7)"), format!("{cell}::new(7)")),
+        (
+            "k",
+            format!("{kcell}(pgm)"),
+            format!("{kcell}::new(k::k![pgm])"),
+        ),
+        (
+            "stack",
+            format!("{cell}(list::empty())"),
+            format!("{cell}::new(list::empty())"),
+        ),
+        (
+            "counter",
+            format!("Some({cell}(1))"),
+            format!("Some({cell}::new(1))"),
+        ),
+        (
+            "counter",
+            format!("k::absent!({cell}(1))"),
+            format!("k::absent!({cell}::new(1))"),
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (index, (field, call, new)) in twins.iter().enumerate() {
+        let [call_k, new_k] = [("call", call), ("new", new)].map(|(kind, value)| {
+            let manifest = package(
+                temporary.path(),
+                &format!("wrapper-call-{index}-{kind}"),
+                &kinds_initializer(field, value),
+            );
+            configuration(&emitted_k(target.path(), &manifest))
+        });
+        assert_eq!(call_k, new_k, "{call}");
+        lines.push(format!("{call}: {call_k}"));
+    }
+    let first_error = |name: &str, source: &str| {
+        let manifest = package(temporary.path(), &format!("wrapper-call-{name}"), source);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{name}: {stderr}");
+        stderr
+            .lines()
+            .find(|line| line.starts_with("error"))
+            .unwrap()
+            .to_owned()
+    };
+    let refused_twins = [
+        (
+            "pc",
+            format!("{cell}(k::k![1])"),
+            format!("{cell}::new(k::k![1])"),
+        ),
+        (
+            "pc",
+            format!("{kcell}(1)"),
+            format!("{kcell}::new(k::k![1])"),
+        ),
+        ("k", format!("{cell}(pgm)"), format!("{cell}::new(pgm)")),
+        (
+            "shelf",
+            format!("{cell}(Shelf {{ bag: Obj {{ key: 0 }} }})"),
+            format!("{cell}::new(Shelf {{ bag: Obj {{ key: 0 }} }})"),
+        ),
+    ];
+    for (index, (field, call, new)) in refused_twins.iter().enumerate() {
+        let [call_line, new_line] = [("call", call), ("new", new)].map(|(kind, value)| {
+            first_error(
+                &format!("refused-{index}-{kind}"),
+                &kinds_initializer(field, value),
+            )
+        });
+        assert_eq!(call_line, new_line, "{call}");
+        lines.push(format!("{call}: {call_line}"));
+    }
+    for (index, value) in [format!("{cell}::<Int>(7)"), format!("{cell}(1, 2)")]
+        .iter()
+        .enumerate()
+    {
+        let line = first_error(&format!("own-{index}"), &kinds_initializer("pc", value));
+        lines.push(format!("{value}: {line}"));
+    }
+    expect_test::expect![[r#"
+        [
+            "k::configuration::Cell(7): configuration <k> $PGM:Stmt </k> <pc> 7 </pc> <stack> .List </stack> <counter multiplicity=\"?\"> 0 </counter> <olist multiplicity=\"?\"> .List </olist> <shelf> <bag multiplicity=\"*\" type=\"Set\"> <key> 0 </key> </bag> </shelf>",
+            "k::configuration::KCell(pgm): configuration <k> $PGM:Stmt </k> <pc> 0 </pc> <stack> .List </stack> <counter multiplicity=\"?\"> 0 </counter> <olist multiplicity=\"?\"> .List </olist> <shelf> <bag multiplicity=\"*\" type=\"Set\"> <key> 0 </key> </bag> </shelf>",
+            "k::configuration::Cell(list::empty()): configuration <k> $PGM:Stmt </k> <pc> 0 </pc> <stack> .List </stack> <counter multiplicity=\"?\"> 0 </counter> <olist multiplicity=\"?\"> .List </olist> <shelf> <bag multiplicity=\"*\" type=\"Set\"> <key> 0 </key> </bag> </shelf>",
+            "Some(k::configuration::Cell(1)): configuration <k> $PGM:Stmt </k> <pc> 0 </pc> <stack> .List </stack> <counter multiplicity=\"?\" initial=\"\"> 1 </counter> <olist multiplicity=\"?\"> .List </olist> <shelf> <bag multiplicity=\"*\" type=\"Set\"> <key> 0 </key> </bag> </shelf>",
+            "k::absent!(k::configuration::Cell(1)): configuration <k> $PGM:Stmt </k> <pc> 0 </pc> <stack> .List </stack> <counter multiplicity=\"?\"> 1 </counter> <olist multiplicity=\"?\"> .List </olist> <shelf> <bag multiplicity=\"*\" type=\"Set\"> <key> 0 </key> </bag> </shelf>",
+            "k::configuration::Cell(k::k![1]): error[krs::analysis::invalid-term]: the cell `pc` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's",
+            "k::configuration::KCell(1): error[krs::analysis::cell-wrapper]: the cell `pc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell::new(..)` wraps a computation's items, which only a computation cell holds, and a leaf's initial value is one term of its sort, alone or in `Cell::new(..)`; write its entry as `x`",
+            "k::configuration::Cell(pgm): error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation, nor is a leaf's `Cell::new(..)`; write its entry as `k::k![x]`",
+            "k::configuration::Cell(Shelf { bag: Obj { key: 0 } }): error[krs::analysis::cell-wrapper]: the cell `shelf` holds a group `Shelf`, and the entry's wrapper is not that content's: `KCell::new(..)` wraps a computation's items and `Cell::new(..)` a leaf's value, and a group's initial value is its record; write its entry as `Shelf { .. }`",
+            "k::configuration::Cell::<Int>(7): error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `Cell(..)` and `KCell(..)` are written as plain paths, without generic arguments or attributes",
+            "k::configuration::Cell(1, 2): error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `Cell(..)` takes exactly one argument, the cell's value",
+        ]
+    "#]]
+    .assert_debug_eq(&lines);
+}

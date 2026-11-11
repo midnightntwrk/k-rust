@@ -240,7 +240,8 @@ impl ConfigurationVariable {
     reason = "Span-preserving syn nodes are the public parser contract."
 )]
 pub enum InitializerCellContent {
-    /// `Cell::new(value)` or `KCell::new(k![...])`.
+    /// `Cell::new(value)` or `KCell::new(k![...])`, or the wrapper written as a call,
+    /// `Cell(value)` or `KCell(items)`.
     Leaf {
         /// Rust-resolved cell constructor path.
         constructor: Path,
@@ -1380,12 +1381,12 @@ fn parse_initializer_cell(
     }
     // A literal is a readable plain term, as a path is, and so is the notation for a builtin
     // call (`a && b`, `x.max::<Int>(0)`). So is every call but the cell forms `Cell::new(..)`,
-    // `KCell::new(..)` and `Some(..)`, whatever its path: a function or constructor application
-    // (`StartRegs(start)`, `self::StartRegs(start)`, `list::empty()`) is a term of the cell's
-    // value, as it is in a result, and the term parser reports a head that is no term's. A
-    // compiler-owned island (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`) is a term too,
-    // so a constant can be a cell's whole value and any other island reports its own error. A
-    // `let` block is the term it computes, as in a result.
+    // `KCell::new(..)`, `Cell(..)`, `KCell(..)` and `Some(..)`, whatever its path: a function
+    // or constructor application (`StartRegs(start)`, `self::StartRegs(start)`,
+    // `list::empty()`) is a term of the cell's value, as it is in a result, and the term parser
+    // reports a head that is no term's. A compiler-owned island (`k::bytes!(..)`, `k::id!(..)`,
+    // `k::lexeme!(..)`) is a term too, so a constant can be a cell's whole value and any other
+    // island reports its own error. A `let` block is the term it computes, as in a result.
     let readable_term = match &field.expr {
         Expr::Lit(_) | Expr::Unary(_) | Expr::Block(_) => true,
         // A collection literal is the term its calls build; a cell's own map without a rest is
@@ -1421,8 +1422,8 @@ fn parse_initializer_cell(
     let mut wrapper_family = None;
     let content = match &field.expr {
         // A call reaches here only as a cell form: a `Some(..)` the optional cell's start above
-        // does not take (other than one value, with attributes, or with generic arguments), or
-        // `Cell::new(..)`/`KCell::new(..)`.
+        // does not take (other than one value, with attributes, or with generic arguments),
+        // `Cell(..)`/`KCell(..)`, or `Cell::new(..)`/`KCell::new(..)`.
         Expr::Call(ExprCall { func, args, .. }) if is_option_some(func) => {
             return Err(unsupported_body(
                 if args.len() == 1 {
@@ -1432,6 +1433,49 @@ fn parse_initializer_cell(
                 },
                 field.expr.span(),
             ));
+        }
+        // `Cell(v)` and `KCell(items)` name the wrapper type as a call: the `cells!` spelling of
+        // the cell's value, which the entry reader reads as it reads `Cell::new(v)` and
+        // `KCell::new(k::k![items])` ([`unwrapped_value`]), so the content is read as theirs is.
+        Expr::Call(ExprCall {
+            attrs: call_attrs,
+            func,
+            args,
+            ..
+        }) if is_wrapper_call(func) => {
+            let (Expr::Path(ExprPath { attrs, path, .. }), true) = (&**func, call_attrs.is_empty())
+            else {
+                return Err(unsupported_body(WRAPPER_CALL_PATH, func.span()));
+            };
+            let (true, Some(wrapper)) = (
+                attrs.is_empty() && is_plain_path(path),
+                path.segments.last(),
+            ) else {
+                return Err(unsupported_body(WRAPPER_CALL_PATH, path.span()));
+            };
+            let (value, computation) = if wrapper.ident == "KCell" {
+                // The computation's items, as `k::k![..]` lists them.
+                let items = parse_initializer_k_sequence(
+                    args.to_token_stream(),
+                    Some(TokenRange::for_tokens(&field.expr)?),
+                )?;
+                (StateTerm::KSequence(items), true)
+            } else {
+                let (1, Some(argument)) = (args.len(), args.first()) else {
+                    return Err(unsupported_body(
+                        "`Cell(..)` takes exactly one argument, the cell's value",
+                        field.expr.span(),
+                    ));
+                };
+                wrapped_value(argument, false, &mut wrapper_family)?
+            };
+            InitializerCellContent::Leaf {
+                constructor: path.clone(),
+                value,
+                computation,
+                inferred_constructor: false,
+                neutral: false,
+            }
         }
         Expr::Call(ExprCall {
             attrs: call_attrs,
@@ -1466,24 +1510,8 @@ fn parse_initializer_cell(
                     path.span(),
                 ));
             };
-            // The wrapped value is the entry's value, judged as a plain entry's is: a value of
-            // the other wrapper's family is read by its own, so the cell's kind answers it
-            // first, and the wrapper's refusal waits ([`FixedCellInitializer::wrapper_family`]).
-            let named = wrapper.ident == "KCell";
-            // `Cell::new(k::k![..])` is a `KSequence` leaf's sequence, which the collector gives
-            // the leaf's wrapper once the cell's kind and sort admit it.
-            let (value, computation) = match parse_initializer_state_term(argument, named) {
-                Ok(value) => (value, named),
-                Err(error) => match parse_initializer_state_term(argument, !named) {
-                    Ok(value) => {
-                        if named {
-                            wrapper_family = Some(error);
-                        }
-                        (value, !named)
-                    }
-                    Err(_) => return Err(error),
-                },
-            };
+            let (value, computation) =
+                wrapped_value(argument, wrapper.ident == "KCell", &mut wrapper_family)?;
             InitializerCellContent::Leaf {
                 constructor: path.clone(),
                 value,
@@ -1654,6 +1682,9 @@ fn is_absent_macro(path: &syn::Path) -> bool {
     plain_path_last(path).is_some_and(|last| last.ident == "absent")
 }
 
+/// The refusal of a wrapper call (`Cell(..)`, `KCell(..)`) whose head is no plain path.
+const WRAPPER_CALL_PATH: &str = "`Cell(..)` and `KCell(..)` are written as plain paths, without generic arguments or attributes";
+
 fn is_option_none(expression: &Expr) -> bool {
     matches!(expression, Expr::Path(ExprPath { qself: None, path, .. }) if is_option_variant(path, "None"))
 }
@@ -1697,17 +1728,54 @@ fn is_option_some(func: &Expr) -> bool {
     }
 }
 
-/// Whether `func` names a cell constructor, `Cell::new` or `KCell::new` under any prefix.
+/// Whether `func` names a cell constructor, `Cell::new` or `KCell::new` under any prefix, or
+/// the wrapper type itself as a call ([`is_wrapper_call`]).
 fn is_cell_constructor(func: &Expr) -> bool {
     let Expr::Path(ExprPath { path, .. }) = func else {
         return false;
     };
     let mut reversed = path.segments.iter().rev();
+    is_wrapper_call(func)
+        || matches!(
+            (reversed.next(), reversed.next()),
+            (Some(method), Some(wrapper))
+                if method.ident == "new" && (wrapper.ident == "Cell" || wrapper.ident == "KCell")
+        )
+}
+
+/// Whether `func` is the wrapper type `Cell` or `KCell`, under any prefix, as a call's head:
+/// `Cell(v)`, `KCell(items)`, the spelling of a `cells!` entry's value.
+fn is_wrapper_call(func: &Expr) -> bool {
     matches!(
-        (reversed.next(), reversed.next()),
-        (Some(method), Some(wrapper))
-            if method.ident == "new" && (wrapper.ident == "Cell" || wrapper.ident == "KCell")
+        func,
+        Expr::Path(ExprPath { qself: None, path, .. })
+            if path.segments.last().is_some_and(|last| last.ident == "Cell" || last.ident == "KCell")
     )
+}
+
+/// The value `argument` of a `Cell::new(..)` (`computation` false), `KCell::new(..)` or `Cell(..)`,
+/// and whether it is a computation's items. It is the entry's value, judged as a plain entry's
+/// is: a value of the other wrapper's family is read by its own, so the cell's kind answers it
+/// first, and the wrapper's refusal waits in `wrapper_family`
+/// ([`FixedCellInitializer::wrapper_family`]). `Cell::new(k::k![..])` is a `KSequence` leaf's
+/// sequence, which the collector gives the leaf's wrapper once the cell's kind and sort admit it.
+fn wrapped_value(
+    argument: &Expr,
+    computation: bool,
+    wrapper_family: &mut Option<SyntaxError>,
+) -> Result<(StateTerm, bool), SyntaxError> {
+    match parse_initializer_state_term(argument, computation) {
+        Ok(value) => Ok((value, computation)),
+        Err(error) => match parse_initializer_state_term(argument, !computation) {
+            Ok(value) => {
+                if computation {
+                    *wrapper_family = Some(error);
+                }
+                Ok((value, !computation))
+            }
+            Err(_) => Err(error),
+        },
+    }
 }
 
 /// An initializer's fields, `name: value`, each value [`unwrapped_value`]: what the entry reader
