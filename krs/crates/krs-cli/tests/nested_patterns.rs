@@ -1894,12 +1894,6 @@ fn a_cells_entry_is_judged_alike_by_every_sentence_form() {
             "z: Term<Int>, s: Term<List>",
             "Some(k::configuration::Cell(s))",
         ),
-        (
-            "presence-around-alternatives",
-            "stack: Some(k::configuration::Cell(s | s))",
-            "s: Term<List>",
-            "Some(k::configuration::Cell(s | s))",
-        ),
     ];
     let mut outcomes = Vec::new();
     for (name, entry, parameters, at) in witnesses {
@@ -1931,7 +1925,6 @@ fn a_cells_entry_is_judged_alike_by_every_sentence_form() {
             "presence-on-a-plain-leaf: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
             "item-after-rest-on-a-leaf: error[krs::analysis::cell-wrapper]: the cell `stack` holds a `List` leaf, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)`",
             "kind-beside-a-limit: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
-            "presence-around-alternatives: error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `stack` has none of",
         ]
     "#]]
     .assert_debug_eq(&outcomes);
@@ -1959,6 +1952,13 @@ fn a_presence_around_pattern_alternatives_is_judged_as_around_any_term() {
             ),
             "Some(k::configuration::Cell(s | s))",
         ),
+        (
+            "cells-claim",
+            format!(
+                "{PRESENCES}#[k::claim(all_paths, label = \"go-claim\")]\nfn go_claim(s: Term<List>, k::cells! {{ k: k::configuration::KCell(Cmd::Go(), tail @ ..), stack: Some(k::configuration::Cell(s | s)), state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), ..state }}\n}}\n"
+            ),
+            "Some(k::configuration::Cell(s | s))",
+        ),
     ];
     let mut headlines = Vec::new();
     for (route, source, at) in routes {
@@ -1968,7 +1968,9 @@ fn a_presence_around_pattern_alternatives_is_judged_as_around_any_term() {
         assert_eq!(place, location(&manifest, at), "{route}: {error}");
         headlines.push(headline.to_owned());
     }
-    assert_eq!(headlines[0], headlines[1], "one line on both routes");
+    for headline in &headlines {
+        assert_eq!(headline, &headlines[0], "one line on every route");
+    }
     assert!(
         headlines[0].starts_with(
             "error[krs::analysis::optional-presence]: the cell `stack` holds a `List` leaf"
