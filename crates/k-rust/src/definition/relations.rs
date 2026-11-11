@@ -33,6 +33,7 @@
 //! Derived subsort, overload, priority, and associativity relations.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::ast::{Associativity, ProductionItem, Sentence};
 use super::catalog::{ProductionCatalog, ProductionId};
@@ -43,9 +44,13 @@ use crate::definition::AttributeKey;
 use crate::kast::Sort;
 use crate::kast::sort_role::KernelSort;
 
+/// The overload order of one view's productions, with the catalog its ids index.
+///
+/// The catalog is shared, not copied: the order built from a resolution's memoised catalog holds
+/// that catalog itself.
 #[derive(Clone, Debug)]
 pub struct OverloadOrder<'a> {
-    catalog: ProductionCatalog<'a>,
+    catalog: Arc<ProductionCatalog<'a>>,
     order: PartialOrder<ProductionId>,
 }
 
@@ -71,6 +76,12 @@ impl<'a> OverloadOrder<'a> {
 
     pub fn catalog(&self) -> &ProductionCatalog<'a> {
         &self.catalog
+    }
+
+    /// Whether two orders are the same value: the same order over the same catalog allocation.
+    #[cfg(debug_assertions)]
+    pub(crate) fn identical(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.catalog, &other.catalog) && self.order == other.order
     }
 }
 
@@ -349,7 +360,7 @@ pub fn compute_overloads<'a>(
     subsorts: &PartialOrder<Sort>,
 ) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
     let catalog = ProductionCatalog::from_visible(sentences);
-    compute_overloads_from_catalog(catalog, subsorts)
+    compute_overloads_from_catalog(Arc::new(catalog), subsorts)
 }
 
 /// Compute overloads from an existing production catalog without rebuilding its indexes.
@@ -357,11 +368,19 @@ pub fn compute_overloads_with_catalog<'a>(
     catalog: &ProductionCatalog<'a>,
     subsorts: &PartialOrder<Sort>,
 ) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
-    compute_overloads_from_catalog(catalog.clone(), subsorts)
+    compute_overloads_from_catalog(Arc::new(catalog.clone()), subsorts)
+}
+
+/// Compute overloads over a shared production catalog, which the order then holds.
+pub(crate) fn compute_overloads_with_shared_catalog<'a>(
+    catalog: Arc<ProductionCatalog<'a>>,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
+    compute_overloads_from_catalog(catalog, subsorts)
 }
 
 fn compute_overloads_from_catalog<'a>(
-    catalog: ProductionCatalog<'a>,
+    catalog: Arc<ProductionCatalog<'a>>,
     subsorts: &PartialOrder<Sort>,
 ) -> Result<OverloadOrder<'a>, Cycle<ProductionId>> {
     let mut explicit = BTreeMap::<String, Vec<ProductionId>>::new();
@@ -440,7 +459,7 @@ impl ResolvedDefinition {
         let sentences = self.sentences(module);
         let subsorts =
             compute_subsorts(sentences.iter().copied(), false).map_err(Error::CircularSubsort)?;
-        compute_overloads_with_catalog(&self.production_catalog(module), &subsorts)
+        compute_overloads_with_shared_catalog(self.production_catalog(module), &subsorts)
             .map_err(Error::CircularOverload)
     }
 

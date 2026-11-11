@@ -73,6 +73,7 @@ use super::equivalence::{
     COMPARISON_RECURSION_LIMIT, ChildPairs, EquivalenceAccumulator, dedup_by_equivalence,
     sentence_equivalent,
 };
+use super::views::ModuleViews;
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -421,6 +422,9 @@ pub struct ResolvedDefinition {
     import_closures: Arc<OnceLock<Vec<Box<[ModuleId]>>>>,
     declares_sort_synonyms: OnceLock<bool>,
     pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
+    // The sort catalog and relations of every module, by module index, each built on first use
+    // and carried by `update` under the condition the production catalogs are.
+    pub(crate) module_views: Arc<Vec<ModuleViews>>,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -502,6 +506,9 @@ impl ResolvedDefinition {
         let visible_sentences = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
         let signature_views = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
         let production_catalogs = (0..graph.node_count()).map(|_| OnceLock::new()).collect();
+        let module_views = (0..graph.node_count())
+            .map(|_| ModuleViews::default())
+            .collect();
 
         Ok(Self {
             graph,
@@ -514,6 +521,7 @@ impl ResolvedDefinition {
             import_closures: Arc::default(),
             declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
+            module_views: Arc::new(module_views),
         })
     }
 
@@ -596,7 +604,15 @@ impl ResolvedDefinition {
         }
 
         let visible_invalid = reverse_reachable(&graph, &changed);
-        let catalog_invalid = reverse_reachable(&graph, &syntax_changed);
+        // A module none of whose closure (itself and every module it imports, directly or not)
+        // changed a syntax sentence has a visible view whose syntax sentences are identical, in
+        // order, to the previous view's: the view is its closure's local sentences in dependency
+        // order (an unchanged order, since imports are unchanged) with equivalent sentences
+        // merged, and a syntax sentence is equivalent only to one of its own kind, so which
+        // syntax sentences are kept, and the input addresses they unite, depend on syntax
+        // sentences alone. The production catalog and the views of `ModuleViews` read nothing
+        // else, so the previous resolution's values are this one's.
+        let syntax_invalid = reverse_reachable(&graph, &syntax_changed);
         let visible_sentences = self
             .visible_sentences
             .iter()
@@ -617,7 +633,7 @@ impl ResolvedDefinition {
             .enumerate()
             .map(|(index, previous)| {
                 let lock = OnceLock::new();
-                if !catalog_invalid[index]
+                if !syntax_invalid[index]
                     && let Some(catalog) = previous.get()
                 {
                     let _ = lock.set(Arc::clone(catalog));
@@ -625,8 +641,20 @@ impl ResolvedDefinition {
                 lock
             })
             .collect();
+        let module_views = self
+            .module_views
+            .iter()
+            .enumerate()
+            .map(|(index, previous)| {
+                if syntax_invalid[index] {
+                    ModuleViews::default()
+                } else {
+                    previous.carried()
+                }
+            })
+            .collect();
         measure::bump(Counter::KompileResolveUpdates);
-        Ok(Self {
+        let updated = Self {
             graph,
             modules_by_name: self.modules_by_name.clone(),
             main_module: self.main_module,
@@ -642,7 +670,11 @@ impl ResolvedDefinition {
             import_closures: Arc::clone(&self.import_closures),
             declares_sort_synonyms: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
-        })
+            module_views: Arc::new(module_views),
+        };
+        #[cfg(debug_assertions)]
+        updated.assert_module_views_fresh();
+        Ok(updated)
     }
 
     pub fn module_id(&self, name: &str) -> Option<ModuleId> {
@@ -1509,6 +1541,88 @@ mod tests {
             &base.module(main).local_sentences[0],
             &updated.module(main).local_sentences[0]
         ));
+    }
+
+    /// The sort catalog and relations of a module are carried, as the same allocations, over an
+    /// update that changes no syntax sentence of its closure, and rebuilt after one that does,
+    /// in the module and in every module importing it.
+    #[test]
+    fn update_carries_module_views_while_closure_syntax_is_unchanged() {
+        let rule = |name: &str| {
+            Arc::new(Sentence::Rule {
+                body: Term::apply(name, Vec::new()),
+                requires: Term::apply("true", Vec::new()),
+                ensures: Term::apply("true", Vec::new()),
+                attributes: Attributes::default(),
+            })
+        };
+        let subsort = Arc::new(Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("B"),
+            items: vec![ProductionItem::NonTerminal {
+                sort: Sort::new("A"),
+                name: None,
+            }],
+            attributes: Attributes::default(),
+        });
+        let mut main = module("MAIN", sort_sentence("B"));
+        main.local_sentences.push(rule("first"));
+        main.imports.push(super::super::ast::FlatImport {
+            name: "OTHER".into(),
+            public: true,
+        });
+        let mut other = module("OTHER", sort_sentence("A"));
+        other.local_sentences.push(subsort);
+        let initial = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![main, other],
+            attributes: Attributes::default(),
+        };
+        let base = ResolvedDefinition::resolve(&initial).unwrap();
+        let main = base.module_id("MAIN").unwrap();
+        let other = base.module_id("OTHER").unwrap();
+        let build = |resolved: &ResolvedDefinition| {
+            let views = resolved.views();
+            for module in [main, other] {
+                let _ = views.sort_catalog(module);
+                let _ = views.subsorts(module);
+                let _ = views.overloads(module);
+                let _ = views.priorities(module);
+            }
+        };
+        build(&base);
+        let views = |resolved: &ResolvedDefinition, module: ModuleId| {
+            resolved.module_views[module.0.index()].built_allocations()
+        };
+
+        let mut rule_changed = initial.clone();
+        rule_changed.modules[0].local_sentences[1] = rule("second");
+        let carried = base.update(&initial, &rule_changed).unwrap();
+        for module in [main, other] {
+            let before = views(&base, module);
+            assert_eq!(before.iter().filter(|view| view.is_some()).count(), 4);
+            assert_eq!(views(&carried, module), before);
+        }
+        assert!(
+            carried
+                .views()
+                .subsorts(main)
+                .unwrap()
+                .less_than(&Sort::new("A"), &Sort::new("B"))
+        );
+
+        let mut syntax_changed = initial.clone();
+        syntax_changed.modules[1].local_sentences[0] = Arc::new(sort_sentence("C"));
+        let rebuilt = base.update(&initial, &syntax_changed).unwrap();
+        for module in [main, other] {
+            assert_eq!(views(&rebuilt, module), [None; 7]);
+        }
+        let fresh = ResolvedDefinition::resolve(&syntax_changed).unwrap();
+        assert_eq!(
+            rebuilt.views().sort_catalog(main).all_sorts(),
+            fresh.views().sort_catalog(main).all_sorts()
+        );
     }
 
     #[test]

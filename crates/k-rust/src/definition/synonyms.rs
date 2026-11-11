@@ -47,7 +47,7 @@ pub enum SynonymDefect<'a> {
 /// A defined alias denotes the common end of all its chains, never another alias.
 /// Cycles, ambiguity and their dependent aliases are undenoted; a dangling referent
 /// still denotes that undeclared sort, whose uses the sort checks reject.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SortDenotations {
     denotations: BTreeMap<Sort, Sort>,
     undenoted: BTreeSet<Sort>,

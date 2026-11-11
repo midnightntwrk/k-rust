@@ -19,21 +19,26 @@
 //! Deterministic indexes over the sorts visible from a resolved module.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::marker::PhantomData;
 
 use super::ast::{Attributes, Sentence};
 use super::catalog::SortHead;
 use super::resolve::{ModuleId, ResolvedDefinition};
-use super::synonyms::SortSynonyms;
+use super::synonyms::{SortDenotations, SortSynonyms};
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::mentions_parameter;
 use crate::kast::{FrontendSort, Sort, SortRole};
 use crate::names::BuiltinSort;
 
+/// The sorts a module's view declares and the facts the frontend reads about them.
+///
+/// The catalog owns everything it holds: it borrows no sentence of the resolution it was built
+/// from, so it is a value of the sentences it read, and a resolution updated without a change to
+/// those sentences can share it ([`super::views`]). The lifetime parameter is kept for the
+/// signatures that name it and constrains nothing.
 #[derive(Clone, Debug)]
 pub struct SortCatalog<'a> {
-    declarations: Vec<&'a Sentence>,
-    declarations_by_head: BTreeMap<SortHead, Vec<&'a Sentence>>,
-    synonyms: SortSynonyms<'a>,
+    synonyms: SortDenotations,
     defined_heads: BTreeSet<SortHead>,
     instantiations: BTreeMap<SortHead, BTreeSet<Sort>>,
     all_sorts: BTreeSet<Sort>,
@@ -44,11 +49,12 @@ pub struct SortCatalog<'a> {
     token_heads: BTreeSet<SortHead>,
     parametric_token_sorts: Vec<(Sort, Vec<Sort>)>,
     list_sorts: BTreeSet<Sort>,
+    marker: PhantomData<&'a Sentence>,
 }
 
 impl<'a> SortCatalog<'a> {
-    pub fn new(
-        visible_sentences: impl IntoIterator<Item = &'a Sentence>,
+    pub fn new<'s>(
+        visible_sentences: impl IntoIterator<Item = &'s Sentence>,
         imported_sorts: impl IntoIterator<Item = Sort>,
     ) -> Self {
         let sentences = visible_sentences.into_iter().collect::<Vec<_>>();
@@ -57,7 +63,9 @@ impl<'a> SortCatalog<'a> {
             .copied()
             .filter(|sentence| matches!(sentence, Sentence::SyntaxSort { .. }))
             .collect::<Vec<_>>();
-        let synonyms = SortSynonyms::of(sentences.iter().copied());
+        let synonyms = SortSynonyms::of(sentences.iter().copied())
+            .denotations()
+            .clone();
 
         let mut declarations_by_head = BTreeMap::<SortHead, Vec<&Sentence>>::new();
         for declaration in &declarations {
@@ -186,8 +194,6 @@ impl<'a> SortCatalog<'a> {
             .collect();
 
         Self {
-            declarations,
-            declarations_by_head,
             synonyms,
             defined_heads,
             instantiations,
@@ -199,30 +205,40 @@ impl<'a> SortCatalog<'a> {
             token_heads,
             parametric_token_sorts,
             list_sorts,
+            marker: PhantomData,
         }
     }
 
-    pub fn from_visible(sentences: impl IntoIterator<Item = &'a Sentence>) -> Self {
+    pub fn from_visible<'s>(sentences: impl IntoIterator<Item = &'s Sentence>) -> Self {
         Self::new(sentences, std::iter::empty())
     }
 
-    pub fn declarations(&self) -> impl ExactSizeIterator<Item = &'a Sentence> + '_ {
-        self.declarations.iter().copied()
-    }
-
-    pub fn declarations_by_head(&self) -> &BTreeMap<SortHead, Vec<&'a Sentence>> {
-        &self.declarations_by_head
-    }
-
-    pub fn declarations_for(&self, head: &SortHead) -> &[&'a Sentence] {
-        self.declarations_by_head
-            .get(head)
-            .map_or(&[], Vec::as_slice)
-    }
-
     /// Closed denotations of the synonym declarations in this catalog's view.
-    pub fn sort_synonyms(&self) -> &SortSynonyms<'a> {
+    pub fn sort_synonyms(&self) -> &SortDenotations {
         &self.synonyms
+    }
+
+    /// Whether two catalogs hold the same value, attributes compared in every stored part.
+    #[cfg(debug_assertions)]
+    pub(crate) fn identical(&self, other: &SortCatalog<'_>) -> bool {
+        self.synonyms == other.synonyms
+            && self.defined_heads == other.defined_heads
+            && self.instantiations == other.instantiations
+            && self.all_sorts == other.all_sorts
+            && self.local_sorts == other.local_sorts
+            && self.attributes_by_head.len() == other.attributes_by_head.len()
+            && self
+                .attributes_by_head
+                .iter()
+                .zip(&other.attributes_by_head)
+                .all(|((left_head, left), (right_head, right))| {
+                    left_head == right_head && left.identical(right)
+                })
+            && self.hooks == other.hooks
+            && self.token_sorts == other.token_sorts
+            && self.token_heads == other.token_heads
+            && self.parametric_token_sorts == other.parametric_token_sorts
+            && self.list_sorts == other.list_sorts
     }
 
     pub fn defined_heads(&self) -> &BTreeSet<SortHead> {
