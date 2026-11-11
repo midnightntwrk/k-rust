@@ -16,7 +16,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, LabelHead, PartialOrder, ProductionCatalog, RuleHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::{Label, Sort, SortRole, Term, TermParts, sort_role::KernelSort},
+    kast::{Label, Sort, SortRole, Term, TermMetadata, TermParts, sort_role::KernelSort},
     provenance::GeneratingPass,
 };
 
@@ -121,11 +121,7 @@ pub(crate) fn resolve_semantic_casts_pass(
         })?;
         let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
-            resolve_compiled_casts_in_sentence_mut(
-                crate::definition::sentence_mut(sentence),
-                productions,
-                subsorts,
-            )?;
+            resolve_compiled_casts_in_shared_sentence(sentence, productions, subsorts)?;
         }
     }
     Ok(output)
@@ -157,6 +153,114 @@ fn resolve_compiled_casts_in_sentence_mut(
     Ok(())
 }
 
+/// [`resolve_compiled_casts_in_sentence_mut`] on a shared sentence, which is copied only when the
+/// resolution changes it.
+///
+/// Each step is decided on the sentence as it stands before it writes: the casts of the roots
+/// are resolved by reference ([`resolve_casts_in_roots`]), a root written only when it changed,
+/// and the head aliases are read from the sentence the casts left and retyped only when some
+/// alias narrows. The written sentence is the one the in-place resolution gives, and a sentence
+/// neither step changes stays the input allocation.
+fn resolve_compiled_casts_in_shared_sentence(
+    sentence: &mut std::sync::Arc<Sentence>,
+    productions: &ProductionCatalog<'_>,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<(), ResolveSemanticCastsError> {
+    let resolved = resolve_casts_in_roots(sentence, subsorts)?;
+    if resolved.iter().any(Option::is_some) {
+        let roots = term_roots_mut(crate::definition::sentence_mut(sentence));
+        for (root, resolved) in roots.into_iter().zip(resolved) {
+            if let Some(resolved) = resolved {
+                *root = resolved;
+            }
+        }
+    }
+    let sorts = head_alias_sorts(sentence, productions, subsorts);
+    if !sorts.is_empty() {
+        retype_roots(crate::definition::sentence_mut(sentence), &sorts);
+    }
+    Ok(())
+}
+
+/// The term roots of `sentence` whose semantic casts are resolved, in order: body, requires and
+/// ensures of a rule or a claim, body and requires of a context; none for any other sentence.
+fn term_roots(sentence: &Sentence) -> Vec<&Term> {
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => vec![body, requires, ensures],
+        Sentence::Context { body, requires, .. } => vec![body, requires],
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => Vec::new(),
+    }
+}
+
+/// [`term_roots`], mutable.
+fn term_roots_mut(sentence: &mut Sentence) -> Vec<&mut Term> {
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => vec![body, requires, ensures],
+        Sentence::Context { body, requires, .. } => vec![body, requires],
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => Vec::new(),
+    }
+}
+
+/// Each root of `sentence` ([`term_roots`]) with its semantic casts resolved, `None` for a root
+/// the resolution keeps as it is; the error is the one the in-place resolution reports.
+fn resolve_casts_in_roots(
+    sentence: &Sentence,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<Vec<Option<Term>>, ResolveSemanticCastsError> {
+    let roots = term_roots(sentence);
+    let (casts, typed_variables, errors) = collect_cast_bounds(&roots, subsorts);
+    if !errors.is_empty() {
+        return Err(ResolveSemanticCastsError {
+            diagnostics: errors
+                .into_iter()
+                .flat_map(|message| sentence_error(message, sentence).diagnostics)
+                .collect(),
+        });
+    }
+    Ok(roots
+        .into_iter()
+        .map(|root| transform(root, &casts, &typed_variables, subsorts))
+        .collect())
+}
+
 /// Give each root alias variable of a rule that compilation states at its head's sort the
 /// head's sort, at every occurrence of the variable in the rule.
 ///
@@ -179,50 +283,63 @@ fn narrow_head_aliases(
     productions: &ProductionCatalog<'_>,
     subsorts: &PartialOrder<Sort>,
 ) {
-    let sorts = {
-        let Sentence::Rule {
-            body, attributes, ..
-        } = &*sentence
-        else {
-            return;
-        };
-        let head = RuleHead::of(body);
-        let Some((application, label, _)) = head.application() else {
-            return;
-        };
-        if head.right.is_none() {
-            return;
-        }
-        let at_head_sort = super::add_implicit_computation_cell::is_function(body, productions)
-            || productions.macro_labels().contains(&LabelHead::from(label))
-            || attributes.has_any(&AttributeKey::MACRO_LIKE)
-            || attributes.has(AttributeKey::Anywhere)
-            || attributes.has(AttributeKey::Simplification);
-        if !at_head_sort {
-            return;
-        }
-        let Some(result) = head_result_sort(application, label, productions) else {
-            return;
-        };
-        let mut sorts = BTreeMap::new();
-        let mut term = head.left;
-        while let Term::As { pattern, alias } = term.unannotated() {
-            if let Term::Variable {
-                name,
-                sort: Some(sort),
-            } = alias.unannotated()
-                && *sort != result
-                && below(&result, sort, subsorts)
-            {
-                sorts.insert(name.clone(), result.clone());
-            }
-            term = pattern;
-        }
-        sorts
-    };
-    if sorts.is_empty() {
-        return;
+    let sorts = head_alias_sorts(sentence, productions, subsorts);
+    if !sorts.is_empty() {
+        retype_roots(sentence, &sorts);
     }
+}
+
+/// The sort [`narrow_head_aliases`] gives each root alias variable of `sentence` it narrows; an
+/// alias it leaves as written has no entry, so an empty map leaves the sentence as it is.
+fn head_alias_sorts(
+    sentence: &Sentence,
+    productions: &ProductionCatalog<'_>,
+    subsorts: &PartialOrder<Sort>,
+) -> BTreeMap<String, Sort> {
+    let Sentence::Rule {
+        body, attributes, ..
+    } = sentence
+    else {
+        return BTreeMap::new();
+    };
+    let head = RuleHead::of(body);
+    let Some((application, label, _)) = head.application() else {
+        return BTreeMap::new();
+    };
+    if head.right.is_none() {
+        return BTreeMap::new();
+    }
+    let at_head_sort = super::add_implicit_computation_cell::is_function(body, productions)
+        || productions.macro_labels().contains(&LabelHead::from(label))
+        || attributes.has_any(&AttributeKey::MACRO_LIKE)
+        || attributes.has(AttributeKey::Anywhere)
+        || attributes.has(AttributeKey::Simplification);
+    if !at_head_sort {
+        return BTreeMap::new();
+    }
+    let Some(result) = head_result_sort(application, label, productions) else {
+        return BTreeMap::new();
+    };
+    let mut sorts = BTreeMap::new();
+    let mut term = head.left;
+    while let Term::As { pattern, alias } = term.unannotated() {
+        if let Term::Variable {
+            name,
+            sort: Some(sort),
+        } = alias.unannotated()
+            && *sort != result
+            && below(&result, sort, subsorts)
+        {
+            sorts.insert(name.clone(), result.clone());
+        }
+        term = pattern;
+    }
+    sorts
+}
+
+/// Give every variable of the body and conditions of a rule named in `sorts` the sort `sorts`
+/// maps it to.
+fn retype_roots(sentence: &mut Sentence, sorts: &BTreeMap<String, Sort>) {
     let Sentence::Rule {
         body,
         requires,
@@ -233,7 +350,7 @@ fn narrow_head_aliases(
         unreachable!("the sorts were read from a rule")
     };
     for root in [body, requires, ensures] {
-        retype_variables(root, &sorts);
+        retype_variables(root, sorts);
     }
 }
 
@@ -393,30 +510,10 @@ fn resolve_semantic_casts_in_sentence_mut(
     subsorts: &PartialOrder<Sort>,
 ) -> Result<(), ResolveSemanticCastsError> {
     let macro_like = sentence.attributes().has_any(&AttributeKey::MACRO_LIKE);
-    let roots = match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. } => vec![body, requires],
-        Sentence::SyntaxSort { .. }
-        | Sentence::SortSynonym { .. }
-        | Sentence::SyntaxLexical { .. }
-        | Sentence::Production { .. }
-        | Sentence::SyntaxAssociativity { .. }
-        | Sentence::SyntaxPriority { .. }
-        | Sentence::ContextAlias { .. }
-        | Sentence::Configuration { .. }
-        | Sentence::Bubble { .. } => return Ok(()),
-    };
+    let roots = term_roots_mut(sentence);
+    if roots.is_empty() {
+        return Ok(());
+    }
 
     let (casts, typed_variables, errors) = {
         let shared = roots.iter().map(|root| &**root).collect::<Vec<&Term>>();
@@ -446,7 +543,7 @@ fn resolve_semantic_casts_in_sentence_mut(
             tests.collect_unowned(&taken, &mut Vec::new(), &mut unowned);
             taken = tests.place(taken);
         }
-        *root = transform(taken, &casts, &typed_variables, subsorts);
+        *root = transform(&taken, &casts, &typed_variables, subsorts).unwrap_or(taken);
     }
 
     if !predicates {
@@ -540,11 +637,12 @@ impl CastTests<'_> {
                 label: Label::sort_predicate(&sort),
                 arguments: vec![crate::kompile::sort_injections::rewrite_projection(
                     &transform(
-                        cast.unannotated().clone(),
+                        cast.unannotated(),
                         self.casts,
                         self.typed_variables,
                         self.subsorts,
-                    ),
+                    )
+                    .unwrap_or_else(|| cast.unannotated().clone()),
                     false,
                     self.subsorts,
                 )],
@@ -963,30 +1061,10 @@ pub(crate) fn semantic_cast_variable_sorts(
     sentence: &Sentence,
     subsorts: &PartialOrder<Sort>,
 ) -> Result<BTreeMap<String, Sort>, ResolveSemanticCastsError> {
-    let roots: Vec<&Term> = match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. } => vec![body, requires],
-        Sentence::SyntaxSort { .. }
-        | Sentence::SortSynonym { .. }
-        | Sentence::SyntaxLexical { .. }
-        | Sentence::Production { .. }
-        | Sentence::SyntaxAssociativity { .. }
-        | Sentence::SyntaxPriority { .. }
-        | Sentence::ContextAlias { .. }
-        | Sentence::Configuration { .. }
-        | Sentence::Bubble { .. } => return Ok(BTreeMap::new()),
-    };
+    let roots = term_roots(sentence);
+    if roots.is_empty() {
+        return Ok(BTreeMap::new());
+    }
     let (_, typed_variables, errors) = collect_cast_bounds(&roots, subsorts);
     if errors.is_empty() {
         Ok(typed_variables)
@@ -1019,62 +1097,135 @@ fn is_true(term: &Term) -> bool {
 }
 
 // Invariant: each call replaces an application in `casts` by its transformed argument carrying the cast sort, gives a variable its sort from `typed_variables`, and otherwise recurses into the immediate subterms of `term`; the finite `term` bounds the recursion.
+/// `term` with its semantic casts resolved, or `None` when that is `term` itself.
+///
+/// A node is rebuilt from its unannotated form under its outermost annotation, and a resolved
+/// cast is replaced by its operand. A node that is no cast, whose children are kept, and that is
+/// no variable given another sort is the node itself when its annotation is in the form
+/// `with_metadata` builds ([`annotation_is_rebuilt_form`]); only then is `None` returned, and the
+/// caller keeps `term`, its allocation included.
 fn transform(
-    term: Term,
+    term: &Term,
     casts: &BTreeMap<Term, usize>,
     typed_variables: &BTreeMap<String, Sort>,
     subsorts: &PartialOrder<Sort>,
-) -> Term {
-    let source_metadata = term.metadata().cloned();
-    if casts.contains_key(term.unannotated()) {
-        let TermParts::Apply { label, arguments } = term.into_unannotated().into_parts() else {
+) -> Option<Term> {
+    let metadata = term.metadata();
+    let unannotated = term.unannotated();
+    if casts.contains_key(unannotated) {
+        let Term::Apply { label, arguments } = unannotated else {
             unreachable!("the cast set contains applications only")
         };
         let sort = label
             .semantic_cast_sort()
             .expect("the cast set contains semantic casts");
-        let [argument] = arguments
-            .try_into()
-            .unwrap_or_else(|_| unreachable!("only unary semantic casts enter the cast set"));
-        return attach_sort(
-            transform(argument, casts, typed_variables, subsorts),
-            sort,
-            subsorts,
-        );
+        let [argument] = arguments.as_slice() else {
+            unreachable!("only unary semantic casts enter the cast set")
+        };
+        let argument = transform(argument, casts, typed_variables, subsorts)
+            .unwrap_or_else(|| argument.clone());
+        return Some(attach_sort(argument, sort, subsorts));
     }
 
-    let rebuilt = match term.into_unannotated().into_parts() {
-        TermParts::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(transform(*left, casts, typed_variables, subsorts)),
-            right: Box::new(transform(*right, casts, typed_variables, subsorts)),
-        },
-        TermParts::As { pattern, alias } => Term::As {
-            pattern: Box::new(transform(*pattern, casts, typed_variables, subsorts)),
-            alias: Box::new(transform(*alias, casts, typed_variables, subsorts)),
-        },
-        TermParts::Sequence(items) => Term::Sequence(
-            items
-                .into_iter()
-                .map(|item| transform(item, casts, typed_variables, subsorts))
-                .collect(),
-        ),
-        TermParts::Apply { label, arguments } => Term::Apply {
-            label,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| transform(argument, casts, typed_variables, subsorts))
-                .collect(),
-        },
-        TermParts::Variable { name, sort } => Term::Variable {
-            sort: typed_variables.get(&name).cloned().or(sort),
-            name,
-        },
-        leaf @ (TermParts::InjectedLabel(_) | TermParts::Token { .. }) => Term::from(leaf),
-        TermParts::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
+    let pair = |left: &Term, right: &Term| {
+        let transformed = (
+            transform(left, casts, typed_variables, subsorts),
+            transform(right, casts, typed_variables, subsorts),
+        );
+        match transformed {
+            (None, None) => None,
+            (new_left, new_right) => Some((
+                Box::new(new_left.unwrap_or_else(|| left.clone())),
+                Box::new(new_right.unwrap_or_else(|| right.clone())),
+            )),
+        }
     };
-    match source_metadata {
-        Some(metadata) => rebuilt.with_metadata(metadata),
-        None => rebuilt,
+    let rebuilt = match unannotated {
+        Term::Rewrite { left, right } => {
+            pair(left, right).map(|(left, right)| Term::Rewrite { left, right })
+        }
+        Term::As { pattern, alias } => {
+            pair(pattern, alias).map(|(pattern, alias)| Term::As { pattern, alias })
+        }
+        Term::Sequence(items) => {
+            transform_items(items, casts, typed_variables, subsorts).map(Term::Sequence)
+        }
+        Term::Apply { label, arguments } => {
+            transform_items(arguments, casts, typed_variables, subsorts).map(|arguments| {
+                Term::Apply {
+                    label: label.clone(),
+                    arguments,
+                }
+            })
+        }
+        // A variable takes its resolved sort, and keeps its own when it has none resolved.
+        Term::Variable { name, sort } => typed_variables
+            .get(name)
+            .filter(|typed| sort.as_ref() != Some(*typed))
+            .map(|typed| Term::Variable {
+                name: name.clone(),
+                sort: Some(typed.clone()),
+            }),
+        Term::InjectedLabel(_) | Term::Token { .. } => None,
+        Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
+    };
+    match rebuilt {
+        Some(rebuilt) => Some(annotate(rebuilt, metadata)),
+        None if annotation_is_rebuilt_form(term) => None,
+        None => Some(annotate(unannotated.clone(), metadata)),
+    }
+}
+
+/// `items` each transformed, left to right, or `None` when every item is kept.
+fn transform_items(
+    items: &[Term],
+    casts: &BTreeMap<Term, usize>,
+    typed_variables: &BTreeMap<String, Sort>,
+    subsorts: &PartialOrder<Sort>,
+) -> Option<Vec<Term>> {
+    let mut rebuilt: Option<Vec<Term>> = None;
+    for (index, item) in items.iter().enumerate() {
+        let transformed = transform(item, casts, typed_variables, subsorts);
+        match (&mut rebuilt, transformed) {
+            (Some(rebuilt), transformed) => {
+                rebuilt.push(transformed.unwrap_or_else(|| item.clone()));
+            }
+            (None, Some(transformed)) => {
+                let mut items_so_far = Vec::with_capacity(items.len());
+                items_so_far.extend_from_slice(&items[..index]);
+                items_so_far.push(transformed);
+                rebuilt = Some(items_so_far);
+            }
+            (None, None) => {}
+        }
+    }
+    rebuilt
+}
+
+/// `term` under `metadata`, as `with_metadata` places it.
+fn annotate(term: Term, metadata: Option<&TermMetadata>) -> Term {
+    match metadata {
+        Some(metadata) => term.with_metadata(metadata.clone()),
+        None => term,
+    }
+}
+
+/// Whether `annotate(term.unannotated().clone(), term.metadata())` is `term`: `term` has no
+/// annotation, or one layer whose metadata is not the default (`with_metadata` drops a default
+/// annotation and merges into an existing layer, so it never builds the other shapes).
+fn annotation_is_rebuilt_form(term: &Term) -> bool {
+    match term {
+        Term::Annotated {
+            term: inner,
+            metadata,
+        } => !matches!(**inner, Term::Annotated { .. }) && *metadata != TermMetadata::default(),
+        Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Variable { .. }
+        | Term::Sequence(_)
+        | Term::Apply { .. }
+        | Term::Token { .. } => true,
     }
 }
 
