@@ -86,7 +86,7 @@ pub struct Printer {
 /// ```toml algorithm-site
 /// id = "kore.printer.render"
 /// role = "part"
-/// sites = ["Printer::render"]
+/// sites = ["Printer::render_ops"]
 /// ```
 impl Printer {
     pub const fn new(options: PrintOptions) -> Self {
