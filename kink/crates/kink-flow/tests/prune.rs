@@ -1,5 +1,7 @@
 //! `kink-flow prune` (FB54-PRUNE): which programs of a corpus are redundant, read from the
-//! obligations `coverage`, `run --full` and `query --full` decide in process.
+//! obligations `coverage`, the kill search and the pattern walk decide in process; a cell of the
+//! kill and pattern matrices is asked only where a decision needs it, with the decisions `run
+//! --full` and `query --full` give (FB56, `--full`).
 //!
 //! The corpus is calc's language with three pairs of programs: `a1` and `a2` each add, so each is
 //! the other's only alternative on what addition discharges; `s1` and `s2` each subtract, and a
@@ -14,6 +16,7 @@ use kink_flow::{
     cli::{CommandFiles, EXIT_UNASKED, EXIT_YES, FlowCommand},
     dispatch,
     lock::LOCK_FILE,
+    prune::CorpusLists,
     results::CACHE_DIRECTORY,
     search::{REPORT_FILE, RunMode, RunOptions, run_with},
 };
@@ -99,24 +102,62 @@ pattern = "<k> I:Int </k> requires I >Int 2"
 
 /// A fresh corpus for one test, under the target's temporary directory.
 fn corpus(name: &str) -> PathBuf {
+    corpus_of(name, MANIFEST, PATTERNS)
+}
+
+/// A fresh corpus of `manifest` and `patterns` with the calc definition and mutations.
+fn corpus_of(name: &str, manifest: &str, patterns: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("kink-flow-prune-{}", std::process::id()))
         .join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     fs::copy(flow("calc").join("calc.k"), dir.join("calc.k")).unwrap();
-    fs::write(dir.join("FLOW.toml"), MANIFEST).unwrap();
+    fs::write(dir.join("FLOW.toml"), manifest).unwrap();
     fs::write(dir.join("MUTATIONS.toml"), MUTATIONS).unwrap();
-    fs::write(dir.join("PATTERNS.toml"), PATTERNS).unwrap();
+    fs::write(dir.join("PATTERNS.toml"), patterns).unwrap();
     dir
 }
 
 /// `kink-flow prune` through the library, with the files `files` gives.
 fn prune(dir: &Path, files: CommandFiles, options: &[&str]) -> (Value, u8) {
+    prune_with(dir, files, options, None)
+}
+
+/// [`prune`], with what a front end states of the corpus's own lists.
+fn prune_with(
+    dir: &Path,
+    files: CommandFiles,
+    options: &[&str],
+    lists: Option<CorpusLists>,
+) -> (Value, u8) {
     let options = options.iter().map(|o| (*o).to_owned()).collect::<Vec<_>>();
-    let command = FlowCommand::parse("prune", files, &options).unwrap();
+    let mut command = FlowCommand::parse("prune", files, &options).unwrap();
+    if let Some(lists) = lists {
+        command.set_corpus_lists(lists);
+    }
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     dispatch(manifest, command, FrontEnd::default()).unwrap()
+}
+
+/// What a prune document decides, without its evidence: each case redundant alone with whether
+/// the removable set removes it and what kept it there, the removable set, and each kept case
+/// with its reasons. A lazy report and a `--full` one decide the same.
+fn decisions(document: &Value) -> Value {
+    json!({
+        "redundant": document["redundant"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no report: {document:#}"))
+            .iter()
+            .map(|entry| json!({
+                "case": entry["case"],
+                "removable": entry["removable"],
+                "kept_for": entry["kept_for"],
+            }))
+            .collect::<Vec<_>>(),
+        "removable": document["removable"]["cases"],
+        "kept": document["kept"],
+    })
 }
 
 fn every_file(dir: &Path) -> CommandFiles {
@@ -158,12 +199,56 @@ fn family<'d>(document: &'d Value, name: &str) -> &'d Value {
 /// by its claim, so `s2` is removable; `m1` and `m2` are kept by their unknown cells, though each
 /// is the other's alternative on everything else. The command exits 0, writes no lock and stores
 /// no run report.
+///
+/// Lazily (no `--full`, on a fresh cache), the decisions are the full report's, and it asks
+/// fewer cells: each killer and hitter the searches found is judged alone by a second-killer
+/// (second-hitter) search, and the walk asks again only where the known second one is removed.
 #[test]
 fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     let dir = corpus("report");
-    let (document, status) = prune(&dir, every_file(&dir), &[]);
+    let (lazy, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    assert_eq!(lazy["mode"], "lazy");
+    let (document, status) = prune(&dir, every_file(&dir), &["--full"]);
     assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(document["mode"], "full");
+    assert_eq!(decisions(&lazy), decisions(&document));
+    // The full matrix is 4 mutations of 6 comparable cases. The lazy report held the 9 cells of
+    // the first-kill search and asked 6 more, all live: the second killer of each of the three
+    // killers (a2, s2, m2), and, once the walk removed a2, the 3 kept cases' cells of
+    // add-becomes-sub that show a1 is its only killer left. Of the 12 pattern cells it held 4
+    // and asked 5.
+    let cells = &lazy["accounting"]["cells"];
+    assert_eq!(
+        cells["mutations"],
+        json!({"matrix": 24, "searched": 9, "asked": 6, "from_cache": 0}),
+        "{cells:#}"
+    );
+    assert_eq!(
+        cells["patterns"],
+        json!({"matrix": 12, "searched": 4, "asked": 5, "from_cache": 0}),
+        "{cells:#}"
+    );
+    assert_eq!(family(&lazy, "mutations")["complete"], false);
+    assert_eq!(lazy["unanswered"]["complete"], false);
+    assert!(
+        lazy["limits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|limit| limit["limit"] == "lazy")
+    );
+    // The full report holds every cell, the 15 the lazy one asked from the outcome cache.
+    let full_cells = &document["accounting"]["cells"]["mutations"];
+    assert_eq!(full_cells["searched"], 24, "{full_cells:#}");
+    assert_eq!(full_cells["asked"], 0, "{full_cells:#}");
+    assert_eq!(
+        document["accounting"]["mutations"]["outcome_cache"]["programs_from_cache"],
+        15
+    );
+    assert_eq!(document["unanswered"]["complete"], true);
     assert_eq!(document["schema"], "kink-flow-prune");
+    assert_eq!(document["version"], 2);
     assert_eq!(document["cases"], 6);
     let redundant = document["redundant"]
         .as_array()
@@ -181,12 +266,12 @@ fn the_report_keeps_claims_unknowns_and_one_of_two_alternatives() {
     let obligations = a2["obligations"].as_array().unwrap();
     assert!(
         obligations.contains(&json!({"family": "mutations", "id": "add-becomes-sub",
-                                     "others": ["a1"]})),
+                                     "others": ["a1"], "complete": true})),
         "{a2:#}"
     );
     assert!(
         obligations.contains(&json!({"family": "patterns", "id": "above-two",
-                                     "others": ["a1", "s1", "m1", "m2"]})),
+                                     "others": ["a1", "s1", "m1", "m2"], "complete": true})),
         "{a2:#}"
     );
     // The mutual alternative: once a2 is removed, a1 is the only killer of add-becomes-sub.
@@ -269,6 +354,15 @@ fn a_removable_recorded_killer_is_flagged() {
     );
     assert_eq!(entry(&document["redundant"], "s2")["lock"], Value::Null);
     assert_eq!(document["lock"]["sections"], json!(["run"]));
+    // The lazy search tried the recorded killer a2 first; the full report decides the same.
+    let (full, status) = prune(
+        &dir,
+        every_file(&dir),
+        &["--full", "--lock", lock.to_str().unwrap()],
+    );
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(decisions(&full), decisions(&document));
+    assert_eq!(full["removable"]["lock"], document["removable"]["lock"]);
     assert_eq!(fs::read(&lock).unwrap(), before);
     assert_eq!(fs::read(&report).unwrap(), stored);
 }
@@ -295,6 +389,12 @@ fn a_missing_family_is_skipped() {
     assert_eq!(patterns["reason"], "no-patterns");
     assert!(entry(&document["redundant"], "s1")["obligations"].is_array());
     assert_eq!(ids(&document["removable"]["cases"]), ["a2", "s2"]);
+    let files = || CommandFiles {
+        mutations: Some(dir.join("MUTATIONS.toml")),
+        ..CommandFiles::default()
+    };
+    let (full, _) = prune(&dir, files(), &["--full"]);
+    assert_eq!(decisions(&full), decisions(&document));
 
     let (document, status) = prune(&dir, CommandFiles::default(), &[]);
     assert_eq!(status, EXIT_YES, "{document:#}");
@@ -304,6 +404,142 @@ fn a_missing_family_is_skipped() {
     assert_eq!(document["unanswered"]["cells"], 0);
     assert_eq!(ids(&document["removable"]["cases"]), ["a2", "s2", "m2"]);
     assert_eq!(document["kept"], json!([]));
+    let (full, _) = prune(&dir, CommandFiles::default(), &["--full"]);
+    assert_eq!(decisions(&full), decisions(&document));
+}
+
+/// A second killer the walk had removed is searched past: `a3` adds too and a pattern claims it.
+/// Judging `a1` (the first-kill search's killer of `add-becomes-sub`) alone finds `a2`, the next
+/// adding program; the walk removes `a2` (`a1` still kills), and at `a1` the one known killer
+/// kept is `a1` itself, so the walk asks on and finds `a3`, which it never asked before: `a1` is
+/// removable. The full report decides the same.
+#[test]
+fn the_walk_searches_past_a_removed_second_killer() {
+    const MANIFEST3: &str = r#"[spec]
+entry = "calc.k"
+main_module = "CALC"
+syntax_module = "CALC-SYNTAX"
+
+[[program]]
+id = "a1"
+text = "1 + 2"
+
+[[program]]
+id = "a2"
+text = "3 + 4"
+
+[[program]]
+id = "a3"
+text = "2 + 2"
+
+[[program]]
+id = "s1"
+text = "5 - 1"
+
+[[program]]
+id = "s2"
+text = "4 - 2"
+
+[[program]]
+id = "m1"
+text = "2 * 3"
+
+[[program]]
+id = "m2"
+text = "4 * 5"
+"#;
+    let patterns = format!(
+        "{PATTERNS}\n[[pattern]]\nid = \"two-plus-two\"\npattern = \"<k> 4 </k>\"\n\
+         programs = [\"a3\"]\n"
+    );
+    let dir = corpus_of("removed-second", MANIFEST3, &patterns);
+    let (lazy, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{lazy:#}");
+    assert_eq!(
+        ids(&lazy["removable"]["cases"]),
+        ["a1", "a2", "s2"],
+        "{lazy:#}"
+    );
+    let a1 = entry(&lazy["redundant"], "a1");
+    assert_eq!(a1["removable"], true);
+    assert!(
+        a1["obligations"].as_array().unwrap().contains(&json!({
+            "family": "mutations", "id": "add-becomes-sub", "others": ["a2", "a3"],
+            "complete": false
+        })),
+        "{a1:#}"
+    );
+    let (full, status) = prune(&dir, every_file(&dir), &["--full"]);
+    assert_eq!(status, EXIT_YES, "{full:#}");
+    assert_eq!(decisions(&lazy), decisions(&full));
+    let lazy_cells = &lazy["accounting"]["cells"]["mutations"];
+    assert_eq!(lazy_cells["matrix"], 28, "{lazy_cells:#}");
+    assert!(
+        lazy_cells["searched"].as_u64().unwrap() + lazy_cells["asked"].as_u64().unwrap() < 28,
+        "{lazy_cells:#}"
+    );
+}
+
+/// A second lazy report asks the same cells as the first, each from the outcome cache: no
+/// mutant runs and no record is written.
+#[test]
+fn a_second_lazy_report_runs_no_mutant() {
+    let dir = corpus("again");
+    let (first, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{first:#}");
+    let (second, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{second:#}");
+    assert_eq!(decisions(&first), decisions(&second));
+    let cells = &second["accounting"]["cells"]["mutations"];
+    assert_eq!(
+        cells["asked"],
+        first["accounting"]["cells"]["mutations"]["asked"]
+    );
+    assert_eq!(cells["from_cache"], cells["asked"], "{cells:#}");
+    assert_eq!(
+        second["accounting"]["mutations"]["outcome_cache"]["records_written"], 0,
+        "{:#}",
+        second["accounting"]
+    );
+}
+
+/// Each list-reading family names its list and whether it is the corpus's own: unknown (null)
+/// for kink-flow's own command line, which has no corpus layout, and as a front end states it
+/// otherwise; `--output text` notes a list that is not the corpus's own.
+#[test]
+fn the_report_names_its_lists_and_whether_they_are_the_corpus_own() {
+    let dir = corpus("lists");
+    let (document, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let mutations = family(&document, "mutations");
+    assert_eq!(
+        mutations["list"],
+        json!({"path": dir.join("MUTATIONS.toml").display().to_string(), "corpus_own": null})
+    );
+    assert_eq!(
+        family(&document, "patterns")["list"]["corpus_own"],
+        Value::Null
+    );
+    assert!(family(&document, "rules").get("list").is_none());
+
+    let lists = CorpusLists {
+        mutations: false,
+        patterns: true,
+    };
+    let (document, status) = prune_with(&dir, every_file(&dir), &[], Some(lists));
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    assert_eq!(family(&document, "mutations")["list"]["corpus_own"], false);
+    assert_eq!(family(&document, "patterns")["list"]["corpus_own"], true);
+    let text = kink_flow::prune::text_rendering(&document).unwrap();
+    assert!(
+        text.contains(&format!(
+            "note: the mutations family read `{}`, not the corpus's own list: the report holds \
+             for that list, not for the corpus\n",
+            dir.join("MUTATIONS.toml").display()
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("note: the patterns family"), "{text}");
 }
 
 /// The command line: the verb's operands, its text rendering and its exit statuses (0 for a
@@ -344,6 +580,18 @@ fn the_command_line_prints_the_report_and_refuses_bad_input() {
         "{text}"
     );
     assert!(text.contains("unanswered cells: 2;"), "{text}");
+    assert!(
+        text.contains(
+            "cells (lazy, as each decision needs them; --full asks every one): mutations 9 held \
+             by the search and 6 asked after it, of 24; patterns 4 held by the search and 5 \
+             asked after it, of 12\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("  a2: mutations add-becomes-sub (also a1, of the cases asked); "),
+        "{text}"
+    );
 
     fs::write(dir.join("BAD.toml"), "[[mutation]]\nid = 3\n").unwrap();
     let output = Command::new(binary)

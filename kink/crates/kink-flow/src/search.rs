@@ -528,6 +528,10 @@ struct Search<'a, 's> {
     mismatches: Vec<Value>,
     /// Which programs each mutation runs on ([`RunOptions::schedule`]).
     schedule: ScheduleMode,
+    /// The one candidate O holds while a cell of the kill matrix is asked alone
+    /// ([`KillCells::cell`]); `None` for the search, whose O is every candidate. It changes only
+    /// which programs O holds, never the floor of the bound of polls, which is the corpus's.
+    within: Option<usize>,
     /// The baseline's claim support, for each row's `removed_claims` (the runner builds every
     /// mutant with the same function, re-pin R0c-fix-2).
     support: ClaimSupport,
@@ -536,6 +540,27 @@ struct Search<'a, 's> {
 }
 
 impl Search<'_, '_> {
+    /// The run document's `outcome_cache`: the tier-1 store's context, whether it is used and
+    /// why not (`reason`, the store's refusal where there is no store), and what it served and
+    /// stored so far.
+    fn outcome_cache(&self, reason: Option<&str>) -> Value {
+        let verify = self.mode == RunMode::Verify;
+        json!({
+            "context_sha256": self.tier1.as_ref().map(OutcomeStore::context_sha256),
+            "enabled": self.tier1.is_some() && !verify,
+            "verify": verify,
+            "reason": if verify {
+                Some("run --verify decides nothing from the outcome cache: it re-proves every \
+                      valid record and writes none")
+            } else {
+                reason
+            },
+            "mutations_from_cache": self.stats.mutations_from_cache,
+            "programs_from_cache": self.stats.programs_from_cache,
+            "records_written": self.stats.records_written,
+        })
+    }
+
     /// The bound of polls of every mutant's run of `candidate` (FB45-KINK, `[budget]
     /// work_factor`): `max(work_factor × P, P_max)`, `P` its baseline's polls, `P_max` the
     /// corpus's largest ([`Self::floor`]); the bound the campaign call computes from the live
@@ -1028,12 +1053,16 @@ impl Search<'_, '_> {
     }
 
     /// The programs O of a mutation (README 5.6 step 2), as candidate indices, before its mutant
-    /// compiles: every candidate in corpus order (the candidates are built in manifest order). A
+    /// compiles: every candidate in corpus order (the candidates are built in manifest order), or
+    /// the one candidate a cell is asked of ([`Search::within`], [`KillCells::cell`]). A
     /// first-kill call then runs first the programs whose coverage witnesses the mutant's
     /// compiled edit ([`Search::call_untimed`]); what is decided before any compile (tier 1, the
     /// compiles ahead) depends only on the set of programs, not on their order.
     fn program_order(&self) -> Vec<usize> {
-        (0..self.candidates.len()).collect()
+        match self.within {
+            Some(candidate) => vec![candidate],
+            None => (0..self.candidates.len()).collect(),
+        }
     }
 
     /// The search order C of `order` for a compiled edit: the programs whose coverage witnesses
@@ -2779,6 +2808,35 @@ pub(crate) fn run_stored(
     front: &FrontEnd<'_>,
     store_report: bool,
 ) -> (Value, bool) {
+    run_session(
+        manifest,
+        list,
+        options,
+        mode,
+        front,
+        store_report,
+        None,
+        None,
+    )
+}
+
+/// [`run_stored`], with `recorded`, when given, as each mutation's recorded killer in place of
+/// the lock's (`options.lock` is then still the one settled, if any), and with `then`, when
+/// given, called once the document is final, before it is returned, with the document, whether
+/// the run found no corpus or infrastructure error, and the command's search, still open, to ask
+/// further cells of its kill matrix through ([`KillCells`]). `then` is not called when the
+/// specification is refused (no search was made).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_session(
+    manifest: &FlowManifest,
+    list: &MutationList,
+    options: &RunOptions,
+    mode: RunMode,
+    front: &FrontEnd<'_>,
+    store_report: bool,
+    recorded: Option<BTreeMap<String, String>>,
+    then: Option<&mut RunThen<'_>>,
+) -> (Value, bool) {
     let annotated = |mut document: Value| {
         if let Some(annotate) = front.annotate {
             annotate(&mut document);
@@ -2953,30 +3011,16 @@ pub(crate) fn run_stored(
         candidates,
         mode,
         tier1,
-        recorded: lock.as_ref().map(Lock::killers).unwrap_or_default(),
+        recorded: recorded.unwrap_or_else(|| lock.as_ref().map(Lock::killers).unwrap_or_default()),
         store: Store::new(&cache),
         stats: Stats::default(),
         mismatches: Vec::new(),
         schedule: options.schedule,
+        within: None,
         support: ClaimSupport::new(spec.validator.baseline()),
         spelling: front.spelling,
     };
-    let outcome_cache = |search: &Search<'_, '_>| {
-        json!({
-            "context_sha256": search.tier1.as_ref().map(OutcomeStore::context_sha256),
-            "enabled": search.tier1.is_some() && !verify,
-            "verify": verify,
-            "reason": if verify {
-                Some("run --verify decides nothing from the outcome cache: it re-proves every \
-                      valid record and writes none".to_owned())
-            } else {
-                tier1_reason.clone()
-            },
-            "mutations_from_cache": search.stats.mutations_from_cache,
-            "programs_from_cache": search.stats.programs_from_cache,
-            "records_written": search.stats.records_written,
-        })
-    };
+    let outcome_cache = |search: &Search<'_, '_>| search.outcome_cache(tier1_reason.as_deref());
     search.mismatches.extend(census_mismatch);
     // Every mutation of the list is resolved first (resolution only loads), so that the report
     // lists, from its first write on, the rules no resolving mutation of the list targets
@@ -3266,7 +3310,154 @@ pub(crate) fn run_stored(
     {
         ok = false;
     }
+    if let Some(then) = then {
+        let mut session = Session {
+            search: &mut search,
+            list,
+            resolutions: &resolutions,
+            live: BTreeMap::new(),
+            workers,
+            ahead: None,
+            tier1_reason: tier1_reason.as_deref(),
+        };
+        then(&document, ok, &mut session);
+    }
     (document, ok)
+}
+
+/// One cell of the kill matrix (`run --full`'s, [`crate::report::kill_cells`]): a mutation on
+/// one comparable program.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum KillCell {
+    /// A proved difference: the program is a killing program of the full row.
+    Kill,
+    /// A decided non-discharge: the executed entry agrees or names a difference the fold does
+    /// not count as a kill.
+    Agree,
+    /// Neither: the executed entry is neither `agree` nor `distinguish`, or the call executed no
+    /// test of the program.
+    Unknown,
+}
+
+/// What [`run_session`] calls once the run's document is final: the document, whether the run
+/// found no corpus or infrastructure error, and the open search.
+pub(crate) type RunThen<'f> = dyn FnMut(&Value, bool, &mut dyn KillCells) + 'f;
+
+/// The cells of a run's kill matrix asked one at a time, after its search, through the
+/// command's own search ([`run_session`]).
+pub(crate) trait KillCells {
+    /// The cell of the list's mutation at `mutation` on the program `program`, and whether a
+    /// valid tier-1 record served it (`true`) or a live call ran it. The cell is the full row
+    /// of the mutation over an O that holds `program` alone ([`Search::within`]): the code
+    /// `run --full` asks each of its cells with (module docs), the same tier-1 store, outcome
+    /// context, floor of polls, records and memos, so it is the cell `run --full` gives, the
+    /// record of a live one is written as `run --full` writes it, and a later ask is served
+    /// from it. A program that is no candidate (not comparable) has no cell of the matrix and
+    /// is read as [`KillCell::Agree`], as the full matrix reads it, with no call.
+    ///
+    /// # Errors
+    ///
+    /// The row of the corpus error the ask met (a baseline that drifted, an outcome that
+    /// conflicts, a record that could not be written), which would stop a run.
+    fn cell(&mut self, mutation: usize, program: &str) -> Result<(KillCell, bool), Value>;
+
+    /// The run document's `outcome_cache` as it stands, every cell asked so far counted.
+    fn outcome_cache(&self) -> Value;
+
+    /// The run document's `baseline_runs` as they stand, every cell asked so far counted.
+    fn baseline_runs(&self) -> Value;
+}
+
+/// The open search of a command [`run_session`] hands its continuation.
+struct Session<'x, 'a, 's> {
+    search: &'x mut Search<'a, 's>,
+    list: &'x MutationList,
+    resolutions: &'x [Resolution],
+    /// The live resolution of each mutation whose row the search built from the memo's facts,
+    /// resolved when one of its cells is first asked.
+    live: BTreeMap<usize, Result<ResolvedMutation, InvalidMutation>>,
+    /// The command's compile workers.
+    workers: usize,
+    /// The mutant of the mutation whose cells are being asked, compiled ahead where the command
+    /// has more than one worker, so that its one-program calls compile it once: it only saves
+    /// time ([`RunOptions::compile_workers`]).
+    ahead: Option<(usize, kink_native::AheadChunk<'a>)>,
+    tier1_reason: Option<&'x str>,
+}
+
+impl KillCells for Session<'_, '_, '_> {
+    fn cell(&mut self, mutation: usize, program: &str) -> Result<(KillCell, bool), Value> {
+        let Some(candidate) = self.search.position(program) else {
+            return Ok((KillCell::Agree, false));
+        };
+        let entry = &self.list.mutations[mutation];
+        let (manifest, spec) = (self.search.manifest, self.search.spec);
+        let resolution = match &self.resolutions[mutation] {
+            Resolution::Live(resolution) => resolution,
+            Resolution::Memo(_) => self
+                .live
+                .entry(mutation)
+                .or_insert_with(|| resolve(manifest, &spec.loaded, entry)),
+        };
+        if self.workers > 1
+            && self.ahead.as_ref().map(|(at, _)| *at) != Some(mutation)
+            && let Ok(resolved) = resolution
+        {
+            let identity = mutation_identity(&spec.loaded.baseline, &resolved.patch);
+            let (records, _) = self
+                .search
+                .valid_records(identity, &[candidate], &mut Map::new());
+            if records.is_empty() {
+                // Dropping the last mutation's mutant first.
+                self.ahead = None;
+                let baseline = spec.validator.baseline();
+                let patches =
+                    kink_campaign::mutant_compiles(baseline, &self.search.support, &resolved.patch);
+                let uses = self.search.candidates.len();
+                let patches = patches
+                    .iter()
+                    .flat_map(|patch| std::iter::repeat_n(patch.clone(), uses))
+                    .collect::<Vec<_>>();
+                self.ahead = Some((
+                    mutation,
+                    spec.validator.compile_ahead(&patches, self.workers),
+                ));
+            }
+        }
+        let (schedule, within) = (self.search.schedule, self.search.within);
+        self.search.schedule = ScheduleMode::Full;
+        self.search.within = Some(candidate);
+        let (row, corpus_error) = self.search.search_one(entry, resolution);
+        self.search.schedule = schedule;
+        self.search.within = within;
+        if corpus_error || row.get("cache_error").is_some() {
+            return Err(row);
+        }
+        let entry = row["executed"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry["program"] == program);
+        let cached = entry.is_some_and(|entry| entry["cached"] == true);
+        let killed = row["status"] == "killed"
+            && row["killed_by"]
+                .as_array()
+                .is_some_and(|killers| killers.iter().any(|killer| killer == program));
+        let cell = match entry.map(|entry| &entry["outcome"]) {
+            _ if killed => KillCell::Kill,
+            Some(outcome) if outcome == "agree" || outcome == "distinguish" => KillCell::Agree,
+            _ => KillCell::Unknown,
+        };
+        Ok((cell, cached))
+    }
+
+    fn outcome_cache(&self) -> Value {
+        self.search.outcome_cache(self.tier1_reason)
+    }
+
+    fn baseline_runs(&self) -> Value {
+        self.search.runner.baseline_runs()
+    }
 }
 
 /// What [`search_derived`] decided: one row per mutation it searched, in the order given, each
@@ -3349,6 +3540,7 @@ pub(crate) fn search_derived(
         stats: Stats::default(),
         mismatches: Vec::new(),
         schedule: ScheduleMode::FirstKill,
+        within: None,
         support: ClaimSupport::new(spec.validator.baseline()),
         spelling,
     };

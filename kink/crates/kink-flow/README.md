@@ -22,7 +22,7 @@ the definition exclusions read at admission, each named with its causes by one f
 the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below),
 the corpus record, a `kink.lock` with one section per command that `run --lock`, `coverage --lock` and `compare --lock` read and rewrite, each its own: `[run]`, one recorded killer per killed mutation, kept while it still kills, `[coverage]`, the same for the condition flips with each family's open and argued obligations, and `[compare]`, one verdict per implementation, program and view ("The corpus record" below),
 the comparison of other implementations of a corpus's system with the definition, over its programs, inputs and `[stop]`, under declared views, with `compare` (FB-47; "Comparing implementations" below),
-the report of which programs are redundant, from the mutations `run --full` kills, the patterns `query --full` hits and the items `coverage` covers, with `prune` (FB54-PRUNE; "Redundant programs" below),
+the report of which programs are redundant, from the mutations the corpus kills, the patterns it hits and the items `coverage` covers, each cell of the kill and pattern matrices asked only where a decision needs it (`--full`: `run --full` and `query --full`, with the same decisions), with `prune` (FB54-PRUNE, FB56; "Redundant programs" below),
 and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
@@ -2510,7 +2510,7 @@ Exit status ("Exit status"): 0 when every asked (pattern, program) got its answe
 3 when an answer is `unknown`, an `expect` is inconclusive, or under `--locked` the only differences rest on runs the clock stopped;
 2 when an answer is `invalid-pattern` or `error`, the manifest, the pattern list, the lock, the specification or a program is refused, a record or the lock could not be written, or on a usage error (an `--only` id that names no pattern, an option given twice, `--locked` without `--lock`).
 
-## Redundant programs: `kink-flow prune FLOW.toml MUTATIONS [PATTERNS.toml] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output json|text]`
+## Redundant programs: `kink-flow prune FLOW.toml MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output json|text]`
 
 `prune` reports which programs of the corpus are redundant.
 It writes no lock and edits no file; it reads and fills the caches as `coverage`, `run` and `query` do, and stores no run report, so `report` and `fuzz --kill` keep reading the last `run`'s.
@@ -2522,8 +2522,8 @@ A corpus discharges existential obligations, each of the shape "some program doe
 
 | Family | An obligation | Its dischargers | Its unknown cells |
 | --- | --- | --- | --- |
-| `mutations` | each mutation a program can kill (`killed`, `survived`, `timeout`, `unknown`) | `killed_by` of `run --full`: every program whose cell is a proved difference | the programs whose executed entry is neither `agree` nor `distinguish` (the kill matrix's `undecided`) |
-| `patterns` | each pattern, with or without `programs` ("The obligation and its witness") | `hitters` of `query --full` | `unanswered`: neither a hit nor a final `no` |
+| `mutations` | each mutation a program can kill (`killed`, `survived`, `timeout`, `unknown`) | every program whose cell of the kill matrix is a proved difference (`killed_by` of `run --full`) | the programs whose executed entry is neither `agree` nor `distinguish` (the kill matrix's `undecided`) |
+| `patterns` | each pattern, with or without `programs` ("The obligation and its witness") | every program whose answer is a hit (`hitters` of `query --full`) | `unanswered`: neither a hit nor a final `no` |
 | `rules`, `requirements`, `syntax`, `rule_windows`, `syntax_paths` | each item the family counts | when covered, the programs its covering list names (`fired_by`, `covered_by`, `reached_by`) | a requirement's `undecided_by`; a unique-cause requirement's `truncated_by`; a field value's binder's `truncated_by` |
 | `flips` | each flip kink's verdict makes one (`distinguished`, `undistinguished`, `unreached`, `unknown`) | its `killer` | its `causes` and `timed_out` programs |
 | `arguments` | each argued item whose invariant evidence `holds` | the programs whose run read a step of the item's rules (`stepped_by`) | none |
@@ -2532,8 +2532,13 @@ An unknown cell never discharges.
 An obligation no program of any corpus can discharge (an `equivalent`, `unkillable`, `not-admitted` or `invalid-mutation` mutation, a refused or equivalent flip, an out-of-scope rule) is none.
 A flip's kill search stops at its first killer, so its killer is its only decided discharger.
 
-The report is computed, never read from a stored document, since a stored document can be stale: `prune` runs `coverage` (tier 2, the flips where the front end derives them, each flip's killer read from `--lock`'s `[coverage]` section), `run --full` and `query --full` in process, through their own code and caches, so the report is a function of the definition, the corpus and the counted budgets, as their verdicts are.
+The report is computed, never read from a stored document, since a stored document can be stale: `prune` runs `coverage` (tier 2, the flips where the front end derives them, each flip's killer read from `--lock`'s `[coverage]` section), then `run`'s first-kill search of the mutation list and `query`'s walk of each pattern to its first hit, and asks each further cell of their rows only where a decision needs it ("Lazy cells" below); with `--full` it runs `run --full` and `query --full` instead.
+Each runs in process, through its own command's code and caches, so the report is a function of the definition, the corpus and the counted budgets, as their verdicts are; the document's `mode` is `lazy` or `full`.
 A family whose input is absent is skipped, and `families` says so (`run: false`, `reason`): `no-mutation-list` where a front end's layout has none, `no-patterns` where no pattern list is named and the manifest declares none, `not-computed` for a coverage family the document does not compute (a depth-dependent family at depth 1, the flips without a front end that derives them).
+
+Each `families` entry of `mutations` and `patterns` names the list it read (`list`: `{path, corpus_own}`, `path` null for the patterns the manifest declares or a family with no list).
+The report holds for the lists it read: with a mutation list other than the corpus's own, a program removable here may be the only killer of a mutation the corpus's own list has.
+Only a front end with a corpus layout knows its corpus's own lists, so `corpus_own` is `true` or `false` under `krs kink prune` (a list `--mutations` or `--patterns` names is the corpus's own only when it is the layout's file), and null under kink-flow's own command line, which takes the mutation list as an operand; `--output text` prints a `note:` line for each list that is not the corpus's own.
 
 ### What is never prunable
 
@@ -2552,7 +2557,7 @@ A program is redundant alone when no rule above keeps it against the whole corpu
 Two programs can each be the other's only alternative, so being redundant alone is not being removable together.
 The report gives both:
 
-- `redundant`: each program redundant alone (`{case, class, obligations, unknown, removable, kept_for, lock}`), with each obligation it discharges and the other dischargers (`obligations`, `{family, id, others}`), each obligation on which its cell is unknown with its dischargers (`unknown`), whether the removable set removes it, and, where it does not, what kept it when the walk reached it (`kept_for`);
+- `redundant`: each program redundant alone (`{case, class, obligations, unknown, unasked, removable, kept_for, lock}`), with each obligation it is known to discharge and the other known dischargers (`obligations`, `{family, id, others, complete}`), each obligation on which its cell is known to be unknown with its known dischargers (`unknown`, `{family, id, dischargers, complete}`), how many obligations its own cell was not asked on (`unasked`), whether the removable set removes it, and, where it does not, what kept it when the walk reached it (`kept_for`); `complete` is whether every cell of the obligation's row was asked, so that `others` (`dischargers`) is every one;
 - `removable`: one set removable together (`{order, cases, lock}`), built by walking the programs in reverse manifest order (`order` `reverse-manifest`) and removing each program the rules above, read against the programs still kept, keep nowhere;
 - `kept`: each program that is not redundant alone (`{case, class, reasons}`), each reason `{reason, family, id}` with `reason` one of `claimed` (the family `patterns`), `refutes` (the claim's family, `expectations` with the program's own id for its own expectation), `sole-discharger` and `unknown`, or `{reason: "baseline-undecided", class, obligations}`.
 
@@ -2562,9 +2567,28 @@ The order is reverse manifest order because a command that names one discharger 
 Removing the latest programs first keeps those, so the corpus record's rows move least.
 The set is a function of the corpus and of this order, maximal under the order (no kept program can then be removed), not minimum: a smallest removable set is a set cover problem, which `prune` does not attempt.
 
+### Lazy cells
+
+The rules above read three things of an obligation's row: whether a decided discharger other than the program judged is among the programs considered (the whole corpus for redundant alone, the programs still kept during the walk), the program's own cell, and, for a claim a cell refutes, every refuting program.
+None needs every cell, so without `--full` the `mutations` and `patterns` rows are asked lazily, with every decision (`redundant`, `removable`, `kept` with its reasons) the one `--full` gives:
+
+- The ordinary searches run first: a killed mutation's first-kill search gives one decided killer and the cells it asked before it, and a hit pattern's walk one hitter and the pairs it asked.
+  Every other row (survived, unknown, open, undecided, or no obligation) is one the search asked of every program it can ask, so it is complete, as under `--full`.
+- While some known discharger other than the judged program is among those considered, no other cell of the row can change the decision: the judged program is then not the only discharger, and the unknown and baseline-undecided rules apply only to an obligation with no other decided discharger there.
+- When none is, the row's cells over the programs considered that were not asked are asked one at a time (a mutation's in its search order, the programs that witness its edit first; a pattern's in manifest order) until one is a decided discharger or none is left, then the judged program's own.
+  So judging a killer alone asks for a second killer, and the walk asks again only where it removed the known one.
+  Each cell is asked through the code its full command asks it with: a mutation's full row over the one program, under the corpus's floor of polls, served by the outcome cache when its record is current; a pattern's one row, served by the pattern cache likewise.
+  `--lock`'s records only order the searches (each recorded killer and witness first); none is read as a cell.
+- A mutation that expects to survive and is killed, and a pattern that expects `no` and is hit, keep every refuting program: their rows are asked whole.
+- A program that is not redundant alone is kept by the walk with nothing asked: a rule only weakens as the programs considered shrink.
+
+The evidence then holds the cells asked: `others` and `unknown` are the known ones, `unasked` counts the obligations a program's own cell was not asked on, and each family's and `unanswered`'s `complete` say whether every cell was asked; `limits` adds `lazy`.
+A distinguished flip's row is never complete in either mode, since its kill search stops at its first killer.
+`accounting.cells` gives each family's matrix size (`matrix`: the list's mutations by the comparable programs, the patterns by the programs), the cells the ordinary search held (`searched`), and those asked one at a time after it (`asked`, of which `from_cache` a cache served).
+
 ### The corpus record
 
-`--lock FILE` names the corpus record, which `prune` reads and never writes.
+`--lock FILE` names the corpus record, which `prune` reads and never writes; its `[run]` killers and `[query]` witnesses also order the lazy searches.
 A removable program that the record names as a killer (`[run]`, a `[coverage]` flip), a witness (`[query]`) or the program of a compare row (`[compare]`) moves those rows when it is removed: `--locked` fails once, until a command without it records them again.
 Each `redundant` entry's `lock` and each `removable.lock` entry name those rows by section (`{run, coverage, query, compare}`, null where none); the document's `lock` names the file and the sections it holds.
 
@@ -2576,15 +2600,16 @@ Never 1: the report refutes nothing.
 
 ### Cost
 
-A full run asks every mutant of every comparable program, which is the cost of `prune`: `run --full`'s cost model ("Cost model"), plus a `coverage` and a `query --full` (every pattern of every program, no explanation).
-A full run reuses every cell an earlier run cached, whatever its schedule, since an outcome record does not name the schedule: after a first-kill run, a survived or unknown mutation, which the search asked of every comparable program, is decided wholly from the outcome cache with no call and no compile, and its resolution facts from the memo; a killed mutation makes one live call, which compiles its mutant again and runs the programs the first-kill search left unasked after its killer.
-On the six-program, four-mutation corpus of `tests/prune.rs`, a first-kill run writes 9 outcome records; a `prune` after it reads those 9 and writes 15, the cells after each of the three killers, and one mutation needs no call.
-A `prune` after that reads all 24 cells and runs no mutant.
-`accounting` gives what each family read and wrote (`mutations.outcome_cache`, `patterns`, the baseline runs); it is how the facts were obtained, not part of the report.
-
+`prune` costs a `coverage`, a first-kill `run` and a `query` (no explanation), plus the cells its decisions ask after them.
+Each killed mutation asks at least one more cell, its second killer, and a mutation with one killer asks its whole row to show it; a cell a later decision needs (the walk removed the known second killer) is asked then.
+Each cell asked live is one call over one program, which compiles the mutant unless more than one compile worker keeps it compiled ahead for the mutation's next cell; a cell whose outcome record is current is read with no call.
+`--full` costs `run --full`'s cost model ("Cost model") and a `query --full` (every pattern of every program).
+Either mode reuses every cell an earlier command cached, whatever its schedule, since an outcome record does not name the schedule, and a later lazy `prune` asks the same cells in the same order, so it runs no mutant once they are cached.
+On the six-program, four-mutation corpus of `tests/prune.rs` with a fresh cache, the lazy `prune` holds the first-kill search's 9 cells and asks 6 more (the second killer of each of the three killers, and the 3 kept programs' cells that show the one killer left once the walk removed the other), 15 of the 24, and of the 12 pattern cells 9; a `prune --full` after it reads those 15 and writes the other 9.
+`accounting` gives what each family read and wrote (`mutations.outcome_cache`, `patterns`, the baseline runs, `cells`); it is how the facts were obtained, not part of the report.
 ### Limits
 
-`limits` lists what the report does not read: `[[implementation]]` compare evidence and a case's own expectation, which are universal per program, not existential (an unmet expectation still keeps its program, and removing a program drops its `[compare]` rows); a fuzz template list, whose templates may name a program (`program`); and that a flip's killer is its only decided discharger and the removable set is maximal, not minimum.
+`limits` lists what the report does not read: `[[implementation]]` compare evidence and a case's own expectation, which are universal per program, not existential (an unmet expectation still keeps its program, and removing a program drops its `[compare]` rows); a fuzz template list, whose templates may name a program (`program`); and that a flip's killer is its only decided discharger and the removable set is maximal, not minimum; a lazy report adds `lazy`, that its evidence holds the cells asked.
 
 ## Killing a survivor with `fuzz`
 

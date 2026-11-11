@@ -44,9 +44,10 @@
 //! K corpus over the K its front end emitted.
 //!
 //! FB54-PRUNE adds the `prune` command ([`prune`]): which programs of the corpus are redundant,
-//! read from the obligations it discharges (the mutations `run --full` kills, the patterns
-//! `query --full` hits, the items `coverage` covers), each computed in process; it writes no lock
-//! and edits no file.
+//! read from the obligations it discharges (the mutations the kill matrix's cells kill, the
+//! patterns their answers hit, the items `coverage` covers), each computed in process; it writes
+//! no lock and edits no file. FB56 asks a cell of the kill and pattern matrices only where a
+//! decision needs it, with the decisions `run --full` and `query --full` give (`prune --full`).
 
 pub mod admit;
 pub mod check;

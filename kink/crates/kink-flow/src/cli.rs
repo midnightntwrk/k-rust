@@ -83,8 +83,8 @@ macro_rules! usage_line {
          <topic>.toml files; PATTERNS.toml replaces the patterns FLOW.toml declares \
          ([[patterns]]) | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
          [--locked]] [--cache DIR] [--output json|text|verdicts] | kink-flow prune FLOW.toml \
-         MUTATIONS [PATTERNS.toml] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] \
-         [--output json|text]; --help (or -h), anywhere, prints the loop, the mutation format \
+         MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] [--compile-workers N] [--progress] \
+         [--cache DIR] [--output json|text]; --help (or -h), anywhere, prints the loop, the mutation format \
          and the exit statuses"
     };
 }
@@ -611,8 +611,14 @@ const COMPARE_OPTIONS: &[VerbOption] = &[
 
 const PRUNE_OPTIONS: &[VerbOption] = &[
     option(
+        "--full",
+        "ask every cell of every mutation and pattern (run --full, query --full), where prune \
+         asks a cell only where a decision needs it; the decisions are the same",
+    ),
+    option(
         "--lock FILE",
-        "the corpus record, read (never written) for the rows each removal moves",
+        "the corpus record, read (never written) for the rows each removal moves and the order \
+         the searches ask in",
     ),
     option(
         "--compile-workers N",
@@ -764,8 +770,8 @@ impl Verb {
                  [--output json|text|verdicts]"
             }
             Self::Prune => {
-                "prune FLOW.toml MUTATIONS [PATTERNS.toml] [--lock FILE] [--compile-workers N] \
-                 [--progress] [--cache DIR] [--output json|text]"
+                "prune FLOW.toml MUTATIONS [PATTERNS.toml] [--full] [--lock FILE] \
+                 [--compile-workers N] [--progress] [--cache DIR] [--output json|text]"
             }
         }
     }
@@ -819,7 +825,9 @@ impl Verb {
                 "Which programs of the corpus are redundant: each obligation the corpus \
                  discharges (a mutation killed, a pattern hit, a coverage item covered, an \
                  argument's evidence read) has another decided discharger. Computed by coverage, \
-                 run --full and query --full in process, never from a stored document; lists \
+                 the kill search and the pattern walk in process, each further cell asked only \
+                 where a decision needs it (--full: run --full and query --full), never from a \
+                 stored document; lists \
                  each program redundant alone with the other dischargers, one set removable \
                  together (built in reverse manifest order), and why each other program is kept \
                  (claimed by a pattern, the only discharger, an unknown cell with no other \
@@ -1278,6 +1286,15 @@ impl FlowCommand {
                 options.legacy_lock = Some(path);
             }
             _ => {}
+        }
+    }
+
+    /// State, for a `prune`, whether each list it reads is its corpus's own (a front end's layout
+    /// knowledge, [`crate::prune::PruneOptions::corpus_lists`]), which its document names. Another
+    /// verb is left as it is.
+    pub fn set_corpus_lists(&mut self, lists: crate::prune::CorpusLists) {
+        if let Self::Prune { options, .. } = self {
+            options.corpus_lists = Some(lists);
         }
     }
 
@@ -2263,6 +2280,7 @@ fn prune_options(
                 );
             }
             "--progress" if !progress => progress = true,
+            "--full" if !options.full => options.full = true,
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));

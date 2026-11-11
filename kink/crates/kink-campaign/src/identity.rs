@@ -642,8 +642,9 @@ pub const OUTSIDE_IDENTITY: [Outside; 48] = [
         krate: "kink-flow",
         constant: "PRUNE_VERSION",
         reason: "the prune document's format (prune.rs): no command reads a prune document back; \
-                 it is computed from the coverage, run and query documents after every status \
-                 is decided, and decides none",
+                 it is computed from the coverage, run and query documents and the cells it asks \
+                 through run's and query's own code after every status is decided, and decides \
+                 none",
     },
     Outside {
         krate: "kink-flow",

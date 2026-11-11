@@ -523,8 +523,15 @@ pub(crate) fn query_with(
         },
     };
     let recorded = lock.as_ref().map(Lock::witnesses).unwrap_or_default();
-    let (mut document, mut ok) =
-        query_unnamed(manifest, list, options, &recorded, adjust, partial_cap);
+    let (mut document, mut ok) = query_unnamed(
+        manifest,
+        list,
+        options,
+        &recorded,
+        adjust,
+        partial_cap,
+        None,
+    );
     if let Some(lock) = &lock {
         document["lock"] = if document["spec"]["outcome"] == "admitted" {
             let store = Store::new(cache_directory(manifest, options.cache.as_deref()));
@@ -562,6 +569,140 @@ pub fn named(manifest: &FlowManifest, mut document: Value) -> Value {
     document
 }
 
+/// One (pattern, program) cell of the patterns' matrix (`query --full`'s, [`hit_cells`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HitCell {
+    /// The answer is a hit.
+    Hit,
+    /// A final `no`.
+    No,
+    /// Neither (`unanswered`).
+    Unknown,
+}
+
+/// What [`query_session`] calls once the query's document is built: the document, whether the
+/// query found no error, and the open searcher.
+pub(crate) type QueryThen<'f> = dyn FnMut(&Value, bool, &mut dyn HitCells) + 'f;
+
+/// The cells of a query's patterns asked one at a time, after its walk, through the command's
+/// own searcher ([`query_session`]).
+pub(crate) trait HitCells {
+    /// The cell of the selected pattern at `pattern` (its place among the selected patterns) on
+    /// the manifest's program at `program`, and whether the pattern cache served it: the row a
+    /// query asks the pair with (claims and walk alike: one [`ask`] under the command's route,
+    /// keys and judge), so it is the answer `query --full` gives the pair, and a live answer
+    /// is stored as any query stores it. A pair asked before (by the walk or an earlier ask) is
+    /// answered from that row. A pattern that did not lower answers `invalid-pattern`, an
+    /// unknown, with no search.
+    ///
+    /// # Errors
+    ///
+    /// The row of an answer that found an error (its `error`), which a query reports as a corpus
+    /// or infrastructure error.
+    fn cell(&mut self, pattern: usize, program: usize) -> Result<(HitCell, bool), Value>;
+
+    /// The query document's `pattern_cache` as it stands, every pair asked so far counted.
+    fn pattern_cache(&self) -> Value;
+}
+
+/// The answer of a row, as a cell ([`HitCell`]).
+fn hit_cell(row: &Value) -> HitCell {
+    match row["answer"].as_str() {
+        Some("hit") => HitCell::Hit,
+        Some("no") => HitCell::No,
+        _ => HitCell::Unknown,
+    }
+}
+
+/// The open searcher of a query [`query_session`] hands its continuation.
+struct Session<'x, 'c, 'i> {
+    context: &'x Context<'c>,
+    inputs: &'x mut crate::admit::InputSession<'i>,
+    spec: &'x crate::admit::AdmittedSpec,
+    searcher: &'x mut Searcher,
+    /// Each selected pattern's id, its lowering and its route.
+    lowered: &'x [(String, Result<Lowered, String>, Route)],
+    /// Every (pattern, program) answered, by the walk or an ask, with its row.
+    answered: BTreeMap<(usize, usize), Value>,
+    mismatches: Vec<Value>,
+    accounting: &'x mut Value,
+    /// The pattern cache's refusal, for [`HitCells::pattern_cache`].
+    refusal: Option<&'x str>,
+}
+
+impl HitCells for Session<'_, '_, '_> {
+    fn cell(&mut self, pattern: usize, program: usize) -> Result<(HitCell, bool), Value> {
+        if let Some(row) = self.answered.get(&(pattern, program)) {
+            return Ok((hit_cell(row), row["cached"] == true));
+        }
+        let (id, lowered, route) = &self.lowered[pattern];
+        let Ok(lowered) = lowered else {
+            return Ok((HitCell::Unknown, false));
+        };
+        let mut row = Map::new();
+        row.insert("pattern".into(), json!(id));
+        row.insert(
+            "program".into(),
+            json!(self.context.manifest.programs[program].id),
+        );
+        row.insert("claimed".into(), json!(false));
+        row.insert("route".into(), json!(route.name()));
+        let (row, ok) = ask(
+            self.context,
+            self.inputs,
+            self.spec,
+            self.searcher,
+            program,
+            id,
+            lowered.asked(),
+            row,
+            false,
+            &mut self.mismatches,
+            self.accounting,
+        );
+        if !ok {
+            return Err(row);
+        }
+        let cell = (hit_cell(&row), row["cached"] == true);
+        self.answered.insert((pattern, program), row);
+        Ok(cell)
+    }
+
+    fn pattern_cache(&self) -> Value {
+        json!({
+            "enabled": self.refusal.is_none(),
+            "reason": self.refusal,
+            "verify": self.context.verify,
+            "from_cache": self.accounting["from_cache"],
+            "records_written": self.accounting["records_written"],
+        })
+    }
+}
+
+/// [`query_spelled`] without a lock, for a command that asks the patterns for facts of its own
+/// (`prune`, [`crate::prune`]): `recorded` is each pattern's recorded witness, asked first; and
+/// `then`, called once the document is built (not when the specification or the list is
+/// refused), with the document, whether the query found no error, and the command's searcher,
+/// still open, to ask further pairs through ([`HitCells`]).
+pub(crate) fn query_session(
+    manifest: &FlowManifest,
+    list: &PatternList,
+    options: &QueryOptions,
+    recorded: &BTreeMap<String, String>,
+    then: &mut QueryThen<'_>,
+) -> (Value, bool) {
+    let (document, ok) = query_unnamed(
+        manifest,
+        list,
+        options,
+        recorded,
+        &|_| {},
+        kink_campaign::CHAIN_PARTIAL_CAP,
+        Some(then),
+    );
+    (named(manifest, document), ok)
+}
+
 fn query_unnamed(
     manifest: &FlowManifest,
     list: &PatternList,
@@ -569,6 +710,7 @@ fn query_unnamed(
     recorded: &BTreeMap<String, String>,
     adjust: &dyn Fn(&mut kink_native::exclusion::DefinitionExclusions),
     partial_cap: usize,
+    then: Option<&mut QueryThen<'_>>,
 ) -> (Value, bool) {
     if let Err(error) = list.check_programs(manifest) {
         return (pattern_list_refused(&error), false);
@@ -632,6 +774,9 @@ fn query_unnamed(
     let cells = lowering.cell_table();
     let mut explained = BTreeMap::new();
     let mut explain_accounting = json!({"asked": 0, "from_cache": 0, "records_written": 0});
+    // Each selected pattern's lowering and route, and each pair's row, for `then`.
+    let mut kept = Vec::new();
+    let mut answered_pairs = BTreeMap::new();
     let context = Context {
         manifest,
         update: &update,
@@ -797,6 +942,12 @@ fn query_unnamed(
             }
         }
         obligations.push(obligation);
+        if then.is_some() {
+            for (index, row) in answered {
+                answered_pairs.insert((kept.len(), index), row);
+            }
+            kept.push((entry.id.clone(), lowered, route));
+        }
     }
     ok &= mismatches.is_empty();
     let pattern_cache = json!({
@@ -830,6 +981,20 @@ fn query_unnamed(
         "from_cache": explain_accounting["from_cache"],
         "records_written": explain_accounting["records_written"],
     });
+    if let Some(then) = then {
+        let mut session = Session {
+            context: &context,
+            inputs: &mut inputs,
+            spec: &spec,
+            searcher: &mut searcher,
+            lowered: &kept,
+            answered: answered_pairs,
+            mismatches: Vec::new(),
+            accounting: &mut accounting,
+            refusal: refusal.as_deref(),
+        };
+        then(&document, ok, &mut session);
+    }
     (document, ok)
 }
 
