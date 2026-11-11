@@ -103,8 +103,7 @@ pub(crate) fn add_cool_like_attributes_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            let sentence = crate::definition::sentence_mut(sentence);
-            let body = match sentence {
+            let body = match &**sentence {
                 Sentence::Rule { body, .. }
                 | Sentence::Context { body, .. }
                 | Sentence::ContextAlias { body, .. } => body,
@@ -118,8 +117,10 @@ pub(crate) fn add_cool_like_attributes_pass(
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => continue,
             };
+            // The pass writes only the marker, so a sentence it does not mark stays the shared
+            // allocation; only a marked one is copied.
             if contains_cool_like(project_left(body), &productions) {
-                match sentence {
+                match crate::definition::sentence_mut(sentence) {
                     Sentence::Rule { attributes, .. }
                     | Sentence::Context { attributes, .. }
                     | Sentence::ContextAlias { attributes, .. } => {
