@@ -4042,3 +4042,110 @@ fn a_rewrite_of_a_cell_s_whole_content_is_its_before_and_after() {
     assert!(success, "{stdout}\n{stderr}");
     expect_test::expect!["<generatedTop> <k> .K </k> <acc> 5 </acc> <frame> <pc> 5 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
+
+/// CELLS2 item 1: a `cells!` result's record-level `..` stands for the cells the record does not
+/// name, which a `cells!` result leaves as they are with or without it, so the rule or claim with
+/// the `..` is the one without it, whatever the subject's rest: `..`, `state @ ..`, or none
+/// (every cell named). `..` ends the record, as the subject's does.
+#[test]
+fn a_cells_results_own_rest_is_the_result_without_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = |name: &str, source: &str| {
+        let manifest = library_package(temporary.path(), &format!("result-rest-{name}"), source);
+        emitted_sentence(target.path(), &manifest, "make")
+    };
+    let written =
+        "acc: k::configuration::Cell(x), frame: k::fragment![crate::Frame { pc: x, gas: 0 }]";
+    let mut lines = Vec::new();
+    for claim in [false, true] {
+        for (name, subject, result) in [
+            (
+                "anonymous",
+                "acc: k::configuration::Cell(a), ..",
+                "acc: k::configuration::Cell(x)",
+            ),
+            (
+                "named",
+                "acc: k::configuration::Cell(a), state @ ..",
+                "acc: k::configuration::Cell(x)",
+            ),
+            (
+                "exact",
+                "acc: k::configuration::Cell(a), frame: _",
+                "acc: k::configuration::Cell(x)",
+            ),
+            (
+                "exact-written",
+                "acc: k::configuration::Cell(a), frame: _",
+                written,
+            ),
+        ] {
+            let name = format!("{name}-{}", if claim { "claim" } else { "rule" });
+            let [without, with, comma] = [
+                ("without", result.to_owned()),
+                ("with", format!("{result}, ..")),
+                ("comma", format!("{result}, ..,")),
+            ]
+            .map(|(kind, result)| {
+                emitted(
+                    &format!("{name}-{kind}"),
+                    &whole_cells(claim, "", subject, &result),
+                )
+            });
+            assert_eq!(with, without, "{name}");
+            assert_eq!(comma, without, "{name}");
+            lines.push(format!("{name}: {with}"));
+        }
+    }
+    expect_test::expect![[r#"
+        [
+            "anonymous-rule: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc>",
+            "named-rule: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc>",
+            "exact-rule: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> _",
+            "exact-written-rule: rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> (_:FrameCell => <frame> <pc> X:Int </pc> <gas> 0 </gas> </frame>)",
+            "anonymous-claim: claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> [one-path]",
+            "named-claim: claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> [one-path]",
+            "exact-claim: claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> _ [one-path]",
+            "exact-written-claim: claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> (_:FrameCell => <frame> <pc> X:Int </pc> <gas> 0 </gas> </frame>) [one-path]",
+        ]
+    "#]]
+    .assert_debug_eq(&lines);
+    let refused = [
+        (
+            "not-last",
+            whole_cells(
+                false,
+                "",
+                "acc: k::configuration::Cell(a), ..",
+                "..,acc: k::configuration::Cell(x)",
+            ),
+        ),
+        (
+            "twice",
+            whole_cells(
+                true,
+                "",
+                "acc: k::configuration::Cell(a), ..",
+                "acc: k::configuration::Cell(x), .., ..",
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("result-rest-{name}"), &source);
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "not-last",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: the configuration remainder must be last @ 56:55",
+            ),
+            (
+                "twice",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: the configuration remainder must be last @ 56:87",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&refused);
+}

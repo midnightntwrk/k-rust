@@ -2247,7 +2247,19 @@ fn parse_unkeyed_cells(
             let mut carried = None;
             while !input.is_empty() {
                 if starts_remainder(input) {
-                    remainder = parse_remainder(input, context, "cells")?;
+                    // A result's anonymous `..` stands for the cells the record does not name,
+                    // which a `cells!` result leaves as they are whether it writes the `..` or
+                    // not: it is read as its absence. `..name` puts back a subject's named rest.
+                    remainder =
+                        if context == StateMacroContext::Expression && input.peek(Token![..]) && {
+                            let fork = input.fork();
+                            fork.parse::<Token![..]>().is_ok() && !fork.peek(Ident)
+                        } {
+                            input.parse::<Token![..]>().map_err(SyntaxError::from)?;
+                            StateMacroRemainder::Exact
+                        } else {
+                            parse_remainder(input, context, "cells")?
+                        };
                     if !input.is_empty() {
                         return Err(state_error(
                             "cells",

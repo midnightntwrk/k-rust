@@ -670,6 +670,33 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
     ));
 }
 
+/// A result's anonymous `..` leaves the cells it does not name as they are, as its absence does:
+/// it is read as no remainder, and it ends the record.
+#[test]
+fn a_results_anonymous_rest_is_no_remainder() {
+    for source in ["k: KCell(.K), ..", "k: KCell(.K), ..,"] {
+        let expression = krs_syntax::parse_cells_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            matches!(expression.remainder(), StateMacroRemainder::Exact),
+            "{source}"
+        );
+    }
+    let error = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source("k: KCell(.K), .., env: Cell(E)").unwrap(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        &SyntaxErrorKind::InvalidStateMacro {
+            macro_name: "cells",
+            reason: "the configuration remainder must be last",
+        }
+    );
+}
+
 #[test]
 fn typed_variables_and_recursive_initializers_are_complete_and_ordered() {
     let initializer = krs_syntax::InitializerFunction::parse_source(
