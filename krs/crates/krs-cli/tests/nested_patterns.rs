@@ -3587,7 +3587,7 @@ impl Machine {
 /// The rows of [`a_list_collection_s_brackets_are_judged_as_a_map_collection_s_braces`]: a
 /// subject entry and a result suffix, `«`/`»` standing for the collection's delimiters, and
 /// whether the row is also asked beside another cell's fault, and in a claim.
-const COLLECTION_TWIN_ROWS: [(&str, &str, bool, bool); 9] = [
+const COLLECTION_TWIN_ROWS: [(&str, &str, bool, bool); 11] = [
     (
         "job: «Job { info: Info { mark: None, .. }, .. }, ..»",
         "",
@@ -3627,6 +3627,13 @@ const COLLECTION_TWIN_ROWS: [(&str, &str, bool, bool); 9] = [
         false,
         false,
     ),
+    (
+        "job: «me @ Job { tk: [y, ..], n: x, .. }, ..»",
+        ", job: «Job { tk: [x, ..], ..me }, ..»",
+        false,
+        true,
+    ),
+    ("job: «Job { tk: [y, ..], .. }, ..»", "", false, true),
 ];
 
 /// The readable rule `go` (or, with `claim`, the claim `c`) over [`COLLECTION_TWINS`] whose
@@ -3672,8 +3679,10 @@ fn collection_twin(
 /// it selects. A List collection's bracketed record is judged as the same record in a Map
 /// collection's braces: the same line, at the same place, for a rule and a claim, alone and
 /// beside another cell's fault, or both admitted. A presence in an instance child's group record
-/// is the entry's (P5, P6), a `k::k![..]` child is judged by the child's sort, and a clause with
-/// another fault gets that fault first. On a list leaf the same brackets are a list's elements,
+/// is the entry's (P5, P6), a `k::k![..]` child is judged by the child's sort, a computation
+/// child's brackets are its items, each a `KItem` (`tk: [y, ..]` binds `Y:KItem`), whose result
+/// `..` keeps the subject's rest, and a clause with another fault gets that fault first; an
+/// admitted pair emits the same instance. On a list leaf the same brackets are a list's elements,
 /// terms: a record element's presence is the group record child's limit, and a `k::k![..]` in it
 /// the term reader's refusal.
 #[test]
@@ -3707,10 +3716,19 @@ fn a_list_collection_s_brackets_are_judged_as_a_map_collection_s_braces() {
             let bracketed = twin(("List", "[", "]"));
             let braced = twin(("Map", "{", "}"));
             if braced.starts_with("passed") {
-                assert!(
-                    bracketed.starts_with("passed"),
-                    "{form} {subject}{result}: {bracketed}"
+                // A List and a Map collection lay their instances out alike; each instance is
+                // the same cells.
+                let instance = |line: &str| {
+                    line.split_once("<job>")
+                        .and_then(|(_, rest)| rest.split_once("</job>"))
+                        .map(|(instance, _)| instance.to_owned())
+                };
+                assert_eq!(
+                    instance(&bracketed),
+                    instance(&braced),
+                    "{form} {subject}{result}: {bracketed} | {braced}"
                 );
+                assert!(instance(&bracketed).is_some(), "{bracketed}");
             } else {
                 assert_eq!(bracketed, braced, "{form} {subject}{result}");
             }
@@ -3759,6 +3777,10 @@ fn a_list_collection_s_brackets_are_judged_as_a_map_collection_s_braces() {
             "rule job: [me @ Job { .. }, ..], job: [Job { tk: k::k![Go()], ..me }, ..]: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `tk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it @ 66:85",
             "rule job: [me @ Job { .. }, ..], job: [Job { n: k::k![1], ..me }, ..]: error[krs::analysis::invalid-term]: the cell `n` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's @ 66:84",
             "rule job: [me @ Job { .. }, ..], job: [Job { n: 1, ..me }, ..]: passed: rule [go]: <k> go => .K ... </k> <jobs> <job> <n> _ => 1 </n> ... </job> ... </jobs>",
+            "rule job: [me @ Job { tk: [y, ..], n: x, .. }, ..], job: [Job { tk: [x, ..], ..me }, ..]: passed: rule [go]: <k> go => .K ... </k> <jobs> <job> <tk> Y:KItem ~> Tail0:K => X:Int ~> Tail0:K </tk> <n> X:Int </n> ... </job> ... </jobs>",
+            "claim job: [me @ Job { tk: [y, ..], n: x, .. }, ..], job: [Job { tk: [x, ..], ..me }, ..]: passed: claim [c]: <k> go => .K </k> <jobs> <job> <tk> Y:KItem ~> Tail0:K => X:Int ~> Tail0:K </tk> <n> X:Int </n> ... </job> ... </jobs>",
+            "rule job: [Job { tk: [y, ..], .. }, ..]: passed: rule [go]: <k> go => .K ... </k> <jobs> <job> <tk> Y:KItem ~> Tail0:K </tk> ... </job> ... </jobs>",
+            "claim job: [Job { tk: [y, ..], .. }, ..]: passed: claim [c]: <k> go => .K </k> <jobs> <job> <tk> Y:KItem ~> Tail0:K </tk> ... </job> ... </jobs>",
             "leaf stack: [Info { mark: None, .. }, ..]: error[krs::analysis::collection-entry]: the record's field `mark` holds `None`, a `?` cell's absence, and no term: KRS has no `Option` term; in a group record it is the `?` child's entry, which a group record does not name yet, as an instance record does not name a `?` or `*` child yet @ 66:47",
             "leaf stack: [Info { level: 1, .. }, ..], stack: [Info { mark: None, level: 1 }, ..]: error[krs::analysis::collection-entry]: the record's field `mark` holds `None`, a `?` cell's absence, and no term: KRS has no `Option` term; in a group record it is the `?` child's entry, which a group record does not name yet, as an instance record does not name a `?` or `*` child yet @ 66:98",
             "leaf stack: [Info { level: k::k![1], .. }, ..]: error[krs::syntax::unsupported-term-expression]: unsupported term expression: macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands @ 66:48",
