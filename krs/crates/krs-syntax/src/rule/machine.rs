@@ -2061,9 +2061,9 @@ impl BracketReadings {
     }
 }
 
-/// The term reader's refusal of the first item of the bracketed value `group`, read in `reading`
-/// as a computation's item or a list's element is (a term), where every item but its rest is an
-/// instance record; `None` where it reads them all.
+/// The term reader's refusal of the first item of the bracketed value `group` that is no rest,
+/// each read in `reading` as a term, as a computation's item and a list's element are; `None`
+/// where it reads them all.
 fn items_refusal(
     group: &proc_macro2::Group,
     reading: StateMacroContext,
