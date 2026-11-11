@@ -176,17 +176,7 @@ fn read_children_brackets(
         .collect::<Vec<_>>();
     let mut changed = false;
     for (field, child) in fields.iter_mut().zip(children) {
-        let computation = matches!(
-            child.content,
-            ProtocolCellContent::Leaf {
-                wrapper: CellWrapper::KCell,
-                ..
-            }
-        );
-        if computation
-            && let State::Term(term) = &field.value
-            && let Some(sequence) = bracket_sequence(term)
-        {
+        if let Some(sequence) = computation_sequence(&field.value, child) {
             field.value = State::KSequence(sequence);
             changed = true;
         } else {
@@ -194,6 +184,26 @@ fn read_children_brackets(
         }
     }
     changed
+}
+
+/// The K sequence that the entry `value` of the record child `child` is, where the child is a
+/// computation cell and the macros read its brackets as list notation ([`bracket_sequence`]):
+/// brackets on a computation are its items. `None` for every other entry.
+pub(super) fn computation_sequence(
+    value: &State,
+    child: &DescriptorCellField,
+) -> Option<krs_ir::ProtocolRuleKSequence<DescriptorTerm>> {
+    let computation = matches!(
+        child.content,
+        ProtocolCellContent::Leaf {
+            wrapper: CellWrapper::KCell,
+            ..
+        }
+    );
+    match value {
+        State::Term(term) if computation => bracket_sequence(term),
+        _ => None,
+    }
 }
 
 /// The K sequence that the list notation `term` spells: its levels' heads are the items, and the

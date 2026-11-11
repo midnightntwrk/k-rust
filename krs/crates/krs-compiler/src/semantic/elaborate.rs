@@ -1175,6 +1175,7 @@ fn instances(
                     .or_else(|| twin_of.get(&at).copied());
                 let mut instance = instance.clone();
                 for field in &mut instance.fields {
+                    read_computation_child(field, children);
                     let ProtocolRuleStateTerm::KSequence(sequence) = &mut field.value else {
                         continue;
                     };
@@ -1342,6 +1343,23 @@ fn instance_tail(
 
 /// The sort of the instance child `field` when it is a list leaf, whose brackets hold its
 /// elements; `None` for the computation cell, whose brackets hold its items, and for a group.
+/// `field`, a child of an instance record of the struct whose children are `children`, with a
+/// computation child's brackets, which the macros read as list notation, read as its items: an
+/// instance's computation child is a computation, as the computation cell is
+/// ([`super::group_records::computation_sequence`]).
+fn read_computation_child(
+    field: &mut krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+    children: &[krs_ir::DescriptorCellField],
+) {
+    if let Some(sequence) = children
+        .iter()
+        .find(|child| child.rust_field == field.field)
+        .and_then(|child| super::group_records::computation_sequence(&field.value, child))
+    {
+        field.value = ProtocolRuleStateTerm::KSequence(sequence);
+    }
+}
+
 fn list_leaf_sort<'a>(
     children: &'a [krs_ir::DescriptorCellField],
     field: &str,

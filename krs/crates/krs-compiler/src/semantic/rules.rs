@@ -1233,7 +1233,8 @@ fn infer_head_rule(
 
 /// Gives an item binder of a record that nothing else constrains its default
 /// sort: it is any one item, a `KItem`. The items of a group record's computation
-/// child written in brackets are items alike.
+/// child written in brackets are items alike, and so are those of an instance's
+/// computation child ([`instance_computation_items`]).
 fn default_item_binders(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
@@ -1264,6 +1265,24 @@ fn default_item_binders(
                 })
         })
         .flat_map(|record| super::group_records::computation_items(&record))
+        .chain(rule.extras.iter().flat_map(|extra| {
+            let krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                before,
+                after,
+                ..
+            } = extra
+            else {
+                return Vec::new();
+            };
+            let Ok(field) = require_cell_field(&cell.cell, declarations) else {
+                return Vec::new();
+            };
+            std::iter::once(before)
+                .chain(after)
+                .flat_map(|state| instance_computation_items(state, field, declarations))
+                .collect()
+        }))
         .collect::<Vec<_>>();
     {
         for item in head
@@ -1285,6 +1304,68 @@ fn default_item_binders(
                     .insert(k_item.clone());
             }
         }
+    }
+}
+
+/// The items of the computation children that the instances of `state`, an entry of the
+/// collection `field`, write in brackets, in authored order. An instance's computation child is a
+/// computation, as the computation cell is, so each item is one item of it; brackets on a list
+/// child are that list's elements instead, which its leaf's sort types
+/// ([`infer_readable_state`]).
+fn instance_computation_items(
+    state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
+    field: &krs_ir::DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> Vec<DescriptorTerm> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    match state {
+        State::Present { value } => instance_computation_items(value, field, declarations),
+        State::Instances(instances) => {
+            let ProtocolCellContent::Nested { declaration } = &field.content else {
+                return Vec::new();
+            };
+            let Ok(group) = declarations.cell(&declaration.declaration) else {
+                return Vec::new();
+            };
+            instances
+                .front
+                .iter()
+                .chain(&instances.back)
+                .filter_map(|instance| {
+                    super::cell_states::named_children(&group.fields, &instance.fields).ok()
+                })
+                .flatten()
+                .flat_map(|(child, declared)| {
+                    let mut value = &child.value;
+                    while let State::Present { value: inner } = value {
+                        value = inner;
+                    }
+                    let computation = matches!(
+                        declared.content,
+                        ProtocolCellContent::Leaf {
+                            wrapper: krs_ir::CellWrapper::KCell,
+                            ..
+                        }
+                    );
+                    match (value, computation) {
+                        (State::KSequence(sequence), true) => sequence
+                            .items
+                            .iter()
+                            .map(|item| item.value.clone())
+                            .collect(),
+                        (State::Instances(_), _) => {
+                            instance_computation_items(value, declared, declarations)
+                        }
+                        _ => super::group_records::computation_sequence(value, declared)
+                            .map(|sequence| {
+                                sequence.items.into_iter().map(|item| item.value).collect()
+                            })
+                            .unwrap_or_default(),
+                    }
+                })
+                .collect()
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -1393,7 +1474,23 @@ fn infer_readable_state(
                 )?
                 .into_iter()
                 .try_for_each(|(child, declared)| {
-                    infer_readable_state(builder, declarations, declared, &child.value, subject)
+                    // Brackets the macros read as list notation are a computation child's items.
+                    match super::group_records::computation_sequence(&child.value, declared) {
+                        Some(sequence) => infer_readable_state(
+                            builder,
+                            declarations,
+                            declared,
+                            &krs_ir::ProtocolRuleStateTerm::KSequence(sequence),
+                            subject,
+                        ),
+                        None => infer_readable_state(
+                            builder,
+                            declarations,
+                            declared,
+                            &child.value,
+                            subject,
+                        ),
+                    }
                 })
             });
             builder.in_key = enclosing;
