@@ -857,3 +857,54 @@ log: { k: [Log(entry), ..], logs } => { k: [..], logs: [..logs, LogRecord::Entry
     "]]
     .assert_eq(&format(source, 60));
 }
+
+/// A prefix `!` before a parenthesized term is the not operator, not a
+/// macro's `!`: its operand breaks as any parenthesized term does, before
+/// `||` or `&&` and with no comma added, since `(e,)` would be a 1-tuple.
+/// The layout parses back and a second pass changes nothing.
+#[test]
+fn a_negated_parenthesized_term_breaks_as_its_operand() {
+    let source = "k::claims! { for Machine;
+#[k::claim(all_paths)]
+#[k::requires(!(bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb || cccccccccccccccccccccccccccccccccccccccccccc || dddddddddddddddddddddddddddddd))]
+contract_x: { pc: pc } => { pc: pc };
+}
+k::equations! { for Check;
+check: (first, second, third) => first.gt::<Int>(0) && !(second.lt::<Int>(third) || first + second == third - 1 || !third);
+wrap: (first, second) => Not(!(first.gt::<Int>(second) && second.gt::<Int>(first) && first.eq::<Int>(second)));
+}
+";
+    let output = format(source, 72);
+    expect_test::expect![[r"
+        k::claims! {
+            for Machine;
+            #[k::claim(all_paths)]
+            #[k::requires(
+                !(bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+                    || cccccccccccccccccccccccccccccccccccccccccccc
+                    || dddddddddddddddddddddddddddddd),
+            )]
+            contract_x: {
+                pc: pc,
+            } => {
+                pc: pc,
+            };
+        }
+        k::equations! {
+            for Check;
+            check: (first, second, third)
+                   => first.gt::<Int>(0)
+                       && !(second.lt::<Int>(third)
+                           || first + second == third - 1
+                           || !third);
+            wrap:  (first, second)
+                   => Not(
+                       !(first.gt::<Int>(second)
+                           && second.gt::<Int>(first)
+                           && first.eq::<Int>(second)),
+                   );
+        }
+    "]]
+    .assert_eq(&output);
+    assert_eq!(format(&output, 72), output);
+}

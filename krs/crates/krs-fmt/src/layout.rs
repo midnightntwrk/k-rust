@@ -474,14 +474,18 @@ fn atoms(
         let (start, end) = (offset + range.start, offset + range.end);
         match &tokens[index] {
             TokenTree::Group(group) => {
-                // A macro's arguments break only at their commas.
-                let inner = if output.last().is_some_and(|atom| atom.is("!")) {
-                    Context::Macro
-                } else {
-                    context
-                };
+                // A macro's arguments break only at their commas. A `!` is a
+                // macro's only after its name, `path!(..)`; a `!` that starts
+                // an operand is the prefix not, and the group after it is
+                // that operand: a parenthesized term, whose one item takes no
+                // comma, since `(e,)` is a 1-tuple, not `e`.
+                let invocation = matches!(
+                    output.as_slice(),
+                    [.., name, bang] if bang.is("!") && matches!(name.kind, AtomKind::Word)
+                );
+                let inner = if invocation { Context::Macro } else { context };
                 let shape = match output.last() {
-                    Some(atom) if atom.is("!") => Shape::Macro,
+                    _ if invocation => Shape::Macro,
                     Some(atom) if matches!(atom.kind, AtomKind::Word | AtomKind::Group(_)) => {
                         Shape::Arguments
                     }
@@ -707,7 +711,7 @@ enum Shape {
     Free,
     /// A call's or constructor's arguments, a record's fields, or an index.
     Arguments,
-    /// A macro's arguments, after `!`.
+    /// A macro's arguments, after its path's `!`.
     Macro,
     /// Always one item per line, as a cell record is.
     Broken,
