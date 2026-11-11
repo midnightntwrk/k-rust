@@ -193,3 +193,73 @@ fn an_entry_with_no_effect_is_a_warning_check_and_build_report_and_still_succeed
     assert_eq!(warnings(&stderr, directory), reported, "{stderr}");
     assert!(output.exists());
 }
+
+/// CELLS4: a subject record without `..` is the whole state and names every cell, so each of
+/// its entries is what names its cell: without `frame: _` the record leaves `frame` out and is
+/// refused. The entry has that effect, so neither it nor `pc: Cell(_)` owes the lint, in a rule,
+/// a claim and a context alike; the same entries in an open record still do.
+#[test]
+fn an_exact_subject_s_entries_name_their_cells_and_owe_no_lint() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let exact = "k: k::configuration::KCell(crate::Cmd::Tick(), tail @ ..),\n        pc: k::configuration::Cell(_),\n        frame: _,\n        state @ ..";
+    let exact_subject = exact.replace(",\n        state @ ..", "");
+    let sentences = [
+        (
+            "rule",
+            DEFINITION.replace(exact, &exact_subject).replace(
+                "k::cells! { k: k::configuration::KCell(..tail), ..state }",
+                "k::cells! { k: k::configuration::KCell(..tail) }",
+            ),
+        ),
+        (
+            "claim",
+            DEFINITION
+                .replace(exact, &exact_subject)
+                .replace(
+                    "#[k::rule(label = \"tick\")]\npub fn tick(",
+                    "#[k::claim(one_path, label = \"tick\")]\npub fn tick(",
+                )
+                .replace(
+                    "k::cells! { k: k::configuration::KCell(..tail), ..state }",
+                    "k::cells! { k: k::configuration::KCell(..tail) }",
+                ),
+        ),
+        (
+            "context",
+            DEFINITION
+                .replace(
+                    "    #[k::syntax(\"tock\")] Tock(),\n",
+                    "    #[k::syntax(\"tock\")] Tock(),\n    #[k::syntax(\"tack({x})\")] Tack { x: Int },\n",
+                )
+                .replace(
+                    &DEFINITION[DEFINITION.find("#[k::rule(label = \"tick\")]").unwrap()
+                        ..DEFINITION.find("#[k::rule(label = \"tock\")]").unwrap()],
+                    "#[k::context(hole = h)]\nfn tick(\n    h: Int,\n    k::cells! {\n        k: k::configuration::KCell(crate::Cmd::Tack { x: h }, ..),\n        pc: k::configuration::Cell(_),\n        frame: _\n    }: crate::Machine,\n) {}\n\n",
+                ),
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (form, library) in &sentences {
+        let manifest = package(&temporary.path().join(form), "no-effect", library);
+        let (success, _, stderr) = krs(target.path(), &manifest, &["check"]);
+        assert!(success, "{form}: {stderr}");
+        lines.push(format!("{form}: {:?}", warnings(&stderr, manifest.parent().unwrap())));
+        // Without the entry, the record leaves `frame` out.
+        let dropped = library.replace(",\n        frame: _\n", "\n").replace("        frame: _\n    }", "    }");
+        let manifest = package(&temporary.path().join(format!("{form}-dropped")), "no-effect", &dropped);
+        let (success, _, stderr) = krs(target.path(), &manifest, &["check"]);
+        assert!(!success, "{form}: {dropped}");
+        lines.push(format!(
+            "{form} without `frame: _`: {}",
+            stderr.lines().find(|line| line.starts_with("error")).unwrap()
+        ));
+    }
+    expect_test::expect![[r#"
+        rule: []
+        rule without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained
+        claim: []
+        claim without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained
+        context: []
+        context without `frame: _`: error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained"#]].assert_eq(&lines.join("\n"));
+}

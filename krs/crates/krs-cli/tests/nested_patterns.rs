@@ -4101,14 +4101,13 @@ fn a_cells_result_naming_no_cell_leaves_every_cell_as_it_is() {
             assert_eq!(line(name, &subject, result), twin, "{form}-{name}");
         }
         lines.push(twin);
-        // An exact subject has no `..state` twin; its claim reads `frame` (`_`). (Its rule's
-        // first located line is the no-effect lint of `frame: _`.)
-        if claim {
-            lines.push(line("exact-empty", &format!("{k}, frame: _"), ""));
-        }
+        // An exact subject has no `..state` twin; its claim reads `frame` (`_`), and its rule
+        // changes no cell, as the twin's does (`frame: _` names the cell, so it owes no lint).
+        lines.push(line("exact-empty", &format!("{k}, frame: _"), ""));
     }
     expect_test::expect![[r#"
         [
+            "error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 54:5",
             "error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 54:5",
             "claim [make]: <k> make ( X:Int ) ... </k> <acc> A:Int </acc> [one-path]",
             "claim [make]: <k> make ( X:Int ) ... </k> <acc> A:Int </acc> _ [one-path]",

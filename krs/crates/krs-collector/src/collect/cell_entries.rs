@@ -1181,6 +1181,13 @@ fn readable_entries<'a>(
 
 /// Judges the entries of the sentence `id`, where the bundle holds it as a sentence with
 /// `cells!` entries, and gives the warnings of the lints its admitted entries owe.
+///
+/// A subject record without `..` is the whole state: it names every cell of its configuration,
+/// so each of its entries is what names its cell, and without the entry the record leaves the
+/// cell out and is refused (`record-missing-children`). Such an entry has an effect, the cell's
+/// naming, so it owes no [`Lint::NoEffectEntry`], whatever it matches. The record's choice to
+/// name every cell is the author's, and `_` is how it names one it does not constrain: a lint
+/// that advised the open record instead would answer every exact record that names such a cell.
 fn judge_entries(
     index: &DescriptorIndex<'_>,
     id: &StableItemId,
@@ -1189,10 +1196,10 @@ fn judge_entries(
     let Some(descriptor) = index.get(id) else {
         return Ok(Vec::new());
     };
-    let (reference, subject, result, rewrite, claim) = match descriptor.payload() {
+    let (reference, (subject, rest), result, rewrite, claim) = match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(rule) => (
             &rule.subject_configuration,
-            &rule.subject.cells,
+            (&rule.subject.cells, &rule.subject.remainder),
             rule.result.as_ref().map(|cells| cells.cells.as_slice()),
             match (&rule.result, rule.sentence_kind) {
                 (_, ConfigurationSentenceKind::Context) => Rewrite::Kept { as_rule: true },
@@ -1203,7 +1210,7 @@ fn judge_entries(
         ),
         DescriptorPayload::ContextAlias(alias) => (
             &alias.configuration,
-            &alias.pattern.cells,
+            (&alias.pattern.cells, &alias.pattern.remainder),
             None,
             Rewrite::Kept { as_rule: false },
             false,
@@ -1214,7 +1221,7 @@ fn judge_entries(
             };
             (
                 &context.configuration,
-                &context.cells.cells,
+                (&context.cells.cells, &context.cells.remainder),
                 None,
                 Rewrite::Kept { as_rule: false },
                 false,
@@ -1230,8 +1237,10 @@ fn judge_entries(
         claim,
         authored,
     )?;
+    let exact = matches!(rest, krs_ir::ProtocolRuleFrame::Exact);
     Ok(lints
         .into_iter()
+        .filter(|(_, _, lint)| !(exact && *lint == Lint::NoEffectEntry))
         .map(|(cell, range, lint)| linted(id, &cell, range, lint))
         .collect())
 }
