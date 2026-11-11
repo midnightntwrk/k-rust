@@ -8080,14 +8080,10 @@ k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
 <queue>
-(<job>
-<payload> _ </payload>
+<job>
+<payload> _ => V0:Int </payload>
 ...
-</job> => .Bag)
-(.Bag => <job>
-<payload> V0:Int </payload>
-...
-</job>)
+</job>
 ...
 </queue>
 
@@ -11829,14 +11825,10 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
 <queue>
-(<job>
-<payload> _ </payload>
+<job>
+<payload> _ => V0:Int </payload>
 ...
-</job> => .Bag)
-(.Bag => <job>
-<payload> V0:Int </payload>
-...
-</job>)
+</job>
 ...
 </queue>
 
@@ -13274,14 +13266,10 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
 <queue>
-(<job>
-<payload> _ </payload>
+<job>
+<payload> _ => V0:Int </payload>
 ...
-</job> => .Bag)
-(.Bag => <job>
-<payload> V0:Int </payload>
-...
-</job>)
+</job>
 ...
 </queue>
 
@@ -13946,14 +13934,10 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 <queue>
-(<job>
-<la> V1:Int </la>
+<job>
+<la> V1:Int => V0:Int </la>
 ...
-</job> => .Bag)
-(.Bag => <job>
-<la> V0:Int </la>
-...
-</job>)
+</job>
 ...
 </queue>
 
@@ -14815,14 +14799,10 @@ k = """
 claim [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 <queue>
-(<job>
-<la> V1:Int </la>
+<job>
+<la> V1:Int => V0:Int </la>
 ...
-</job> => .Bag)
-(.Bag => <job>
-<la> V0:Int </la>
-...
-</job>)
+</job>
 ...
 </queue>
 
@@ -16824,14 +16804,10 @@ k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 <queue>
-(<job>
-<la> V1:Int </la>
+<job>
+<la> V1:Int => V0:Int </la>
 ...
-</job> => .Bag)
-(.Bag => <job>
-<la> V0:Int </la>
-...
-</job>)
+</job>
 ...
 </queue>
 
