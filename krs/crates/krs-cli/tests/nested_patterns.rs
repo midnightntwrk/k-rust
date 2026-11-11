@@ -4855,3 +4855,86 @@ fn a_result_collection_inside_a_group_its_subject_names_is_named_twice() {
         ]
     "#]].assert_debug_eq(&refused);
 }
+
+/// CELLS3 item 4: a `k::rewrite!` written as a cell's whole entry whose sides are entries rather
+/// than contents is refused for what it writes. A side `None` would change whether the cell is
+/// present, which a rule states by its subject and its result. `Some(..)`, `Cell(..)` and
+/// `KCell(..)` name no content, so they stand outside the rewrite, around the content it
+/// changes, which a single-body rule admits (`Some(Cell(k::rewrite!(o => x)))`).
+#[test]
+fn a_rewrite_whose_side_is_an_entry_is_refused_for_what_it_writes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cell = "k::configuration::Cell";
+    let whole_k = format!(
+        "{SINGLE_BODY}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,\n    k::cells! {{ k: k::rewrite!(k::configuration::KCell(..) => k::configuration::KCell(1)), .. }}: Machine,\n) {{}}\n"
+    );
+    let refused = [
+        (
+            "presence",
+            single_body("", &format!("opt: k::rewrite!(None => Some({cell}(x)))")),
+        ),
+        (
+            "absence",
+            single_body(
+                "\n    o: Int,",
+                &format!("opt: k::rewrite!(Some({cell}(o)) => None)"),
+            ),
+        ),
+        (
+            "wrapper-in-presence",
+            single_body(
+                "\n    o: Int,",
+                &format!("opt: Some(k::rewrite!({cell}(o) => {cell}(x)))"),
+            ),
+        ),
+        (
+            "presence-on-both-sides",
+            single_body(
+                "\n    o: Int,",
+                &format!("opt: k::rewrite!(Some({cell}(o)) => Some({cell}(x)))"),
+            ),
+        ),
+        ("computation", whole_k),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("entry-rewrite-{name}"), &source);
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "presence",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` from `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `None` in its subject and `Some(Cell(..))` in its result @ 79:90",
+            ),
+            (
+                "absence",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` to `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `Some(Cell(..))` in its subject and `None` in its result @ 80:90",
+            ),
+            (
+                "wrapper-in-presence",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: `Cell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `Cell(..)` outside the rewrite, around the content it changes: `Cell(k::rewrite!(a => b))` @ 80:95",
+            ),
+            (
+                "presence-on-both-sides",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: `Some(..)` on a side of a `k::rewrite!` names no content: it says that a `?` cell is present, and a rewrite changes a content where it stands; write `Some(..)` outside the rewrite, around the content it changes: `Some(Cell(k::rewrite!(a => b)))` @ 80:90",
+            ),
+            (
+                "computation",
+                "error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: `KCell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `KCell(..)` outside the rewrite, around the content it changes: `KCell(k::rewrite!(a => b), ..)` @ 79:20",
+            ),
+        ]
+    "#]].assert_debug_eq(&refused);
+    let manifest = library_package(
+        temporary.path(),
+        "entry-rewrite-content",
+        &single_body(
+            "\n    o: Int,",
+            &format!("opt: Some({cell}(k::rewrite!(o => x)))"),
+        ),
+    );
+    expect_test::expect![[r#"
+        "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <opt> O:Int => X:Int </opt>"
+    "#]]
+    .assert_debug_eq(&emitted_sentence(target.path(), &manifest, "make"));
+}

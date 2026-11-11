@@ -1760,3 +1760,40 @@ fn an_initializers_k_rest_is_refused_by_its_form() {
         );
     }
 }
+
+/// A `k::rewrite!` written as a cell's whole entry whose sides are entries, not contents, is
+/// refused for what it writes: a side `None` is a presence change, which no rewrite in place
+/// states; `Some(..)`, `Cell(..)` and `KCell(..)` name no content and stand outside the rewrite.
+/// A whole group rewritten keeps the group entry's reason.
+#[test]
+fn a_rewrite_whose_side_is_an_entry_is_refused_for_what_it_writes() {
+    let presence = "a `k::rewrite!` from `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `None` in its subject and `Some(Cell(..))` in its result";
+    let absence = "a `k::rewrite!` to `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `Some(Cell(..))` in its subject and `None` in its result";
+    let some = "`Some(..)` on a side of a `k::rewrite!` names no content: it says that a `?` cell is present, and a rewrite changes a content where it stands; write `Some(..)` outside the rewrite, around the content it changes: `Some(Cell(k::rewrite!(a => b)))`";
+    let wrapped = "`Cell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `Cell(..)` outside the rewrite, around the content it changes: `Cell(k::rewrite!(a => b))`";
+    let computation = "`KCell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `KCell(..)` outside the rewrite, around the content it changes: `KCell(k::rewrite!(a => b), ..)`";
+    for (source, reason) in [
+        ("opt: k::rewrite!(None => Some(Cell(x))), ..", presence),
+        ("opt: k::rewrite!(Some(Cell(o)) => None), ..", absence),
+        ("opt: k::rewrite!(Some(Cell(o)) => Some(Cell(x))), ..", some),
+        ("opt: Some(k::rewrite!(Cell(o) => Cell(x))), ..", wrapped),
+        ("acc: k::rewrite!(Cell(a) => Cell(x)), ..", wrapped),
+        ("k: k::rewrite!(KCell(..) => KCell(1)), ..", computation),
+        (
+            "frame: k::rewrite!(f => k::fragment![Frame { pc: x, gas: 0 }]), ..",
+            "nested cell entries are a binder, `_`, or fragment!",
+        ),
+    ] {
+        let error =
+            krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+                .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            &SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason,
+            },
+            "{source}"
+        );
+    }
+}

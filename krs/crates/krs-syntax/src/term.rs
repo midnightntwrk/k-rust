@@ -3407,7 +3407,7 @@ pub(crate) fn local_rewrite_error(reason: String, span: Span) -> SyntaxError {
 }
 
 /// Splits `k::rewrite!` arguments at the top-level `=>`.
-fn split_rewrite_arguments(tokens: &TokenStream) -> Option<(TokenStream, TokenStream)> {
+pub(crate) fn split_rewrite_arguments(tokens: &TokenStream) -> Option<(TokenStream, TokenStream)> {
     let tokens = crate::parse::strip_trailing_comma(tokens.clone())
         .into_iter()
         .collect::<Vec<_>>();

@@ -3313,6 +3313,9 @@ fn parse_group_entry(
     {
         return Err(refusal);
     }
+    if let Some(refusal) = rewritten_entry(&tokens) {
+        return Err(refusal);
+    }
     let fragment = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment");
     if let Some(record) = fragment_record(&tokens, context)? {
         return Ok(StateTerm::Record(Box::new(record)));
@@ -3340,6 +3343,68 @@ fn parse_group_entry(
         TermTree::Cell(_) => Ok(StateTerm::Group(term)),
         _ => Err(invalid(span)),
     }
+}
+
+/// The refusal of a `k::rewrite!` written as a cell's whole entry, `cell: k::rewrite!(a => b)`,
+/// whose sides are spelled as entries rather than contents: `None` or `Some(..)`, a `?` cell's
+/// presence, or a wrapper `Cell(..)` or `KCell(..)`. A rewrite changes a content where it stands.
+/// A side `None` against a side that is not would change whether the cell is present, which no
+/// rewrite in place states: a rule states it by its subject and its result. `Some(..)` and a
+/// wrapper are no content: they say that the cell is present and which cell holds the content,
+/// so they stand outside the rewrite, around the content it changes (`Some(Cell(k::rewrite!(o =>
+/// x)))`). `None` for any other entry, read as a group's.
+fn rewritten_entry(tokens: &TokenStream) -> Option<SyntaxError> {
+    let ("rewrite", payload) = qualified_macro_payload(tokens)
+        .as_ref()
+        .map(|(name, payload)| (name.as_str(), payload.clone()))?
+    else {
+        return None;
+    };
+    let (from, to) = crate::term::split_rewrite_arguments(&payload)?;
+    let presence = |side: &TokenStream| {
+        PresenceTokens::spelled(&side.clone().into_iter().collect::<Vec<_>>())
+            .map(|(head, content)| (head.to_string(), content.is_some()))
+    };
+    let wrapper = |side: &TokenStream| {
+        let syn::Expr::Call(call) = syn::parse2::<syn::Expr>(side.clone()).ok()? else {
+            return None;
+        };
+        let syn::Expr::Path(path) = &*call.func else {
+            return None;
+        };
+        let last = plain_path_last(&path.path)?.ident.to_string();
+        matches!(last.as_str(), "Cell" | "KCell").then_some(last)
+    };
+    let absent = |side: &TokenStream| matches!(presence(side), Some((_, false)));
+    let reason = match (absent(&from), absent(&to)) {
+        (true, false) => {
+            "a `k::rewrite!` from `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `None` in its subject and `Some(Cell(..))` in its result"
+        }
+        (false, true) => {
+            "a `k::rewrite!` to `None` changes whether the cell is present, and a rewrite changes a content where it stands, never whether its cell is there: a rule states that change by its subject and its result, `Some(Cell(..))` in its subject and `None` in its result"
+        }
+        _ => match [&from, &to]
+            .into_iter()
+            .find_map(|side| {
+                presence(side)
+                    .filter(|(_, present)| *present)
+                    .map(|(head, _)| head)
+                    .or_else(|| wrapper(side))
+            })?
+            .as_str()
+        {
+            "Some" => {
+                "`Some(..)` on a side of a `k::rewrite!` names no content: it says that a `?` cell is present, and a rewrite changes a content where it stands; write `Some(..)` outside the rewrite, around the content it changes: `Some(Cell(k::rewrite!(a => b)))`"
+            }
+            "KCell" => {
+                "`KCell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `KCell(..)` outside the rewrite, around the content it changes: `KCell(k::rewrite!(a => b), ..)`"
+            }
+            _ => {
+                "`Cell(..)` on a side of a `k::rewrite!` names no content: it says which cell holds a content, and a rewrite changes a content where it stands; write `Cell(..)` outside the rewrite, around the content it changes: `Cell(k::rewrite!(a => b))`"
+            }
+        },
+    };
+    Some(state_error("cells", reason, tokens.span()))
 }
 
 /// The group record a whole nested-cell entry `k::fragment![Group { .. }]` is when one of its
