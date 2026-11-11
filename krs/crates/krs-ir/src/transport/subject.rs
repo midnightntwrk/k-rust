@@ -311,12 +311,16 @@ pub fn key_write_reason(group: &str, holder: &str, key: &str, cell: &str) -> Str
     )
 }
 
-/// Why an entry of the Map collection cell `holder` that keeps one instance may not write its key
-/// `key` other than as the entry matched it: the key is the instance's identity, so an update of
-/// the instance keeps it. The one text of every route that judges a key such an entry writes.
+/// Why an in-place rewrite of the key `key` of an instance of the Map collection cell `holder`
+/// (a single-body rule's `k::rewrite!`, or K's `<key> A => B </key>` lifted) is refused unless its
+/// sides are provably one key: a rewrite changes a cell of the instance in place, while the key is
+/// the instance's identity, so another key is the instance moved, a removal and a creation, which
+/// a rewrite in place does not state. The one text of every route that judges such a rewrite.
 #[must_use]
 pub fn key_update_reason(holder: &str, key: &str) -> String {
-    format!("an update must not change `{key}`, the key of the Map collection `{holder}`")
+    format!(
+        "a rewrite changes a cell of an instance of the Map collection `{holder}` in place, and `{key}` is the instance's key, its identity: a key not provably the one matched is the instance moved, removed and created under the new key, which a rewrite in place does not state; write a rule with a result whose record writes the new key and takes the other children with `..me` from the instance its subject labels `me @`"
+    )
 }
 
 /// Why no sentence may be about the group `group`, whose cell is the key `key` of the Map
@@ -328,38 +332,115 @@ pub fn key_subject_reason(group: &str, holder: &str, key: &str) -> String {
     )
 }
 
-/// Whether a written key term keeps the key the subject matched as `matched`: a variable that
-/// is the subject's binder for the key (an alias's binder included), or the same literal or
-/// token the subject matched. A key is an instance's identity, so a step that writes it writes
-/// what is provably the key it matched; a key that is not a variable or a literal cannot be
-/// shown kept. The predicate over authored entries is `krs_syntax::cell_entries::keeps_key`.
+/// A Map collection key as a notation writes it, as far as [`key_kept`] reads it: a binder, an
+/// alias `name @ pattern`, a literal or token (`L`, the notation's comparable payload), or any
+/// other construct (a call, a computed value, a record of a group key), which shows no key kept.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum KeySpelling<'a, L> {
+    /// A name.
+    Binder(&'a str),
+    /// `name @ pattern`.
+    Alias(&'a str, Box<Self>),
+    /// A literal or token.
+    Literal(L),
+    /// Any other construct.
+    Other,
+}
+
+/// A descriptor literal or token, as a key compares them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TermLiteral<'a> {
+    /// A typed literal.
+    Literal(&'a crate::DescriptorLiteral),
+    /// A builtin token of its sort.
+    Token(&'a crate::BuiltinSort, &'a str),
+}
+
+impl<'a> KeySpelling<'a, TermLiteral<'a>> {
+    /// A descriptor term's key spelling.
+    #[must_use]
+    pub fn of_term(term: &'a DescriptorTerm) -> Self {
+        match term {
+            DescriptorTerm::Variable { name, .. } => Self::Binder(name),
+            DescriptorTerm::As { name, pattern, .. } => {
+                Self::Alias(name, Box::new(Self::of_term(pattern)))
+            }
+            DescriptorTerm::Literal { literal, .. } => Self::Literal(TermLiteral::Literal(literal)),
+            DescriptorTerm::BuiltinToken { sort, value, .. } => {
+                Self::Literal(TermLiteral::Token(sort, value))
+            }
+            _ => Self::Other,
+        }
+    }
+
+    /// A rule cell state's key spelling: a leaf's term, or a group key's whole-group term.
+    #[must_use]
+    pub fn of_state(state: &'a crate::ProtocolRuleStateTerm<DescriptorTerm>) -> Self {
+        match state {
+            crate::ProtocolRuleStateTerm::Term(term)
+            | crate::ProtocolRuleStateTerm::Group(term) => Self::of_term(term),
+            _ => Self::Other,
+        }
+    }
+}
+
+/// Whether a Map collection key written as `written` is provably the key the subject matched as
+/// `matched` (`None`: the subject does not name the key), the one definition every notation and
+/// stage reads. A key is an instance's identity: the written key is the matched one where it is a
+/// name the matched pattern binds to the whole key (its binder, an alias's name, or a binder an
+/// alias holds, `k @ z` binding both `k` and `z`), or the same literal or token the pattern
+/// matched; any other value, or a key the subject does not name, cannot be shown kept.
+#[must_use]
+pub fn key_kept<L: PartialEq>(
+    written: &KeySpelling<'_, L>,
+    matched: Option<&KeySpelling<'_, L>>,
+) -> bool {
+    fn binds<L>(matched: &KeySpelling<'_, L>, name: &str) -> bool {
+        match matched {
+            KeySpelling::Binder(bound) => *bound == name,
+            KeySpelling::Alias(bound, pattern) => *bound == name || binds(pattern, name),
+            KeySpelling::Literal(_) | KeySpelling::Other => false,
+        }
+    }
+    fn literal<'s, L>(matched: &'s KeySpelling<'_, L>) -> Option<&'s L> {
+        match matched {
+            KeySpelling::Literal(literal) => Some(literal),
+            KeySpelling::Alias(_, pattern) => literal(pattern),
+            KeySpelling::Binder(_) | KeySpelling::Other => None,
+        }
+    }
+    let Some(matched) = matched else {
+        return false;
+    };
+    match written {
+        KeySpelling::Binder(name) => binds(matched, name),
+        KeySpelling::Literal(written) => literal(matched) == Some(written),
+        KeySpelling::Alias(..) | KeySpelling::Other => false,
+    }
+}
+
+/// Whether a result instance record of a Map collection that updates a subject instance
+/// (`..label`) moves it to another key: it writes the key (`written`), and not as what is provably
+/// the key the labelled instance matched (`matched`, [`key_kept`]). A Map instance is identified by
+/// its key, so such a record is a new instance under the key it writes, whose children it does not
+/// write are the labelled instance's, and no update of that instance in place. The one definition
+/// every notation and stage reads.
+#[must_use]
+pub fn moves_instance<L: PartialEq>(
+    written: Option<&KeySpelling<'_, L>>,
+    matched: Option<&KeySpelling<'_, L>>,
+) -> bool {
+    written.is_some_and(|written| !key_kept(written, matched))
+}
+
+/// Whether a written key term keeps the key the subject matched as `matched` ([`key_kept`] over
+/// descriptor terms).
 #[must_use]
 pub fn keeps_key_term(written: &DescriptorTerm, matched: Option<&DescriptorTerm>) -> bool {
-    fn unaliased(term: &DescriptorTerm) -> &DescriptorTerm {
-        match term {
-            DescriptorTerm::As { pattern, .. } => pattern,
-            other => other,
-        }
-    }
-    match (written, matched) {
-        (
-            DescriptorTerm::Variable { name, .. },
-            Some(DescriptorTerm::Variable { name: bound, .. }),
-        )
-        | (DescriptorTerm::Variable { name, .. }, Some(DescriptorTerm::As { name: bound, .. })) => {
-            name == bound
-        }
-        (DescriptorTerm::Literal { literal, .. }, Some(matched)) => matches!(
-            unaliased(matched),
-            DescriptorTerm::Literal { literal: other, .. } if other == literal
-        ),
-        (DescriptorTerm::BuiltinToken { sort, value, .. }, Some(matched)) => matches!(
-            unaliased(matched),
-            DescriptorTerm::BuiltinToken { sort: other_sort, value: other, .. }
-                if other_sort == sort && other == value
-        ),
-        _ => false,
-    }
+    key_kept(
+        &KeySpelling::of_term(written),
+        matched.map(KeySpelling::of_term).as_ref(),
+    )
 }
 
 /// Whether every in-place rewrite (`k::rewrite!(from => to)`) at or below `term` keeps what it
@@ -429,6 +510,28 @@ fn path(cells: &[TreeCell], index: usize) -> impl Iterator<Item = usize> + '_ {
 
 #[cfg(test)]
 mod tests {
+
+    /// The one definition of a kept key and of a move: a name the matched pattern binds to the
+    /// whole key (its binder, an alias's name, a binder the alias holds), or the same literal.
+    #[test]
+    fn a_key_is_kept_by_a_name_bound_to_it_or_the_same_literal_and_moved_otherwise() {
+        use super::{KeySpelling, key_kept, moves_instance};
+        type Key<'a> = KeySpelling<'a, &'a str>;
+        let alias = |name, pattern: Key<'static>| Key::Alias(name, Box::new(pattern));
+        let held = alias("k", Key::Binder("z"));
+        assert!(key_kept(&Key::Binder("z"), Some(&held)));
+        assert!(key_kept(&Key::Binder("k"), Some(&held)));
+        assert!(!key_kept(&Key::Binder("y"), Some(&held)));
+        let five = alias("k", Key::Literal("5"));
+        assert!(key_kept(&Key::Literal("5"), Some(&five)));
+        assert!(!key_kept(&Key::Literal("6"), Some(&five)));
+        assert!(!key_kept(&Key::Binder("z"), None));
+        assert!(!key_kept(&Key::Other, Some(&Key::Other)));
+        // A record that writes no key takes it from the instance: no move.
+        assert!(!moves_instance::<&str>(None, Some(&Key::Binder("z"))));
+        assert!(moves_instance(Some(&Key::Literal("6")), Some(&five)));
+        assert!(!moves_instance(Some(&Key::Binder("z")), Some(&held)));
+    }
     use super::*;
     use crate::PackageId;
 

@@ -1770,41 +1770,48 @@ fn moved_label<'r>(
         return None;
     };
     let written = record_field(record, key)?;
-    // A whole instance named by one name, `label`, names no key.
     let matched = subject.iter().find_map(|item| match item {
         EntrySpelling::Alias(name, instance) if name == label => {
             Some(record_of(instance, group).and_then(|record| record_field(record, key)))
         }
-        EntrySpelling::Binder(name) if name == label => Some(None),
         _ => None,
     })?;
-    (!keeps_key(written, matched)).then_some(label.as_str())
+    krs_ir::subject::moves_instance(
+        Some(&key_spelling(written)),
+        matched.map(key_spelling).as_ref(),
+    )
+    .then_some(label.as_str())
+}
+
+/// A key's spelling as [`krs_ir::subject::key_kept`] reads it: a leaf's `Cell(..)` is its value.
+#[must_use]
+pub fn key_spelling(spelling: &EntrySpelling) -> krs_ir::subject::KeySpelling<'_, &str> {
+    use krs_ir::subject::KeySpelling;
+    match spelling {
+        EntrySpelling::Binder(name) => KeySpelling::Binder(name),
+        EntrySpelling::Alias(name, pattern) => {
+            KeySpelling::Alias(name, Box::new(key_spelling(pattern)))
+        }
+        EntrySpelling::Literal(literal) => KeySpelling::Literal(literal),
+        EntrySpelling::Cell(inner) => key_spelling(inner),
+        _ => KeySpelling::Other,
+    }
 }
 
 /// Whether a result that writes a Map collection's key as `written` keeps the key `matched`,
 /// what its subject matched the same instance's key with (`None` where the subject does not
-/// name the key): an instance's key is its identity, so a step that changes the instance in
-/// place writes it, if at all, as what is provably the key it matched. That is the subject's own
-/// binder for the key (an alias's binder included), or the same literal the subject matched;
-/// any other value, or a key the subject does not name, is another instance.
+/// name the key), by the one definition of a kept key ([`krs_ir::subject::key_kept`]): a name
+/// the matched pattern binds to the whole key (its binder, an alias's name, or a binder inside
+/// an alias), or the same literal; any other value, or a key the subject does not name, is not
+/// provably the same instance.
 ///
-/// One predicate serves every place that judges a written key: whether an instance update inside
-/// an instance record updates its instance in place or moves it ([`moved_label`]), which instance
-/// a record without a label's rest is ([`instance_twins`]), and the flat key entry of a sentence
-/// about one instance of a Map collection's group.
+/// It serves every place that judges a written key over spellings: whether an instance update
+/// inside an instance record updates its instance in place or moves it ([`moved_label`]), which
+/// instance a record without a label's rest is ([`instance_twins`]), and the flat key entry of a
+/// sentence about one instance of a Map collection's group.
 #[must_use]
 pub fn keeps_key(written: &EntrySpelling, matched: Option<&EntrySpelling>) -> bool {
-    match (written, matched) {
-        (
-            EntrySpelling::Binder(written),
-            Some(EntrySpelling::Binder(bound) | EntrySpelling::Alias(bound, _)),
-        ) => written == bound,
-        (EntrySpelling::Literal(written), Some(matched)) => matches!(
-            unaliased(matched),
-            EntrySpelling::Literal(literal) if literal == written
-        ),
-        _ => false,
-    }
+    krs_ir::subject::key_kept(&key_spelling(written), matched.map(key_spelling).as_ref())
 }
 
 /// The subject instance each result instance record is, by its collection's identity of an
@@ -1953,6 +1960,10 @@ fn pair_content(
 /// another record, and are refused ([`Refusal::RecordRemainderInCellsTerm`]). The refusal comes
 /// after the record's children are paired, each against the instance the update would create: a
 /// child is an entry of its own cell, whose content is wrong whatever the record's base.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One arm per record position: an optional cell's content, a group, a collection's instances."
+)]
 fn pair_records(
     form: EntryForm,
     stack: &[Layer],
@@ -2048,7 +2059,13 @@ fn pair_records(
                 if !keyed(*order, group, record) {
                     return Err(Refusal::MapCollectionKey);
                 }
-                fields(group, record, other, true, path)?;
+                // An update that moves its labelled instance to a key not provably its own is a
+                // created instance, whose children are paired as one's ([`pair_moved`]).
+                if moves(*order, group, other, record) {
+                    pair_moved(form, group, record, other, bound, path)?;
+                } else {
+                    fields(group, record, other, true, path)?;
+                }
                 // An update whose other side is a created instance updates no subject instance.
                 if form == EntryForm::Cells
                     && matches!(record.tail, RecordTail::Update(_))
@@ -2065,6 +2082,51 @@ fn pair_records(
         }
         _ => Ok(()),
     }
+}
+
+/// Whether `record`, a result instance record of `group` in a collection ordered by `order` whose
+/// labelled instance it updates is `other`, moves that instance to another key ([`moved_label`]).
+fn moves(order: Order, group: &GroupKind, other: Other<'_>, record: &EntryRecord) -> bool {
+    let Other::Matched(labelled) = other else {
+        return false;
+    };
+    let Some(key) = group.key(order) else {
+        return false;
+    };
+    let matched = record_of(labelled, group).and_then(|labelled| record_field(labelled, key));
+    matches!(record.tail, RecordTail::Update(_))
+        && krs_ir::subject::moves_instance(
+            record_field(record, key).map(key_spelling).as_ref(),
+            matched.map(key_spelling).as_ref(),
+        )
+}
+
+/// Pairs the children of `record`, a result instance record of `group` that moves the instance
+/// `labelled` to a key not provably its own ([`moved_label`]), as a created instance's: each child
+/// it writes whole is a new value with no other side. A child written with a rest keeps one of the
+/// labelled instance's same child, which a created instance does not write yet (the lowering's
+/// stated limit), so it is paired against that child, as the rest it would keep.
+fn pair_moved(
+    form: EntryForm,
+    group: &GroupKind,
+    record: &EntryRecord,
+    labelled: Other<'_>,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+    path: &mut Vec<usize>,
+) -> Result<(), Refusal> {
+    for (step, (name, value)) in record.fields.iter().enumerate() {
+        if let Some(kind) = group.child(name) {
+            let side = if root(value) == Root::Other {
+                Other::Created
+            } else {
+                labelled.child(group, name)
+            };
+            path.push(step);
+            pair_content(form, &kind.layers, value, side, true, bound, path)?;
+            path.pop();
+        }
+    }
+    Ok(())
 }
 
 /// Where `subject`, a subject's content on `stack`, tests a `?` child absent (`None`, inside a
@@ -3996,6 +4058,11 @@ mod tests {
         ));
         // A key the subject does not name is no key it matched.
         assert!(!keeps_key(&binder("me"), None));
+        // A binder an alias holds is bound to the whole key, as the alias's name is.
+        let held = EntrySpelling::Alias("k".to_owned(), Box::new(binder("z")));
+        assert!(keeps_key(&binder("z"), Some(&held)));
+        assert!(keeps_key(&binder("k"), Some(&held)));
+        assert!(!keeps_key(&binder("y"), Some(&held)));
     }
     #[test]
     fn an_update_of_a_map_collections_instance_under_another_key_moves_it() {
@@ -4097,6 +4164,47 @@ mod tests {
                 "{ me @ A { id: z, .. }, .. }"
             ),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn a_moved_instance_is_judged_as_a_created_one() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let map = [
+            Layer::Instances(Order::Map),
+            Layer::Group(GroupKind {
+                name: "A".to_owned(),
+                children: vec![
+                    ("id".to_owned(), int()),
+                    (
+                        "l".to_owned(),
+                        CellKind {
+                            layers: vec![Layer::Leaf(Notation::List)],
+                        },
+                    ),
+                ],
+            }),
+        ];
+        // Moved to key 5, the record's `l` is the new instance's, written whole: no rest of
+        // `me`'s is dropped, since `me` is removed.
+        let me = Some("{ me @ A { id: z, l: [y, ..] }, .. }");
+        assert_eq!(
+            result(readable, &map, "{ A { id: 5, l: [x], ..me }, .. }", me),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, l: [x], ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }")
+            ),
+            Ok(None)
+        );
+        // In place, the same record drops the rest `me`'s `l` matched.
+        assert_eq!(
+            result(readable, &map, "{ A { id: z, l: [x], ..me }, .. }", me),
+            Err(Refusal::RestMismatch)
         );
     }
 

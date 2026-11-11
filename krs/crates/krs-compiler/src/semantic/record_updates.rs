@@ -505,21 +505,33 @@ impl HiddenNames {
         alias: &str,
         field: &ProductionFieldId,
     ) -> Result<SemanticId, DescriptorLoweringError> {
-        let path = alias
-            .split('.')
-            .chain(std::iter::once(field.as_str()))
-            .map(|segment| segment.strip_prefix("r#").unwrap_or(segment))
-            .collect::<Vec<_>>()
-            .join("_");
-        let base = format!("{}{path}", krs_ir::ir::UPDATE_BINDER_PREFIX);
-        let mut name = base.clone();
-        let mut ordinal = 2_usize;
-        while !self.taken.insert(name.clone()) {
-            name = format!("{base}_{ordinal}");
-            ordinal += 1;
-        }
+        let name = hidden_binder_name(alias, field.as_str(), |name| self.taken.contains(name));
+        self.taken.insert(name.clone());
         Ok(SemanticId::new(name)?)
     }
+}
+
+/// The name of a hidden binder for `field` of the record `alias` names (an alias, a path of
+/// fields below one, `o.frame`, or a collection instance's label), that `taken` says no binder of
+/// the sentence has: the alias and the field path joined, `update_o_frame_pc`, with an ordinal
+/// where that name is taken. The one naming of every binder a sentence's long form adds, a record
+/// update's and a moved instance's alike, so two of them, or one and an authored binder, never
+/// share a name.
+pub(super) fn hidden_binder_name(alias: &str, field: &str, taken: impl Fn(&str) -> bool) -> String {
+    let path = alias
+        .split('.')
+        .chain(std::iter::once(field))
+        .map(|segment| segment.strip_prefix("r#").unwrap_or(segment))
+        .collect::<Vec<_>>()
+        .join("_");
+    let base = format!("{}{path}", krs_ir::ir::UPDATE_BINDER_PREFIX);
+    let mut name = base.clone();
+    let mut ordinal = 2_usize;
+    while taken(&name) {
+        name = format!("{base}_{ordinal}");
+        ordinal += 1;
+    }
+    name
 }
 
 fn invalid(

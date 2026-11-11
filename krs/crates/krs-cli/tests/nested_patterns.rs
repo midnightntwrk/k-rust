@@ -4446,7 +4446,7 @@ fn a_rewrite_of_a_cell_s_whole_content_is_its_before_and_after() {
             ),
             (
                 "instance-key-changed",
-                "error[krs::analysis::map-collection-key]: an update must not change `oid`, the key of the Map collection `obj` @ 79:124",
+                "error[krs::analysis::map-collection-key]: a rewrite changes a cell of an instance of the Map collection `obj` in place, and `oid` is the instance's key, its identity: a key not provably the one matched is the instance moved, removed and created under the new key, which a rewrite in place does not state; write a rule with a result whose record writes the new key and takes the other children with `..me` from the instance its subject labels `me @` @ 79:124",
             ),
         ]
     "#]]

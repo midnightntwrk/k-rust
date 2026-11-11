@@ -1467,21 +1467,27 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
 
     fn hidden_binder(
         &mut self,
-        id: &SemanticId,
+        label: &str,
+        field: &str,
         sort: &SemanticSortRef,
-        origin: krs_ir::NodeOrigin,
-    ) -> SemanticTerm {
-        if !self
-            .terms
+    ) -> Result<SemanticId, DescriptorLoweringError> {
+        // Every name the sentence binds, authored, a record update's hidden binder, or one
+        // allocated before, is taken.
+        let name = super::record_updates::hidden_binder_name(label, field, |name| {
+            self.subject_sorts.contains_key(name)
+                || self.result_sorts.contains_key(name)
+                || self.terms.declared_binders.contains_key(name)
+                || self
+                    .terms
+                    .variables
+                    .iter()
+                    .any(|variable| variable.id().as_str() == name)
+        });
+        let id = SemanticId::new(name)?;
+        self.terms
             .variables
-            .iter()
-            .any(|variable| variable.id() == id)
-        {
-            self.terms
-                .variables
-                .push(SemanticVariable::new(id.clone(), sort.clone()));
-        }
-        SemanticTerm::variable(origin, sort.clone(), id.clone())
+            .push(SemanticVariable::new(id.clone(), sort.clone()));
+        Ok(id)
     }
 }
 

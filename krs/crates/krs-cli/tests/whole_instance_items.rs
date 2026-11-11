@@ -13,9 +13,9 @@
 //! defaults; a Set instance has no such identity, and a List's back instance is not updated in
 //! place.
 //!
-//! An update `..o` of a Map collection's instance that writes another key than `o` matched is
-//! `o` moved to that key: removed, unless the result keeps it, and created there with the
-//! children the record does not write taken from `o`, the K of its long form.
+//! An update `..o` of a Map collection's instance that writes a key not provably the one `o`
+//! matched is `o` moved to that key: removed, unless the result keeps it, and created there with
+//! the children the record does not write taken from `o`, the K of its long form.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -722,8 +722,8 @@ k::claims! {
 }
 "#;
 
-/// A Map instance is identified by its key, so an update `..o` that writes another key than `o`
-/// matched is `o` moved there: `o` is removed, unless the result keeps it, and an instance is
+/// A Map instance is identified by its key, so an update `..o` that writes a key not provably the
+/// one `o` matched is `o` moved there: `o` is removed, unless the result keeps it, and an instance is
 /// created under the new key whose children the record does not write are `o`'s, as `..` gives a
 /// created instance the template's. Each move, readable and `cells!`, rule and claim, emits the K
 /// of its long form, every child named. A run shows `mem` carried over (7, where the template
@@ -847,6 +847,266 @@ fn an_update_under_another_key_moves_the_instance() {
         krs run: undefined after 4 steps; <k> starts with `swap`
         <k> cupd 3 ~> .K </k> <objs> <obj> <oid> 1 </oid> <val> 0 </val> <mem> 7 </mem> </obj> <obj> <oid> 3 </oid> <val> 0 </val> <mem> 7 </mem> </obj> </objs>
         krs run: undefined after 4 steps; <k> starts with `cupd 3`"]].assert_eq(&runs);
+}
+
+/// Moves beside each other and in other shapes: objects keyed by `oid` with `val` and a child
+/// whose field is `b_val` (`bval` in K), accounts keyed by `aid` with a `List` leaf `al`, and
+/// nodes keyed by the group `cpu`.
+const SHAPES: &str = r#"
+use k::KResult;
+use k::builtin::{Int, KSequence, List, list};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence(cmd (New, Mv, Al, Cal, Bump, Rk, Cmv) > right seq (Seq))]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("new {id} {v} {b}")] New { id: Int, v: Int, b: Int },
+    #[k::syntax("mv")] Mv(),
+    #[k::syntax("al {x}")] Al { x: Int },
+    #[k::syntax("cal {x}")] Cal { x: Int },
+    #[k::syntax("bump {x}")] Bump { x: Int },
+    #[k::syntax("rk {x}")] Rk { x: Int },
+    #[k::syntax("cmv {x}")] Cmv { x: Int },
+    #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
+}
+
+#[k::cell]
+pub struct Objs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub obj: Obj,
+}
+
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub oid: Int,
+    #[k::cell]
+    pub val: Int,
+    #[k::cell(name = "bval")]
+    pub b_val: Int,
+}
+
+#[k::cell]
+pub struct Accs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub acc: Acc,
+}
+
+#[k::cell]
+pub struct Acc {
+    #[k::cell]
+    pub aid: Int,
+    #[k::cell]
+    pub al: List,
+}
+
+#[k::cell]
+pub struct Nodes {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub node: Node,
+}
+
+#[k::cell]
+pub struct Node {
+    #[k::cell(nested)]
+    pub cpu: Cpu,
+    #[k::cell]
+    pub nk: Int,
+}
+
+#[k::cell]
+pub struct Cpu {
+    #[k::cell]
+    pub pc: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub objs: Objs,
+    #[k::cell(nested)]
+    pub accs: Accs,
+    #[k::cell(nested)]
+    pub nodes: Nodes,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            objs: Objs { obj: Obj { oid: 0, val: 0, b_val: 0 } },
+            accs: Accs { acc: Acc { aid: 0, al: list::empty() } },
+            nodes: Nodes { node: Node { cpu: Cpu { pc: 0 }, nk: 0 } },
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use Cmd::*;
+
+    seq: Seq(s1, s2) => k::k![s1, s2];
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    new: { k: [New(i, v, b), ..], obj: { .. } } => { k: [..], obj: { Obj { oid: i, val: v, b_val: b }, .. } };
+    // Two labels whose children's paths read alike, `x`.`b_val` and `x_b`.`val`.
+    mv: { k: [Mv(), ..], obj: { x @ Obj { oid: 1, .. }, x_b @ Obj { oid: 2, .. }, .. } } => { k: [..], obj: { Obj { oid: 3, ..x }, Obj { oid: 4, ..x_b }, .. } };
+    // A moved record's child is the new instance's, written whole.
+    al: { k: [Al(x), ..], acc: { me @ Acc { aid: z, al: [y, ..] }, .. } } => { k: [..], acc: { Acc { aid: 5, al: [x], ..me }, .. } };
+    // A group key written as the binder it was matched with is kept: an update in place.
+    bump: { k: [Bump(x), ..], node: { me @ Node { cpu: c, nk: v }, .. } } => { k: [..], node: { Node { cpu: c, nk: x, ..me }, .. } };
+    // A binder an alias holds is the key it matched: an update in place.
+    rk: { k: [Rk(x), ..], obj: { me @ Obj { oid: k @ z, .. }, .. } } => { k: [..], obj: { Obj { oid: z, val: x, ..me }, .. } };
+}
+
+#[k::rule(label = "cal")]
+fn cal(
+    x: k::Term<Int>,
+    z: k::Term<Int>,
+    y: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cal { x }, tail @ ..),
+        Accs::acc: { me @ k::fragment![crate::Acc { aid: z, al: [y, ..] }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Accs::acc: { k::fragment![crate::Acc { aid: 5, al: [x], ..me }], ..instances0 },
+        ..state
+    }
+}
+
+#[k::claim(all_paths, label = "cmv")]
+fn cmv(
+    x: k::Term<Int>,
+    v: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cmv { x }, tail @ ..),
+        Objs::obj: { me @ k::fragment![crate::Obj { oid: 1, val: v, .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Objs::obj: { k::fragment![crate::Obj { oid: x, ..me }], ..instances0 },
+        ..state
+    }
+}
+"#;
+
+/// A move's long form names each binder it adds apart from every other binder of the sentence:
+/// `mv` moves two instances whose labels and children read alike when joined (`x`.`b_val`,
+/// `x_b`.`val`), and its K holds two binders, so a run moves instances whose two children differ.
+/// A moved record is a created instance, so `al` (readable) and `cal` (`cells!`) write the new
+/// instance's `al` whole without dropping a rest `me`'s pattern matched, as their long forms do. A
+/// group key written as its binder (`bump`), and a key written as a binder an alias holds (`rk`),
+/// are the keys matched: those updates stay in place. `cmv` is a `cells!` claim moving an instance.
+#[test]
+fn a_move_names_its_binders_apart_and_writes_a_created_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let shapes = package_of(temporary.path(), "shapes", SHAPES);
+    let (success, stdout, stderr) = krs(target.path(), &shapes, "check", &[]);
+    assert!(success, "{stdout}\n{stderr}");
+    let emitted = emitted_k_and_claims(target.path(), &shapes);
+    let rules = ["mv", "al", "cal", "bump", "rk"]
+        .map(|label| rule(&emitted, label))
+        .join("\n");
+    expect_test::expect![[r"
+        rule [mv]:
+            <k> mv => .K ... </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> XVal:Int </val>
+                <bval> XBVal:Int </bval>
+            </obj> => .Bag)
+            (<obj>
+                <oid> 2 </oid>
+                <val> XBVal2:Int </val>
+                <bval> XBBVal:Int </bval>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> 3 </oid>
+                <val> XVal:Int </val>
+                <bval> XBVal:Int </bval>
+            </obj>)
+            (.Bag => <obj>
+                <oid> 4 </oid>
+                <val> XBVal2:Int </val>
+                <bval> XBBVal:Int </bval>
+            </obj>)
+        rule [al]:
+            <k> al X:Int => .K ... </k>
+            (<acc>
+                <aid> Z:Int </aid>
+                <al> ListItem(Y:KItem) Tail0:List </al>
+            </acc> => .Bag)
+            (.Bag => <acc>
+                <aid> 5 </aid>
+                <al> ListItem(X:Int) </al>
+            </acc>)
+        rule [cal]:
+            <k> cal X:Int ~> Tail:K => .K ~> Tail:K </k>
+            (<acc>
+                <aid> Z:Int </aid>
+                <al> ListItem(Y:Int) _ </al>
+            </acc> => .Bag)
+            (.Bag => <acc>
+                <aid> 5 </aid>
+                <al> ListItem(X:Int) </al>
+            </acc>)
+        rule [bump]:
+            <k> bump X:Int => .K ... </k>
+            <node>
+                C:CpuCell
+                <nk> V:Int => X:Int </nk>
+            </node>
+        rule [rk]:
+            <k> rk X:Int => .K ... </k>
+            <obj>
+                <oid> ( Z:Int #as K:Int ) </oid>
+                <val> _ => X:Int </val>
+                ...
+            </obj>
+        claim [cmv]:
+            <k> cmv X:Int ~> Tail:K => .K ~> Tail:K </k>
+            (<obj>
+                <oid> 1 </oid>
+                <val> V:Int </val>
+                <bval> MeBVal:Int </bval>
+            </obj> => .Bag)
+            (.Bag => <obj>
+                <oid> X:Int </oid>
+                <val> V:Int </val>
+                <bval> MeBVal:Int </bval>
+            </obj>)"]]
+    .assert_eq(&format!("{rules}\n{}", claim(&emitted, "cmv")));
+
+    let program = shapes.with_file_name("program.txt");
+    fs::write(&program, "new 1 5 6 new 2 7 8 mv\n").unwrap();
+    let (success, stdout, stderr) =
+        krs(target.path(), &shapes, "run", &[program.to_str().unwrap()]);
+    assert!(success, "{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = flat.find("<k>").unwrap();
+    let end = flat.find("</objs>").unwrap() + "</objs>".len();
+    expect_test::expect![[r"
+        <k> .K </k> <objs> <obj> <oid> 3 </oid> <val> 5 </val> <bval> 6 </bval> </obj> <obj> <oid> 4 </oid> <val> 7 </val> <bval> 8 </bval> </obj> </objs>
+        krs run: stuck after 5 steps; <k> is empty"]].assert_eq(&format!("{}\n{}", &flat[start..end], stderr.trim()));
 }
 
 /// A List's back instance written on both sides, its result keeping children with `..`, is the
