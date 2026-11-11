@@ -1,7 +1,7 @@
 //! The `kink-flow` command line. Every command prints one JSON document on stdout, or with
 //! `--output verdicts` (`coverage`, `run` and `report`) its deterministic rendering
 //! ([`crate::verdicts`]), or with `coverage --output text` a summary for a reader
-//! ([`crate::coverage::text`]).
+//! ([`crate::coverage::text`]; `compare`'s and `prune`'s, [`crate::prune::text_rendering`]).
 //!
 //! Exit status: what the caller does next, one of four: [`EXIT_YES`] when the
 //! command answered its question (rely on the answer), [`EXIT_NO`] when the answer is a finding
@@ -82,8 +82,10 @@ macro_rules! usage_line {
          [--no-confirm] [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
          <topic>.toml files; PATTERNS.toml replaces the patterns FLOW.toml declares \
          ([[patterns]]) | kink-flow compare FLOW.toml [--only NAME]... [--lock FILE \
-         [--locked]] [--cache DIR] [--output json|text|verdicts]; --help (or -h), anywhere, \
-         prints the loop, the mutation format and the exit statuses"
+         [--locked]] [--cache DIR] [--output json|text|verdicts] | kink-flow prune FLOW.toml \
+         MUTATIONS [PATTERNS.toml] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] \
+         [--output json|text]; --help (or -h), anywhere, prints the loop, the mutation format \
+         and the exit statuses"
     };
 }
 
@@ -109,6 +111,8 @@ The loop:
      drop the mutation, or keep it with the argument in its misunderstanding and
      expect = \"survive\" (its status stays survived, and run fails if a program kills
      it); run again (cached outcomes are not re-run)
+  5. kink-flow prune FLOW.toml MUTATIONS --output text: which programs are redundant, each
+     killing, hitting and covering only what others also do, and one set removable together
 
 A mutation (MUTATIONS.toml):
   [[mutation]]
@@ -137,8 +141,8 @@ Reference: kink/crates/kink-flow/README.md; guide: kink/README.md, \"Using kink-
 /// What a usage error prints on stderr after its message when the command line names no verb:
 /// the shape of every command line, and where the rest is.
 const GENERAL_USAGE: &str = "usage: kink-flow --version | kink-flow VERB FLOW.toml [OPERAND] \
-     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare\n`kink-flow --help` \
-     explains the loop; `kink-flow VERB --help` lists a verb's options";
+     [OPTIONS], VERB one of check, coverage, run, report, query, fuzz, compare, prune\n\
+     `kink-flow --help` explains the loop; `kink-flow VERB --help` lists a verb's options";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -263,9 +267,9 @@ pub fn execute(args: Vec<OsString>) -> u8 {
 }
 
 /// A `kink-flow` command line's verb, manifest, operand files and options: `run` and `fuzz` take
-/// one more operand (the mutation list, the templates), and `query` may (the pattern list, which
-/// replaces the patterns the manifest declares): an argument after the manifest that is no option
-/// (no leading `-`) is the list.
+/// one more operand (the mutation list, the templates), `prune` takes the mutation list, and
+/// `query` and `prune` may take the pattern list, which replaces the patterns the manifest
+/// declares: an argument there that is no option (no leading `-`) is the list.
 fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])> {
     let [command, manifest, rest @ ..] = args else {
         return None;
@@ -280,6 +284,17 @@ fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])>
             }
             _ => rest,
         },
+        Verb::Prune => {
+            let (file, rest) = rest.split_first()?;
+            files.mutations = Some(PathBuf::from(file));
+            match rest.split_first() {
+                Some((file, rest)) if !file.starts_with('-') => {
+                    files.patterns = Some(PathBuf::from(file));
+                    rest
+                }
+                _ => rest,
+            }
+        }
         Verb::Run | Verb::Fuzz => {
             let (file, rest) = rest.split_first()?;
             let file = Some(PathBuf::from(file));
@@ -594,6 +609,27 @@ const COMPARE_OPTIONS: &[VerbOption] = &[
     ),
 ];
 
+const PRUNE_OPTIONS: &[VerbOption] = &[
+    option(
+        "--lock FILE",
+        "the corpus record, read (never written) for the rows each removal moves",
+    ),
+    option(
+        "--compile-workers N",
+        "compile mutants ahead of their turn on up to N threads (default: 4)",
+    ),
+    option(
+        "--progress",
+        "print a line on stderr as each phase starts and as each row of its run is decided \
+         (also without the flag when stderr is a terminal)",
+    ),
+    CACHE,
+    option(
+        "--output json|text",
+        "print the JSON document (default) or a summary for a reader",
+    ),
+];
+
 /// `kink-flow VERB --help`: the verb's usage line, what it asks, and its options.
 #[must_use]
 pub fn verb_help(verb: Verb) -> String {
@@ -650,11 +686,12 @@ pub enum Verb {
     Query,
     Fuzz,
     Compare,
+    Prune,
 }
 
 impl Verb {
     /// Every verb, in the order the usage lists them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Check,
         Self::Coverage,
         Self::Run,
@@ -662,6 +699,7 @@ impl Verb {
         Self::Query,
         Self::Fuzz,
         Self::Compare,
+        Self::Prune,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -673,6 +711,7 @@ impl Verb {
             Self::Query => "query",
             Self::Fuzz => "fuzz",
             Self::Compare => "compare",
+            Self::Prune => "prune",
         }
     }
 
@@ -724,6 +763,10 @@ impl Verb {
                 "compare FLOW.toml [--only NAME]... [--lock FILE [--locked]] [--cache DIR] \
                  [--output json|text|verdicts]"
             }
+            Self::Prune => {
+                "prune FLOW.toml MUTATIONS [PATTERNS.toml] [--lock FILE] [--compile-workers N] \
+                 [--progress] [--cache DIR] [--output json|text]"
+            }
         }
     }
 
@@ -772,6 +815,18 @@ impl Verb {
                  difference), could-not-apply or not-compared; only a required view decides the \
                  exit status."
             }
+            Self::Prune => {
+                "Which programs of the corpus are redundant: each obligation the corpus \
+                 discharges (a mutation killed, a pattern hit, a coverage item covered, an \
+                 argument's evidence read) has another decided discharger. Computed by coverage, \
+                 run --full and query --full in process, never from a stored document; lists \
+                 each program redundant alone with the other dischargers, one set removable \
+                 together (built in reverse manifest order), and why each other program is kept \
+                 (claimed by a pattern, the only discharger, an unknown cell with no other \
+                 discharger, a refuted claim). An unknown never counts as a discharge, so the \
+                 report under-states what is prunable, never over-states it. It writes no lock \
+                 and edits no file."
+            }
         }
     }
 
@@ -786,6 +841,7 @@ impl Verb {
             Self::Query => QUERY_OPTIONS,
             Self::Fuzz => FUZZ_OPTIONS,
             Self::Compare => COMPARE_OPTIONS,
+            Self::Prune => PRUNE_OPTIONS,
         }
     }
 
@@ -799,6 +855,7 @@ impl Verb {
             Self::Query => "Checking a pattern",
             Self::Fuzz => "Killing a survivor with fuzz",
             Self::Compare => "Comparing implementations: kink-flow compare",
+            Self::Prune => "Redundant programs: kink-flow prune",
         }
     }
 
@@ -809,6 +866,7 @@ impl Verb {
             Self::Run => "FLOW.toml MUTATIONS.toml",
             Self::Query => "FLOW.toml [PATTERNS.toml]",
             Self::Fuzz => "FLOW.toml TEMPLATES.toml",
+            Self::Prune => "FLOW.toml MUTATIONS.toml [PATTERNS.toml]",
         }
     }
 
@@ -821,6 +879,7 @@ impl Verb {
         let schema = match self {
             Self::Check => return manifest_refused(error),
             Self::Fuzz => return crate::fuzz::input_refused("FLOW.toml", error),
+            Self::Prune => return crate::prune::manifest_refused(error),
             Self::Coverage => crate::coverage::COVERAGE_SCHEMA,
             Self::Run => crate::report::RUN_SCHEMA,
             Self::Report => crate::report::MISSING_SCHEMA,
@@ -845,6 +904,7 @@ impl Verb {
             Self::Query => "query",
             Self::Fuzz => "fuzz",
             Self::Compare => "compare",
+            Self::Prune => "prune",
         }
     }
 }
@@ -1003,6 +1063,17 @@ pub enum FlowCommand {
         options: crate::compare::CompareOptions,
         output: OutputFormat,
     },
+    Prune {
+        /// The mutation list; `None` (a front end's layout with none) skips the family.
+        mutations: Option<PathBuf>,
+        /// The pattern list, in place of the patterns the manifest declares; `None` asks those,
+        /// and skips the family where the manifest declares none.
+        patterns: Option<PathBuf>,
+        options: crate::prune::PruneOptions,
+        output: OutputFormat,
+        /// `--progress`, as `run`'s.
+        progress: bool,
+    },
 }
 
 impl FlowCommand {
@@ -1148,6 +1219,22 @@ impl FlowCommand {
                 let (options, output) = compare_options(options)?;
                 Ok(Self::Compare { options, output })
             }
+            Verb::Prune => {
+                if let Some(list) = files.mutations.as_ref().filter(|list| !list.exists()) {
+                    return Err(not_found(list));
+                }
+                if let Some(path) = files.patterns.as_ref().filter(|path| !path.is_file()) {
+                    return Err(not_file(path));
+                }
+                let (options, output, progress) = prune_options(options)?;
+                Ok(Self::Prune {
+                    mutations: files.mutations,
+                    patterns: files.patterns,
+                    options,
+                    output,
+                    progress,
+                })
+            }
         }
     }
 
@@ -1162,6 +1249,7 @@ impl FlowCommand {
             Self::Query { .. } => Verb::Query,
             Self::Fuzz { .. } => Verb::Fuzz,
             Self::Compare { .. } => Verb::Compare,
+            Self::Prune { .. } => Verb::Prune,
         }
     }
 
@@ -1216,7 +1304,8 @@ impl FlowCommand {
             Self::Coverage { output, .. }
             | Self::Run { output, .. }
             | Self::Report { output, .. }
-            | Self::Compare { output, .. } => *output,
+            | Self::Compare { output, .. }
+            | Self::Prune { output, .. } => *output,
             _ => OutputFormat::Json,
         }
     }
@@ -1229,7 +1318,9 @@ impl FlowCommand {
     #[must_use]
     pub fn shows_progress(&self) -> bool {
         match self {
-            Self::Run { progress, .. } => *progress || std::io::stderr().is_terminal(),
+            Self::Run { progress, .. } | Self::Prune { progress, .. } => {
+                *progress || std::io::stderr().is_terminal()
+            }
             _ => false,
         }
     }
@@ -1457,6 +1548,18 @@ pub fn run_command(
             let status = crate::compare::compare_status(&document);
             (document, status)
         }
+        FlowCommand::Prune {
+            mutations,
+            patterns,
+            options,
+            ..
+        } => crate::prune::command(
+            manifest,
+            mutations.as_deref(),
+            patterns.as_deref(),
+            options,
+            front,
+        ),
     };
     let mut document = front.annotated(document);
     if matches!(command, FlowCommand::Coverage { .. }) {
@@ -1503,7 +1606,7 @@ pub const fn exit_join(left: u8, right: u8) -> u8 {
 /// command could not write, a row's `cache_error`), so `ok` is false with [`EXIT_NO`] only for
 /// the finding itself (a `--verify` mismatch), and the join is a guard for a failure a document
 /// would not record.
-const fn completed(status: u8, ok: bool) -> u8 {
+pub(crate) const fn completed(status: u8, ok: bool) -> u8 {
     if ok || matches!(status, EXIT_NO | EXIT_UNASKED) {
         status
     } else {
@@ -2133,6 +2236,51 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat, bo
     Ok((options, mode, output.unwrap_or_default(), progress))
 }
 
+fn prune_options(
+    args: &[String],
+) -> Result<(crate::prune::PruneOptions, OutputFormat, bool), String> {
+    let mut options = crate::prune::PruneOptions::default();
+    let mut output = None;
+    let mut progress = false;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        listed(Verb::Prune, arg)?;
+        match arg.as_str() {
+            "--lock" if options.lock.is_none() => {
+                let file = args.next().ok_or("--lock needs a file")?;
+                options.lock = Some(PathBuf::from(file));
+            }
+            "--compile-workers" if options.compile_workers.is_none() => {
+                let value = args.next().ok_or("--compile-workers needs a number")?;
+                options.compile_workers = Some(
+                    value
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|workers| *workers >= 1)
+                        .ok_or_else(|| {
+                            format!("--compile-workers {value:?}: expected a positive integer")
+                        })?,
+                );
+            }
+            "--progress" if !progress => progress = true,
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            "--output" if output.is_none() => {
+                let value = args.next().ok_or("--output needs json or text")?;
+                output = Some(match value.as_str() {
+                    "json" => OutputFormat::Json,
+                    "text" => OutputFormat::Text,
+                    _ => return Err(format!("--output {value:?}: expected json or text")),
+                });
+            }
+            _ => return Err(repeated(arg)),
+        }
+    }
+    Ok((options, output.unwrap_or_default(), progress))
+}
+
 fn query_options(args: &[String]) -> Result<QueryOptions, String> {
     let mut options = QueryOptions::default();
     let mut args = args.iter();
@@ -2219,7 +2367,9 @@ fn compare_options(
 ///
 /// When the document has no text rendering.
 pub fn text(document: &Value) -> Result<String, String> {
-    if document["schema"] == crate::compare::COMPARE_SCHEMA {
+    if document["schema"] == crate::prune::PRUNE_SCHEMA {
+        crate::prune::text_rendering(document)
+    } else if document["schema"] == crate::compare::COMPARE_SCHEMA {
         crate::compare::text(document)
     } else {
         crate::coverage::text(document)
@@ -3165,6 +3315,7 @@ mod tests {
                     Verb::Query => query_options(&args).err(),
                     Verb::Fuzz => fuzz_options(&args, &CommandFiles::default()).err(),
                     Verb::Compare => compare_options(&args).err(),
+                    Verb::Prune => prune_options(&args).err(),
                 };
                 assert!(
                     !error.as_deref().is_some_and(|error| {
@@ -3184,6 +3335,7 @@ mod tests {
                 Verb::Query => query_options(&unlisted).err(),
                 Verb::Fuzz => fuzz_options(&unlisted, &CommandFiles::default()).err(),
                 Verb::Compare => compare_options(&unlisted).err(),
+                Verb::Prune => prune_options(&unlisted).err(),
             };
             assert_eq!(error.as_deref(), Some("invalid option '--unlisted'"));
         }
@@ -3204,6 +3356,7 @@ mod tests {
                 Verb::Query => query_options(&twice).err(),
                 Verb::Fuzz => fuzz_options(&twice, &CommandFiles::default()).err(),
                 Verb::Compare => compare_options(&twice).err(),
+                Verb::Prune => prune_options(&twice).err(),
             };
             assert_eq!(
                 error.as_deref(),

@@ -1874,8 +1874,8 @@ impl RunList<'_> {
     }
 }
 
-/// The mutation list `command` reads for `run` (the mutations `--only` names, or all) or a
-/// `fuzz` kill job (the one mutation it kills).
+/// The mutation list `command` reads for `run` (the mutations `--only` names, or all), a `fuzz`
+/// kill job (the one mutation it kills) or `prune` (all, where it has a list).
 pub(crate) fn run_list(command: &kink_flow::FlowCommand) -> Option<RunList<'_>> {
     match command {
         kink_flow::FlowCommand::Run {
@@ -1883,6 +1883,13 @@ pub(crate) fn run_list(command: &kink_flow::FlowCommand) -> Option<RunList<'_>> 
         } => Some(RunList {
             path: mutations.as_path(),
             only: &options.only,
+        }),
+        kink_flow::FlowCommand::Prune {
+            mutations: Some(mutations),
+            ..
+        } => Some(RunList {
+            path: mutations.as_path(),
+            only: &[],
         }),
         kink_flow::FlowCommand::Fuzz { request, .. } => match &request.job {
             kink_flow::cli::FuzzJobRequest::Kill {

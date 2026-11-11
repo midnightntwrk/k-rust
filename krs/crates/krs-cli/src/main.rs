@@ -55,7 +55,7 @@ Usage:
              [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
              [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
-  krs kink <emit|check|coverage|run|report|query|fuzz|compare> --package P --definition D
+  krs kink <emit|check|coverage|run|report|query|fuzz|compare|prune> --package P --definition D
              [OPTIONS] (krs kink --help lists the corpus loop's options)
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
@@ -259,6 +259,9 @@ Usage:
                    | --cover ITEM | --pattern ID) [kink-flow's fuzz options] [--locked]
   krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache DIR]
                    [--output json|text|verdicts] [--locked]
+  krs kink prune   --package P --definition D [--corpus DIR] [--mutations PATH] [--patterns PATH]
+                   [--lock FILE] [--compile-workers N] [--progress] [--cache DIR]
+                   [--output json|text] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
@@ -289,7 +292,8 @@ The corpus is <package>/kink (or --corpus DIR):
                     [compare], each implementation's verdict on each case under each view,
                     written by krs kink compare; [query], each pattern's obligation and its
                     one recorded witness, which query asks first and keeps while it still
-                    hits, written by krs kink query
+                    hits, written by krs kink query; krs kink prune reads it and writes
+                    no section
   .kink-flow/       kink-flow's caches, never committed (a .gitignore beside FLOW.toml
                     holding /.kink-flow/ keeps them out)
 
@@ -354,7 +358,12 @@ given the same request, gives the same answer. query of the corpus's own pattern
 recorded witness, which the next query asks first and keeps while it still hits; it is
 rewritten after a query of the whole list (not under --only or --verify), and under --locked it
 is left unwritten and a query that would change it exits 1.
-Each keeps the others' sections as they are.
+Each keeps the others' sections as they are. prune reads the corpus's own mutation list and
+patterns (a family whose list the layout lacks is skipped; --mutations and --patterns name
+others) and kink.lock (--lock FILE names another), which it never writes: it runs coverage,
+run --full and query --full and reports each case redundant alone, with the other cases that
+discharge what it does, one set of cases removable together, why each other case is kept, and
+the kink.lock rows each removal would move; under --locked it refuses a stale definition.k.
 A kink/verdicts.lock or kink/coverage.lock of an earlier kink is read for its killers by the
 command that kept it, which moves them into kink.lock and says to delete the old file; under
 --locked the command is refused while it is there. report builds nothing: it
@@ -368,7 +377,8 @@ Exit status, by what the caller does next, as krs run's (krs --help):
   0  yes: every case is comparable and meets its expectation (coverage), every mutation
      got a verdict, killed, survived, equivalent or unkillable (run, report), every pattern
      answered (query), the fuzz found a witness or proved the mutant equivalent, verdicts
-     are possible (check), definition.k is fresh (emit)
+     are possible (check), definition.k is fresh (emit), the redundancy report is computed,
+     unknowns only keeping cases (prune)
   1  a finding: a --verify mismatch, a kink.lock section --locked would change
      (run, coverage, compare), an unmet expectation (coverage), a refuted pattern claim (query), a
      case excluded on the baseline or a baseline without data (check)
@@ -397,7 +407,7 @@ command that builds the package builds it in process, so krs kink takes no --no-
 
 /// Each verb of `krs kink` with its usage line, as [`KINK_USAGE`] lists it.
 #[cfg(feature = "kink")]
-const KINK_VERB_USAGE: [(&str, &str); 8] = [
+const KINK_VERB_USAGE: [(&str, &str); 9] = [
     (
         "emit",
         "krs kink emit --package P --definition D [--corpus DIR] [--check]",
@@ -438,6 +448,12 @@ const KINK_VERB_USAGE: [(&str, &str); 8] = [
         "compare",
         "krs kink compare --package P --definition D [--corpus DIR] [--only NAME]... [--cache \
          DIR] [--output json|text|verdicts] [--locked]",
+    ),
+    (
+        "prune",
+        "krs kink prune --package P --definition D [--corpus DIR] [--mutations PATH] [--patterns \
+         PATH] [--lock FILE] [--compile-workers N] [--progress] [--cache DIR] [--output \
+         json|text] [--locked]",
     ),
 ];
 
@@ -571,6 +587,21 @@ fn kink_usage_tail(verb: Option<&str>) -> String {
     }
 }
 
+/// The lists `krs kink prune` reads, each a layout's file by default, which its help lists.
+#[cfg(feature = "kink")]
+const KINK_PRUNE_LISTS: [kink_flow::cli::VerbOption; 2] = [
+    kink_flow::cli::VerbOption {
+        spelling: "--mutations PATH",
+        meaning: "the mutation list (default: the corpus's mutations/, else its MUTATIONS.toml; \
+                  without either the mutations are skipped)",
+    },
+    kink_flow::cli::VerbOption {
+        spelling: "--patterns PATH",
+        meaning: "the pattern list, in place of the patterns FLOW.toml declares (default: those, \
+                  else the corpus's PATTERNS.toml; without either the patterns are skipped)",
+    },
+];
+
 /// `krs kink VERB --help`: what the verb does, its usage line, krs's options and, for a
 /// kink-flow verb, kink-flow's options of the verb, which `krs kink` passes on.
 #[cfg(feature = "kink")]
@@ -630,6 +661,7 @@ fn kink_verb_help(verb: &str) -> String {
             "--templates PATH",
             "the template list (default: the corpus's TEMPLATES.toml)",
         )),
+        Some(kink_flow::Verb::Prune) => own.extend_from_slice(&KINK_PRUNE_LISTS),
         _ => {}
     }
     let mut text = format!(
@@ -2422,26 +2454,28 @@ fn parse_kink_verb(
 }
 
 /// The first argument of `args`, the arguments of `krs kink VERB` that are not krs's own, that
-/// begins with `-` and is no option `verb` takes: kink-flow's options of the verb, and the flag by
-/// which krs names the list the verb takes as an operand (`run --mutations`, `query --patterns`,
-/// `fuzz --templates`). The value of an option that takes one is skipped.
+/// begins with `-` and is no option `verb` takes: kink-flow's options of the verb, and the flags by
+/// which krs names the lists the verb takes as operands (`run --mutations`, `query --patterns`,
+/// `fuzz --templates`, `prune --mutations` and `--patterns`). The value of an option that takes
+/// one is skipped.
 #[cfg(feature = "kink")]
 fn unlisted_option(verb: kink_flow::Verb, args: &[String]) -> Option<&str> {
-    let operand = match verb {
-        kink_flow::Verb::Run => Some("--mutations"),
-        kink_flow::Verb::Query => Some("--patterns"),
-        kink_flow::Verb::Fuzz => Some("--templates"),
+    let operands: &[&str] = match verb {
+        kink_flow::Verb::Run => &["--mutations"],
+        kink_flow::Verb::Query => &["--patterns"],
+        kink_flow::Verb::Fuzz => &["--templates"],
+        kink_flow::Verb::Prune => &["--mutations", "--patterns"],
         kink_flow::Verb::Check
         | kink_flow::Verb::Coverage
         | kink_flow::Verb::Report
-        | kink_flow::Verb::Compare => None,
+        | kink_flow::Verb::Compare => &[],
     };
     let mut args = args.iter();
     while let Some(argument) = args.next() {
         if !argument.starts_with('-') {
             continue;
         }
-        if Some(argument.as_str()) == operand {
+        if operands.contains(&argument.as_str()) {
             args.next();
             continue;
         }

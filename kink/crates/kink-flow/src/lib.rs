@@ -42,6 +42,11 @@
 //! lists the obligations the specification states, family by family, each covered or open, with
 //! a target for each open one ([`coverage`]). The engine does not change: a KRS corpus runs as a
 //! K corpus over the K its front end emitted.
+//!
+//! FB54-PRUNE adds the `prune` command ([`prune`]): which programs of the corpus are redundant,
+//! read from the obligations it discharges (the mutations `run --full` kills, the patterns
+//! `query --full` hits, the items `coverage` covers), each computed in process; it writes no lock
+//! and edits no file.
 
 pub mod admit;
 pub mod check;
@@ -66,6 +71,7 @@ pub mod names;
 pub mod observed;
 pub mod outcomes;
 pub mod pattern;
+pub mod prune;
 pub mod query;
 pub mod report;
 pub mod results;

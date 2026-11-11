@@ -1680,6 +1680,74 @@ pub fn matrix(programs: &[Value], mutations: &[Value]) -> Value {
     json!({"programs": comparable})
 }
 
+/// What a full run's mutation `row` (`run --full`) states of each program, as an obligation of
+/// the corpus ([`crate::prune`]): "some program kills the mutation", an existential over the
+/// corpus as a pattern's obligation is ([`crate::query`]).
+///
+/// - A row that a program can kill (`killed`, or a survivor: `survived`, `timeout`, `unknown`)
+///   is an obligation. Its dischargers are `killed_by`, every program whose cell is a proved
+///   difference; its unknown cells are the programs whose executed entry is neither `agree` nor
+///   `distinguish` (a timeout, an unknown, an incomparable, an error or a failed run), as the
+///   kill matrix's `undecided` lists them ([`matrix`]). A killed row whose `killed_by` is null
+///   (no full fold decided it) names its `killer` alone.
+/// - A killed row of a mutation that expects to survive (`expect = "survive"`) is no obligation:
+///   its killers refute the expectation, a finding each of them is evidence of.
+/// - Every other row (`equivalent`, `unkillable`, `not-admitted`, `invalid-mutation`, `error`) is
+///   none: no program of any corpus kills it, or no verdict was reached; a row with no cell, a
+///   mutant that failed as a whole, has the same status whatever programs the corpus holds.
+#[must_use]
+pub fn kill_cells(row: &Value) -> crate::prune::Reading {
+    use crate::prune::{Cells, Reading};
+    let status = row["status"].as_str().unwrap_or_default();
+    let strings = |value: &Value| {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let killers = || {
+        if row["killed_by"].is_array() {
+            strings(&row["killed_by"])
+        } else {
+            row["killer"]
+                .as_str()
+                .map(str::to_owned)
+                .into_iter()
+                .collect()
+        }
+    };
+    if status == "killed" && row["expect"] == crate::Expect::Survive.as_str() {
+        return Reading::Refuted(killers());
+    }
+    if status != "killed" && !SURVIVOR_STATUSES.contains(&status) {
+        return Reading::None;
+    }
+    let mut unknown = Vec::new();
+    for entry in row["executed"].as_array().into_iter().flatten() {
+        if entry["outcome"] != "agree"
+            && entry["outcome"] != "distinguish"
+            && let Some(program) = entry["program"].as_str()
+            && !unknown.iter().any(|known| known == program)
+        {
+            unknown.push(program.to_owned());
+        }
+    }
+    let dischargers = if status == "killed" {
+        killers()
+    } else {
+        Vec::new()
+    };
+    unknown.retain(|program| !dischargers.contains(program));
+    Reading::Obligation(Cells {
+        dischargers,
+        unknown,
+        unnamed: false,
+    })
+}
+
 /// Every program that cannot kill (its result class is not `comparable`), once, from the
 /// `coverage` rows: `{id, class, cause}`.
 pub fn unusable_programs(programs: &[Value]) -> Vec<Value> {

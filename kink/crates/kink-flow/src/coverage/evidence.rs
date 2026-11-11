@@ -468,8 +468,8 @@ pub(super) struct Context<'c, 'i> {
 /// The evidence of each argued item of the derived document `probe` whose entry names an
 /// invariant of `resolved`, whose connection (`checks`, by item id) does not fail and whose
 /// function check is not `not-shown` (module documentation): `{status, rules, states, steps,
-/// programs, failure, reason, cached}` by item id, and `invariant_runs`, `{run, cached}`, the
-/// evidence runs this command ran and read from the memo.
+/// programs, stepped_by, failure, reason, cached, clock_stopped}` by item id, and
+/// `invariant_runs`, `{run, cached}`, the evidence runs this command ran and read from the memo.
 pub(super) fn evidence(
     probe: &Value,
     resolved: &BTreeMap<String, (ResolvedInvariant, Value)>,
@@ -1101,6 +1101,7 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
                 "states": 0,
                 "steps": 0,
                 "programs": [],
+                "stepped_by": [],
                 "failure": null,
                 "reason": format!("the rules that step where the item's rule matches are not known: {reason}"),
                 "cached": false,
@@ -1119,6 +1120,9 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
     let mut failure = Value::Null;
     let (mut states, mut stepped) = (0_u64, 0_u64);
     let mut programs = Vec::new();
+    // The programs whose run read the invariant before some step of the item's rules: each one's
+    // run alone makes a holding evidence non-vacuous (`stepped_by`).
+    let mut stepped_by = Vec::new();
     let cached = !read.is_empty() && read.iter().all(|(_, _, cached, _)| *cached);
     // The programs whose evidence run the clock stopped: what they would have read is not known
     // on this host ([`crate::clock`]).
@@ -1136,6 +1140,7 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
             }
         };
         programs.push(program.clone());
+        let before = stepped;
         if failure.is_null() && !record["failure"].is_null() {
             failure = record["failure"].clone();
             failure["program"] = json!(program);
@@ -1157,6 +1162,9 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
                     channel["rule"].as_str().unwrap_or("?")
                 ));
             }
+        }
+        if stepped > before {
+            stepped_by.push(program.clone());
         }
         // The initial state, and each end the run read.
         states += 1 + record["ends"].as_u64().unwrap_or(0);
@@ -1180,6 +1188,7 @@ fn item_evidence(steps: &Result<Steps, String>, read: Option<&[Read]>) -> Value 
         "states": states,
         "steps": stepped,
         "programs": programs,
+        "stepped_by": stepped_by,
         "failure": failure,
         "reason": if status == EVIDENCE_FAILS || reasons.is_empty() {
             Value::Null

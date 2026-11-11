@@ -317,7 +317,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 47] = [
+pub const OUTSIDE_IDENTITY: [Outside; 48] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -637,6 +637,13 @@ pub const OUTSIDE_IDENTITY: [Outside; 47] = [
         krate: "kink-flow",
         constant: "QUERY_VERSION",
         reason: "the query document's format (flow F-18): no command reads a query document back",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "PRUNE_VERSION",
+        reason: "the prune document's format (prune.rs): no command reads a prune document back; \
+                 it is computed from the coverage, run and query documents after every status \
+                 is decided, and decides none",
     },
     Outside {
         krate: "kink-flow",

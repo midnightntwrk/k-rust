@@ -86,6 +86,12 @@
 //! and `--verify` leave it unwritten, and under krs's `--locked` kink-flow's `--locked` compares
 //! it. Each command keeps the others' sections as they are.
 //!
+//! `prune` reads the corpus's own lists as `run` and `query` do (a family whose list the layout
+//! lacks is skipped; `--mutations` and `--patterns` name others), runs the front end's checks of
+//! the mutation list and derives the condition flips as `run` and `coverage` do, and reads
+//! `kink.lock` (`--lock FILE` names another) for the rows each removal would move; it writes no
+//! section, so krs's `--locked` adds no kink-flow `--locked` to it.
+//!
 //! Before version 24 the two locks were `<corpus>/verdicts.lock` and `<corpus>/coverage.lock`.
 //! Where the command keeps the record by default and its old file is there, the front end names
 //! it to kink-flow ([`kink_flow::FlowCommand::set_legacy_lock`]): without `--locked` its killers
@@ -631,7 +637,7 @@ fn parsed_command(
 
 /// Whether `command` judges a mutation list or the definition's condition flips, so that the
 /// front end's checks need the lowering the K is emitted from: `check --mutations`, `run`, a
-/// `fuzz` kill job, `coverage`.
+/// `fuzz` kill job, `coverage`, `prune`.
 fn judges_mutations(command: &FlowCommand) -> bool {
     match command {
         FlowCommand::Check(options) => options.mutations.is_some(),
@@ -640,11 +646,12 @@ fn judges_mutations(command: &FlowCommand) -> bool {
 }
 
 /// Whether `command` reads the definition's condition flips: `coverage`, whose flips family they
-/// are (under `--tier 1` it shows how many there are), and a `fuzz` kill job of an id no list
-/// holds, which names a flip.
+/// are (under `--tier 1` it shows how many there are), `prune`, which runs coverage's flips family
+/// as one of its obligation families, and a `fuzz` kill job of an id no list holds, which names a
+/// flip.
 fn derives_flips(command: &FlowCommand) -> bool {
     match command {
-        FlowCommand::Coverage { .. } => true,
+        FlowCommand::Coverage { .. } | FlowCommand::Prune { .. } => true,
         FlowCommand::Fuzz { request, .. } => {
             matches!(request.job, FuzzJobRequest::Derived { .. })
         }
@@ -710,8 +717,8 @@ fn front_derived(
     }
 }
 
-/// The mutation list `command` judges (`check --mutations`, `run`, a `fuzz` kill job), whose
-/// refused edits its document names by their anchors.
+/// The mutation list `command` judges (`check --mutations`, `run`, a `fuzz` kill job, `prune`),
+/// whose refused edits its document names by their anchors.
 fn judged_list(command: &FlowCommand) -> Option<PathBuf> {
     match command {
         FlowCommand::Check(options) => options.mutations.clone(),
@@ -884,13 +891,17 @@ fn checked_mutations(
 }
 
 /// `annotator`, naming the guard nodes of the rows by KRS construct by `guard_names` where
-/// `command` is `coverage`, the one command whose document has guards ([`guards`]).
+/// `command` is `coverage`, the one command whose document has guards ([`guards`]), or `prune`,
+/// which reads a coverage document it annotates as `coverage` does.
 fn naming_guards(
     annotator: annotate::Annotator,
     command: &FlowCommand,
     guard_names: guards::GuardNames,
 ) -> annotate::Annotator {
-    if matches!(command, FlowCommand::Coverage { .. }) {
+    if matches!(
+        command,
+        FlowCommand::Coverage { .. } | FlowCommand::Prune { .. }
+    ) {
         annotator.naming_guards(guard_names)
     } else {
         annotator
@@ -996,6 +1007,7 @@ fn command_cache(command: &FlowCommand) -> Option<&Path> {
         FlowCommand::Query { options, .. } => options.cache.as_deref(),
         FlowCommand::Fuzz { request, .. } => request.options.cache.as_deref(),
         FlowCommand::Compare { options, .. } => options.cache.as_deref(),
+        FlowCommand::Prune { options, .. } => options.cache.as_deref(),
     }
 }
 
@@ -1261,21 +1273,23 @@ fn emit_command(
     }
 }
 
-/// The flag by which `krs kink <verb>` names a list that kink-flow's verb takes as an operand:
-/// `run --mutations`, `query --patterns`, `fuzz --templates`. kink-flow's own parser takes the
-/// other list flags (`check --mutations`, `fuzz --mutations` and `--patterns`).
-const fn operand_flag(verb: Verb) -> Option<&'static str> {
+/// The flags by which `krs kink <verb>` names the lists that kink-flow's verb takes as operands:
+/// `run --mutations`, `query --patterns`, `fuzz --templates`, `prune --mutations` and
+/// `--patterns`. kink-flow's own parser takes the other list flags (`check --mutations`, `fuzz
+/// --mutations` and `--patterns`).
+const fn operand_flags(verb: Verb) -> &'static [&'static str] {
     match verb {
-        Verb::Run => Some("--mutations"),
-        Verb::Query => Some("--patterns"),
-        Verb::Fuzz => Some("--templates"),
-        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare => None,
+        Verb::Run => &["--mutations"],
+        Verb::Query => &["--patterns"],
+        Verb::Fuzz => &["--templates"],
+        Verb::Prune => &["--mutations", "--patterns"],
+        Verb::Check | Verb::Coverage | Verb::Report | Verb::Compare => &[],
     }
 }
 
 /// The files `verb` reads ([`layout_files`], on a corpus whose manifest declares its patterns
-/// where `declares_patterns`), the list its [`operand_flag`] names replacing the layout's, and
-/// the options left for kink-flow's parser; the error is the usage message.
+/// where `declares_patterns`), each list one of its [`operand_flags`] names replacing the
+/// layout's, and the options left for kink-flow's parser; the error is the usage message.
 fn command_files(
     corpus: &Path,
     verb: Verb,
@@ -1283,26 +1297,25 @@ fn command_files(
     declares_patterns: bool,
 ) -> Result<(CommandFiles, Vec<String>), String> {
     let mut files = layout_files(corpus, verb, declares_patterns);
-    let Some(flag) = operand_flag(verb) else {
-        return Ok((files, options.to_vec()));
-    };
+    let flags = operand_flags(verb);
     let mut rest = Vec::with_capacity(options.len());
-    let mut given = None;
+    let mut given = Vec::new();
     let mut args = options.iter();
     while let Some(arg) = args.next() {
-        if arg != flag {
+        let Some(flag) = flags.iter().find(|flag| **flag == arg) else {
             rest.push(arg.clone());
-        } else if given.is_some() {
+            continue;
+        };
+        if given.iter().any(|(named, _)| named == flag) {
             return Err(format!("{flag} is given twice"));
-        } else {
-            let path = args.next().ok_or_else(|| format!("{flag} needs a path"))?;
-            given = Some(PathBuf::from(path));
         }
+        let path = args.next().ok_or_else(|| format!("{flag} needs a path"))?;
+        given.push((*flag, PathBuf::from(path)));
     }
-    if let Some(path) = given {
-        match verb {
-            Verb::Run => files.mutations = Some(path),
-            Verb::Query => files.patterns = Some(path),
+    for (flag, path) in given {
+        match flag {
+            "--mutations" => files.mutations = Some(path),
+            "--patterns" => files.patterns = Some(path),
             _ => files.templates = Some(path),
         }
     }
@@ -1329,11 +1342,12 @@ fn flow_arguments(
 ) -> Result<(CommandFiles, Vec<String>), String> {
     let (files, mut rest) = command_files(corpus, verb, options, declares_patterns)?;
     let named = |flag: &str| options.iter().any(|arg| arg == flag);
-    // The lock a verb keeps by default: none for a run of another list.
+    // The lock a verb keeps by default: none for a run of another list. `prune` reads the
+    // corpus record, whatever lists it reads, for the rows a removal would move in it.
     let default = match verb {
         Verb::Run if named("--mutations") => None,
         Verb::Query if named("--patterns") => None,
-        Verb::Run | Verb::Coverage | Verb::Compare | Verb::Query => Some(LOCK_FILE),
+        Verb::Run | Verb::Coverage | Verb::Compare | Verb::Query | Verb::Prune => Some(LOCK_FILE),
         _ => return Ok((files, rest)),
     };
     if let Some(lock) = default.filter(|_| !named("--lock")) {
@@ -1345,7 +1359,10 @@ fn flow_arguments(
             && !options
                 .windows(2)
                 .any(|pair| pair[0] == "--tier" && pair[1] == "1"));
-    if locked && manifest_settings && rest.iter().any(|arg| arg == "--lock") {
+    // `prune` writes no lock, so it compares none: krs's `--locked` only refuses a stale
+    // definition.k there.
+    if locked && verb != Verb::Prune && manifest_settings && rest.iter().any(|arg| arg == "--lock")
+    {
         rest.push("--locked".to_owned());
     }
     Ok((files, rest))

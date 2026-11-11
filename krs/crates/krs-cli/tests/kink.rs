@@ -2445,6 +2445,94 @@ fn query_asks_the_patterns_flow_toml_declares() {
     );
 }
 
+/// FB54-PRUNE: `krs kink prune` reads the corpus layout: no mutation list, so the mutations are
+/// skipped; the layout's PATTERNS.toml; the condition flips the front end derives; and kink.lock,
+/// which it reads and never writes. Of the three cases `c0` (`count(0)`) only stops, while `c2`
+/// and `c3` also step, each the other's only alternative: both are redundant alone, and the
+/// reverse walk removes `c3` and keeps `c2`. `c0` is kept: its cell on a flip is unknown, and no
+/// case distinguishes the flip. The record was written while the corpus listed `c3` first, so
+/// `c3` is the pattern's recorded witness, and removing it moves the `[query]` row. krs's
+/// `--locked` refuses only a stale definition.k: prune compares no lock.
+#[test]
+fn prune_reads_the_corpus_layout_and_its_record() {
+    let project = counter();
+    let corpus = "corpora/prune";
+    let program = |id: &str| format!("[[program]]\nid = \"{id}\"\nfile = \"cases/{id}.cnt\"\n\n");
+    let flow = |order: [&str; 3]| {
+        format!(
+            "[spec]\nkrs = {{ definition = \"main\" }}\n\n{}",
+            order.map(program).concat()
+        )
+    };
+    project.write(&format!("{corpus}/FLOW.toml"), flow(["c3", "c2", "c0"]));
+    project.write(&format!("{corpus}/cases/c0.cnt"), "count(0)\n");
+    project.write(&format!("{corpus}/cases/c2.cnt"), "count(2)\n");
+    project.write(&format!("{corpus}/cases/c3.cnt"), "count(3)\n");
+    project.write(
+        &format!("{corpus}/PATTERNS.toml"),
+        "[[pattern]]\nid = \"done\"\npattern = \"<k> done </k>\"\n",
+    );
+    let output = project.kink("query", &["--corpus", corpus]);
+    assert_status(&output, 0);
+    let lock = project.read(&format!("{corpus}/kink.lock"));
+    assert!(lock.contains("witness = \"c3\""), "{lock}");
+    project.write(&format!("{corpus}/FLOW.toml"), flow(["c0", "c2", "c3"]));
+
+    let output = project.kink("prune", &["--corpus", corpus]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert_eq!(document["schema"], "kink-flow-prune", "{document:#}");
+    let families = document["families"].as_array().unwrap();
+    assert_eq!(
+        families[0],
+        json!({"family": "mutations", "run": false, "reason": "no-mutation-list",
+               "detail": "no mutation list was given"}),
+        "{document:#}"
+    );
+    assert_eq!(families[1]["obligations"], 1, "{document:#}");
+    let redundant = document["redundant"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["case"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(redundant, ["c2", "c3"], "{document:#}");
+    assert_eq!(
+        document["removable"]["cases"],
+        json!(["c3"]),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["removable"]["lock"],
+        json!([{"case": "c3", "rows": {"query": ["done"]}}]),
+        "{document:#}"
+    );
+    let kept = &document["kept"][0];
+    assert_eq!(kept["case"], "c0", "{document:#}");
+    assert!(
+        kept["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|reason| reason["reason"] == "unknown" && reason["family"] == "flips"),
+        "{document:#}"
+    );
+    assert_eq!(project.read(&format!("{corpus}/kink.lock")), lock);
+
+    let output = project.kink(
+        "prune",
+        &["--corpus", corpus, "--locked", "--output", "text"],
+    );
+    assert_status(&output, 0);
+    assert!(
+        stdout(&output).starts_with(
+            "3 cases: 2 redundant alone, 1 removable together (in reverse-manifest order): c3\n"
+        ),
+        "{}",
+        stdout(&output)
+    );
+}
+
 /// `query` and `fuzz` run through the front end and print kink-flow's documents, with the
 /// rules they name named by their Rust items.
 #[test]
@@ -3549,7 +3637,7 @@ fn coverage_gives_a_claim_helper_its_own_status() {
     let counts = &document["families"]["rules"]["counts"];
     assert_eq!(counts["claim_helper"], 1, "{counts:#}");
     assert_eq!(counts["unmatched"], count("unmatched"));
-    assert_eq!(document["version"], 23);
+    assert_eq!(document["version"], 24);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic

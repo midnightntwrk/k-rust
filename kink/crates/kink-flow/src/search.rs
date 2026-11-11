@@ -2764,6 +2764,21 @@ pub fn run_front(
     mode: RunMode,
     front: &FrontEnd<'_>,
 ) -> (Value, bool) {
+    run_stored(manifest, list, options, mode, front, true)
+}
+
+/// [`run_front`], storing the document as the cache's last run report ([`REPORT_FILE`]), which
+/// `report` prints and `fuzz --kill` reads, only where `store_report`: a command that runs the
+/// search for facts of its own (`prune`, [`crate::prune`]) stores none, so that the last run's
+/// report stays that run's. The outcome records and the memos are written either way.
+pub(crate) fn run_stored(
+    manifest: &FlowManifest,
+    list: &MutationList,
+    options: &RunOptions,
+    mode: RunMode,
+    front: &FrontEnd<'_>,
+    store_report: bool,
+) -> (Value, bool) {
     let annotated = |mut document: Value| {
         if let Some(annotate) = front.annotate {
             annotate(&mut document);
@@ -2832,7 +2847,9 @@ pub fn run_front(
                 ..Accounting::NONE
             },
         ));
-        let _ = store.write_json(&report_path, &document);
+        if store_report {
+            let _ = store.write_json(&report_path, &document);
+        }
         (document, false)
     };
     let verify = mode == RunMode::Verify;
@@ -3143,37 +3160,41 @@ pub fn run_front(
             ok = false;
         }
         rows.push(row);
-        let document = annotated(document(
-            &record,
-            Some(update.spec_digest),
-            &program_rows,
-            rows.clone(),
-            stopped.clone(),
-            Accounting {
-                outcome_cache: outcome_cache(&search),
-                mismatches: &search.mismatches,
-                baseline_runs: runner.baseline_runs(),
-                schedule: json!(schedule_name(options.schedule)),
-                untargeted_rules: untargeted.clone(),
-                data: spec.data.value(),
-                exclusion: exclusion.clone(),
-                result: spec.result.value(),
-                execution: update.execution.value(),
-                stop: manifest.stop.as_ref().map(|_| manifest),
-                observe: manifest.observe_value(),
-                // Nothing is written to the lock before the run ends.
-                lock: lock.as_ref().map_or(Value::Null, Lock::pending),
-                coverage: Some(&stop_coverage),
-                list: &list.mutations,
-            },
-        ));
-        match store.write_json(&report_path, &document) {
-            Ok(()) => written = Some(document),
-            Err(e) => {
-                if let Some(last) = rows.last_mut() {
-                    last["cache_error"] = json!(format!("cannot write the report: {e}"));
+        // Each write of the report is the document as far as the run has come, so that a run
+        // that stops still leaves its rows; a run that stores no report builds none.
+        if store_report {
+            let document = annotated(document(
+                &record,
+                Some(update.spec_digest),
+                &program_rows,
+                rows.clone(),
+                stopped.clone(),
+                Accounting {
+                    outcome_cache: outcome_cache(&search),
+                    mismatches: &search.mismatches,
+                    baseline_runs: runner.baseline_runs(),
+                    schedule: json!(schedule_name(options.schedule)),
+                    untargeted_rules: untargeted.clone(),
+                    data: spec.data.value(),
+                    exclusion: exclusion.clone(),
+                    result: spec.result.value(),
+                    execution: update.execution.value(),
+                    stop: manifest.stop.as_ref().map(|_| manifest),
+                    observe: manifest.observe_value(),
+                    // Nothing is written to the lock before the run ends.
+                    lock: lock.as_ref().map_or(Value::Null, Lock::pending),
+                    coverage: Some(&stop_coverage),
+                    list: &list.mutations,
+                },
+            ));
+            match store.write_json(&report_path, &document) {
+                Ok(()) => written = Some(document),
+                Err(e) => {
+                    if let Some(last) = rows.last_mut() {
+                        last["cache_error"] = json!(format!("cannot write the report: {e}"));
+                    }
+                    ok = false;
                 }
-                ok = false;
             }
         }
         if stopped.is_some() {
@@ -3239,7 +3260,10 @@ pub fn run_front(
     let document = annotated(document);
     // The stored report is the document the command prints: write it unless the last write
     // already stored exactly this document (no mutation was selected, or a write failed).
-    if written.as_ref() != Some(&document) && store.write_json(&report_path, &document).is_err() {
+    if store_report
+        && written.as_ref() != Some(&document)
+        && store.write_json(&report_path, &document).is_err()
+    {
         ok = false;
     }
     (document, ok)

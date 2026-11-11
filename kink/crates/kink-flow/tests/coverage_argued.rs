@@ -1157,6 +1157,7 @@ mod kink_tier {
                 "states": 5,
                 "steps": 1,
                 "programs": ["idle", "clean"],
+                "stepped_by": ["clean"],
                 "failure": null,
                 "reason": null,
                 "cached": false,

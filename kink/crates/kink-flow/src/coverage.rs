@@ -471,7 +471,10 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// the bound, where a flip that never ends was `unknown` by a timeout.
 /// 23 since such a flip, every undecided program of which the work budget cut, has the reason
 /// `work-budget` (the run row's, `report::WORK_BUDGET_REASON`).
-pub const COVERAGE_VERSION: u64 = 23;
+/// 24 since an argued item's evidence names the programs whose run read a step of the item's
+/// rules (`argument_check.evidence.stepped_by`, and each `argument_checks` entry's): a holding
+/// evidence is non-vacuous by any one of them, which `prune` reads ([`crate::prune`]).
+pub const COVERAGE_VERSION: u64 = 24;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -2458,6 +2461,125 @@ fn syntax_family(
         })
         .collect::<Vec<_>>();
     json!({"tier": 1, "items": items, "binders": binders})
+}
+
+/// What the coverage document's `item` of the family `family` states of each program, as an
+/// obligation of the corpus ([`crate::prune`]), `binders` being the syntax family's binders (the
+/// values every comparable record kept of each template binder).
+///
+/// - A flip (tier 2) that kink's verdict makes an obligation (`distinguished`, `undistinguished`,
+///   `unreached`, `unknown`, or `argued` while one of these) is one: its discharger is its
+///   `killer`, the one program the kill search established (the first-kill search: the flip's
+///   other programs' cells are not asked, so the killer is its only decided discharger); its
+///   unknown cells are the programs a cause left undecided (`causes`) and those whose run on the
+///   mutant the clock stopped (`timed_out`). A `refused` or `equivalent` flip is none: no
+///   program can distinguish it.
+/// - An item of every other family is an obligation where the family counts it (`obligation`
+///   not false, `covered` a truth): its dischargers are the comparable programs its covering
+///   list names (`covered_by`, `reached_by` or `fired_by`) when it is covered; its unknown cells
+///   are the programs whose record left its outcome undecided (a requirement's `undecided_by`), or
+///   left out a combination or a value it may hold (a unique-cause requirement's `truncated_by`,
+///   a field value's binder's `truncated_by`). A covered item whose list names no program is
+///   `unnamed`: some fact covers it that names no case.
+#[must_use]
+pub fn cover_cells(family: &str, item: &Value, binders: &[Value]) -> crate::prune::Reading {
+    use crate::flips::{DISTINGUISHED, UNDISTINGUISHED, UNKNOWN, UNREACHED};
+    use crate::prune::{Cells, Reading};
+    let mut unknown = Vec::new();
+    let add = |programs: Vec<String>, into: &mut Vec<String>| {
+        for program in programs {
+            if !into.contains(&program) {
+                into.push(program);
+            }
+        }
+    };
+    if family == "flips" {
+        let status = if item["status"] == ARGUED {
+            &item["unargued_status"]
+        } else {
+            &item["status"]
+        };
+        let status = status.as_str().unwrap_or_default();
+        if ![DISTINGUISHED, UNDISTINGUISHED, UNREACHED, UNKNOWN].contains(&status) {
+            return Reading::None;
+        }
+        let dischargers = if status == DISTINGUISHED {
+            item["killer"]
+                .as_str()
+                .map(str::to_owned)
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        add(ids(&item["causes"]), &mut unknown);
+        add(ids(&item["timed_out"]), &mut unknown);
+        unknown.retain(|program| !dischargers.contains(program));
+        return Reading::Obligation(Cells {
+            unnamed: status == DISTINGUISHED && dischargers.is_empty(),
+            dischargers,
+            unknown,
+        });
+    }
+    if item["obligation"] == false || !item["covered"].is_boolean() {
+        return Reading::None;
+    }
+    let covered = item["covered"] == true;
+    let mut dischargers = Vec::new();
+    if covered {
+        for key in ["covered_by", "reached_by", "fired_by"] {
+            add(ids(&item[key]), &mut dischargers);
+        }
+    }
+    add(ids(&item["undecided_by"]), &mut unknown);
+    add(ids(&item["truncated_by"]), &mut unknown);
+    if item["kind"] == FIELD_VALUE {
+        let binder = &item["binder"];
+        for kept in binders.iter().filter(|kept| {
+            binder.is_object()
+                && kept["axiom"] == binder["axiom"]
+                && kept["variable"] == binder["variable"]
+        }) {
+            add(ids(&kept["truncated_by"]), &mut unknown);
+        }
+    }
+    unknown.retain(|program| !dischargers.contains(program));
+    Reading::Obligation(Cells {
+        unnamed: covered && dischargers.is_empty(),
+        dischargers,
+        unknown,
+    })
+}
+
+/// What an argued `item`'s invariant evidence states of each program ([`crate::prune`]): an
+/// evidence that `holds` is non-vacuous by any one of the programs whose run read a step of the
+/// item's rules (`stepped_by`), so it is an existential over the corpus, whose dischargers those
+/// programs are (removing a program removes only what its run read: no failure and no reason
+/// that makes the evidence incomplete can appear); an evidence that `fails` refutes the
+/// argument by the program whose run gave the failing state, a finding it is evidence of; every
+/// other evidence states none.
+#[must_use]
+pub fn argument_cells(item: &Value) -> crate::prune::Reading {
+    use crate::prune::{Cells, Reading};
+    let evidence = &item["argument_check"]["evidence"];
+    match evidence["status"].as_str() {
+        Some(EVIDENCE_HOLDS) => {
+            let dischargers = ids(&evidence["stepped_by"]);
+            Reading::Obligation(Cells {
+                unnamed: dischargers.is_empty(),
+                dischargers,
+                unknown: Vec::new(),
+            })
+        }
+        Some(EVIDENCE_FAILS) => Reading::Refuted(
+            evidence["failure"]["program"]
+                .as_str()
+                .map(str::to_owned)
+                .into_iter()
+                .collect(),
+        ),
+        _ => Reading::None,
+    }
 }
 
 /// The order of two integers k-rust writes in decimal (an optional `-`, no leading zero).

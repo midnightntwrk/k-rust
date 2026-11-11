@@ -970,6 +970,48 @@ fn obligation(
     obligation
 }
 
+/// What a `--full` query's `obligation` (one of the document's `obligations`) states of each
+/// program ([`crate::prune`]): its dischargers are `hitters`, every program whose answer is a hit;
+/// its unknown cells `unanswered`, every program whose answer is neither a hit nor a final `no`.
+/// A pattern with `expect = "no"` states no existential: it claims that no program hits, which
+/// removing a program can only keep true, so it is no obligation, and its hitters refute the
+/// claim, a finding each of them is evidence of. Without `--full` (`hitters` null) the
+/// obligation names only its witness, whose program stays its one decided discharger.
+#[must_use]
+pub fn hit_cells(obligation: &Value) -> crate::prune::Reading {
+    use crate::prune::{Cells, Reading};
+    let strings = |value: &Value| {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let hitters = if obligation["hitters"].is_array() {
+        strings(&obligation["hitters"])
+    } else {
+        obligation["witness"]
+            .as_str()
+            .map(str::to_owned)
+            .into_iter()
+            .collect()
+    };
+    if obligation["expect"] == PatternExpect::No.as_str() {
+        return if hitters.is_empty() {
+            Reading::None
+        } else {
+            Reading::Refuted(hitters)
+        };
+    }
+    Reading::Obligation(Cells {
+        dischargers: hitters,
+        unknown: strings(&obligation["unanswered"]),
+        unnamed: false,
+    })
+}
+
 /// The `expectation` of an obligation whose pattern states `expect` (the obligation's own
 /// `expect`): `{verdict, detail}`, null for a pattern without one. `expect = "no"` claims that
 /// no program of the corpus reaches a state matching the pattern: it is `met` when every program
