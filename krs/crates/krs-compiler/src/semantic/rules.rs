@@ -1450,15 +1450,20 @@ fn infer_readable_state(
         State::Term(term) | State::Group(term) => builder.infer(term, Some(&sort), subject)?,
         // Brackets in a list leaf, an instance's child among them, hold the list's elements, so
         // each item is one element of the leaf's sort (`al: [y, ..]` binds `y` to an element of
-        // `al`); in the computation cell they are its items.
+        // `al`); in a computation, an instance's computation child among them, they are its
+        // items, each typed as the head's are ([`head_item_sort`]: `_` is any one item).
         State::KSequence(sequence) => {
-            let list = (sort != SemanticSortRef::k_sequence())
+            let computation = sort == SemanticSortRef::k_sequence();
+            let list = (!computation)
                 .then(|| builder.cons_list_of(&sort))
                 .flatten();
+            let k_item = builder.k_item_sort.clone();
             for item in &sequence.items {
-                let expected = list
-                    .as_ref()
-                    .and_then(|list| builder.list_element_expected(&item.value, list));
+                let expected = match &list {
+                    Some(list) => builder.list_element_expected(&item.value, list),
+                    None if computation => head_item_sort(&item.value, None, &k_item).cloned(),
+                    None => None,
+                };
                 builder.infer(&item.value, expected.as_ref(), subject)?;
             }
         }

@@ -294,3 +294,41 @@ fn an_item_less_sequence_the_result_keeps_changes_no_cell_as_its_twins() {
         assert_eq!(of(&lines, row), of(&lines, twin), "{row} vs {twin}");
     }
 }
+
+/// Item 2: `_` among an instance's computation child's items is one item, as it is in the
+/// computation cell's head, a top sequence leaf's brackets and the `cells!` fragment's child,
+/// and as a named item there is: braced and bracketed, rule and claim.
+#[test]
+fn a_wildcard_item_of_an_instance_computation_child_is_one_item() {
+    let row = |child: &str, claim: bool| {
+        readable(
+            &format!("go: {{ k: [Go(), ..], {child} }} => {{ k: [..] }};"),
+            claim,
+        )
+    };
+    let lines = verdicts(&[
+        ("tk", row("th: { Th { tk: [_, ..], .. }, .. }", false)),
+        ("jk", row("job: [Job { jk: [_, ..], .. }, ..]", false)),
+        ("claim-tk", row("th: { Th { tk: [_, ..], .. }, .. }", true)),
+        ("tk-named", row("th: { Th { tk: [y, ..], .. }, .. }", false)),
+        (
+            "aux",
+            readable("go: { aux: [_, ..], ll: _ } => { ll: [] };", false),
+        ),
+    ]);
+    expect_test::expect![[r"
+        tk: rule [go]: <k> go => .K ... </k> <th> <tk> _:KItem ~> Tail0:K </tk> ... </th>
+        jk: rule [go]: <k> go => .K ... </k> <jobs> <job> <jk> _:KItem ~> Tail0:K </jk> ... </job> ... </jobs>
+        claim-tk: claim [go]: <k> go => .K ... </k> <th> <tk> _:KItem ~> Tail0:K </tk> ... </th>
+        tk-named: rule [go]: <k> go => .K ... </k> <th> <tk> Y:KItem ~> Tail0:K </tk> ... </th>
+        aux: rule [go]: <aux> _:KItem ... </aux> <ll> _ => .List </ll>"]]
+    .assert_eq(&lines.join("\n"));
+    assert_eq!(
+        of(&lines, "tk").replace("_:KItem", "Y:KItem"),
+        of(&lines, "tk-named")
+    );
+    assert_eq!(
+        of(&lines, "tk").replace("rule", "claim"),
+        of(&lines, "claim-tk")
+    );
+}
