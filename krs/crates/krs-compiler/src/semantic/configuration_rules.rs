@@ -1242,15 +1242,11 @@ fn lower_configuration_rule_clauses(
     // A context (KF-021) need not rewrite anything.
     if rule.result.is_none()
         && rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Context
-        && !clauses.iter().any(|clause| {
-            clause
-                .as_fixed()
-                .is_some_and(|clause| matches!(clause.after(), CellPost::Local))
-        })
+        && !clauses.iter().any(states_change)
     {
         return Err(DescriptorLoweringError::InvalidLocalRewrite {
             item: Box::new(terms.descriptor.id().clone()),
-            reason: "a single-body rule must change something: no cell of its subject holds a `k::rewrite!`".to_owned(),
+            reason: "a single-body rule must change something: no `k::rewrite!` of its subject changes a cell".to_owned(),
             range: semantic_origin(terms.descriptor, rule.pattern_key.clone(), "rule-pattern")?
                 .origin()
                 .exact_authored_range()
@@ -1258,6 +1254,26 @@ fn lower_configuration_rule_clauses(
         });
     }
     Ok(clauses)
+}
+
+/// Whether a clause of a single-body rule (KF-011) states a change, which only a `k::rewrite!`
+/// gives it there: in place, or as a before and an after.
+fn states_change(clause: &ConfigurationClause<SemanticId, SemanticTerm>) -> bool {
+    let fixed = |clause: &FixedCellClause<SemanticId, SemanticTerm>| {
+        !matches!(clause.after(), CellPost::Preserve)
+    };
+    match clause {
+        ConfigurationClause::Fixed(clause) => fixed(clause),
+        ConfigurationClause::Optional(clause) => clause.after().is_some(),
+        ConfigurationClause::Instances(clause) => {
+            clause.instances().any(|instance| match instance {
+                krs_ir::InstanceClause::Kept { children, .. } => children.iter().any(fixed),
+                krs_ir::InstanceClause::Removed { .. } | krs_ir::InstanceClause::Created { .. } => {
+                    true
+                }
+            })
+        }
+    }
 }
 
 /// Lowers an optional (`?`) or collection (`*`) cell entry of a `cells!`
@@ -1422,13 +1438,18 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
     }
 }
 
-/// The post-state of a cell a rule reads without restating it: rewritten in
-/// place when it holds a `k::rewrite!` (KF-011), otherwise unchanged.
-fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
-    if before.contains_rewrite() {
-        CellPost::Local
+/// The clause of a cell a rule reads without restating it. A `k::rewrite!` (KF-011) that is the
+/// cell's whole content changes the content from its left side to its right side, which a clause
+/// states by its before and after, as the rule with that result does (`<acc> A => X </acc>`);
+/// rewrites inside the content rewrite it in place (`<k> (S => .K) ... </k>`); otherwise the cell
+/// is read.
+fn unrestated_clause(before: SemanticTerm) -> (SemanticTerm, CellPost<SemanticTerm>) {
+    if let Some((from, to)) = super::cell_states::whole_rewrite(&before) {
+        (from, CellPost::Replace { term: to })
+    } else if before.contains_rewrite() {
+        (before, CellPost::Local)
     } else {
-        CellPost::Preserve
+        (before, CellPost::Preserve)
     }
 }
 
@@ -1531,7 +1552,9 @@ fn lower_configuration_rule_clause(
             CellPost::Replace { term: after }
         }
     } else {
-        unrestated_post(&before)
+        let post;
+        (before, post) = unrestated_clause(before);
+        post
     };
     Ok(FixedCellClause::new(
         semantic_origin(descriptor, subject.field.key.clone(), "rule-cell-clause")?,
@@ -1586,17 +1609,17 @@ fn lower_configuration_group_clause(
         subject_sorts,
         true,
     )?;
-    let post = match result {
+    let (before, post) = match result {
         Some(result) => {
             let after =
                 terms.state_term(&result.value, &sort, &result.field.key, result_sorts, false)?;
             if semantic_terms_equivalent(&before, &after) {
-                CellPost::Preserve
+                (before, CellPost::Preserve)
             } else {
-                CellPost::Replace { term: after }
+                (before, CellPost::Replace { term: after })
             }
         }
-        None => unrestated_post(&before),
+        None => unrestated_clause(before),
     };
     Ok(FixedCellClause::whole(
         semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,

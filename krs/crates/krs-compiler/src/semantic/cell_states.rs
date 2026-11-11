@@ -14,7 +14,7 @@ use krs_ir::{
     ProtocolRuleFrame, ProtocolRuleInstance, ProtocolRuleInstances, ProtocolRuleStateTerm,
     ProvenanceKey, SemanticId, StableItemId,
 };
-use krs_ir_levels::{SemanticSortRef, SemanticTerm};
+use krs_ir_levels::{IrTermKind, SemanticSortRef, SemanticTerm};
 
 use super::built_maps::{MapBase, writes_over_whole_map};
 use super::catalog::semantic_sort_ref;
@@ -795,6 +795,8 @@ pub(super) fn lower_optional_clause(
         }
         (_, after) => after,
     };
+    let (before_presence, after_presence) =
+        rewritten_presence(&descriptor, cell, before_presence, after_presence)?;
     Ok(ConfigurationClause::Optional(OptionalCellClause::new(
         semantic_origin(&descriptor, cell.key.clone(), "rule-optional-clause")?,
         semantic_cell_id(&cell.cell)?,
@@ -803,6 +805,64 @@ pub(super) fn lower_optional_clause(
         after_presence,
         frame,
     )))
+}
+
+/// An optional cell's states in a single-body rule (KF-011), which has no result: a `k::rewrite!`
+/// that is the present content changes it and leaves the cell present, `<opt> O => X </opt>`.
+fn rewritten_presence(
+    descriptor: &Descriptor,
+    cell: &DescriptorCellReference,
+    before: Presence<SemanticTerm>,
+    after: Option<Presence<SemanticTerm>>,
+) -> Result<(Presence<SemanticTerm>, Option<Presence<SemanticTerm>>), DescriptorLoweringError> {
+    match (before, after) {
+        (Presence::Present { term }, None) if term.contains_rewrite() => {
+            let Some((from, to)) = whole_rewrite(&term) else {
+                return Err(rewrite_inside(
+                    descriptor,
+                    codes::analysis::OPTIONAL_PRESENCE,
+                    &cell.key,
+                    &format!(
+                        "the present content of the optional cell `{}`",
+                        cell.cell.field
+                    ),
+                ));
+            };
+            Ok((
+                Presence::Present { term: from },
+                Some(Presence::Present { term: to }),
+            ))
+        }
+        presences => Ok(presences),
+    }
+}
+
+/// The two sides of a `k::rewrite!` (KF-011) that is a cell's whole content, `Cell(k::rewrite!(a
+/// => x))`: the change from the content its left side matches to the one its right side writes.
+pub(super) fn whole_rewrite(content: &SemanticTerm) -> Option<(SemanticTerm, SemanticTerm)> {
+    match content.kind() {
+        IrTermKind::Rewrite { from, to } => Some(((**from).clone(), (**to).clone())),
+        _ => None,
+    }
+}
+
+/// A `k::rewrite!` below the root of an optional cell's present content or of a kept instance's
+/// child, which only a fixed cell's clause states in place: the cell's whole content rewritten,
+/// or a rule with a result, states the same change.
+fn rewrite_inside(
+    descriptor: &Descriptor,
+    code: krs_diagnostic::Code,
+    key: &ProvenanceKey,
+    place: &str,
+) -> DescriptorLoweringError {
+    collection_error(
+        descriptor,
+        code,
+        key,
+        format!(
+            "{place} holds a `k::rewrite!` below its root, and a single-body rule rewrites in place only inside a cell that is neither optional nor in a collection instance, which KRS does not lower yet: rewrite the whole content, `k::rewrite!(.. => ..)`, or write the rule with a result"
+        ),
+    )
 }
 
 /// One collection instance's resolved children: the declaration's fields by
@@ -1321,8 +1381,46 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 &field.value,
                 result_field.map(|field| &field.value),
             )?;
-            let after = match result_field {
-                None => CellPost::Preserve,
+            let (before, after) = match result_field {
+                // A single-body rule (KF-011) has no result: a `k::rewrite!` that is the child's
+                // whole content changes it, `<val> V => X </val>`, and a key is kept only by a
+                // rewrite whose sides are the same, as by a result.
+                None if before.contains_rewrite() => {
+                    let Some((from, to)) = whole_rewrite(&before) else {
+                        return Err(rewrite_inside(
+                            descriptor,
+                            codes::analysis::COLLECTION_ENTRY,
+                            &field.key,
+                            &format!(
+                                "the child `{}` of an instance of the collection `{}`",
+                                field.field, self.collection.cell.field
+                            ),
+                        ));
+                    };
+                    let key = self
+                        .declaration
+                        .fields
+                        .first()
+                        .is_some_and(|key| key.rust_field == field.field);
+                    if self.map && key {
+                        if !self.lowering.same(&from, &to) {
+                            return Err(collection_error(
+                                descriptor,
+                                codes::analysis::MAP_COLLECTION_KEY,
+                                &field.key,
+                                krs_ir::subject::key_update_reason(
+                                    &self.collection.cell.field,
+                                    &field.field,
+                                ),
+                            ));
+                        }
+                        // The key kept is the key read.
+                        (from, CellPost::Preserve)
+                    } else {
+                        (from, CellPost::Replace { term: to })
+                    }
+                }
+                None => (before, CellPost::Preserve),
                 Some(result_field) => {
                     // A child's whole `map![..]` is built over what the subject leaves of it.
                     let base =
@@ -1338,9 +1436,9 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                     if self.lowering.same(&before, &after)
                         && !matches!(frame, CellContentFrame::MovedMapRemainder { .. })
                     {
-                        CellPost::Preserve
+                        (before, CellPost::Preserve)
                     } else {
-                        CellPost::Replace { term: after }
+                        (before, CellPost::Replace { term: after })
                     }
                 }
             };

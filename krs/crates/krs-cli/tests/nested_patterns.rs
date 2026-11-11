@@ -3758,3 +3758,287 @@ fn a_cells_record_without_a_rest_that_leaves_a_cell_out_is_refused_at_the_record
         ]
     "#]].assert_debug_eq(&refused);
 }
+
+/// A configuration with a cell of each kind a single-body rule's rewrite can stand in: plain
+/// leaves of several sorts, a group's leaf, optional leaves, and a Map collection's instances.
+const SINGLE_BODY: &str = r#"
+use k::builtin::{Int, KSequence, List, Map, list, map};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("make({x})")]
+    Make { x: Int },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub gas: Int,
+}
+
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub oid: Int,
+    #[k::cell]
+    pub val: Int,
+    #[k::cell]
+    pub mem: Map,
+}
+
+#[k::cell]
+pub struct Objs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub obj: Obj,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub acc: Int,
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell]
+    pub env: Map,
+    #[k::cell]
+    pub lst: List,
+    #[k::cell(multiplicity = "?")]
+    pub opt: Option<Int>,
+    #[k::cell(multiplicity = "?")]
+    pub omap: Option<Map>,
+    #[k::cell(nested)]
+    pub objs: Objs,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            acc: 0,
+            frame: Frame { pc: 0, gas: 0 },
+            env: k::map![],
+            lst: list::empty(),
+            opt: k::absent!(0),
+            omap: k::absent!(k::map![]),
+            objs: Objs { obj: Obj { oid: 0, val: 0, mem: k::map![] } },
+        }
+    }
+}
+"#;
+
+/// A `SINGLE_BODY` single-body rule `make` over `x: Int` and the binders of `parameters` that
+/// removes `make(x)` from the computation and rewrites the cells of `entries`.
+fn single_body(parameters: &str, entries: &str) -> String {
+    format!(
+        "{SINGLE_BODY}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,{parameters}\n    k::cells! {{ k: k::configuration::KCell(k::rewrite!(Cmd::Make {{ x }} => ()), ..), {entries}, .. }}: Machine,\n) {{}}\n"
+    )
+}
+
+/// SBODY: a `k::rewrite!` that is a cell's whole content, `acc: Cell(k::rewrite!(a => x))`,
+/// changes the content from what its left side matches to what its right side writes: the cell's
+/// before and after, `<acc> A => X </acc>`, which is the rule with the result `acc: Cell(x)`. It
+/// was lowered as a rewrite in place whose content is the rewrite, which the Semantic IR refused
+/// as an internal error. A leaf of any sort, inside a group too, an optional cell's present
+/// content (the cell stays present) and a kept instance's child read so; an instance's key is
+/// kept only by a rewrite with the same sides, read as the key, and another is the key change a
+/// result is refused for. Below the root of an optional's content or an instance's child a
+/// rewrite has no in-place lowering yet, refused as a stated limit; a rule whose rewrites change
+/// nothing is told so. The admitted rule runs: `make(5)` writes 5 into `acc` and `pc`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of cells, each with its K or its refusal, and one run."
+)]
+fn a_rewrite_of_a_cell_s_whole_content_is_its_before_and_after() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cell = "k::configuration::Cell";
+    let admitted = [
+        (
+            "leaf",
+            "\n    a: Int,",
+            format!("acc: {cell}(k::rewrite!(a => x))"),
+        ),
+        ("literal", "", format!("acc: {cell}(k::rewrite!(0 => x))")),
+        (
+            "group-leaf",
+            "\n    p: Int,",
+            format!("crate::Frame::pc: {cell}(k::rewrite!(p => x))"),
+        ),
+        (
+            "two-leaves",
+            "\n    a: Int,\n    p: Int,",
+            format!(
+                "acc: {cell}(k::rewrite!(a => x)), crate::Frame::pc: {cell}(k::rewrite!(p => x))"
+            ),
+        ),
+        (
+            "map-leaf",
+            "\n    e: k::Term<Map>,",
+            format!("env: {cell}(k::rewrite!(e => k::map![]))"),
+        ),
+        (
+            "list-leaf",
+            "\n    l: k::Term<List>,",
+            format!("lst: {cell}(k::rewrite!(l => list::empty()))"),
+        ),
+        (
+            "optional",
+            "\n    o: Int,",
+            format!("opt: Some({cell}(k::rewrite!(o => x)))"),
+        ),
+        (
+            "optional-map",
+            "\n    m: k::Term<Map>,",
+            format!("omap: Some({cell}(k::rewrite!(m => k::map![])))"),
+        ),
+        (
+            "instance-child",
+            "\n    v: Int,",
+            "Objs::obj: { k::fragment![crate::Obj { oid: 1, val: k::rewrite!(v => x), .. }], .. }"
+                .to_owned(),
+        ),
+        (
+            "instance-key-kept",
+            "",
+            "Objs::obj: { k::fragment![crate::Obj { oid: k::rewrite!(1 => 1), .. }], .. }"
+                .to_owned(),
+        ),
+    ]
+    .map(|(name, parameters, entries)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("sbody-{name}"),
+            &single_body(parameters, &entries),
+        );
+        (name, emitted_sentence(target.path(), &manifest, "make"))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "leaf",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc>",
+            ),
+            (
+                "literal",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> 0 => X:Int </acc>",
+            ),
+            (
+                "group-leaf",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <pc> P:Int => X:Int </pc>",
+            ),
+            (
+                "two-leaves",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc> <pc> P:Int => X:Int </pc>",
+            ),
+            (
+                "map-leaf",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <env> E:Map => .Map </env>",
+            ),
+            (
+                "list-leaf",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <lst> L:List => .List </lst>",
+            ),
+            (
+                "optional",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <opt> O:Int => X:Int </opt>",
+            ),
+            (
+                "optional-map",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <omap> M:Map => .Map </omap>",
+            ),
+            (
+                "instance-child",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <obj> <oid> 1 </oid> <val> V:Int => X:Int </val> ... </obj>",
+            ),
+            (
+                "instance-key-kept",
+                "rule [make]: <k> (make ( X:Int ) => .K) ... </k> <obj> <oid> 1 </oid> ... </obj>",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&admitted);
+    let refused = [
+        (
+            "optional-below-root",
+            format!("omap: Some({cell}(map![1 -> k::rewrite!(_ => x), ..]))"),
+        ),
+        (
+            "instance-child-below-root",
+            "Objs::obj: { k::fragment![crate::Obj { oid: 1, mem: map![1 -> k::rewrite!(_ => x), ..], .. }], .. }"
+                .to_owned(),
+        ),
+        (
+            "instance-key-changed",
+            "Objs::obj: { k::fragment![crate::Obj { oid: k::rewrite!(1 => 2), .. }], .. }"
+                .to_owned(),
+        ),
+    ]
+    .map(|(name, entries)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("sbody-{name}"),
+            &single_body("", &entries),
+        );
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "optional-below-root",
+                "error[krs::analysis::optional-presence]: the present content of the optional cell `omap` holds a `k::rewrite!` below its root, and a single-body rule rewrites in place only inside a cell that is neither optional nor in a collection instance, which KRS does not lower yet: rewrite the whole content, `k::rewrite!(.. => ..)`, or write the rule with a result @ 79:85",
+            ),
+            (
+                "instance-child-below-root",
+                "error[krs::analysis::collection-entry]: the child `mem` of an instance of the collection `obj` holds a `k::rewrite!` below its root, and a single-body rule rewrites in place only inside a cell that is neither optional nor in a collection instance, which KRS does not lower yet: rewrite the whole content, `k::rewrite!(.. => ..)`, or write the rule with a result @ 79:132",
+            ),
+            (
+                "instance-key-changed",
+                "error[krs::analysis::map-collection-key]: an update must not change `oid`, the key of the Map collection `obj` @ 79:124",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&refused);
+    // Rewrites that change nothing are no step.
+    let unchanged = library_package(
+        temporary.path(),
+        "sbody-unchanged",
+        &format!(
+            "{SINGLE_BODY}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,\n    a: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, ..), acc: {cell}(k::rewrite!(a => a)), .. }}: Machine,\n) {{}}\n"
+        ),
+    );
+    expect_test::expect!["error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 80:5"].assert_eq(&first_error(target.path(), &unchanged));
+    // The rule steps: `make(5)` leaves the computation and writes 5 into `acc` and `pc`.
+    let manifest = library_package(
+        temporary.path(),
+        "sbody-run",
+        &single_body(
+            "\n    a: Int,\n    p: Int,",
+            &format!(
+                "acc: {cell}(k::rewrite!(a => x)), crate::Frame::pc: {cell}(k::rewrite!(p => x))"
+            ),
+        ),
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "make(5)").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<generatedTop> <k> .K </k> <acc> 5 </acc> <frame> <pc> 5 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+}
