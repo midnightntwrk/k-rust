@@ -941,7 +941,7 @@ fn the_computation_s_items_on_a_sentence_s_leaf_are_judged_by_its_sort_on_every_
     }
     expect_test::expect![[r#"
         [
-            "k-leaf-readable: error[krs::analysis::invalid-term]: the cell `saved` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the rule with `k::cells!`, where `k::configuration::Cell(k::k![..])` writes it",
+            "k-leaf-readable: error[krs::analysis::invalid-term]: the cell `saved` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the sentence with `k::cells!`, which writes it by its items",
             "int-leaf: error[krs::analysis::invalid-term]: the cell `pc` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's",
             "k-leaf-cells-subject: <saved> bump ~> R:K => .K ~> R:K </saved>",
             "k-leaf-cells-result: <saved> _ => bump </saved>",
@@ -1067,6 +1067,133 @@ fn a_value_written_with_its_rust_wrapper_is_judged_as_the_value_it_wraps() {
             "computation-term: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: a computation's initial value is its items, in `k::k![..]` or in brackets, and a value alone is no computation; write its entry as `k::k![x]`",
             "cell-around-items: error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `KCell` requires `k!`; `Cell` accepts ordinary terms or `map!`",
             "kcell-around-a-term: error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `KCell::new` requires an explicit `k!` payload",
+        ]
+    "#]].assert_debug_eq(&lines);
+}
+
+/// A machine of explicit wrappers with a Map collection `th` of `Th` instances, each with an
+/// `Int` child `tn` and a `KSequence` child `tk`.
+const INSTANCE_LEAVES: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+}
+
+#[k::cell]
+pub struct Th {
+    #[k::cell]
+    pub tid: k::configuration::Cell<Int>,
+    #[k::cell]
+    pub tn: k::configuration::Cell<Int>,
+    #[k::cell]
+    pub tk: k::configuration::Cell<KSequence>,
+}
+
+#[k::cell]
+pub struct Ths {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested, initial)]
+    pub th: Th,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: k::configuration::KCell<KSequence>,
+    #[k::cell]
+    pub ths: Ths,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(
+        #[k::config_var(name = "PGM", main)] pgm: Stmt,
+        #[k::config_var(name = "SAVED")] saved: KSequence,
+    ) -> Self {
+        Self { k: k::k![pgm], ths: Ths { th: Th { tid: 0, tn: 0, tk: saved } } }
+    }
+}
+"#;
+
+/// A readable instance child's `k::k![..]` is judged as a readable leaf entry's is, by the
+/// child cell's own sort, with the same line at the notation: on a `KSequence` child the
+/// readable record's limit (it writes a computation's items in its brackets), subject and
+/// result, and on an `Int` child `invalid-term` naming the sort. (A List collection's brackets
+/// still meet the term reader first: their list reading reads each record as a term.)
+#[test]
+fn a_readable_instance_child_s_items_are_judged_as_a_readable_leaf_s() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = |clause: &str| {
+        format!(
+            "{INSTANCE_LEAVES}k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    {clause}\n}}\n"
+        )
+    };
+    let routes = [
+        (
+            "k-child-subject",
+            readable(
+                "go: { k: [Go(), ..], th: { Th { tid: x, tk: k::k![Go(), ..], .. }, .. } } => { k: [..] };",
+            ),
+            "k::k![Go(), ..]",
+        ),
+        (
+            "k-child-result",
+            readable(
+                "go: { k: [Go(), ..], th: { me @ Th { tid: x, .. }, .. } } => { k: [..], th: { Th { tk: k::k![Go()], ..me }, .. } };",
+            ),
+            "k::k![Go()]",
+        ),
+        (
+            "int-child-subject",
+            readable(
+                "go: { k: [Go(), ..], th: { Th { tid: x, tn: k::k![1], .. }, .. } } => { k: [..] };",
+            ),
+            "k::k![1]",
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (route, source, at) in routes {
+        let manifest = package(
+            temporary.path(),
+            &format!("instance-items-{route}"),
+            &source,
+        );
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{route}: {stderr}");
+        let errors = stderr
+            .lines()
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{route}: {stderr}");
+        let location = location_at(&source, source.rfind(at).unwrap());
+        assert!(stderr.contains(&location), "{route}: {location}: {stderr}");
+        lines.push(format!("{route}: {}", errors[0]));
+    }
+    let leaf = |line: &str, cell: &str| {
+        line.split_once(": error")
+            .map(|(_, rest)| rest.replace(&format!("`{cell}`"), "`CELL`"))
+            .unwrap()
+    };
+    assert_eq!(
+        leaf(&lines[0], "tk"),
+        leaf(&lines[1], "tk"),
+        "subject and result"
+    );
+    expect_test::expect![[r#"
+        [
+            "k-child-subject: error[krs::analysis::invalid-term]: the cell `tk` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the sentence with `k::cells!`, which writes it by its items",
+            "k-child-result: error[krs::analysis::invalid-term]: the cell `tk` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the sentence with `k::cells!`, which writes it by its items",
+            "int-child-subject: error[krs::analysis::invalid-term]: the cell `tn` holds a leaf of sort `Int`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's",
         ]
     "#]].assert_debug_eq(&lines);
 }

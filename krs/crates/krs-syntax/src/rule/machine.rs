@@ -737,6 +737,18 @@ fn parse_readable_child(
             group, items, tail,
         )?));
     }
+    // `k::k![..]`, the computation's item notation, which a readable record writes in brackets:
+    // read as the sequence it lists, as a `cells!` instance child's is, so the collector judges
+    // it by the child's sort first (a readable record does not read it yet).
+    if let Some((name, payload)) = crate::state_macro::qualified_macro_payload(&tokens)
+        && name == "k"
+    {
+        return Ok(StateTerm::KSequence(crate::state_macro::parse_k_sequence(
+            payload,
+            context,
+            Some(TokenRange::for_tokens(&tokens)?),
+        )?));
+    }
     Ok(StateTerm::Term(read(tokens)?))
 }
 

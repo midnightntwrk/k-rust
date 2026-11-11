@@ -3232,7 +3232,7 @@ fn macro_path(tokens: &TokenStream) -> Option<Path> {
 }
 
 /// The last path segment and payload of `path::name!(..)`.
-fn qualified_macro_payload(tokens: &TokenStream) -> Option<(String, TokenStream)> {
+pub(crate) fn qualified_macro_payload(tokens: &TokenStream) -> Option<(String, TokenStream)> {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let [
         prefix @ ..,

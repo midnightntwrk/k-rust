@@ -456,6 +456,7 @@ pub(super) fn judge_readable(
     if judged.is_ok() {
         group_record_on_leaf(subject.iter().chain(&result), target.groups())?;
         items_off_the_computation(subject.iter().chain(&result), true)?;
+        instance_child_items(subject.iter().chain(&result), target)?;
         presence_in_constructor_record(subject.iter().chain(&result), target.groups())?;
     }
     subject_limit(&judged, authored)?;
@@ -754,35 +755,13 @@ fn items_off_the_computation<'e, 'a: 'e>(
         if !matches!(value, EntrySpelling::KMacro(_)) {
             continue;
         }
-        let content = entry
-            .kind
-            .own
-            .layers
-            .iter()
-            .find(|layer| !matches!(layer, Layer::Optional));
-        let cell = unraw(&entry.cell.field);
-        let (kind, detail) = match (content, entry.sort.as_deref()) {
-            (Some(Layer::Leaf(_)), Some("KSequence")) if !readable => continue,
-            (Some(Layer::Leaf(_)), Some("KSequence")) => (
-                CollectionErrorKind::LeafItems,
-                format!(
-                    "the cell `{cell}` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the rule with `k::cells!`, where `k::configuration::Cell(k::k![..])` writes it"
-                ),
-            ),
-            (Some(Layer::Leaf(_)), Some(sort)) => (
-                CollectionErrorKind::ContentSort,
-                format!(
-                    "the cell `{cell}` holds a leaf of sort `{sort}`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's"
-                ),
-            ),
-            (Some(Layer::Group(group)), _) => (
-                CollectionErrorKind::ContentSort,
-                format!(
-                    "the cell `{cell}` holds a group `{}`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), which is no group's cell term",
-                    group.name
-                ),
-            ),
-            _ => continue,
+        let Some((kind, detail)) = items_verdict(
+            unraw(&entry.cell.field),
+            &entry.kind.own.layers,
+            entry.sort.as_deref(),
+            readable,
+        ) else {
+            continue;
         };
         let error = CollectionError::new(kind, detail);
         let range = entry
@@ -796,6 +775,114 @@ fn items_off_the_computation<'e, 'a: 'e>(
             Some(range) => error.with_source_range(range.clone()),
             None => error,
         });
+    }
+    Ok(())
+}
+
+/// What `k::k![..]` is on the cell `cell` of the layers `layers` and the leaf sort `sort`, read
+/// through its presence ([`items_off_the_computation`]): `None` where it is admitted (the
+/// computation, whose mark it is, and a `KSequence` leaf off the readable route) or another
+/// judge's (an optional cell's missing presence, a collection's instances).
+fn items_verdict(
+    cell: &str,
+    layers: &[Layer],
+    sort: Option<&str>,
+    readable: bool,
+) -> Option<(CollectionErrorKind, String)> {
+    let content = layers
+        .iter()
+        .find(|layer| !matches!(layer, Layer::Optional));
+    match (content, sort) {
+        (Some(Layer::Leaf(_)), Some("KSequence")) if !readable => None,
+        (Some(Layer::Leaf(_)), Some("KSequence")) => Some((
+            CollectionErrorKind::LeafItems,
+            format!(
+                "the cell `{cell}` holds a leaf of sort `KSequence`, and `k::k![..]` writes a term of that sort by its items (`a ~> b ~> rest`), which a leaf holds; a readable record writes a computation's items in its brackets (`k: [a, b, ..]`) and does not read `k::k![..]` yet: write the leaf with a name bound to such a value, or the sentence with `k::cells!`, which writes it by its items"
+            ),
+        )),
+        (Some(Layer::Leaf(_)), Some(sort)) => Some((
+            CollectionErrorKind::ContentSort,
+            format!(
+                "the cell `{cell}` holds a leaf of sort `{sort}`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), whose sort is not below the leaf's"
+            ),
+        )),
+        (Some(Layer::Group(group)), _) => Some((
+            CollectionErrorKind::ContentSort,
+            format!(
+                "the cell `{cell}` holds a group `{}`, and the entry gives it `k::k![..]`, the computation's item notation, a term of sort `K` (its items in order), which is no group's cell term",
+                group.name
+            ),
+        )),
+        _ => None,
+    }
+}
+
+/// [`items_off_the_computation`] of a readable record's instance children: a child an instance
+/// record writes `k::k![..]` for, through its presence, is judged by the child cell's own kind
+/// and sort as a readable leaf entry is, at the notation. The child is found by its name among
+/// the target's cells; a name no single cell has is left to the lowering, which checks the
+/// sequence against the child's declared sort.
+fn instance_child_items<'e, 'a: 'e>(
+    entries: impl IntoIterator<Item = &'e Entry<'a>>,
+    target: &super::resolve::HeadRuleTarget,
+) -> Result<(), CollectionError> {
+    for entry in entries {
+        let Some(spelling) = &entry.field.spelling else {
+            continue;
+        };
+        let (aliased, inner) = match spelling {
+            EntrySpelling::Alias(_, inner) => (true, &**inner),
+            other => (false, other),
+        };
+        let (EntrySpelling::Brackets(seq)
+        | EntrySpelling::Braces(seq)
+        | EntrySpelling::InstanceList(seq)
+        | EntrySpelling::InstanceSet(seq)) = inner
+        else {
+            continue;
+        };
+        for (step, item) in seq.items.iter().enumerate() {
+            let (labelled, item) = match item {
+                EntrySpelling::Alias(_, inner) => (true, &**inner),
+                other => (false, other),
+            };
+            let (EntrySpelling::Record(record) | EntrySpelling::Fragment(record)) = item else {
+                continue;
+            };
+            for (child, (name, value)) in record.fields.iter().enumerate() {
+                let mut at = std::iter::repeat_n(0, usize::from(aliased))
+                    .chain([step])
+                    .chain(labelled.then_some(0))
+                    .chain([child])
+                    .collect::<Vec<_>>();
+                let mut value = value;
+                while let EntrySpelling::Present(inner) | EntrySpelling::Alias(_, inner) = value {
+                    at.push(0);
+                    value = inner;
+                }
+                if !matches!(value, EntrySpelling::KMacro(_)) {
+                    continue;
+                }
+                let Some((_, kind, _, sort)) = target.entry(name) else {
+                    continue;
+                };
+                let Some((kind, detail)) = items_verdict(name, &kind.own.layers, sort, true) else {
+                    continue;
+                };
+                let error = CollectionError::new(kind, detail);
+                let range = entry
+                    .field
+                    .located
+                    .iter()
+                    .find(|(path, _)| *path == at)
+                    .map(|(_, range)| range)
+                    .or(entry.field.range.as_ref());
+                return Err(match range {
+                    Some(range) => error.with_source_range(range.clone()),
+                    None => error,
+                });
+            }
+        }
     }
     Ok(())
 }
