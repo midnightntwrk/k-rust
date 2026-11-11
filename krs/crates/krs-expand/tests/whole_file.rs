@@ -613,41 +613,35 @@ fn an_optional_instance_child_reaches_the_wire_as_its_presence() {
     }
 }
 
-/// A `?` cell's `Some(..)` or `None` inside one instance reaches no rustc reading. A bracketed
-/// value's List reading takes its children from the terms of the reading the clause took (the
-/// computation cell's head or the list's elements), which rustc reads, so the expansion says the
-/// limit at the child or at the field of a record the child writes. In braces, a group record an
-/// instance child writes is read without the presence, as a record at a cell's position is, and
-/// the collector says the limit once the sentence's entries are admitted (TABLE follow-up (a)),
-/// so the expansion refuses nothing there.
+/// A `?` cell's `Some(..)` or `None` inside one instance reaches no rustc reading, in brackets
+/// as in braces. A bracketed value is a List collection's instances, a list's elements or the
+/// computation's items by its cell's declaration, which the expansion does not see: every
+/// reading reads each record item without the presences its children write, so the readings
+/// rustc reads (the head's or the elements' terms, from which the List reading takes its
+/// children) hold no `Option`, and the collector judges the presence from the authored spelling
+/// by the reading the declaration selects. The expansion refuses neither spelling.
 #[test]
-fn an_optional_cell_inside_a_bracketed_instance_child_is_the_limit_and_in_braces_it_waits() {
-    for (clause, message) in [
-        (
-            "go: { k: [Go(), ..], job: [Job { note: Some(n), .. }, ..] } => { k: [..], job: [..] };",
-            "the instance child `note` holds `Some(..)`, a `?` cell's presence",
-        ),
-        (
-            "go: { k: [Go(), ..], job: [Job { info: Info { mark: None }, .. }, ..] } => { k: [..], job: [..] };",
-            "the cell `mark`, inside the instance child `info`, holds `None`, a `?` cell's absence",
-        ),
+fn an_optional_cell_inside_an_instance_child_waits_for_the_collector_in_brackets_and_braces() {
+    for clause in [
+        "go: { k: [Go(), ..], job: [Job { note: Some(n), .. }, ..] } => { k: [..], job: [..] };",
+        "go: { k: [Go(), ..], job: [Job { info: Info { mark: None }, .. }, ..] } => { k: [..], job: [..] };",
+        "go: { k: [Go(), ..], job: [me @ Job { .. }, ..] } => { k: [..], job: [Job { info: Info { mark: Some(1) }, ..me }, ..] };",
+        "go: { k: [Go(), ..], thread: { Thread { slot: Slot { held: Some(1) }, .. }, .. } } => { k: [..] };",
     ] {
         let source =
             format!("k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    {clause}\n}}\n");
-        let diagnostics = expand(&source).expect_err("an optional cell inside an instance");
-        assert_eq!(
-            diagnostics[0].code,
-            krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
-            "{clause}"
-        );
-        assert_eq!(
-            diagnostics[0].message,
-            format!("{message}: {}", krs_syntax::INSTANCE_CHILD_MULTIPLICITY),
-            "{clause}"
-        );
+        let expansion = expand(&source).expect("the presence waits for the collector");
+        // The expansion's own code names `Option` by its path; the clause's presence is in no
+        // term it writes.
+        let text = &expansion.generated.text;
+        for variant in ["Some", "None"] {
+            assert_eq!(
+                text.matches(variant).count(),
+                text.matches(&format!("Option :: {variant}")).count(),
+                "{clause}"
+            );
+        }
     }
-    let braced = "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    go: { k: [Go(), ..], thread: { Thread { slot: Slot { held: Some(1) }, .. }, .. } } => { k: [..] };\n}\n";
-    expand(braced).expect("the presence waits for the collector");
 }
 
 /// A readable instance child's empty `[]` is keyed at its brackets, and its

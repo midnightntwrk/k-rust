@@ -385,6 +385,10 @@ pub struct RuleClause {
     /// A cell-record clause's refusal of the first part of an entry whose fault waits for the
     /// judgement of the whole it is in ([`Self::part_refusal`]).
     pub(super) part_refusal: Option<Box<crate::SyntaxError>>,
+    /// A cell-record clause's refusals of bracketed values read only as a List collection's
+    /// instances, each beside its cell, which the collector raises where that cell holds no
+    /// collection ([`Self::instances_only_refusals`]).
+    pub(super) instances_only_refusals: Vec<(Ident, crate::SyntaxError)>,
 }
 
 /// The computation cell a cell-record clause names: its field in the
@@ -1072,6 +1076,21 @@ impl RuleClause {
         self.part_refusal.as_deref()
     }
 
+    /// The refusals of the clause's bracketed subject values whose items are instance records the
+    /// term reader refuses as terms, each beside its cell's name (unraw), in the subject's order.
+    /// Brackets are a List collection's instances, a list's elements or the computation's items
+    /// by the cell's declaration, which the parser does not see: such a value is read as the
+    /// instances, whose records' children the collector judges as a braced instance's, and its
+    /// term reading's refusal is the value's where the declaration says its cell holds no
+    /// collection.
+    pub fn instances_only_refusals(
+        &self,
+    ) -> impl Iterator<Item = (String, &crate::SyntaxError)> + '_ {
+        self.instances_only_refusals
+            .iter()
+            .map(|(cell, error)| (cell.unraw().to_string(), error))
+    }
+
     /// Returns the complete authored clause range, including attributes and
     /// the terminating semicolon.
     #[must_use]
@@ -1678,6 +1697,7 @@ impl RuleBlock {
                 pairing_refusal: None,
                 subject_refusal: None,
                 part_refusal: None,
+                instances_only_refusals: Vec::new(),
             };
             clause.check_existentials()?;
             clauses.push(clause);

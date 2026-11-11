@@ -1148,7 +1148,10 @@ type AlternativeChildren = Vec<Option<Vec<krs_ir::wire::WireTerm>>>;
 /// where the other reading's term is no record); `None` when the list's
 /// shape does not match the records. An item that is one name or `_` is a
 /// whole instance, which writes no child, read beside the other reading's
-/// term at its place, whatever that term is.
+/// term at its place, whatever that term is. Neither reading holds a `?`
+/// cell's `Some(..)` or `None` inside a record: the parser reads every record
+/// item without them and the collector judges them, by the reading the cell's
+/// declaration selects, from the authored spelling.
 fn alternative_instances(
     ledger: &KeyLedger<'_>,
     state: &krs_syntax::StateTerm,
@@ -1158,18 +1161,6 @@ fn alternative_instances(
     let StateTerm::Instances(list) = state else {
         return Ok(None);
     };
-    // The List reading's children are the terms of the reading the clause took, which rustc
-    // reads: a `Some(..)` or `None` there is a `?` cell's presence inside one instance, which an
-    // instance record does not name yet, said here as the braced reading says it.
-    if let Some(limit) = list
-        .front()
-        .iter()
-        .chain(list.back())
-        .flat_map(krs_syntax::InstanceItem::fields)
-        .find_map(krs_syntax::InstanceField::multiplicity_limit)
-    {
-        return Err(limit.into());
-    }
     let (front_records, back_records) = records;
     if list.front().len() != front_records.len()
         || list.back().len() != back_records.len()

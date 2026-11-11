@@ -965,7 +965,11 @@ fn parse_machine_pattern_record(
                 tree: Box::new(tree),
             }
         } else if content.peek(syn::token::Bracket) {
-            MachinePatternCell::Bracket(content.parse()?)
+            MachinePatternCell::Bracket(bracket_presences(
+                content.parse()?,
+                StateMacroContext::Pattern,
+                faults,
+            )?)
         } else if content.peek(syn::token::Brace) {
             {
                 let (entries, rest) = parse_machine_map_pattern(&content)?;
@@ -1248,7 +1252,11 @@ fn parse_machine_result_record(
                 StateFamily::Instances,
             )?))
         } else if content.peek(syn::token::Bracket) {
-            MachineResultCell::Bracket(content.parse()?)
+            MachineResultCell::Bracket(bracket_presences(
+                content.parse()?,
+                StateMacroContext::Expression,
+                faults,
+            )?)
         } else if let Some(instances) = braced_instances(&content)? {
             MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
         } else if let Some(error) = record_child_entry(&content) {
@@ -1395,6 +1403,54 @@ fn value_presences(
         value.extend([fork.parse::<TokenTree>().ok()?]);
     }
     RecordPresences::of(&value, reading)
+}
+
+/// A bracketed value read in `reading` with each record item read without the presences its
+/// children write, at any depth ([`RecordPresences`]), the first one's refusal kept in `faults`
+/// until the entry is judged.
+///
+/// Which reading the brackets are, a List collection's instances, a list's elements or the
+/// computation's items, is the cell's declaration's ([`BracketReadings`]), and a presence in an
+/// item is a fault of a part in each. In a List collection's instance record it is the
+/// presence inside one instance, which the collector says from the authored spelling as it says
+/// a braced instance's ([`crate::cell_entries::instance_child_presence`]). In a list's element or
+/// a computation's item the record is a group's cell term, whose child a presence names as no
+/// term names it, the limit a group record's child meets ([`RecordPresences::carry`]); those
+/// readings hand their items to rustc, which reads no `Some(..)` or `None` there. So every
+/// reading reads the item without them, and the fault waits for the judgement of the entry, as
+/// a record's at a cell's position does ([`value_presences`]).
+fn bracket_presences(
+    group: proc_macro2::Group,
+    reading: StateMacroContext,
+    faults: &PartFaults,
+) -> Result<proc_macro2::Group, ParseError> {
+    let items = top_level_items(group.stream());
+    let presences = items
+        .iter()
+        .map(|item| RecordPresences::of(item, reading))
+        .collect::<Vec<_>>();
+    if presences.iter().all(Option::is_none) {
+        return Ok(group);
+    }
+    let mut stream = TokenStream::new();
+    for (index, (item, presences)) in items.into_iter().zip(presences).enumerate() {
+        if index > 0 {
+            stream.extend([TokenTree::Punct(proc_macro2::Punct::new(
+                ',',
+                proc_macro2::Spacing::Alone,
+            ))]);
+        }
+        match presences {
+            Some(presences) => {
+                presences.carry(faults)?;
+                stream.extend(presences.read);
+            }
+            None => stream.extend(item),
+        }
+    }
+    let mut read = proc_macro2::Group::new(group.delimiter(), stream);
+    read.set_span(group.span());
+    Ok(read)
 }
 
 /// A subject's record value read without its presences ([`value_presences`]): a group record of
@@ -1750,6 +1806,7 @@ pub(super) fn parse_machine_clause(
         defer_pairing: false,
     };
     let mut read = read_with_pairing_deferred(&clause, &subject_cells, &result_cells)?;
+    read.instances_only_refusals = instances_only_refusals(&subject_cells, &result_cells);
     read.part_refusal = subject_faults
         .first()
         .or_else(|| result_faults.first())
@@ -1911,6 +1968,11 @@ struct BracketReadings {
     computation: bool,
     instances: InstanceReading,
     elements: bool,
+    /// The term reader's refusal of an item of a value whose items are instance records, read
+    /// as a computation's item or a list's element: those readings are then none of the
+    /// value's, which is read as a List collection's instances, and the refusal is the value's
+    /// where its cell is no List collection ([`RuleClause::instances_only_refusals`]).
+    refusal: Option<crate::SyntaxError>,
 }
 
 /// How a bracketed value with its result reads as a List collection's
@@ -1971,10 +2033,25 @@ impl BracketReadings {
                 .is_ok_and(|result| result.rest.is_shared() == pattern.rest.is_shared()),
             Some(_) => false,
         });
+        // An instance record's child is its cell's entry, judged by the child's kind, and the
+        // same record read as a term is the term reader's: `k::k![..]` is a sequence's items to
+        // one and no term to the other. The term readings of such a value are then none.
+        let refusal = (instances == InstanceReading::Records && (computation || elements))
+            .then(|| {
+                items_refusal(group, StateMacroContext::Pattern).or_else(|| match result {
+                    Some(MachineResultCell::Bracket(result)) => {
+                        items_refusal(result, StateMacroContext::Expression)
+                    }
+                    _ => None,
+                })
+            })
+            .flatten();
+        let read = refusal.is_none();
         Self {
-            computation,
+            computation: computation && read,
             instances,
-            elements,
+            elements: elements && read,
+            refusal,
         }
     }
 
@@ -1982,6 +2059,57 @@ impl BracketReadings {
     fn collection(&self) -> bool {
         self.instances == InstanceReading::Records
     }
+}
+
+/// The term reader's refusal of the first item of the bracketed value `group`, read in `reading`
+/// as a computation's item or a list's element is (a term), where every item but its rest is an
+/// instance record; `None` where it reads them all.
+fn items_refusal(
+    group: &proc_macro2::Group,
+    reading: StateMacroContext,
+) -> Option<crate::SyntaxError> {
+    let term = |item: TokenStream| -> Result<(), ParseError> {
+        match reading {
+            StateMacroContext::Pattern => {
+                let (pattern, signs) = parse_pattern_with_signs.parse2(item)?;
+                readable_cell_pattern(pattern, signs).map(drop)
+            }
+            StateMacroContext::Expression => {
+                let expression = crate::term::parse_term_expression.parse2(item)?;
+                TermExpression::from_expression(expression)
+                    .map(drop)
+                    .map_err(ParseError::from)
+            }
+        }
+    };
+    top_level_items(group.stream())
+        .into_iter()
+        .filter(|item| !matches!(readable_instances_rest(item, reading), Ok(Some(_))))
+        .find_map(|item| term(item).err().map(syntax_error))
+}
+
+/// The refusals of the bracketed subject values of a cell-record clause that read only as a List
+/// collection's instances because their term readings are refused ([`BracketReadings`]), each
+/// beside its cell: the value's refusal where that cell is no List collection, which only its
+/// declaration says.
+fn instances_only_refusals(
+    subject_cells: &[(Ident, MachinePatternCell)],
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Vec<(Ident, crate::SyntaxError)> {
+    subject_cells
+        .iter()
+        .filter_map(|(cell, pattern)| {
+            let MachinePatternCell::Bracket(group) = pattern else {
+                return None;
+            };
+            let result = result_cells
+                .iter()
+                .find(|(result_cell, _)| result_cell.unraw() == cell.unraw())
+                .map(|(_, result)| result);
+            let refusal = BracketReadings::of(group, result).refusal?;
+            Some((cell.clone(), refusal))
+        })
+        .collect()
 }
 
 /// Reads a cell-record clause's bracketed values ([`read_machine_readings`]),
@@ -3308,6 +3436,7 @@ fn assemble_machine_clause(
         pairing_refusal,
         subject_refusal,
         part_refusal: None,
+        instances_only_refusals: Vec::new(),
     };
     clause.check_existentials()?;
     Ok(clause)

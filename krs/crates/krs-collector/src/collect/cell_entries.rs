@@ -71,6 +71,11 @@ struct After<R> {
     /// judged: a readable subject's map read of a cell the result writes
     /// ([`krs_syntax::RuleClause::subject_refusal`]). Every other one waits for every entry.
     subject: bool,
+    /// The cell whose declaration decides whether it is raised at all: a readable bracketed
+    /// value's term reading, refused, where the value is read as a List collection's instances
+    /// ([`krs_syntax::RuleClause::instances_only_refusals`]). It is the refusal only where the
+    /// cell holds no collection, and is asked once the table admits the entries.
+    cell: Option<String>,
 }
 
 /// The kind of a refusal the parser left until the entries are admitted: its own registered
@@ -99,6 +104,7 @@ impl After<Coordinates> {
             ))
             .ok(),
             subject: false,
+            cell: None,
         }
     }
 }
@@ -259,6 +265,10 @@ impl ParsedCells<Coordinates> {
                     .part_refusal()
                     .map(|error| After::of(deferred(error), error)),
             )
+            .chain(clause.instances_only_refusals().map(|(cell, error)| After {
+                cell: Some(cell),
+                ..After::of(deferred(error), error)
+            }))
             .collect::<Vec<_>>();
         let fields = clause.records().and_then(|(subject, result)| {
             Some((read_fields(subject, form)?, read_fields(result, form)?))
@@ -345,6 +355,7 @@ impl ParsedCells<Coordinates> {
                         .as_ref()
                         .and_then(|coordinates| coordinates.range_in(document)),
                     subject: after.subject,
+                    cell: after.cell.clone(),
                 })
                 .collect(),
         }
@@ -386,8 +397,9 @@ pub(super) fn judge(
             // A readable clause that judgement did not reach (no head-rule target, or a field no
             // single cell has) still owes the refusals its parser left: its payload resolved, so
             // nothing else refuses it, and dropping them would admit a result the parser could
-            // not pair as only read.
-            if let Some(after) = authored.after.first() {
+            // not pair as only read. A bracketed value's term reading is a refusal only by its
+            // cell's declaration, which that judgement asks ([`instances_only`]).
+            if let Some(after) = authored.after.iter().find(|after| after.cell.is_none()) {
                 return Err(after.refused());
             }
             continue;
@@ -454,6 +466,7 @@ pub(super) fn judge_readable(
     }
     .judge_located();
     if judged.is_ok() {
+        instances_only(subject.iter().chain(&result), authored)?;
         group_record_on_leaf(subject.iter().chain(&result), target.groups())?;
         items_off_the_computation(subject.iter().chain(&result), true)?;
         instance_child_items(subject.iter().chain(&result), target)?;
@@ -472,7 +485,11 @@ pub(super) fn judge_readable(
         instance_child_multiplicity(&subject, &result)?;
         // A cell whose two entries the parser could not pair (a presence over a term, ..) is
         // refused only now: the table admitted both entries against the cell's kind, first.
-        if let Some(pairing) = authored.after.iter().find(|after| !after.subject) {
+        if let Some(pairing) = authored
+            .after
+            .iter()
+            .find(|after| !after.subject && after.cell.is_none())
+        {
             return Err(pairing.refused());
         }
     }
@@ -515,6 +532,32 @@ pub(super) fn judge_readable(
             ))
         }
     }
+}
+
+/// Refuses the first admitted entry whose bracketed value the parser read only as a List
+/// collection's instances, its term reading refused ([`After::cell`]), where its cell holds no
+/// collection: brackets there are a list's elements or the computation's items, which are terms,
+/// so the term reader's refusal is the value's, as it is for any such value. On a collection the
+/// brackets are its instances, judged as a braced instance list's children are
+/// ([`instance_child_items`]), and the term reading is no reading of them.
+fn instances_only<'e, 'a: 'e>(
+    entries: impl IntoIterator<Item = &'e Entry<'a>>,
+    authored: &LocatedCells,
+) -> Result<(), CollectionError> {
+    for entry in entries {
+        if matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_))) {
+            continue;
+        }
+        let cell = unraw(&entry.cell.field);
+        if let Some(after) = authored
+            .after
+            .iter()
+            .find(|after| after.cell.as_deref() == Some(cell))
+        {
+            return Err(after.refused());
+        }
+    }
+    Ok(())
 }
 
 /// The refusal `authored`'s parser left until the sentence's entries are admitted, a subject's
@@ -822,6 +865,11 @@ fn instance_child_items<'e, 'a: 'e>(
     target: &super::resolve::HeadRuleTarget,
 ) -> Result<(), CollectionError> {
     for entry in entries {
+        // A sequence's records are instances only on a collection; a list's elements and the
+        // computation's items are terms, which the term reader judges.
+        if !matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_))) {
+            continue;
+        }
         let Some(spelling) = &entry.field.spelling else {
             continue;
         };
