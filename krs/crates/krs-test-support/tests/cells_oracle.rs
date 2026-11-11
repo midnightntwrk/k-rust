@@ -6669,10 +6669,17 @@ fn writes_cell(k: &str, cell: &str) -> bool {
         || all_tokens(k).any(|token| token.split_once(':').is_some_and(|(_, of)| of == sort))
 }
 
+/// Whether the K writes the `?` cell `cell` itself, its tag: only that states the cell present.
+/// A variable or `_` of the cell's sort does not, since the sort holds the absent cell too (its
+/// unit, `.XCell`), so it matches either.
+fn states_presence(k: &str, cell: &str) -> bool {
+    k_cells(k, cell).len() + usize::from(container(k, cell).is_some()) > 0
+}
+
 /// The presence half of check 6 (S5.0g item 3a fixes, ruling 5; P5, P0): a subject's `Some(..)`
-/// on a `?` cell tests that the cell is present, so its K writes the cell, or a variable or `_`
-/// of the cell's sort, on the subject side; a bare untyped `_` there names no cell and tests
-/// nothing. A subject's `None` tests that it is absent, so where the result writes the cell the
+/// on a `?` cell tests that the cell is present, so its K writes the cell's tag on the subject
+/// side; a variable or `_` of the cell's sort, or a bare untyped `_`, holds the absent cell too
+/// and tests nothing. A subject's `None` tests that it is absent, so where the result writes the cell the
 /// K creates it: the subject side writes no such cell.
 fn presence_frame(entry: &EntryCase, subject: &str, result: &str) -> Option<String> {
     let entry = &entry.entry;
@@ -6685,9 +6692,9 @@ fn presence_frame(entry: &EntryCase, subject: &str, result: &str) -> Option<Stri
     };
     let cell = entry.cell.as_str();
     match spelling {
-        Spelling::Present(_) if !writes_cell(subject, cell) => Some(format!(
-            "its subject `Some(..)` on the `?` cell `{cell}` writes no `<{cell}>` and no variable \
-             of its sort, so the rule tests no presence"
+        Spelling::Present(_) if !states_presence(subject, cell) => Some(format!(
+            "its subject `Some(..)` on the `?` cell `{cell}` writes no `<{cell}>`, so the rule \
+             tests no presence: a variable of the cell's sort also holds the absent cell"
         )),
         Spelling::Missing if writes_cell(result, cell) && writes_cell(subject, cell) => {
             Some(format!(
