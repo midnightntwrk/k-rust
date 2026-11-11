@@ -2749,6 +2749,17 @@ pub(crate) fn add_sort_injections_to_definition_pass(
             continue;
         }
         for (sentence_index, sentence) in module.local_sentences.iter_mut().enumerate() {
+            // `inject_sentence` returns a sentence other than a rule or a claim as a clone of
+            // itself (`inject_sentence_terms`) that only `rename_copies_apart` may change, and
+            // that renames binders among the sentence's terms. A sentence of another kind without
+            // terms (a production, a sort declaration, ...) is thus returned unchanged, the call
+            // cannot fail for it, and it leaves no state behind (fresh names and sort parameters
+            // are reset per sentence): the input sentence stays, shared.
+            if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
+                && sentence.terms().next().is_none()
+            {
+                continue;
+            }
             let injected = target_injector.inject_sentence(sentence).map_err(|error| {
                 SortInjectionError::Sentence {
                     module: module.name.clone(),
@@ -2765,7 +2776,9 @@ pub(crate) fn add_sort_injections_to_definition_pass(
                     error: Box::new(error),
                 }
             })?;
-            *crate::definition::sentence_mut(sentence) = injected;
+            // The injected sentence is built whole, so it replaces the input without a copy of
+            // it (`sentence_mut` would clone the shared input only to overwrite the clone).
+            *sentence = std::sync::Arc::new(injected);
         }
     }
     Ok(output)
