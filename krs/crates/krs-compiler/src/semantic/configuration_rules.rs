@@ -915,19 +915,20 @@ pub(super) fn lower_configuration_rule_descriptor(
         check_stdin_reads(&clauses, &stdin)?;
     }
 
-    let selected = rule
-        .subject
-        .cells
-        .iter()
-        .map(|cell| cell.field.cell.clone())
-        .collect::<BTreeSet<_>>();
+    let mut entries = BTreeMap::new();
+    for cell in &rule.subject.cells {
+        entries
+            .entry(cell.field.cell.clone())
+            .or_insert_with(|| cell.field.key.clone());
+    }
     check_group_descendants(
         descriptor,
         &rule.pattern_key,
         &configuration.declaration,
         declarations,
-        &selected,
+        &entries,
     )?;
+    let selected = entries.into_keys().collect::<BTreeSet<_>>();
     if exact && !omitted_leaf_cells(&configuration.declaration, declarations, &authored)?.is_empty()
     {
         return Err(record_missing_cells(

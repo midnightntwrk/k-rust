@@ -4935,30 +4935,93 @@ fn a_result_collection_inside_a_group_its_subject_names_is_named_twice() {
         [
             (
                 "rule-readable",
-                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 50:63",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 50:58",
             ),
             (
                 "rule-cells",
-                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:66",
             ),
             (
                 "rule-cells-empty",
-                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:66",
             ),
             (
                 "claim-readable",
-                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 51:63",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 51:58",
             ),
             (
                 "claim-cells",
-                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:66",
             ),
             (
                 "claim-cells-empty",
-                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:71",
+                "error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `objs` and the cell `obj` inside it; the whole-cell entry `objs` already names every cell below it, so select one or the other @ 52:66",
             ),
         ]
     "#]].assert_debug_eq(&refused);
+}
+
+/// CELLS4 item 4: `group-and-descendant` is about the cell the sentence names twice, so it stands
+/// at that cell's name in its entry, on the route of a leaf named beside its group (the rule's
+/// lowering) as on the route of a collection named beside its group (the collector), wherever
+/// the entry is: the subject's or the result's, readable or `cells!`.
+#[test]
+fn group_and_descendant_stands_at_the_cell_named_twice() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cell = "k::configuration::Cell";
+    let mut lines = Vec::new();
+    for claim in [false, true] {
+        let form = if claim { "claim" } else { "rule" };
+        let (block, attribute) = if claim {
+            ("claims", "#[k::claim(one_path)]\n    ")
+        } else {
+            ("rules", "")
+        };
+        for (name, source) in [
+            (
+                "leaf-in-result",
+                whole_cells(
+                    claim,
+                    "\n    f: Frame,",
+                    &format!("acc: {cell}(a), frame: f, .."),
+                    &format!("crate::Frame::pc: {cell}(1), .."),
+                ),
+            ),
+            (
+                "leaf-in-subject",
+                whole_cells(
+                    claim,
+                    "\n    f: Frame,\n    p: Int,",
+                    &format!("acc: {cell}(a), frame: f, crate::Frame::pc: {cell}(p), .."),
+                    "..",
+                ),
+            ),
+            (
+                "readable",
+                format!(
+                    "{}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {attribute}make: {{ k: [Make {{ x }}, ..], acc: a, frame: f }} => {{ k: [..], acc: x, pc: 1 }};\n}}\n",
+                    WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+                ),
+            ),
+        ] {
+            let manifest =
+                library_package(temporary.path(), &format!("twice-{form}-{name}"), &source);
+            let line = first_error(target.path(), &manifest);
+            let (_, at) = line.rsplit_once(" @ ").unwrap();
+            let (row, column) = at.split_once(':').unwrap();
+            let text = source.lines().nth(row.parse::<usize>().unwrap() - 1).unwrap();
+            let named = &text[column.parse::<usize>().unwrap() - 1..][..2];
+            lines.push(format!("{form}-{name}: {line} ({named})"));
+        }
+    }
+    expect_test::expect![[r#"
+        rule-leaf-in-result: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 57:67 (pc)
+        rule-leaf-in-subject: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 56:129 (pc)
+        rule-readable: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 53:75 (pc)
+        claim-leaf-in-result: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 57:67 (pc)
+        claim-leaf-in-subject: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 56:129 (pc)
+        claim-readable: error[krs::analysis::group-and-descendant]: rule `make` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other @ 54:75 (pc)"#]].assert_eq(&lines.join("\n"));
 }
 
 /// CELLS3 item 4: a `k::rewrite!` written as a cell's whole entry whose sides are entries rather

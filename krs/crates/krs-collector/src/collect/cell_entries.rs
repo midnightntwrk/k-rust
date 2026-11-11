@@ -35,6 +35,8 @@ pub(super) struct ParsedField<R> {
     name: String,
     spelling: Option<EntrySpelling>,
     range: Option<R>,
+    /// Where the key's last segment is, the name that names the field's cell.
+    name_range: Option<R>,
     /// Where each spelling inside the value is, by its path
     /// ([`krs_syntax::cell_entry::located_spellings`]).
     located: Vec<(Vec<usize>, R)>,
@@ -168,8 +170,14 @@ fn located_fields(
     fields
         .into_iter()
         .map(|field| {
+            let name = &field.key.segments.last()?.ident;
             Some(ParsedField {
-                name: field.key.segments.last()?.ident.to_string(),
+                name: name.to_string(),
+                name_range: super::provenance::token_coordinates(krs_syntax::TokenRange::new(
+                    name.span(),
+                    name.span(),
+                ))
+                .ok(),
                 spelling: field.spelling,
                 anonymous_rest: field.anonymous_rest,
                 range: field
@@ -327,6 +335,10 @@ impl ParsedCells<Coordinates> {
                     anonymous_rest: field.anonymous_rest,
                     range: field
                         .range
+                        .as_ref()
+                        .and_then(|coordinates| coordinates.range_in(document)),
+                    name_range: field
+                        .name_range
                         .as_ref()
                         .and_then(|coordinates| coordinates.range_in(document)),
                     located: field
@@ -1054,7 +1066,8 @@ fn constructor_presence(
 /// a leaf inside it does (`group-and-descendant`, which the rule's lowering gives the leaf). It
 /// is asked before [`overwritten_collection`]: the subject does match the collection's
 /// instances, through the cell, so the entry overwrites no collection the subject leaves out. At
-/// the collection's entry.
+/// the collection's name in its entry, the cell the sentence names twice, where the rule's
+/// lowering puts the refusal of a leaf named twice.
 fn collection_in_named_cell(
     id: &StableItemId,
     subject: &[Entry<'_>],
@@ -1080,10 +1093,12 @@ fn collection_in_named_cell(
                 unraw(&entry.cell.field),
             ),
         );
-        return Err(match &entry.field.range {
-            Some(range) => error.with_source_range(range.clone()),
-            None => error,
-        });
+        return Err(
+            match entry.field.name_range.as_ref().or(entry.field.range.as_ref()) {
+                Some(range) => error.with_source_range(range.clone()),
+                None => error,
+            },
+        );
     }
     Ok(())
 }
@@ -2354,6 +2369,7 @@ mod tests {
             name: name.to_owned(),
             spelling: Some(spelling),
             range: None,
+            name_range: None,
             located: Vec::new(),
             anonymous_rest: false,
         }

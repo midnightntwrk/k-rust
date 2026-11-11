@@ -102,12 +102,18 @@ pub(super) fn omitted_leaf_cells(
 /// A collection's instance list is such a clause too: its instances and its
 /// rest are every instance, so they name each cell inside them, and a cell
 /// of an instance named beside the list is named twice.
+///
+/// `selected` maps each cell the lowered subject names to the key of its
+/// entry (a cell the result overwrites, to the result's entry). The
+/// refusal is about the cell named twice, so it stands at that cell's entry,
+/// as the collector's refusal of a result collection inside a named group
+/// does; where the entry has no exact range, at the rule's subject.
 pub(super) fn check_group_descendants(
     descriptor: &Descriptor,
     pattern_key: &ProvenanceKey,
     declaration: &DescriptorCellDeclaration,
     declarations: &DescriptorIndex<'_>,
-    selected: &BTreeSet<DescriptorCellIdentity>,
+    selected: &BTreeMap<DescriptorCellIdentity, ProvenanceKey>,
 ) -> Result<(), DescriptorLoweringError> {
     fn below(
         declaration: &DescriptorCellDeclaration,
@@ -137,9 +143,9 @@ pub(super) fn check_group_descendants(
     fn first_conflict(
         declaration: &DescriptorCellDeclaration,
         declarations: &DescriptorIndex<'_>,
-        selected: &BTreeSet<DescriptorCellIdentity>,
+        selected: &BTreeMap<DescriptorCellIdentity, ProvenanceKey>,
         depth: usize,
-    ) -> Result<Option<(String, String)>, DescriptorLoweringError> {
+    ) -> Result<Option<(String, DescriptorCellIdentity)>, DescriptorLoweringError> {
         if depth > 64 {
             return Ok(None);
         }
@@ -148,11 +154,13 @@ pub(super) fn check_group_descendants(
                 continue;
             };
             let nested = declarations.cell(&declaration.declaration)?;
-            if selected.contains(&field.reference.cell) {
+            if selected.contains_key(&field.reference.cell) {
                 let mut descendants = Vec::new();
                 below(nested, declarations, 0, &mut descendants)?;
-                if let Some(descendant) = descendants.iter().find(|cell| selected.contains(cell)) {
-                    return Ok(Some((field.rust_field.clone(), descendant.field.clone())));
+                if let Some(descendant) =
+                    descendants.into_iter().find(|cell| selected.contains_key(cell))
+                {
+                    return Ok(Some((field.rust_field.clone(), descendant)));
                 }
             }
             if let Some(conflict) = first_conflict(nested, declarations, selected, depth + 1)? {
@@ -164,14 +172,23 @@ pub(super) fn check_group_descendants(
     let Some((group, descendant)) = first_conflict(declaration, declarations, selected, 0)? else {
         return Ok(());
     };
+    let at = |key: &ProvenanceKey| -> Result<_, DescriptorLoweringError> {
+        Ok(
+            semantic_origin(descriptor, key.clone(), "group-descendant-pattern")?
+                .origin()
+                .exact_authored_range()
+                .map(Box::new),
+        )
+    };
+    let range = match selected.get(&descendant).map(at).transpose()?.flatten() {
+        Some(range) => Some(range),
+        None => at(pattern_key)?,
+    };
     Err(DescriptorLoweringError::GroupAndDescendant {
         rule: Box::new(descriptor.id().clone()),
         group,
-        descendant,
-        range: semantic_origin(descriptor, pattern_key.clone(), "group-descendant-pattern")?
-            .origin()
-            .exact_authored_range()
-            .map(Box::new),
+        descendant: descendant.field,
+        range,
     })
 }
 
