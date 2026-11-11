@@ -3924,6 +3924,124 @@ fn a_cells_record_without_a_rest_names_every_cell() {
     }
 }
 
+/// CELLS3 item 1: a `cells!` subject without a rest is judged by the cells its author names. A
+/// group named whole, by `_` or by a record of its children, is named, whatever the result writes
+/// there: beside a result record that writes `pc` and keeps the other children, the rule is the
+/// one with the subject's `..`, `<pc> _ => X </pc>`. A subject that leaves a cell out is refused
+/// whether or not the result writes that cell: the result writes over the cell, and the subject
+/// still describes no configuration.
+#[test]
+fn an_exact_cells_subject_is_judged_by_the_cells_its_author_names() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = |name: &str, source: &str| {
+        let manifest = library_package(temporary.path(), &format!("authored-{name}"), source);
+        emitted_sentence(target.path(), &manifest, "make")
+    };
+    let open = "acc: k::configuration::Cell(x), frame: k::fragment![crate::Frame { pc: x, .. }]";
+    let mut admitted = Vec::new();
+    for claim in [false, true] {
+        let form = if claim { "claim" } else { "rule" };
+        let rest = emitted(
+            &format!("{form}-rest"),
+            &whole_cells(claim, "", "acc: k::configuration::Cell(a), ..", open),
+        );
+        for (name, parameters, subject) in [
+            ("wildcard", "", "acc: k::configuration::Cell(a), frame: _"),
+            (
+                "record",
+                "",
+                "acc: k::configuration::Cell(a), frame: k::fragment![crate::Frame { .. }]",
+            ),
+            (
+                "result-rest",
+                "",
+                "acc: k::configuration::Cell(a), frame: _",
+            ),
+        ] {
+            let result = if name == "result-rest" {
+                format!("{open}, ..")
+            } else {
+                open.to_owned()
+            };
+            let sentence = emitted(
+                &format!("{form}-{name}"),
+                &whole_cells(claim, parameters, subject, &result),
+            );
+            assert_eq!(sentence, rest, "{form}-{name}");
+        }
+        admitted.push(rest);
+        admitted.push(emitted(
+            &format!("{form}-record-read"),
+            &whole_cells(
+                claim,
+                "\n    p: Int,",
+                "acc: k::configuration::Cell(a), frame: k::fragment![crate::Frame { pc: p, .. }]",
+                open,
+            ),
+        ));
+    }
+    expect_test::expect![[r#"
+        [
+            "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> <pc> _ => X:Int </pc>",
+            "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> <pc> P:Int => X:Int </pc>",
+            "claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> <pc> _ => X:Int </pc> [one-path]",
+            "claim [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <acc> A:Int => X:Int </acc> <pc> P:Int => X:Int </pc> [one-path]",
+        ]
+    "#]].assert_debug_eq(&admitted);
+    let readable = format!(
+        "{}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    make: {{ k: [Make {{ x }}, ..], acc: a, frame: _ }} => {{ k: [..], acc: x, frame: Frame {{ pc: x, .. }} }};\n}}\n",
+        WHOLE.replace("CONTEXT_ALIAS", WHOLE_ALIAS)
+    );
+    expect_test::expect![[r#"
+        "rule [make]: <k> make ( X:Int ) => .K ... </k> <acc> A:Int => X:Int </acc> <pc> _ => X:Int </pc>"
+    "#]].assert_debug_eq(&emitted("readable", &readable));
+    let refused = [
+        (
+            "acc-written",
+            whole_cells(
+                false,
+                "",
+                "frame: k::fragment![crate::Frame { pc: a, .. }]",
+                "acc: k::configuration::Cell(x)",
+            ),
+        ),
+        (
+            "frame-written",
+            whole_cells(
+                true,
+                "",
+                "acc: k::configuration::Cell(a)",
+                "acc: k::configuration::Cell(x), frame: k::fragment![crate::Frame { pc: x, gas: 0 }]",
+            ),
+        ),
+        (
+            "frame-written-open",
+            whole_cells(false, "", "acc: k::configuration::Cell(a)", open),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("authored-{name}"), &source);
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "acc-written",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `acc`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 54:5",
+            ),
+            (
+                "frame-written",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 54:5",
+            ),
+            (
+                "frame-written-open",
+                "error[krs::analysis::record-missing-children]: the `cells!` subject has no `..` and leaves out `frame`: a `cells!` record without `..` is the whole state, so it names every cell of its configuration, as a Rust struct pattern without `..` names every field; name it, or end the record with `..` to leave it unconstrained @ 54:5",
+            ),
+        ]
+    "#]].assert_debug_eq(&refused);
+}
+
 /// CELLSX: a `cells!` record without a rest that leaves a cell out describes no configuration,
 /// since every configuration holds each of its cells; it is refused at the record, which says
 /// which cells it leaves out, in a rule, a claim, a single-body rule, a context and a context

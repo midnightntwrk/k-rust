@@ -803,6 +803,18 @@ pub(super) fn lower_configuration_rule_descriptor(
         "configuration rule",
         "configuration rules require a fixed configuration",
     )?;
+    // The cells the subject's record names as the author wrote it. The lowerings below rewrite
+    // the record: a group record becomes its children's entries, a group's `_` beside a result
+    // record that keeps children names none of them, and a cell the result writes over is
+    // matched by `_`. None of that changes which cells the authored record names, and that is
+    // what a record without a rest is judged by ([`record_missing_cells`]).
+    let authored = rule
+        .subject
+        .cells
+        .iter()
+        .map(|cell| cell.field.cell.clone())
+        .collect::<BTreeSet<_>>();
+    let exact = matches!(rule.subject.remainder, ProtocolRuleFrame::Exact);
     let bracketed = super::group_records::with_computation_brackets(rule, declarations)?;
     let rule = bracketed.as_ref().unwrap_or(rule);
     let grouped = super::group_records::with_group_records(descriptor, rule, declarations)?;
@@ -914,17 +926,18 @@ pub(super) fn lower_configuration_rule_descriptor(
         declarations,
         &selected,
     )?;
-    let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
-    if matches!(rule.subject.remainder, ProtocolRuleFrame::Exact) && !omitted_siblings.is_empty() {
+    if exact && !omitted_leaf_cells(&configuration.declaration, declarations, &authored)?.is_empty()
+    {
         return Err(record_missing_cells(
             descriptor,
             &rule.pattern_key,
             "subject",
             &configuration.declaration,
             declarations,
-            &selected,
+            &authored,
         ));
     }
+    let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
 
     // Whether every cell the subject names matches every content; its
     // remainder matches whatever it leaves out.
