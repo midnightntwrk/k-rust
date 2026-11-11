@@ -25,6 +25,7 @@ type Page =
   | { path: '/lean/matching'; render: 'static' }
   | { path: '/lean/obligations'; render: 'static' }
   | { path: '/lean/signature'; render: 'static' }
+  | { path: '/lean/sound-and-complete'; render: 'static' }
   | { path: '/lean/state-of-the-core'; render: 'static' }
   | { path: '/lean/step'; render: 'static' }
   | { path: '/lean/terms'; render: 'static' }

@@ -92,6 +92,7 @@ export default defineConfig({
         { text: '7. Obligations', link: '/lean/obligations' },
         { text: '8. Matching logic', link: '/lean/matching-logic' },
         { text: '9. The theory Γ', link: '/lean/theory' },
+        { text: '10. Sound and Complete', link: '/lean/sound-and-complete' },
         { text: 'State of the core', link: '/lean/state-of-the-core' },
       ],
     },
