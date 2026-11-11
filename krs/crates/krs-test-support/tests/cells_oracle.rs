@@ -7005,6 +7005,8 @@ enum RecordFrame {
         cell: String,
         keeps: bool,
         unnamed: Vec<String>,
+        /// Every child the group declares.
+        children: Vec<String>,
     },
     /// The instances of a collection, of which `records` are records.
     Instances {
@@ -7076,6 +7078,11 @@ fn record_frames(
                     cell: cell.to_owned(),
                     keeps: record_keeps(group, &found),
                     unnamed: unnamed(group, &found),
+                    children: group
+                        .children
+                        .iter()
+                        .map(|(child, _)| child.clone())
+                        .collect(),
                 });
                 fields(group, &found, out);
             }
@@ -7095,6 +7102,11 @@ fn record_frames(
                         cell: cell.to_owned(),
                         keeps: record_keeps(group, &found),
                         unnamed: unnamed(group, &found),
+                        children: group
+                            .children
+                            .iter()
+                            .map(|(child, _)| child.clone())
+                            .collect(),
                     });
                     fields(group, &found, out);
                 }
@@ -7176,11 +7188,33 @@ fn container<'k>(k: &'k str, cell: &str) -> Option<&'k str> {
 /// whose recorded K keeps a frame where P6 says none or none where it says one; `counts` the
 /// judged and the unjudged (a cell the K writes more often than the entry, such as a result's
 /// instance beside the subject's, or a collection with no instance record to find it by).
-/// A result record that names every child, written in place (an update of the group or the
-/// paired instance the subject matched, INSTPAIR), shares its cell term with the subject's
-/// record: a `...` there is the subject's `..`, and frames no child.
-fn shares_subject_frame(side: Side, keeps: bool, unnamed: &[String], content: &str) -> bool {
-    !keeps && side == Side::Result && unnamed.is_empty() && content.contains("=>")
+/// Whether a cell's K content writes every child its group declares, on both sides of its
+/// rewrites: a top-level `...` there frames no child, so it denotes what the exact content does
+/// (an in-place update naming every child, INSTPAIR, or a creation writing them all). Both sides
+/// are read, since a side that leaves a child out lets the frame match or keep it.
+fn frames_no_child(children: &[String], content: &str) -> bool {
+    let (subject, result) = (side_view(content, false), side_view(content, true));
+    let (subject, result) = (child_cells(&subject), child_cells(&result));
+    children
+        .iter()
+        .all(|child| subject.contains(&child.as_str()) && result.contains(&child.as_str()))
+}
+
+/// The P6 exemption reads the K, not the record: a `...` beside every child frames nothing,
+/// while a `...` beside a record that names a child the K leaves out keeps that child's old
+/// value, where the record sets it (ORACLE-REVIEW).
+#[test]
+fn a_frame_beside_every_child_frames_nothing_and_beside_a_dropped_child_keeps_it() {
+    let children = ["la".to_owned(), "lb".to_owned()];
+    assert!(frames_no_child(
+        &children,
+        "<la> _ => V0:Int </la> <lb> _ => V1:Int </lb> ..."
+    ));
+    assert!(!frames_no_child(&children, "<la> _ => V0:Int </la> ..."));
+    assert!(frames_no_child(
+        &children[..1],
+        "<la> _ => V0:Int </la> ..."
+    ));
 }
 
 fn record_frames_agree(
@@ -7198,18 +7232,20 @@ fn record_frames_agree(
         &entry.entry.spelling,
         &mut frames,
     );
-    let mut records = BTreeMap::<&str, Vec<(bool, &[String])>>::new();
+    let mut records = BTreeMap::<&str, Vec<(bool, &[String], &[String])>>::new();
     for frame in &frames {
         match frame {
             RecordFrame::Record {
                 cell,
                 keeps,
                 unnamed,
+                children,
             } => {
-                records
-                    .entry(cell.as_str())
-                    .or_default()
-                    .push((*keeps, unnamed.as_slice()));
+                records.entry(cell.as_str()).or_default().push((
+                    *keeps,
+                    unnamed.as_slice(),
+                    children.as_slice(),
+                ));
             }
             RecordFrame::Instances {
                 cell,
@@ -7255,7 +7291,7 @@ fn record_frames_agree(
                 .or_default() += wanted.len();
             continue;
         }
-        for ((keeps, unnamed), content) in wanted.into_iter().zip(contents) {
+        for ((keeps, unnamed, children), content) in wanted.into_iter().zip(contents) {
             *counts.entry("record frames judged").or_default() += 1;
             // Ruling 1 (c): on a subject, a child the record does not name written `_` as its
             // whole content matches that child unconstrained; a record whose every unnamed child
@@ -7276,9 +7312,7 @@ fn record_frames_agree(
                         let found = k_cells(content, child);
                         found.len() == 1 && found[0] == "_"
                     }));
-            if has_frame != keeps
-                && !shares_subject_frame(entry.entry.side, keeps, unnamed, content)
-            {
+            if has_frame != keeps && (keeps || !frames_no_child(children, content)) {
                 failures.push(format!(
                     "{}: `<{cell}> {content} </{cell}>` has {} at its top level, where P6 says \
                      the record {}",
