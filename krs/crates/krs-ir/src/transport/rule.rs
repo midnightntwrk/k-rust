@@ -532,7 +532,8 @@ pub enum ProtocolInstanceRest {
 pub enum ProtocolRecordRest {
     /// No rest: the record names every child.
     Exact,
-    /// `..`: a pattern leaving the other children unconstrained.
+    /// `..`: the children the record does not name are what they would otherwise be, in a
+    /// pattern unconstrained, in a result's record of a group that is there unchanged.
     Open,
 }
 

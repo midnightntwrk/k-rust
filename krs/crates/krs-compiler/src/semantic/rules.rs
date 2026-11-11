@@ -1144,7 +1144,9 @@ fn infer_head_rule(
                     })?;
                     // A group record whose computation child is written in brackets is the
                     // record of its children's entries, that child's its K sequence (R4), as
-                    // its elaboration reads it; any other value is a term of the cell's sort.
+                    // its elaboration reads it; so is a result's group record whose `..` leaves
+                    // a child unnamed, whose other children keep their content; any other value
+                    // is a term of the cell's sort.
                     let declarations = builder.declarations;
                     let field = require_cell_field(&cell.cell, declarations)?;
                     let sides = std::iter::once((before, true))
@@ -1164,6 +1166,17 @@ fn infer_head_rule(
                             super::cell_states::foreign_group_term(builder.descriptor, field, term)
                         {
                             return Err(refusal);
+                        } else if let Some(record) = (!subject)
+                            .then(|| super::group_records::kept_record(term, field, declarations))
+                            .flatten()
+                        {
+                            infer_readable_state(
+                                builder,
+                                declarations,
+                                field,
+                                &krs_ir::ProtocolRuleStateTerm::Record(record),
+                                false,
+                            )?;
                         } else {
                             builder.infer(term, Some(expected), subject)?;
                         }

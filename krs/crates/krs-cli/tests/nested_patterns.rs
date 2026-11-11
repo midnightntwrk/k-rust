@@ -490,10 +490,9 @@ fn cells_outer_rule(outer: &str) -> String {
 
 /// In a `cells!` result a `..` after every child leaves nothing open, so the record is the exact
 /// one, at a fragment's root and at a group child inside it, bare or in `k::fragment!`
-/// (`language.mdx`, group records); one that leaves a child out is refused by the entry's
-/// admission, for both spellings of the child alike (RDRA item 1).
+/// (`language.mdx`, group records); one that leaves a child out keeps that child's content.
 #[test]
-fn a_cells_result_record_may_end_in_rest_once_every_child_is_named() {
+fn a_cells_result_record_ends_in_rest_after_every_child_or_keeps_the_others() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let exact = library_package(
@@ -529,7 +528,10 @@ fn a_cells_result_record_may_end_in_rest_once_every_child_is_named() {
             "{label}"
         );
     }
-    let refusals = [
+    // A `..` that leaves a child out keeps that child's content: the group is there, so the
+    // record writes only the children it names, each as its own cell (EDOTS item 1), for both
+    // spellings of the child alike.
+    let kept = [
         ("root", "k::fragment![crate::Outer { frame: crate::Frame { pc: 1, gas: 2 }, .. }]"),
         (
             "bare-child",
@@ -546,20 +548,27 @@ fn a_cells_result_record_may_end_in_rest_once_every_child_is_named() {
             &format!("cells-open-{label}"),
             &cells_outer_rule(outer),
         );
-        (label, check_errors(target.path(), &manifest))
+        (label, rule(&emitted_k(target.path(), &manifest), "reset").to_owned())
     });
-    for (label, errors) in &refusals {
-        assert!(
-            errors.starts_with("error[krs::syntax::invalid-record-update]: ")
-                && errors.contains(
-                    "leaves a record open (`..`) outside a pattern, over a group that exists"
-                ),
-            "{label}: {errors}"
-        );
-    }
+    expect_test::expect![[r#"
+        [
+            (
+                "root",
+                "rule [reset]:\n    <k> bump ~> Tail:K => .K ~> Tail:K </k>\n    (_:FrameCell => <frame> <pc> 1 </pc> <gas> 2 </gas> </frame>)",
+            ),
+            (
+                "bare-child",
+                "rule [reset]:\n    <k> bump ~> Tail:K => .K ~> Tail:K </k>\n    <pc> _ => 1 </pc>\n    <flag> _ => 0 </flag>",
+            ),
+            (
+                "fragment-child",
+                "rule [reset]:\n    <k> bump ~> Tail:K => .K ~> Tail:K </k>\n    <pc> _ => 1 </pc>\n    <flag> _ => 0 </flag>",
+            ),
+        ]
+    "#]].assert_debug_eq(&kept);
     assert_eq!(
-        refusals[1].1, refusals[2].1,
-        "one text for both spellings of the child"
+        kept[1].1, kept[2].1,
+        "one K for both spellings of the child"
     );
 }
 
@@ -2743,4 +2752,417 @@ fn a_left_out_collection_child_is_a_variable_of_its_collection_sort_at_its_place
             }
         }
     }
+}
+
+/// Groups for the kept-children witnesses: a plain group, a group holding a group, an optional
+/// group and a Map collection whose instances hold a group.
+const KEPT: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("make({x})")]
+    Make { x: Int },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub gas: Int,
+}
+
+#[k::cell]
+pub struct Inner {
+    #[k::cell]
+    pub x: Int,
+    #[k::cell]
+    pub y: Int,
+}
+
+#[k::cell]
+pub struct Outer {
+    #[k::cell(nested)]
+    pub inner: Inner,
+    #[k::cell]
+    pub flag: Int,
+}
+
+#[k::cell]
+pub struct Gp {
+    #[k::cell]
+    pub pa: Int,
+    #[k::cell]
+    pub pb: Int,
+}
+
+#[k::cell]
+pub struct Ag {
+    #[k::cell]
+    pub aa: Int,
+    #[k::cell]
+    pub ab: Int,
+}
+
+#[k::cell]
+pub struct Acct {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell(nested)]
+    pub aframe: Ag,
+}
+
+#[k::cell]
+pub struct Bank {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub acct: Acct,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell(nested)]
+    pub outer: Outer,
+    #[k::cell(multiplicity = "?", nested)]
+    pub ogroup: Option<Gp>,
+    #[k::cell(nested)]
+    pub bank: Bank,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            frame: Frame { pc: 0, gas: 0 },
+            outer: Outer { inner: Inner { x: 0, y: 0 }, flag: 0 },
+            ogroup: k::absent!(Gp { pa: 0, pb: 0 }),
+            bank: Bank { acct: Acct { id: 0, aframe: Ag { aa: 0, ab: 0 } } },
+        }
+    }
+}
+"#;
+
+/// A `KEPT` readable rule (`claim` false) or claim `make` whose subject's and result's records
+/// hold `subject` and `result` beside the computation cell.
+fn kept_readable(claim: bool, subject: &str, result: &str) -> String {
+    let (block, attribute) = if claim {
+        ("claims", "#[k::claim(one_path)]\n    ")
+    } else {
+        ("rules", "")
+    };
+    let entries = |head: &str, entries: &str| {
+        if entries.is_empty() {
+            head.to_owned()
+        } else {
+            format!("{head}, {entries}")
+        }
+    };
+    format!(
+        "{KEPT}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {attribute}make: {{ {} }} => {{ {} }};\n}}\n",
+        entries("k: [Make { x }, ..]", subject),
+        entries("k: [..]", result),
+    )
+}
+
+/// A `KEPT` `cells!` rule `make` whose subject and result hold `subject` and `result` beside the
+/// computation cell, with the parameters `parameters` besides `x`.
+fn kept_cells(parameters: &str, subject: &str, result: &str) -> String {
+    let subject = if subject.is_empty() {
+        String::new()
+    } else {
+        format!("{subject}, ")
+    };
+    format!(
+        "{KEPT}#[k::rule(label = \"make\")]\npub fn make(\n    x: Int,{parameters}\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, tail @ ..), {subject}state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
+    )
+}
+
+/// The rule or claim `label` that `krs emit-k` writes for the package, on one line.
+fn emitted_sentence(target: &Path, manifest: &Path, label: &str) -> String {
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target,
+        manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let k = ["definition.k", "spec.k"]
+        .iter()
+        .filter_map(|file| fs::read_to_string(output.join(file)).ok())
+        .map(|k| krs_test_support::without_source_comments(&k))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let start = ["rule", "claim"]
+        .iter()
+        .find_map(|kind| k.find(&format!("{kind} [{label}]:")))
+        .unwrap_or_else(|| panic!("`{label}` is emitted:\n{k}"));
+    let end = ["rule [", "claim [", "endmodule"]
+        .iter()
+        .filter_map(|next| k[start + 1..].find(next))
+        .min()
+        .map_or(k.len(), |end| start + 1 + end);
+    k[start..end]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// EDOTS item 1: the record a result's entry writes for a group that is there, matched or
+/// overwritten, means by its `..` that the children it leaves unnamed are unchanged, so it
+/// writes only the children it names, each as its own cell: `frame: Frame { pc: x, .. }` is
+/// `<pc> _ => X </pc>`, `<gas>` as it was. Readable rules, claims and `cells!` rules agree, and
+/// the bare record and its fragment are one record. Two places have no lowering yet and refuse
+/// with what the `..` means there: beside a subject that matches the group whole, and where the
+/// result writes the group whole (a `?` group's `Some(..)`, an updated instance's group child).
+/// A group the result creates keeps its own stated limit
+/// (`a_record_of_a_group_no_subject_matched_names_every_child`).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of places and spellings, each with its K or its refusal."
+)]
+fn a_result_entrys_record_keeps_the_children_its_rest_leaves_unnamed() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let admitted = [
+        (
+            "matched",
+            kept_readable(
+                false,
+                "frame: Frame { pc: p, .. }",
+                "frame: Frame { pc: x, .. }",
+            ),
+        ),
+        (
+            "matched-fragment",
+            kept_readable(
+                false,
+                "frame: Frame { pc: p, .. }",
+                "frame: k::fragment![Frame { pc: x, .. }]",
+            ),
+        ),
+        (
+            "matched-whole",
+            kept_readable(
+                false,
+                "frame: Frame { pc: p, gas: g }",
+                "frame: Frame { pc: x, .. }",
+            ),
+        ),
+        (
+            "overwritten",
+            kept_readable(false, "", "frame: Frame { pc: x, .. }"),
+        ),
+        (
+            "wildcard",
+            kept_readable(false, "frame: _", "frame: Frame { pc: x, .. }"),
+        ),
+        (
+            "none-named",
+            kept_readable(false, "frame: Frame { pc: p, .. }", "frame: Frame { .. }"),
+        ),
+        (
+            "group-child",
+            kept_readable(
+                false,
+                "outer: Outer { inner: Inner { x: p, .. }, .. }",
+                "outer: Outer { inner: Inner { x: x, .. }, flag: 0 }",
+            ),
+        ),
+        (
+            "root-and-child",
+            kept_readable(
+                false,
+                "outer: _",
+                "outer: Outer { inner: Inner { x: x, .. }, .. }",
+            ),
+        ),
+        (
+            "claim-matched",
+            kept_readable(
+                true,
+                "frame: Frame { pc: p, .. }",
+                "frame: Frame { pc: x, .. }",
+            ),
+        ),
+        (
+            "claim-overwritten",
+            kept_readable(true, "", "frame: Frame { pc: x, .. }"),
+        ),
+        (
+            "cells-matched",
+            kept_cells(
+                " p: Int,",
+                "frame: k::fragment![crate::Frame { pc: p, .. }]",
+                "frame: k::fragment![crate::Frame { pc: x, .. }]",
+            ),
+        ),
+        (
+            "cells-wildcard",
+            kept_cells(
+                "",
+                "frame: _",
+                "frame: k::fragment![crate::Frame { pc: x, .. }]",
+            ),
+        ),
+        (
+            "cells-group-child",
+            kept_cells(
+                "",
+                "outer: _",
+                "outer: k::fragment![crate::Outer { inner: crate::Inner { x: x, .. }, flag: 0 }]",
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("kept-{name}"), &source);
+        (name, emitted_sentence(target.path(), &manifest, "make"))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "matched",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <pc> P:Int => X:Int </pc>",
+            ),
+            (
+                "matched-fragment",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <pc> P:Int => X:Int </pc>",
+            ),
+            (
+                "matched-whole",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <pc> P:Int => X:Int </pc> <gas> G:Int </gas>",
+            ),
+            (
+                "overwritten",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <pc> _ => X:Int </pc>",
+            ),
+            (
+                "wildcard",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <pc> _ => X:Int </pc>",
+            ),
+            (
+                "none-named",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <pc> P:Int </pc>",
+            ),
+            (
+                "group-child",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <x> P:Int => X:Int </x> <flag> _ => 0 </flag>",
+            ),
+            (
+                "root-and-child",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <x> _ => X:Int </x>",
+            ),
+            (
+                "claim-matched",
+                "claim [make]: <k> make ( X:Int ) => .K ... </k> <pc> P:Int => X:Int </pc> [one-path]",
+            ),
+            (
+                "claim-overwritten",
+                "claim [make]: <k> make ( X:Int ) => .K ... </k> <pc> _ => X:Int </pc> [one-path]",
+            ),
+            (
+                "cells-matched",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <pc> P:Int => X:Int </pc>",
+            ),
+            (
+                "cells-wildcard",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <pc> _ => X:Int </pc>",
+            ),
+            (
+                "cells-group-child",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <x> _ => X:Int </x> <flag> _ => 0 </flag>",
+            ),
+        ]
+    "#]].assert_debug_eq(&admitted);
+    let refused = [
+        (
+            "binder",
+            kept_readable(false, "frame: f", "frame: Frame { pc: x, .. }"),
+        ),
+        (
+            "alias",
+            kept_readable(
+                false,
+                "frame: f @ Frame { pc: p, .. }",
+                "frame: Frame { pc: x, .. }",
+            ),
+        ),
+        (
+            "child-binder",
+            kept_readable(
+                false,
+                "outer: Outer { inner: i, .. }",
+                "outer: Outer { inner: Inner { x: x, .. }, flag: 0 }",
+            ),
+        ),
+        (
+            "optional-present",
+            kept_readable(
+                false,
+                "ogroup: Some(Gp { pa: p, .. })",
+                "ogroup: Some(Gp { pa: x, .. })",
+            ),
+        ),
+        (
+            "cells-optional-present",
+            kept_cells(
+                " p: Int,",
+                "ogroup: Some(k::fragment![crate::Gp { pa: p, .. }])",
+                "ogroup: Some(k::fragment![crate::Gp { pa: x, .. }])",
+            ),
+        ),
+        (
+            "instance-child",
+            kept_readable(
+                false,
+                "acct: { me @ Acct { id: i, .. }, .. }",
+                "acct: { Acct { aframe: Ag { aa: x, .. }, ..me }, .. }",
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("kept-refused-{name}"), &source);
+        (name, first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "binder",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base` @ 100:66",
+            ),
+            (
+                "alias",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base` @ 100:88",
+            ),
+            (
+                "child-binder",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `inner` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base` @ 100:102",
+            ),
+            (
+                "optional-present",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base` @ 100:94",
+            ),
+            (
+                "cells-optional-present",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base` @ 102:66",
+            ),
+            (
+                "instance-child",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `aframe` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base` @ 100:111",
+            ),
+        ]
+    "#]].assert_debug_eq(&refused);
 }

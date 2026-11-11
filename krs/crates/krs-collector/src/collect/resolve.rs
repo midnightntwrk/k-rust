@@ -2289,7 +2289,11 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
 /// children it does not name unconstrained, with or without `..`. Anywhere
 /// else (a leaf cell's content, a list element, a constructor argument)
 /// the record is a value of its cell sort, complete unless it ends in `..`,
-/// and the records below a value are read by [`group_record_term`].
+/// and the records below a value are read by [`group_record_term`]. A
+/// record's authored `..` is kept on either side, as its `k::fragment!` twin
+/// keeps it: what it means where it stands (a result's record of a group
+/// that is there keeps the children it leaves unnamed) and where it may
+/// stand are the entry's admission's to say.
 fn readable_group_term(
     term: krs_ir::HostTerm,
     subject: bool,
@@ -2315,13 +2319,13 @@ fn readable_group_term(
         term,
         groups.declarations,
         |target, fields, authored_open| {
-            subject
-                && (authored_open
-                    || (position == Some(target)
-                        && groups
-                            .children
-                            .get(&target)
-                            .is_some_and(|children| fields < children.count)))
+            authored_open
+                || (subject
+                    && position == Some(target)
+                    && groups
+                        .children
+                        .get(&target)
+                        .is_some_and(|children| fields < children.count))
         },
     );
     // A record at its group's own position, written bare or as

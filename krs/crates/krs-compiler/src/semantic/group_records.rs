@@ -333,10 +333,18 @@ pub(super) fn with_group_records(
         // whole group clause K has always been given; otherwise its children are lowered as
         // their own cells' clauses, exactly as if each were written as its own cell (R4). A
         // fixed group's cells are matched and written the same either way: an unnamed child of
-        // a subject record is unconstrained in both, and a result record names every child.
-        let whole = records
-            .iter()
-            .all(|(_, record)| record_term(record).is_some());
+        // a subject record is unconstrained in both. A result record whose `..` leaves a child
+        // unnamed, here or in a group child it writes, keeps that child's content: the record
+        // of a group that is there writes only the children it names, which its children's own
+        // cells say and no group term does, since a term names every child.
+        let kept = result_cell.as_ref().is_some_and(|cell| match &cell.value {
+            State::Record(record) => leaves_children(record, declarations),
+            _ => false,
+        });
+        let whole = !kept
+            && records
+                .iter()
+                .all(|(_, record)| record_term(record).is_some());
         if whole {
             for (index, side) in [(subject, true), (result, false)] {
                 let Some(index) = index else { continue };
@@ -348,16 +356,37 @@ pub(super) fn with_group_records(
             }
             continue;
         }
+        // A subject's `_` matches the group whatever its children hold, as the record naming
+        // none of them does, so beside a result whose children are their own cells it names no
+        // cell, and each child the result writes is overwritten (`with_overwritten_cells`).
+        let subject_cell = subject_cell.filter(|cell| {
+            !(kept
+                && matches!(
+                    &cell.value,
+                    State::Term(DescriptorTerm::Wildcard { .. })
+                        | State::Group(DescriptorTerm::Wildcard { .. })
+                ))
+        });
         for (cell, other) in [(&subject_cell, &result_cell), (&result_cell, &subject_cell)] {
             if let (Some(cell), Some(other)) = (cell, other)
                 && matches!(cell.value, State::Record(_))
                 && !matches!(other.value, State::Record(_))
             {
+                let why = if kept {
+                    format!(
+                        "the result's record of `{}` leaves children unnamed, which keep their content, so the children it names are written as their own cells",
+                        identity.field
+                    )
+                } else {
+                    format!(
+                        "the record of `{}` writes a child as an entry no term spells, so its children are matched and written as their own cells",
+                        identity.field
+                    )
+                };
                 return Err(DescriptorLoweringError::unsupported_shape(
                     "group record",
                     format!(
-                        "not supported yet: the record of `{}` writes a child as an entry no term spells, so its children are matched and written as their own cells, and the other side writes the group whole, which the Semantic IR cannot build from those children (it has no map concatenation); write a record of the group's children on both sides",
-                        identity.field
+                        "not supported yet: {why}, and the other side writes the group whole, which the Semantic IR cannot build from those children (it has no map concatenation); write a record of the group's children on both sides"
                     ),
                 )
                 .within(descriptor.id(), key_range(descriptor, &other.field.key).as_ref()));
@@ -381,6 +410,39 @@ pub(super) fn with_group_records(
         }
     }
     Ok(Some(rule))
+}
+
+/// The record of its children's entries that the cell term `term`, a result's entry of the
+/// group cell `declared`, is when its `..` leaves a child unnamed ([`leaves_children`]): the
+/// children it names are written and the others keep their content, which only the children's
+/// own cells say ([`with_group_records`]). `None` for every other term.
+pub(super) fn kept_record(
+    term: &DescriptorTerm,
+    declared: &DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<Record> {
+    let ProtocolCellContent::Nested { declaration } = &declared.content else {
+        return None;
+    };
+    Record::of_group_term(term, &declaration.declaration, declarations)
+        .filter(|record| leaves_children(record, declarations))
+}
+
+/// Whether `record`, a record a result writes, ends in a `..` that leaves a child of its group
+/// unnamed, at its own level or in a group child record it holds. A `..` after every child
+/// leaves none, and the record is the exact one.
+fn leaves_children(record: &Record, declarations: &DescriptorIndex<'_>) -> bool {
+    let open = matches!(record.rest, krs_ir::ProtocolRecordRest::Open)
+        && match &record.head {
+            DescriptorTerm::Cell { declaration, .. } => declarations
+                .cell(declaration)
+                .is_ok_and(|group| record.fields.len() < group.fields.len()),
+            _ => false,
+        };
+    open || record.fields.iter().any(|field| match &field.value {
+        State::Record(child) => leaves_children(child, declarations),
+        _ => false,
+    })
 }
 
 /// Writes each present optional group's record as the group's term: an optional cell's entry is
