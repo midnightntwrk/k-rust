@@ -1,0 +1,68 @@
+---
+title: State of the core
+description: "Where KCore stands, as of kcore-spec cb071587 (2026-11-12): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
+---
+
+# State of the core
+
+As of kcore-spec `cb071587`, 2026-11-12.
+This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
+
+## The goal
+
+Every K definition we care about, read from kompile's own KORE, gets a Lean package that states soundness and completeness under well-formedness and a list of obligations, and a proof built on top of that package checks.
+
+| Definition | read | well-formed | obligations | sound and complete | used by a proof |
+| --- | --- | --- | --- | --- | --- |
+| imp | — | — | — | — | — |
+| KEVM | — | — | — | — | — |
+| wasm | — | — | — | — | — |
+| mir | — | — | — | — | — |
+| K in K | — | — | — | — | — |
+
+- **read**: every sentence of kompile's own KORE for the definition is read, ignored as having no meaning for the semantics, or refused with a reason.
+- **well-formed**: the definition passes the well-formedness check, or the failing conditions are listed.
+- **obligations**: the facts the definition leaves to its author are listed, and each is proved or named as open.
+- **sound and complete**: the generated package states both theorems for the definition.
+- **used by a proof**: one existing proof about the definition is rebuilt on the package.
+
+Today no row has its first column.
+All 15 examples are read from k-rust's KORE, not from kompile's.
+
+## The core, layer by layer
+
+The core is what you must understand to know what the theorems `Sound` and `Complete` say.
+Everything else (every proof, the generator, the executable evaluator) is checked by Lean's kernel against it.
+
+| # | Layer | What it says | Status |
+| --- | --- | --- | --- |
+| 1 | Terms | what a configuration is: ground terms, patterns with variables, sorts and symbols as numbers | settled, except literals: they gain bytes and strings with canonical forms |
+| 2 | Signature | a definition as a Lean value: sorts, constructors, subsorts, functions as clauses with priorities, rules with priorities, collections | settled, except the library of builtin sorts and symbols (it becomes a list of hook domains) and sort parameters (read by a special case for `ite`) |
+| 3 | Values | which ground terms are values of which sort; configurations as well-sorted terms of the top sort | settled |
+| 4 | Matching | when a pattern matches a value under a substitution, including map, set and list patterns | settled |
+| 5 | Evaluation | function evaluation as a relation: a clause applies where every clause of a smaller priority fails; the order of clauses means nothing | settled, except the builtin operations on Bool and Int (hook domains) and whether Bool operations are strict (decision 1 below) |
+| 6 | Step | one step: a rule whose left side matches, whose condition is true, whose right side has a value, and no rule of a smaller priority applies | settled |
+| 7 | Obligations | the five kinds of fact a definition may leave to its author; with none, the theorems hold unconditionally | settled, except the obligations of short-circuiting (they follow decision 1) and which functions the termination obligation names |
+| 8 | Matching logic | patterns, models and entailment, as much as the statements use | settled |
+| 9 | The theory Γ | the theory a definition denotes, built from the Lean value: sorts, constructors, collections, function equations, rule axioms | settled, except the axioms of the builtin domains |
+| 10 | Sound and Complete | every step is entailed by the theory, which has a model; every successor the theory forces is a step | settled |
+| 11 | Well-formedness | the hypothesis of both theorems | not settled: it reads more than the semantics the theorems speak about, and its conditions move with the reader of kompile's KORE |
+
+## What you trust
+
+1. Lean's kernel and its three standard axioms.
+2. The definitions the theorems are stated with: the step relation, evaluation, matching, the theory Γ and its step closure, well-formedness, the obligations, and entailment in matching logic. Reading the course is reviewing them.
+3. The builtin domains: the Bool and Int operations as defined in Lean. Bytes, String and the others are parameters with no interpretation.
+4. The reader of a KORE file, for a definition read without the tie: that the Lean definition it produces is the one the text describes. With the tie, the kernel checks that printing the definition back gives the text, up to the order of its sentences.
+5. kompile's translation from K to KORE. Nothing here speaks about the K source.
+
+Not trusted: the generator, the deciders, the executable evaluator and k-rust. The kernel checks each against the definitions.
+
+## Open decisions
+
+Each is a question you can answer by replying.
+
+1. **Strict Bool operations.** Today `A andBool B` has a value only when both `A` and `B` have one, and a definition that relies on short-circuiting carries an obligation per place it does. imp-sec's six such obligations are false, and parts of KEVM carry more, so those definitions would have to be rewritten with `ite` or guarded clauses. Keep the strict reading? (Recommended: yes.)
+2. **A priority above 200 beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority above 200 is refused today. Keep refusing, or read a priority above 200 as "after `[owise]`" and state where that differs from the KORE text?
+3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
+4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.

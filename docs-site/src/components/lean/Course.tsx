@@ -388,6 +388,7 @@ function Rail({ current, done }: { current: Lesson; done: Readonly<Record<string
           Each lesson names the kcore-spec commit it was written against.
           The package is not yet part of this repository.
         </p>
+        <p><Link to="/lean/state-of-the-core">State of the core →</Link> what is settled, what is trusted, and the open decisions.</p>
         <p>Space plays or pauses. ← and → step.</p>
         <div className={styles.railLinks}>
           <Link to="/">← k-rust and KRS</Link>
