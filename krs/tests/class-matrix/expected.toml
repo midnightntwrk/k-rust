@@ -4223,7 +4223,7 @@ class = "map-read-in-result"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/G \{ a: x\, .. \}'
+match = 'sweep/{claim,readable}/overwrite/{counter,env,olist,omap,pc,prog,seq,set,stack}/G \{ a: x\, .. \}'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -4233,27 +4233,17 @@ class = "open-record-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/c28-wcell/W \{ wg: Gw \{ wa: x\, .. \}\, wn: 0 \}'
-class = "open-record-outside-pattern"
-at = "spelling"
-
-[[refuse]]
 match = 'sweep/{claim,readable}/overwrite/{olist,prog,seq,stack}/[G \{ a: x\, .. \}\, ..]'
 class = "open-record-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/cells/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+match = 'sweep/cells/overwrite/{counter,env,olist,omap,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "open-record-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: x\, .. \}\, wn: 0 \}]'
-class = "open-record-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/{counter,env,frame,olist,omap,pc,prog,seq,stack}/G \{ a: x\, .. \}'
+match = 'sweep/{claim,readable}/result/{counter,env,olist,omap,pc,prog,seq,stack}/G \{ a: x\, .. \}'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -4273,7 +4263,7 @@ class = "open-record-outside-pattern"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/cells/result/{counter,env,frame,olist,omap,pc,prog,seq,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+match = 'sweep/cells/result/{counter,env,olist,omap,pc,prog,seq,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -13669,6 +13659,16 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/cells/overwrite/c28-wcell/k::fragment![crate::W { wg: Gw { wa: x, .. }, wn: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<wa> _ => V0:Int </wa>
+<wn> _ => 0 </wn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
 k = """
 rule [case-TAG]:
@@ -13686,6 +13686,15 @@ rule [case-TAG]:
 (_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<a> _ => V0:Int </a>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
@@ -13896,6 +13905,15 @@ rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 <cc> V1:KItem => V0:Int </cc>
 <cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/frame/k::fragment![crate::G { a: x, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<a> V1:Int => V0:Int </a>
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
@@ -14458,6 +14476,16 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/claim/overwrite/c28-wcell/W { wg: Gw { wa: x, .. }, wn: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<wa> _ => V0:Int </wa>
+<wn> _ => 0 </wn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/claim/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
 k = """
 claim [case-TAG]:
@@ -14475,6 +14503,15 @@ claim [case-TAG]:
 (_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."sweep/claim/overwrite/frame/G { a: x, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<a> _ => V0:Int </a>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/claim/overwrite/frame/G { a: x, b: y, .. }"]
@@ -14722,6 +14759,15 @@ claim [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 <cc> V1:KItem => V0:Int </cc>
 <cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/frame/G { a: x, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<a> V1:Int => V0:Int </a>
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
@@ -16439,6 +16485,16 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/readable/overwrite/c28-wcell/W { wg: Gw { wa: x, .. }, wn: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<wa> _ => V0:Int </wa>
+<wn> _ => 0 </wn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/readable/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
 k = """
 rule [case-TAG]:
@@ -16456,6 +16512,15 @@ rule [case-TAG]:
 (_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."sweep/readable/overwrite/frame/G { a: x, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<a> _ => V0:Int </a>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/readable/overwrite/frame/G { a: x, b: y, .. }"]
@@ -16703,6 +16768,15 @@ rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
 <cc> V1:KItem => V0:Int </cc>
 <cn> _ => 0 </cn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/frame/G { a: x, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<a> V1:Int => V0:Int </a>
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """

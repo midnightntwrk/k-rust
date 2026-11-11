@@ -815,7 +815,7 @@ fn shorthand_pattern(cell: &Ident) -> Result<Pat, ParseError> {
 /// adds nothing and is read as its absence. A named rest, `name @ ..` in a subject or `..name`
 /// in a result, would name those cells as one value, which they are not: they are several
 /// cells, each kept as it is, and the record keeps them without a name.
-fn record_rest(content: ParseStream<'_>, context: StateMacroContext) -> Result<bool, ParseError> {
+fn record_rest(content: ParseStream<'_>, reading: StateMacroContext) -> Result<bool, ParseError> {
     let named_pattern = {
         let fork = content.fork();
         fork.call(Ident::parse_any).is_ok()
@@ -836,7 +836,7 @@ fn record_rest(content: ParseStream<'_>, context: StateMacroContext) -> Result<b
         return Ok(false);
     }
     let dots = content.parse::<Token![..]>()?;
-    if context == StateMacroContext::Expression && content.peek(Ident::peek_any) {
+    if reading == StateMacroContext::Expression && content.peek(Ident::peek_any) {
         let name = content.call(Ident::parse_any)?;
         return Err(record_rest_error(
             name.span(),

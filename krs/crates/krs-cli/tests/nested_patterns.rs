@@ -3141,27 +3141,27 @@ fn a_result_entrys_record_keeps_the_children_its_rest_leaves_unnamed() {
         [
             (
                 "binder",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base` @ 100:66",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched @ 100:66",
             ),
             (
                 "alias",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base` @ 100:88",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched @ 100:88",
             ),
             (
                 "child-binder",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `inner` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base` @ 100:102",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `inner` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched @ 100:102",
             ),
             (
                 "optional-present",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base` @ 100:94",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched @ 100:94",
             ),
             (
                 "cells-optional-present",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base` @ 102:66",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched @ 102:66",
             ),
             (
                 "instance-child",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `aframe` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base` @ 100:111",
+                "error[krs::syntax::invalid-record-update]: the result's record of the group `aframe` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched @ 100:111",
             ),
         ]
     "#]].assert_debug_eq(&refused);

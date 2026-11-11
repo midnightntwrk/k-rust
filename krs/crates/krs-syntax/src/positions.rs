@@ -808,7 +808,7 @@ impl Class {
                 "an alias clause also runs backwards: when a result is printed, each term its result matches prints as its subject, built from what the match bound, and the fields `..` leaves open have no value from that match: they print as variables (`_Krs_Wildcard0`); name every field and use it in the result, or write `#[k::desugar]` for an expansion that runs one way"
             }
             Self::OpenRecordOutsidePattern => {
-                "`..` stands in a pattern, where it leaves the fields the record does not name unconstrained, and in the group record a cell's entry writes for its cell, where a created instance takes its defaults for them and a `..` after every child is the exact record; a term built anywhere else, inside a cell's entry too, names every field of the record it builds, so it holds no `..`, even with every field named"
+                "`..` stands in a pattern, where it leaves the fields the record does not name unconstrained, and in the group record a cell's entry writes for its cell, where they keep the content of a group that is there or take a created instance's defaults, and a `..` after every child is the exact record; a term built anywhere else, inside a cell's entry too, names every field of the record it builds, so it holds no `..`, even with every field named"
             }
             Self::RecordRemainderInCellsTerm => {
                 "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained, and only a pattern's group record leaves its other children open (`k::fragment![G { c: e, .. }]`); `..base` and `..` are readable-record notation"

@@ -478,10 +478,10 @@ impl Refusal {
                 "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader"
             ),
             Self::OpenRecordOverWholeMatch => format!(
-                "the result's record of the group `{cell}` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the matched record with `..base`"
+                "the result's record of the group `{cell}` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched"
             ),
             Self::OpenRecordInWholeTerm => format!(
-                "the result's record of the group `{cell}` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (an optional group's `Some(..)`, an instance record's group child), which has no form yet for children that keep their content: name every child, or take the others from a matched record with `..base`"
+                "the result's record of the group `{cell}` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched"
             ),
             Self::OpenRecordInBuiltTerm => format!(
                 "{}; here it stands in a term the entry of the cell `{cell}` builds",
@@ -946,9 +946,9 @@ fn names_every_field(record: &EntryRecord, group: &GroupKind) -> bool {
     record.fields.len() == group.children.len()
 }
 
-/// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed. A
-/// bare `..` in a built record is Rust's default fields; where the record names every child
-/// it defaults none, and Rust and K read the same exact record.
+/// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed: the
+/// children it does not name are what they would otherwise be ([`pair_records`]). Where the
+/// record names every child the `..` leaves none, and the record is the exact one.
 fn leaves_open(record: &EntryRecord, group: &GroupKind) -> bool {
     record.tail == RecordTail::Open && !names_every_field(record, group)
 }
