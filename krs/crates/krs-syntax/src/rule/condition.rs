@@ -491,7 +491,7 @@ pub(crate) fn take_requires_helper(
 }
 
 /// `expression` in parentheses spanned at its own first token, as an operand of a conjunction.
-fn parenthesized(expression: Expr) -> Expr {
+pub(super) fn parenthesized(expression: Expr) -> Expr {
     let span = quote::ToTokens::to_token_stream(&expression)
         .into_iter()
         .next()

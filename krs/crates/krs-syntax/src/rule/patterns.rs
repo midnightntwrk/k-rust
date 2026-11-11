@@ -25,6 +25,7 @@ use syn::visit::Visit;
 use syn::{Attribute, Expr, Ident, ItemUse, LitStr, Meta, Token, Type};
 
 use super::block::{ReadableSentence, RuleBlock, RuleClause};
+use super::condition::parenthesized;
 use super::machine::parse_machine_clause;
 use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::term_sort::{TermSort, parse_readable_sort};
@@ -172,7 +173,32 @@ struct WrittenPart {
     step: u32,
     unless: bool,
     record: Group,
-    requires: Option<Expr>,
+    requires: Option<Conjunct>,
+}
+
+/// One conjunct of a part's conditions, and the authored token that joins it to the conjunct
+/// before it on its part: the `&&` it was split at, or the `requires` of the attribute (or of
+/// the `unless`) it is the first conjunct of.
+///
+/// A part's conditions are one conjunction, the claim's `requires`, so on a part that carries
+/// several conjuncts each one after the first is joined to those before it by an `&&`. That
+/// `&&` is a node of the part's sentence and is anchored, and an anchor must denote the same
+/// authored tokens wherever the clause is parsed: so it is spanned at one authored token,
+/// never at a span joined over the conjunct's tokens, whose extent depends on the parser's
+/// host (a compiler's span does not join, a reparse's does).
+struct Conjunct {
+    condition: Expr,
+    joiner: Token![&&],
+}
+
+impl Conjunct {
+    /// A condition that a `requires` at `requires` writes, before it is split.
+    fn written(condition: Expr, requires: Span) -> Self {
+        Self {
+            condition,
+            joiner: Token![&&](requires),
+        }
+    }
 }
 
 /// The clause's attributes, read.
@@ -181,7 +207,7 @@ struct ClauseAttributes {
     note: Vec<String>,
     programs: Option<Vec<String>>,
     expect: Option<krs_ir::PatternExpect>,
-    conjuncts: Vec<Expr>,
+    conjuncts: Vec<Conjunct>,
 }
 
 fn parse_block(input: ParseStream<'_>) -> Result<PatternBlock, ParseError> {
@@ -267,7 +293,7 @@ fn parse_parts(input: ParseStream<'_>) -> Result<Vec<WrittenPart>, ParseError> {
                 Ok(content)
             })?;
             let record = parse_record(&content)?;
-            let mut requires = None;
+            let mut requires: Option<Conjunct> = None;
             if content.peek(Token![,]) {
                 content.parse::<Token![,]>()?;
                 if !content.is_empty() {
@@ -284,7 +310,7 @@ fn parse_parts(input: ParseStream<'_>) -> Result<Vec<WrittenPart>, ParseError> {
                         syn::parenthesized!(condition in input);
                         Ok(condition)
                     })?;
-                    requires = Some(condition.parse::<Expr>()?);
+                    requires = Some(Conjunct::written(condition.parse::<Expr>()?, head.span()));
                     if !condition.is_empty() {
                         return Err(condition.error("expected one condition").into());
                     }
@@ -418,7 +444,14 @@ fn read_attributes(attributes: Vec<Attribute>) -> Result<ClauseAttributes, Parse
             }
             Some("requires") => {
                 let condition = attribute.parse_args::<Expr>()?;
-                split_conjuncts(condition, &mut read.conjuncts);
+                let requires = attribute
+                    .path()
+                    .segments
+                    .last()
+                    .expect("a helper names a segment")
+                    .ident
+                    .span();
+                split_conjuncts(Conjunct::written(condition, requires), &mut read.conjuncts);
             }
             Some(other) => {
                 let reason = match other {
@@ -458,25 +491,45 @@ fn read_attributes(attributes: Vec<Attribute>) -> Result<ClauseAttributes, Parse
     Ok(read)
 }
 
-/// Splits a condition at its top-level `&&` into conjuncts.
-fn split_conjuncts(condition: Expr, conjuncts: &mut Vec<Expr>) {
+/// Splits a condition at its top-level `&&` into conjuncts, in source order: a right operand's
+/// first conjunct is joined by that `&&`, a left operand's by what joined the whole.
+fn split_conjuncts(conjunct: Conjunct, conjuncts: &mut Vec<Conjunct>) {
+    let Conjunct { condition, joiner } = conjunct;
     match condition {
         Expr::Binary(syn::ExprBinary {
             left,
-            op: syn::BinOp::And(_),
+            op: syn::BinOp::And(and),
             right,
             attrs,
         }) if attrs.is_empty() => {
-            split_conjuncts(*left, conjuncts);
-            split_conjuncts(*right, conjuncts);
+            split_conjuncts(
+                Conjunct {
+                    condition: *left,
+                    joiner,
+                },
+                conjuncts,
+            );
+            split_conjuncts(
+                Conjunct {
+                    condition: *right,
+                    joiner: and,
+                },
+                conjuncts,
+            );
         }
         Expr::Paren(syn::ExprParen { expr, attrs, .. })
             if attrs.is_empty()
                 && matches!(*expr, Expr::Binary(ref binary) if matches!(binary.op, syn::BinOp::And(_))) =>
         {
-            split_conjuncts(*expr, conjuncts);
+            split_conjuncts(
+                Conjunct {
+                    condition: *expr,
+                    joiner,
+                },
+                conjuncts,
+            );
         }
-        other => conjuncts.push(other),
+        condition => conjuncts.push(Conjunct { condition, joiner }),
     }
 }
 
@@ -589,22 +642,22 @@ fn without_record_rest(record: &Group) -> Result<Group, SyntaxError> {
     Ok(group)
 }
 
-/// Parses one part as the claim `{ record } => {}` named `name`, with `conditions` as its
-/// `#[k::requires]` attributes and `imports` declared as its bindings.
+/// Parses one part as the claim `{ record } => {}` named `name`, with `conditions`, in order,
+/// as its one `#[k::requires]` and `imports` declared as its bindings.
 fn part_clause(
     record: &Group,
     name: &Ident,
     sort_type: &Type,
     clause_start: Span,
-    conditions: &[&Expr],
+    conditions: &[&Conjunct],
     imports: &[Ident],
     decl: Option<krs_ir::PatternDecl>,
 ) -> Result<RuleClause, ParseError> {
     let span = record.span();
     let mut attributes: Vec<Attribute> =
         vec![syn::parse_quote_spanned!(span=> #[k::claim(one_path)])];
-    for condition in conditions {
-        attributes.push(syn::parse_quote_spanned!(condition.span()=> #[k::requires(#condition)]));
+    if let Some((first, rest)) = conditions.split_first() {
+        attributes.push(requires_attribute(first, rest));
     }
     let mut result = Group::new(Delimiter::Brace, TokenStream::new());
     result.set_span(span);
@@ -635,6 +688,23 @@ fn part_clause(
     }
     clause.pattern = decl;
     Ok(clause)
+}
+
+/// The one `#[k::requires]` of a part whose conjuncts are `first` then `rest`: their conjunction,
+/// each conjunct after the first joined to those before it by its own joiner, in the form a
+/// claim's several `#[k::requires]` take ([`parenthesized`]).
+fn requires_attribute(first: &Conjunct, rest: &[&Conjunct]) -> Attribute {
+    let mut condition = first.condition.clone();
+    for next in rest {
+        condition = Expr::Binary(syn::ExprBinary {
+            attrs: Vec::new(),
+            left: Box::new(parenthesized(condition)),
+            op: syn::BinOp::And(next.joiner),
+            right: Box::new(parenthesized(next.condition.clone())),
+        });
+    }
+    let span = first.joiner.spans[0];
+    syn::parse_quote_spanned!(span=> #[k::requires(#condition)])
 }
 
 /// The name of a part's claim: the clause name for step 1, which is the pattern's item, and the
@@ -669,7 +739,7 @@ fn clause_parts(
             .into());
         }
         if let Some(condition) = &part.requires
-            && let Some(span) = helper_in(condition.to_token_stream())
+            && let Some(span) = helper_in(condition.condition.to_token_stream())
         {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::PatternHelper {
@@ -681,7 +751,7 @@ fn clause_parts(
         }
     }
     for conjunct in &attributes.conjuncts {
-        if let Some(span) = helper_in(conjunct.to_token_stream()) {
+        if let Some(span) = helper_in(conjunct.condition.to_token_stream()) {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::PatternHelper {
                     reason: PATTERN_HELPER.to_owned(),
@@ -751,10 +821,10 @@ fn clause_parts(
     // Each conjunct goes to the earliest step whose records, with the earlier steps', bind every
     // name it reads; one that reads a name no step binds goes to the last step, whose expansion
     // refuses the name as unbound.
-    let mut placed: Vec<Vec<&Expr>> = vec![Vec::new(); written.len()];
+    let mut placed: Vec<Vec<&Conjunct>> = vec![Vec::new(); written.len()];
     let mut imports: Vec<Vec<Ident>> = vec![Vec::new(); written.len()];
     for conjunct in &attributes.conjuncts {
-        let names = condition_names(conjunct);
+        let names = condition_names(&conjunct.condition);
         let last = *steps.last().expect("a clause has a step");
         let at = steps
             .iter()
@@ -789,7 +859,7 @@ fn clause_parts(
             continue;
         };
         placed[index].push(condition);
-        for name in condition_names(condition) {
+        for name in condition_names(&condition.condition) {
             if !bound_by(index, &name)
                 && steps
                     .iter()

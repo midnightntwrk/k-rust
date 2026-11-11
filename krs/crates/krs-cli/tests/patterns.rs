@@ -213,6 +213,41 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
     )
 }
 
+/// Two conjuncts and more on one part (FB56 P1): a part's conditions are one conjunction, so
+/// each spelling, attributes or `&&` or both, gives the part one `requires` whose conjuncts are
+/// joined by `andThenBool` in source order.
+const CONJUNCTS: &str = r"
+use spec::Low;
+
+k::patterns! {
+    for spec::Machine;
+    use spec::StepOp::*;
+
+    #[k::requires(z >= 0x80)]
+    #[k::requires(z < 0x100)]
+    two_attributes: { k: [Fetch(), ..], pc: z };
+
+    #[k::requires(z >= 0x80 && z < 0x100)]
+    one_attribute: { k: [Fetch(), ..], pc: z };
+
+    #[k::requires(z >= 0x80)]
+    #[k::requires(z < 0x100)]
+    #[k::requires(Low(z) == 4)]
+    three: { pc: z };
+
+    #[k::requires(z >= 0x80 && z < 0x100)]
+    #[k::requires(Low(z) == 4)]
+    mixed: { pc: z };
+
+    on_unless: { pc: d } => unless({ pc: e }, requires(e > d && e < 0x100)) { k: [Fetch(), ..] };
+
+    #[k::requires(d > 0)]
+    #[k::requires(d2 == d + 1)]
+    #[k::requires(Low(d2) == 4)]
+    beside: { pc: d } => { pc: d2 };
+}
+";
+
 /// The files `krs emit-k --ir` writes for the package, in `directory`.
 fn emit(target: &Path, manifest: &Path, directory: &Path) {
     let (success, _, stderr) = krs(
@@ -357,6 +392,75 @@ fn variable(k: &str, krs: &str, sort: &str) -> krs_compiler::PatternVariable {
 }
 
 /// A variable no author named is its part's own: two steps' list rests are two variables.
+#[test]
+fn a_part_s_conjuncts_are_one_requires_in_every_spelling() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let (_, patterns) = workspace(temporary.path(), SPEC, Some(CONJUNCTS));
+    let emitted = emitted_patterns(target.path(), &patterns.unwrap()).unwrap();
+    let steps = |id: &str| {
+        emitted
+            .iter()
+            .find(|pattern| pattern.id == id)
+            .unwrap_or_else(|| panic!("`{id}` emits"))
+            .steps
+            .iter()
+            .map(|step| (step.pattern.clone(), step.unless.clone()))
+            .collect::<Vec<_>>()
+    };
+    let two = "<k> fetch ... </k> <pc> Z:Int </pc> requires (Z:Int >=Int 128) andThenBool (Z:Int <Int 256)";
+    assert_eq!(steps("two-attributes"), [(two.to_owned(), None)]);
+    assert_eq!(steps("one-attribute"), [(two.to_owned(), None)]);
+    let three = "<pc> Z:Int </pc> requires ((Z:Int >=Int 128) andThenBool (Z:Int <Int 256)) andThenBool (low ( Z:Int ) ==Int 4)";
+    assert_eq!(steps("three"), [(three.to_owned(), None)]);
+    assert_eq!(steps("mixed"), [(three.to_owned(), None)]);
+    // An `unless`'s own condition is one conjunction too.
+    assert_eq!(
+        steps("on-unless"),
+        [
+            ("<pc> D:Int </pc>".to_owned(), None),
+            (
+                "<k> fetch ... </k>".to_owned(),
+                Some(
+                    "<pc> E:Int </pc> requires (E:Int >Int D:Int) andThenBool (E:Int <Int 256)"
+                        .to_owned()
+                )
+            ),
+        ]
+    );
+    // `d > 0` stays at step 1; the two that read step 2's `d2` are step 2's one conjunction.
+    assert_eq!(
+        steps("beside"),
+        [
+            ("<pc> D:Int </pc> requires D:Int >Int 0".to_owned(), None),
+            (
+                "<pc> D2:Int </pc> requires (D2:Int ==Int (D:Int +Int 1)) andThenBool (low ( D2:Int ) ==Int 4)"
+                    .to_owned(),
+                None
+            ),
+        ]
+    );
+
+    // The claim with the same conditions emits the same `requires`.
+    let temporary = temp_dir();
+    let claims = "k::claims! {
+        for Machine;
+        use StepOp::*;
+        #[k::claim(one_path)]
+        #[k::requires(z >= 0x80)]
+        #[k::requires(z < 0x100)]
+        two_attributes: { k: [Fetch(), ..], pc: z } => {};
+    }";
+    let (spec, _) = workspace(temporary.path(), &format!("{SPEC}\n{claims}\n"), None);
+    let directory = spec.with_file_name("emitted");
+    emit(target.path(), &spec, &directory);
+    let claims = fs::read_to_string(directory.join("spec.k")).unwrap();
+    assert!(
+        claims.contains("requires (Z:Int >=Int 128) andThenBool (Z:Int <Int 256)"),
+        "{claims}"
+    );
+}
+
 #[test]
 fn a_generated_variable_is_renamed_apart_per_step() {
     let target = shared_fixture_target();

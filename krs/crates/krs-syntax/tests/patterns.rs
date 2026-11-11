@@ -307,3 +307,62 @@ fn a_step_s_list_holds_several_rests_and_every_other_sentence_one() {
         let _ = parse("for Machine; p: { bus: [.., x, ..] };");
     }
 }
+
+/// The authored text `anchor` spans in `source`, which is one line.
+fn spanned(source: &str, anchor: &krs_syntax::ProvenanceAnchor) -> String {
+    let range = anchor.range();
+    let (start, end) = (range.first().start(), range.last().end());
+    assert_eq!((start.line, end.line), (1, 1), "a one-line source");
+    source
+        .chars()
+        .skip(start.column)
+        .take(end.column - start.column)
+        .collect()
+}
+
+/// The text of each `requires` path anchor of each part of the one-clause block `clause`, and
+/// how many parts carry a condition.
+fn requires_paths(clause: &str) -> (Vec<Vec<String>>, usize) {
+    let source = format!("for Machine; {clause}");
+    let block = parse(&source);
+    let mut conditioned = 0;
+    let paths = block
+        .clauses()
+        .iter()
+        .map(|part| {
+            conditioned += usize::from(part.rule().requires().is_some());
+            part.descriptor_provenance()
+                .unwrap()
+                .iter()
+                .filter(|anchor| anchor.role() == krs_syntax::ProvenanceRole::RuleRequiresPath)
+                .map(|anchor| spanned(&source, anchor))
+                .collect()
+        })
+        .collect();
+    (paths, conditioned)
+}
+
+#[test]
+fn a_part_s_conjuncts_are_one_requires_joined_at_authored_tokens() {
+    // A part's conditions are one conjunction: each conjunct after the first is joined by an
+    // `&&` anchored at one authored token, the `&&` it was split at or the `requires` that
+    // wrote it, so the anchor is the same tokens whichever host parses the clause.
+    for (clause, expected) in [
+        (
+            "#[k::requires(z >= 0x80)] #[k::requires(z < 0x100)] p: { k: [Go, ..], z };",
+            vec![vec!["requires", ">=", "z", "<", "z"]],
+        ),
+        (
+            "#[k::requires(z >= 0x80 && z < 0x100)] p: { k: [Go, ..], z };",
+            vec![vec!["&&", ">=", "z", "<", "z"]],
+        ),
+        (
+            "#[k::requires(z >= 0x80 && z < 0x100)] #[k::requires(z != 0x90)] p: { k: [Go, ..], z };",
+            vec![vec!["requires", "&&", ">=", "z", "<", "z", "!=", "z"]],
+        ),
+    ] {
+        let (paths, conditioned) = requires_paths(clause);
+        assert_eq!(conditioned, 1, "{clause}");
+        assert_eq!(paths, expected, "{clause}");
+    }
+}
