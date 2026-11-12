@@ -416,7 +416,17 @@ fn an_observer_dependency_is_named_and_composed_only_into_the_observer() {
         "{text}"
     );
     assert!(
-        text.contains("name the package's facet with --dependency PACKAGE:DEFINITION"),
+        text.contains(&format!("pass `--dependency {helper}`")),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "add `\"{helper}\"` to `package.metadata.krs.definitions.main.dependencies` in package `{OBSERVER_PACKAGE}`'s Cargo.toml"
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("the facets the observer's own `dependencies` key declares"),
         "{text}"
     );
 

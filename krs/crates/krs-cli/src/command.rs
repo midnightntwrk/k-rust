@@ -1213,7 +1213,7 @@ const VIEW_FUNCTION_HELP: &str = "if this function is a view (a function of one 
 
 /// How the observer composes a package it depends on, said where its collection finds a package
 /// of no selected facet ([`krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED`]).
-const OBSERVER_DEPENDENCY_HELP: &str = "the observer composes the packages it depends on whose facets --dependency names, as any definition does: name the package's facet with --dependency PACKAGE:DEFINITION (one outside the compared definition's closure is composed into the observer only)";
+const OBSERVER_DEPENDENCY_HELP: &str = "the observer composes the definition it observes with that definition's composition, the facets the observer's own `dependencies` key declares, and the facets --dependency names that its closure holds: a facet given either way that is outside the compared definition's closure is composed into the observer only";
 
 /// Where the observer's package must be, said where planning finds no package of its name
 /// ([`krs_diagnostic::codes::plan::MISSING_PACKAGE`]), before how it joins that graph
@@ -1369,11 +1369,17 @@ fn prepare_observer_with(
 }
 
 /// The facet `selector` prepared as every command prepares its root facet, composed with the
-/// definition `request` selects and the dependency facets `request` gives that `selector`'s
+/// definition `request` selects, the dependency facets `request` gives that `selector`'s
 /// package's own dependency closure holds (a facet outside it may be another composition's,
 /// such as another observer's), which `composed` records, with `selector` itself where `request`
-/// gives it as a dependency; `sources` records the composition's source roots once it is
-/// planned. Returns the prepared definition and the composition's plan.
+/// gives it as a dependency, and the dependency facets `selector` declares in its own table
+/// ([`crate::plan::declared_additions`]); `sources` records the composition's source roots once
+/// it is planned. Returns the prepared definition and the composition's plan.
+///
+/// `request` is only read: the definition the command runs is planned from it as it is, so
+/// what `selector` adds reaches this composition, its collector, its record
+/// ([`definition_cache`], whose key holds this composition's dependency facets) and its digest,
+/// and nothing of the definition's.
 fn composed_facet(
     request: &CommandRequest,
     selector: FacetSelector,
@@ -1392,6 +1398,16 @@ fn composed_facet(
         .map_err(CommandError::Planning)?;
     let mut dependencies = vec![request.root.clone()];
     dependencies.extend(held.iter().cloned());
+    // What the facet declares it needs beside the definition is its own statement: it joins this
+    // composition only, never `request`, from which the definition the runs are made on is
+    // planned.
+    dependencies.extend(crate::plan::declared_additions(
+        metadata,
+        &selector,
+        &request.root,
+        &held,
+        &request.cfg,
+    )?);
     // The facet itself, given as a dependency too, is the composition's root: it is composed.
     composed.extend(held);
     if request.dependencies.contains(&selector) {
@@ -1423,11 +1439,79 @@ fn composed_facet(
         metadata,
         None,
         measurement,
-    )?;
+    )
+    .map_err(|error| naming_declarations(error, metadata, &composition.root, &request.root))?;
     if let Some(unstored) = unstored {
         unstored.store(&prepared);
     }
     Ok((prepared, plan))
+}
+
+/// `error`, of the composition of the facet `asking` with the definition `definition`
+/// ([`composed_facet`]), with each of its diagnostics that finds a package of no selected facet
+/// ([`krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED`]) saying which facet's `dependencies`
+/// key states the package's facet for every command: the definition's, for a package in the
+/// definition's own dependency closure, whose facet is part of what the definition is, and the
+/// asking facet's for any other, which that facet adds to its own composition
+/// ([`crate::plan::declared_additions`]).
+fn naming_declarations(
+    error: CommandError,
+    metadata: &crate::CargoMetadata,
+    asking: &FacetSelector,
+    definition: &FacetSelector,
+) -> CommandError {
+    let CommandError::Diagnostics(mut diagnostics) = error else {
+        return error;
+    };
+    for diagnostic in &mut diagnostics {
+        if diagnostic.code != krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED.as_str() {
+            continue;
+        }
+        let Some(package) = collector::unselected_package(diagnostic, metadata) else {
+            continue;
+        };
+        let facets = package
+            .metadata
+            .get("krs")
+            .and_then(|krs| krs.get("definitions"))
+            .and_then(serde_json::Value::as_object)
+            .map(|definitions| definitions.keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+        let facet = match facets.as_slice() {
+            [] => continue,
+            [facet] => facet.as_str(),
+            _ => "FACET",
+        };
+        let unselected = FacetSelector {
+            package: crate::PackageSelector::Id(package.id.clone()),
+            definition: facet.to_owned(),
+        };
+        let Ok((inside, _)) = crate::plan::split_by_closure(
+            metadata,
+            &definition.package,
+            std::slice::from_ref(&unselected),
+        ) else {
+            continue;
+        };
+        let entry = format!("{}:{facet}", package.name);
+        diagnostic.help.push(if inside.is_empty() {
+            format!(
+                "to compose it in every command, declare it with the facet that needs it: add `\"{entry}\"` to `package.metadata.krs.definitions.{}.dependencies` in package `{}`'s Cargo.toml; the facets that key lists are added to the composition of the definition `{}` here and in no command that builds that definition",
+                asking.definition,
+                package_name(&asking.package),
+                facet_name(definition)
+            )
+        } else {
+            format!(
+                "the package `{}` is in the dependency closure of the definition `{}`, so its facet is part of that definition or absent from it: add `\"{entry}\"` to `package.metadata.krs.definitions.{}.dependencies` in package `{}`'s Cargo.toml",
+                package.name,
+                facet_name(definition),
+                definition.definition,
+                package_name(&definition.package)
+            )
+        });
+    }
+    CommandError::Diagnostics(diagnostics)
 }
 
 /// Whether `request` may restore what an earlier command stored (`--no-reuse` and

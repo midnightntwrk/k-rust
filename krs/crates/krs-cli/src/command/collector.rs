@@ -74,9 +74,10 @@ pub(super) struct CollectorRun {
 /// The collector writes its diagnostics to the sidecar named by [`COLLECTOR_DIAGNOSTIC_ENV`]:
 /// a failure's error, which is the run's error, or a success's warnings, which the run gives.
 ///
-/// `declares` is the plan of a composition whose root facet's declaration the command reads
-/// ([`super::composed_request`]): the command's own definition, and not an observer's or a
-/// patterns package's composition, whose dependency facets are the definition's.
+/// `declares` is the plan of a composition whose root facet's declaration is the whole of what
+/// the command reads ([`super::composed_request`]): the command's own definition, and not an
+/// observer's or a patterns package's composition, which says itself where each of its facets
+/// is declared ([`super::composed_facet`]).
 pub(super) fn run_collector(
     collector_directory: &Path,
     executable: &Path,
@@ -151,15 +152,7 @@ fn naming_selections(
         if diagnostic.code != krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED.as_str() {
             continue;
         }
-        let package = metadata.packages.iter().find(|package| {
-            diagnostic
-                .message
-                .contains(&krs_collector::host_package_label(
-                    &package.name,
-                    &package.version,
-                ))
-        });
-        if let Some(package) = package {
+        if let Some(package) = unselected_package(diagnostic, metadata) {
             diagnostic.help.push(selection_help(package));
             if let Some(help) = root.and_then(|root| declaration_help(package, root)) {
                 diagnostic.help.push(help);
@@ -167,6 +160,22 @@ fn naming_selections(
         }
     }
     CommandError::Diagnostics(diagnostics)
+}
+
+/// The package of `metadata` that `diagnostic`, which finds a package of no selected facet
+/// ([`krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED`]), names.
+pub(super) fn unselected_package<'a>(
+    diagnostic: &DiagnosticEnvelope,
+    metadata: &'a crate::CargoMetadata,
+) -> Option<&'a crate::MetadataPackage> {
+    metadata.packages.iter().find(|package| {
+        diagnostic
+            .message
+            .contains(&krs_collector::host_package_label(
+                &package.name,
+                &package.version,
+            ))
+    })
 }
 
 /// How a command selects `package`, a package of the resolved graph that no selected facet is

@@ -93,7 +93,8 @@ krs check \
 The command line replaces the declaration, one kind at a time: a command with any `--dependency` composes exactly the facets its flags name and none of the declared ones, and a command with any `--cfg` passes exactly the values its flags name.
 A kind the command line does not give is read from the declaration, so `--cfg` beside a declared `dependencies` list keeps the list.
 The command line cannot give an empty kind: a definition that some command composes with no cfg value, or with no dependency facet, declares none of that kind, and its other commands give theirs.
-Only the selected root facet's declaration is read: the keys of a dependency facet, and of the facet of an observer or a patterns package, are not followed.
+The selected root facet's declaration states the definition's composition whole: the keys of a dependency facet are not followed.
+The facet of an observer or a patterns package declares what it adds to the definition it is composed with ([what an observer adds](#what-an-observer-adds)).
 A composition given by declaration is the definition the same flags give: both emit the same K, with the same symbol and source maps.
 The next steps `krs kink` prints repeat the flags the command line gave, so they name no selection that is declared.
 
@@ -106,8 +107,57 @@ The refusal names the manifest key (`package.metadata.krs.definitions.main.depen
 A source that names an item of a package no selected facet is of is refused with `krs::collect::package-not-selected`, whose help names the `--dependency PACKAGE:FACET` that selects the package and the `dependencies` key that selects it for every command.
 
 Missing packages, missing facets, and ambiguous package selections fail during planning before the collector is built.
-A dependency facet must be in the root package's resolved dependency closure; the commands that evaluate views in an observer ([views and the observer](/reference/workflow#expectations)) give each composition, the definition and each observer, the facets its own closure holds.
+A dependency facet must be in the root package's resolved dependency closure; the commands that evaluate views in an observer ([views and the observer](/reference/workflow#expectations)) give each composition, the definition and each observer, the facets its own closure holds, and each observer the facets it declares ([what an observer adds](#what-an-observer-adds)).
 Selection order has no semantic meaning: the planner canonicalizes the same set to the same composition.
+
+## What an observer adds
+
+An observer and a patterns package are questions about a definition.
+krs composes the package's facet with the definition a command selects and with that definition's composition ([views and the observer](/reference/workflow#expectations)).
+Such a facet may need a facet the definition is not composed with: a package of functions its views apply, or of named constants its clauses name, which no semantics depends on.
+That need is the observer's statement, so the observer's own facet declares it, with the key a root facet uses:
+
+```toml
+# my-views/Cargo.toml
+[package.metadata.krs.definitions.views]
+dependencies = ["view-helpers:main"]
+```
+
+The observer's composition is the definition, the dependency facets of the definition's composition, and the facets the observer declares.
+Every command that prepares the observer reads the key: `run`, `search`, `cases`, `compare` and `krs kink`, for an observer a case, a stop condition, an observation or a view names, and `krs kink query` and `krs kink fuzz --pattern` for a patterns package.
+No command names the facet with `--dependency`.
+
+The declaration adds to the observer's composition and to nothing else.
+The definition a command runs is planned from the definition's own declaration and the command line, which an observer's key does not enter.
+Its emitted K, its Definition IR, its digests and its `kink.lock` are therefore the same with the observer and without it.
+The observer's own digest and the record of its prepared definition are keyed by the observer's composition, which holds what it adds.
+
+`--dependency` keeps its meaning.
+It gives the definition's dependency facets and replaces the definition's declared ones.
+A facet it names outside the definition's closure is composed by each observer whose closure holds it.
+It does not replace an observer's declaration.
+
+An observer's functions are evaluated at values the definition computed, so the observer's composition must hold the definition as it is.
+Two kinds of entry would hold another definition instead.
+Each is refused when the observer is prepared, and the refusal names the observer's key and the key of the definition's facet that states the entry instead:
+
+- A facet of a package in the definition's own dependency closure that the definition is not composed with (`krs::plan::invalid-definition`).
+  Whether such a facet is composed is part of what the definition is.
+  Add it to the definition's `dependencies`, or remove it from the observer's.
+- A cfg value the definition is not composed with (`krs::plan::invalid-cfg`).
+  A cfg value applies to every package of a composition, the definition's packages too.
+  Add it to the definition's `cfg`, or remove it from the observer's.
+
+An entry the definition already has adds nothing, so an observer may list a facet or a cfg value of the definition it observes.
+Which entries the definition has is decided by the command: a `--dependency` or `--cfg` that leaves one out has the observer's entry refused for that command.
+A facet of a package outside the definition's closure is of a package that no source of the definition can name, as the observer's own package is.
+It joins the composition beside the observer's facet, and every package of the definition is collected with the facets and the cfg values the definition has.
+An entry is otherwise checked as a root facet's is: its package is in the observer package's resolved dependency closure and declares the facet.
+
+A patterns package's declaration is read the same way, and what it adds reaches the package's clauses only as names.
+A pattern is asked of the definition's runs in the definition's emitted K, which holds no facet the package adds.
+A clause that names a constant of an added facet holds the constant's value and is asked like the clause that writes the value out.
+A clause that applies a function of an added facet is emitted and is then `invalid-pattern`: the definition has no such function, and a function a pattern calls belongs to the specification ([chain patterns](/reference/language#chain-patterns)).
 
 ## What the definition holds
 

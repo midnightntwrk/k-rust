@@ -8,7 +8,9 @@
 //!
 //! The workspace is the composition tour's two packages (`krs/tests/tour-composition`) and
 //! `extra-semantics`, a third package the root depends on and no source names, so that whether
-//! its facet is composed shows in the emitted K alone.
+//! its facet is composed shows in the emitted K alone; `observe-semantics`, an observer of the
+//! root, and `helper-semantics`, a package outside the root's closure that the observer depends
+//! on and whose facet the observer's own table declares (OBSERVER-COMPOSITION).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,7 +36,21 @@ pub type ExtraItem = k::Term<dyn ExtraItemSort>;
 pub struct ExtraUnit;
 "#;
 
-/// An observer of the root definition: a view of its `k` cell, in a package no semantics imports.
+/// A package of functions outside the root's dependency closure, which the observer depends on.
+const HELPER: &str = r"//! A function no semantics depends on.
+
+use k::Term;
+use k::builtin::Int;
+
+/// The successor.
+#[k::function(total, internal)]
+pub fn Bump(value: Term<Int>) -> Term<Int> {
+    value + 1
+}
+";
+
+/// An observer of the root definition: a view of its `k` cell built from the helper's function,
+/// in a package no semantics imports.
 const OBSERVE: &str = r"//! A view of the root definition's `k` cell.
 
 use k::Term;
@@ -43,9 +59,18 @@ use k::builtin::{Int, KSequence};
 /// One, whatever the cell holds.
 #[k::function(total, internal)]
 pub fn Seen(_cell: Term<KSequence>) -> Term<Int> {
-    1
+    helper::Bump(0)
 }
 ";
+
+/// The module of `helper-semantics`, in the K of a definition that composes its facet.
+const HELPER_MODULE: &str = "ORG-KRS-DECLARED-HELPER";
+/// What the observer's facet `views` declares in [`Workspace::new`]: the helper's facet, which
+/// is outside the root's closure.
+const OBSERVER_DECLARATION: &str = "dependencies = [\"helper-semantics:helper\"]\n";
+const OBSERVER_KEY: &str =
+    "`package.metadata.krs.definitions.views.dependencies` of package `observe-semantics`";
+const OBSERVER: [&str; 2] = ["--observer", "observe-semantics:views"];
 
 /// The module of `extra-semantics`, in the K of a definition that composes its facet.
 const EXTRA_MODULE: &str = "ORG-KRS-DECLARED-EXTRA";
@@ -64,7 +89,10 @@ const SELECTION: [&str; 4] = ["--package", "root-semantics", "--definition", "ma
 const KEY: &str =
     "`package.metadata.krs.definitions.main.dependencies` of package `root-semantics`";
 
-/// The three packages, the root's facet `main` declaring `declaration` (the lines of its table).
+/// The tour's two packages and `extra-semantics`, the root's facet `main` declaring
+/// `declaration` (the lines of its table), with `helper-semantics`, outside the root's closure,
+/// and `observe-semantics`, an observer of the root that depends on it and whose facet `views`
+/// declares [`OBSERVER_DECLARATION`].
 struct Workspace {
     directory: TempDir,
     target: SharedFixtureTarget,
@@ -78,7 +106,7 @@ impl Workspace {
         };
         workspace.write(
             "Cargo.toml",
-            "[workspace]\nmembers = [\"base\", \"extra\", \"root\", \"observe\"]\nresolver = \"3\"\n\n[workspace.lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(tour_mode, values(\"extended\"))'] }\n",
+            "[workspace]\nmembers = [\"base\", \"extra\", \"root\", \"helper\", \"observe\"]\nresolver = \"3\"\n\n[workspace.lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(tour_mode, values(\"extended\"))'] }\n",
         );
         workspace.write(
             "base/Cargo.toml",
@@ -105,20 +133,29 @@ impl Workspace {
         );
         workspace.write("extra/src/lib.rs", EXTRA);
         workspace.write("root/src/lib.rs", ROOT);
-        let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../krs")
-            .canonicalize()
-            .unwrap();
-        let krs = serde_json::to_string(krs.to_str().unwrap()).unwrap();
         workspace.write(
-            "observe/Cargo.toml",
+            "helper/Cargo.toml",
             &format!(
-                "[package]\nname = \"observe-semantics\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs} }}\nroot = {{ package = \"root-semantics\", path = \"../root\" }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-DECLARED-OBSERVE\"\n\n[package.metadata.krs.definitions.views]\n"
+                "[package]\nname = \"helper-semantics\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {} }}\n\n[package.metadata.krs]\nk-namespace = \"{HELPER_MODULE}\"\n\n[package.metadata.krs.definitions.helper]\n",
+                krs_path()
             ),
         );
+        workspace.write("helper/src/lib.rs", HELPER);
         workspace.write("observe/src/lib.rs", OBSERVE);
+        workspace.declare_observer(OBSERVER_DECLARATION);
         workspace.declare(declaration);
         workspace
+    }
+
+    /// Rewrites the observer's manifest so that its facet `views` declares `declaration`.
+    fn declare_observer(&self, declaration: &str) {
+        self.write(
+            "observe/Cargo.toml",
+            &format!(
+                "[package]\nname = \"observe-semantics\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {} }}\nroot = {{ package = \"root-semantics\", path = \"../root\" }}\nhelper = {{ package = \"helper-semantics\", path = \"../helper\" }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-DECLARED-OBSERVE\"\n\n[package.metadata.krs.definitions.views]\n{declaration}",
+                krs_path()
+            ),
+        );
     }
 
     /// The workspace whose root declares both dependency facets and the tour's cfg value.
@@ -155,14 +192,92 @@ impl Workspace {
 
     /// `krs ARGUMENTS` from the workspace root.
     fn krs(&self, arguments: &[&str]) -> Output {
+        self.krs_with(arguments, &[])
+    }
+
+    /// [`Self::krs`] with the environment variables `environment` set.
+    fn krs_with(&self, arguments: &[&str], environment: &[(&str, &Path)]) -> Output {
         let mut process = krs_command!();
         fixture_build_env(&mut process, self.target.path());
+        for (name, value) in environment {
+            process.env(name, value);
+        }
         process
             .current_dir(self.directory.path())
             .args(arguments)
             .env("NO_COLOR", "1")
             .output()
             .unwrap()
+    }
+
+    /// The root definition's end, written to `end.json`.
+    #[track_caller]
+    fn write_end(&self) {
+        let end = self.krs(&[&["run"][..], &SELECTION, &["--output", "end"]].concat());
+        assert!(end.status.success(), "{}", stderr(&end));
+        self.write("end.json", &stdout(&end));
+    }
+
+    /// `krs compare end.json end.json` under the observer's view, with the flags `composition`.
+    fn observe(&self, composition: &[&str]) -> Output {
+        self.krs(
+            &[
+                &["compare"][..],
+                &SELECTION,
+                &["end.json", "end.json", "--compare", "k", "--view", "k=Seen"],
+                &OBSERVER,
+                composition,
+            ]
+            .concat(),
+        )
+    }
+
+    /// The composition each prepared definition's record in the fixture target names in its
+    /// key, for the records of the commands given this workspace's manifest by its absolute
+    /// path: the root facet's name, and the dependency facets as `PACKAGE:FACET`.
+    fn recorded_compositions(&self) -> Vec<(String, Vec<String>)> {
+        let manifest = self.path("Cargo.toml");
+        let collectors = self.target.path().join("krs/collectors");
+        let mut compositions = Vec::new();
+        for collector in fs::read_dir(collectors).unwrap().flatten() {
+            let Ok(record) = fs::read(collector.path().join("krs-definition.bin")) else {
+                continue;
+            };
+            // A record is the length of its header, then the header, whose `composition` is the
+            // key's JSON.
+            let length =
+                usize::try_from(u64::from_le_bytes(record[..8].try_into().unwrap())).unwrap();
+            let header: serde_json::Value = serde_json::from_slice(&record[8..8 + length]).unwrap();
+            let key: serde_json::Value =
+                serde_json::from_str(header["composition"].as_str().unwrap()).unwrap();
+            let path = key["manifest_path"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|byte| u8::try_from(byte.as_u64().unwrap()).unwrap())
+                .collect::<Vec<_>>();
+            if path != manifest.to_str().unwrap().as_bytes() {
+                continue;
+            }
+            let facet = |facet: &serde_json::Value| {
+                format!(
+                    "{}:{}",
+                    facet["package"]["Name"].as_str().unwrap(),
+                    facet["definition"].as_str().unwrap()
+                )
+            };
+            compositions.push((
+                facet(&key["root"]),
+                key["dependencies"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(facet)
+                    .collect(),
+            ));
+        }
+        compositions.sort();
+        compositions
     }
 
     /// The K `krs emit-k` writes for the root's definition with the flags `composition`.
@@ -181,6 +296,32 @@ impl Workspace {
         assert!(emit.status.success(), "{}", stderr(&emit));
         fs::read_to_string(output.join("definition.k")).unwrap()
     }
+}
+
+/// The number of compiled stages under the stage store `directory`.
+fn stored_stages(directory: &Path) -> usize {
+    fs::read_dir(directory).map_or(0, |entries| {
+        entries
+            .flatten()
+            .map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    stored_stages(&path)
+                } else {
+                    usize::from(path.extension().is_some_and(|stage| stage == "stage"))
+                }
+            })
+            .sum()
+    })
+}
+
+/// The `krs` crate's directory, as a TOML string.
+fn krs_path() -> String {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    serde_json::to_string(krs.to_str().unwrap()).unwrap()
 }
 
 fn manifest(
@@ -334,26 +475,231 @@ fn a_run_restores_the_prepared_definition_of_its_own_composition_only() {
 /// An observer is composed with the definition and the dependency facets of its composition, so
 /// the observer of a definition with a declared composition composes the declared facets: the
 /// root's sources name `base-semantics`, which the observer holds without a `--dependency`.
+/// It composes too the facet its own table declares (OBSERVER-COMPOSITION): its view applies a
+/// function of `helper-semantics`, which the root's closure does not hold.
 #[test]
 fn an_observer_composes_the_declared_facets_of_the_definition() {
     let workspace = Workspace::declared();
-    let end = workspace.krs(&[&["run"][..], &SELECTION, &["--output", "end"]].concat());
-    assert!(end.status.success(), "{}", stderr(&end));
-    workspace.write("end.json", &stdout(&end));
-    let compare = workspace.krs(
-        &[
-            &["compare"][..],
-            &SELECTION,
-            &["end.json", "end.json", "--compare", "k", "--view", "k=Seen"],
-            &["--observer", "observe-semantics:views"],
-        ]
-        .concat(),
-    );
+    workspace.write_end();
+    let compare = workspace.observe(&[]);
     assert_eq!(compare.status.code(), Some(0), "{}", stderr(&compare));
     assert_eq!(
         stdout(&compare),
         "krs compare: equal\n  views: `k` = `Seen`, in `observe-semantics:views`\n"
     );
+}
+
+/// OBSERVER-COMPOSITION: what an observer needs beside the definition it observes is the
+/// observer's own statement, the `dependencies` key of its facet's table, and it adds to the
+/// observer's composition alone. The definition is planned from its own declaration, so with
+/// the observer in play it is the definition it was: the same emitted K and maps, the same
+/// Definition IR (its compiled stage, whose key digests it, is not stored again), and the same
+/// record of its prepared definition, which its next run restores. The observer's record is
+/// keyed by its own composition, which holds what it adds; the definition's key does not.
+/// Without the declaration the observer is refused, naming the observer's key, and the facet
+/// given by `--dependency` composes as before, with the definition's list restated, since flags
+/// replace the definition's declaration.
+#[test]
+fn an_observer_adds_the_facets_it_declares_and_leaves_the_definition_as_it_is() {
+    let workspace = Workspace::declared();
+    let store = temp_dir();
+    let environment = [("KRS_STAGE_CACHE_DIR", store.path())];
+    let stages = || stored_stages(store.path());
+    let counters = workspace.path("counters.json");
+    // The manifest by its absolute path, which the records' keys then hold: the fixture target
+    // is shared with the other tests' workspaces, whose packages have these names.
+    let manifest = workspace.path("Cargo.toml");
+    let manifest = ["--manifest-path", manifest.to_str().unwrap()];
+    let run = || {
+        let run = workspace.krs_with(
+            &[
+                &["run"][..],
+                &SELECTION,
+                &manifest,
+                &["--output", "end", "--counters", counters.to_str().unwrap()],
+            ]
+            .concat(),
+            &environment,
+        );
+        assert!(run.status.success(), "{}", stderr(&run));
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&counters).unwrap()).unwrap();
+        (
+            stdout(&run),
+            document["counters"]["definition.reused"].as_u64().unwrap(),
+        )
+    };
+
+    let alone = workspace.emitted("alone", &[]);
+    assert!(!alone.contains(HELPER_MODULE), "{alone}");
+    let (end, reused) = run();
+    assert_eq!(reused, 0);
+    workspace.write("end.json", &end);
+    assert_eq!(stages(), 1);
+
+    // The observer, with no `--dependency`: its view applies the helper's function.
+    let compare = workspace.krs_with(
+        &[
+            &["compare"][..],
+            &SELECTION,
+            &["end.json", "end.json", "--compare", "k", "--view", "k=Seen"],
+            &OBSERVER,
+            &manifest,
+        ]
+        .concat(),
+        &environment,
+    );
+    assert_eq!(compare.status.code(), Some(0), "{}", stderr(&compare));
+    assert_eq!(
+        stages(),
+        2,
+        "the store holds the definition's stage and the observer's, and no third"
+    );
+
+    // The definition is the one it was: its record is restored, and it emits the same files.
+    assert_eq!(run(), (end, 1));
+    workspace.emitted("observed", &[]);
+    for file in ["definition.k", "symbols.json", "sources.json"] {
+        assert_eq!(
+            fs::read(workspace.path("alone").join(file)).unwrap(),
+            fs::read(workspace.path("observed").join(file)).unwrap(),
+            "{file} differs once the observer was composed"
+        );
+    }
+
+    // Each record's key holds its own composition: the observer's the facet it adds, after the
+    // definition and the definition's facets, and the definition's only its own.
+    let own = ["base-semantics:base", "extra-semantics:extra"].map(str::to_owned);
+    assert_eq!(
+        workspace.recorded_compositions(),
+        [
+            (
+                "observe-semantics:views".to_owned(),
+                [
+                    &["root-semantics:main".to_owned()][..],
+                    &own,
+                    &["helper-semantics:helper".to_owned()],
+                ]
+                .concat()
+            ),
+            ("root-semantics:main".to_owned(), own.to_vec()),
+        ]
+    );
+
+    // Without the declaration the observer cannot collect the helper's function, and the
+    // refusal names the observer's key, where the facet is stated for every command.
+    workspace.declare_observer("");
+    let undeclared = workspace.observe(&[]);
+    assert_eq!(undeclared.status.code(), Some(2), "{}", stdout(&undeclared));
+    let text = stderr(&undeclared);
+    assert!(text.contains("package-not-selected"), "{text}");
+    assert!(
+        text.contains(
+            "add `\"helper-semantics:helper\"` to `package.metadata.krs.definitions.views.dependencies` in package `observe-semantics`'s Cargo.toml"
+        ),
+        "{text}"
+    );
+    // `--dependency` keeps its meaning: it gives the definition's facets whole, and the one
+    // outside the definition's closure goes to the observer.
+    let flags = workspace.observe(&[
+        "--dependency",
+        "extra-semantics:extra",
+        "--dependency",
+        "base-semantics:base",
+        "--dependency",
+        "helper-semantics:helper",
+    ]);
+    assert_eq!(flags.status.code(), Some(0), "{}", stderr(&flags));
+}
+
+/// An observer adds to the composition it is compiled in and cannot change the definition it
+/// observes, so its declaration is refused where composing it would: a facet of a package in the
+/// definition's own closure that the definition is not composed with (whether it is composed is
+/// part of what the definition is), and a cfg value the definition does not have (a cfg value
+/// applies to every package of a composition). Each refusal names the observer's key and the
+/// definition's key that states it instead. A facet or a cfg value the definition already has
+/// adds nothing; `--dependency`, which replaces the definition's facets, decides what it has.
+#[test]
+fn an_observer_declaration_that_would_change_the_definition_is_refused_naming_its_key() {
+    // The root depends on `extra-semantics` and is not composed with its facet.
+    let alone = "dependencies = [\"base-semantics:base\"]\n";
+    let with_extra = "dependencies = [\"base-semantics:base\", \"extra-semantics:extra\"]\n";
+    let workspace = Workspace::new(alone);
+    workspace.write_end();
+    let refused = |composition: &[&str]| {
+        let compare = workspace.observe(composition);
+        assert_eq!(compare.status.code(), Some(2), "{}", stdout(&compare));
+        stderr(&compare)
+    };
+    let accepted = |composition: &[&str]| {
+        let compare = workspace.observe(composition);
+        assert_eq!(compare.status.code(), Some(0), "{}", stderr(&compare));
+    };
+
+    workspace.declare_observer(
+        "dependencies = [\"helper-semantics:helper\", \"extra-semantics:extra\"]\n",
+    );
+    let facet = refused(&[]);
+    assert!(facet.contains("krs::plan::invalid-definition"), "{facet}");
+    assert!(facet.contains(OBSERVER_KEY), "{facet}");
+    assert!(
+        facet.contains(
+            "declares the dependency facet `extra-semantics:extra`, which the definition `root-semantics:main` it is composed with does not have: package `extra-semantics` is in package `root-semantics`'s resolved dependency closure"
+        ),
+        "{facet}"
+    );
+    assert!(
+        facet.contains(
+            "Add `\"extra-semantics:extra\"` to `package.metadata.krs.definitions.main.dependencies` in package `root-semantics`'s Cargo.toml"
+        ),
+        "{facet}"
+    );
+    assert!(
+        facet.contains("in the observer `observe-semantics:views`"),
+        "{facet}"
+    );
+
+    // Stated by the definition, the facet is the definition's, and the observer's entry adds
+    // nothing; a `--dependency` that leaves it out of the definition has it refused again.
+    workspace.declare(with_extra);
+    accepted(&[]);
+    let replaced = refused(&["--dependency", "base-semantics:base"]);
+    assert!(replaced.contains(OBSERVER_KEY), "{replaced}");
+    accepted(&[
+        "--dependency",
+        "base-semantics:base",
+        "--dependency",
+        "extra-semantics:extra",
+    ]);
+
+    // A cfg value the definition does not have.
+    workspace.declare_observer(&format!(
+        "{OBSERVER_DECLARATION}cfg = [\"tour_mode=extended\"]\n"
+    ));
+    let cfg = refused(&[]);
+    assert!(cfg.contains("krs::plan::invalid-cfg"), "{cfg}");
+    assert!(
+        cfg.contains("`package.metadata.krs.definitions.views.cfg` of package `observe-semantics`"),
+        "{cfg}"
+    );
+    assert!(
+        cfg.contains(
+            "Declare the value in `package.metadata.krs.definitions.main.cfg` in package `root-semantics`'s Cargo.toml"
+        ),
+        "{cfg}"
+    );
+    workspace.declare(&format!("{with_extra}cfg = [\"tour_mode=extended\"]\n"));
+    accepted(&[]);
+
+    // The observer's declaration is judged as a root facet's is: a facet its package does not
+    // declare is refused naming the observer's key.
+    workspace.declare_observer("dependencies = [\"helper-semantics:views\"]\n");
+    let missing = refused(&[]);
+    assert!(
+        missing.contains("krs::plan::missing-definition"),
+        "{missing}"
+    );
+    assert!(missing.contains(OBSERVER_KEY), "{missing}");
 }
 
 /// A declaration that cannot be the definition's composition is refused at planning, naming the

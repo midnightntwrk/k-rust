@@ -521,6 +521,145 @@ fn editing_one_clause_re_asks_only_its_pattern() {
     assert_status(&workspace.kink("emit", &["--check"]), 0);
 }
 
+/// A package of vocabulary outside the specification's closure: a named constant, which a
+/// sentence that names it holds as its value, and a function.
+const HELPER: &str = r"use k::Term;
+use k::builtin::Int;
+
+/// The address the first program writes and reads.
+#[k::constant]
+pub const FIRST: Int = 1;
+
+/// The successor.
+#[k::function(total, internal)]
+pub fn Bump(value: Term<Int>) -> Term<Int> {
+    value + 1
+}
+";
+
+/// A patterns package whose clause names the helper's constant, so that collecting the package
+/// needs the helper's facet.
+const HELPED_PATTERNS: &str = r#"k::patterns! {
+    for spec::Machine;
+    use spec::Event::*;
+
+    /// The first address written, then read back, on the bus.
+    #[k::cases("p1")]
+    first_read_back: { bus: [.., Write(helper::FIRST, v), .., Read(helper::FIRST, v), ..] };
+}
+"#;
+
+/// The clause of [`HELPED_PATTERNS`] with the constant's value written out, in a package that
+/// needs no facet.
+const PLAIN_PATTERNS: &str = r#"k::patterns! {
+    for spec::Machine;
+    use spec::Event::*;
+
+    /// The first address written, then read back, on the bus.
+    #[k::cases("p1")]
+    first_read_back: { bus: [.., Write(1, v), .., Read(1, v), ..] };
+}
+"#;
+
+/// A clause whose condition applies the helper's function, which the specification does not
+/// hold.
+const BUMPED_CLAUSE: &str = r"
+    /// A write of the value whose successor is 6.
+    #[k::requires(helper::Bump(v) == 6)]
+    bumped: { bus: [.., Write(_, v), ..] };
+}
+";
+
+/// OBSERVER-COMPOSITION: a patterns package that needs a facet outside the specification's
+/// closure declares it in its own facet's table, and `krs kink query` composes it with no
+/// `--dependency`. The addition reaches the package's composition alone: the specification's
+/// digest, `definition.k`, the record and the pattern's digest and cached answers are those of
+/// the corpus asked by a package that writes the constant's value out, and nothing of the
+/// helper is in the emitted K. Without the declaration the entry is refused, naming the
+/// package's key.
+///
+/// The addition gives the package's clauses names, and the specification nothing: a pattern is
+/// asked of the specification's runs in the specification's own K. So a clause that applies a
+/// function of the added facet emits and is then `invalid-pattern`, since the K it is asked in
+/// has no such function, and the specification stays as it is.
+#[test]
+fn a_patterns_package_adds_the_facets_it_declares_and_leaves_the_definition_as_it_is() {
+    let workspace = Workspace::new(&[("pats", PLAIN_PATTERNS), ("helper", HELPER)]);
+    workspace.declare("[[patterns]]\nkrs = \"pats\"\n");
+    let output = workspace.kink("query", &[]);
+    assert_status(&output, 0);
+    let alone = json_of(&output);
+    let definition = workspace.read("spec/kink/definition.k");
+    let lock = workspace.read("spec/kink/kink.lock");
+
+    // The package now depends on the helper, names its constant, and declares its facet.
+    let manifest = workspace.read("pats/Cargo.toml").replace(
+        "spec = { path = \"../spec\" }\n",
+        "spec = { path = \"../spec\" }\nhelper = { path = \"../helper\" }\n",
+    );
+    let declared = format!("{manifest}dependencies = [\"helper:main\"]\n");
+    workspace.write("pats/Cargo.toml", &declared);
+    workspace.write("pats/src/lib.rs", HELPED_PATTERNS);
+    let output = workspace.kink("query", &[]);
+    assert_status(&output, 0);
+    let helped = json_of(&output);
+    assert_eq!(helped["spec"]["digest"], alone["spec"]["digest"]);
+    assert_eq!(helped["definition"]["status"], "unchanged", "{helped:#}");
+    assert_eq!(workspace.read("spec/kink/definition.k"), definition);
+    assert!(
+        !definition.contains("ORG-KRS-KINK-PATTERNS-HELPER"),
+        "{definition}"
+    );
+    assert_eq!(workspace.read("spec/kink/kink.lock"), lock);
+    assert_eq!(
+        pattern(&helped, "first-read-back")["digest"],
+        pattern(&alone, "first-read-back")["digest"]
+    );
+    let hit = row(&helped, "first-read-back", "p1");
+    assert_eq!(
+        (&hit["answer"], &hit["cached"]),
+        (&json!("hit"), &json!(true)),
+        "{hit:#}"
+    );
+    assert_status(&workspace.kink("emit", &["--check"]), 0);
+
+    // A clause that applies the added facet's function is asked in the specification's K,
+    // which does not hold it.
+    let clauses = HELPED_PATTERNS.trim_end().strip_suffix('}').unwrap();
+    workspace.write("pats/src/lib.rs", &format!("{clauses}{BUMPED_CLAUSE}"));
+    let output = workspace.kink("query", &[]);
+    assert_status(&output, 2);
+    let bumped = json_of(&output);
+    assert_eq!(
+        pattern(&bumped, "bumped")["outcome"],
+        "invalid-pattern",
+        "{bumped:#}"
+    );
+    assert_eq!(
+        pattern(&bumped, "first-read-back")["outcome"],
+        "valid",
+        "{bumped:#}"
+    );
+    assert_eq!(bumped["spec"]["digest"], alone["spec"]["digest"]);
+    assert_eq!(workspace.read("spec/kink/definition.k"), definition);
+    workspace.write("pats/src/lib.rs", HELPED_PATTERNS);
+
+    // Without the declaration the package cannot collect the helper's constant.
+    workspace.write("pats/Cargo.toml", &manifest);
+    let output = workspace.kink("query", &[]);
+    assert_status(&output, 2);
+    let document = json_of(&output);
+    let detail = document["pattern_list"]["detail"].as_str().unwrap();
+    assert!(detail.contains("package-not-selected"), "{detail}");
+    assert!(
+        detail.contains(
+            "add `\"helper:main\"` to `package.metadata.krs.definitions.main.dependencies` in package `pats`'s Cargo.toml"
+        ),
+        "{detail}"
+    );
+    assert_eq!(workspace.read("spec/kink/definition.k"), definition);
+}
+
 /// A machine whose statements store values in a memory map and count steps in `pc`.
 /// No sentence of it has a condition, so its module does not import `BOOL`: the connectives a
 /// part's condition is joined with are the pattern's own vocabulary.

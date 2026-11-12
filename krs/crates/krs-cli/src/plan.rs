@@ -103,12 +103,7 @@ impl DeclaredComposition {
         else {
             return Ok(Self::default());
         };
-        let key = |name: &str| {
-            format!(
-                "`package.metadata.krs.definitions.{}.{name}` of package `{}` ({})",
-                root.definition, package.name, package.manifest_path
-            )
-        };
+        let key = |name: &str| declaration_key(&root.definition, package, name);
         let entries = |name: &str, form: &str| -> Result<Vec<&str>, PlanningError> {
             let Some(value) = facet.get(name) else {
                 return Ok(Vec::new());
@@ -190,6 +185,127 @@ impl DeclaredComposition {
             },
         }
     }
+}
+
+/// The key `name` of the facet `facet` of `package`, as a refusal names it: the manifest key,
+/// the package and its manifest.
+fn declaration_key(facet: &str, package: &MetadataPackage, name: &str) -> String {
+    format!(
+        "`package.metadata.krs.definitions.{facet}.{name}` of package `{}` ({})",
+        package.name, package.manifest_path
+    )
+}
+
+/// What a facet that is composed with a definition to ask about it (an observer, or the facet of
+/// a patterns package) adds to that definition's composition: the dependency facets the facet
+/// `asking` declares ([`DeclaredComposition::of`]) that the composition of `definition` (its
+/// root facet, with the dependency facets `dependencies` and the cfg values `cfg`) does not
+/// hold, in the order written.
+///
+/// What the asking facet needs is its own statement, so it is read from its own table. It adds
+/// to the composition it is compiled in and to nothing else: the definition the runs are made
+/// on is planned from `definition`, `dependencies` and `cfg` alone, which this function only
+/// reads. The asking facet's functions are evaluated at values that definition computed, so its
+/// composition must give everything the definition states the meaning it has there. Two kinds
+/// of addition would not, and are refused:
+///
+/// - a facet of a package in the definition's own dependency closure that the definition is
+///   not composed with. Whether such a facet is composed is part of what the definition is (its
+///   sources can name the package, and its rules, its program syntax and its emitted K differ
+///   by the facet), so the composition would hold another definition than the one observed;
+/// - a cfg value the definition is not composed with. A cfg value applies to every package of
+///   a composition, so it would select other sources of the definition's own packages.
+///
+/// A facet of a package outside that closure is of a package no source of the definition can
+/// name, as the asking facet's own package is: it joins the composition beside the asking
+/// facet, and every package of the definition is collected with the facets and the cfg values
+/// the definition has. A declared facet or cfg value the definition already holds, and the
+/// definition's or the asking facet's own, add nothing.
+///
+/// # Errors
+///
+/// Returns the errors of [`DeclaredComposition::of`] for the asking facet's declaration,
+/// [`PlanningErrorKind::InvalidDefinition`] for a facet of the first kind and
+/// [`PlanningErrorKind::InvalidCfg`] for a cfg value; each names the asking facet's manifest
+/// key and the key of the definition's facet that would state it instead.
+pub(crate) fn declared_additions(
+    metadata: &CargoMetadata,
+    asking: &FacetSelector,
+    definition: &FacetSelector,
+    dependencies: &[FacetSelector],
+    cfg: &[KrsCfg],
+) -> Result<Vec<FacetSelector>, PlanningError> {
+    let declared = DeclaredComposition::of(metadata, asking)?;
+    if declared == DeclaredComposition::default() {
+        return Ok(Vec::new());
+    }
+    let asking_package = select_package(metadata, &asking.package)?;
+    let subject = select_package(metadata, &definition.package)?;
+    let name = |facet: &FacetSelector, package: &MetadataPackage| {
+        format!("{}:{}", package.name, facet.definition)
+    };
+    let stated_instead = |key: &str| {
+        format!(
+            "`package.metadata.krs.definitions.{}.{key}` in package `{}`'s Cargo.toml ({})",
+            definition.definition, subject.name, subject.manifest_path
+        )
+    };
+    let key = |key: &str| declaration_key(&asking.definition, asking_package, key);
+
+    if let Some(value) = declared.cfg.iter().find(|value| !cfg.contains(value)) {
+        let value = match &value.value {
+            Some(given) => format!("{}={given}", value.key),
+            None => value.key.clone(),
+        };
+        return Err(PlanningError::new(
+            PlanningErrorKind::InvalidCfg,
+            format!(
+                "{} declares the cfg value `{value}`, which the definition `{}` it is composed with does not have: a cfg value applies to every package of a composition, so it would select other sources of that definition's packages than the definition's own runs use; a facet that asks about a definition adds dependency facets only. Declare the value in {}, where it is part of the definition, or remove it",
+                key("cfg"),
+                name(definition, subject),
+                stated_instead("cfg")
+            ),
+        ));
+    }
+
+    let packages = package_map(metadata)?;
+    let nodes = node_map(metadata, &packages)?;
+    let closure = reachable_packages(&subject.id, &nodes)?;
+    let mut held = vec![
+        (subject.id.clone(), definition.definition.clone()),
+        (asking_package.id.clone(), asking.definition.clone()),
+    ];
+    for dependency in dependencies {
+        held.push((
+            select_package(metadata, &dependency.package)?.id.clone(),
+            dependency.definition.clone(),
+        ));
+    }
+    let mut additions = Vec::new();
+    for addition in declared.dependencies {
+        let package = select_package(metadata, &addition.package)?;
+        let facet = (package.id.clone(), addition.definition.clone());
+        if held.contains(&facet) {
+            continue;
+        }
+        if closure.contains(&package.id) {
+            let entry = name(&addition, package);
+            return Err(PlanningError::new(
+                PlanningErrorKind::InvalidDefinition,
+                format!(
+                    "{} declares the dependency facet `{entry}`, which the definition `{}` it is composed with does not have: package `{}` is in package `{}`'s resolved dependency closure, so whether its facet is composed is part of what that definition is, and composing it here would ask about another definition than the one the runs are made on; a facet that asks about a definition adds only facets of packages outside that definition's closure. Add `\"{entry}\"` to {}, where it is part of the definition, or remove it",
+                    key("dependencies"),
+                    name(definition, subject),
+                    package.name,
+                    subject.name,
+                    stated_instead("dependencies")
+                ),
+            ));
+        }
+        held.push(facet);
+        additions.push(addition);
+    }
+    Ok(additions)
 }
 
 /// The dependency facet the entry `entry` of the manifest key `key` (as a refusal names it)
