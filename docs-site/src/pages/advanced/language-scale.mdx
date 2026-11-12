@@ -196,13 +196,13 @@ This extract contains 5 implemented coverage entries, 8 equations, 7 machine rul
 ### KEVM
 
 **Status: incomplete.**
-This extract contains 47 implemented coverage entries, 285 equations, 153 machine rules, and 8 claims.
+This extract contains 47 implemented coverage entries, 287 equations, 153 machine rules, and 8 claims.
 
 - Package: `krs-kevm-semantics`
 - Pinned authority: K 7.1.337 at `d818397e9b7ffa213d687e64418dc8f5293e1ce2`
 - KRS qualification release: K 7.1.337
 - Authority inventory: 98 source files, 478 syntax declarations, and 3440 rules
-- Pinned executions: 241
+- Pinned executions: 248
 
 <details>
 <summary>47 implemented coverage entries</summary>
@@ -249,7 +249,7 @@ This extract contains 47 implemented coverage entries, 285 equations, 153 machin
 - Shanghai identity precompile at address 4 with exact 15 + 3 * ceil(input-width / 32) charging, EIP-150 forwarded-gas success/failure, byte-exact output, bounded caller-memory copy, access warming, and empty call/world stack postconditions
 - Shanghai SHA-256 precompile at address 2 through the typed KRYPTO.sha256raw hook with exact 60 + 12 * ceil(input-width / 32) charging, EIP-150 forwarded-gas success/failure, byte-exact output, bounded caller-memory copy, access warming, and empty call/world stack postconditions
 - Shanghai RIPEMD-160 precompile at address 3 through the typed KRYPTO.ripemd160raw hook with exact 600 + 120 * ceil(input-width / 32) charging, 12-byte left padding, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
-- Shanghai ECREC precompile at address 1 through the typed KRYPTO.ecdsaRecover hook with fixed 3,000 gas charging, zero-padded 128-byte input splitting, valid recovered-address output, successful empty output for invalid signatures, EIP-150 forwarded-gas failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
+- Shanghai ECREC precompile at address 1 through the typed KRYPTO.ecdsaRecover hook with fixed 3,000 gas charging, zero-padded 128-byte input splitting, the hook applied only to a recoverable signature (v in {27, 28}, r and s in (0, n), r an x-coordinate of secp256k1), valid recovered-address output, successful empty output for every other input, EIP-150 forwarded-gas failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
 - Berlin EIP-2565 MODEXP precompile at address 5 with zero-padded length and operand parsing, exact modulus-width output, total modulus-zero behavior, adjusted exponent length, max(200, floor(ceil(max(base length, modulus length) / 8)^2 * max(adjusted exponent length, 1) / 3)) charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
 - Istanbul ECADD precompile at address 6 through typed KRYPTO.bn128valid and KRYPTO.bn128add hooks with zero-padded 128-byte input, Ethereum point-at-infinity encoding, field and curve validation, exact 64-byte output, fixed 150 gas charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
 - Istanbul ECMUL precompile at address 7 through typed KRYPTO.bn128valid and KRYPTO.bn128mul hooks with zero-padded 96-byte input, full 256-bit scalar reduction, Ethereum point-at-infinity encoding, field and curve validation, exact 64-byte output, fixed 6,000 gas charging, EIP-150 forwarded-gas success/failure, bounded caller-memory copy, access warming, and empty call/world stack postconditions
@@ -258,8 +258,9 @@ This extract contains 47 implemented coverage entries, 285 equations, 153 machin
 </details>
 
 <details>
-<summary>1 recorded adapter boundary</summary>
+<summary>2 recorded adapter boundaries</summary>
 
+- ECREC states recoverability (v, r and s ranges and r on the curve) in the port's rules; upstream reads the plugin's failure value
 - STATICCALL world snapshots retain the selected repeated-account record plus the complete substate rather than the full AccountsCell collection; this is exact for the currently non-mutating static account surface but must generalize before mutable nested calls
 
 </details>
