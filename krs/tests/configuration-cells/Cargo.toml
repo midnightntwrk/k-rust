@@ -9,6 +9,7 @@ members = [
     "packages/group-harts/nested",
     "packages/group-harts/opt",
     "packages/group-harts/smp",
+    "packages/group-slot",
     "packages/group-small",
     "packages/groups",
     "packages/objects",

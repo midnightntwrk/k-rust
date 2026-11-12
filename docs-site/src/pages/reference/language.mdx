@@ -1646,6 +1646,11 @@ The configuration names only the productions of its initial terms, and a product
 So `<NS>-CONFIGURATION` declares each production the configuration names that its imports do not supply, and the production's equations stay in its package's `<NS>`, with every function only those equations call.
 A production declared there is named by two modules, so it is emitted without `private` even when its Rust item is not `pub`; rustc still rejects another package's sentence that names it.
 An initializer that writes `timer: Tick(1)` and `mem: rom::RomImage()` therefore starts from the values `Tick` and `RomImage` compute, whichever of those packages declares them.
+The configuration is also typed in its module, and a K module reads only its own subsort sentences and those of the modules it imports.
+A subsort sentence that is not program syntax, one into `Map`, `List`, `Set` or a framework sort such as `KResult`, is in a package's `<NS>`, above the configuration.
+A subsort sentence needs only its two sorts, so `<NS>-CONFIGURATION` holds each one by which a term of the configuration stands where another sort is expected: with `impl Store for Map` and a cell `store: Store`, an initializer that writes `store: rom::RomImage()` moves `syntax Store ::= Map` there.
+A subsort sentence the configuration does not use stays in its package's `<NS>`.
+`krs check --partition` lists the productions and subsort sentences `<NS>-CONFIGURATION` holds, each with the module of its package.
 Two productions cannot be declared there, and an initializer that calls one is rejected with `krs::partition::configuration-visibility`, which names the arrangement that works:
 
 - a production with a cell sort among its argument and result sorts, because the configuration itself declares its cell sorts;

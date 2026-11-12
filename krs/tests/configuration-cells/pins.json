@@ -15,7 +15,8 @@
     "krs-configuration-cells-group-harts-nested": "16c1b27b8bb2d498ac69978c96ba390b9baeb74a0c27cea38894f826ef0f589e",
     "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274",
     "krs-configuration-cells-shared-memory": "32d7468470830bbea240c472b719658ac9630a14faa48597baaf1bf2678e020e",
-    "krs-configuration-cells-group-boot-board": "2eaedf69e56786268170a71c1af94ee94379a8dcb0bf73d26a49303e6628a4a1"
+    "krs-configuration-cells-group-boot-board": "2eaedf69e56786268170a71c1af94ee94379a8dcb0bf73d26a49303e6628a4a1",
+    "krs-configuration-cells-group-slot": "31ca3d11ed3bce3af0a8ab7d5d247e05ea1d72e5b70ba3bceba82c8933bb5e7e"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -62,6 +63,9 @@
     },
     "krs-configuration-cells-group-boot-board": {
       "definition.k": "b34fffe3ce26b797d51d6213c8257e4ef3fde5a67b8ee3242a8db0ab1f14db87"
+    },
+    "krs-configuration-cells-group-slot": {
+      "definition.k": "44b141acf8959b19a0715ecb8aa64605e6370a45dc2f8c1b5024d709124c203f"
     }
   },
   "reference_sha256": {
@@ -79,7 +83,8 @@
     "krs-configuration-cells-group-harts-nested": "0a5968396c65bea2ff443f25c897617de6add477f091d561aecad5132f67246d",
     "krs-configuration-cells-group-harts-opt": "d392076ea60cff51e41e2e72c635bd8bd6556f3091db8d7a688d90333ff723bd",
     "krs-configuration-cells-shared-memory": "f4a02b3393a1059a4a70a024f18cac967ab4523c82f637347ae7573eb876a1f8",
-    "krs-configuration-cells-group-boot-board": "b2d6b61d61b39889250375795bcf79bc61bb574ee4fc7e98a1bf4ea975563e10"
+    "krs-configuration-cells-group-boot-board": "b2d6b61d61b39889250375795bcf79bc61bb574ee4fc7e98a1bf4ea975563e10",
+    "krs-configuration-cells-group-slot": "e54c4050c664b7b76a9feb3e0b3c0509c7a191158deff3abdc45967a4e74f3ee"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -593,6 +598,32 @@
           "shadow": "0 |-> 10"
         }
       }
+    },
+    "krs-configuration-cells-group-slot": {
+      "start": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "0",
+          "acc": "0",
+          "mem": "3 |-> 9 4 |-> 10",
+          "store": "3 |-> 9 4 |-> 10",
+          "trail": "ListItem ( 0 )",
+          "journal": "was ( 3 |-> 9 4 |-> 10 )"
+        }
+      },
+      "bus": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "3",
+          "acc": "10",
+          "mem": "3 |-> 9 4 |-> 10 5 |-> 10",
+          "store": "3 |-> 9 4 |-> 10 5 |-> 10",
+          "trail": "ListItem ( 5 )",
+          "journal": "was ( 3 |-> 9 4 |-> 10 )"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -742,6 +773,10 @@
       "race": []
     },
     "krs-configuration-cells-group-boot-board": {
+      "start": [],
+      "bus": []
+    },
+    "krs-configuration-cells-group-slot": {
       "start": [],
       "bus": []
     }

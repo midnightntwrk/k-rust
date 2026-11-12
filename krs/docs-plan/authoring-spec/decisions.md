@@ -301,7 +301,12 @@ bug — report it, don't guess.
   by two modules and is emitted without `private`. A production over a cell
   sort, or in a group that a precedence or associativity sentence orders,
   cannot be declared there, and a configuration that names one is rejected
-  (`krs::partition::configuration-visibility`).
+  (`krs::partition::configuration-visibility`). The configuration sentence
+  is typed in its module too, and a module reads only its own subsort
+  sentences and those of its imports, so `<NS>-CONFIGURATION` also holds
+  each subsort sentence, not program syntax, by which a term of the
+  configuration stands where another sort is expected; a subsort sentence
+  needs only its two sorts.
 
 ## E. Rules
 

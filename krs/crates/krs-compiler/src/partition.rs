@@ -15,7 +15,8 @@
 //!
 //! When a dependency package's rules need the configuration, a third module,
 //! `<NS>-CONFIGURATION`, holds it below that package's module, and declares
-//! the productions the configuration names that its imports do not supply
+//! the productions the configuration names that its imports do not supply,
+//! with the subsort sentences its typing reads
 //! (`lowering::ConfigurationSplit`). Such a production is not `private`.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -190,7 +191,23 @@ impl ModulePlacement {
 pub struct Partition {
     modules: BTreeMap<ModuleId, ModulePlacement>,
     report: Vec<PackageReport>,
+    configuration: Option<ConfigurationReport>,
     warnings: Vec<PartitionWarning>,
+}
+
+/// The sentences the configuration module holds in place of packages'
+/// semantics modules (`lowering::ConfigurationSplit`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigurationReport {
+    module: ModuleId,
+    /// Each sentence with the module of its package.
+    held: Vec<(String, ModuleId)>,
+}
+
+impl ConfigurationReport {
+    pub(crate) const fn new(module: ModuleId, held: Vec<(String, ModuleId)>) -> Self {
+        Self { module, held }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -301,6 +318,13 @@ pub enum ConfigurationObstacle {
     /// No production of the theory declares the symbol below the
     /// configuration, and the configuration module cannot declare it.
     Undeclared,
+    /// The symbol is a sort whose term the configuration places where
+    /// another sort is expected, and the subsort sentences the configuration
+    /// module holds or imports do not relate the two.
+    Subsort {
+        /// The expected sort.
+        supersort: String,
+    },
 }
 
 impl fmt::Display for PartitionError {
@@ -362,6 +386,10 @@ impl fmt::Display for PartitionError {
                         formatter,
                         "which no module that `{module}` imports declares. Declare it in `{configured}`, or in a package `{configured}` depends on"
                     ),
+                    ConfigurationObstacle::Subsort { supersort } => write!(
+                        formatter,
+                        "a sort whose term it places where `{supersort}` is expected; a K module reads only its own subsort sentences and those of the modules it imports, and none of them makes `{symbol}` a subsort of `{supersort}`. Declare the subsort in `{configured}`, or in a package `{configured}` depends on"
+                    ),
                 }
             }
         }
@@ -392,6 +420,13 @@ impl Partition {
         Ok(partition)
     }
 
+    /// Records the sentences the configuration module holds.
+    #[must_use]
+    pub(crate) fn with_configuration(mut self, configuration: Option<ConfigurationReport>) -> Self {
+        self.configuration = configuration;
+        self
+    }
+
     /// Returns the placement of one package module, or `None` for the framework.
     #[must_use]
     pub fn module(&self, module: &ModuleId) -> Option<&ModulePlacement> {
@@ -406,7 +441,8 @@ impl Partition {
 
     /// Renders the partition printed by `krs check --partition`: for each
     /// package, the program-syntax module's productions and subsorts, then the
-    /// `pub` productions placed in the semantics module with the reason.
+    /// `pub` productions placed in the semantics module with the reason; then
+    /// the sentences the configuration module holds, when it holds any.
     #[must_use]
     pub fn render(&self) -> String {
         let mut output = String::new();
@@ -432,6 +468,16 @@ impl Partition {
             }
             for (name, reason) in &package.placed {
                 let _ = writeln!(output, "  {name}: {reason}");
+            }
+        }
+        if let Some(configuration) = &self.configuration {
+            let _ = writeln!(
+                output,
+                "{} (sentences the configuration depends on, held in place of their packages' modules)",
+                configuration.module.as_str()
+            );
+            for (sentence, owner) in &configuration.held {
+                let _ = writeln!(output, "  {sentence}: of {}", owner.as_str());
             }
         }
         output

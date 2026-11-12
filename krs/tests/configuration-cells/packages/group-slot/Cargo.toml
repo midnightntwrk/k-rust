@@ -1,0 +1,22 @@
+[package]
+name = "krs-configuration-cells-group-slot"
+description = "A definition that holds the group in cells whose sorts are above builtin collection sorts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_group_slot"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+group-core = { package = "krs-configuration-cells-group-core", path = "../group-core" }
+
+[package.metadata.krs]
+k-namespace = "KRS-GROUP-SLOT"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

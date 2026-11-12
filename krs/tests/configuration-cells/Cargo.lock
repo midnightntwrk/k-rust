@@ -119,6 +119,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-group-slot"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-group-core",
+]
+
+[[package]]
 name = "krs-configuration-cells-group-small"
 version = "0.1.0"
 dependencies = [

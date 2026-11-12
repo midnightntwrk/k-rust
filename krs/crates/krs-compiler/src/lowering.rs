@@ -21,8 +21,8 @@ use krs_ir_levels::{
     DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
     LabelId, LabelIdentity, ProductionGroupIdentity, ProductionItem, ProductionSentence,
     RuleBodyRef, RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction,
-    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTermKind, SemanticTheory,
+    SemanticVariable, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
     k_surface::{ImportPolicy, builtin_imports},
 };
 use sha2::{Digest, Sha256};
@@ -508,10 +508,13 @@ fn of_item<T>(
 pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinition, LoweringError> {
     let partition = Partition::of(theory).map_err(LoweringError::Partition)?;
     let mut names = NamingPass::run(theory)?;
-    let (declares, supplies) = configuration_declarations(theory, &partition, &names)?;
+    let declarations = configuration_declarations(theory, &partition, &names)?;
+    let partition =
+        partition.with_configuration(configuration_report(theory, &names, &declarations));
     if let Some(split) = names.configuration.as_mut() {
-        split.declares = declares;
-        split.supplies = supplies;
+        split.declares = declarations.productions;
+        split.subsorts = declarations.subsorts;
+        split.supplies = declarations.supplies;
     }
     let mut origins = OriginPass::default();
     let mut declared_production_groups = BTreeSet::new();
@@ -776,6 +779,12 @@ struct NamingPass {
 /// that its imports do not supply ([`configuration_declarations`]): the
 /// equations stay in the module of the production's package, which reaches
 /// `<NS>-CONFIGURATION` and so sees the declaration.
+///
+/// The configuration sentence is also typed in its module: a term may stand
+/// where another sort is expected only by subsort sentences the module holds
+/// or imports. A subsort sentence needs only its two sorts. So
+/// `<NS>-CONFIGURATION` holds each subsort sentence the configuration's
+/// typing reads that its imports do not supply ([`configuration_subsort_uses`]).
 struct ConfigurationSplit {
     /// The configured semantic module.
     configured: ModuleId,
@@ -788,9 +797,14 @@ struct ConfigurationSplit {
     /// The productions the configuration module declares in place of their
     /// packages' semantics modules.
     declares: BTreeSet<StableItemId>,
+    /// The subsort sentences the configuration module holds in place of
+    /// their packages' semantics modules: each by its module and its index
+    /// in the module's order.
+    subsorts: BTreeSet<(ModuleId, usize)>,
     /// The semantics modules the configuration module imports beyond the
-    /// configured module's own imports: each declares a production the
-    /// configuration names and does not reach the configured module.
+    /// configured module's own imports: each holds a production the
+    /// configuration names or a subsort sentence its typing reads, and does
+    /// not reach the configured module.
     supplies: BTreeSet<ModuleId>,
     /// The configured module's origin.
     origin: NodeOrigin,
@@ -864,6 +878,7 @@ impl ConfigurationSplit {
             dependents,
             reaching,
             declares: BTreeSet::new(),
+            subsorts: BTreeSet::new(),
             supplies: BTreeSet::new(),
             origin,
         }))
@@ -1251,6 +1266,14 @@ impl NamingPass {
             .is_some_and(|split| split.declares.contains(production))
     }
 
+    /// Whether the configuration module holds the subsort sentence at
+    /// `index` of `module` in place of the module's semantics module.
+    fn configuration_holds_subsort(&self, module: &ModuleId, index: usize) -> bool {
+        self.configuration
+            .as_ref()
+            .is_some_and(|split| split.subsorts.contains(&(module.clone(), index)))
+    }
+
     /// Whether `module`'s import of `import` exists only for the
     /// configuration and would close a cycle (FU-18).
     fn is_configuration_cut(&self, module: &ModuleId, import: &ModuleId) -> bool {
@@ -1498,29 +1521,9 @@ fn lower_module(
         .iter()
         .enumerate()
         .filter(|(index, _)| part.has(|placement| placement.subsort_is_syntax(*index)))
+        .filter(|(index, _)| !names.configuration_holds_subsort(module.id(), *index))
     {
-        let item = match subsort.subsort() {
-            SemanticSortRef::Declared(item) => Some(item),
-            SemanticSortRef::Builtin(_)
-            | SemanticSortRef::Cell(_)
-            | SemanticSortRef::LeafCell(_)
-            | SemanticSortRef::CellCollection(_)
-            | SemanticSortRef::Parameter(_) => None,
-        };
-        sentences.push(DefinitionSentence::Subsort(SubsortSentence::new(
-            origins.lower(
-                subsort.origin(),
-                "subsort",
-                item,
-                Some(&format!(
-                    "{}<:{}",
-                    subsort.subsort().stable_text(),
-                    subsort.supersort().stable_text()
-                )),
-            )?,
-            lower_sort_ref(subsort.subsort(), names)?,
-            lower_sort_ref(subsort.supersort(), names)?,
-        )));
+        sentences.push(lower_subsort_sentence(subsort, names, origins)?);
     }
 
     for production in productions {
@@ -1698,6 +1701,36 @@ fn lower_module(
         production_groups,
         sentences,
     ))
+}
+
+/// Lowers one subsort sentence of the semantic theory to its Definition IR sentence.
+fn lower_subsort_sentence(
+    subsort: &SemanticSubsort,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<DefinitionSentence, LoweringError> {
+    let item = match subsort.subsort() {
+        SemanticSortRef::Declared(item) => Some(item),
+        SemanticSortRef::Builtin(_)
+        | SemanticSortRef::Cell(_)
+        | SemanticSortRef::LeafCell(_)
+        | SemanticSortRef::CellCollection(_)
+        | SemanticSortRef::Parameter(_) => None,
+    };
+    Ok(DefinitionSentence::Subsort(SubsortSentence::new(
+        origins.lower(
+            subsort.origin(),
+            "subsort",
+            item,
+            Some(&format!(
+                "{}<:{}",
+                subsort.subsort().stable_text(),
+                subsort.supersort().stable_text()
+            )),
+        )?,
+        lower_sort_ref(subsort.subsort(), names)?,
+        lower_sort_ref(subsort.supersort(), names)?,
+    )))
 }
 
 /// Lowers one production of the semantic theory to its Definition IR sentence.
@@ -1892,18 +1925,46 @@ impl RuleLowering {
     }
 }
 
-/// The productions the configuration module declares and the semantics
-/// modules it imports beyond the configured module's own imports, when the
-/// configuration has a module of its own.
+/// What the configuration module holds in place of packages' semantics
+/// modules, and what it imports for the same purpose.
+#[derive(Default)]
+struct ConfigurationDeclarations {
+    /// The productions the configuration module declares.
+    productions: BTreeSet<StableItemId>,
+    /// The subsort sentences the configuration module holds, each by its
+    /// module and its index in the module's order.
+    subsorts: BTreeSet<(ModuleId, usize)>,
+    /// The semantics modules the configuration module imports beyond the
+    /// configured module's own imports.
+    supplies: BTreeSet<ModuleId>,
+}
+
+/// The sentences the configuration module holds and the semantics modules it
+/// imports beyond the configured module's own imports, when the configuration
+/// has a module of its own.
+///
+/// A K module sees its own sentences and those of the modules it imports,
+/// and the configuration sentence is read in its module. It depends on the
+/// declaration of each sort it names, on the declaration of each production
+/// its initial terms apply, and on each subsort sentence by which one of its
+/// terms stands where another sort is expected
+/// ([`configuration_subsort_uses`]). The configuration module must hold or
+/// import each of them.
 ///
 /// The configuration module's imports supply the program syntax of every
-/// package the configured package reaches, and the whole of each package that
-/// does not reach the configured package. A production the configuration
-/// names that is in neither is declared by a semantics module at or above
-/// the configuration. When that module does not reach the configured one,
-/// the configuration module imports it. Otherwise the configuration module
-/// declares the production itself, unless one of its sorts is a cell sort or
-/// a sentence of its package orders its group.
+/// package the configured package reaches, which declares every sort, and
+/// the whole of each package that does not reach the configured package. A
+/// production or subsort sentence the configuration depends on that is in
+/// neither is in a semantics module at or above the configuration. When that
+/// module does not reach the configured one, the configuration module
+/// imports it. Otherwise the configuration module holds the sentence itself:
+/// a production's declaration and a subsort sentence each need only their
+/// sorts. A production is refused when one of its sorts is a cell sort or a
+/// sentence of its package orders its group.
+///
+/// A use that sentences the configuration module already sees justify moves
+/// no sentence. Otherwise every subsort sentence on a chain from the term's
+/// sort to the expected one is held or imported.
 ///
 /// # Errors
 ///
@@ -1913,9 +1974,9 @@ fn configuration_declarations(
     theory: &SemanticTheory,
     partition: &Partition,
     names: &NamingPass,
-) -> Result<(BTreeSet<StableItemId>, BTreeSet<ModuleId>), LoweringError> {
+) -> Result<ConfigurationDeclarations, LoweringError> {
     let Some(split) = &names.configuration else {
-        return Ok(Default::default());
+        return Ok(ConfigurationDeclarations::default());
     };
     let modules = theory
         .modules()
@@ -1927,14 +1988,14 @@ fn configuration_declarations(
         .get(&split.configured)
         .and_then(|module| module.configuration())
     else {
-        return Ok(Default::default());
+        return Ok(ConfigurationDeclarations::default());
     };
     // The symbols are read from the lowered sentence, as the check of the
     // lowered modules reads them; this lowering's origins are discarded.
     let DefinitionSentence::Configuration(sentence) =
         lower_configuration(configuration, names, &mut OriginPass::default())?
     else {
-        return Ok(Default::default());
+        return Ok(ConfigurationDeclarations::default());
     };
     let mentioned = krs_ir_levels::k_surface::configuration_symbols(&sentence);
     // The modules the configuration module imports whole.
@@ -1994,7 +2055,346 @@ fn configuration_declarations(
             }
         }
     }
-    Ok((declares, supplies))
+    let subsorts = configuration_subsorts(
+        theory,
+        partition,
+        names,
+        split,
+        &sentence,
+        &whole,
+        &mut supplies,
+    )?;
+    Ok(ConfigurationDeclarations {
+        productions: declares,
+        subsorts,
+        supplies,
+    })
+}
+
+/// The subsort sentences the configuration module holds in place of their
+/// packages' semantics modules, each by its module and its index in the
+/// module's order; `supplies` gains each module the configuration module
+/// imports for a subsort sentence instead ([`configuration_declarations`]).
+///
+/// `sentence` is the lowered configuration, and `whole` the modules the
+/// configuration module imports whole.
+fn configuration_subsorts(
+    theory: &SemanticTheory,
+    partition: &Partition,
+    names: &NamingPass,
+    split: &ConfigurationSplit,
+    sentence: &krs_ir_levels::ConfigurationSentence,
+    whole: &BTreeSet<&ModuleId>,
+    supplies: &mut BTreeSet<ModuleId>,
+) -> Result<BTreeSet<(ModuleId, usize)>, LoweringError> {
+    let mentioned = krs_ir_levels::k_surface::configuration_symbols(sentence);
+    let mut applied = BTreeMap::new();
+    for production in theory
+        .modules()
+        .iter()
+        .filter(|module| !module.is_spec())
+        .flat_map(SemanticModule::productions)
+    {
+        let symbol = names.production(production.id())?;
+        if mentioned.contains(symbol.id())
+            && let DefinitionSentence::Production(lowered) =
+                lower_production_sentence(production, names, &mut OriginPass::default())?
+        {
+            applied.insert(symbol.id().clone(), lowered);
+        }
+    }
+    let k_item = theory
+        .modules()
+        .iter()
+        .filter(|module| is_framework_module(module.id()))
+        .flat_map(SemanticModule::sorts)
+        .find(|sort| sort.id().item_name() == K_ITEM)
+        .map(|sort| names.sort(sort.id()))
+        .transpose()?;
+    let uses =
+        configuration_subsort_uses(sentence, &applied, k_item.as_ref().map(SymbolIdentity::id));
+    let mut edges = Vec::new();
+    for module in theory.modules().iter().filter(|module| !module.is_spec()) {
+        // A program-syntax module, the framework module and a module
+        // imported whole are below the configuration.
+        let placement = partition
+            .module(module.id())
+            .filter(|_| !whole.contains(module.id()));
+        for (index, subsort) in module.subsorts().iter().enumerate() {
+            edges.push(SubsortEdge {
+                subsort: lower_sort_ref(subsort.subsort(), names)?,
+                supersort: lower_sort_ref(subsort.supersort(), names)?,
+                holder: placement
+                    .filter(|placement| !placement.subsort_is_syntax(index))
+                    .map(|_| (module.id(), index)),
+            });
+        }
+    }
+    let seen = edges
+        .iter()
+        .filter(|edge| edge.holder.is_none())
+        .collect::<Vec<_>>();
+    let every = edges.iter().collect::<Vec<_>>();
+    let mut subsorts = BTreeSet::new();
+    for (found, required) in &uses {
+        if has_chain(&seen, found, required) {
+            continue;
+        }
+        for (module, index) in chain_edges(&every, found, required)
+            .into_iter()
+            .filter_map(|edge| edge.holder)
+        {
+            if *module == split.configured || split.reaching.contains(module) {
+                subsorts.insert((module.clone(), index));
+            } else {
+                supplies.insert(module.clone());
+            }
+        }
+    }
+    Ok(subsorts)
+}
+
+/// The item name of the framework sort every other sort but `K` is a subsort of.
+const K_ITEM: &str = "KItem";
+
+/// One subsort sentence of the theory, at Definition level.
+struct SubsortEdge<H> {
+    subsort: DefinitionSortRef,
+    supersort: DefinitionSortRef,
+    /// What tells the sentence apart from those the configuration module
+    /// sees through its imports; `None` for a sentence it sees.
+    holder: Option<H>,
+}
+
+/// The sorts `sort` reaches along `edges`, upwards or `down`wards, with itself.
+fn sort_closure<'a, H>(
+    edges: &[&'a SubsortEdge<H>],
+    sort: &'a DefinitionSortRef,
+    down: bool,
+) -> BTreeSet<&'a DefinitionSortRef> {
+    let mut reached = BTreeSet::from([sort]);
+    let mut pending = vec![sort];
+    while let Some(sort) = pending.pop() {
+        for edge in edges {
+            let (from, to) = if down {
+                (&edge.supersort, &edge.subsort)
+            } else {
+                (&edge.subsort, &edge.supersort)
+            };
+            if from == sort && reached.insert(to) {
+                pending.push(to);
+            }
+        }
+    }
+    reached
+}
+
+/// Whether `edges` make `found` a subsort of `required`.
+fn has_chain<'a, H>(
+    edges: &[&'a SubsortEdge<H>],
+    found: &'a DefinitionSortRef,
+    required: &'a DefinitionSortRef,
+) -> bool {
+    sort_closure(edges, found, false).contains(required)
+}
+
+/// Every sentence of `edges` on a chain from `found` up to `required`.
+fn chain_edges<'a, H>(
+    edges: &[&'a SubsortEdge<H>],
+    found: &'a DefinitionSortRef,
+    required: &'a DefinitionSortRef,
+) -> Vec<&'a SubsortEdge<H>> {
+    let above = sort_closure(edges, found, false);
+    let below = sort_closure(edges, required, true);
+    edges
+        .iter()
+        .copied()
+        .filter(|edge| above.contains(&edge.subsort) && below.contains(&edge.supersort))
+        .collect()
+}
+
+/// The uses of the subsort order in the typing of `configuration`: each pair
+/// of the sort of a term and the different sort its position expects.
+///
+/// The positions are those the Definition IR's typing judges by the subsort
+/// order: a leaf cell's content at the cell's sort, which the emitted
+/// configuration states by a cast; an input's default at the input's sort; an
+/// argument at the sort its production, at the application's instance, or its
+/// builtin operation declares; and the two sides of a rewrite, an aliased
+/// pattern and an alternative at the sort of the term they form. `applied`
+/// holds the productions the configuration applies.
+///
+/// A position that expects `K` or `KItem` is left out: every sort but `K` is
+/// a `KItem` in every K module, by no sentence of the definition.
+fn configuration_subsort_uses(
+    configuration: &krs_ir_levels::ConfigurationSentence,
+    applied: &BTreeMap<SymbolId, ProductionSentence>,
+    k_item: Option<&SymbolId>,
+) -> BTreeSet<(DefinitionSortRef, DefinitionSortRef)> {
+    let mut uses = SubsortUses {
+        applied,
+        k_item,
+        found: BTreeSet::new(),
+    };
+    uses.cells(configuration.cells(), configuration.initializer());
+    for variable in configuration.variables() {
+        if let Some(default) = variable.default() {
+            uses.place(default, variable.sort());
+            uses.term(default);
+        }
+    }
+    uses.found
+}
+
+/// The walk of [`configuration_subsort_uses`].
+struct SubsortUses<'a> {
+    applied: &'a BTreeMap<SymbolId, ProductionSentence>,
+    k_item: Option<&'a SymbolId>,
+    found: BTreeSet<(DefinitionSortRef, DefinitionSortRef)>,
+}
+impl SubsortUses<'_> {
+    fn place(&mut self, term: &DefinitionTerm, required: &DefinitionSortRef) {
+        let automatic = match required {
+            DefinitionSortRef::Builtin(krs_ir::BuiltinSort::KSequence) => true,
+            DefinitionSortRef::Declared(sort) => Some(sort) == self.k_item,
+            _ => false,
+        };
+        if !automatic && term.sort() != required {
+            self.found.insert((term.sort().clone(), required.clone()));
+        }
+    }
+
+    fn term(&mut self, term: &DefinitionTerm) {
+        match term.kind() {
+            krs_ir_levels::DefinitionTermKind::Application {
+                application: ApplicationRef::Declared(symbol),
+                arguments,
+                instance,
+                ..
+            } => {
+                if let Some(production) = self.applied.get(symbol) {
+                    let sorts = production
+                        .items()
+                        .iter()
+                        .filter_map(|item| match item.kind() {
+                            GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+                            GrammarProductionItemKind::Terminal { .. }
+                            | GrammarProductionItemKind::RegexTerminal { .. } => None,
+                        });
+                    for (argument, sort) in arguments.iter().zip(sorts) {
+                        let sort = match sort {
+                            DefinitionSortRef::Parameter(name) => production
+                                .parameters()
+                                .iter()
+                                .position(|parameter| parameter == name)
+                                .and_then(|index| instance.get(index))
+                                .unwrap_or(sort),
+                            _ => sort,
+                        };
+                        self.place(argument, &sort.clone());
+                    }
+                }
+            }
+            krs_ir_levels::DefinitionTermKind::Application {
+                application: ApplicationRef::Builtin(operation),
+                arguments,
+                ..
+            } => {
+                for (argument, sort) in arguments.iter().zip(operation.argument_sorts()) {
+                    match sort {
+                        krs_ir::OperationSort::Builtin(sort) => {
+                            self.place(argument, &DefinitionSortRef::Builtin(*sort));
+                        }
+                        // The operation's instance is its result's sort.
+                        krs_ir::OperationSort::Parameter
+                            if matches!(
+                                operation.result_sort(),
+                                krs_ir::OperationSort::Parameter
+                            ) =>
+                        {
+                            self.place(argument, term.sort());
+                        }
+                        krs_ir::OperationSort::Parameter | krs_ir::OperationSort::K => {}
+                    }
+                }
+            }
+            krs_ir_levels::DefinitionTermKind::Rewrite { from, to } => {
+                self.place(from, term.sort());
+                self.place(to, term.sort());
+            }
+            krs_ir_levels::DefinitionTermKind::As { pattern, .. } => {
+                self.place(pattern, term.sort());
+            }
+            krs_ir_levels::DefinitionTermKind::Or { alternatives } => {
+                for alternative in alternatives {
+                    self.place(alternative, term.sort());
+                }
+            }
+            _ => {}
+        }
+        for child in term.children() {
+            self.term(child);
+        }
+    }
+
+    fn cells(
+        &mut self,
+        cells: &[FixedCell<DefinitionSortRef, SymbolId>],
+        initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
+    ) {
+        for cell in cells {
+            let Some(value) = initializer.iter().find(|value| value.cell() == cell.id()) else {
+                continue;
+            };
+            match (cell.content(), value.content()) {
+                (FixedCellContent::Term { sort, .. }, FixedInitializerContent::Term { term }) => {
+                    self.place(term, sort);
+                    self.term(term);
+                }
+                (
+                    FixedCellContent::Children { children },
+                    FixedInitializerContent::Children { children: values },
+                ) => self.cells(children, values),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// The hoisted sentences `krs check --partition` reports.
+fn configuration_report(
+    theory: &SemanticTheory,
+    names: &NamingPass,
+    declarations: &ConfigurationDeclarations,
+) -> Option<crate::partition::ConfigurationReport> {
+    let split = names.configuration.as_ref()?;
+    let mut held = Vec::new();
+    for module in theory.modules().iter().filter(|module| !module.is_spec()) {
+        for (index, subsort) in module.subsorts().iter().enumerate() {
+            if declarations
+                .subsorts
+                .contains(&(module.id().clone(), index))
+            {
+                held.push((
+                    format!(
+                        "subsort {} ::= {}",
+                        crate::partition::sort_display(subsort.supersort()),
+                        crate::partition::sort_display(subsort.subsort())
+                    ),
+                    module.id().clone(),
+                ));
+            }
+        }
+        for production in module.productions() {
+            if declarations.productions.contains(production.id()) {
+                held.push((
+                    format!("production {}", production_display_name(production.id())),
+                    module.id().clone(),
+                ));
+            }
+        }
+    }
+    (!held.is_empty()).then(|| crate::partition::ConfigurationReport::new(split.id.clone(), held))
 }
 
 /// The cons production of the syntactic list `production` terminates.
@@ -2131,7 +2531,7 @@ fn configuration_visibility(
 /// Lowers the configured module's configuration into its own module
 /// (FU-18), which imports the module's program syntax, every import of the
 /// module that does not reach it, and the modules `split` supplies, and
-/// declares the productions `split` declares.
+/// holds the subsort sentences and declares the productions `split` names.
 fn lower_configuration_module(
     theory: &SemanticTheory,
     module: &SemanticModule,
@@ -2147,6 +2547,13 @@ fn lower_configuration_module(
         )
     })?;
     let mut sentences = Vec::new();
+    for owner in theory.modules().iter().filter(|module| !module.is_spec()) {
+        for (index, subsort) in owner.subsorts().iter().enumerate() {
+            if split.subsorts.contains(&(owner.id().clone(), index)) {
+                sentences.push(lower_subsort_sentence(subsort, names, origins)?);
+            }
+        }
+    }
     let mut production_groups_declared = Vec::new();
     for production in theory
         .modules()
@@ -2195,8 +2602,9 @@ fn lower_configuration_module(
 
 /// Requires every sort and production the configuration names to be
 /// declared in its configuration module or that module's import closure
-/// (FU-18). [`configuration_declarations`] arranges it for every production
-/// of the theory, so this is the check of what it arranged.
+/// (FU-18), and every subsort sentence its typing reads to be held there.
+/// [`configuration_declarations`] arranges it for every production and
+/// subsort sentence of the theory, so this is the check of what it arranged.
 fn check_configuration_visibility(
     modules: &[DefinitionModule],
     split: &ConfigurationSplit,
@@ -2264,6 +2672,83 @@ fn check_configuration_visibility(
             ConfigurationObstacle::Undeclared,
             None,
         )));
+    }
+    check_configuration_subsorts(modules, split, configuration, &seen, &names)
+}
+
+/// Requires each use of the subsort order in the configuration's typing
+/// that the definition's subsort sentences justify to be justified by those
+/// of `seen`, the configuration module and the modules it imports. `names`
+/// holds each symbol's emitted name.
+fn check_configuration_subsorts(
+    modules: &[DefinitionModule],
+    split: &ConfigurationSplit,
+    configuration: &krs_ir_levels::ConfigurationSentence,
+    seen: &BTreeSet<&ModuleId>,
+    names: &BTreeMap<&SymbolId, &str>,
+) -> Result<(), LoweringError> {
+    let productions = modules
+        .iter()
+        .flat_map(DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Production(sentence) => {
+                Some((sentence.symbol().id().clone(), sentence.clone()))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let k_item = modules
+        .iter()
+        .filter(|module| is_framework_module(module.id()))
+        .flat_map(DefinitionModule::sentences)
+        .find_map(|sentence| match sentence {
+            DefinitionSentence::SyntaxSort(sentence)
+                if sentence.symbol().emitted_name() == K_ITEM =>
+            {
+                Some(sentence.symbol().id())
+            }
+            _ => None,
+        });
+    let edges = modules
+        .iter()
+        .flat_map(|module| {
+            module
+                .sentences()
+                .iter()
+                .filter_map(|sentence| match sentence {
+                    DefinitionSentence::Subsort(sentence) => Some(SubsortEdge {
+                        subsort: sentence.subsort().clone(),
+                        supersort: sentence.supersort().clone(),
+                        holder: (!seen.contains(module.id())).then_some(()),
+                    }),
+                    _ => None,
+                })
+        })
+        .collect::<Vec<_>>();
+    let every = edges.iter().collect::<Vec<_>>();
+    let held = edges
+        .iter()
+        .filter(|edge| edge.holder.is_none())
+        .collect::<Vec<_>>();
+    let display = |sort: &DefinitionSortRef| match sort {
+        DefinitionSortRef::Declared(id) => names
+            .get(id)
+            .map_or_else(|| id.as_str().to_owned(), |name| (*name).to_owned()),
+        DefinitionSortRef::Builtin(sort) => sort.k_name().to_owned(),
+        other => format!("{other:?}"),
+    };
+    for (found, required) in configuration_subsort_uses(configuration, &productions, k_item) {
+        if has_chain(&every, &found, &required) && !has_chain(&held, &found, &required) {
+            return Err(LoweringError::Partition(configuration_visibility(
+                split,
+                display(&found),
+                None,
+                ConfigurationObstacle::Subsort {
+                    supersort: display(&required),
+                },
+                None,
+            )));
+        }
     }
     Ok(())
 }

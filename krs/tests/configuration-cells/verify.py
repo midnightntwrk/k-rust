@@ -97,6 +97,19 @@ the outcomes must agree:
   packages, with `romWord`, which only an equation names. `done` ends with
   the state the functions compute, and a program that loads and stores ends
   with the same cells on both routes;
+- `group-slot`: the subsort sentences a definition that holds a group starts
+  from. `Slotted { core, mem, store, trail, journal }` starts `store`, of
+  sort `Store`, from the `Map` that `Image()` computes, `trail`, of sort
+  `Trail`, from a one-item `List`, and `journal` from `was ( image ( ) )`,
+  whose field is a `Store`. `syntax Store ::= Map` and `syntax Trail ::= List`
+  are not program syntax, since K has no `MAP-SYNTAX` or `LIST-SYNTAX`
+  module, and a K module reads only its own subsort sentences and those of
+  the modules it imports: `KRS-GROUP-SLOT-CONFIGURATION`, below the group's
+  module, holds both with the declaration of `image`, and `KRS-GROUP-SLOT`,
+  which imports it, holds neither. `done` ends with the state the
+  initializer states, and a program that loads and stores ends with the same
+  cells on both routes, its `write` rule placing a `Map` and a `List` in the
+  same cells;
 - `group-harts`: rules for a cell group held in instances. The library
   `group-harts/hart` declares `Hart { id, k, pc, regs, reservation?, jobs }`,
   whose `jobs` holds a Map collection of jobs, and rules for it (`for Hart`)
@@ -603,6 +616,39 @@ GROUP_BOOT_KEPT = (
     ("KRS-GROUP-BOOT-BOARD", "  rule tick ( Timer:Int ) => "),
 )
 
+GROUP_SLOT = Fixture(MANIFEST, "krs-configuration-cells-group-slot", dependencies=(f"{GROUP_CORE}:main",))
+GROUP_SLOT_MODULE = "KRS-GROUP-SLOT"
+GROUP_SLOT_CONFIGURATION = "KRS-GROUP-SLOT-CONFIGURATION"
+# `start` ends with the state the initializer states: `store` and the journal's field hold the
+# `Map` that `image ( )` computes, and `trail` a one-item `List`. `bus` loads the word `image`
+# maps at 4 and stores it at 5; `write` keeps the memory in `store` and the address in `trail`.
+GROUP_SLOT_PROGRAMS = (
+    Program(
+        "start", "done", "accepted", ".K",
+        cells=(
+            ("pc", "0"), ("acc", "0"), ("mem", "3 |-> 9 4 |-> 10"), ("store", "3 |-> 9 4 |-> 10"),
+            ("trail", "ListItem ( 0 )"), ("journal", "was ( 3 |-> 9 4 |-> 10 )"),
+        ),
+        whole=True,
+    ),
+    Program(
+        "bus", "inc ; load ( 4 ) ; store ( 5 ) ; done", "accepted", ".K",
+        cells=(
+            ("pc", "3"), ("acc", "10"), ("mem", "3 |-> 9 4 |-> 10 5 |-> 10"),
+            ("store", "3 |-> 9 4 |-> 10 5 |-> 10"), ("trail", "ListItem ( 5 )"),
+            ("journal", "was ( 3 |-> 9 4 |-> 10 )"),
+        ),
+        whole=True,
+    ),
+)
+# The sentences the configuration depends on that are not program syntax, held in its module:
+# the production it names and the subsort sentences its typing reads.
+GROUP_SLOT_HELD = (
+    '  syntax Map ::= "image" "(" ")" [symbol(image), function, total]\n',
+    "  syntax Store ::= Map\n",
+    "  syntax Trail ::= List\n",
+)
+
 GROUP_HARTS_LIBRARY = "krs-configuration-cells-group-harts-hart"
 GROUP_HARTS_MODULE = "KRS-GROUP-HART"
 GROUP_HARTS = tuple(
@@ -917,6 +963,29 @@ def verify_group_boot(harness: FixtureGate) -> None:
     harness.compare(emitted, GROUP_BOOT_PROGRAMS, sort="Prog")
 
 
+def verify_group_slot(harness: FixtureGate) -> None:
+    """The configuration module holds the subsort sentences the configuration's typing reads, the
+    module of their package holds none of them, and both routes start from the same state."""
+
+    harness.check(GROUP_SLOT)
+    harness.expand(GROUP_SLOT)
+    emitted = harness.emit(GROUP_SLOT)
+    source = emitted.source.read_text(encoding="utf-8")
+    bodies = modules(source)
+    held = tuple(
+        line + "\n" for line in bodies.get(GROUP_SLOT_CONFIGURATION, "").splitlines()
+        if line.startswith("  syntax ")
+    )
+    if held != GROUP_SLOT_HELD:
+        raise GateError(
+            f"{GROUP_SLOT_CONFIGURATION} holds {held}, not the sentences its configuration depends on:\n{source}"
+        )
+    kept = [line for line in bodies.get(GROUP_SLOT_MODULE, "").splitlines() if line.startswith("  syntax ")]
+    if kept:
+        raise GateError(f"{GROUP_SLOT_MODULE} holds {kept}, which its configuration module holds:\n{source}")
+    harness.compare(emitted, GROUP_SLOT_PROGRAMS, sort="Prog")
+
+
 def verify_group_harts(harness: FixtureGate) -> None:
     """Each definition holding harts in an instance emits the library's rules inside `<hart>`,
     and runs them alike on both routes."""
@@ -1016,6 +1085,12 @@ def main() -> int:
             "PASS group-boot: the configuration module declares the productions the initializer names, "
             "of the holder's package and of one that depends on the group's; both routes start from the "
             "state they compute"
+        )
+
+        verify_group_slot(harness)
+        print(
+            "PASS group-slot: the configuration module holds the subsort sentences its configuration's typing "
+            "reads, into Map and List; both routes start from the same state"
         )
 
         verify_group_harts(harness)
