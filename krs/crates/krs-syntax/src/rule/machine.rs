@@ -2754,6 +2754,10 @@ enum ListEntry<T, R> {
     Rest(proc_macro2::Span, Token![..], Option<R>),
 }
 
+/// One entry of a bracketed subject value read as a list's elements: an element's pattern, or a
+/// rest with its name.
+type PatternEntry = ListEntry<(Pat, NegativeLiteralSpans), Ident>;
+
 /// The elements of a bracketed list value before and after its one rest,
 /// and the rest; a second rest is an error.
 type ListParts<T, R> = (
@@ -2805,9 +2809,7 @@ fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
 
 /// The entries of a bracketed subject value read as a list's elements, before their rests are
 /// placed ([`list_parts`]): each element's pattern, and each rest with its name.
-fn list_pattern_entries(
-    group: &proc_macro2::Group,
-) -> Result<Vec<ListEntry<(Pat, NegativeLiteralSpans), Ident>>, ParseError> {
+fn list_pattern_entries(group: &proc_macro2::Group) -> Result<Vec<PatternEntry>, ParseError> {
     let parser = |input: ParseStream<'_>| {
         let sequence;
         bracketed!(sequence in input);
