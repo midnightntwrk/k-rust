@@ -1113,6 +1113,19 @@ struct Admission<'b> {
     /// Whether the spelling being judged stands in a record's or a fragment's child, which is
     /// written as the child's content ([`Marks`]).
     child: bool,
+    /// Where the spelling being judged stands among records ([`RecordPlace`]).
+    place: RecordPlace,
+}
+
+/// Where a spelling stands among records, through `name @ ..` and `Some(..)`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecordPlace {
+    /// Neither of the others.
+    Other,
+    /// An item of an instance list, whose record is an instance's.
+    InstanceItem,
+    /// A child of a group's record, a record that is no instance list's item.
+    GroupChild,
 }
 
 impl Admission<'_> {
@@ -1129,6 +1142,7 @@ impl Admission<'_> {
             path: Vec::new(),
             in_term: false,
             child: false,
+            place: RecordPlace::Other,
         }
     }
 
@@ -1201,23 +1215,43 @@ impl Admission<'_> {
                 self.path.push(REST);
                 return Err(Refusal::InitializerRemainder);
             }
-            // `..` names the rest of a map only where a `cells!` pattern frames one, or where a
+            // `..` names the rest of a map only where a `cells!` pattern frames one, where a
             // pattern matches a map in a term, below every configuration position: there a map
             // literal is a map pattern, the map's entries and the rest that holds its others
-            // (`Load(map![1 -> v, ..])`). A readable record writes a cell's own map with braces,
-            // `{ k -> v, .. }`. A `cells!` result's map at a content root
-            // (`Cell(k::map![.., ..])`, a record field's `k::map![.., ..]`) keeps its subject's
-            // rest, a frame write this route does not lower yet (the stated M3 limitation).
+            // (`Load(map![1 -> v, ..])`), and in a readable pattern's group record child, which the
+            // record reads as the group's term or its children's entries, where the literal is the
+            // map read its braces spell (`G { m: map![k -> v, ..], .. }`). A readable record writes
+            // a cell's own map with braces, `{ k -> v, .. }`. A `cells!` result's map at a content
+            // root (`Cell(k::map![.., ..])`, a record field's `k::map![.., ..]`) keeps its
+            // subject's rest, a frame write this route does not lower yet (the stated M3
+            // limitation).
             EntrySpelling::MapLiteral(map)
                 if map.rest == Some(EntryRest::Anonymous)
-                    && !(pattern && (self.form == EntryForm::Cells || self.in_term)) =>
+                    && !(pattern
+                        && (self.form == EntryForm::Cells
+                            || self.in_term
+                            || self.place == RecordPlace::GroupChild)) =>
             {
                 self.path.push(REST);
                 return Err(Refusal::AnonymousRestInMapLiteral);
             }
             _ => {}
         }
-        let in_term = self.in_term;
+        let (in_term, place) = (self.in_term, self.place);
+        // A record that is no instance list's item is a group's: its children are a group's.
+        self.place = match spelling {
+            EntrySpelling::Braces(_)
+            | EntrySpelling::Brackets(_)
+            | EntrySpelling::InstanceList(_)
+            | EntrySpelling::InstanceSet(_) => RecordPlace::InstanceItem,
+            EntrySpelling::Record(_) | EntrySpelling::Fragment(_)
+                if place != RecordPlace::InstanceItem =>
+            {
+                RecordPlace::GroupChild
+            }
+            EntrySpelling::Alias(..) | EntrySpelling::Present(_) => place,
+            _ => RecordPlace::Other,
+        };
         self.in_term |= matches!(
             spelling,
             EntrySpelling::Call(_)
@@ -1231,6 +1265,7 @@ impl Admission<'_> {
             self.within(step, |admission| admission.form(one))?;
         }
         self.in_term = in_term;
+        self.place = place;
         Ok(())
     }
 
