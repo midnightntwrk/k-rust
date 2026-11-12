@@ -147,7 +147,7 @@ fn replace_at(k::term![ReplaceAt(dest, i, src)]: Term<Bytes>) -> Term<Bytes> {
 }
 
 /// `bytes::from_int` with `bytes::big_endian`.
-#[k::function(total, sort = Bytes, syntax = "fromIntBigEndian({len}, {i})")]
+#[k::function(partial, sort = Bytes, syntax = "fromIntBigEndian({len}, {i})")]
 pub struct FromIntBigEndian {
     pub len: Term<Int>,
     pub i: Term<Int>,
@@ -159,7 +159,7 @@ fn from_int_big_endian(k::term![FromIntBigEndian(len, i)]: Term<Bytes>) -> Term<
 }
 
 /// `bytes::from_int_no_len` with `bytes::little_endian` and `bytes::signed`.
-#[k::function(total, sort = Bytes, syntax = "fromIntSigned({i})")]
+#[k::function(partial, sort = Bytes, syntax = "fromIntSigned({i})")]
 pub struct FromIntSigned {
     pub i: Term<Int>,
 }

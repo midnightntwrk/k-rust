@@ -70,7 +70,7 @@ fn length(k::term![Length(s)]: Term<Int>) -> Term<Int> {
 }
 
 /// `string::substr` over a half-open range.
-#[k::function(total, sort = string::String, syntax = "substr({s}, {start}, {end})")]
+#[k::function(partial, sort = string::String, syntax = "substr({s}, {start}, {end})")]
 pub struct Substr {
     pub s: Term<string::String>,
     pub start: Term<Int>,
@@ -189,7 +189,7 @@ fn before(k::term![Before(a, b)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// `bytes::from_string` and `bytes::to_string`: the byte count, then the round trip.
-#[k::function(total, sort = Int, syntax = "byteCount({s})")]
+#[k::function(partial, sort = Int, syntax = "byteCount({s})")]
 pub struct ByteCount {
     pub s: Term<string::String>,
 }
@@ -200,7 +200,7 @@ fn byte_count(k::term![ByteCount(s)]: Term<Int>) -> Term<Int> {
 }
 
 /// `bytes::to_string` of `bytes::from_string`.
-#[k::function(total, sort = string::String, syntax = "roundTrip({s})")]
+#[k::function(partial, sort = string::String, syntax = "roundTrip({s})")]
 pub struct RoundTrip {
     pub s: Term<string::String>,
 }

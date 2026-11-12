@@ -115,7 +115,7 @@ pub fn Push(l: Term<List<Value>>, v: Term<Int>) -> Term<List<Value>> {
 }
 
 /// The keys of a map of sets of integers, read through a typed lookup.
-#[k::function(total, internal, sort = Set<Int>, syntax = "members({sets}, {key})")]
+#[k::function(partial, internal, sort = Set<Int>, syntax = "members({sets}, {key})")]
 pub struct Members {
     pub sets: Term<Map<Id, Set<Int>>>,
     pub key: Term<Id>,

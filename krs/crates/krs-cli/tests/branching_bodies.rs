@@ -67,7 +67,7 @@ impl Machine {
 
 /// The functions as branching bodies.
 const BRANCHING: &str = r#"
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn StorageValue(storage: Term<Map>, index: Term<Int>) -> Term<Int> {
     if map::in_keys(index, storage) { map::get(storage, index) } else { 0 }
 }
@@ -146,7 +146,7 @@ pub fn Port(address: Term<Int>, value: Term<Int>) -> Term<Int> {
 
 /// The same equations written by hand, under the names the branches take.
 const LONG_FORM: &str = r#"
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn StorageValue(storage: Term<Map>, index: Term<Int>) -> Term<Int>;
 
 #[k::requires(map::in_keys(index, storage))]

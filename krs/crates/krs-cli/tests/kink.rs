@@ -4014,7 +4014,9 @@ fn coverage_gives_a_claim_helper_its_own_status() {
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
 /// whose rules are named by their Rust items: `Div` is declared total and divides by its
 /// argument, and on `sib(0)` the nondet group's `sib_div` applies it at 0 beside `sib_done`
-/// (the sibling keeps the run's leaf clean, so only k-rust's list holds the record).
+/// (the sibling keeps the run's leaf clean, so only k-rust's list holds the record). KRS
+/// refuses such a function unless its totality is `assumed`, so the false claim here is an
+/// assumption whose reason is false, the one way a run can still meet one.
 #[test]
 fn a_contradicted_total_claim_names_its_rust_items() {
     const LIBRARY: &str = r#"use k::builtin::{Int, KSequence};
@@ -4032,7 +4034,7 @@ pub enum ExpSyntax {
     #[k::syntax("done")] Done(),
 }
 
-#[k::function(total, internal)]
+#[k::function(total, internal, assumed = "no program divides by zero (false: sib(0) does)")]
 pub fn Div(value: Term<Int>) -> Term<Int> {
     10 / value
 }

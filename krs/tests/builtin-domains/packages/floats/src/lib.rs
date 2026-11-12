@@ -55,7 +55,7 @@ k::rules! {
 }
 
 /// IEEE equality of a sum: `float::eq(float::add(a, b), c)`.
-#[k::function(total, sort = Bool, syntax = "sumIs({a}, {b}, {c})")]
+#[k::function(partial, sort = Bool, syntax = "sumIs({a}, {b}, {c})")]
 pub struct SumIs {
     pub a: Term<Float>,
     pub b: Term<Float>,
@@ -68,7 +68,7 @@ fn sum_is(k::term![SumIs(a, b, c)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// Each arithmetic operation against an expected value.
-#[k::function(total, sort = Bool, syntax = "arithmetic({a}, {b})")]
+#[k::function(partial, sort = Bool, syntax = "arithmetic({a}, {b})")]
 pub struct Arithmetic {
     pub a: Term<Float>,
     pub b: Term<Float>,
@@ -86,7 +86,7 @@ fn arithmetic(k::term![Arithmetic(a, b)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// IEEE equality, `==Float`: NaN equals nothing, and `0.0` equals `-0.0`.
-#[k::function(total, sort = Bool, syntax = "ieeeEq({a}, {b})")]
+#[k::function(partial, sort = Bool, syntax = "ieeeEq({a}, {b})")]
 pub struct IeeeEq {
     pub a: Term<Float>,
     pub b: Term<Float>,
@@ -98,7 +98,7 @@ fn ieee_eq(k::term![IeeeEq(a, b)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// `float::ne`, the negation of `==Float`.
-#[k::function(total, sort = Bool, syntax = "ieeeNe({a}, {b})")]
+#[k::function(partial, sort = Bool, syntax = "ieeeNe({a}, {b})")]
 pub struct IeeeNe {
     pub a: Term<Float>,
     pub b: Term<Float>,
@@ -122,7 +122,7 @@ fn term_eq(k::term![TermEq(a, b)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// `float::is_nan`.
-#[k::function(total, sort = Bool, syntax = "nan({a})")]
+#[k::function(partial, sort = Bool, syntax = "nan({a})")]
 pub struct IsNan {
     pub a: Term<Float>,
 }
@@ -133,7 +133,7 @@ fn is_nan(k::term![IsNan(a)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// `float::is_infinite`.
-#[k::function(total, sort = Bool, syntax = "infinite({a})")]
+#[k::function(partial, sort = Bool, syntax = "infinite({a})")]
 pub struct IsInfinite {
     pub a: Term<Float>,
 }
@@ -144,7 +144,7 @@ fn is_infinite(k::term![IsInfinite(a)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// The sign bit of the negation: `float::sign(float::neg(a))`.
-#[k::function(total, sort = Bool, syntax = "negativeSign({a})")]
+#[k::function(partial, sort = Bool, syntax = "negativeSign({a})")]
 pub struct NegativeSign {
     pub a: Term<Float>,
 }
@@ -155,7 +155,7 @@ fn negative_sign(k::term![NegativeSign(a)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// `float::sqrt` against an expected root.
-#[k::function(total, sort = Bool, syntax = "sqrtIs({a}, {root})")]
+#[k::function(partial, sort = Bool, syntax = "sqrtIs({a}, {root})")]
 pub struct SqrtIs {
     pub a: Term<Float>,
     pub root: Term<Float>,
@@ -170,7 +170,7 @@ fn sqrt_is(k::term![SqrtIs(a, root)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// The four roundings to an integral value and `abs`, `min`, `max`.
-#[k::function(total, sort = Bool, syntax = "rounding({a})")]
+#[k::function(partial, sort = Bool, syntax = "rounding({a})")]
 pub struct Rounding {
     pub a: Term<Float>,
 }
@@ -197,7 +197,7 @@ fn rounding(k::term![Rounding(a)]: Term<Bool>) -> Term<Bool> {
 
 /// `float::to_int`, the nearest integer; `domains.md` names no rule for a tie, so a tie is open:
 /// k-rust rounds it to even and marks the run.
-#[k::function(total, sort = Int, syntax = "toInt({a})")]
+#[k::function(partial, sort = Int, syntax = "toInt({a})")]
 pub struct ToInt {
     pub a: Term<Float>,
 }
@@ -249,7 +249,7 @@ fn max_value_is(k::term![MaxValueIs(precision, exponent, expected)]: Term<Bool>)
 }
 
 /// The precision and exponent bits of a value's format, as `p * 100 + e`.
-#[k::function(total, sort = Int, syntax = "format({a})")]
+#[k::function(partial, sort = Int, syntax = "format({a})")]
 pub struct Format {
     pub a: Term<Float>,
 }
@@ -260,7 +260,7 @@ fn format(k::term![Format(a)]: Term<Int>) -> Term<Int> {
 }
 
 /// The orderings, which are false whenever an operand is NaN.
-#[k::function(total, sort = Bool, syntax = "ordered({a}, {b})")]
+#[k::function(partial, sort = Bool, syntax = "ordered({a}, {b})")]
 pub struct Ordered {
     pub a: Term<Float>,
     pub b: Term<Float>,
@@ -276,7 +276,7 @@ fn ordered(k::term![Ordered(a, b)]: Term<Bool>) -> Term<Bool> {
 
 /// The negation of a value, in its own format: the program's result is a
 /// Float, which both routes print as K's LLVM backend does.
-#[k::function(total, sort = Float, syntax = "negate({a})")]
+#[k::function(partial, sort = Float, syntax = "negate({a})")]
 pub struct Negate {
     pub a: Term<Float>,
 }

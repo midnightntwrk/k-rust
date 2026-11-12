@@ -68,7 +68,7 @@ pub fn Shout(s: Term<string::String>, t: Term<string::String>) -> Term<Bool> {
     k::term![{SHOUT}]
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Close(x: Term<Float>, y: Term<Float>) -> Term<Bool> {
     k::term![{CLOSE}]
 }

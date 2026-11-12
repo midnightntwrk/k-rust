@@ -2020,6 +2020,7 @@ warning[krs::analysis::skipped-operand]: `&&` does not evaluate its right operan
    = help: or state that the strict meaning is intended: `#[k::function(.., skipped_operand = "..")]`
 ```
 
+In the result of a function declared `total` such an operand is an error before it is a warning: the function's value would be missing where the operand's is ([values of total functions](#values-of-total-functions)), so the warning is met in a `partial` function, a rule and a condition.
 An operand may have no value where it applies a partial function or a builtin operation outside its domain, unless the operation owes nothing beyond its operands' definedness (`n / 16`, `int::bit_range(x, 4, 4)`), or a function whose own value depends on a skipped operand.
 An operand that another operand evaluated whenever it is skipped also evaluates is not reported: there both readings have no value together.
 The deciding left operand is never skipped, so `Half(a) > 0 || c` is not reported.

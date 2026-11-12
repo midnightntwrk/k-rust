@@ -29,7 +29,7 @@ impl Machine {
 }
 
 /// A ground application: `1.0 /Float 2.0` has only token arguments.
-#[k::function(total, sort = Bool, syntax = "isHalf({a})")]
+#[k::function(partial, sort = Bool, syntax = "isHalf({a})")]
 pub struct IsHalf {
     pub a: Term<Float>,
 }
@@ -40,7 +40,7 @@ fn is_half(k::term![IsHalf(a)]: Term<Bool>) -> Term<Bool> {
 }
 
 /// A binary128 token, `1.0p113x15`.
-#[k::function(total, sort = Bool, syntax = "belowOne({a})")]
+#[k::function(partial, sort = Bool, syntax = "belowOne({a})")]
 pub struct BelowOne {
     pub a: Term<Float>,
 }

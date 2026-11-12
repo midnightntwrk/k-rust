@@ -35,7 +35,7 @@ impl Machine {
 }
 
 /// `int::div` on program values, including negative ones.
-#[k::function(total, sort = Int, syntax = "quot({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "quot({a}, {b})")]
 pub struct Quot {
     pub a: Term<Int>,
     pub b: Term<Int>,

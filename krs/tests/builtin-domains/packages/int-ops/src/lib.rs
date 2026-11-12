@@ -62,7 +62,7 @@ fn mul(k::term![Mul(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::div`, `/Int`, truncating like Rust's `/`.
-#[k::function(total, sort = Int, syntax = "div({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "div({a}, {b})")]
 pub struct Div {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -74,7 +74,7 @@ fn div(k::term![Div(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::rem`, `%Int`, truncating like Rust's `%`.
-#[k::function(total, sort = Int, syntax = "rem({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "rem({a}, {b})")]
 pub struct Rem {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -86,7 +86,7 @@ fn rem(k::term![Rem(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::div_euclid`, `divInt`, like `i64::div_euclid`.
-#[k::function(total, sort = Int, syntax = "divEuclid({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "divEuclid({a}, {b})")]
 pub struct DivEuclid {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -98,7 +98,7 @@ fn div_euclid(k::term![DivEuclid(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::rem_euclid`, `modInt`, like `i64::rem_euclid`.
-#[k::function(total, sort = Int, syntax = "remEuclid({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "remEuclid({a}, {b})")]
 pub struct RemEuclid {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -110,7 +110,7 @@ fn rem_euclid(k::term![RemEuclid(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::pow`, `^Int`.
-#[k::function(total, sort = Int, syntax = "pow({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "pow({a}, {b})")]
 pub struct Pow {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -122,7 +122,7 @@ fn pow(k::term![Pow(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::pow_mod`, `^%Int`.
-#[k::function(total, sort = Int, syntax = "powMod({a}, {b}, {c})")]
+#[k::function(partial, sort = Int, syntax = "powMod({a}, {b}, {c})")]
 pub struct PowMod {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -135,7 +135,7 @@ fn pow_mod(k::term![PowMod(a, b, c)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::shift_left`, `<<Int`.
-#[k::function(total, sort = Int, syntax = "shl({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "shl({a}, {b})")]
 pub struct ShiftLeft {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -147,7 +147,7 @@ fn shift_left(k::term![ShiftLeft(a, b)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::shift_right`, `>>Int`.
-#[k::function(total, sort = Int, syntax = "shr({a}, {b})")]
+#[k::function(partial, sort = Int, syntax = "shr({a}, {b})")]
 pub struct ShiftRight {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -241,7 +241,7 @@ fn abs(k::term![Abs(a)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::log2`, `log2Int`.
-#[k::function(total, sort = Int, syntax = "log2({a})")]
+#[k::function(partial, sort = Int, syntax = "log2({a})")]
 pub struct Log2 {
     pub a: Term<Int>,
 }
@@ -252,7 +252,7 @@ fn log2(k::term![Log2(a)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::bit_range`, `bitRangeInt`.
-#[k::function(total, sort = Int, syntax = "bitRange({a}, {b}, {c})")]
+#[k::function(partial, sort = Int, syntax = "bitRange({a}, {b}, {c})")]
 pub struct BitRange {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -265,7 +265,7 @@ fn bit_range(k::term![BitRange(a, b, c)]: Term<Int>) -> Term<Int> {
 }
 
 /// `int::sign_extend_bit_range`, `signExtendBitRangeInt`.
-#[k::function(total, sort = Int, syntax = "signExtendBitRange({a}, {b}, {c})")]
+#[k::function(partial, sort = Int, syntax = "signExtendBitRange({a}, {b}, {c})")]
 pub struct SignExtendBitRange {
     pub a: Term<Int>,
     pub b: Term<Int>,
@@ -278,7 +278,7 @@ fn sign_extend_bit_range(k::term![SignExtendBitRange(a, b, c)]: Term<Int>) -> Te
 }
 
 /// `int::divides`, `dividesInt`.
-#[k::function(total, sort = Bool, syntax = "divides({a}, {b})")]
+#[k::function(partial, sort = Bool, syntax = "divides({a}, {b})")]
 pub struct Divides {
     pub a: Term<Int>,
     pub b: Term<Int>,

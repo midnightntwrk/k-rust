@@ -78,22 +78,22 @@ pub fn Total(x: Term<Int>) -> Term<Int> {
 
 /// Every shape that warns, and the shapes that do not, each an item of its own.
 const WARNED: &str = r"
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Ok(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     d != 0 && n / d > 1
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Either(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     d == 0 || n / d > 1
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Ratio(n: Term<Int>, d: Term<Int>) -> Term<Int> {
     kequal::ite(d != 0, n / d, 0)
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Present(m: Term<Map>) -> Term<Bool> {
     m[1] > 0
         && m[2] > 0
@@ -115,23 +115,23 @@ pub fn OwedTotal(c: Term<Bool>, x: Term<Int>) -> Term<Bool> {
     c && Total(x) > 0
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Deciding(a: Term<Int>, c: Term<Bool>) -> Term<Bool> {
     Half(a) > 0 || c
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn LetBody(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     let q = d;
     d == 0 || n / q > 1
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Infinite(x: Term<Float>) -> Term<Bool> {
     float::is_infinite(x)
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn TwoSites(a: Term<Int>, c: Term<Bool>, e: Term<Bool>) -> Term<Int> {
     Total(kequal::ite(c, Half(a), 0)) + Total(kequal::ite(e, Half(a), 1))
 }
@@ -567,12 +567,12 @@ fn the_llvm_route_runs_no_analysis() {
 /// row, another clause of the `k::rules!` block, and a caller of a keyed function with an origin
 /// of its own.
 const KEYED: &str = r#"
-#[k::function(total, internal, skipped_operand = "the strict value is the meaning")]
+#[k::function(partial, internal, skipped_operand = "the strict value is the meaning")]
 pub fn Ok(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     d != 0 && n / d > 1
 }
 
-#[k::function(total, internal, skipped_operand = "a table row's value is strict too")]
+#[k::function(partial, internal, skipped_operand = "a table row's value is strict too")]
 pub fn Either(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
 
 k::equations! {
@@ -582,7 +582,7 @@ k::equations! {
     either_other: (n, d) => d == 0 || n / d > 1;
 }
 
-#[k::function(total, internal, skipped_operand = "a local function's value is the body's")]
+#[k::function(partial, internal, skipped_operand = "a local function's value is the body's")]
 pub fn LetBody(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     let q = d;
     d == 0 || n / q > 1
@@ -593,7 +593,7 @@ pub fn Plain(n: Term<Int>) -> Term<Bool> {
     n > 1
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Third(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
 
 #[k::equation(skipped_operand = "an equation fn's value is strict too")]
@@ -601,7 +601,7 @@ fn third(k::term![Third(n, d)]: Term<Bool>) -> Term<Bool> {
     d != 0 && n / d > 1
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Fourth(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
 
 k::equations! {
@@ -612,7 +612,7 @@ k::equations! {
     fourth_other: (n, d) => d == 0 || n / d > 1;
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Fifth(n: Term<Int>, d: Term<Int>) -> Term<Bool>;
 
 k::equations! {
@@ -623,7 +623,7 @@ k::equations! {
     fifth_other: (n, d) => d == 0 || n / d > 1;
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Caller(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     Ok(n, d) || n / d > 1
 }
@@ -801,57 +801,57 @@ fn a_key_silences_the_sentences_of_its_item_and_a_stale_key_warns() {
 /// expression written in place does; and a prelude function the sentence applies twice warns at
 /// each application.
 const ORIGINS: &str = r"
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn TwoLets(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
     ({ let q = d; d == 0 || n / q > 1 }) && ({ let r = e; e == 0 || Half(r) > 1 })
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn TwoInPlace(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
     (d == 0 || n / d > 1) && (e == 0 || Half(e) > 1)
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Mixed(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
     (e == 0 || n / e > 1) && { let q = d; d == 0 || n / q > 1 }
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn MixedInPlace(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
     (e == 0 || n / e > 1) && (d == 0 || n / d > 1)
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn LetOperand(n: Term<Int>, d: Term<Int>) -> Term<Bool> {
     Small(n) || { let q = d; n / q > 1 }
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn Infinities(x: Term<Float>, y: Term<Float>) -> Term<Bool> {
     float::is_infinite(x) == float::is_infinite(y)
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn SupLoc(n: Term<Int>, d: Term<Int>, c: Term<Bool>) -> Term<Int> {
     Total(kequal::ite(c, Half(n) / d, 0)) + Total(kequal::ite(c, n / d, 1))
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn SupLocA(n: Term<Int>, d: Term<Int>, c: Term<Bool>) -> Term<Int> {
     Total(kequal::ite(c, Half(n) / d, 0))
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn SupLocB(n: Term<Int>, d: Term<Int>, c: Term<Bool>) -> Term<Int> {
     Total(kequal::ite(c, n / d, 1))
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn SupLet(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
     ({ let q = d; d == 0 || Half(n) / q > 1 }) && ({ let r = e; e == 0 || n / r > 1 })
 }
 
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn SupInPlace(n: Term<Int>, d: Term<Int>, e: Term<Int>) -> Term<Bool> {
     (d == 0 || Half(n) / d > 1) && (e == 0 || n / e > 1)
 }
