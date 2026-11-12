@@ -483,7 +483,7 @@ advice = "none"
 
 [class.nested-anonymous-rest]
 code = "krs::syntax::invalid-list-notation"
-doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell, a readable instance update's List child (`A { al: [x, ..], ..me }`) and a `cells!` list cell's root brackets (`Cell([x, ..])`, `Cell([..])`): a group record's child (`H { hl: [x, ..], hb: 0 }`), an instance's `k` child (`T { tk: [x, ..], ..me }`), a fragment's child, inside a readable `Some([..])` (but over the subject's `Some([..])`, which keeps the present cell); not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
+doc = "a result's anonymous `..` that keeps a list's rest at a content root other than a readable record's top-level cell, an instance update's child, readable or `cells!` (`A { al: [x, ..], ..me }`, `T { tk: [x, ..], ..me }`), and a `cells!` list cell's root brackets (`Cell([x, ..])`, `Cell([..])`): a group record's child (`H { hl: [x, ..], hb: 0 }`, a group fragment's), inside a readable `Some([..])` (but over the subject's `Some([..])`, which keeps the present cell); not supported yet, the rest is named there, `rest @ ..` in the pattern and `..rest` in the result"
 advice = "none"
 
 [class.never-cools]
@@ -7513,16 +7513,6 @@ class = "nested-anonymous-rest"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/cells/result/c10-tjob/[k::fragment![crate::T \{ tk: [x\, ..]\, ..me \}]\, ..]'
-class = "nested-anonymous-rest"
-at = "spelling"
-
-[[refuse]]
-match = 'sweep/cells/result/c19-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
-class = "nested-anonymous-rest"
-at = "spelling"
-
-[[refuse]]
 match = 'sweep/{claim,readable}/result/{c01-hcell,f09-hcell}/H \{ hl: [x\, ..]\, hb: 0 \}'
 class = "nested-anonymous-rest"
 at = "spelling"
@@ -13736,6 +13726,21 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."sweep/cells/result/c10-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tqueue>
+<tjob>
+<tk> V1:KItem => V0:Int ... </tk>
+...
+</tjob>
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
 [accept."sweep/cells/result/c11-tjob/[k::fragment![crate::T { tn: 0, ..me }], ..]"]
 k = """
 rule [case-TAG]:
@@ -13818,6 +13823,18 @@ rule [case-TAG]:
 <aid> V1:Int </aid>
 <al> _ => ListItem(V0:Int) </al>
 ...
+</acc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/c19-acc/{ k::fragment![crate::A { al: [x, ..], ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<acc>
+<aid> V1:Int </aid>
+<al> ListItem(V2:KItem) V3:List => ListItem(V0:Int) V3:List </al>
 </acc>
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
