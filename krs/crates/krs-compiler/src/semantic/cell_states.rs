@@ -1017,9 +1017,10 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             match value {
                 serde_json::Value::Object(object) => {
                     for (field, value) in object {
-                        if let (true, serde_json::Value::String(name)) =
-                            (matches!(field.as_str(), "name" | "label"), value)
-                        {
+                        if let (true, serde_json::Value::String(name)) = (
+                            matches!(field.as_str(), "name" | "label" | "binding"),
+                            value,
+                        ) {
                             taken.insert(name.clone());
                         }
                         names(value, taken);
@@ -1044,15 +1045,15 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
         }
     }
 
-    /// A name no binder of the sentence has, from `hint` (its raw identifiers' `r#` dropped).
+    /// The name of the base of the place `hint` names (the path of fields from its cell, its
+    /// instance's label or its parent's base, joined by `.`), as the sentence's one allocator of
+    /// generated binders names it ([`super::record_updates::hidden_binder_name`]): reserved, so no
+    /// authored binder has it, and none of the sentence's other names either.
     fn fresh(&mut self, hint: &str) -> String {
-        let hint = hint.replace("r#", "");
-        let mut name = hint.clone();
-        let mut ordinal = 2_usize;
-        while self.taken.contains(&name) {
-            name = format!("{hint}_{ordinal}");
-            ordinal += 1;
-        }
+        let (parent, field) = hint.rsplit_once('.').unwrap_or(("", hint));
+        let name = super::record_updates::hidden_binder_name(parent, field, |name| {
+            self.taken.contains(name)
+        });
         self.taken.insert(name.clone());
         name
     }
@@ -1131,7 +1132,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             }
             let hint = label.as_ref().map_or_else(
                 || field.field.clone(),
-                |label| format!("{label}_{}", field.field),
+                |label| format!("{label}.{}", field.field),
             );
             // A child the subject instance leaves out, where it is open, is matched by `_`, which
             // its base then names.
@@ -1199,7 +1200,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
                         .find(|child| child.field == field.field)
                         .map(|child| &mut child.value)
                 });
-                let hint = format!("{hint}_{}", field.field);
+                let hint = format!("{hint}.{}", field.field);
                 self.group_state(child, &mut field.value, false, &hint)?;
             }
             return Ok(());
@@ -1292,7 +1293,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
                         .map(|matched| &mut *matched.value),
                     _ => None,
                 };
-                let hint = format!("{hint}_{}", field.field.as_str());
+                let hint = format!("{hint}.{}", field.field.as_str());
                 self.place(matched, &mut field.value, false, &hint)?;
             }
             return Ok(());
@@ -1346,7 +1347,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
                 }
                 None => continue,
             };
-            let hint = format!("{hint}_{}", field.field.as_str());
+            let hint = format!("{hint}.{}", field.field.as_str());
             self.place(
                 Some(&mut matched[position].value),
                 &mut field.value,

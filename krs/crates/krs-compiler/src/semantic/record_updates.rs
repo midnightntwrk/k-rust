@@ -389,7 +389,10 @@ fn alias_fills(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     declarations: &DescriptorIndex<'_>,
 ) -> Result<BTreeMap<String, Alias>, DescriptorLoweringError> {
-    let mut names = HiddenNames::default();
+    // A base's own name, a generated one included, is no hidden binder's.
+    let mut names = HiddenNames {
+        taken: bases.keys().cloned().collect(),
+    };
     let mut aliases = BTreeMap::new();
     for (name, base) in bases {
         let children = record_children(&base.record, catalog, declarations)?;
@@ -515,11 +518,18 @@ impl HiddenNames {
 /// fields below one, `o.frame`, or a collection instance's label), that `taken` says no binder of
 /// the sentence has: the alias and the field path joined, `update_o_frame_pc`, with an ordinal
 /// where that name is taken. The one naming of every binder a sentence's long form adds, a record
-/// update's and a moved instance's alike, so two of them, or one and an authored binder, never
-/// share a name.
+/// update's, a moved instance's and an implicit base's alike
+/// ([`super::cell_states::with_implicit_bases`], whose base of a place is named by the place's path
+/// and whose own hidden binders follow that path), so two of them, or one and an authored binder,
+/// never share a name.
 pub(super) fn hidden_binder_name(alias: &str, field: &str, taken: impl Fn(&str) -> bool) -> String {
+    // A name this allocator gave is already the path it reserves: the field follows that path.
+    let alias = alias
+        .strip_prefix(krs_ir::ir::UPDATE_BINDER_PREFIX)
+        .unwrap_or(alias);
     let path = alias
         .split('.')
+        .filter(|segment| !segment.is_empty())
         .chain(std::iter::once(field))
         .map(|segment| segment.strip_prefix("r#").unwrap_or(segment))
         .collect::<Vec<_>>()
