@@ -2214,6 +2214,17 @@ impl BackendDefinition {
             .saturating_add(self.deepest)
     }
 
+    /// [`Self::operation_depth`] of an operation over the application to `state` of a symbol
+    /// without sort arguments, or a bound above it: one level above the state's height
+    /// ([`crate::externalize::HeldState::height`]), above the deepest pattern of the
+    /// definition. The state's pattern is not built.
+    pub fn operation_depth_under(&self, state: &crate::externalize::HeldState) -> usize {
+        state
+            .height()
+            .saturating_add(1)
+            .saturating_add(self.deepest)
+    }
+
     /// Run `work`, an operation of this definition over `patterns`, with everything it does to
     /// them and to the internal terms built from them, on a stack that holds the recursion
     /// over [`Self::operation_depth`] levels (`nesting::with_stack`). The work's result must

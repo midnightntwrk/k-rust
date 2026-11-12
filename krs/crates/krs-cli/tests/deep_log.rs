@@ -106,49 +106,89 @@ fn entries(default: usize) -> usize {
         .map_or(default, |entries| entries.parse().unwrap())
 }
 
+/// The fixture with an exit cell, and a rule that ends the run the fixture leaves stuck at
+/// `pc` 3: it empties the main cell and sets the exit cell to `pc + 4`, so the run completes
+/// after four steps with the exit code 7 and the three cycles logged.
+fn fixture_with_exit() -> String {
+    let mut fixture = FIXTURE.to_owned();
+    for (from, to) in [
+        (
+            "    pub bus: List<BusCycle>,\n}",
+            "    pub bus: List<BusCycle>,\n    #[k::cell(exit)]\n    pub status: Int,\n}",
+        ),
+        (
+            "            bus,\n        }",
+            "            bus,\n            status: 0,\n        }",
+        ),
+        (
+            "    };\n}\n",
+            "    };\n\n    #[k::requires(pc >= 3)]\n    halt: {\n        k: [Step::Tick, ..],\n        pc,\n        status: _,\n    } => {\n        k: [..],\n        status: pc + 4,\n    };\n}\n",
+        ),
+    ] {
+        assert_eq!(fixture.matches(from).count(), 1, "{from}");
+        fixture = fixture.replace(from, to);
+    }
+    fixture
+}
+
 /// The fixture's Definition IR and compiled stage, built once per test process.
 fn compiled() -> &'static (DefinitionIr, CompiledStage) {
     static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
+    COMPILED.get_or_init(|| compile(FIXTURE, PACKAGE, "ORG-KRS-EXEC-DEEP-LOG"))
+}
+
+/// [`compiled`] of the fixture with an exit cell ([`fixture_with_exit`]).
+fn compiled_with_exit() -> &'static (DefinitionIr, CompiledStage) {
+    static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
     COMPILED.get_or_init(|| {
-        let target = shared_fixture_target();
-        let temporary = temp_dir();
-        let project = temporary.path().join("language");
-        fs::create_dir_all(project.join("src")).unwrap();
-        fs::write(project.join("src/lib.rs"), FIXTURE).unwrap();
-        let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../krs")
-            .canonicalize()
-            .unwrap();
-        let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
-        fs::write(
-            project.join("Cargo.toml"),
-            format!(
-                "[package]\nname = \"{PACKAGE}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-EXEC-DEEP-LOG\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
-            ),
+        compile(
+            &fixture_with_exit(),
+            "krs-exec-deep-log-exit-fixture",
+            "ORG-KRS-EXEC-DEEP-LOG-EXIT",
         )
-        .unwrap();
-        let emitted = temporary.path().join("emitted");
-        let mut process = krs_command!();
-        fixture_build_env(&mut process, target.path());
-        let output = process
-            .current_dir(&project)
-            .args(["emit-k", "--ir", "--manifest-path"])
-            .arg(project.join("Cargo.toml"))
-            .args(["--package", PACKAGE, "--definition", "main", "--output"])
-            .arg(&emitted)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let definition: DefinitionIr =
-            serde_json::from_slice(&fs::read(emitted.join("definition-ir.json")).unwrap())
-                .unwrap();
-        let stage = CompiledStage::compile(&definition, &mut Timings::disabled()).unwrap();
-        (definition, stage)
     })
+}
+
+/// The Definition IR and compiled stage of `fixture`, built as the package `package` in the K
+/// namespace `namespace`.
+fn compile(fixture: &str, package: &str, namespace: &str) -> (DefinitionIr, CompiledStage) {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let project = temporary.path().join("language");
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("src/lib.rs"), fixture).unwrap();
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"{package}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
+        ),
+    )
+    .unwrap();
+    let emitted = temporary.path().join("emitted");
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
+    let output = process
+        .current_dir(&project)
+        .args(["emit-k", "--ir", "--manifest-path"])
+        .arg(project.join("Cargo.toml"))
+        .args(["--package", package, "--definition", "main", "--output"])
+        .arg(&emitted)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let definition: DefinitionIr =
+        serde_json::from_slice(&fs::read(emitted.join("definition-ir.json")).unwrap()).unwrap();
+    let stage = CompiledStage::compile(&definition, &mut Timings::disabled()).unwrap();
+    (definition, stage)
 }
 
 /// The `index`th entry of the given log: reads, writes and internal cycles in turn.
@@ -177,6 +217,15 @@ fn semantics_of((definition, stage): &(DefinitionIr, CompiledStage)) -> Semantic
 /// The fixture's semantics, on a thread of 8 MiB, a main thread's default on Linux, given to
 /// `test` with a log of `entries` entries.
 fn on_an_8_mib_thread(
+    entries: usize,
+    test: impl FnOnce(&mut Semantics, Value, usize) + Send + 'static,
+) {
+    on_an_8_mib_thread_of(compiled, entries, test);
+}
+
+/// [`on_an_8_mib_thread`] with the semantics of the fixture `compiled` builds.
+fn on_an_8_mib_thread_of(
+    compiled: fn() -> &'static (DefinitionIr, CompiledStage),
     entries: usize,
     test: impl FnOnce(&mut Semantics, Value, usize) + Send + 'static,
 ) {
@@ -375,4 +424,71 @@ fn a_run_asked_for_no_pattern_of_its_end_builds_none_until_it_is_read() {
         assert!(report.state.holds_kore());
         assert_read_back(semantics, &report.state, entries);
     });
+}
+
+/// A run that completes with an exit cell, asked not to build its end's pattern
+/// ([`EndPattern::WhenRead`]), reads its exit code from the end as the backend holds it: the
+/// backend applies the exit cell's function to its own state, so the 200,000-entry log is in no
+/// pattern, built or sent. The exit code and the rest of the report are those of a run that
+/// builds the pattern and asks the function of it.
+#[test]
+fn a_completed_run_with_an_exit_cell_builds_no_pattern_of_its_end_for_its_exit_code() {
+    on_an_8_mib_thread_of(
+        compiled_with_exit,
+        entries(200_000),
+        |semantics, log, entries| {
+            let state = configure(semantics, log);
+            let report = semantics
+                .run(
+                    &state,
+                    RunOptions {
+                        end_kast: EndKast::WhenRead,
+                        end_pattern: EndPattern::WhenRead,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(report.halt, Halt::Stuck);
+            assert_eq!(report.steps, 4);
+            assert!(report.valueless.is_empty());
+            assert_eq!(report.exit_code, Some(7));
+            assert!(
+                semantics
+                    .unparse_computation_head(&report.state)
+                    .expect("the definition has a main cell")
+                    .is_none(),
+                "the run completed: its main cell is empty"
+            );
+            assert!(
+                !report.state.holds_kore() && !report.state.holds_kast(),
+                "the run's status, its exit code and the status line's head read the backend's state"
+            );
+            let built = semantics
+                .run(
+                    &state,
+                    RunOptions {
+                        end_kast: EndKast::WhenRead,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap();
+            drop(state);
+            assert!(built.state.holds_kore());
+            assert_eq!(built.halt, report.halt);
+            assert_eq!(built.steps, report.steps);
+            assert_eq!(built.stdout, report.stdout);
+            assert_eq!(built.exit_code, report.exit_code);
+            // Compared, not printed: a pattern of the log's length is no message.
+            let same = report.state.kore() == built.state.kore();
+            assert!(same, "the pattern read is the built run's");
+            let View::State(view) = semantics.view(&report.state).unwrap() else {
+                panic!("the run's end is defined");
+            };
+            assert_eq!(view.value("status").unwrap(), 7.into());
+            assert_eq!(
+                view.value("bus").unwrap().as_list().unwrap().len(),
+                entries + 3
+            );
+        },
+    );
 }

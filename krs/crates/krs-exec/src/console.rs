@@ -271,6 +271,16 @@ fn domain_value<'a>(pattern: &'a Pattern, sort_name: &str) -> Option<&'a [u8]> {
     }
 }
 
+/// The function k-rust generates for an exit cell: the cell's value in a configuration.
+pub(crate) const EXIT_CODE: &str = "LblgetExitCode";
+
+/// Whether [`exit_code_request`] of the pattern of `state` applies [`EXIT_CODE`] to that whole
+/// pattern: the pattern is an application, which the root node says without building it. A
+/// state held by the backend has no constraints, so its pattern is its configuration.
+pub(crate) fn exit_code_of_whole(state: &HeldState) -> bool {
+    matches!(state.source().node(), PatternNode::Application { .. })
+}
+
 /// `getExitCode(<generatedTop> .. </generatedTop>)`, the function k-rust generates for an exit
 /// cell, applied to the configuration term of `state`.
 pub(crate) fn exit_code_request(state: &Pattern) -> Option<Pattern> {
@@ -283,7 +293,7 @@ pub(crate) fn exit_code_request(state: &Pattern) -> Option<Pattern> {
     };
     Some(Pattern::Application {
         symbol: Symbol {
-            name: "LblgetExitCode".to_owned(),
+            name: EXIT_CODE.to_owned(),
             sort_parameters: Vec::new(),
         },
         arguments: vec![configuration.clone()],

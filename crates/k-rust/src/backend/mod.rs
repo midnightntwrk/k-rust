@@ -4419,6 +4419,21 @@ impl Backend {
         E: From<BackendError> + From<StopCause>,
     {
         let depth = definition.operation_depth(patterns);
+        self.with_solver_at(definition, depth, operation)
+    }
+
+    /// [`Self::with_solver_on`] for an operation whose recursive passes descend `depth` levels,
+    /// as `BackendDefinition::operation_depth` counts them for a request's patterns: the stack
+    /// is sized for that depth, whatever the operation reads.
+    pub(crate) fn with_solver_at<T, E>(
+        &mut self,
+        definition: Arc<BackendDefinition>,
+        depth: usize,
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError> + From<StopCause>,
+    {
         let budget = self.simplification_stack_budget;
         k_rust_backend::nesting::with_stack(depth, || {
             k_rust_backend::nesting::with_simplification_stack_budget(budget, || {

@@ -2872,6 +2872,20 @@ It answers what its pattern holds by reading the pattern's nodes one at a time (
 
 The test `externalize::tests::a_held_state_answers_what_its_built_pattern_holds` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs) compares both facts with a walk of the built pattern for lists of no, one and three items and an injected value, and checks that a state with a constraint is not held.
 
+A function of a held state is asked of the backend with the state as it holds it: `Backend::apply_to_held(module, symbol, state, admission)` gives the result `Backend::simplify_kore` gives for the pattern `symbol{}(state.kore())`, where it admits that pattern.
+`symbol` must be declared in the module as a function without sort variables, of one argument whose sort is the state's; any other symbol is refused before anything is built.
+For a state that is a value (`HeldState::is_value`: domain values, applications of free constructors, injections and collections of them, so no variable, no conjunction and no function application) the state's pattern is not built: the application is built over the state's term, which it shares, simplified as a proof route with `simplify_kore`'s options, and only the result is written as a pattern.
+The two results are the same because the two simplify the same term.
+The pattern of a term reads back as an equal term, and the application is built from it by the same call.
+A term equal to a value has the value's attributes at every node: the one attribute not a function of a node's kind and its subterms' attributes is the simplifier's mark on an application no equation matched, which no node of a value carries.
+The operation's stack is sized for the same depth: the state's height is measured on its term (`HeldState::height`, one pass that holds the path being read) and is the height of its pattern with its builtin collections associated, so a collection's length adds no level, as it adds none to a request's.
+A state that is not a value is built and simplified by `simplify_kore` itself.
+Its term may hold function applications the execution marked as ones no equation matches, and an execution decides matches a proof route leaves undecided (a pattern over `LIST.update`, an equation holding a literal whose element the definition leaves open), so a simplification that read those marks could differ from the simplification of the pattern, which sets its own.
+The one difference from `simplify_kore` is a refusal: a value is the backend's own term of a state it reached, so its pattern is not admitted again, and `apply_to_held` answers where an admission of that pattern would refuse (a `Verified` admission checks only the application the caller wrote).
+
+The tests `a_function_of_a_held_state_is_the_function_of_its_built_pattern`, `a_function_of_a_state_with_a_long_log_runs_at_the_depth_of_a_short_one` and `a_held_state_is_refused_a_symbol_that_is_no_function_of_it` in [backend/simplification.rs](../crates/k-rust/src/backend/simplification.rs) compare the two results, under both admissions, for an exit code, Boolean functions of the whole configuration, a function with no value and functions left unevaluated, at states a run reached and states as given, a state that is not a value among them; for the values they also compare the term simplified with the one the built application internalizes to, attributes included, and the two depths, which a log of 200,000 entries leaves that of a log of three.
+`a_term_is_measured_at_least_as_high_as_its_associated_pattern` in [nesting.rs](../crates/k-rust-backend/src/nesting.rs) compares the measured height with the built pattern's over generated terms of every kind.
+
 ### Work budget
 
 An execute request may bound the work of its run: `maxWork` (`ExecuteRequest::max_work`, `ExecutionOptions::max_work` in the backend; absent by default, no bound) is the most states the run may visit across all its paths.

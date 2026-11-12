@@ -39,6 +39,7 @@ use k_rust_kore::kore::ast as kore;
 
 use crate::definition::DefinitionError;
 use crate::stop::STACK_RED_ZONE;
+use crate::term::{Sort, Term, TermKind, Variable};
 
 /// Upper bound on the native stack that verification, alias expansion, internalization, the
 /// passes over the internal terms, and the loading of a definition take per level of the
@@ -561,6 +562,209 @@ fn sort_height_iteratively(sort: &kore::Sort) -> usize {
     deepest
 }
 
+/// [`sort_height`] of the backend's sort `sort`, by an explicit work list.
+fn internal_sort_height(sort: Sort) -> usize {
+    if sort.arguments().is_empty() {
+        return 1;
+    }
+    let mut deepest = 0;
+    let mut pending = vec![(sort, 1_usize)];
+    // Each pop pushes only proper subsorts of the popped one, so the loop terminates.
+    // Invariant: `deepest` is the greatest depth found among the sorts popped so far.
+    while let Some((sort, depth)) = pending.pop() {
+        deepest = deepest.max(depth);
+        pending.extend(
+            sort.arguments()
+                .iter()
+                .map(|argument| (*argument, depth + 1)),
+        );
+    }
+    deepest
+}
+
+/// An upper bound on the [`height`], in a definition whose builtin collections are those of
+/// `term`, of the pattern of `term` ([`crate::externalize::term`]) with its builtin
+/// collections associated (`BackendDefinition::associate_collections`), measured on the term:
+/// the pattern is not built. It is that height exactly where no collection of `term` has a
+/// rest.
+///
+/// The levels are those [`height`] counts for the node each term node is written as:
+///
+/// - an application, an injection (an application of `inj` to its two sorts), a domain value
+///   and a variable are one level above the deepest of their subterms and sorts;
+/// - a conjunction is `\and` of two terms, two levels;
+/// - a collection without a rest is its components, each item one `element` application above
+///   the item: no level of its own for at most one component (the `unit`, one level, or the
+///   component itself), and one level for more (one `concat` application of two, or the
+///   associative application of more, whose arguments are all elements);
+/// - a collection with a rest is counted as `1 + 3 * c` levels above each item's element and
+///   each part of the rest, where `c` is the number of parts the rest's raw `concat`
+///   applications join: the associative application the components fold into is one level and
+///   one more per argument that is no element, and each spine among the rest's own
+///   applications is at most its nodes and two more, at most three per part.
+///
+/// So a collection's length adds no level, and the stack [`with_stack`] provides for the result
+/// is the one it provides for the associated pattern, or more where a collection has a rest.
+///
+/// The term is read once, each node as often as the pattern writes it, with explicit work lists
+/// that hold the path being read: the subterms of the nodes on it still to read, and for a
+/// collection its position among its items, not the items.
+pub(crate) fn term_height(term: &Term) -> usize {
+    enum Pending<'t> {
+        /// A term, and the levels above it.
+        Term(&'t Term, usize),
+        /// The items of a collection still to read, and the levels above each.
+        Items(Box<dyn Iterator<Item = &'t Term> + 't>, usize),
+    }
+
+    /// The parts that the raw applications of `concat` at the root of `rest` join.
+    fn parts<'t>(rest: &'t Term, concat: &str) -> Vec<&'t Term> {
+        let mut parts = Vec::new();
+        let mut pending = vec![rest];
+        // Each pop pushes only proper subterms of the popped term, so the loop terminates.
+        while let Some(term) = pending.pop() {
+            match term.kind() {
+                TermKind::Application {
+                    symbol, arguments, ..
+                } if *symbol.name == *concat && arguments.len() == 2 => {
+                    pending.extend(arguments.iter().rev());
+                }
+                _ => parts.push(term),
+            }
+        }
+        parts
+    }
+
+    /// A collection of `count` items `items` and the rest `rest`, `above` levels below the
+    /// root: its own levels are counted, and its items, under their element applications, and
+    /// the parts of its rest are left to read.
+    fn collection<'t>(
+        pending: &mut Vec<Pending<'t>>,
+        deepest: &mut usize,
+        above: usize,
+        concat: &str,
+        count: usize,
+        items: Box<dyn Iterator<Item = &'t Term> + 't>,
+        rest: Option<&'t Term>,
+    ) {
+        let rest = rest.map_or_else(Vec::new, |rest| parts(rest, concat));
+        let levels = if rest.is_empty() {
+            usize::from(count > 1)
+        } else {
+            rest.len().saturating_mul(3).saturating_add(1)
+        };
+        let below = above.saturating_add(levels);
+        // The `unit` of an empty collection is one level.
+        *deepest = (*deepest).max(below.max(above.saturating_add(1)));
+        pending.extend(rest.into_iter().map(|part| Pending::Term(part, below)));
+        // Each item is below its `element` application.
+        pending.push(Pending::Items(items, below.saturating_add(1)));
+    }
+
+    let mut deepest = 0_usize;
+    let mut pending = vec![Pending::Term(term, 0)];
+    // Each pop pushes only proper subterms of the popped term, or the items after the one
+    // read, so the loop terminates.
+    // Invariant: `deepest` is the greatest number of levels from the root to a node read so
+    // far, the node and the sorts it carries included.
+    while let Some(next) = pending.pop() {
+        let (term, above) = match next {
+            Pending::Term(term, above) => (term, above),
+            Pending::Items(mut items, above) => {
+                let Some(item) = items.next() else {
+                    continue;
+                };
+                pending.push(Pending::Items(items, above));
+                (item, above)
+            }
+        };
+        let own = above.saturating_add(1);
+        match term.kind() {
+            TermKind::And(left, right) => {
+                let below = own.saturating_add(1);
+                deepest = deepest
+                    .max(below.saturating_add(internal_sort_height(term.first_conjunct().sort())));
+                pending.push(Pending::Term(right, below));
+                pending.push(Pending::Term(left, below));
+            }
+            TermKind::Application {
+                sort_arguments,
+                arguments,
+                ..
+            } => {
+                let sorts = sort_arguments
+                    .iter()
+                    .map(|sort| internal_sort_height(*sort))
+                    .max()
+                    .unwrap_or(0);
+                deepest = deepest.max(own.saturating_add(sorts));
+                pending.extend(
+                    arguments
+                        .iter()
+                        .rev()
+                        .map(|argument| Pending::Term(argument, own)),
+                );
+            }
+            TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
+                deepest = deepest.max(own.saturating_add(internal_sort_height(*sort)));
+            }
+            TermKind::Injection {
+                source,
+                target,
+                term,
+            } => {
+                let sorts = internal_sort_height(*source).max(internal_sort_height(*target));
+                deepest = deepest.max(own.saturating_add(sorts));
+                pending.push(Pending::Term(term, own));
+            }
+            TermKind::Map {
+                definition,
+                entries,
+                rest,
+            } => collection(
+                &mut pending,
+                &mut deepest,
+                above,
+                &definition.symbols.concat,
+                entries.len(),
+                Box::new(entries.iter().flat_map(|(key, value)| [key, value])),
+                rest.as_ref(),
+            ),
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            } => collection(
+                &mut pending,
+                &mut deepest,
+                above,
+                &definition.symbols.concat,
+                heads.len() + rest.as_ref().map_or(0, |(_, tails)| tails.len()),
+                Box::new(
+                    heads
+                        .iter()
+                        .chain(rest.iter().flat_map(|(_, tails)| tails.iter())),
+                ),
+                rest.as_ref().map(|(middle, _)| middle),
+            ),
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            } => collection(
+                &mut pending,
+                &mut deepest,
+                above,
+                &definition.symbols.concat,
+                elements.len(),
+                Box::new(elements.iter()),
+                rest.as_ref(),
+            ),
+        }
+    }
+    deepest
+}
+
 /// The unfolded height ([`Unfolding::alias_height`]) of each alias of `aliases`, given as its
 /// name and body, with associative applications counted by `unfolding` and every other alias
 /// unknown to it.
@@ -998,6 +1202,136 @@ mod tests {
         assert_eq!(unfolded("same{}(a{}())"), 3);
         assert_eq!(unfolded("twice{}(wrap{}(a{}()))"), 6);
         assert_eq!(unfolded("twice{}(twice{}(a{}()))"), 9);
+    }
+
+    /// The collections of `tests::generators`: the symbols of each are a prefix before
+    /// `unit`, `element` and `concat`, and an associative application of a `concat` is counted
+    /// as a definition counts one of a collection's (`BackendDefinition`'s `Unfolding`).
+    struct GeneratedCollections;
+
+    impl GeneratedCollections {
+        fn concat(symbol: &kore::Symbol) -> Option<&str> {
+            symbol.name.strip_suffix("concat")
+        }
+    }
+
+    impl Unfolding for GeneratedCollections {
+        fn alias_height(&self, _name: &str) -> Option<usize> {
+            None
+        }
+
+        fn associative_levels(&self, symbol: &kore::Symbol, arguments: &[kore::Pattern]) -> usize {
+            let Some(prefix) = Self::concat(symbol) else {
+                return arguments.len();
+            };
+            let opaque = arguments
+                .iter()
+                .filter(|argument| {
+                    !matches!(
+                        argument,
+                        kore::Pattern::Application { symbol, .. }
+                            if symbol.name.strip_prefix(prefix).is_some_and(|role| {
+                                role == "element" || role == "unit"
+                            })
+                    )
+                })
+                .count();
+            1 + opaque
+        }
+    }
+
+    /// The height of the pattern of `term` with its collections associated, the pattern built.
+    fn associated_height(term: &Term) -> usize {
+        let mut pattern = crate::externalize::term(term);
+        k_rust_kore::kore::associate::associate(&mut pattern, |symbol| {
+            GeneratedCollections::concat(symbol).is_some()
+        });
+        height(&pattern, &GeneratedCollections)
+    }
+
+    /// The height measured on a term is at least the height of its pattern with its collections
+    /// associated, over terms of every kind, and is that height for a term none of whose
+    /// collections has a rest; the cases hold both, and terms measured above their pattern.
+    #[test]
+    fn a_term_is_measured_at_least_as_high_as_its_associated_pattern() {
+        use proptest::{
+            strategy::{Strategy, ValueTree},
+            test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
+        };
+
+        fn has_rest(term: &Term) -> bool {
+            let mut pending = vec![term];
+            while let Some(term) = pending.pop() {
+                if matches!(
+                    term.kind(),
+                    TermKind::Map { rest: Some(_), .. }
+                        | TermKind::Set { rest: Some(_), .. }
+                        | TermKind::List { rest: Some(_), .. }
+                ) {
+                    return true;
+                }
+                pending.extend(crate::term::immediate_children(term.kind()));
+            }
+            false
+        }
+
+        let strategy = crate::tests::generators::term();
+        let mut runner = TestRunner::new_with_rng(
+            Config::default(),
+            TestRng::deterministic_rng(RngAlgorithm::ChaCha),
+        );
+        let (mut exact, mut above, mut collections) = (0_usize, 0_usize, 0_usize);
+        for case in 0..4096 {
+            let term = strategy.new_tree(&mut runner).expect("a case").current();
+            let measured = term_height(&term);
+            let built = associated_height(&term);
+            assert!(
+                measured >= built,
+                "case {case}: measured {measured} below {built} on {term:?}"
+            );
+            if has_rest(&term) {
+                above += usize::from(measured > built);
+            } else {
+                assert_eq!(measured, built, "case {case}: {term:?}");
+                exact += 1;
+                collections += usize::from(!term.attributes().may_be_rigid());
+            }
+        }
+        assert!(
+            exact > 1000 && above > 100 && collections > 100,
+            "{exact} {above} {collections}"
+        );
+    }
+
+    /// A list's length adds no level to its measured height, and the measurement of a list of
+    /// 200,000 items holds its position among them, not the items.
+    #[test]
+    fn a_collection_is_measured_as_high_whatever_its_length() {
+        let definition = std::sync::Arc::new(crate::term::ListDefinition {
+            symbols: crate::term::CollectionSymbols {
+                unit: "Listunit".into(),
+                element: "Listelement".into(),
+                concat: "Listconcat".into(),
+            },
+            element_sort: Sort::simple("SortKItem"),
+            list_sort: "SortList".into(),
+        });
+        let item = Term::injection(
+            Sort::simple("SortInt"),
+            Sort::simple("SortKItem"),
+            Term::int(7),
+        );
+        let list = |length: usize| Term::list(definition.clone(), vec![item.clone(); length], None);
+        // The unit; one element application above the injection above the value and its sort;
+        // and one `concat` or associative application above the elements.
+        assert_eq!(term_height(&list(0)), 1);
+        assert_eq!(term_height(&list(1)), 4);
+        for length in [2, 3, 200_000] {
+            assert_eq!(term_height(&list(length)), 5, "{length}");
+        }
+        for length in [0, 1, 2, 3, 1000] {
+            assert_eq!(term_height(&list(length)), associated_height(&list(length)));
+        }
     }
 
     /// The recursion that measures the top levels hands each subpattern and subsort below them

@@ -3562,7 +3562,24 @@ impl Semantics {
     }
 
     /// The exit cell's final value: `getExitCode` of the final configuration, as krun computes the status.
+    ///
+    /// An end the backend holds, whose pattern is its configuration, is given to the backend as
+    /// it holds it (`Backend::apply_to_held`), which simplifies the application the request
+    /// below would hold and gives the result its simplification gives, and builds no pattern of
+    /// an end that is a value; so the status is the same, and an end built for no other reading
+    /// stays unbuilt.
     fn exit_code(&mut self, state: &Term) -> Result<Option<i64>, ExecError> {
+        if let Some(held) = state.held()
+            && console::exit_code_of_whole(held)
+        {
+            let simplified = self.backend.apply_to_held(
+                None,
+                console::EXIT_CODE,
+                held,
+                Admission::Unverified,
+            )?;
+            return Ok(console::exit_value(&simplified));
+        }
         let Some(request) = console::exit_code_request(state.kore()) else {
             return Ok(None);
         };

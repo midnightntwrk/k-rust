@@ -135,13 +135,29 @@ fn text(bytes: &[u8]) -> String {
 /// which reads them from the end's pattern.
 #[test]
 fn a_run_that_builds_no_pattern_of_its_end_says_what_one_that_builds_it_says() {
-    let cases: [(&str, &str, &[&str], &str, i32); 9] = [
+    let cases: [(&str, &str, &[&str], &str, i32); 11] = [
         ("complete", "say 7", &[], "krs run: stuck after ", 0),
         (
             "exit",
             "quit 3",
             &[],
             "krs run: stuck after 1 step; <k> is empty\n",
+            3,
+        ),
+        // The exit cell's value where the process status keeps only its low byte.
+        (
+            "exit-wide",
+            "quit 259",
+            &[],
+            "krs run: stuck after 1 step; <k> is empty\n",
+            3,
+        ),
+        // The exit cell's value at a stop after the rule that sets it.
+        (
+            "exit-stopped",
+            "quit 3",
+            &["--stop-after", "quit"],
+            "krs run: stopped after 1 step",
             3,
         ),
         (

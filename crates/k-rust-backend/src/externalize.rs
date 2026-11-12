@@ -1045,6 +1045,52 @@ impl HeldState {
         self.any_node(|node| matches!(node, PatternNode::DomainValue { sort, .. } if select(sort)))
     }
 
+    /// The sort of the state's term, which is the sort of its pattern.
+    #[must_use]
+    pub fn sort(&self) -> Sort {
+        self.0.term.sort()
+    }
+
+    /// Whether the state is a value: its term is built of domain values, applications of free
+    /// constructors, injections, and collections of them without a repeated key or element,
+    /// and of nothing else (`TermAttributes::constructor_like`); so no variable, no
+    /// conjunction, and no application of a function.
+    ///
+    /// Every attribute of such a term's nodes is a function of the node's kind and of its
+    /// subterms' attributes. The one attribute the backend sets otherwise is the simplifier's
+    /// mark on an application that no equation matched (`Term::with_evaluated_cache`), and no
+    /// node of a value carries it: each is evaluated by its kind, and the mark is set only on
+    /// a node that is not. So a term equal to a value, however it was built, has the value's
+    /// attributes at every node, and the term internalized from [`Self::kore`] is such a term
+    /// ([`term`], whose pattern reads back as an equal term): a pass that reads kinds and
+    /// attributes cannot tell the held term from it.
+    #[must_use]
+    pub fn is_value(&self) -> bool {
+        self.0.term.attributes().constructor_like
+    }
+
+    /// The state under an application of `symbol`, which takes no sort argument and one
+    /// argument of the state's sort: the pattern, without constraints, whose term is the one
+    /// internalization builds for that application once it has internalized its argument as
+    /// the state's term (`Term::application`). The state's term is shared, not copied.
+    #[must_use]
+    pub fn under(&self, symbol: Arc<crate::term::Symbol>) -> Pattern {
+        Pattern {
+            term: Term::application(symbol, Vec::new(), vec![self.0.term.clone()]),
+            constraints: Vec::new(),
+        }
+    }
+
+    /// An upper bound on the height, as the backend sizes an operation's stack by it
+    /// (`BackendDefinition::operation_depth`), of the state's pattern with its builtin
+    /// collections associated, and that height exactly for a value ([`Self::is_value`]):
+    /// measured on the term (`nesting::term_height`), in one pass that holds the path being
+    /// read. A collection's length adds no level.
+    #[must_use]
+    pub fn height(&self) -> usize {
+        crate::nesting::term_height(&self.0.term)
+    }
+
     /// Whether `holds` is true of a node of the state's pattern; the nodes are read in the
     /// pattern's pre-order, up to the first it is true of.
     fn any_node(&self, mut holds: impl FnMut(&PatternNode<'_, External<'_>>) -> bool) -> bool {
