@@ -1201,15 +1201,16 @@ fn parse_machine_map_pattern(
     Ok((entries, TokenRange::for_tokens(&dots)?))
 }
 
-/// Refuses a named rest `rest @ ..` where a machine-rule map read's next item stands. No readable
-/// result writes a map over a rest, and no readable condition reads one, so the named rest could
-/// only be dropped, as a record child's map read's named rest is (`check_moved_remainders`).
+/// Refuses a named rest `rest @ ..` where a machine-rule map read's next item stands. A machine
+/// rule's map read is only read, its cell kept whole; no readable result writes a map over the
+/// rest and no readable condition reads it, so the name would bind nothing a readable rule can
+/// use.
 fn reject_named_map_rest(map: ParseStream<'_>) -> Result<(), ParseError> {
     let fork = map.fork();
     if fork.parse::<Ident>().is_ok() && fork.parse::<Token![@]>().is_ok() && fork.peek(Token![..]) {
         return Err(map
             .error(
-                "a readable map read keeps the rest of the map with `..` and names no rest: no readable result writes a map over a named rest and no readable condition reads one, so `rest @ ..` could only drop it; a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule's subject names the rest (`map![k -> v, rest @ ..]`)",
+                "a readable map read names no rest: the cell it reads keeps its content, rest and all, and `rest @ ..` would bind a map no readable result can write and no readable condition can read, so write `..`; a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule's subject names the rest (`map![k -> v, rest @ ..]`)",
             )
             .into());
     }
