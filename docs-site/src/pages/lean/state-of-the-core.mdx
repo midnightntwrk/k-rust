@@ -66,7 +66,7 @@ Everything else (every proof, the generator, the executable evaluator) is checke
 | 8 | Matching logic | patterns, models and entailment, as much as the statements use | settled |
 | 9 | The theory Γ | the theory a definition denotes, built from the Lean value: sorts, constructors, collections, function equations, rule axioms | settled, except the axioms of the builtin domains |
 | 10 | Sound and Complete | every step is entailed by the theory, which has a model; every successor the theory forces is a step; the two theorems, with their two hypotheses | settled |
-| 11 | Well-formedness | the check on the semantics both theorems assume: well-sorted subsorts, clauses and rules, the conditions the theory needs to have a model, and names apart | settled, except one half of one naming condition |
+| 11 | Well-formedness | the check on the semantics both theorems assume: well-sorted subsorts, clauses and rules, the conditions the theory needs to have a model, and names apart | settled, except the first half of one naming condition (every symbol named like `ite` is named at a numbered sort) |
 
 ## What you trust
 

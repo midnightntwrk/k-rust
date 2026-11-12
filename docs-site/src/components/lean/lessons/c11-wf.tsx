@@ -50,7 +50,7 @@ const conditions: readonly [string, string, string][] = [
   ['namesApartK', 'no two symbols, and no two sorts, share a name', 'model · witness'],
   ['LitsApart', 'no token or byte sort is Int or Bool, so a literal is told by its text', 'model'],
   ['sortsNumbered', 'every sort a value may have is a numbered sort', 'model · witness'],
-  ['itesApart', 'symbols named like ite are named at a numbered sort, and apart by their sort', 'model · witness · one half not settled'],
+  ['itesApart', 'symbols named like ite are named at a numbered sort, and apart by their sort', 'model · witness for the second half; the first not settled'],
   ['kindsApart', 'hooks and parameters are not constructors, nor parameters hooks', 'model · witness'],
   ['ctorsOnce', 'no constructor is listed twice', 'model · witness'],
   ['fnsApart', 'no function is named like a constructor, hook or parameter', 'model · witness'],
@@ -151,7 +151,7 @@ export const wf11: Lesson = {
       visual: table,
       frames: [
         { say: '"Step": step soundness reads it. "Model": the existence of a model reads it. "Witness": a kernel-checked definition that meets every other condition and the hypothesis on functions has no model without it.' },
-        { say: 'Not settled: one half of `itesApart`, which may be needed by the proof only and not in truth.' },
+        { say: 'Not settled: the first half of `itesApart`, that every symbol named like `ite` is named at a numbered sort. It may be needed by the proof only and not in truth. The second half, no two such symbols at one sort, has a witness.' },
       ],
     },
     {
