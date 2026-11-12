@@ -2,10 +2,10 @@
 
 // Core lesson 2: the signature. A definition as one Lean value, `Semantics`: constructors,
 // subsorts, functions as clauses with priorities, rules with priorities, collections. Every Lean
-// pane is kcore-spec's text at the manifest's commit; the worked panes are derived by hand from it
-// and from peano's Names.lean, with the numbers read from that file.
+// pane is kcore-spec's text at the manifest's commit; peano's constructors and `pred` are checked
+// by Lean (docs-gen/lean_checks.py).
 
-import { type Source, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
+import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, slice, span } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const coreLean = coreFile('KcoreSpec/Core.lean')
@@ -14,43 +14,11 @@ const ctorSig = slice(coreFile('KcoreSpec/FixedSignature.lean'), '/-- A construc
 const fnClause = slice(coreLean, '/-- A clause `f(p₁, …, pₙ) = rhs', '  total : Bool := false')
 const rule = slice(coreLean, '/-- A rewrite rule `lhs => rhs', '  prio : Nat')
 const colls = slice(coreLean, '/-- A collection sort:', '   ⟨Srt.list, .list')
-const names = slice(coreFile('examples/peano/Peano/Names.lean'), 'namespace Sym', 'end Srt')
 const prioK = coreFile('f2-examples/prio.k')
 const fprioK = slice(coreFile('f2-examples/fprio.k'), 'syntax Int ::= pr(Int)', "rule [op-one]")
 
-const numberIn = (src: Source, def: string) => {
-  const line = src.text.split('\n')[lineOf(src, def) - src.start]
-  const m = /:= (\d+)\s*$/.exec(line)
-  if (!m) throw new Error(`lean lessons: no number on ${line}`)
-  return Number(m[1])
-}
-const sym = (n: string) => numberIn(names, `def «${n}» : KCore.Sym`)
-const srt = (n: string) => numberIn(names, `def «${n}» : KCore.Srt`)
-const [z, s, run, done, pred] = [sym('z'), sym('s'), sym('run'), sym('done'), sym('pred')]
-const [Nat, State, Val] = [srt('Nat'), srt('State'), srt('Val')]
-
-const workedSig = textSource('worked by hand', [
-  "-- peano's own constructors",
-  `{ name := ${z}, args := [],     result := ${Nat} }    -- z : Nat`,
-  `{ name := ${s}, args := [${Nat}],   result := ${Nat} }    -- s : Nat → Nat`,
-  `{ name := ${run}, args := [${Nat}],   result := ${State} }    -- run : Nat → State`,
-  `{ name := ${done}, args := [${Val}],   result := ${State} }    -- done : Val → State`,
-  '',
-  '-- its subsort: Nat below Val',
-  `(${Nat}, ${Val})`,
-].join('\n'))
-
-const workedPred = textSource('worked by hand', [
-  '-- pred, from peano.k',
-  `{ label := ${pred}, args := [${Nat}], result := ${Nat},`,
-  '  clauses := [',
-  '    -- rule pred(s(N)) => N',
-  `    { vars := [${Nat}], pats := [.app ${s} [.var 0]], req := none,`,
-  '      rhs := .var 0, prio := 50 },',
-  '    -- rule pred(_) => z [owise]',
-  `    { vars := [${Nat}], pats := [.var 0], req := none,`,
-  `      rhs := .app ${z} [], prio := 200 } ] }`,
-].join('\n'))
+const workedSig = checked('ctors')
+const workedPred = checked('pred')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 
@@ -93,16 +61,16 @@ export const signature2: Lesson = {
       title: 'Constructors and subsorts',
       panes: [
         { id: 'c', label: 'KcoreSpec/FixedSignature.lean', source: ctorSig, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedSig, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedSig, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { c: span(ctorSig, 'structure CtorSig', '  result : Srt'), w: span(workedSig, `{ name := ${z},`, `{ name := ${done},`) },
-          notes: [note('c', at(ctorSig, 'structure CtorSig'), 'A constructor: its symbol, argument sorts and result sort.'), note('w', at(workedSig, `{ name := ${done},`), '`done` takes a `Val`.', `[${Val}]`)],
+          hl: { c: span(ctorSig, 'structure CtorSig', '  result : Srt'), w: span(workedSig, '⟨Sym.«z»', '⟨Sym.«done»') },
+          notes: [note('c', at(ctorSig, 'structure CtorSig'), 'A constructor: its symbol, argument sorts and result sort.'), note('w', at(workedSig, '⟨Sym.«done»'), '`done` takes a `Val`.', '[Srt.«Val»]')],
         },
         {
-          hl: { w: [at(workedSig, `(${Nat}, ${Val})`)] },
-          notes: [note('w', at(workedSig, `(${Nat}, ${Val})`), 'A pair (smaller, larger): a `Nat` is also a `Val`.')],
+          hl: { w: [at(workedSig, 'userSubsorts')] },
+          notes: [note('w', at(workedSig, 'userSubsorts'), 'A pair (smaller, larger): a `Nat` is also a `Val`.', '(Srt.«Nat», Srt.«Val»)')],
           say: "This is why `done(z)` holds `z` under an injection: `z` is a `Nat` used where a `Val` is expected.",
         },
       ],
@@ -112,7 +80,7 @@ export const signature2: Lesson = {
       title: 'Functions are clauses with priorities',
       panes: [
         { id: 'f', label: 'KcoreSpec/Core.lean', source: fnClause, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedPred, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -120,7 +88,7 @@ export const signature2: Lesson = {
           notes: [note('f', at(fnClause, '  clauses : List Clause'), 'A function: its symbol, argument and result sorts, and clauses.', 'clauses')],
         },
         {
-          hl: { f: span(fnClause, 'structure Clause where', '  prio : Nat := 50'), w: span(workedPred, '    { vars :=', '      rhs := .var 0') },
+          hl: { f: span(fnClause, 'structure Clause where', '  prio : Nat := 50'), w: span(workedPred, '{ vars :=', 'rhs := .var 0') },
           notes: [
             note('f', at(fnClause, '  pats : List Term'), 'One pattern per argument.', 'pats'),
             note('f', at(fnClause, '  req : Option Term'), 'An optional condition.', 'req'),
@@ -214,6 +182,6 @@ export const signature2: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so are \`prio.k\` and \`fprio.k\`.`,
-    "The panes headed “Worked by hand” are derived from those definitions and from peano's numbers in `Names.lean`. Lean did not compute them.",
+    `The panes headed “${checkedLabel}” state peano's constructors, subsort and \`pred\` in Lean; Lean's kernel checked them against peano's package.`,
   ],
 }

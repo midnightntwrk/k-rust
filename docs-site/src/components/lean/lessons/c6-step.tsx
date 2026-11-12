@@ -5,7 +5,7 @@
 // applies to x. Every Lean pane is kcore-spec's text at the manifest's commit, as are prio.k and
 // fprio.k; the steps shown are worked by hand from those definitions.
 
-import { type Source, coreCommit, coreFile, lineOf, peanoK, slice, span, textSource } from '../data'
+import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, peanoK, slice, span, textSource } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const stepLean = coreFile('KcoreSpec/Step.lean')
@@ -34,12 +34,7 @@ const workedPrio = textSource('worked by hand', [
   'Step: go(b) ⇒ other(b)        -- by go(X:B), priority 50',
 ].join('\n'))
 
-const workedRunAll = textSource('worked by hand', [
-  'run(s(s(z)))  ⇒  run(s(z))    -- run(s(N)), N ↦ s(z)',
-  'run(s(z))     ⇒  run(z)       -- run(s(N)), N ↦ z',
-  'run(z)        ⇒  done(z)      -- run(z)',
-  'done(z)                       -- no rule: both need run in the k cell',
-].join('\n'))
+const workedRunAll = checked('steps')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 
@@ -134,16 +129,16 @@ export const step6: Lesson = {
       title: "The prologue's run, as steps",
       panes: [
         { id: 'k', label: 'peano.k', source: k, lang: 'k' },
-        { id: 'w', label: 'Worked by hand', source: workedRunAll, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedRunAll, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { k: [at(k, 'rule <k> run(s(N))'), at(k, 'rule <k> run(z)')], w: span(workedRunAll, 'run(s(s(z)))', 'run(z)        ⇒') },
+          hl: { k: [at(k, 'rule <k> run(s(N))'), at(k, 'rule <k> run(z)')], w: span(workedRunAll, '-- the first step', 'step_run_zero') },
           say: "Each line of the prologue's run is one `Step`.",
         },
         {
-          hl: { w: [at(workedRunAll, 'done(z)')] },
-          notes: [note('w', at(workedRunAll, 'done(z)'), 'No `Step` leaves `done(z)`: the run stops.', 'done(z)')],
+          hl: { w: span(workedRunAll, '∀ y : Config c, ¬ Step', 'stuck_done') },
+          notes: [note('w', at(workedRunAll, '∀ y : Config c, ¬ Step'), 'No `Step` leaves `done(z)`: the run stops.', '¬ Step c x y')],
           say: 'What a step is now has a precise meaning, for every configuration, reachable or not. Lessons 8 to 10 say why it is the meaning of the definition.',
         },
       ],
@@ -165,6 +160,7 @@ export const step6: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so are \`prio.k\` and \`fprio.k\`.`,
-    'The steps shown are worked by hand from `Step` and `NotApplies`. Lean did not compute them.',
+    `The pane headed “${checkedLabel}” states peano's last two steps and its stuck configuration in Lean, each a theorem of peano's package.`,
+    'The panes headed “Worked by hand” are derived from `Step` and `NotApplies`. Lean did not compute them.',
   ],
 }

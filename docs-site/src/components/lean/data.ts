@@ -7,6 +7,7 @@
 
 import raw from '../../generated/lean-lessons.json'
 import coreRaw from '../../generated/lean-core.json'
+import checksRaw from '../../generated/lean-checks.json'
 
 /** A ground term, with symbols and sorts by their KORE names. */
 export type Ground =
@@ -204,4 +205,20 @@ export function coreFile(path: string): Source {
   const { start, text } = typeof found === 'string' ? { start: 1, text: found } : found
   const body = text.endsWith('\n') ? text.slice(0, -1) : text
   return { file: path.split('#')[0].replace(/^\.\.\//, ''), start, end: start + body.split('\n').length - 1, text: body }
+}
+
+// ---- facts checked by Lean ------------------------------------------------------------------
+// src/generated/lean-checks.json: Lean files that state, as `example`s, facts the lessons once
+// derived by hand, each proved by a theorem of an example package or by the kernel; written by
+// docs-gen/lean_checks.py, which fails unless every file checks.
+
+const checks = checksRaw as { commit: string; panes: Record<string, string> }
+
+export const checkedLabel = `Checked by Lean at ${checks.commit}`
+
+/** A pane of Lean facts that checked, numbered from 1. */
+export function checked(name: string): Source {
+  const text = checks.panes[name]
+  if (text === undefined) throw new Error(`lean lessons: no checked pane ${name}`)
+  return textSource('checked by Lean', text)
 }

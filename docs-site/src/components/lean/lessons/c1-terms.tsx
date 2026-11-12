@@ -2,10 +2,11 @@
 
 // Core lesson 1: terms. What a configuration is in Lean: ground terms, terms with variables,
 // sorts and symbols as numbers, substitutions. Every Lean pane is kcore-spec's text at the
-// manifest's commit; the worked panes are derived by hand from it and from peano's Names.lean,
+// manifest's commit; the ground terms are checked by Lean (docs-gen/lean_checks.py), the other
+// worked panes derived by hand from it and from peano's Names.lean,
 // with the numbers read from those files so a renumbering fails the build.
 
-import { type Ground, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
+import { type Ground, checked, checkedLabel, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
 import { type Lesson, note } from '../lesson'
 import { Svg, Tree, groundTree } from '../viz'
 
@@ -30,17 +31,7 @@ const int = numberIn(fixed, 'def int : Srt')
 const [z, s, run] = [sym('z'), sym('s'), sym('run')]
 const state = srt('State')
 
-const runTerm = `.ctor ${run} [.ctor ${s} [.ctor ${s} [.ctor ${z} []]]]`
-const worked = textSource('worked by hand', [
-  '-- run(s(s(z)))',
-  runTerm,
-  '',
-  '-- the same, in the k cell: injected from State into KItem',
-  `.inj ${state} ${kitem} (${runTerm})`,
-  '',
-  "-- the counter's 0, a literal of sort Int",
-  `.dv ${int} (.int 0)`,
-].join('\n'))
+const worked = checked('terms')
 const workedTerm = textSource('worked by hand', [
   '-- run(s(N)), with N as variable 0',
   `.app ${run} [.app ${s} [.var 0]]`,
@@ -111,21 +102,21 @@ export const terms1: Lesson = {
       title: 'Ground terms',
       panes: [
         { id: 'g', label: 'KcoreSpec/Core.lean', source: ground, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: worked, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: worked, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { g: [at(ground, 'inductive GroundTerm'), at(ground, '| ctor (f : Sym)')], w: [at(worked, '.ctor')] },
-          notes: [note('g', at(ground, '| ctor (f : Sym)'), 'A constructor applied to its arguments.', 'ctor'), note('w', at(worked, '.ctor'), `\`run\` is ${run}, \`s\` ${s}, \`z\` ${z}.`, `.ctor ${run}`)],
+          hl: { g: [at(ground, 'inductive GroundTerm'), at(ground, '| ctor (f : Sym)')], w: [at(worked, `.ctor ${run}`)] },
+          notes: [note('g', at(ground, '| ctor (f : Sym)'), 'A constructor applied to its arguments.', 'ctor'), note('w', at(worked, `.ctor ${run}`), `\`run\` is ${run}, \`s\` ${s}, \`z\` ${z}.`, `.ctor ${run}`)],
           say: 'A ground term is a tree with no variables. A configuration is one.',
         },
         {
-          hl: { g: [at(ground, '| inj (a b : Srt) (t : GroundTerm)')], w: [at(worked, '.inj')] },
-          notes: [note('g', at(ground, '| inj (a b : Srt) (t : GroundTerm)'), 'An injection: a term of sort `a` used where sort `b` is expected.', 'inj'), note('w', at(worked, '.inj'), `\`State\` is ${state}, \`KItem\` ${kitem}.`, `.inj ${state} ${kitem}`)],
+          hl: { g: [at(ground, '| inj (a b : Srt) (t : GroundTerm)')], w: span(worked, '(.inj Srt', `.inj ${state} ${kitem}`) },
+          notes: [note('g', at(ground, '| inj (a b : Srt) (t : GroundTerm)'), 'An injection: a term of sort `a` used where sort `b` is expected.', 'inj'), note('w', at(worked, `.inj ${state} ${kitem}`), `\`State\` is ${state}, \`KItem\` ${kitem}.`, `.inj ${state} ${kitem}`)],
         },
         {
-          hl: { g: [at(ground, '| dv (s : Srt) (lit : Lit)')], w: [at(worked, '.dv')] },
-          notes: [note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'A literal of a sort.', 'dv'), note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'Not settled: literals gain bytes and strings with canonical forms.', 'Lit'), note('w', at(worked, '.dv'), `\`Int\` is ${int}.`, `.dv ${int}`)],
+          hl: { g: [at(ground, '| dv (s : Srt) (lit : Lit)')], w: [at(worked, `.dv ${int}`)] },
+          notes: [note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'A literal of a sort.', 'dv'), note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'Not settled: literals gain bytes and strings with canonical forms.', 'Lit'), note('w', at(worked, `.dv ${int}`), `\`Int\` is ${int}.`, `.dv ${int}`)],
         },
         {
           hl: { g: span(ground, '| map (s : Srt)', '| list (s : Srt)') },
@@ -194,6 +185,7 @@ export const terms1: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`.`,
+    `The pane headed “${checkedLabel}” states its facts in Lean; Lean's kernel checked them against peano's package.`,
     "The panes headed “Worked by hand” are derived from those definitions and from peano's numbers in `Names.lean`. Lean did not compute them.",
   ],
 }

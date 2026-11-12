@@ -6,7 +6,7 @@
 // Every Lean pane is kcore-spec's text at the manifest's commit, as is fprio.k; the results shown
 // are worked by hand from those definitions.
 
-import { type Source, coreCommit, coreFile, lineOf, peanoK, slice, span, textSource } from '../data'
+import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, peanoK, slice, span, textSource } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const ev = coreFile('KcoreSpec/Evaluation.lean')
@@ -16,28 +16,8 @@ const evalTerm = slice(ev, '  /-- `EvalTerm c σ t r`:', '(hvs : allSome rs = no
 const fprioK = slice(coreFile('f2-examples/fprio.k'), 'syntax Int ::= pr(Int)', 'rule [ag-sq]')
 const k = peanoK
 
-const workedPred = textSource('worked by hand', [
-  '-- pred(s(z)): the clause pred(s(N)) => N, priority 50',
-  '--   N is z; no requires; no clause has a smaller priority',
-  'Eval c pred [s(z)] (some z)',
-  '',
-  '-- pred(z): pred(s(N)) fails, since s(N) denotes no z',
-  '--   pred(_) => z [owise], priority 200, decides',
-  'Eval c pred [z] (some z)',
-  '',
-  '-- pred(s(z)) by the [owise] clause? Its pattern matches,',
-  '--   but pred(s(N)), priority 50, does not fail there,',
-  '--   so the [owise] clause does not decide: one result',
-].join('\n'))
-
-const workedPr = textSource('worked by hand', [
-  'Eval c pr [0] (some 1)    -- pr-low (40) applies; nothing smaller',
-  'Eval c pr [3] (some 2)    -- pr-low fails (3 is not 0); pr-def: 3 <=Int 5',
-  'Eval c pr [9] (some 3)    -- pr-low fails; pr-def fails (9 <=Int 5 is false)',
-  '',
-  'Eval c ow [-3] (some 3)   -- ow-pos fails (-3 >Int 0 is false); [owise] decides',
-  'Eval c ow [-200] none     -- both requires are false: every clause fails',
-].join('\n'))
+const workedPred = checked('predEval')
+const workedPr = checked('fprioEval')
 
 const workedRhs = textSource('worked by hand', [
   "-- the first rule's right-hand side, run(pred(s(N))), under N ↦ s(z)",
@@ -75,7 +55,7 @@ export const evaluation5: Lesson = {
       title: 'A clause decides',
       panes: [
         { id: 'e', label: 'KcoreSpec/Evaluation.lean', source: evalDef, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedPred, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -91,7 +71,7 @@ export const evaluation5: Lesson = {
           notes: [note('e', at(evalDef, '(hprio :'), 'Every clause of a smaller priority fails.', "cl'.prio < cl.prio → Fails c vs cl'")],
         },
         {
-          hl: { e: [at(evalDef, '(hrhs :')], w: span(workedPred, '-- pred(s(z)): the clause', 'Eval c pred [s(z)]') },
+          hl: { e: [at(evalDef, '(hrhs :')], w: span(workedPred, '-- pred(s(z)) is z', 'pred_succ') },
           notes: [note('e', at(evalDef, '(hrhs :'), 'Then the result is the value of its right-hand side.', 'EvalTerm c σ cl.rhs r')],
         },
       ],
@@ -101,7 +81,7 @@ export const evaluation5: Lesson = {
       title: '[owise] is priority 200',
       panes: [
         { id: 'f', label: 'KcoreSpec/Evaluation.lean', source: fails, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedPred, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -113,12 +93,12 @@ export const evaluation5: Lesson = {
           notes: [note('f', at(fails, '(ht : cl.req = some t)'), '"Not `true`": `false`, or undefined.', 'r ≠ some (bool true)')],
         },
         {
-          hl: { w: span(workedPred, '-- pred(z):', 'Eval c pred [z]') },
-          notes: [note('w', at(workedPred, '--   pred(_) => z [owise]'), '`[owise]` is priority 200: it decides only where every clause of a smaller priority fails.', 'priority 200')],
+          hl: { w: span(workedPred, '-- pred(z) is z', 'pred_owise') },
+          notes: [note('w', at(workedPred, '-- pred(z) is z'), '`[owise]` is priority 200: it decides only where every clause of a smaller priority fails.', '[owise]')],
           say: '`[owise]` is not "try this last". It is priority 200, and a clause of priority 200 decides only where every clause below it fails.',
         },
         {
-          hl: { w: span(workedPred, '-- pred(s(z)) by the [owise]', '--   so the [owise] clause') },
+          hl: { w: [at(workedPred, 'pred_succ')] },
           say: 'So `pred(s(z))` has one result. Swapping the two clauses in `peano.k` would change nothing.',
         },
       ],
@@ -128,16 +108,16 @@ export const evaluation5: Lesson = {
       title: 'Priorities in fprio',
       panes: [
         { id: 'k', label: 'fprio.k', source: fprioK, lang: 'k' },
-        { id: 'w', label: 'Worked by hand', source: workedPr, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedPr, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { k: span(fprioK, 'rule [pr-low]', 'rule [pr-mid]'), w: span(workedPr, 'Eval c pr [0]', 'Eval c pr [9]') },
-          notes: [note('w', at(workedPr, 'Eval c pr [0]'), 'All three patterns match `0`, but `pr-low` has the smallest priority.', 'some 1')],
+          hl: { k: span(fprioK, 'rule [pr-low]', 'rule [pr-mid]'), w: span(workedPr, 'Sym.«pr» [int 0]', 'Sym.«pr» [int 9]') },
+          notes: [note('w', at(workedPr, 'Sym.«pr» [int 0]'), 'All three patterns match `0`, but `pr-low` has the smallest priority.', 'some (int 1)')],
         },
         {
-          hl: { k: span(fprioK, 'rule [ow-pos]', 'rule [ow-else]'), w: span(workedPr, 'Eval c ow [-3]', 'Eval c ow [-200]') },
-          notes: [note('w', at(workedPr, 'Eval c ow [-200]'), 'No result: `ow` is undefined at -200.', 'none')],
+          hl: { k: span(fprioK, 'rule [ow-pos]', 'rule [ow-else]'), w: span(workedPr, 'Sym.«ow» [int (-3)]', 'Sym.«ow» [int (-200)]') },
+          notes: [note('w', at(workedPr, 'Sym.«ow» [int (-200)]'), 'No result: `ow` is undefined at -200.', 'none')],
         },
       ],
     },
@@ -146,11 +126,11 @@ export const evaluation5: Lesson = {
       title: 'No result where every clause fails',
       panes: [
         { id: 'e', label: 'KcoreSpec/Evaluation.lean', source: evalDef, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedPr, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedPr, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { e: span(evalDef, '| undef {f : Sym}', '(hnone :'), w: [at(workedPr, 'Eval c ow [-200]')] },
+          hl: { e: span(evalDef, '| undef {f : Sym}', '(hnone :'), w: [at(workedPr, 'Sym.«ow» [int (-200)]')] },
           notes: [note('e', at(evalDef, '(hnone :'), 'Where every clause fails, the result is `none`: undefined.', 'Eval c f vs none')],
           say: 'Undefined is a result too, so a `requires` that calls `ow(-200)` is not `true`, and its clause fails.',
         },
@@ -218,6 +198,7 @@ export const evaluation5: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so is \`fprio.k\`.`,
-    'The results shown are worked by hand from `Eval`, `Fails` and `EvalTerm`. Lean did not compute them.',
+    `The panes headed “${checkedLabel}” state results in Lean, each proved by a theorem of peano's or fprio's package.`,
+    'The value of the right-hand side in “Worked by hand” is derived from `EvalTerm`. Lean did not compute it.',
   ],
 }
