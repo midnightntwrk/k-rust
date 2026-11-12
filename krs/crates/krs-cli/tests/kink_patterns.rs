@@ -522,9 +522,8 @@ fn editing_one_clause_re_asks_only_its_pattern() {
 }
 
 /// A machine whose statements store values in a memory map and count steps in `pc`.
-/// The store's condition joins two tests, so the specification's module imports `BOOL`: kink
-/// parses a pattern in that module, whose grammar must hold the connective a part's condition
-/// is joined with.
+/// No sentence of it has a condition, so its module does not import `BOOL`: the connectives a
+/// part's condition is joined with are the pattern's own vocabulary.
 const MEMORY_SPEC: &str = r#"use k::KResult;
 use k::builtin::{Int, KSequence, Map};
 
@@ -568,7 +567,6 @@ k::rules! {
     use StmtSyntax::*;
 
     seq: { k: [Seq { first: a, second: b }, ..] } => { k: [a, b, ..] };
-    #[k::requires(addr >= 0 && value >= 0)]
     set: { k: [Set { a: addr, v: value }, ..], pc, memory: m } => { k: [..], pc: pc + 1, memory: k::map![addr -> value, ..m] };
     mark: { k: [Mark(), ..], pc } => { k: [..], pc: pc + 1 };
 }
@@ -648,5 +646,90 @@ fn a_condition_with_no_value_is_not_true_of_a_state() {
         pattern(&document, "negated-lookup")["pattern"],
         "<memory> Memory:Map </memory> requires 9 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 9 ]) andThenBool (notBool ({Memory:Map [ 9 ]}:>Int ==Int 0)))",
         "{document:#}"
+    );
+}
+
+/// Patterns whose conditions name what no sentence of the memory specification does: the
+/// connective the tests of one lookup are joined with, an author's `&&`, and an operation of
+/// `STRING`, a module the specification's main module imports through no module.
+const VOCABULARY_PATTERNS: &str = r#"k::patterns! {
+    for spec::Machine;
+
+    #[k::requires(memory[9] != 0)]
+    lookup: { memory };
+
+    #[k::requires(v != 0 && v != 1)]
+    both: { memory: { 9 -> v, .. } };
+
+    #[k::requires(memory.len() == 1)]
+    sized: { memory };
+
+    #[k::requires(k::builtin::string::length("ab") == pc)]
+    text: { pc };
+}
+"#;
+
+/// A pattern is a question about the specification's runs and no sentence of it, so the
+/// operations its condition names are its own, whatever the specification's sentences import
+/// (PATTERN-CONDITION-IMPORTS). A specification with no condition, whose module does not import
+/// `BOOL`, answers a pattern whose condition holds one lookup, and one whose author joins two
+/// tests; asking them leaves the specification as it is emitted alone. A pattern that names an
+/// operation of a module the compiled definition does not hold is refused naming the module.
+#[test]
+fn a_condition_names_what_the_specification_does_not_import() {
+    let workspace = Workspace::of(
+        MEMORY_SPEC,
+        MEMORY_FLOW,
+        &[
+            ("absent", "seq(mark, mark)\n"),
+            ("five", "seq(set(9, 5), mark)\n"),
+            ("zero", "seq(set(9, 0), mark)\n"),
+        ],
+        &[("pats", VOCABULARY_PATTERNS)],
+    );
+    let output = workspace.kink("query", &["--full"]);
+    // The refused pattern is not asked.
+    assert_status(&output, 2);
+    let document = json_of(&output);
+    let answers = |id: &str| {
+        ["absent", "five", "zero"].map(|program| row(&document, id, program)["answer"].clone())
+    };
+
+    // The specification's module imports neither `BOOL` nor `STRING`, with the package asked
+    // as without it: `definition.k` is what the specification alone emits.
+    let definition = workspace.read("spec/kink/definition.k");
+    for module in ["BOOL", "STRING"] {
+        assert!(
+            !definition
+                .lines()
+                .any(|line| line.trim() == format!("imports {module}")),
+            "{definition}"
+        );
+    }
+    assert_status(&workspace.kink("emit", &["--check"]), 0);
+
+    for id in ["lookup", "both", "sized"] {
+        assert_eq!(pattern(&document, id)["outcome"], "valid", "{document:#}");
+    }
+    assert_eq!(
+        pattern(&document, "lookup")["pattern"],
+        "<memory> Memory:Map </memory> requires 9 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 9 ]) andThenBool ({Memory:Map [ 9 ]}:>Int =/=Int 0))",
+        "{document:#}"
+    );
+    let stored = [json!("no"), json!("hit"), json!("no")];
+    assert_eq!(answers("lookup"), stored, "{document:#}");
+    assert_eq!(answers("both"), stored, "{document:#}");
+    assert_eq!(
+        answers("sized"),
+        [json!("no"), json!("hit"), json!("hit")],
+        "{document:#}"
+    );
+
+    let text = pattern(&document, "text");
+    assert_eq!(text["outcome"], "invalid-pattern", "{document:#}");
+    let detail = text["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("the pattern imports STRING, which the specification's main module"),
+        "{detail}"
     );
 }

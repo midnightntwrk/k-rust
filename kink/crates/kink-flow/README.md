@@ -2284,6 +2284,7 @@ note = "the result 3 is reached"     # optional, free text
 id = "result-above-five"
 pattern = "<k> I:Int </k> requires I >Int 5"
 # expect = "no"                      # optional, not beside `programs`: no program hits it
+# imports = ["BOOL"]                 # optional: K modules the text names beside the main module
 ```
 
 - `pattern` is parsed by the specification's own grammar, as the content of a rule in the main module: write a configuration fragment, with `...` and omitted cells completed as in a rule (`<k> 1 / 0 ~> _ </k>`, `<state> ... X |-> 3 ... </state>`), variables (`I:Int`, `_`) and an optional `requires` condition over them. A rewrite (`=>`) in a pattern denotes its left side. An `ensures` is refused, and so is a variable that occurs only on a rewrite's right side.
@@ -2291,7 +2292,8 @@ pattern = "<k> I:Int </k> requires I >Int 5"
 - `programs` lists the corpus programs you claim hit the pattern (the per-input claims): each is asked, and its row says whether the claim is confirmed. Whether or not it has claims, every pattern is an obligation of the corpus (below).
 - `expect = "no"` claims that no program of the corpus hits the pattern, as a mutation's `expect = "survive"` claims no program kills it: the obligation's `expectation` is `met` when every program answers a final `no`, `unmet` on a hit (exit 1) and `inconclusive` otherwise (exit 3), and the query prints `pattern ID: ...` on stderr for each that is not met. It changes no answer and enters no key, digest or lock: the lock records the fact (`open` or `hit`). A pattern with both `expect` and `programs` claims two contradicting things, and is an error of the pattern list.
 - `steps` in place of `pattern` writes a chain of patterns a run passes in order ("Chains", below).
-- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` entry, `expect` beside `programs`, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
+- `imports = ["BOOL"]` (optional) lists K modules the pattern's text names beside the main module. A pattern is a question about the specification's runs and no sentence of it, so which operations it may name is its own: the main module imports what its own sentences need, and a specification none of whose rules has a condition does not import `BOOL`, where `requires A andBool B` then does not parse. A pattern with `imports` is parsed as the content of a rule of a module that holds no sentence and imports the main module, the modules the main module imports and those listed; the module exists for the parse alone, and the specification, its digests and every other pattern's answers are as without it. The key enters a pattern's digest only through the target the text compiles to. An import that is no module of the definition is refused (`invalid-pattern`), and so is a pattern that names an operation of a module the main module does not import, directly or through a module it imports: the compiled definition the runs are of holds no such operation. A KRS patterns package's clauses carry their imports themselves.
+- An unknown key, a value of the wrong type, a duplicate or empty id, an empty or duplicated `programs` or `imports` entry, `expect` beside `programs`, and a claimed program the manifest does not have are errors that name the key; the command then runs nothing and exits 2.
 
 A pattern list is such a file, whatever its name: the one the command line names, or each list `[[patterns]] files` matches.
 

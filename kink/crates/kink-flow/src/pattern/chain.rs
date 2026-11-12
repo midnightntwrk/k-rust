@@ -252,12 +252,23 @@ impl LoweredChain {
 }
 
 impl Lowering {
-    /// Lower a chain (module docs): each part by [`Lowering::lower`], against `definition`, then
-    /// the rules on the variables the parts share ([`chain_variables`]). A part's refusal names
-    /// the part (`step 2: ...`, `step 2's unless: ...`) before k-rust's message.
+    /// Lower a chain that names no import: [`Lowering::lower_chain_importing`].
     pub fn lower_chain(
         &self,
         steps: &[StepText],
+        definition: &BackendDefinition,
+    ) -> Result<LoweredChain, String> {
+        self.lower_chain_importing(steps, &[], definition)
+    }
+
+    /// Lower a chain (module docs): each part by [`Lowering::lower_importing`] in the vocabulary
+    /// of the chain's `imports`, against `definition`, then the rules on the variables the
+    /// parts share ([`chain_variables`]). A part's refusal names the part (`step 2: ...`,
+    /// `step 2's unless: ...`) before k-rust's message.
+    pub fn lower_chain_importing(
+        &self,
+        steps: &[StepText],
+        imports: &[String],
         definition: &BackendDefinition,
     ) -> Result<LoweredChain, String> {
         if steps.is_empty() {
@@ -272,13 +283,13 @@ impl Lowering {
                     return Err("step 1 has an `unless`, which only a later step has".to_owned());
                 }
                 let pattern = self
-                    .lower(&step.pattern, definition)
+                    .lower_importing(&step.pattern, imports, definition)
                     .map_err(|e| format!("step {number}: {e}"))?;
                 let unless = step
                     .unless
                     .as_deref()
                     .map(|text| {
-                        self.lower(text, definition)
+                        self.lower_importing(text, imports, definition)
                             .map_err(|e| format!("step {number}'s unless: {e}"))
                     })
                     .transpose()?;
@@ -1103,6 +1114,7 @@ mod tests {
                 programs: programs.map(|ids| ids.into_iter().map(Into::into).collect()),
                 expect: expect.map(Into::into),
                 note: Some("n".into()),
+                imports: Vec::new(),
             }
             .checked("item p")
         };
@@ -1171,12 +1183,40 @@ mod tests {
             assert_eq!(error.key, key, "{error}");
             assert!(error.message.contains(message), "{error}");
         }
+        // `imports` is read as written and kept in name order; an empty or repeated module
+        // name is refused naming the item, and a value that is no array naming the key.
+        let list = PatternList::decode(
+            "[[pattern]]\nid = \"a\"\npattern = \"<k> 1 </k>\"\nimports = [\"INT\", \"BOOL\"]\n",
+        )
+        .unwrap();
+        assert_eq!(list.patterns[0].imports, ["BOOL", "INT"]);
+        for (imports, key, message) in [
+            (
+                "[\"BOOL\", \"BOOL\"]",
+                "pattern \"a\".imports[1]",
+                "duplicate module name",
+            ),
+            ("[\"\"]", "pattern \"a\".imports[0]", ""),
+            (
+                "\"BOOL\"",
+                "pattern \"a\".imports",
+                "expected an array of K module names",
+            ),
+        ] {
+            let error = PatternList::decode(&format!(
+                "[[pattern]]\nid = \"a\"\npattern = \"<k> 1 </k>\"\nimports = {imports}\n"
+            ))
+            .unwrap_err();
+            assert_eq!(error.key, key, "{error}");
+            assert!(error.message.contains(message), "{error}");
+        }
         let error = WrittenPattern {
             id: " ".into(),
             form: WrittenForm::Pattern("<k> 1 </k>".into()),
             programs: None,
             expect: None,
             note: None,
+            imports: Vec::new(),
         }
         .checked("item p")
         .unwrap_err();
@@ -1241,6 +1281,49 @@ mod tests {
                 let lowered = lowering.lower(commented, definition).unwrap();
                 assert_eq!(lowered.digest, single.digest, "{commented}");
             }
+
+            // A pattern's vocabulary is its own (module docs, "Vocabulary"): calc's module
+            // imports `INT`, which imports `BOOL` privately, so no sentence of calc names
+            // `andBool` and a pattern read in calc's module alone cannot; one that imports
+            // `BOOL` can, alone and as a chain's part.
+            let both = "<k> I:Int </k> requires I >Int 2 andBool I <Int 4";
+            let message = lowering.lower(both, definition).unwrap_err();
+            assert!(message.contains("andBool"), "{message}");
+            let bool = ["BOOL".to_owned()];
+            let lowered = lowering.lower_importing(both, &bool, definition).unwrap();
+            assert!(lowered.kore().contains("andBool"), "{}", lowered.kore());
+            let chained = lowering
+                .lower_chain_importing(&chain(&[(both, None)]), &bool, definition)
+                .unwrap();
+            assert_eq!(chained.steps[0].pattern.digest, lowered.digest);
+            // An import a pattern's text does not need leaves its target as it is.
+            assert_eq!(
+                lowering
+                    .lower_importing("<k> 3 </k>", &bool, definition)
+                    .unwrap()
+                    .digest,
+                single.digest
+            );
+            // An import names a module of the definition.
+            let message = lowering
+                .lower_importing("<k> 3 </k>", &["NO-SUCH".to_owned()], definition)
+                .unwrap_err();
+            assert!(
+                message.starts_with("the pattern imports NO-SUCH, which is no module"),
+                "{message}"
+            );
+            // An operation of a module calc's compile does not hold is refused naming it.
+            let message = lowering
+                .lower_importing(
+                    "<k> I:Int </k> requires I ==Int lengthString(\"ab\")",
+                    &["STRING".to_owned()],
+                    definition,
+                )
+                .unwrap_err();
+            assert!(
+                message.contains("the pattern imports STRING, which the specification's main module CALC does not import"),
+                "{message}"
+            );
 
             // A `=>` keeps K's meaning: the part denotes its left side.
             let rewrite = lowering.lower("<k> 1 + 2 => 3 </k>", definition).unwrap();

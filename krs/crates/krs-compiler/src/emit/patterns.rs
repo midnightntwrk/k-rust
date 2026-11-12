@@ -92,6 +92,11 @@ pub struct EmittedPattern {
     pub steps: Vec<EmittedPatternStep>,
     /// Every binder of the clause, by its KRS name.
     pub variables: Vec<PatternVariable>,
+    /// The builtin K modules the steps' text names, in name order
+    /// ([`krs_ir_levels::k_surface::pattern_part_imports`]): the text is read in the definition's
+    /// main module together with these, since which builtin operations a pattern may name is
+    /// the pattern's own and not what the definition's sentences happen to import.
+    pub imports: Vec<String>,
 }
 
 /// One part, rendered.
@@ -327,6 +332,12 @@ fn chain(definition: &DefinitionIr, mut parts: Vec<Part<'_>>) -> Result<EmittedP
             .into_iter()
             .map(|(krs, (k, sort, _))| PatternVariable { k, krs, sort })
             .collect(),
+        imports: krs_ir_levels::k_surface::pattern_part_imports(
+            parts.iter().map(|part| part.sentence),
+        )
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
     })
 }
 

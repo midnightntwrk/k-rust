@@ -22,7 +22,9 @@
 //!
 //! **The patterns.** Each clause is the `[[pattern]]` a pattern list would write for it: its id,
 //! its documentation as `note`, `#[k::cases(..)]` as `programs`, `#[k::expect(no)]` as `expect`,
-//! and its steps as `steps`, each with its `unless`. It passes the checks a list's table passes
+//! its steps as `steps`, each with its `unless`, and the builtin K modules its steps' text names
+//! as `imports` (the pattern's vocabulary is its own, whatever the specification's sentences
+//! import: kink-flow `pattern`, "Vocabulary"). It passes the checks a list's table passes
 //! (kink-flow [`kink_flow::pattern::WrittenPattern::checked`]), so a chain of one step without
 //! `unless` is that step's single pattern, as in a list. Its source is the package as the corpus
 //! names it, the clause's Rust item, and the file and line its name is written at. A package that
@@ -155,6 +157,7 @@ fn entry(
         expect,
         steps,
         variables: _,
+        imports,
     } = pattern;
     let file = roots
         .get(&source.package)
@@ -183,6 +186,7 @@ fn entry(
         programs,
         expect,
         note,
+        imports,
     };
     let mut entry = written
         .checked(&format!("item {item}"))

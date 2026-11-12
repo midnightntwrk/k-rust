@@ -526,30 +526,29 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
             .chain(sort_k)
             .collect();
     }
-    // A module with matching-logic predicates imports K's ML-SYNTAX and,
-    // when it uses maps, MAP-SYMBOLIC: the Haskell prover reasons about a
-    // symbolic map only with its lemmas (KF-039).
-    let map_symbolic = requirements.ml && requirements.sorts.contains(&BuiltinSort::Map);
-    let mut imports = requirements
-        .sorts
-        .into_iter()
-        .filter_map(|sort| {
-            if requirements.operations.contains(&sort) {
-                sort.spec().k_module
-            } else {
-                sort.spec().k_syntax_module
-            }
-        })
-        .collect::<BTreeSet<_>>();
-    imports.extend(requirements.modules);
+    let mut imports = requirements.term_imports();
     imports.extend(sort_k);
-    if requirements.ml {
-        imports.insert(ML_SYNTAX_MODULE);
-    }
-    if map_symbolic {
-        imports.insert(MAP_SYMBOLIC_MODULE);
-    }
     imports
+}
+
+/// The builtin modules the K text of the `k::patterns!` parts `parts` names: what a module
+/// holding exactly those parts as its rules would import ([`builtin_imports`] under
+/// [`ImportPolicy::SourceText`]).
+///
+/// A part is a question about the definition's runs and no sentence of it, so its text is read
+/// in the definition's main module together with these modules, never in the main module alone:
+/// which builtin operations a part may name does not depend on which ones the definition's own
+/// sentences happen to name. A part's variables, cell patterns and `requires` contribute, the
+/// tests the definedness pass wrote into the `requires` among them.
+#[must_use]
+pub fn pattern_part_imports<'a>(
+    parts: impl IntoIterator<Item = &'a crate::RuleSentence>,
+) -> BTreeSet<&'static str> {
+    let mut requirements = BuiltinRequirements::default();
+    for part in parts {
+        requirements.rule_reads(part);
+    }
+    requirements.term_imports()
 }
 
 /// Whether `sentence` is a rule or claim with a matching-logic predicate in
@@ -654,30 +653,7 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
             }
             DefinitionSentence::Rule(sentence) => {
                 let ml_before = requirements.ml;
-                for variable in sentence.variables() {
-                    requirements.sort(variable.sort());
-                }
-                match sentence.relational_body() {
-                    RuleBodyRef::Term(term) => {
-                        requirements.sort(term.sort());
-                        requirements.term(term.from());
-                        requirements.term(term.to());
-                    }
-                    RuleBodyRef::Configuration { body: rewrite, .. } => {
-                        for part in rewrite.parts() {
-                            for term in part.terms() {
-                                requirements.term(term);
-                            }
-                        }
-                    }
-                    RuleBodyRef::Predicate(rewrite) => {
-                        requirements.predicate(rewrite.lhs());
-                        requirements.predicate(rewrite.rhs());
-                    }
-                }
-                if let Some(condition) = sentence.requires() {
-                    requirements.condition(condition);
-                }
+                requirements.rule_reads(sentence);
                 // A fresh binder of a builtin sort draws from K's own generator
                 // (`freshInt`, `freshId`), declared in the sort's full module.
                 for binder in sentence.fresh() {
@@ -733,6 +709,62 @@ struct BuiltinRequirements {
 }
 
 impl BuiltinRequirements {
+    /// The modules of the sorts and operations required: a sort's full module where an
+    /// operation over it is used, else its syntax module, and every used operation's module.
+    fn term_imports(self) -> BTreeSet<&'static str> {
+        // A module with matching-logic predicates imports K's ML-SYNTAX and,
+        // when it uses maps, MAP-SYMBOLIC: the Haskell prover reasons about a
+        // symbolic map only with its lemmas (KF-039).
+        let map_symbolic = self.ml && self.sorts.contains(&BuiltinSort::Map);
+        let mut imports = self
+            .sorts
+            .into_iter()
+            .filter_map(|sort| {
+                if self.operations.contains(&sort) {
+                    sort.spec().k_module
+                } else {
+                    sort.spec().k_syntax_module
+                }
+            })
+            .collect::<BTreeSet<_>>();
+        imports.extend(self.modules);
+        if self.ml {
+            imports.insert(ML_SYNTAX_MODULE);
+        }
+        if map_symbolic {
+            imports.insert(MAP_SYMBOLIC_MODULE);
+        }
+        imports
+    }
+
+    /// What a rule's variables, body and `requires` name.
+    fn rule_reads(&mut self, sentence: &crate::RuleSentence) {
+        for variable in sentence.variables() {
+            self.sort(variable.sort());
+        }
+        match sentence.relational_body() {
+            RuleBodyRef::Term(term) => {
+                self.sort(term.sort());
+                self.term(term.from());
+                self.term(term.to());
+            }
+            RuleBodyRef::Configuration { body: rewrite, .. } => {
+                for part in rewrite.parts() {
+                    for term in part.terms() {
+                        self.term(term);
+                    }
+                }
+            }
+            RuleBodyRef::Predicate(rewrite) => {
+                self.predicate(rewrite.lhs());
+                self.predicate(rewrite.rhs());
+            }
+        }
+        if let Some(condition) = sentence.requires() {
+            self.condition(condition);
+        }
+    }
+
     fn condition(&mut self, condition: &crate::DefinitionCondition) {
         match condition {
             crate::IrCondition::Bool(condition) => self.term(condition.term()),

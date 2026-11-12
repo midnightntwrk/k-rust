@@ -6,7 +6,8 @@
 //!
 //! **`PATTERNS.toml`** ([`PatternList`]): `[[pattern]]` entries with a unique non-empty `id`, a
 //! `pattern` and optional `programs` (the corpus programs the author claims hit it: the per-input
-//! claims), `expect` (`"no"`: the author claims no program hits it) and `note`. Every pattern is
+//! claims), `expect` (`"no"`: the author claims no program hits it), `note` and `imports` (the
+//! K modules its text names beside the main module: "Vocabulary", below). Every pattern is
 //! also an obligation of the corpus, "some program's run reaches a state matching it", which
 //! `query` discharges by a witness ([`crate::query`]). Decoding is strict, as for `FLOW.toml` and
 //! `MUTATIONS.toml`: an unknown key, a value of the wrong type, a duplicate or empty id or program
@@ -88,6 +89,28 @@
 //! Any refusal is `invalid-pattern` with k-rust's message, and the pattern never runs. No overlay
 //! module is loaded and the definition is not compiled again: the compile of the admission is the
 //! one every program runs on.
+//!
+//! **Vocabulary** ([`PatternEntry::imports`], [`Lowering::lower_importing`]). A pattern is a
+//! question about the specification's runs and no sentence of the specification, so which
+//! operations its text may name is the pattern's own: a condition may join two tests with
+//! `andBool`, or test a key with `in_keys`, whether or not a sentence of the specification does.
+//! A K module's sentences name what the module imports, and the main module imports what its own
+//! sentences need, so a pattern read in the main module alone could name only that. A pattern
+//! therefore names its own `imports`, and its text is read in a module that holds no sentence
+//! and imports the main module, the modules the main module imports (what the main module's own
+//! sentences see), and the pattern's imports: the K text of a pattern is the content of a rule
+//! of that module. The module is added to a copy of the parsing definition and of the execution
+//! definition and to nothing else: it declares no sort, symbol or rule, the specification's
+//! compile, its KORE and the definition every search runs on are untouched, and the target must
+//! still pass that definition's admission. That admission decides what a pattern may name: the
+//! compiled definition holds the symbols of the modules the main module imports, directly or
+//! through a module it imports, publicly or privately (`INT` imports `BOOL` privately, so a
+//! specification that computes with integers holds `BOOL`'s symbols, which its own sentences
+//! cannot name), and a pattern that names an operation of another module is refused there,
+//! the refusal naming the import outside them. A pattern with no `imports` is read in the main
+//! module itself, as before the key existed. A list's author writes the key; a KRS patterns
+//! package's clauses carry the builtin modules their steps name, which the KRS front end derives
+//! as it derives a module's imports from its sentences.
 //!
 //! **Evaluation** ([`Searcher`]): one k-rust `search_pattern_kore` per (pattern, program) on the
 //! baseline, from the program's admitted initial state: search type all (`=>*`, every reachable
@@ -299,7 +322,10 @@ use k_rust::{
         KorePatternSearchResponse, SearchFailureOutput, SearchMatchOutput, SearchPatternRequest,
         SearchTypeArg,
     },
-    definition::{AttributeKey, Attributes, ResolvedDefinition, configuration::declared_cells},
+    definition::{
+        AttributeKey, Attributes, Definition, FlatImport, FlatModule, ResolvedDefinition,
+        configuration::declared_cells,
+    },
     k_rust_backend::{
         definition::{BackendDefinition, DefinitionError},
         stop::{CancellationToken, StopCause, with_operation_record},
@@ -327,7 +353,7 @@ use std::{
     fs,
     path::Path,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -486,6 +512,10 @@ pub struct PatternEntry {
     pub expect: Option<PatternExpect>,
     /// Free text for the reader; it enters no digest.
     pub note: Option<String>,
+    /// The K modules the pattern's text names beside the specification's main module (key
+    /// `imports`), in name order, none twice (module docs, "Vocabulary"). They decide how the
+    /// text is read and so enter a digest only through the target the text lowers to.
+    pub imports: Vec<String>,
     /// Where the pattern is written ([`PatternSource`]), which the query document reports; `None`
     /// for a list decoded from text that names no file ([`PatternList::decode`]). It enters no
     /// digest, key or lock: moving a pattern between lists keeps its answers and its obligation.
@@ -661,6 +691,8 @@ pub struct WrittenPattern {
     pub expect: Option<String>,
     /// `note`, when written.
     pub note: Option<String>,
+    /// `imports`, as written; empty when not written.
+    pub imports: Vec<String>,
 }
 
 /// What a [`WrittenPattern`] asks, as written: one pattern's text (key `pattern`) or a chain's
@@ -675,8 +707,8 @@ impl WrittenPattern {
     /// The pattern, checked as every pattern is: a non-empty `id`; a non-empty `pattern`, or
     /// `steps` decoded by the chain's rules ([`chain`], "Decoding": at least one step, each text
     /// non-empty, no `unless` on the first step, and one step without `unless` is that step's
-    /// pattern); a non-empty `programs` of non-empty ids, none twice; an `expect` of `"no"`; and
-    /// no `expect` beside `programs`. An error names the key, as a list's decoding does, the id
+    /// pattern); a non-empty `programs` of non-empty ids, none twice; an `expect` of `"no"`;
+    /// no `expect` beside `programs`; and `imports` of non-empty module names, none twice. An error names the key, as a list's decoding does, the id
     /// by `position.id` (the id names every other key). The entry has no source
     /// ([`PatternEntry::source`]).
     pub fn checked(self, position: &str) -> Result<PatternEntry, ManifestError> {
@@ -732,12 +764,23 @@ impl WrittenPattern {
                  \"no\"`: keep one of the two",
             ));
         }
+        let mut imports = Vec::new();
+        for (i, import) in self.imports.into_iter().enumerate() {
+            let item = format!("{}[{i}]", join(&key, "imports"));
+            let import = non_blank(import, &item)?;
+            if imports.contains(&import) {
+                return Err(ManifestError::new(item, "duplicate module name"));
+            }
+            imports.push(import);
+        }
+        imports.sort();
         Ok(PatternEntry {
             id,
             form,
             programs,
             expect,
             note: self.note,
+            imports,
             source: None,
         })
     }
@@ -765,7 +808,9 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
     known_keys(
         table,
         &key,
-        &["id", "pattern", "steps", "programs", "expect", "note"],
+        &[
+            "id", "pattern", "steps", "programs", "expect", "note", "imports",
+        ],
     )?;
     let form = match (table.get("pattern"), table.get("steps")) {
         (Some(_), Some(_)) => {
@@ -815,12 +860,27 @@ fn pattern_entry(index: usize, value: &TomlValue) -> Result<PatternEntry, Manife
             })
         })
         .transpose()?;
+    let imports = match table.get("imports") {
+        None => Vec::new(),
+        Some(TomlValue::Array(modules)) => modules
+            .iter()
+            .enumerate()
+            .map(|(i, module)| string(module, &format!("{}[{i}]", join(&key, "imports"))))
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => {
+            return Err(ManifestError::new(
+                join(&key, "imports"),
+                "expected an array of K module names",
+            ));
+        }
+    };
     WrittenPattern {
         id,
         form,
         programs,
         expect,
         note,
+        imports,
     }
     .checked(&position)
 }
@@ -913,11 +973,45 @@ fn requires_only_variables(target: &Pattern, minted: &BTreeSet<String>) -> BTree
 }
 
 /// The lowering context of one admitted specification: its rule grammar and the execution
-/// definition of its compile (module docs).
+/// definition of its compile (module docs), and the vocabularies its patterns are read in
+/// ([`Vocabulary`]).
 pub struct Lowering {
     grammar: ProgramGrammar,
+    /// The execution definition of the specification's compile, as compiled.
+    compiled: Definition,
     execution: ResolvedDefinition,
     module: String,
+    /// The vocabulary of each set of imports a pattern has named, built when first named.
+    vocabularies: Mutex<BTreeMap<Vec<String>, Arc<Vocabulary>>>,
+}
+
+/// The module a pattern that names imports is read in, in the parsing and the execution
+/// definition (module docs, "Vocabulary"): [`Vocabulary::module`] holds no sentence and imports
+/// the specification's main module, the modules the main module imports, and the pattern's own.
+struct Vocabulary {
+    parsing: ResolvedDefinition,
+    execution: ResolvedDefinition,
+    module: String,
+}
+
+/// `definition` with the module `name` added, which holds no sentence and imports `imports`
+/// publicly. Every other module is as it was, so the sentences and the symbols of `definition`
+/// are its own: the added module only names what a pattern read in it can see.
+fn with_pattern_module(definition: &Definition, name: &str, imports: &[String]) -> Definition {
+    let mut extended = definition.clone();
+    extended.modules.push(FlatModule {
+        name: name.to_owned(),
+        imports: imports
+            .iter()
+            .map(|import| FlatImport {
+                name: import.clone(),
+                public: true,
+            })
+            .collect(),
+        local_sentences: Vec::new(),
+        attributes: Attributes::default(),
+    });
+    extended
 }
 
 impl Lowering {
@@ -925,14 +1019,104 @@ impl Lowering {
     pub fn new(spec: &AdmittedSpec, main_module: &str) -> Result<Self, String> {
         let grammar = ProgramGrammar::new(spec.loaded.baseline.definition())
             .map_err(|e| format!("cannot resolve the specification's grammar: {e}"))?;
-        let execution =
-            ResolvedDefinition::resolve(&spec.compiled.artifacts().execution_definition)
-                .map_err(|e| format!("cannot resolve the compiled execution definition: {e}"))?;
+        let compiled = spec.compiled.artifacts().execution_definition.clone();
+        let execution = ResolvedDefinition::resolve(&compiled)
+            .map_err(|e| format!("cannot resolve the compiled execution definition: {e}"))?;
         Ok(Self {
             grammar,
+            compiled,
             execution,
             module: main_module.to_owned(),
+            vocabularies: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    /// The vocabulary of a pattern that names `imports` (module docs, "Vocabulary"), built once
+    /// for each set of imports. An import that names no module of the definition is refused.
+    fn vocabulary(&self, imports: &[String]) -> Result<Arc<Vocabulary>, String> {
+        let mut vocabularies = self
+            .vocabularies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(vocabulary) = vocabularies.get(imports) {
+            return Ok(Arc::clone(vocabulary));
+        }
+        let parsing = self.grammar.definition();
+        for import in imports {
+            let held = |definition: &Definition| {
+                definition
+                    .modules
+                    .iter()
+                    .any(|module| module.name == *import)
+            };
+            if !held(parsing) || !held(&self.compiled) {
+                return Err(format!(
+                    "the pattern imports {import}, which is no module of the specification's \
+                     definition or of the K files it requires"
+                ));
+            }
+        }
+        // No K module's name holds `$`, so the name is no module's of either definition.
+        let module = format!("{}$PATTERN${}", self.module, imports.join("$"));
+        let extended = |definition: &Definition, which: &str| {
+            // What the main module's own sentences see, and the pattern's imports beside it.
+            let main = definition
+                .modules
+                .iter()
+                .find(|candidate| candidate.name == self.module)
+                .ok_or_else(|| {
+                    format!(
+                        "the {which} definition has no module {}: cannot build the pattern's                          vocabulary",
+                        self.module
+                    )
+                })?;
+            let mut visible = vec![self.module.clone()];
+            for import in main
+                .imports
+                .iter()
+                .map(|import| &import.name)
+                .chain(imports)
+            {
+                if !visible.contains(import) {
+                    visible.push(import.clone());
+                }
+            }
+            ResolvedDefinition::resolve(&with_pattern_module(definition, &module, &visible))
+                .map_err(|e| {
+                    format!(
+                        "cannot resolve the {which} definition with the pattern's imports {}: {e}",
+                        imports.join(", ")
+                    )
+                })
+        };
+        let vocabulary = Arc::new(Vocabulary {
+            parsing: extended(parsing, "parsed")?,
+            execution: extended(&self.compiled, "compiled")?,
+            module,
+        });
+        vocabularies.insert(imports.to_vec(), Arc::clone(&vocabulary));
+        Ok(vocabulary)
+    }
+
+    /// Those of `imports` the main module does not import, directly or through a module it
+    /// imports, publicly or privately, in the compiled execution definition: the modules whose
+    /// declarations the specification's compile had no reason to keep.
+    fn outside_the_compile<'i>(&self, imports: &'i [String]) -> Vec<&'i str> {
+        let main = self
+            .execution
+            .module_id(&self.module)
+            .unwrap_or_else(|| self.execution.main_module_id());
+        let held = self
+            .execution
+            .transitive_imports(main)
+            .into_iter()
+            .map(|module| self.execution.module(module).name.as_str())
+            .collect::<BTreeSet<_>>();
+        imports
+            .iter()
+            .map(String::as_str)
+            .filter(|import| !held.contains(import))
+            .collect()
     }
 
     /// The cells of the configuration by K name, in configuration pre-order (a cell before the
@@ -972,22 +1156,52 @@ impl Lowering {
         order
     }
 
-    /// Lower `text` (module docs), checking the target against `definition`, the baseline
-    /// definition every search runs on. The error is k-rust's message; a position in it is a
-    /// line and column of the pattern's own text, its surrounding whitespace removed, under the
-    /// source name [`PATTERN_SOURCE`], never a line of the file the pattern list came from
-    /// (GUIDE-USABILITY 4).
+    /// Lower `text` (module docs) in the specification's main module, checking the target
+    /// against `definition`, the baseline definition every search runs on:
+    /// [`Lowering::lower_importing`] of a pattern that names no import.
     pub fn lower(
         &self,
         text: &str,
         definition: &BackendDefinition,
     ) -> Result<LoweredPattern, String> {
+        self.lower_importing(text, &[], definition)
+    }
+
+    /// Lower `text` (module docs) in the vocabulary of a pattern that names `imports`
+    /// ([`PatternEntry::imports`]), checking the target against `definition`, the baseline
+    /// definition every search runs on. The error is k-rust's message; a position in it is a
+    /// line and column of the pattern's own text, its surrounding whitespace removed, under the
+    /// source name [`PATTERN_SOURCE`], never a line of the file the pattern list came from
+    /// (GUIDE-USABILITY 4).
+    pub fn lower_importing(
+        &self,
+        text: &str,
+        imports: &[String],
+        definition: &BackendDefinition,
+    ) -> Result<LoweredPattern, String> {
         let contents = text.trim();
-        let (compiled, splits) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            compile_search_pattern_with_splits(
+        let vocabulary = if imports.is_empty() {
+            None
+        } else {
+            Some(self.vocabulary(imports)?)
+        };
+        let (parsing, execution, module) = match &vocabulary {
+            None => (
                 self.grammar.resolved(),
                 &self.execution,
-                &self.module,
+                self.module.as_str(),
+            ),
+            Some(vocabulary) => (
+                &vocabulary.parsing,
+                &vocabulary.execution,
+                vocabulary.module.as_str(),
+            ),
+        };
+        let (compiled, splits) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compile_search_pattern_with_splits(
+                parsing,
+                execution,
+                module,
                 contents,
                 pattern_attributes(contents),
             )
@@ -1007,7 +1221,21 @@ impl Lowering {
             }
             message
         })?;
-        admit_target(definition, &compiled.pattern)?;
+        admit_target(definition, &compiled.pattern).map_err(|refusal| {
+            let outside = self.outside_the_compile(imports);
+            if outside.is_empty() {
+                refusal
+            } else {
+                format!(
+                    "{refusal}; the pattern imports {}, which the specification's main module \
+                     {} does not import, directly or through a module it imports: the compiled \
+                     definition the pattern is asked of holds the symbols of those modules only, \
+                     so a pattern can name no operation another module declares",
+                    outside.join(", "),
+                    self.module
+                )
+            }
+        })?;
         let generated = compiled
             .generated_anonymous_variables
             .iter()

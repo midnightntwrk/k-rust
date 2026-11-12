@@ -806,10 +806,10 @@ fn query_unnamed(
     {
         let lowered = match &entry.form {
             PatternForm::Single(text) => lowering
-                .lower(text, searcher.definition())
+                .lower_importing(text, &entry.imports, searcher.definition())
                 .map(Lowered::Pattern),
             PatternForm::Chain(steps) => lowering
-                .lower_chain(steps, searcher.definition())
+                .lower_chain_importing(steps, &entry.imports, searcher.definition())
                 .map(Lowered::Chain),
         };
         let claimed = entry.programs.is_some();
@@ -1987,6 +1987,7 @@ mod tests {
             programs: None,
             expect,
             note: None,
+            imports: Vec::new(),
             source: None,
         }
     }

@@ -4213,6 +4213,7 @@ fn a_front_end_provides_the_patterns_of_a_krs_entry() {
         programs: Some(vec!["add".into()]),
         expect: None,
         note: None,
+        imports: Vec::new(),
         source: Some(source.clone()),
     };
     let ask = |provided: KrsPatterns| {

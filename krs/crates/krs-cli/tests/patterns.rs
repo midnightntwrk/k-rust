@@ -347,6 +347,26 @@ fn a_part_s_condition_tests_each_partial_construct_before_it() {
         projected: <stash> Stash:KItem </stash> requires isInt(Stash:KItem) andThenBool ({Stash:KItem}:>Int >Int 0)
         requested: <haltBug> true </haltBug> <memory> Memory:Map </memory> requires 65535 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65535 ]) andThenBool (65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool (requested ( {Memory:Map [ 65535 ]}:>Int , {Memory:Map [ 65295 ]}:>Int ) =/=Int 0))))
     "]].assert_eq(&parts);
+
+    // A clause carries the builtin modules its parts' text names, derived as a module's imports
+    // are from its sentences: a part's vocabulary is its own, whatever the specification's
+    // sentences import.
+    let mut imports = String::new();
+    for pattern in &emitted {
+        writeln!(imports, "{}: {}", pattern.id, pattern.imports.join(" ")).unwrap();
+    }
+    expect_test::expect![[r"
+        defaulted: BOOL INT MAP
+        divided: BOOL INT
+        excluded: BOOL INT MAP
+        keyed: BOOL INT MAP
+        lookup: BOOL INT MAP
+        negated: BOOL INT MAP
+        negated-exclusion: BOOL INT MAP
+        projected: BOOL INT
+        requested: BOOL INT MAP
+    "]]
+    .assert_eq(&imports);
 }
 
 /// A test the author wrote below `||` in a part's condition protects nothing, as in a rule's:

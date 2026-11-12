@@ -2585,7 +2585,7 @@ pub fn fuzz_front(
             let text = entry
                 .single()
                 .expect("a chain is refused when the job's entry is found");
-            match lower_pattern(manifest, &spec, text) {
+            match lower_pattern(manifest, &spec, text, &entry.imports) {
                 Ok(kore) => {
                     document["job"]["pattern"] =
                         json!({"id": entry.id, "text": text, "kore": kore});
@@ -3992,19 +3992,20 @@ fn resolve_rule(
 }
 
 /// Lower a pattern's text exactly as kink's `query` does (its rule grammar and execution
-/// definition, checked against the baseline search definition): the target's KORE, or the
-/// refusal `invalid-pattern` with k-rust's message.
+/// definition, in the vocabulary of its `imports`, checked against the baseline search
+/// definition): the target's KORE, or the refusal `invalid-pattern` with k-rust's message.
 fn lower_pattern(
     manifest: &FlowManifest,
     spec: &AdmittedSpec,
     text: &str,
+    imports: &[String],
 ) -> Result<String, Refusal> {
     let searcher = Searcher::new(spec, &manifest.spec.main_module, manifest.budget)
         .map_err(|detail| Refusal::new("pattern", "search-backend", detail))?;
     let lowering = Lowering::new(spec, &manifest.spec.main_module)
         .map_err(|detail| Refusal::new("pattern", "search-backend", detail))?;
     lowering
-        .lower(text, searcher.definition())
+        .lower_importing(text, imports, searcher.definition())
         .map(|lowered| lowered.kore())
         .map_err(|detail| Refusal::new("pattern", INVALID_PATTERN, detail))
 }
