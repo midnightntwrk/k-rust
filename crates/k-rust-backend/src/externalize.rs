@@ -1041,7 +1041,7 @@ impl HeldState {
 
     /// Whether the state's pattern holds a domain value of a sort `select` accepts; read as
     /// [`Self::names_symbol`] reads.
-    pub fn holds_domain_value_of(&self, mut select: impl FnMut(&kore::Sort) -> bool) -> bool {
+    pub fn holds_value_of_sort(&self, mut select: impl FnMut(&kore::Sort) -> bool) -> bool {
         self.any_node(|node| matches!(node, PatternNode::DomainValue { sort, .. } if select(sort)))
     }
 
@@ -1733,7 +1733,7 @@ mod tests {
             }
             for sort in ["SortString{}", "SortInt{}"] {
                 assert_eq!(
-                    held.holds_domain_value_of(|held| held.to_string() == sort),
+                    held.holds_value_of_sort(|held| held.to_string() == sort),
                     sorts.contains(sort),
                     "{sort} in {built}"
                 );

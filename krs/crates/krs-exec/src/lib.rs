@@ -3251,7 +3251,7 @@ impl Semantics {
         // An end with no Float is printed as it is: asked of the backend's state, the pattern
         // is not built to find none.
         if let Some(held) = reached.held()
-            && !held.holds_domain_value_of(|sort| self.unparser.is_float(sort))
+            && !held.holds_value_of_sort(|sort| self.unparser.is_float(sort))
         {
             return Ok((reached, resume));
         }
