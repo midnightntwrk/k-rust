@@ -225,7 +225,7 @@ impl Package {
         self.write(
             &format!("{corpus}/FLOW.toml"),
             &format!(
-                "[spec]\nkrs = {{ definition = \"main\" }}\n\n[budget]\ntime_ms = 600000\n\n\
+                "[spec]\nkrs = {{ package = \"{PACKAGE}\", definition = \"main\" }}\n\n[budget]\ntime_ms = 600000\n\n\
                  [stop]\nbefore = [\"crate::tick\"]\ncount = 3\n\n[[program]]\ncases = \
                  \"cases/*/case.toml\"\n\n{implementations}"
             ),
@@ -602,7 +602,10 @@ fn the_verdicts_are_the_corpus_records_compare_section() {
         &[("a", 2), ("b", 5)],
     );
     let record = package.directory.path().join(corpus).join("kink.lock");
-    let other = format!("{}\n{OTHER_SECTIONS}", kink_flow::verdicts::record_header());
+    let other = format!(
+        "{}\n{OTHER_SECTIONS}",
+        kink_flow::verdicts::record_header(Some(&format!("{PACKAGE}:main")))
+    );
     fs::write(&record, &other).unwrap();
 
     // A write: the section follows the others, which are kept as they were.
@@ -760,7 +763,9 @@ fn assert_a_cancelled_run_keeps_its_rows(package: &Package, corpus: &str, rewrit
     assert_status(&only, 0);
     let verdicts = String::from_utf8(only.stdout).unwrap();
     assert!(
-        verdicts.starts_with(&kink_flow::verdicts::record_header()),
+        verdicts.starts_with(&kink_flow::verdicts::record_header(Some(&format!(
+            "{PACKAGE}:main"
+        )))),
         "{verdicts}"
     );
     assert!(

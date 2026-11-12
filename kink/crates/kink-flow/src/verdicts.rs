@@ -14,7 +14,7 @@
 //! [coverage]
 //! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 //! # ...
-//! version = 27
+//! version = 28
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -83,7 +83,8 @@
 //! ([`RUN_PREAMBLE`], [`COVERAGE_PREAMBLE`]), and a comment before its families and before its
 //! rows says what an entry and each status word is ([`MUTATIONS_LEGEND`], [`FAMILIES_LEGEND`],
 //! [`FLIPS_LEGEND`]). Each comment is a constant of the rendering's version, so it moves no line
-//! of a lock. The record's header holds nothing else but `schema` ([`record_header`]); every
+//! of a lock. The record's header holds nothing else but `schema` and, where the flow names its
+//! definition, `definition` ([`record_header`]); every
 //! value below is the section's, under its `[run]` or `[coverage]` table.
 //!
 //! The section names its `version` and the build's solver `profile` (`no-z3` or `z3`): under Z3 a
@@ -271,7 +272,11 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// `[[query.pattern]]` per pattern of the list with its status and, for a hit, its recorded
 /// `witness`, and the record's comment names it: a `[run]`, `[coverage]` or `[compare]` section
 /// differs in its `version` line only, and the record in its comment.
-pub const VERDICTS_VERSION: u64 = 27;
+/// 28 since the header of a record whose flow names its definition (a KRS flow) states it
+/// (`definition = "PACKAGE:FACET"`, FLOW-NAMES-PACKAGE): every section is a function of that
+/// definition, and a command whose flow is for another is refused ([`crate::lock`]). Every
+/// section differs in its `version` line only, and the record of a K flow in nothing else.
+pub const VERDICTS_VERSION: u64 = 28;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
 /// command keeps, and that a command touches only its own, so that a reader of `kink.lock` needs
@@ -379,7 +384,8 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
 /// only `run` has written; `coverage --output verdicts` those of a lock only `coverage` has. The
 /// error names what the document is when it is neither.
 pub fn lock_text(document: &Value) -> Result<String, String> {
-    lock_section(document).map(|section| format!("{}\n{section}", record_header()))
+    lock_section(document)
+        .map(|section| format!("{}\n{section}", record_header(definition_of(document))))
 }
 
 /// The section of a lock that `document`'s command keeps (`[run]`, `[coverage]` and its
@@ -401,23 +407,34 @@ pub fn lock_section(document: &Value) -> Result<String, String> {
     Ok(section(document, kind, false))
 }
 
-/// The header of a record, before its first section: [`RECORD_PREAMBLE`] and `schema`. It holds
-/// only what is the same for every section by construction: each section states its own version,
-/// solver profile, Z3 build and specification, since each command writes its section at its own
-/// time, on the build it runs on, and keeps the other section as it is.
+/// The header of a record, before its first section: [`RECORD_PREAMBLE`], `schema`, and
+/// `definition`, the definition the flow is for (`PACKAGE:FACET`), where the flow names one. It
+/// holds only what is the same for every section by construction: each section states its own
+/// version, solver profile, Z3 build and specification, since each command writes its section at
+/// its own time, on the build it runs on, and keeps the other section as it is; every section is
+/// a function of the one definition its flow names.
 #[must_use]
-pub fn record_header() -> String {
+pub fn record_header(definition: Option<&str>) -> String {
     let mut text = String::new();
     comment(&mut text, RECORD_PREAMBLE);
     line(&mut text, "schema", &string(VERDICTS_SCHEMA));
+    if let Some(definition) = definition {
+        line(&mut text, "definition", &string(definition));
+    }
     text
+}
+
+/// The definition `document`'s flow is for, as a front end whose flow names one states it
+/// (`definition.name`, `PACKAGE:FACET`), so that the rendering's header is the record's.
+fn definition_of(document: &Value) -> Option<&str> {
+    document["definition"]["name"].as_str()
 }
 
 fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     let kind = section_name(document)?;
     Ok(format!(
         "{}\n{}",
-        record_header(),
+        record_header(definition_of(document)),
         section(document, kind, killed_by)
     ))
 }

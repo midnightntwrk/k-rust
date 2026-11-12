@@ -861,7 +861,14 @@ pub fn command(
 ) -> Value {
     let lock = match options.lock.as_deref() {
         None => None,
-        Some(path) => match Lock::read_for(path, LockKind::Compare, None, options.locked, verb) {
+        Some(path) => match Lock::read_for(
+            path,
+            LockKind::Compare,
+            None,
+            options.locked,
+            verb,
+            manifest.definition.as_deref(),
+        ) {
             Ok(lock) => Some(lock),
             Err(detail) => return lock_refused(manifest, path, &detail),
         },

@@ -624,6 +624,7 @@ pub fn command(
             options.legacy_lock.as_deref(),
             options.locked,
             &front.spelling.verb(crate::Verb::Coverage),
+            manifest.definition.as_deref(),
         )
     };
     let lock = match options.lock.as_deref().map(read).transpose() {

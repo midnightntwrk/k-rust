@@ -3,7 +3,7 @@
 # which the coverage scenes show (scripts/sync-story.py reads the recorded output).
 
 [spec]
-krs = { definition = "main" }
+krs = { package = "story-plus", definition = "main" }
 
 [[program]]
 id = "t1"

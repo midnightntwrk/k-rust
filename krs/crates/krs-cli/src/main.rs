@@ -264,8 +264,11 @@ Usage:
                    [--output json|text] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):
-  FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
-                    kink-flow's manifest: each case is a [[program]] entry, and kink's
+  FLOW.toml         [spec] krs = { package = \"P\", definition = \"D\" }, [budget], and the
+                    cases, as kink-flow's manifest: the flow names the definition its files
+                    are for, so with --corpus DIR a command needs no --package and no
+                    --definition, and one that selects another package or facet is refused
+                    before it builds or writes; each case is a [[program]] entry, and kink's
                     documents list the cases under `programs`; a case's paths stay inside
                     the corpus directory; [result] cells names cells by Rust path
                     (cpu.regs), as krs compare does; each [[implementation]] is another
@@ -2545,15 +2548,33 @@ fn kink_request(
     if options.package.is_some() && options.package_id.is_some() {
         return Err(kink("--package and --package-id cannot be combined".into()));
     }
+    // A flow names the definition it is for, so a command given `--corpus DIR` takes from the
+    // flow's `[spec] krs` whichever of the package and the facet it does not name; one it does
+    // name is compared with the flow's once the package is planned, and another's is refused.
+    let named = options.package.is_some() || options.package_id.is_some();
+    let flow = if named && options.definition.is_some() {
+        None
+    } else {
+        Some(corpus.as_deref().map_or_else(
+            || Err("no --corpus DIR names a flow that states it".to_owned()),
+            krs_cli::kink::flow_definition,
+        ))
+    };
+    let from_flow = |missing: &str| match &flow {
+        Some(Ok(definition)) => Ok(definition.clone()),
+        Some(Err(why)) => Err(kink(format!("missing {missing}: {why}"))),
+        None => unreachable!("the flow is read when a selection is missing"),
+    };
     let root = FacetSelector {
         package: match (options.package, options.package_id) {
             (Some(name), None) => PackageSelector::Name(name),
             (None, Some(id)) => PackageSelector::Id(id),
-            _ => return Err(kink("missing --package or --package-id".into())),
+            _ => PackageSelector::Name(from_flow("--package or --package-id")?.0),
         },
-        definition: options
-            .definition
-            .ok_or_else(|| kink("missing --definition".into()))?,
+        definition: match options.definition {
+            Some(definition) => definition,
+            None => from_flow("--definition")?.1,
+        },
     };
     Ok(ParseResult::Kink(
         Box::new(krs_cli::KinkRequest {
@@ -2891,6 +2912,63 @@ mod tests {
             ParseResult::Kink(request, _) => *request,
             _ => panic!("expected a kink command for {args:?}"),
         }
+    }
+
+    /// A flow names the definition it is for, so `krs kink --corpus DIR` takes from the flow
+    /// whichever of the package and the facet the command line does not name; a selection the
+    /// command line gives is kept, to be compared with the flow's once the package is planned;
+    /// and a corpus whose flow names none leaves the selection missing, saying why.
+    #[cfg(feature = "kink")]
+    #[test]
+    fn kink_takes_a_missing_selection_from_the_corpus_flow() {
+        let directory = tempfile::tempdir().unwrap();
+        let corpus = directory.path().join("corpus");
+        std::fs::create_dir_all(&corpus).unwrap();
+        std::fs::write(
+            corpus.join("FLOW.toml"),
+            "[spec]\nkrs = { package = \"plus\", definition = \"main\" }\n",
+        )
+        .unwrap();
+        let corpus = corpus.to_str().unwrap();
+        let selected = |extra: &[&str]| {
+            let request = kink(&[&["kink", "coverage", "--corpus", corpus][..], extra].concat());
+            (request.root.package, request.root.definition)
+        };
+        let name = |name: &str| PackageSelector::Name(name.to_owned());
+        assert_eq!(selected(&[]), (name("plus"), "main".to_owned()));
+        assert_eq!(
+            selected(&["--package", "other"]),
+            (name("other"), "main".to_owned())
+        );
+        assert_eq!(
+            selected(&["--definition", "lite"]),
+            (name("plus"), "lite".to_owned())
+        );
+        assert_eq!(
+            selected(&["--package-id", "id", "--definition", "lite"]),
+            (PackageSelector::Id("id".to_owned()), "lite".to_owned())
+        );
+        // No flow states the selection: no `--corpus`, a directory without a manifest, a K flow.
+        let missing = error(&["kink", "coverage", "--package", "p"]);
+        assert!(
+            missing.contains("missing --definition: no --corpus DIR names a flow"),
+            "{missing}"
+        );
+        let empty = directory.path().join("empty");
+        let missing = error(&["kink", "coverage", "--corpus", empty.to_str().unwrap()]);
+        assert!(
+            missing.contains("missing --package or --package-id:")
+                && missing.contains("FLOW.toml is not a file"),
+            "{missing}"
+        );
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::write(
+            empty.join("FLOW.toml"),
+            "[spec]\nentry = \"a.k\"\nmain_module = \"A\"\n",
+        )
+        .unwrap();
+        let missing = error(&["kink", "coverage", "--corpus", empty.to_str().unwrap()]);
+        assert!(missing.contains("is a K flow"), "{missing}");
     }
 
     /// `krs kink` takes krs's selection before or after the verb and hands every other option

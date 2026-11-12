@@ -13,7 +13,14 @@
 //! for a command records nothing for it: a first `coverage` after only `run`s is no error.
 //!
 //! The header, before the first section, holds only what is the same for every section by
-//! construction: the comment that says what the file is, and `schema`. Every value a verdict
+//! construction: the comment that says what the file is, `schema`, and, for a flow that names its
+//! definition (a KRS flow, [`crate::manifest::KrsSpec::name`]), `definition = "PACKAGE:FACET"`.
+//! Every section of a record is a function of one definition (a mutation is a patch of its K, an
+//! obligation is one of its rules, a verdict compares its ends), so the record says which: a
+//! record that does not name its subject can be overwritten by another's. A command whose flow
+//! is for another definition than the one the file names is refused before anything runs, with
+//! or without `--locked` ([`Lock::for_definition`]). A K flow's record names none, its `[spec]`
+//! being the specification itself. Every value a verdict
 //! depends on, the rendering's `version`, the solver `profile`, the Z3 build and the
 //! specification's admission, is in each section: each command writes its section at its own
 //! time, on the build it runs on, and keeps the other as it is, so a value said once would be
@@ -319,6 +326,12 @@ pub struct Lock {
     /// The old file a front end kept this command's lock in, where it is still there
     /// ([`Lock::adopt_legacy`]).
     pub legacy: Option<Legacy>,
+    /// The definition the command's flow is for, which a write states in the record's header
+    /// ([`Lock::for_definition`]); `None` for a K flow.
+    pub definition: Option<String>,
+    /// The definition the file's header names; `None` when the file is absent or names none (a K
+    /// flow's record, or one written before version 28).
+    pub recorded_definition: Option<String>,
 }
 
 /// An old file a front end kept a command's lock in before version 24, still beside the record.
@@ -423,7 +436,34 @@ impl Lock {
         Self::decode(path, text, kind)
     }
 
-    /// Read `kind`'s section of the record at `path` for a command: [`Lock::read_kind`], the old
+    /// The lock as the record of a flow for `definition` (`PACKAGE:FACET`; `None` for a K flow),
+    /// which a write then states in the record's header. A file that names another definition is
+    /// refused, whatever the command: its sections are that definition's verdicts, so this
+    /// command's rows would replace them (or, read as this flow's, give killers and statuses of
+    /// another specification). A file that names none is read: it is a K flow's record, or one
+    /// written before version 28, which a command without `--locked` rewrites with the name
+    /// ([`Lock::refuse_other_version`] refuses it under `--locked`).
+    pub fn for_definition(mut self, definition: Option<&str>) -> Result<Self, String> {
+        if let Some(recorded) = &self.recorded_definition
+            && Some(recorded.as_str()) != definition
+        {
+            let flow = definition.map_or_else(
+                || "this flow names no definition (a K flow)".to_owned(),
+                |definition| format!("this flow is for `{definition}`"),
+            );
+            return Err(format!(
+                "{}: it is the record of the definition `{recorded}`, and {flow}: every section \
+                 holds that definition's verdicts, which this command would replace with \
+                 another's; give --lock this flow's own file",
+                self.path.display()
+            ));
+        }
+        self.definition = definition.map(str::to_owned);
+        Ok(self)
+    }
+
+    /// Read `kind`'s section of the record at `path` for a command whose flow is for
+    /// `definition` ([`Lock::for_definition`]): [`Lock::read_kind`], the old
     /// file `legacy` a front end kept the command's lock in ([`Lock::adopt_legacy`]), and under
     /// `--locked` ([`Lock::refuse_other_version`], [`Lock::refuse_legacy`]) the refusals that name
     /// `command`, the front end's spelling of the verb, as the command that rewrites the file.
@@ -433,8 +473,9 @@ impl Lock {
         legacy: Option<&Path>,
         locked: bool,
         command: &str,
+        definition: Option<&str>,
     ) -> Result<Self, String> {
-        let mut lock = Self::read_kind(path, kind)?;
+        let mut lock = Self::read_kind(path, kind)?.for_definition(definition)?;
         if let Some(legacy) = legacy {
             lock.adopt_legacy(legacy)?;
         }
@@ -455,6 +496,11 @@ impl Lock {
         if table.get("schema").and_then(toml::Value::as_str) != Some(VERDICTS_SCHEMA) {
             return Err(refused(format!("its schema is not {VERDICTS_SCHEMA:?}")));
         }
+        let recorded_definition = match table.get("definition") {
+            None => None,
+            Some(toml::Value::String(definition)) => Some(definition.clone()),
+            Some(_) => return Err(refused("its definition is not a string".to_owned())),
+        };
         let name = kind.document();
         // A lock before version 24 is one command's rendering at the top of its file.
         let empty = toml::Table::new();
@@ -605,6 +651,8 @@ impl Lock {
             argued: listed("argued"),
             arguments,
             legacy: None,
+            definition: None,
+            recorded_definition,
         })
     }
 
@@ -810,10 +858,10 @@ impl Lock {
         let kind = self.kind;
         // The record's header is the file's: a file whose header is not the one a write gives
         // differs in its header, as one with no section for the command does.
-        let file_header = self
-            .text
-            .as_deref()
-            .is_some_and(|text| split(text).0.trim_end_matches('\n') == record_header().trim_end());
+        let file_header = self.text.as_deref().is_some_and(|text| {
+            split(text).0.trim_end_matches('\n')
+                == record_header(self.definition.as_deref()).trim_end()
+        });
         let header = !file_header
             || self
                 .section
@@ -928,7 +976,10 @@ impl Lock {
         // Another command may have written the file since it was read: what it holds now is
         // what this write keeps, and it must still be a record this command may write.
         let current = match &fresh {
-            Some(text) => Some(Self::decode(&self.path, text.clone(), self.kind)?),
+            Some(text) => Some(
+                Self::decode(&self.path, text.clone(), self.kind)?
+                    .for_definition(self.definition.as_deref())?,
+            ),
             None => None,
         };
         let kept = fresh.as_deref().map_or_else(Vec::new, |text| {
@@ -938,7 +989,7 @@ impl Lock {
                 .map(|(found, _, slice)| (found, trimmed(slice)))
                 .collect()
         });
-        let mut text = record_header();
+        let mut text = record_header(self.definition.as_deref());
         for kind in SECTIONS {
             let part = if kind == self.kind {
                 Some(section.to_owned())
@@ -1797,7 +1848,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "[compare]\n{preamble}version = 27\nprofile = \"no-z3\"\n\
+            "[compare]\n{preamble}version = 28\nprofile = \"no-z3\"\n\
              protocol = \"kink-implementation/1\"\n\n[compare.spec]\noutcome = \"admitted\"\n\n\
              {legend}{rows}"
         )
@@ -1838,7 +1889,7 @@ mod tests {
             )
         );
         assert_eq!(lock.header["protocol"], "kink-implementation/1");
-        assert_eq!(lock.header["version"], 27);
+        assert_eq!(lock.header["version"], 28);
         // A row with no implementation, program or view does not decode.
         let broken = text.replacen("view = \"whole\"\n", "", 1);
         assert!(
@@ -2106,12 +2157,12 @@ mod tests {
     #[test]
     fn a_record_is_its_header_and_one_section_per_command() {
         let run = lock_text(&run_document(&[("a", "killed", Some("t1"))])).unwrap();
-        let header = record_header();
+        let header = record_header(None);
         assert!(run.starts_with(&format!("{header}\n[run]\n# ")), "{run}");
         assert!(!header.contains("version"), "{header}");
         assert!(
             run.contains(
-                "\nversion = 27\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
+                "\nversion = 28\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
             ),
             "{run}"
         );
@@ -2129,7 +2180,7 @@ mod tests {
             lock.killers(),
             BTreeMap::from([("a".to_owned(), "t1".to_owned())])
         );
-        assert_eq!(lock.header["version"], 27);
+        assert_eq!(lock.header["version"], 28);
         // The other command finds no section of its own: it records nothing, and is no error.
         let coverage = decoded(&run, LockKind::Coverage);
         assert_eq!(
@@ -2137,6 +2188,83 @@ mod tests {
             (None, 0)
         );
         assert!(!coverage.records());
+    }
+
+    /// The record of a flow that names its definition states it in its header, and a command
+    /// whose flow is for another definition (or for none) is refused before it compares or writes,
+    /// the file left as it was. A record that names none (a K flow's, or one written before
+    /// version 28) is read; `--locked` finds its header stale, and a write adds the name.
+    #[test]
+    fn a_record_names_its_definition_and_refuses_another() {
+        let dir = scratch("definition");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let run = run_document(&[("m", "killed", Some("t1"))]);
+        let read = |definition: Option<&str>| {
+            Lock::read_for(&path, LockKind::Run, None, false, "run", definition)
+        };
+        let (value, _) = read(Some("plus:main")).unwrap().settle(&store, &run, WRITE);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let written = fs::read_to_string(&path).unwrap();
+        let header = record_header(Some("plus:main"));
+        assert!(
+            header.ends_with("schema = \"kink-flow-verdicts\"\ndefinition = \"plus:main\"\n"),
+            "{header}"
+        );
+        assert_eq!(
+            written,
+            format!("{header}\n{}", lock_section(&run).unwrap())
+        );
+        let (value, _) = read(Some("plus:main"))
+            .unwrap()
+            .settle(&store, &run, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+
+        // Another definition's flow, and a flow that names none, are refused; nothing is written.
+        for other in [Some("refined:main"), Some("plus:other"), None] {
+            let detail = read(other).unwrap_err();
+            assert!(
+                detail.contains("it is the record of the definition `plus:main`")
+                    && detail.contains(other.unwrap_or("names no definition")),
+                "{detail}"
+            );
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        // So is a write whose file came to name another definition after it was read.
+        let lock = read(Some("plus:main")).unwrap();
+        let theirs = written.replace("plus:main", "refined:main");
+        fs::write(&path, &theirs).unwrap();
+        let moved = run_document(&[("m", "survived", None)]);
+        let (value, ok) = lock.settle(&store, &moved, WRITE);
+        assert!(!ok);
+        assert_eq!(value["reason"], "write-failed", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), theirs);
+
+        // A record that names no definition: stale in its header under `--locked`, rewritten
+        // with the name otherwise, its rows kept.
+        let unnamed = lock_text(&run).unwrap();
+        assert!(!unnamed.contains("definition ="), "{unnamed}");
+        fs::write(&path, &unnamed).unwrap();
+        let (value, _) = read(Some("plus:main"))
+            .unwrap()
+            .settle(&store, &run, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(value["header"], true, "{value:#}");
+        assert_eq!(value["changes"], json!([]), "{value:#}");
+        let (value, _) = read(Some("plus:main")).unwrap().settle(&store, &run, WRITE);
+        assert_eq!(value["status"], "written", "{value:#}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        // A definition that is not a string does not decode.
+        fs::write(
+            &path,
+            unnamed.replace("\n\n[run]", "\ndefinition = 1\n\n[run]"),
+        )
+        .unwrap();
+        assert!(
+            read(None)
+                .unwrap_err()
+                .contains("its definition is not a string")
+        );
     }
 
     /// Each command rewrites only its own section and keeps the other's text byte for byte
@@ -2164,7 +2292,7 @@ mod tests {
         let coverage_section = lock_section(&coverage).unwrap();
         assert_eq!(
             both,
-            format!("{}\n{run_section}\n{coverage_section}", record_header())
+            format!("{}\n{run_section}\n{coverage_section}", record_header(None))
         );
 
         // A stale `[run]`: `coverage --locked` is unchanged, `run --locked` is stale.
@@ -2199,7 +2327,7 @@ mod tests {
             rewritten,
             format!(
                 "{}\n{}\n{kept}",
-                record_header(),
+                record_header(None),
                 lock_section(&moved).unwrap()
             )
         );
@@ -2245,7 +2373,7 @@ mod tests {
             last,
             format!(
                 "{}\n{}\n{}",
-                record_header(),
+                record_header(None),
                 lock_section(runs.last().unwrap()).unwrap(),
                 lock_section(coverages.last().unwrap()).unwrap()
             )
@@ -2316,7 +2444,7 @@ mod tests {
             ]
         );
         let lock = decoded(
-            &format!("{}\n{coverage}", record_header()),
+            &format!("{}\n{coverage}", record_header(None)),
             LockKind::Coverage,
         );
         assert_eq!(
@@ -2551,7 +2679,7 @@ mod tests {
         assert_eq!(
             lock.refuse_other_version(command).unwrap_err(),
             "kink.lock: it is recorded at version 23 of the verdicts rendering, and this build \
-             writes version 27, so --locked cannot find it current; run `krs kink coverage \
+             writes version 28, so --locked cannot find it current; run `krs kink coverage \
              --package p --definition main` without --locked once to rewrite it, and review its \
              diff"
         );
@@ -2567,12 +2695,12 @@ mod tests {
             decoded(&current, kind).refuse_other_version(command),
             Ok(())
         );
-        let other_version = current.replace("\nversion = 27\n", "\nversion = 28\n");
+        let other_version = current.replace("\nversion = 28\n", "\nversion = 29\n");
         assert!(
             decoded(&other_version, kind)
                 .refuse_other_version(command)
                 .unwrap_err()
-                .starts_with("kink.lock: its [coverage] section is recorded at version 28"),
+                .starts_with("kink.lock: its [coverage] section is recorded at version 29"),
         );
         assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
         let refused = Lock::decode(Path::new(LOCK_FILE), old.to_owned(), LockKind::Run);
@@ -2597,7 +2725,7 @@ mod tests {
                         [[mutation]]\nid = \"m\"\nstatus = \"killed\"\nkiller = \"t9\"\n";
         fs::write(&old, old_text).unwrap();
         let command = "krs kink run --package p --definition main";
-        let read = |locked| Lock::read_for(&path, LockKind::Run, Some(&old), locked, command);
+        let read = |locked| Lock::read_for(&path, LockKind::Run, Some(&old), locked, command, None);
         assert_eq!(
             read(true).unwrap_err(),
             format!(

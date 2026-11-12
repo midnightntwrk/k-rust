@@ -1066,7 +1066,7 @@ fn the_command_line_prints_verdicts() {
     // A KRS corpus is refused by kink-flow, naming the command to use.
     fs::write(
         dir.join("FLOW.toml"),
-        "[spec]\nkrs = { definition = \"main\" }\n",
+        "[spec]\nkrs = { package = \"plus\", definition = \"main\" }\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_kink-flow"))

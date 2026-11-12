@@ -180,6 +180,16 @@ impl PlannedCollection {
         root_directory(&self.plan)
     }
 
+    /// The Cargo name of the selected root package.
+    #[cfg(feature = "kink")]
+    pub(crate) fn root_package_name(&self) -> Option<String> {
+        self.plan
+            .facets()
+            .iter()
+            .find(|facet| facet.is_root)
+            .map(|facet| facet.package_name.clone())
+    }
+
     /// Build and run the planned collector and decode its descriptors, recording the stages'
     /// timings and counters in `measurement`.
     pub(crate) fn collect(

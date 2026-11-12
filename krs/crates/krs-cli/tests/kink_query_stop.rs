@@ -105,7 +105,7 @@ impl Package {
             write(
                 &format!("{corpus}/FLOW.toml"),
                 &format!(
-                    "[spec]\nkrs = {{ definition = \"main\" }}\n\n[budget]\ntime_ms = 600000\n\n\
+                    "[spec]\nkrs = {{ package = \"{PACKAGE}\", definition = \"main\" }}\n\n[budget]\ntime_ms = 600000\n\n\
                      {sections}\n[[program]]\nid = \"t0\"\nfile = \"cases/t0.tick\"\n"
                 ),
             );

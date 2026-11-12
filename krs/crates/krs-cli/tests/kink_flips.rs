@@ -63,7 +63,11 @@ impl Package {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("kink")).unwrap();
         fs::write(root.join("src/lib.rs"), library).unwrap();
-        fs::write(root.join("kink/FLOW.toml"), flow).unwrap();
+        fs::write(
+            root.join("kink/FLOW.toml"),
+            krs_test_support::flow_of_package(flow, name),
+        )
+        .unwrap();
         fs::write(
             root.join("Cargo.toml"),
             format!(

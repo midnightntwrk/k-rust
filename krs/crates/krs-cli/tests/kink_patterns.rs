@@ -116,7 +116,7 @@ const BAD: &str = r"k::patterns! {
 ";
 
 /// The corpus: two programs, each writing a value, marking, and reading.
-const FLOW: &str = "[spec]\nkrs = { definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n\n\
+const FLOW: &str = "[spec]\nkrs = { package = \"spec\", definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n\n\
                     [[program]]\nid = \"p1\"\nfile = \"cases/p1.prog\"\n\n\
                     [[program]]\nid = \"p2\"\nfile = \"cases/p2.prog\"\n";
 

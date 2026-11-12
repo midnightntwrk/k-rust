@@ -52,7 +52,9 @@ impl Package {
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("kink/cases")).unwrap();
         fs::write(root.join("src/lib.rs"), LIBRARY).unwrap();
-        let mut flow = String::from("[spec]\nkrs = { definition = \"main\" }\n");
+        let mut flow = String::from(
+            "[spec]\nkrs = { package = \"krs-cli-kink-coverage-flips\", definition = \"main\" }\n",
+        );
         for (id, program) in CASES {
             fs::write(
                 root.join(format!("kink/cases/{id}.g")),

@@ -892,7 +892,10 @@ pub fn command(
             LockKind::Compare,
             LockKind::Query,
         ] {
-            match Lock::read_kind(path, kind) {
+            // The record of another definition holds none of this flow's rows.
+            let read = Lock::read_kind(path, kind)
+                .and_then(|lock| lock.for_definition(manifest.definition.as_deref()));
+            match read {
                 Ok(lock) => locks.push(lock),
                 Err(detail) => return refused("lock", None, &detail),
             }

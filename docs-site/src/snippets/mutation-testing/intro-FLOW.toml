@@ -1,5 +1,5 @@
 [spec]
-krs = { definition = "main" }
+krs = { package = "story-plus", definition = "main" }
 
 [[program]]
 id = "t1"

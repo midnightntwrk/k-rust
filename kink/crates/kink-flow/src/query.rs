@@ -512,7 +512,14 @@ pub(crate) fn query_with(
 ) -> (Value, bool) {
     let lock = match options.lock.as_deref() {
         None => None,
-        Some(path) => match Lock::read_for(path, LockKind::Query, None, options.locked, command) {
+        Some(path) => match Lock::read_for(
+            path,
+            LockKind::Query,
+            None,
+            options.locked,
+            command,
+            manifest.definition.as_deref(),
+        ) {
             Ok(lock) => Some(lock),
             Err(detail) => {
                 let mut document = refused_document(&AdmissionRecord::new(&manifest.spec.entry));
@@ -2037,7 +2044,7 @@ mod tests {
             json!([{"program": "B", "run": "search"}])
         );
         let document = obliged(stopped);
-        let text = "schema = \"kink-flow-verdicts\"\n\n[query]\nversion = 27\n\
+        let text = "schema = \"kink-flow-verdicts\"\n\n[query]\nversion = 28\n\
                     profile = \"no-z3\"\n\n[[query.pattern]]\nid = \"p\"\nstatus = \"hit\"\n\
                     witness = \"B\"\n";
         let dir = std::env::temp_dir().join(format!("kink-flow-query-keep-{}", std::process::id()));

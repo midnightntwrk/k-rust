@@ -36,7 +36,7 @@ A package's corpus is a directory `kink/` beside its `Cargo.toml` (`--corpus DIR
 
 | path | what it is |
 | --- | --- |
-| `kink/FLOW.toml` | the corpus manifest: `[spec] krs = { definition = "main" }`, the budget, and the cases |
+| `kink/FLOW.toml` | the corpus manifest: `[spec] krs = { package = "story-plus", definition = "main" }`, the definition the corpus is for, the budget, and the cases |
 | `kink/cases/` | the cases' program files and case documents |
 | `kink/mutations/<topic>.toml` | the mutations, one file per topic |
 | `kink/definition.k` | the K kink judges, written by `krs kink` and committed |

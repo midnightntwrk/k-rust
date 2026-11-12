@@ -127,8 +127,9 @@ impl Package {
 
     /// `FLOW.toml` with `[budget] time_ms = time_ms` and the default work budget.
     fn set_clock(&self, time_ms: u64) {
-        let mut flow =
-            format!("[spec]\nkrs = {{ definition = \"main\" }}\n\n[budget]\ntime_ms = {time_ms}\n");
+        let mut flow = format!(
+            "[spec]\nkrs = {{ package = \"{NAME}\", definition = \"main\" }}\n\n[budget]\ntime_ms = {time_ms}\n"
+        );
         for (id, _) in CASES {
             writeln!(
                 flow,

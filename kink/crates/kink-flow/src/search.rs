@@ -2854,6 +2854,7 @@ pub(crate) fn run_session(
             options.legacy_lock.as_deref(),
             options.locked,
             &front.spelling.verb(Verb::Run),
+            manifest.definition.as_deref(),
         )
     };
     let lock = match options.lock.as_deref().map(read).transpose() {

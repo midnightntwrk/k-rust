@@ -146,7 +146,7 @@ impl Package {
         fs::write(root.join("src/lib.rs"), LIBRARY).unwrap();
         // The clock never decides a run of the tests (R4-WALLCLOCK).
         let mut flow =
-            "[spec]\nkrs = { definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n".to_owned();
+            "[spec]\nkrs = { package = \"krs-cli-kink-syntax\", definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n".to_owned();
         for (id, program) in CASES {
             writeln!(
                 flow,

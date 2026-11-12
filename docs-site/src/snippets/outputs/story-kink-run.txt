@@ -4,12 +4,13 @@ $ krs kink --package story-plus --definition main run --full --output verdicts -
 # lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and
 # rewrites only its own section, and keeps the others as they are.
 schema = "kink-flow-verdicts"
+definition = "story-plus:main"
 
 [run]
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 27
+version = 28
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"

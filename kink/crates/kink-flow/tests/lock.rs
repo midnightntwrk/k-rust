@@ -166,7 +166,7 @@ fn statuses(document: &Value) -> Vec<(String, String)> {
 fn lock_with(killers: &[(&str, &str)]) -> String {
     let mut text = format!(
         "{}\n[run]\nversion = {}\n",
-        kink_flow::verdicts::record_header(),
+        kink_flow::verdicts::record_header(None),
         kink_flow::verdicts::VERDICTS_VERSION
     );
     for (id, killer) in killers {

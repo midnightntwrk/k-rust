@@ -3,7 +3,8 @@
 //! The front end builds the selected package once, in process, as `krs emit-k` does
 //! ([`crate::CollectedDefinition::emit_k`]), keeps `kink/definition.k` equal to that emission
 //! (the `emit` submodule), decodes `kink/FLOW.toml` with kink-flow's own decoder, binds its
-//! `[spec] krs = { definition = .. }` declaration to that file, and runs the verb through
+//! `[spec] krs = { package = .., definition = .. }` declaration to that file, and runs the verb
+//! through
 //! kink-flow's command layer ([`kink_flow::FlowCommand::parse`], [`kink_flow::dispatch`]) with
 //! the options kink-flow's own command line takes. The engine is kink-flow's: admission,
 //! resolution, the kill definition and the caches are those of a K corpus over the same file.
@@ -107,6 +108,14 @@
 //! depends on the corpus directory and `--cache` alone, so `report` reads the corpus manifest and
 //! prints that document as the run printed it; its `definition` is the run's, since the run
 //! stores the document with it. It judges no `definition.k`, so it takes no `--locked`.
+//!
+//! A flow names the definition it is for (`[spec] krs`'s `package` and `definition`), since every
+//! file of its directory (`definition.k`, the mutations, each section of `kink.lock`) is a
+//! function of that one definition. A command that selected another package or facet is refused
+//! once the package is planned and before anything is built or written, at stage `definition`,
+//! reason `another-definition`, naming both ([`other_definition`]); `emit` refuses it in its
+//! `refusal`. So a command given `--corpus DIR` needs no `--package` and no `--definition`: the
+//! command line takes them from the flow ([`flow_definition`]).
 //!
 //! A package krs refuses, from its selection (an unknown package or facet, a manifest Cargo
 //! cannot read) to its emission, is answered by krs's diagnostics on stderr and the verb's
@@ -284,11 +293,15 @@ pub fn execute_kink(request: &KinkRequest, measurement: &mut Measurement) -> Kin
             return outcome.usage("the root package has no directory; give --corpus DIR");
         }
     };
+    let selected = Selected::of(&planned, request);
     match &request.verb {
         KinkVerb::Emit { check } => emit_command(
             planned,
-            &corpus,
-            root.as_deref(),
+            EmitTarget {
+                corpus: &corpus,
+                root: root.as_deref(),
+                selected: &selected,
+            },
             *check,
             &spelling::KrsSpelling::new(request),
             outcome,
@@ -298,6 +311,7 @@ pub fn execute_kink(request: &KinkRequest, measurement: &mut Measurement) -> Kin
             let paths = CorpusPaths {
                 corpus: &corpus,
                 root: root.as_deref(),
+                selected: &selected,
             };
             flow_command(
                 request,
@@ -377,7 +391,8 @@ pub fn condition_flips_reading(
             "the root package has no directory; give --corpus DIR".to_owned(),
         ));
     };
-    let declared = match corpus_manifest(&corpus.join(MANIFEST_FILE), &request.root.definition) {
+    let selected = Selected::of(&planned, request);
+    let declared = match corpus_manifest(&corpus.join(MANIFEST_FILE), &selected) {
         Ok(declared) => declared,
         Err(error) => return Err(refuse(outcome, error.to_string())),
     };
@@ -491,11 +506,114 @@ fn selection_refused(
 }
 
 /// Where a command's corpus is: its directory, and the root package's directory documents show
-/// paths relative to.
+/// paths relative to; and the definition the command selected, which the corpus must be for.
 #[derive(Clone, Copy)]
 struct CorpusPaths<'a> {
     corpus: &'a Path,
     root: Option<&'a Path>,
+    selected: &'a Selected,
+}
+
+/// The definition a command selected: the planned root package's name (whichever of `--package`
+/// and `--package-id` named it) and its facet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Selected {
+    package: String,
+    definition: String,
+}
+
+impl Selected {
+    fn of(planned: &crate::command::PlannedCollection, request: &KinkRequest) -> Self {
+        Self {
+            // A plan has its root facet; the selector's own spelling stands in for a plan
+            // without one, which no flow's package equals unless it is that name.
+            package: planned
+                .root_package_name()
+                .unwrap_or_else(|| match &request.root.package {
+                    crate::PackageSelector::Name(name) | crate::PackageSelector::Id(name) => {
+                        name.clone()
+                    }
+                }),
+            definition: request.root.definition.clone(),
+        }
+    }
+
+    /// `PACKAGE:FACET`, as a flow's [`KrsSpec::name`].
+    fn name(&self) -> String {
+        format!("{}:{}", self.package, self.definition)
+    }
+}
+
+/// Why a command does not run on the corpus manifest it names.
+#[derive(Debug)]
+enum CorpusRefusal {
+    /// The manifest does not decode, or is not a KRS flow.
+    Manifest(ManifestError),
+    /// The flow is for another definition than the command selected ([`other_definition`]); the
+    /// detail.
+    OtherDefinition(String),
+}
+
+impl std::fmt::Display for CorpusRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Manifest(error) => error.fmt(formatter),
+            Self::OtherDefinition(detail) => formatter.write_str(detail),
+        }
+    }
+}
+
+/// The reason of a document refused at stage `definition` because the flow is for another
+/// definition than the command selected.
+const ANOTHER_DEFINITION: &str = "another-definition";
+
+/// Why the flow `declared` (the manifest at `path`) is not `selected`'s, when it is another
+/// definition's: the refusal's detail, naming both. Every file of a flow's directory is a
+/// function of the one definition the flow names (`definition.k` is its emitted K, a mutation a
+/// patch of that K, each section of `kink.lock` its verdicts), so a command on another
+/// definition would replace them with files that are not that definition's.
+fn other_definition(declared: &KrsSpec, selected: &Selected, path: &Path) -> Option<String> {
+    let (flow, command) = (declared.name(), selected.name());
+    (flow != command).then(|| {
+        format!(
+            "{} is the flow of the definition `{flow}` (package `{}`, facet `{}`), and this \
+             command selected `{command}` (package `{}`, facet `{}`): {DEFINITION_FILE}, the \
+             mutations and every section of {LOCK_FILE} beside it are that definition's, so \
+             this command would replace them with another's; run it with `--package {} \
+             --definition {}`, or without them (`--corpus` names the flow), or give --corpus \
+             the flow of `{command}`",
+            path.display(),
+            declared.package,
+            declared.definition,
+            selected.package,
+            selected.definition,
+            declared.package,
+            declared.definition,
+        )
+    })
+}
+
+/// The package and the facet the flow in the corpus directory `corpus` names (`[spec] krs` of
+/// its `FLOW.toml`), which a command line that gives `--corpus` without `--package` or
+/// `--definition` selects.
+///
+/// # Errors
+///
+/// Why the directory names none: it has no `FLOW.toml`, the manifest does not decode, or it is a
+/// K flow.
+pub fn flow_definition(corpus: &Path) -> Result<(String, String), String> {
+    let path = corpus.join(MANIFEST_FILE);
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    match ManifestFile::read(&path).map(|file| file.spec) {
+        Ok(SpecDecl::Krs(declared)) => Ok((declared.package, declared.definition)),
+        Ok(SpecDecl::K(_)) => Err(format!(
+            "{} is a K flow, which names no KRS package",
+            path.display()
+        )),
+        Err(error) => Err(format!("{}: {error}", path.display())),
+    }
 }
 
 /// A kink-flow verb: parse its options, read the corpus manifest, build the package, keep
@@ -512,18 +630,24 @@ fn flow_command(
     let corpus = paths.corpus;
     let spelling =
         spelling::KrsSpelling::new(request).with_own_mutations(layout_mutations(corpus, Verb::Run));
-    let (command, declared) = match parsed_command(request, corpus, verb, options) {
+    let (command, declared) = match parsed_command(request, paths, verb, options) {
         Ok(parsed) => parsed,
         Err(message) => return outcome.usage(&message),
     };
     let output = command.output();
     let declared = match declared {
         Ok(declared) => declared,
-        Err(error) => {
+        Err(CorpusRefusal::Manifest(error)) => {
             let document = command.manifest_refused(&error);
             return finish(outcome, &document, EXIT_UNASKED, output);
         }
+        // Another definition's flow: nothing is built, and no file of the corpus is written.
+        Err(CorpusRefusal::OtherDefinition(detail)) => {
+            let document = refused(&command, "definition", ANOTHER_DEFINITION, &detail);
+            return finish(outcome, &document, EXIT_UNASKED, output);
+        }
     };
+    let name = paths.selected.name();
     // `report` prints the stored run document, which needs nothing the build makes: no package is
     // built, and nothing is lowered or emitted.
     if let FlowCommand::Report { options, .. } = &command {
@@ -576,10 +700,10 @@ fn flow_command(
             "definition-stale",
             &stale_detail(&shown, "--locked", &spelling),
         );
-        document["definition"] = emit::definition_value(&shown, status);
+        document["definition"] = emit::definition_value(&shown, status, &name);
         return finish(outcome, &document, EXIT_UNASKED, output);
     }
-    let definition = emit::definition_value(&shown, status);
+    let definition = emit::definition_value(&shown, status, &name);
     let observers = render::Observers::new(selection_request(request), outcome.sources.clone());
     let packages = Arc::new(patterns::KrsPackages::new(
         &declared.patterns,
@@ -620,11 +744,12 @@ fn flow_command(
 /// layout gives no pattern list, which would only be read to be refused first.
 fn parsed_command(
     request: &KinkRequest,
-    corpus: &Path,
+    paths: CorpusPaths<'_>,
     verb: Verb,
     options: &[String],
-) -> Result<(FlowCommand, Result<ManifestFile, ManifestError>), String> {
-    let declared = corpus_manifest(&corpus.join(MANIFEST_FILE), &request.root.definition);
+) -> Result<(FlowCommand, Result<ManifestFile, CorpusRefusal>), String> {
+    let corpus = paths.corpus;
+    let declared = corpus_manifest(&corpus.join(MANIFEST_FILE), paths.selected);
     let declares_patterns = declared
         .as_ref()
         .map_or(true, |declared| !declared.patterns.is_empty());
@@ -1290,19 +1415,42 @@ fn stale_detail(shown: &str, flag: &str, spelling: &spelling::KrsSpelling) -> St
     )
 }
 
-/// `krs kink emit [--check]`.
+/// Where `krs kink emit` writes: the corpus directory, the root package's directory, and the
+/// definition the command selected.
+#[derive(Clone, Copy)]
+struct EmitTarget<'a> {
+    corpus: &'a Path,
+    root: Option<&'a Path>,
+    selected: &'a Selected,
+}
+
+/// `krs kink emit [--check]`. A corpus directory whose `FLOW.toml` is the flow of another
+/// definition is refused before the package is built ([`other_definition`]); a directory with no
+/// manifest yet, or one that does not decode, is written to as the selection says, the manifest
+/// being every other verb's to refuse.
 fn emit_command(
     planned: crate::command::PlannedCollection,
-    corpus: &Path,
-    root: Option<&Path>,
+    target: EmitTarget<'_>,
     check: bool,
     spelling: &spelling::KrsSpelling,
     outcome: KinkOutcome,
     measurement: &mut Measurement,
 ) -> KinkOutcome {
+    let EmitTarget {
+        corpus,
+        root,
+        selected,
+    } = target;
     let definition_path = corpus.join(DEFINITION_FILE);
     let shown = emit::shown_path(&definition_path, root);
     let mut outcome = outcome;
+    let manifest_path = corpus.join(MANIFEST_FILE);
+    if let Ok(SpecDecl::Krs(declared)) = ManifestFile::read(&manifest_path).map(|file| file.spec)
+        && let Some(detail) = other_definition(&declared, selected, &manifest_path)
+    {
+        let document = emit::emit_document(&shown, None, check, Some(&detail));
+        return outcome.json(&document, EXIT_UNASKED);
+    }
     let emitted = match build(planned, &mut outcome, measurement, false) {
         Ok((emitted, _)) => emitted,
         Err(error) => {
@@ -1484,40 +1632,38 @@ fn layout_mutations(corpus: &Path, verb: Verb) -> Option<PathBuf> {
 }
 
 /// The corpus manifest at `path`, decoded by kink-flow, when it declares a KRS corpus for the
-/// facet `definition`: a K corpus is refused naming kink-flow, and a KRS corpus of another facet
-/// naming both.
-fn corpus_manifest(path: &Path, definition: &str) -> Result<ManifestFile, ManifestError> {
+/// definition `selected`: a K corpus is refused naming kink-flow, and a KRS corpus of another
+/// package or facet naming both ([`other_definition`]).
+fn corpus_manifest(path: &Path, selected: &Selected) -> Result<ManifestFile, CorpusRefusal> {
+    let Selected {
+        package,
+        definition,
+    } = selected;
     if !path.is_file() {
-        return Err(ManifestError::new(
+        return Err(CorpusRefusal::Manifest(ManifestError::new(
             "",
             format!(
                 "{} is not a file: a KRS corpus is described by kink/FLOW.toml in the package \
                  (or FLOW.toml in the directory --corpus names), with `[spec] krs = {{ \
-                 definition = \"{definition}\" }}`",
+                 package = \"{package}\", definition = \"{definition}\" }}`",
                 path.display()
             ),
-        ));
+        )));
     }
-    let file = ManifestFile::read(path)?;
+    let file = ManifestFile::read(path).map_err(CorpusRefusal::Manifest)?;
     match &file.spec {
-        SpecDecl::K(_) => Err(ManifestError::new(
+        SpecDecl::K(_) => Err(CorpusRefusal::Manifest(ManifestError::new(
             "spec.entry",
-            "a K corpus: its [spec] declares the K specification, so the krs front end binds \
-             none; run `kink-flow <command>` on FLOW.toml, or declare `[spec] krs = { \
-             definition = .. }` for this package",
-        )),
-        SpecDecl::Krs(KrsSpec {
-            definition: declared,
-            ..
-        }) if declared != definition => Err(ManifestError::new(
-            "spec.krs.definition",
             format!(
-                "the corpus is for the definition facet `{declared}`, and this command selected \
-                 `{definition}`; run it with `--definition {declared}`, or declare \
-                 `definition = \"{definition}\"`"
+                "a K corpus: its [spec] declares the K specification, so the krs front end \
+                 binds none; run `kink-flow <command>` on FLOW.toml, or declare `[spec] krs = \
+                 {{ package = \"{package}\", definition = \"{definition}\" }}` for this package"
             ),
-        )),
-        SpecDecl::Krs(_) => Ok(file),
+        ))),
+        SpecDecl::Krs(declared) => match other_definition(declared, selected, path) {
+            Some(detail) => Err(CorpusRefusal::OtherDefinition(detail)),
+            None => Ok(file),
+        },
     }
 }
 

@@ -462,7 +462,7 @@ fn result_cells_errors_name_the_key() {
 // CF-40: one schema, two specification declarations.
 
 /// Two premises, `A` and `B` (`equation:a#D`, `equation:b#D`), written out of order with a repeat.
-const KRS_SPEC: &str = "[spec]\nkrs = { definition = \"main\" }\nassume_joined = [\"equation:b#0123456789abcdef0123456789abcdef\", \"equation:a#0123456789abcdef0123456789abcdef\", \"equation:b#0123456789abcdef0123456789abcdef\"]\n";
+const KRS_SPEC: &str = "[spec]\nkrs = { package = \"plus\", definition = \"main\" }\nassume_joined = [\"equation:b#0123456789abcdef0123456789abcdef\", \"equation:a#0123456789abcdef0123456789abcdef\", \"equation:b#0123456789abcdef0123456789abcdef\"]\n";
 const A: &str = "equation:a#0123456789abcdef0123456789abcdef";
 const B: &str = "equation:b#0123456789abcdef0123456789abcdef";
 
@@ -496,6 +496,7 @@ fn a_krs_spec_decodes_to_its_declaration() {
     assert_eq!(
         file.spec,
         SpecDecl::Krs(KrsSpec {
+            package: "plus".into(),
             definition: "main".into(),
             assume_joined: vec![A.into(), B.into()],
         })
@@ -528,13 +529,29 @@ fn a_krs_spec_refuses_every_key_its_front_end_supplies() {
         );
     }
     assert_file_error(
-        "[spec]\nkrs = { definition = \"main\", package = \"p\" }\n",
-        "spec.krs.package",
+        "[spec]\nkrs = { package = \"p\", definition = \"main\", facet = \"main\" }\n",
+        "spec.krs.facet",
         "unknown key",
     );
-    assert_file_error("[spec]\nkrs = {}\n", "spec.krs.definition", "missing");
+    // A flow names the package it is for: a declaration without it is refused, saying what to
+    // add.
     assert_file_error(
-        "[spec]\nkrs = { definition = \"\" }\n",
+        "[spec]\nkrs = { definition = \"main\" }\n",
+        "spec.krs.package",
+        "missing: a KRS flow names the package it is for; add `package = \"NAME\"`",
+    );
+    assert_file_error(
+        "[spec]\nkrs = { package = \"\", definition = \"main\" }\n",
+        "spec.krs.package",
+        "must not be empty",
+    );
+    assert_file_error(
+        "[spec]\nkrs = { package = \"p\" }\n",
+        "spec.krs.definition",
+        "missing",
+    );
+    assert_file_error(
+        "[spec]\nkrs = { package = \"p\", definition = \"\" }\n",
         "spec.krs.definition",
         "must not be empty",
     );
@@ -569,7 +586,16 @@ fn binding_a_krs_spec_is_decoding_the_spec_written_out() {
          md_selector = \"k\"\nassume_joined = [{A:?}, {B:?}]\n{programs}"
     ))
     .unwrap();
-    assert_eq!(bound, written);
+    // The bound manifest also names the definition the flow is for, which a K flow has none of.
+    assert_eq!(bound.definition.as_deref(), Some("plus:main"));
+    assert_eq!(written.definition, None);
+    assert_eq!(
+        bound,
+        FlowManifest {
+            definition: bound.definition.clone(),
+            ..written
+        }
+    );
     // The declaration's premises are the corpus's, whatever the front end passes.
     let mut other = emitted();
     other.assume_joined = vec!["equation:z#0123456789abcdef0123456789abcdef".into()];
@@ -618,7 +644,9 @@ fn a_manifest_error_names_its_key() {
 fn a_premise_that_is_no_name_is_refused_at_decode() {
     for premise in ["root:a b", "nonsense", "root:a,b#0123"] {
         assert_file_error(
-            &format!("[spec]\nkrs = {{ definition = \"main\" }}\nassume_joined = [{premise:?}]\n"),
+            &format!(
+                "[spec]\nkrs = {{ package = \"plus\", definition = \"main\" }}\nassume_joined = [{premise:?}]\n"
+            ),
             "spec.assume_joined[0]",
             "malformed",
         );
@@ -630,7 +658,7 @@ fn a_premise_that_is_no_name_is_refused_at_decode() {
         "baseline:root:a,b#0123456789abcdef0123456789abcdef",
     ] {
         decode_file(&format!(
-            "[spec]\nkrs = {{ definition = \"main\" }}\nassume_joined = [{premise:?}]\n"
+            "[spec]\nkrs = {{ package = \"plus\", definition = \"main\" }}\nassume_joined = [{premise:?}]\n"
         ))
         .unwrap_or_else(|error| panic!("{premise}: {error}"));
     }

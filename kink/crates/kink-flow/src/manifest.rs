@@ -45,8 +45,12 @@
 //!
 //! One schema serves both front ends. `[spec]` declares the specification in one of two ways
 //! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
-//! written, or a KRS package's emitted K (`krs = { definition = "main" }`), which the krs front
-//! end binds to the K it emitted for the package it selects. [`ManifestFile`] is the decoded file
+//! written, or a KRS package's emitted K (`krs = { package = "story-plus", definition = "main" }`),
+//! which the krs front end binds to the K it emitted for that definition.
+//! A KRS declaration names its package and its facet: every file of a flow (the emitted K, the
+//! mutations, each section of the corpus record) is a function of one definition, so the flow
+//! says which, and a command that selects another is refused before it writes
+//! ([`KrsSpec::name`]). [`ManifestFile`] is the decoded file
 //! before that binding; [`ManifestFile::bind`] gives the [`FlowManifest`] every command runs on,
 //! so every other key decodes once, for both front ends.
 
@@ -90,6 +94,10 @@ pub struct FlowManifest {
     /// The directory holding the manifest; the root that every path stays inside.
     pub directory: PathBuf,
     pub spec: SpecSection,
+    /// The definition a KRS flow names, `PACKAGE:FACET` ([`KrsSpec::name`]), which the corpus
+    /// record's header states ([`crate::lock`]); `None` for a K flow, whose `[spec]` is the
+    /// specification itself.
+    pub definition: Option<String>,
     pub budget: Budget,
     pub programs: Vec<Program>,
     /// `[result]`: the cells the programs' second slot compares, when the manifest narrows them;
@@ -719,18 +727,30 @@ pub struct ManifestFile {
 pub enum SpecDecl {
     /// `[spec] entry = ...`: a K specification, loaded as declared.
     K(SpecSection),
-    /// `[spec] krs = { definition = ... }`: the K a KRS package emits, which the krs front end
-    /// binds.
+    /// `[spec] krs = { package = ..., definition = ... }`: the K a KRS package emits, which the
+    /// krs front end binds.
     Krs(KrsSpec),
 }
 
-/// `[spec] krs = { definition = "..." }` with the keys a KRS corpus may give beside it.
+/// `[spec] krs = { package = "...", definition = "..." }` with the keys a KRS corpus may give
+/// beside it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KrsSpec {
-    /// The definition facet of the package the corpus is for (`krs --definition`).
+    /// The Cargo package the flow is for (`krs --package`).
+    pub package: String,
+    /// The definition facet of that package (`krs --definition`).
     pub definition: String,
     /// `assume_joined`, as [`SpecSection::assume_joined`]: sorted, without repeats.
     pub assume_joined: Vec<String>,
+}
+
+impl KrsSpec {
+    /// The definition the flow is for, `PACKAGE:FACET`, as `krs --dependency` spells a facet of a
+    /// package.
+    #[must_use]
+    pub fn name(&self) -> String {
+        format!("{}:{}", self.package, self.definition)
+    }
 }
 
 /// The keys of `[spec]` that say how K is loaded, which a KRS declaration leaves to its front end.
@@ -845,8 +865,8 @@ impl ManifestFile {
     /// is refused without one. A K declaration is the specification, so `spec` must be absent.
     /// Every other key is carried over as decoded.
     pub fn bind(self, spec: Option<SpecSection>) -> Result<FlowManifest, ManifestError> {
-        let spec = match (self.spec, spec) {
-            (SpecDecl::K(declared), None) => declared,
+        let (spec, definition) = match (self.spec, spec) {
+            (SpecDecl::K(declared), None) => (declared, None),
             (SpecDecl::K(_), Some(_)) => {
                 return Err(ManifestError::new(
                     "spec.entry",
@@ -862,15 +882,20 @@ impl ManifestFile {
             }
             (SpecDecl::Krs(declared), Some(bound)) => {
                 bound_spec(&bound)?;
-                SpecSection {
-                    assume_joined: declared.assume_joined,
-                    ..bound
-                }
+                let definition = declared.name();
+                (
+                    SpecSection {
+                        assume_joined: declared.assume_joined,
+                        ..bound
+                    },
+                    Some(definition),
+                )
             }
         };
         Ok(FlowManifest {
             directory: self.directory,
             spec,
+            definition,
             budget: self.budget,
             programs: self.programs,
             result: self.result,
@@ -1236,8 +1261,22 @@ fn spec(value: &Value) -> Result<SpecDecl, ManifestError> {
             ));
         }
         let krs = table(krs, "spec.krs")?;
-        known_keys(krs, "spec.krs", &["definition"])?;
+        known_keys(krs, "spec.krs", &["package", "definition"])?;
+        // A flow that names no package cannot be told from another package's, so a command
+        // that selected the wrong one would replace its emitted K and its record.
+        let package = match krs.get("package") {
+            Some(package) => string(package, "spec.krs.package")?,
+            None => {
+                return Err(ManifestError::new(
+                    "spec.krs.package",
+                    "missing: a KRS flow names the package it is for; add `package = \"NAME\"`, \
+                     the Cargo package whose definition this corpus judges (`[spec] krs = { \
+                     package = \"NAME\", definition = \"FACET\" }`)",
+                ));
+            }
+        };
         return Ok(SpecDecl::Krs(KrsSpec {
+            package,
             definition: required_string(krs, "spec.krs", "definition")?,
             assume_joined: assume_joined(spec)?,
         }));

@@ -21,7 +21,8 @@ use std::process::Output;
 use std::sync::{Arc, Mutex, Weak};
 
 use krs_test_support::{
-    SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+    SharedFixtureTarget, TempDir, fixture_build_env, flow_of_package, krs_command,
+    shared_fixture_target, temp_dir,
 };
 use serde_json::{Value, json};
 
@@ -1195,7 +1196,22 @@ impl Project {
         self.directory.path()
     }
 
+    /// Write a file of the package. A flow manifest (`FLOW.toml`) is written as the flow of this
+    /// package ([`flow_of_package`]): the fixtures' flows are shared between packages of other
+    /// names, and a flow names the package it is for.
     fn write(&self, relative: &str, contents: impl AsRef<[u8]>) {
+        let path = self.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        match std::str::from_utf8(contents.as_ref()) {
+            Ok(text) if relative.ends_with("FLOW.toml") => {
+                fs::write(path, flow_of_package(text, self.package)).unwrap();
+            }
+            _ => fs::write(path, contents).unwrap(),
+        }
+    }
+
+    /// Write a file of the package as it is, a flow manifest included.
+    fn write_as_is(&self, relative: &str, contents: impl AsRef<[u8]>) {
         let path = self.path().join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents).unwrap();
@@ -2796,8 +2812,272 @@ fn a_stale_definition_is_written_or_refused() {
     assert_eq!(json(&again)["definition"]["status"], "unchanged");
 }
 
+/// The story's `plus_succ`, and the same rule rewritten tail-recursively: another definition
+/// that takes the same cases (FB-57's `story-refined`).
+const STORY_SUCC: &str = "NatSyntax::Succ(Plus(m, n))";
+const REFINED_SUCC: &str = "Plus(m, NatSyntax::Succ(n))";
+const FLOW_OWNER: &str = "story-plus-flow";
+const FLOW_OTHER: &str = "story-refined-flow";
+
+/// A workspace of two definitions that take the same cases: the story package `story-plus-flow`
+/// with its corpus `kink/` and the story's three edits as its mutation list, and
+/// `story-refined-flow` in `refined/`, the same package with `plus_succ` rewritten.
+fn two_definitions() -> Project {
+    assert!(STORY.contains(STORY_SUCC), "the story's plus_succ moved");
+    let mut files = story_files();
+    files.push((
+        "kink/mutations/plus.toml".to_owned(),
+        STORY_MUTATIONS.as_bytes().to_vec(),
+    ));
+    files.push((
+        "refined/src/lib.rs".to_owned(),
+        STORY.replace(STORY_SUCC, REFINED_SUCC).into_bytes(),
+    ));
+    let project = project_of(FLOW_OWNER, "NAT", &files);
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    let package = |name: &str, namespace: &str| {
+        format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n"
+        )
+    };
+    project.write("refined/Cargo.toml", package(FLOW_OTHER, "NATR"));
+    project.write(
+        "Cargo.toml",
+        format!(
+            "{}\n[workspace]\nmembers = [\"refined\"]\nresolver = \"3\"\n",
+            package(FLOW_OWNER, "NAT")
+        ),
+    );
+    project
+}
+
+/// `krs kink ARGUMENTS` from `project`'s directory with no selection but the one `arguments`
+/// give.
+fn kink_selecting(project: &Project, arguments: &[&str]) -> Output {
+    let _turn = project
+        .turn
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, &project.target);
+    process
+        .current_dir(project.path())
+        .arg("kink")
+        .args(arguments)
+        .output()
+        .unwrap()
+}
+
+/// The refusal's detail of `coverage` on the flow of `story-refined-flow` (written here, in
+/// `refined/kink`, with the story's cases) given the record of `story-plus-flow`'s corpus as its
+/// `--lock`: exit 2, the lock refused.
+fn another_flows_lock_detail(project: &Project) -> String {
+    let other = ["--package", FLOW_OTHER, "--definition", "main"];
+    project.write_as_is(
+        "refined/kink/FLOW.toml",
+        flow_of_package(STORY_FLOW, FLOW_OTHER),
+    );
+    for (id, text) in STORY_CASES {
+        project.write(&format!("refined/kink/cases/{id}.nat"), text);
+    }
+    let output = kink_selecting(
+        project,
+        &[
+            &[
+                "coverage",
+                "--corpus",
+                "refined/kink",
+                "--lock",
+                "kink/kink.lock",
+            ][..],
+            &other[..],
+        ]
+        .concat(),
+    );
+    assert_status(&output, 2);
+    json(&output)["lock"]["detail"].as_str().unwrap().to_owned()
+}
+
+/// FLOW-NAMES-PACKAGE: a flow names the definition it is for, and its record names it too. A
+/// command that selects another package on that corpus (FB-57's probes 2a, 2b and 2c: `coverage
+/// --locked`, `coverage` with a lock and a cache of its own, and `run`) is refused at stage
+/// `definition` with a reason that names both packages, exits 2, and leaves `definition.k` and
+/// `kink.lock` byte for byte; so is `emit`, in its `refusal`. Before the flow named its package
+/// the second wrote the other package's K into `definition.k`, the third its verdicts into the
+/// `[run]` section, and the first advised the `emit` that would replace the K.
+#[test]
+fn a_command_that_selects_another_package_than_the_flows_writes_nothing() {
+    let project = two_definitions();
+    assert_status(&project.kink("run", &[]), 0);
+    assert_status(&project.kink("coverage", &[]), 0);
+    let definition = project.read("kink/definition.k");
+    let lock = project.read("kink/kink.lock");
+    assert!(
+        lock.contains(&format!(
+            "\nschema = \"kink-flow-verdicts\"\ndefinition = \"{FLOW_OWNER}:main\"\n\n[run]\n"
+        )),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("\n[coverage]\n") && lock.contains("status = \"killed\""),
+        "{lock}"
+    );
+    let other = ["--package", FLOW_OTHER, "--definition", "main"];
+    let unchanged = |probe: &str| {
+        assert_eq!(project.read("kink/definition.k"), definition, "{probe}");
+        assert_eq!(project.read("kink/kink.lock"), lock, "{probe}");
+    };
+    let names_both = |probe: &str, detail: &str| {
+        assert!(
+            detail.contains(&format!("`{FLOW_OWNER}:main`"))
+                && detail.contains(&format!("`{FLOW_OTHER}:main`"))
+                && detail.contains(&format!("package `{FLOW_OWNER}`"))
+                && detail.contains(&format!("package `{FLOW_OTHER}`")),
+            "{probe}: {detail}"
+        );
+    };
+    for (probe, arguments) in [
+        ("2a", &["coverage", "--corpus", "kink", "--locked"][..]),
+        (
+            "2b",
+            &[
+                "coverage",
+                "--corpus",
+                "kink",
+                "--lock",
+                "kink/refined.lock",
+                "--cache",
+                "kink/.kink-flow-refined",
+            ][..],
+        ),
+        ("2c", &["run", "--corpus", "kink"][..]),
+    ] {
+        let output = kink_selecting(&project, &[arguments, &other[..]].concat());
+        assert_status(&output, 2);
+        let document = json(&output);
+        assert_eq!(
+            document["spec"]["outcome"], "refused",
+            "{probe}: {document:#}"
+        );
+        assert_eq!(
+            document["spec"]["stage"], "definition",
+            "{probe}: {document:#}"
+        );
+        assert_eq!(
+            document["spec"]["reason"], "another-definition",
+            "{probe}: {document:#}"
+        );
+        names_both(probe, document["spec"]["detail"].as_str().unwrap());
+        unchanged(probe);
+    }
+    assert!(!project.path().join("kink/refined.lock").exists());
+    assert!(!project.path().join("kink/.kink-flow-refined").exists());
+
+    let emit = kink_selecting(
+        &project,
+        &[&["emit", "--corpus", "kink"][..], &other[..]].concat(),
+    );
+    assert_status(&emit, 2);
+    let document = json(&emit);
+    assert_eq!(
+        document["definition"]["status"],
+        Value::Null,
+        "{document:#}"
+    );
+    names_both("emit", document["refusal"].as_str().unwrap());
+    unchanged("emit");
+
+    // The package's own commands still find the corpus current.
+    assert_status(&project.kink("run", &["--locked"]), 0);
+    assert_status(&project.kink("coverage", &["--locked"]), 0);
+    unchanged("the package's own --locked commands");
+
+    // A record another definition's flow wrote is refused as a lock, whatever the command
+    // writes: the refined package's own flow, given this corpus's record as its `--lock`.
+    let detail = another_flows_lock_detail(&project);
+    assert!(
+        detail.contains(&format!("the record of the definition `{FLOW_OWNER}:main`"))
+            && detail.contains(&format!("this flow is for `{FLOW_OTHER}:main`")),
+        "{detail}"
+    );
+    unchanged("another flow's --lock");
+}
+
+/// FLOW-NAMES-PACKAGE: a flow states its package and its facet, so a command given `--corpus`
+/// needs neither `--package` nor `--definition`; its document names the definition, and its
+/// next steps spell the selection out. A flow that names no package is refused, saying what to
+/// add, and gives a command line no selection.
+#[test]
+fn a_corpus_selects_the_definition_its_flow_names() {
+    let project = story();
+    let output = kink_selecting(
+        &project,
+        &[
+            "coverage",
+            "--manifest-path",
+            "Cargo.toml",
+            "--corpus",
+            "kink",
+        ],
+    );
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert_eq!(document["schema"], "kink-flow-coverage", "{document:#}");
+    assert_eq!(document["spec"]["outcome"], "admitted", "{document:#}");
+    assert_eq!(document["definition"]["name"], "story-plus:main");
+    // Either half alone is taken from the flow too.
+    for selection in [["--package", "story-plus"], ["--definition", "main"]] {
+        let output = kink_selecting(
+            &project,
+            &[&["check", "--corpus", "kink"][..], &selection[..]].concat(),
+        );
+        assert_status(&output, 0);
+    }
+    // `emit` reads the flow as every verb does.
+    let emit = kink_selecting(&project, &["emit", "--check", "--corpus", "kink"]);
+    assert_status(&emit, 0);
+
+    // Without `--corpus` no flow is named, and the selection is still required.
+    let output = kink_selecting(&project, &["coverage"]);
+    assert_status(&output, 2);
+    assert!(
+        stderr(&output).contains("missing --package or --package-id: no --corpus DIR"),
+        "{}",
+        stderr(&output)
+    );
+
+    // A flow that names no package: refused with what to add, under either selection.
+    project.write_as_is(
+        "corpora/unnamed/FLOW.toml",
+        "[spec]\nkrs = { definition = \"main\" }\n",
+    );
+    let output = project.kink("check", &["--corpus", "corpora/unnamed"]);
+    assert_status(&output, 2);
+    let document = json(&output);
+    assert_eq!(document["spec"]["stage"], "manifest", "{document:#}");
+    let detail = document["spec"]["detail"].as_str().unwrap();
+    assert!(
+        detail.starts_with("spec.krs.package: missing: a KRS flow names the package it is for")
+            && detail.contains("add `package = \"NAME\"`"),
+        "{detail}"
+    );
+    let output = kink_selecting(&project, &["check", "--corpus", "corpora/unnamed"]);
+    assert_status(&output, 2);
+    assert!(
+        stderr(&output).contains("missing --package or --package-id:")
+            && stderr(&output).contains("spec.krs.package: missing"),
+        "{}",
+        stderr(&output)
+    );
+}
+
 /// A FLOW.toml is a K corpus or a KRS one; the krs front end refuses a K corpus naming
-/// kink-flow, and a KRS corpus of another facet naming both, before it builds anything.
+/// kink-flow, and a KRS corpus of another package or facet naming both, before it builds
+/// anything.
 #[test]
 fn the_front_end_refuses_another_front_ends_corpus() {
     let project = story();
@@ -2822,11 +3102,17 @@ fn the_front_end_refuses_another_front_ends_corpus() {
     let output = project.kink("coverage", &["--corpus", "corpora/other"]);
     assert_status(&output, 2);
     let document = json(&output);
+    assert_eq!(document["spec"]["stage"], "definition", "{document:#}");
+    assert_eq!(
+        document["spec"]["reason"], "another-definition",
+        "{document:#}"
+    );
     let detail = document["spec"]["detail"].as_str().unwrap();
     assert!(
-        detail.starts_with("spec.krs.definition:")
-            && detail.contains("`other`")
-            && detail.contains("`main`"),
+        detail.contains("`story-plus:other`")
+            && detail.contains("`story-plus:main`")
+            && detail.contains("facet `other`")
+            && detail.contains("facet `main`"),
         "{detail}"
     );
 
@@ -4046,7 +4332,10 @@ fn group_workspace(directory: &Path) {
             ),
         );
         if name != "core" {
-            write(&format!("group-{name}/kink/FLOW.toml"), GROUP_FLOW);
+            write(
+                &format!("group-{name}/kink/FLOW.toml"),
+                &flow_of_package(GROUP_FLOW, &format!("krs-configuration-cells-group-{name}")),
+            );
             write(
                 &format!("group-{name}/kink/cases/count.prog"),
                 "inc ; inc ; done\n",
@@ -4276,7 +4565,7 @@ fn harts_workspace(
         write(
             &format!("{holder}/{corpus}/FLOW.toml"),
             &format!(
-                "[spec]\nkrs = {{ definition = \"main\" }}\n\n{result}[[program]]\nid = \"{id}\"\nfile = \"cases/{id}.prog\"\n"
+                "[spec]\nkrs = {{ package = \"krs-configuration-cells-group-harts-{holder}\", definition = \"main\" }}\n\n{result}[[program]]\nid = \"{id}\"\nfile = \"cases/{id}.prog\"\n"
             ),
         );
         write(&format!("{holder}/{corpus}/cases/{id}.prog"), text);
@@ -6950,7 +7239,7 @@ fn locked_story(package: &'static str) -> Project {
 /// The lock of the story's three edits naming `killers` (`plus/a`, `plus/b`, `plus/c`), in the
 /// bytes `krs kink run` writes: the run's verdicts rendering without `killed_by`, under the Z3
 /// profile krs links, whose header names the Z3 build (k-rust's `z3_build`).
-fn story_lock(killers: [&str; 3]) -> String {
+fn story_lock(package: &str, killers: [&str; 3]) -> String {
     use std::fmt::Write as _;
     let build = k_rust::backend::z3_build().expect("krs links Z3");
     let mut text = format!(
@@ -6958,10 +7247,10 @@ fn story_lock(killers: [&str; 3]) -> String {
          # [coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). \
          As a\n# lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks \
          (--locked) and\n# rewrites only its own section, and keeps the others as they are.\n\
-         schema = \"kink-flow-verdicts\"\n\n[run]\n\
+         schema = \"kink-flow-verdicts\"\ndefinition = \"{package}:main\"\n\n[run]\n\
          # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run \
          tries\n# each `killer` first, a run without --locked rewrites this section, and `run \
-         --locked` checks\n# that it is current.\nversion = 27\nprofile = \"z3\"\nz3_version = \
+         --locked` checks\n# that it is current.\nversion = 28\nprofile = \"z3\"\nz3_version = \
          \"{}\"\n",
         build.version
     );
@@ -7062,7 +7351,7 @@ fn assert_full_agrees(project: &Project, corpus: &[&str]) -> Value {
 #[test]
 fn a_recorded_killer_runs_alone_from_a_fresh_checkout() {
     let project = locked_story("story-plus-lock-fresh");
-    let lock = story_lock(["t4", "t4", "t4"]);
+    let lock = story_lock("story-plus-lock-fresh", ["t4", "t4", "t4"]);
     project.write("kink/kink.lock", &lock);
     // A checkout commits definition.k beside the lock.
     assert_status(&project.kink("emit", &[]), 0);
@@ -7188,7 +7477,7 @@ fn a_killer_that_stops_killing_or_leaves_is_replaced() {
         ("story-plus-lock-agrees", "no-longer-kills"),
     ] {
         let project = locked_story(package);
-        project.write("kink/kink.lock", story_lock(["t4", "t4", "t4"]));
+        project.write("kink/kink.lock", story_lock(package, ["t4", "t4", "t4"]));
         match how {
             "not-in-corpus" => project.write(
                 "kink/FLOW.toml",
@@ -7258,7 +7547,7 @@ fn a_killer_that_stops_killing_or_leaves_is_replaced() {
         let written = project.read("kink/kink.lock");
         assert_eq!(
             written,
-            story_lock(["t2", "t3", "t4"]).replace(
+            story_lock(package, ["t2", "t3", "t4"]).replace(
                 "id = \"plus/c\"\nstatus = \"killed\"\nkiller = \"t4\"\n",
                 "id = \"plus/c\"\nstatus = \"survived\"\n"
             ),
@@ -7327,7 +7616,7 @@ fn an_old_verdicts_lock_is_moved_into_the_corpus_record() {
     );
     assert_eq!(
         project.read("kink/kink.lock"),
-        story_lock(["t4", "t4", "t4"])
+        story_lock("story-plus-lock-legacy", ["t4", "t4", "t4"])
     );
     assert_eq!(project.read("kink/verdicts.lock"), old);
 

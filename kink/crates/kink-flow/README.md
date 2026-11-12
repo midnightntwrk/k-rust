@@ -79,13 +79,20 @@ A KRS corpus declares its specification as the K a KRS package emits, which the 
 
 ```toml
 [spec]
-krs = { definition = "main" }  # the package's definition facet (krs --definition)
+# The Cargo package (krs --package) and its definition facet (krs --definition).
+krs = { package = "story-plus", definition = "main" }
 assume_joined = []             # optional, as above
 ```
 
-With `krs`, `[spec]` takes no other key but `assume_joined`: `entry`, `main_module`, `syntax_module`, `include_dirs` and `md_selector` are each the error `spec.<key>: not allowed with spec.krs: the krs front end supplies it`, and `krs` takes exactly the key `definition`.
+With `krs`, `[spec]` takes no other key but `assume_joined`: `entry`, `main_module`, `syntax_module`, `include_dirs` and `md_selector` are each the error `spec.<key>: not allowed with spec.krs: the krs front end supplies it`, and `krs` takes exactly the keys `package` and `definition`, both required.
+A KRS flow names the definition it is for, `PACKAGE:FACET`.
+Every file of a flow is a function of one definition: `definition.k` is its emitted K, a mutation is a patch of that K, and each section of the corpus record holds its verdicts.
+So the flow says which definition that is; a record that does not name its subject can be overwritten by another's.
+A declaration without `package` is the error `spec.krs.package: missing`, which says what to add.
+The corpus record's header states the same name ("The corpus record").
 Every other table is the same for both kinds of corpus.
-kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command>` in the package``, stage `manifest`); the krs front end refuses a K corpus (`spec.entry: a K corpus`, naming `kink-flow`) and a KRS corpus of another definition facet than its `--definition` (`spec.krs.definition`, naming both).
+kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command>` in the package``, stage `manifest`); the krs front end refuses a K corpus (`spec.entry: a K corpus`, naming `kink-flow`), and refuses a KRS corpus of another package or facet than the command selected before it builds or writes anything (stage `definition`, reason `another-definition`, naming both).
+A `krs kink` command given `--corpus DIR` takes the package and the facet from the flow, so it needs no `--package` and no `--definition`.
 
 Every path is relative to the manifest's directory and must stay inside it.
 Unknown keys, values of the wrong type, duplicate or empty program ids,
@@ -1750,12 +1757,13 @@ A library run (`RunOptions::default()`, `fuzz`'s confirmation) has no lock and w
 # lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and
 # rewrites only its own section, and keeps the others as they are.
 schema = "kink-flow-verdicts"
+definition = "story-plus:main"   # a KRS flow's record; a K flow's has no such line
 
 [run]
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 27
+version = 28
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1778,7 +1786,7 @@ status = "survived"
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...
-version = 27
+version = 28
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1820,7 +1828,7 @@ killer = "irq"
 [compare]
 # The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run
 # ...
-version = 27
+version = 28
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1853,7 +1861,7 @@ identity_sha256 = "5d1e…"
 [query]
 # The obligations of kink's `query` command (`krs kink query`, `kink-flow query`): the next
 # ...
-version = 27
+version = 28
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1951,6 +1959,13 @@ The recorded value is not kept where the query decided a fact it contradicts: a 
 `lock.clock_stopped` names each such run (`{pattern, program, run: "search" | "baseline"}`) and `lock.kept` each kept entry this host gave another value (`{pattern, recorded, now}`, each side `{status, witness}`); under `--locked` a section that differs in nothing else is `undecided`, exit 3.
 `--locked` prints one line per change: `kink.lock: above-five: witness B -> C (B: not-in-corpus)`, `kink.lock: result-hundred: open -> hit`, `kink.lock: p: added, open`.
 
+**The definition.** The header of the record of a flow that names its definition (`[spec] krs`) states it: `definition = "PACKAGE:FACET"`.
+Every section is a function of that definition, so the name is the same for every section by construction, and it is in the header, not in a section.
+A command whose flow is for another definition than the one the file names is refused before anything runs, with or without `--locked` (`lock.outcome` `refused`, exit 2): its rows would replace that definition's, and the file's killers are those of another specification.
+So is a command of a K flow on a record that names a definition.
+A record that names none is read: it is a K flow's, or one written before version 28, whose header a command without `--locked` rewrites with the name.
+`prune`, which writes no record, refuses the record of another definition as well.
+
 **Reading.** Reading tolerates any version: `schema` must be `kink-flow-verdicts`; the command's section, where there is one, must be a table and begin with its own `[run]`, `[coverage]`, `[compare]` or `[query]` line; each row (`[[run.mutation]]`, `[[coverage.flip]]`) must have a string `id` and may have a string `killer`, and each `[[query.pattern]]` a string `id` and may have a string `witness`; and nothing else decides anything (a row's `status` and `reason`, a family's `open` and `argued` and the standings are read only to report what changed).
 A version-5 lock has no `killer` lines, so it records no killer.
 
@@ -2006,11 +2021,12 @@ It is the record's header and the command's section ("The corpus record"): the f
 # kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),
 # ...                         (the record's comment)
 schema = "kink-flow-verdicts"
+definition = "story-plus:main"   # the definition a KRS flow names; no line for a K flow
 
 [coverage]                    # or [run]: the command's section
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...                         (the comment naming the command, and what it does with its section as a lock)
-version = 27
+version = 28
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
@@ -2176,7 +2192,8 @@ Version 22 (FB-39) renders coverage document version 19: an invariant-only equat
 Version 23 (KINK-FINDING-NAMES) renders coverage document version 20: an `[arguments]` line names the assumed findings a standing rests on by kind, sentences and digest, so a lock whose arguments assume findings shows a new version; every other lock differs in its `version` line only.
 Version 24 (FB48-NAMES, FB48-ONE-LOCK) is the corpus record's: the rendering is the record's header (a comment saying what the file is, and `schema`) and the command's section, `[run]` or `[coverage]`, which states its own `version`, `profile`, Z3 build and `krs_annotation` and holds the command's tables (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, ...), where version 23 wrote one command's rendering at the top of its file with `document`; each section opens with a comment naming the command whose verdicts it holds and what that command does with it as a lock, and a comment before its rows and families says what each entry and status word is; a coverage section gives each argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued flip's `standing` on its row), where version 23 listed the ids there and repeated them as the keys of `[arguments]`; it gives each flip the condition it negates or the bit it toggles and the rules it edits, and it no longer writes `[settings] tiers`, which `[coverage.flips] run` states.
 Version 25 (FB47-VERDICTS) gives the record a third section, `[compare]` ("The corpus record"), and the record's comment names it: a `[run]` or `[coverage]` section differs from version 24's in its `version` line only, and the record in its comment.
-Under `--locked` a section of another version, or a lock before version 24, is refused, naming the command that rewrites it ("The corpus record"), so a lock recorded at version 24 is rewritten by one run without `--locked`, whose diff shows the new layout beside any moved verdict.
+Version 28 (FLOW-NAMES-PACKAGE) states, in the header of the record of a flow that names its definition, that definition (`definition = "PACKAGE:FACET"`; "The corpus record"), and the rendering of such a flow's document has the same header: every section differs from version 27's in its `version` line only, and the record of a K flow in nothing else.
+Under `--locked` a section of another version, or a lock before version 24, is refused, naming the command that rewrites it ("The corpus record"), so a lock recorded at an earlier version is rewritten by one run of each command without `--locked`, whose diff shows the new layout beside any moved verdict.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 

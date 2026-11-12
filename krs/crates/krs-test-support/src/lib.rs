@@ -202,6 +202,26 @@ pub fn without_constant_names(text: &str) -> String {
 /// A temporary directory removed when its guard is dropped.
 pub use tempfile::TempDir;
 
+/// The flow manifest `text` as the flow of the package `package`: its `[spec] krs` declaration
+/// names `package`, whether `text` named another (a corpus copied from another package's) or
+/// none. A fixture whose package name varies writes its flows through this, since a KRS flow
+/// names the package it is for; a text without a `krs = {` declaration is returned as it is.
+#[must_use]
+pub fn flow_of_package(text: &str, package: &str) -> String {
+    const OPEN: &str = "krs = {";
+    const NAMED: &str = " package = \"";
+    let Some(at) = text.find(OPEN) else {
+        return text.to_owned();
+    };
+    let (head, rest) = text.split_at(at + OPEN.len());
+    // A declaration that names a package: drop the name, up to the comma after it.
+    let rest = rest
+        .strip_prefix(NAMED)
+        .and_then(|named| named.split_once("\","))
+        .map_or(rest, |(_, after)| after);
+    format!("{head}{NAMED}{package}\",{rest}")
+}
+
 /// Create a guarded temporary directory for a test.
 ///
 /// # Panics

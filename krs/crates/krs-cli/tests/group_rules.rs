@@ -4671,7 +4671,7 @@ fn an_edit_of_an_entry_that_steps_one_instance_is_judged_as_that_instances_rule(
         fs::create_dir_all(corpus.join("mutations")).unwrap();
         fs::write(
             corpus.join("FLOW.toml"),
-            "[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"go\"\nfile = \"cases/go.prog\"\n",
+            "[spec]\nkrs = { package = \"smt\", definition = \"main\" }\n\n[[program]]\nid = \"go\"\nfile = \"cases/go.prog\"\n",
         )
         .unwrap();
         fs::write(corpus.join("cases/go.prog"), "go\n").unwrap();

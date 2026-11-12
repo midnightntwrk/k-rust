@@ -104,9 +104,11 @@ pub(super) fn shown_path(path: &Path, root: Option<&Path>) -> String {
         .replace('\\', "/")
 }
 
-/// The `definition` value of a document: the file's shown path and its status.
-pub(super) fn definition_value(shown: &str, status: DefinitionStatus) -> Value {
-    json!({"path": shown, "status": status.as_str()})
+/// The `definition` value of a document: the definition the flow is for (`name`,
+/// `PACKAGE:FACET`, which the verdicts rendering's header states as the corpus record's does),
+/// the file's shown path and its status.
+pub(super) fn definition_value(shown: &str, status: DefinitionStatus, name: &str) -> Value {
+    json!({"name": name, "path": shown, "status": status.as_str()})
 }
 
 /// The `krs-kink-emit` document version.
