@@ -668,8 +668,14 @@ fn with_named_list_rests(
     for cell in &mut rule.subject.cells {
         let field = cell.field.clone();
         if let Some(root) = entry_root(&mut cell.value) {
+            // Only brackets name a rest; a whole-list binder `Cell(l)` names the list.
+            let brackets = matches!(
+                root,
+                DescriptorTerm::Application { reference, .. }
+                    if matches!(reference.application, krs_ir::DescriptorApplicationRef::ListNotation(_))
+            );
             let end = list_spine_end(root);
-            if let DescriptorTerm::Variable { name, .. } = end {
+            if brackets && let DescriptorTerm::Variable { name, .. } = end {
                 named_rests.insert(field.cell.clone(), name.clone());
             }
             if matches!(end, DescriptorTerm::KeptRest { .. }) {
@@ -817,7 +823,10 @@ fn with_named_child_rests(
                         .iter_mut()
                         .find(|matched| matched.field == field.field)
                         .and_then(|matched| match &mut matched.value {
-                            ProtocolRuleStateTerm::Term(pattern) => match list_spine_end(pattern) {
+                            // Only brackets name a rest; a whole-list binder names the list.
+                            ProtocolRuleStateTerm::Term(
+                                pattern @ DescriptorTerm::Application { .. },
+                            ) => match list_spine_end(pattern) {
                                 DescriptorTerm::Variable { name, .. } => Some(name.clone()),
                                 _ => None,
                             },
@@ -911,6 +920,7 @@ fn check_child_rests(
             cell,
             child,
             whole: false,
+            nested: Nested::Root,
         };
         match (wrapper, value) {
             (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::KSequence(sequence)) => {
@@ -942,11 +952,18 @@ fn check_child_rests(
             (krs_ir::CellWrapper::Cell, ProtocolRuleStateTerm::Term(term)) => {
                 match written_rest(term) {
                     Some((holder, key, name)) => into_another(place(holder), name, key),
-                    // A computation's rest written as a leaf's whole content.
+                    // A remainder written as a leaf's whole content: a computation's anywhere
+                    // but a computation, a map's at a list or a set (a map is a term of every
+                    // sort above `Map`, which the sort check judges).
                     None => match term {
                         DescriptorTerm::Variable { key, name, .. }
-                            if remainders.get(name.as_str())
-                                == Some(&RemainderKind::Computation) =>
+                            if match remainders.get(name.as_str()) {
+                                Some(RemainderKind::Computation) => true,
+                                Some(RemainderKind::Map) => {
+                                    matches!(Holder::of_sort(sort), Holder::List | Holder::Set)
+                                }
+                                _ => false,
+                            } =>
                         {
                             into_another(
                                 RestPlace {
@@ -1086,7 +1103,113 @@ fn check_child_rests(
             _ => {}
         }
     }
+    // A list or a set written below a content's root, or in a condition, writes its rest as at a
+    // cell: a remainder is no list's or set's rest there either.
+    let nested = |term: &DescriptorTerm, root: bool| -> Option<(Holder, ProvenanceKey, String)> {
+        let mut found = None;
+        let mut stack = if root { vec![term] } else { subterms(term) };
+        while let Some(term) = stack.pop() {
+            if let Some((holder, key, name)) = written_rest(term)
+                && remainders.contains_key(name)
+            {
+                found = Some((holder, key.clone(), name.to_owned()));
+                break;
+            }
+            stack.extend(subterms(term));
+        }
+        found
+    };
+    for cell in rule.result.iter().flat_map(|result| &result.cells) {
+        let name = cell
+            .field
+            .cell
+            .field
+            .strip_prefix("r#")
+            .unwrap_or(&cell.field.cell.field);
+        for term in cell.value.terms() {
+            if let Some((holder, key, rest)) = nested(term, false) {
+                let bound = remainders[rest.as_str()];
+                return Err(remainder_into_another_kind(
+                    descriptor,
+                    &key,
+                    &rest,
+                    bound,
+                    RestPlace {
+                        holder,
+                        cell: name,
+                        child: false,
+                        whole: false,
+                        nested: Nested::InContent,
+                    },
+                ));
+            }
+        }
+    }
+    for condition in rule.requires.iter().chain(&rule.ensures) {
+        if let Some((holder, key, rest)) = nested(&condition.term, true) {
+            let bound = remainders[rest.as_str()];
+            return Err(remainder_into_another_kind(
+                descriptor,
+                &key,
+                &rest,
+                bound,
+                RestPlace {
+                    holder,
+                    cell: "",
+                    child: false,
+                    whole: false,
+                    nested: Nested::InCondition,
+                },
+            ));
+        }
+    }
     Ok(())
+}
+
+/// The terms directly below `term`.
+fn subterms(term: &DescriptorTerm) -> Vec<&DescriptorTerm> {
+    match term {
+        DescriptorTerm::Application {
+            arguments, update, ..
+        } => {
+            let mut terms: Vec<&DescriptorTerm> = match arguments {
+                krs_ir::Arguments::Positional(values) => values.iter().map(AsRef::as_ref).collect(),
+                krs_ir::Arguments::Named(values) => {
+                    values.iter().map(|value| value.value.as_ref()).collect()
+                }
+            };
+            terms.extend(update.as_deref());
+            terms
+        }
+        DescriptorTerm::OrBool { arguments, .. } => arguments.iter().collect(),
+        DescriptorTerm::Or { alternatives, .. } => alternatives.iter().collect(),
+        DescriptorTerm::Cell { fields, update, .. } => fields
+            .iter()
+            .map(|field| field.value.as_ref())
+            .chain(update.as_deref())
+            .collect(),
+        DescriptorTerm::SortTest { operand, .. } => vec![operand.as_ref()],
+        DescriptorTerm::As { pattern, .. } => vec![pattern.as_ref()],
+        DescriptorTerm::MapEntries { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|entry| [entry.key.as_ref(), entry.value.as_ref()])
+            .chain(rest.as_deref())
+            .collect(),
+        DescriptorTerm::Matches {
+            subject, pattern, ..
+        } => vec![subject.as_ref(), pattern.as_ref()],
+        DescriptorTerm::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![pattern.as_ref(), value.as_ref(), body.as_ref()],
+        DescriptorTerm::Closure { body, .. } => vec![body.as_ref()],
+        DescriptorTerm::Rewrite { from, to, .. } => std::iter::once(from.as_ref())
+            .chain(to.as_deref())
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// What a remainder is the rest of: the content it was bound in (`rest @ ..`).
@@ -1137,6 +1260,10 @@ enum Holder {
 
 impl Holder {
     fn of_sort(sort: &SemanticSortRef) -> Self {
+        if *sort == SemanticSortRef::k_sequence() {
+            // A leaf of sort `K` holds a computation, a computation remainder whole included.
+            return Self::Computation;
+        }
         match sort {
             SemanticSortRef::Builtin(krs_ir::BuiltinSort::List) => Self::List,
             SemanticSortRef::Builtin(krs_ir::BuiltinSort::Set) => Self::Set,
@@ -1166,6 +1293,20 @@ struct RestPlace<'a> {
     cell: &'a str,
     child: bool,
     whole: bool,
+    /// Where a list or a set written below the content's root stands: inside the cell's or the
+    /// child's content, or in the sentence's condition.
+    nested: Nested,
+}
+
+/// Where a collection notation whose rest a result or a condition writes stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Nested {
+    /// It is the content's root.
+    Root,
+    /// It stands below the root of a cell's or a child's content.
+    InContent,
+    /// It stands in the sentence's condition.
+    InCondition,
 }
 
 /// The variable a result's collection notation writes as its rest, with the kind of the content
@@ -1237,10 +1378,31 @@ fn remainder_into_another_kind(
     };
     let what = if place.child { "child" } else { "cell" };
     let cell = place.cell;
-    let written = if place.whole {
-        format!("the {noun} {what} `{cell}` is written `{name}`")
+    let (written, rest) = if place.nested == Nested::InContent {
+        (
+            format!("`..{name}` in a {noun} inside the {what} `{cell}` writes `{name}`"),
+            rest.to_owned(),
+        )
+    } else if place.nested == Nested::InCondition {
+        (
+            format!("`..{name}` in a {noun} in the condition writes `{name}`"),
+            rest.to_owned(),
+        )
+    } else if place.whole {
+        let holds = if place.holder == Holder::Other {
+            rest.to_owned()
+        } else {
+            format!("a {noun} {what} holds a {noun}")
+        };
+        (
+            format!("the {noun} {what} `{cell}` is written `{name}`"),
+            holds,
+        )
     } else {
-        format!("`..{name}` in the {noun} {what} `{cell}` writes `{name}`")
+        (
+            format!("`..{name}` in the {noun} {what} `{cell}` writes `{name}`"),
+            rest.to_owned(),
+        )
     };
     super::cell_states::collection_error(
         descriptor,
