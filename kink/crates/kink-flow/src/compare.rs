@@ -31,6 +31,36 @@
 //! Only a required view decides the exit status ([`compare_status`]); every other verdict is
 //! reported.
 //!
+//! An implementation of `kink-implementation/2` ([`Protocol::V2`]) may also declare *trace
+//! views*, each over channels of the flow's `[observe]`. Its request then has `observe`: each
+//! channel a trace view names, with its shape in the front end's vocabulary
+//! ([`Vocabulary::observe_request`]) and `positions`, the number of indices from 0 the answer is
+//! asked to state: the definition's channel has N elements, and `positions` is N where it is open
+//! after them and N + 1 where it is closed after them (its closure is a position, at which an
+//! implementation that goes on shows its element). Its answer has `observations`, the elements
+//! it states for those channels, and may end in `horizon`: it stated the positions asked and
+//! has not ended ([`read_answer_2`]). The definition's side is the values of the baseline run's
+//! channels (`BaselineRunner::observed_values`, one more run of the baseline, shown to be the
+//! recorded one), so a program whose baseline its bounds cut (`comparable-prefix`) is compared
+//! by its trace views, and its end views are `not-compared` (`no-end`).
+//!
+//! A trace view compares elements at equal indices, which is the front end's
+//! ([`Vocabulary::judge_trace`]); the verdict is kink-flow's ([`judged_row`]): `equal` only where
+//! both sides close every channel after the same elements; `agree-up-to` where nothing differs
+//! and some channel was compared only up to a horizon, the row's `horizon` naming per channel
+//! how many elements agree and which side states nothing further (`limited_by`: the
+//! `definition`, whose run was cut, or the `implementation`, whose answer stops before the
+//! positions asked, which leaves a required view unanswered); `different` with the first
+//! difference (`kink-trace/1`); `not-compared` where no element was compared
+//! (`observed-nothing`), the baseline has several paths (`several-paths`) or an element is not
+//! decided (`undecided`).
+//!
+//! Every verdict is a test of one build on the corpus's programs. A trace verdict also rests on
+//! a claim kink cannot check, that the implementation's element k is its state at the
+//! definition's point k: its row says so (`correspondence: "implementation-claim"`), as does the
+//! document of a flow with an implementation of `/2` (`evidence: "testing"`). No verdict says
+//! anything of other programs, of a longer run, or of how two definitions stand to each other.
+//!
 //! With `--lock FILE` the verdicts are the record's `[compare]` section ([`crate::lock`]), one
 //! `[[compare.verdict]]` per (implementation, program, view) in the declarations' order
 //! ([`verdict_rows`]), each with the digest of the request and of the implementation's
@@ -55,12 +85,15 @@ use crate::admit::{InputFiles, admit_spec, case_root};
 use crate::cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, exit_join};
 use crate::clock::Kept;
 use crate::lock::{Lock, LockKind, Settle, compare_row_id};
-use crate::manifest::{FlowManifest, Given, ImplementationSection, Program, ViewSection};
+use crate::manifest::{
+    FlowManifest, Given, ImplementationSection, ObserveSection, Program, Protocol, ViewSection,
+};
 use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
     record_final_configuration, runner_refusal, update_results,
 };
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
+use kink_campaign::{ChannelValues, ValuesEnd, ValuesRefusal};
 use kink_corpus::Store;
 use kink_corpus::admission::{AdmissionRecord, AdmissionRefusal};
 use kink_native::execution::SolverProfile;
@@ -80,8 +113,17 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// The version of the `compare` document: 1, the first; 2 since it has `lock` (`--lock FILE`), a
 /// row's `cached` and `clock_stopped`, and a program's `not_cached`.
 pub const COMPARE_VERSION: u64 = 2;
-/// The protocol every request names (`protocol`), and every answer is read by.
+/// The protocol a request names (`protocol`) and its answer is read by, unless the
+/// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
+/// The format of a trace view's first difference ([`TraceDifference`]).
+pub const TRACE_DIFFERENCE_FORMAT: &str = "kink-trace/1";
+/// What a trace row's `correspondence` says: that the implementation's element k is its state
+/// at the definition's point k is the implementation's claim, which kink does not check.
+pub const CORRESPONDENCE: &str = "implementation-claim";
+/// What `evidence` says of a compare document: its verdicts are tests of one build on these
+/// programs, up to the horizons named.
+pub const EVIDENCE: &str = "testing";
 /// The format of a cached answer of an implementation (module documentation): a record
 /// `{version, protocol, identity_sha256, command, request_sha256, answer}` whose name is the
 /// digest of all but `answer`, the implementation's stdout. Every build reads `answer` again by
@@ -146,6 +188,16 @@ pub enum NotCompared {
     /// The definition's side cannot be stated in the front end's vocabulary (an end or a start
     /// with no document) (2).
     Unreadable(String),
+    /// A trace view of a program whose baseline has several paths: its record holds prefix sets
+    /// over the paths, and no one sequence of elements to compare an answer's with (3).
+    SeveralPaths(String),
+    /// A trace view none of whose channels was compared at any index: both sides agree through
+    /// no element and state nothing further. A comparison of nothing is no agreement (3).
+    ObservedNothing(String),
+    /// An end view of a program whose baseline its bounds cut before it ended: the definition
+    /// has no end there. `carried`: the same implementation declares a required trace view,
+    /// which then carries the program's requirement (0); otherwise the question is open (3).
+    NoEnd { detail: String, carried: bool },
 }
 
 impl NotCompared {
@@ -158,6 +210,9 @@ impl NotCompared {
             Self::SeveralEnds(_) => "several-ends",
             Self::Undecided(_) | Self::ClockStopped(_) => "undecided",
             Self::Unreadable(_) => "unreadable",
+            Self::SeveralPaths(_) => "several-paths",
+            Self::ObservedNothing(_) => "observed-nothing",
+            Self::NoEnd { .. } => "no-end",
         }
     }
 
@@ -179,18 +234,28 @@ impl NotCompared {
             | Self::SeveralEnds(detail)
             | Self::Undecided(detail)
             | Self::ClockStopped(detail)
-            | Self::Unreadable(detail) => detail.clone(),
+            | Self::Unreadable(detail)
+            | Self::SeveralPaths(detail)
+            | Self::ObservedNothing(detail)
+            | Self::NoEnd { detail, .. } => detail.clone(),
         }
     }
 
     /// The status of a required view not compared for this reason: [`EXIT_UNANSWERED`] where
     /// another approach may answer (a view that did not end, several ends), [`EXIT_UNASKED`]
-    /// where the declaration or the corpus must change.
+    /// where the declaration or the corpus must change. An end view of a program with no end
+    /// ([`Self::NoEnd`]) is [`EXIT_YES`] where a required trace view carries the requirement.
     #[must_use]
     pub const fn status(&self) -> u8 {
         match self {
-            Self::SeveralEnds(_) | Self::Undecided(_) | Self::ClockStopped(_) => EXIT_UNANSWERED,
+            Self::SeveralEnds(_)
+            | Self::Undecided(_)
+            | Self::ClockStopped(_)
+            | Self::SeveralPaths(_)
+            | Self::ObservedNothing(_)
+            | Self::NoEnd { carried: false, .. } => EXIT_UNANSWERED,
             Self::Omitted(_) | Self::LeftOut(_) | Self::Unreadable(_) => EXIT_UNASKED,
+            Self::NoEnd { carried: true, .. } => EXIT_YES,
         }
     }
 }
@@ -276,6 +341,141 @@ pub trait Vocabulary {
     /// A failure of the comparison itself (a definition that does not load), which fails the
     /// command.
     fn compare(&self, question: &Question<'_>) -> Result<Judged, String>;
+
+    /// What a request asks of another producer for each channel of `channels` (channels of the
+    /// flow's `[observe]`, in its order, those the trace views of one implementation name): one
+    /// JSON object per channel, in their order, each with `name`, the channel's name, and the
+    /// channel's shape in the vocabulary an implementation writes its elements in (its kind, its
+    /// components or element with the types their values are documents at, its stuttering mode,
+    /// its points as written), and no `positions`, which kink-flow adds per program. The objects
+    /// are a function of the definition and the declaration, so a changed declaration is another
+    /// request. Asked once per implementation that declares a trace view, before any run.
+    ///
+    /// # Errors
+    ///
+    /// Why a channel cannot be asked of an implementation (a component whose values have no
+    /// document, a front end that compares no trace): the command is refused, stage
+    /// `implementation`, reason `declaration`.
+    fn observe_request(&self, channels: &[String]) -> Result<Vec<Value>, String>;
+
+    /// Compare an answer's `observations` with the definition's values under each trace view of
+    /// the implementation ([`TraceQuestion`]): [`TraceAnswer::Malformed`] where the answer's
+    /// record is no record of the channels asked (the run then failed, `malformed`), else one
+    /// [`TraceJudged`] per trace view, in the declaration's order.
+    ///
+    /// # Errors
+    ///
+    /// A failure of the comparison itself, which fails the command.
+    fn judge_trace(&self, question: &TraceQuestion<'_>) -> Result<TraceAnswer, String>;
+}
+
+/// One channel a request asks for (`observe.channels[i]`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AskedChannel {
+    /// The channel's name in `[observe]`.
+    pub name: String,
+    /// The number of indices from 0 the answer is asked to state: the number of elements the
+    /// definition's channel holds where it is open after them, one more where it is closed.
+    pub positions: u64,
+}
+
+/// One question to the front end: an answer's `observations` against the definition's values,
+/// under every trace view of one implementation.
+pub struct TraceQuestion<'a> {
+    pub implementation: &'a ImplementationSection,
+    /// The channels the request asked for, in its order: every channel a trace view of the
+    /// implementation names.
+    pub channels: &'a [AskedChannel],
+    /// The answer's `observations`, as the implementation wrote it. kink-flow has checked only
+    /// that it is an object whose `channels` are objects named, once each, exactly as the
+    /// request's are; everything else of the record is the front end's to read.
+    pub observations: &'a Value,
+    /// The definition's side: the values of the baseline run's channels, found by name. It
+    /// holds every channel of `channels`, and may hold others. An element is the K the run
+    /// read (`Element::Content`), the front end's own document of it (`Element::Evaluated`) or
+    /// undecided; a channel ends closed or open ([`ChannelValues::ending`]).
+    pub definition: &'a [ChannelValues],
+}
+
+/// The front end's reading of an answer's `observations` ([`Vocabulary::judge_trace`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TraceAnswer {
+    /// The record is no record of the channels asked: why, naming the place in the document.
+    Malformed(String),
+    /// One comparison per trace view of the implementation, in the declaration's order.
+    Judged(Vec<TraceJudged>),
+}
+
+/// The front end's comparison of one trace view: what the two sides' elements at equal indices
+/// show. The verdict, its status and its words are kink-flow's ([`judged_row`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TraceJudged {
+    /// No decided difference: for each channel of the view, in the view's order, how far the two
+    /// sides agree.
+    Agree(Vec<ChannelAgreed>),
+    /// They differ, first here.
+    Different(TraceDifference),
+    /// Before any difference an element of one side is not decided: the detail names the
+    /// channel, the index and the side.
+    Undecided(String),
+}
+
+/// How far the two sides of one channel agree ([`TraceJudged::Agree`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelAgreed {
+    pub channel: String,
+    /// The number of elements compared and equal, from index 0; a closure is not counted.
+    pub elements: u64,
+    pub reach: TraceReach,
+}
+
+/// Where the comparison of one channel ended without a difference.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TraceReach {
+    /// Both sides close the channel after the same elements, by the same closure.
+    Closed,
+    /// After the elements that agree, some side states nothing further (its channel is open
+    /// there). `implementation` is the answer's own reason where its channel is open there;
+    /// `None` where it states more, or closes there. Whether the definition's channel is open
+    /// there is kink-flow's to read, from the values it gave.
+    Bounded { implementation: Option<String> },
+}
+
+/// The first difference of a trace view. Its document is `{format: "kink-trace/1", channel,
+/// kind, index, path, definition, implementation, correspondence}`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TraceDifference {
+    /// The channel that differs first.
+    pub channel: String,
+    /// What differs, in the front end's word (a value, a closure).
+    pub kind: String,
+    /// The index of the differing position.
+    pub index: u64,
+    /// Where in the element's value, for a difference of values.
+    pub path: Option<String>,
+    /// The definition's side there: `{element, rule, side, steps}`, or `{closed, ..}` where its
+    /// channel closes there; `rule` and `side` are null for an element read at no point.
+    pub definition: Value,
+    /// The implementation's side there: `{element, count}`, `count` its own `depth`, or
+    /// `{closed}` where its channel closes there.
+    pub implementation: Value,
+}
+
+impl TraceDifference {
+    /// The difference's document.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        json!({
+            "format": TRACE_DIFFERENCE_FORMAT,
+            "channel": self.channel,
+            "kind": self.kind,
+            "index": self.index,
+            "path": self.path,
+            "definition": self.definition,
+            "implementation": self.implementation,
+            "correspondence": CORRESPONDENCE,
+        })
+    }
 }
 
 /// A failure of an implementation's run: no answer to compare.
@@ -335,18 +535,6 @@ pub enum Answer {
     CouldNotApply { reason: String },
 }
 
-impl Answer {
-    /// The answer's member of its row: `{end, reason}` (its cells are compared, not shown).
-    fn value(&self) -> Value {
-        match self {
-            Self::Ended { end, .. } => json!({"end": end.as_str(), "reason": null}),
-            Self::CouldNotApply { reason } => {
-                json!({"end": "could-not-apply", "reason": reason})
-            }
-        }
-    }
-}
-
 /// Read an answer document ([`PROTOCOL`]): a JSON object of `end`, `cells` (for `stopped` and
 /// `final`) and `reason` (for `could-not-apply`, a nonempty string), and no other key.
 ///
@@ -404,6 +592,223 @@ pub fn read_answer(bytes: &[u8]) -> Result<Answer, String> {
         }),
         Some(_) => Err("`cells` is not a JSON object".to_owned()),
         None => Err(format!("a `{end}` answer states its end's `cells`")),
+    }
+}
+
+/// How an answer of either protocol says the run ended.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StatedEnd {
+    /// `stopped` or `final`.
+    Ended(EndWord),
+    /// `horizon` ([`Protocol::V2`]): it stated the positions asked and has not ended.
+    Horizon,
+    /// `could-not-apply`, with its reason.
+    CouldNotApply(String),
+}
+
+/// An answer of either protocol, read ([`read_answer`], [`read_answer_2`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stated {
+    pub end: StatedEnd,
+    /// Its end's cells, where it states them.
+    pub cells: Option<Value>,
+    /// Its `observations` ([`Protocol::V2`]), where the request asked for them.
+    pub observations: Option<Value>,
+}
+
+impl From<Answer> for Stated {
+    fn from(answer: Answer) -> Self {
+        match answer {
+            Answer::Ended { end, cells } => Self {
+                end: StatedEnd::Ended(end),
+                cells: Some(cells),
+                observations: None,
+            },
+            Answer::CouldNotApply { reason } => Self {
+                end: StatedEnd::CouldNotApply(reason),
+                cells: None,
+                observations: None,
+            },
+        }
+    }
+}
+
+impl Stated {
+    /// The answer's `end`, as the protocol writes it.
+    #[must_use]
+    pub const fn word(&self) -> &'static str {
+        match &self.end {
+            StatedEnd::Ended(end) => end.as_str(),
+            StatedEnd::Horizon => "horizon",
+            StatedEnd::CouldNotApply(_) => "could-not-apply",
+        }
+    }
+
+    /// The answer's member of its row: `{end, reason}` (its cells and its observations are
+    /// compared, not shown).
+    fn value(&self) -> Value {
+        match &self.end {
+            StatedEnd::CouldNotApply(reason) => json!({"end": self.word(), "reason": reason}),
+            _ => json!({"end": self.word(), "reason": null}),
+        }
+    }
+}
+
+/// What a request asked that decides which members its answer holds ([`read_answer_2`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Asked {
+    /// The request has `observe`.
+    pub observe: bool,
+    /// The implementation declares an end view, which compares its end's `cells`.
+    pub end_view: bool,
+}
+
+/// Read an answer document of [`Protocol::V2`]: a JSON object of `end`, `cells`, `reason` and
+/// `observations`, and no other key. `end` is `stopped`, `final`, `horizon` (only to a request
+/// with `observe`, and with no `cells`: it has no end) or `could-not-apply` (with a `reason`, a
+/// nonempty string, and neither `cells` nor `observations`). A `stopped` or `final` answer
+/// states its end's `cells` where the implementation declares an end view, and may state them
+/// otherwise. `observations`, an object, is there exactly when the request has `observe` and
+/// the answer is not `could-not-apply`: an answer that leaves a requested trace out is no answer
+/// to the request, and one that states a trace nobody asked for is of another request.
+///
+/// # Errors
+///
+/// Why the bytes are no answer.
+pub fn read_answer_2(bytes: &[u8], asked: Asked) -> Result<Stated, String> {
+    let protocol = Protocol::V2.as_str();
+    let document: Value = serde_json::from_slice(bytes)
+        .map_err(|error| format!("stdout is not one JSON document: {error}"))?;
+    let Value::Object(mut object) = document else {
+        return Err("the answer is not a JSON object".to_owned());
+    };
+    if let Some(key) = object
+        .keys()
+        .find(|key| !matches!(key.as_str(), "end" | "cells" | "reason" | "observations"))
+    {
+        return Err(format!(
+            "the answer has the key `{key}`; an answer holds `end`, `cells`, `reason` and \
+             `observations` only ({protocol})"
+        ));
+    }
+    let end = object.get("end").and_then(Value::as_str).ok_or(
+        "the answer has no `end` string (`stopped`, `final`, `horizon` or `could-not-apply`)",
+    )?;
+    let end = match end {
+        "stopped" => StatedEnd::Ended(EndWord::Stopped),
+        "final" => StatedEnd::Ended(EndWord::Final),
+        "horizon" => StatedEnd::Horizon,
+        "could-not-apply" => {
+            for key in ["cells", "observations"] {
+                if object.contains_key(key) {
+                    return Err(format!("a `could-not-apply` answer states no `{key}`"));
+                }
+            }
+            let reason = object
+                .get("reason")
+                .and_then(Value::as_str)
+                .filter(|reason| !reason.trim().is_empty())
+                .ok_or("a `could-not-apply` answer gives its `reason`, a nonempty string")?;
+            return Ok(Stated {
+                end: StatedEnd::CouldNotApply(reason.to_owned()),
+                cells: None,
+                observations: None,
+            });
+        }
+        other => {
+            return Err(format!(
+                "`end` is `{other}`, not `stopped`, `final`, `horizon` or `could-not-apply`"
+            ));
+        }
+    };
+    let word = match &end {
+        StatedEnd::Ended(end) => end.as_str(),
+        _ => "horizon",
+    };
+    if object.contains_key("reason") {
+        return Err(format!("a `{word}` answer gives no `reason`"));
+    }
+    let cells = match (object.remove("cells"), &end) {
+        (Some(_), StatedEnd::Horizon) => {
+            return Err(
+                "a `horizon` answer states no `cells`: the run has not ended, so it has no end"
+                    .to_owned(),
+            );
+        }
+        (Some(cells @ Value::Object(_)), _) => Some(cells),
+        (Some(_), _) => return Err("`cells` is not a JSON object".to_owned()),
+        (None, StatedEnd::Ended(_)) if asked.end_view => {
+            return Err(format!("a `{word}` answer states its end's `cells`"));
+        }
+        (None, _) => None,
+    };
+    let observations = match (object.remove("observations"), asked.observe) {
+        (Some(observations @ Value::Object(_)), true) => Some(observations),
+        (Some(_), true) => return Err("`observations` is not a JSON object".to_owned()),
+        (Some(_), false) => {
+            return Err(
+                "the answer states `observations`, and the request has no `observe`".to_owned(),
+            );
+        }
+        (None, true) => {
+            return Err(format!(
+                "a `{word}` answer to a request with `observe` states its `observations`"
+            ));
+        }
+        (None, false) => None,
+    };
+    if end == StatedEnd::Horizon && !asked.observe {
+        return Err(
+            "`end` is `horizon`, and the request has no `observe`: it asked for no positions"
+                .to_owned(),
+        );
+    }
+    Ok(Stated {
+        end,
+        cells,
+        observations,
+    })
+}
+
+/// Check that an answer's `observations` names the channels the request asked for: an object
+/// whose `channels` is an array of objects, each with a `name`, the names being exactly the
+/// request's, once each. What each channel holds is the front end's to read
+/// ([`Vocabulary::judge_trace`]).
+///
+/// # Errors
+///
+/// Why it does not, naming the channel: a requested channel the answer leaves out is no answer
+/// about that channel, so the answer is malformed, never a comparison of fewer channels.
+pub fn stated_channels(observations: &Value, asked: &[AskedChannel]) -> Result<(), String> {
+    let channels = observations["channels"]
+        .as_array()
+        .ok_or("`channels` is not an array")?;
+    let mut names = Vec::new();
+    for (index, channel) in channels.iter().enumerate() {
+        let name = channel
+            .as_object()
+            .and_then(|channel| channel.get("name"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("`channels[{index}]` is no object with a `name` string"))?;
+        if !asked.iter().any(|asked| asked.name == name) {
+            return Err(format!(
+                "`channels[{index}]` is `{name}`, a channel the request did not ask for"
+            ));
+        }
+        if names.contains(&name) {
+            return Err(format!("`channels[{index}]`: `{name}` is stated twice"));
+        }
+        names.push(name);
+    }
+    match asked
+        .iter()
+        .find(|asked| !names.contains(&asked.name.as_str()))
+    {
+        Some(missing) => Err(format!(
+            "no channel `{}`, which the request asked for",
+            missing.name
+        )),
+        None => Ok(()),
     }
 }
 
@@ -542,6 +947,9 @@ enum Definition {
         /// The words of the ends, each once.
         words: BTreeSet<&'static str>,
     },
+    /// The program's baseline was cut by its bounds before it ended (`comparable-prefix`): it
+    /// has no end, and its channels' elements up to their horizons, which a trace view compares.
+    Prefix { cause: Option<String> },
     /// The program's baseline has no end to compare: its class, its cause.
     None {
         class: String,
@@ -564,6 +972,11 @@ fn definition_side(
         class: class.clone(),
         cause,
     };
+    if class == ResultClass::ComparablePrefix.as_str() {
+        return Definition::Prefix {
+            cause: row.row["cause"].as_str().map(str::to_owned),
+        };
+    }
     if class != ResultClass::Comparable.as_str() {
         return none(row.row["cause"].as_str().map(str::to_owned));
     }
@@ -614,85 +1027,507 @@ fn definition_side(
     Definition::Ends { ends, words }
 }
 
-/// The verdicts of one (implementation, program): the views' rows.
-fn view_rows(
+/// The definition's observation record of one program, which its trace views are compared
+/// against: the `observations` of its baseline row.
+enum Observed {
+    Record(Value),
+    /// The record is of a run with several paths.
+    SeveralPaths,
+    /// The baseline's record holds none this command can read: why.
+    Unreadable(String),
+}
+
+/// The observation record of `row`'s baseline: this command's live run, else the stored record,
+/// as [`definition_side`] reads the ends.
+fn observed_record(
+    manifest: &FlowManifest,
+    runner: &BaselineRunner<'_>,
+    execution: crate::digest::ExecutionDigest,
+    program: &Program,
+    row: &ProgramRow,
+    cache: &Path,
+) -> Observed {
+    let record = match (&row.test, &row.inputs) {
+        (Some(test), _) => runner
+            .run(test.clone())
+            .baseline
+            .and_then(|baseline| baseline.get("observations").cloned()),
+        (None, Some(inputs)) => current_record(manifest, execution, program, inputs, cache)
+            .and_then(|record| record.get("baseline")?.get("observations").cloned()),
+        (None, None) => None,
+    };
+    match record.filter(Value::is_object) {
+        None => Observed::Unreadable(
+            "the baseline's record holds no observation record this command can read".to_owned(),
+        ),
+        Some(record) if record.get("paths").is_some_and(Value::is_object) => Observed::SeveralPaths,
+        Some(record) => Observed::Record(record),
+    }
+}
+
+/// The channels a request asks for, each with its `positions`, from the baseline's observation
+/// `record` (kink-campaign `BaselineRecord::value`): a channel that holds N elements is asked
+/// for N positions where it is open after them, the definition stating nothing at N, and for
+/// N + 1 where it is closed after them by its end or by an undefined state, since the closure is
+/// a position: an implementation that goes on shows its element there. A channel closed by a
+/// cycle is read as open after its elements (kink-campaign `ChannelValues::ending`), so it is
+/// asked for N.
+///
+/// # Errors
+///
+/// The record holds no channel of a name asked.
+pub fn asked_channels(record: &Value, channels: &[String]) -> Result<Vec<AskedChannel>, String> {
+    channels
+        .iter()
+        .map(|name| {
+            let channel = record["channels"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|channel| channel["name"] == name.as_str())
+                .ok_or_else(|| {
+                    format!("the baseline's observation record holds no channel `{name}`")
+                })?;
+            let held = channel["elements"].as_array().map_or(0, Vec::len);
+            let held = u64::try_from(held).unwrap_or(u64::MAX);
+            let positions = match channel["closed"].as_str() {
+                Some("end" | "undefined") => held.saturating_add(1),
+                _ => held,
+            };
+            Ok(AskedChannel {
+                name: name.clone(),
+                positions,
+            })
+        })
+        .collect()
+}
+
+/// The channels the trace views of `implementation` name, each once, in `[observe]`'s order.
+fn traced_channels(
+    implementation: &ImplementationSection,
+    observe: Option<&ObserveSection>,
+) -> Vec<String> {
+    let named = |name: &str| {
+        implementation.trace_views().any(|view| {
+            view.channels
+                .iter()
+                .flatten()
+                .any(|channel| channel == name)
+        })
+    };
+    observe
+        .into_iter()
+        .flat_map(ObserveSection::channel_names)
+        .filter(|name| named(name))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The front end's shapes of `channels` ([`Vocabulary::observe_request`]), checked: one object
+/// per channel, named as it is, without `positions`.
+fn channel_shapes(vocabulary: &dyn Vocabulary, channels: &[String]) -> Result<Vec<Value>, String> {
+    let shapes = vocabulary.observe_request(channels)?;
+    let named = shapes.len() == channels.len()
+        && shapes.iter().zip(channels).all(|(shape, channel)| {
+            shape.is_object()
+                && shape["name"] == channel.as_str()
+                && shape.get("positions").is_none()
+        });
+    if named {
+        Ok(shapes)
+    } else {
+        Err(format!(
+            "the front end gave no shape for each of the channels {}",
+            channels
+                .iter()
+                .map(|channel| format!("`{channel}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+}
+
+/// A request's `observe`: `{channels}`, each channel its shape with the `positions` asked.
+fn observe_value(shapes: &[Value], asked: &[AskedChannel]) -> Value {
+    let channels = shapes
+        .iter()
+        .zip(asked)
+        .map(|(shape, asked)| {
+            let mut channel = shape.clone();
+            channel["positions"] = json!(asked.positions);
+            channel
+        })
+        .collect::<Vec<_>>();
+    json!({"channels": channels})
+}
+
+/// The verdict of one end view of one (implementation, program) whose definition has ends.
+fn end_view_row(
     vocabulary: &dyn Vocabulary,
     implementation: &ImplementationSection,
-    answer: &Answer,
+    view: &ViewSection,
+    stated: &Stated,
     definition: (&BTreeSet<Pattern>, &BTreeSet<&'static str>),
     not_compared: &[String],
-) -> Result<Vec<Value>, String> {
+) -> Result<Value, String> {
     let (ends, words) = definition;
-    let mut rows = Vec::new();
-    for view in &implementation.views {
-        let mut row = view_row(view);
-        match answer {
-            Answer::CouldNotApply { reason } => {
-                row["verdict"] = json!("could-not-apply");
-                row["detail"] = json!(reason);
+    let mut row = view_row(view);
+    if words.is_empty() {
+        not_compared_row(
+            &mut row,
+            &NotCompared::Unreadable(
+                "the baseline's record names no end's halt, so its end's word is not known"
+                    .to_owned(),
+            ),
+        );
+    } else if words.len() > 1 {
+        not_compared_row(
+            &mut row,
+            &NotCompared::SeveralEnds(
+                "the definition's run ends both at the stop and on its own: one answer against \
+                 several ends is a question of inclusion, which compare does not decide"
+                    .to_owned(),
+            ),
+        );
+    } else if let Some(word) = words.first().filter(|word| **word != stated.word()) {
+        row["verdict"] = json!("different");
+        row["difference"] = json!({
+            "format": "kink-end/1",
+            "at": "end",
+            "definition": word,
+            "implementation": stated.word(),
+        });
+    } else {
+        let cells = stated
+            .cells
+            .as_ref()
+            .ok_or("an answer an end view compares states no `cells`")?;
+        let judged = vocabulary.compare(&Question {
+            implementation,
+            view,
+            cells,
+            ends,
+            not_compared,
+        })?;
+        match judged {
+            Judged::Equal { omitted } => {
+                row["verdict"] = json!("equal");
+                row["omitted"] = json!(omitted);
             }
-            Answer::Ended { end, cells } => {
-                if words.is_empty() {
-                    not_compared_row(
-                        &mut row,
-                        &NotCompared::Unreadable(
-                            "the baseline's record names no end's halt, so its end's word is not \
-                             known"
-                                .to_owned(),
-                        ),
-                    );
-                } else if words.len() > 1 {
-                    not_compared_row(
-                        &mut row,
-                        &NotCompared::SeveralEnds(
-                            "the definition's run ends both at the stop and on its own: one \
-                             answer against several ends is a question of inclusion, which \
-                             compare does not decide"
-                                .to_owned(),
-                        ),
-                    );
-                } else if let Some(word) = words.first().filter(|word| **word != end.as_str()) {
-                    row["verdict"] = json!("different");
-                    row["difference"] = json!({
-                        "format": "kink-end/1",
-                        "at": "end",
-                        "definition": word,
-                        "implementation": end.as_str(),
-                    });
-                } else {
-                    let judged = vocabulary.compare(&Question {
-                        implementation,
-                        view,
-                        cells,
-                        ends,
-                        not_compared,
-                    })?;
-                    match judged {
-                        Judged::Equal { omitted } => {
-                            row["verdict"] = json!("equal");
-                            row["omitted"] = json!(omitted);
-                        }
-                        Judged::Different {
-                            difference,
-                            omitted,
-                        } => {
-                            row["verdict"] = json!("different");
-                            row["difference"] = difference;
-                            row["omitted"] = json!(omitted);
-                        }
-                        Judged::NotCompared(reason) => not_compared_row(&mut row, &reason),
-                    }
-                }
+            Judged::Different {
+                difference,
+                omitted,
+            } => {
+                row["verdict"] = json!("different");
+                row["difference"] = difference;
+                row["omitted"] = json!(omitted);
+            }
+            Judged::NotCompared(reason) => not_compared_row(&mut row, &reason),
+        }
+    }
+    Ok(row)
+}
+
+/// Why an end view of `implementation` is not compared on a program whose baseline its bounds
+/// cut ([`NotCompared::NoEnd`]).
+fn no_end(implementation: &ImplementationSection) -> NotCompared {
+    let carried = implementation.trace_views().any(|view| view.required);
+    NotCompared::NoEnd {
+        detail: format!(
+            "the definition's run of the program is cut by its bounds before it ends \
+             (`comparable-prefix`): it has no end to compare{}",
+            if carried {
+                "; the implementation's required trace view carries the program"
+            } else {
+                ""
+            }
+        ),
+        carried,
+    }
+}
+
+/// The trace side of one (implementation, program) with an answer.
+enum TraceSide<'a> {
+    /// The implementation's trace views are not compared on the program: why.
+    Not(&'a NotCompared),
+    /// The front end's comparison of each trace view, in the declaration's order, with the
+    /// channels asked and the definition's values.
+    Judged {
+        judged: Vec<TraceJudged>,
+        asked: &'a [AskedChannel],
+        definition: &'a [ChannelValues],
+    },
+}
+
+/// The front end's comparison of each trace view of the question's implementation
+/// ([`Vocabulary::judge_trace`]), one per trace view: `Ok(Err)` where the answer's
+/// `observations` is malformed.
+fn judge_trace(
+    vocabulary: &dyn Vocabulary,
+    question: &TraceQuestion<'_>,
+) -> Result<Result<Vec<TraceJudged>, String>, String> {
+    match vocabulary.judge_trace(question)? {
+        TraceAnswer::Malformed(detail) => Ok(Err(detail)),
+        TraceAnswer::Judged(judged) => {
+            let views = question.implementation.trace_views().count();
+            if judged.len() == views {
+                Ok(Ok(judged))
+            } else {
+                Err(format!(
+                    "the front end compared {} trace views of the {views} the implementation \
+                     declares",
+                    judged.len()
+                ))
             }
         }
-        rows.push(row);
+    }
+}
+
+/// The verdicts of one (implementation, program) with the answer `stated`: the views' rows, in
+/// the declaration's order. `ends` is the definition's ends and their words, `None` for a
+/// program whose baseline has none (`comparable-prefix`), whose end views are then not compared
+/// ([`no_end`]); `trace` is the trace views' side, `None` for an implementation without one.
+fn answered_rows(
+    vocabulary: &dyn Vocabulary,
+    implementation: &ImplementationSection,
+    stated: &Stated,
+    ends: Option<(&BTreeSet<Pattern>, &BTreeSet<&'static str>)>,
+    not_compared: &[String],
+    trace: Option<TraceSide<'_>>,
+) -> Result<Vec<Value>, String> {
+    let (mut judged, not, asked, definition) = match trace {
+        Some(TraceSide::Judged {
+            judged,
+            asked,
+            definition,
+        }) => (judged.into_iter(), None, asked, definition),
+        Some(TraceSide::Not(reason)) => (Vec::new().into_iter(), Some(reason), &[][..], &[][..]),
+        None => (Vec::new().into_iter(), None, &[][..], &[][..]),
+    };
+    let mut rows = Vec::new();
+    for view in &implementation.views {
+        if let StatedEnd::CouldNotApply(reason) = &stated.end {
+            let mut row = view_row(view);
+            row["verdict"] = json!("could-not-apply");
+            row["detail"] = json!(reason);
+            rows.push(row);
+            continue;
+        }
+        rows.push(if view.is_trace() {
+            match (not, judged.next()) {
+                (Some(reason), _) => {
+                    let mut row = view_row(view);
+                    not_compared_row(&mut row, reason);
+                    row
+                }
+                (None, Some(judged)) => judged_row(view, judged, asked, definition)?,
+                (None, None) => {
+                    return Err(format!("the trace view `{}` was not compared", view.name));
+                }
+            }
+        } else if let Some(ends) = ends {
+            end_view_row(vocabulary, implementation, view, stated, ends, not_compared)?
+        } else {
+            let mut row = view_row(view);
+            not_compared_row(&mut row, &no_end(implementation));
+            row
+        });
     }
     Ok(rows)
 }
 
-/// A view's row before its verdict.
+/// `count` elements, as a line says it.
+fn elements_agree(count: u64) -> String {
+    if count == 1 {
+        "1 element agrees".to_owned()
+    } else {
+        format!("{count} elements agree")
+    }
+}
+
+/// The row of one trace view from the front end's comparison of it (`judged`), `asked` being the
+/// channels the request asked for and `definition` the definition's values (both found by name).
+///
+/// The verdict is decided here, from how far each channel of the view agrees:
+///
+/// - `equal`: every channel is compared to both sides' closure. The definition's channel must
+///   be closed after exactly the elements that agree; a front end that says so of a channel the
+///   definition leaves open is refused, so agreement up to a horizon is never spelled `equal`.
+/// - `agree-up-to`: nothing differs and some channel is bounded: after the elements that agree,
+///   a side states nothing further. `horizon` names each bounded channel: `{elements,
+///   limited_by, definition, implementation}`. It is `limited_by` the `definition` where the
+///   definition's channel is open there (`definition`: its opening's name): the answer agrees
+///   with everything the definition states. Otherwise the definition states a position the
+///   answer does not (`limited_by: "implementation"`, `implementation`: its reason): the
+///   question is left open, and the row's status is [`EXIT_UNANSWERED`], so an answer of fewer
+///   positions than asked never passes a required view.
+/// - `not-compared` (`observed-nothing`): every channel is bounded with no element compared. No
+///   position was compared, so nothing agrees.
+/// - `different`: the first difference ([`TraceDifference::value`]).
+/// - `not-compared` (`undecided`): an element before any difference is not decided.
+///
+/// # Errors
+///
+/// The front end's comparison is none of this view against these values: it names another
+/// channel, more elements than the definition holds, a closure the definition's channel does not
+/// have, or a bound neither side has.
+pub fn judged_row(
+    view: &ViewSection,
+    judged: TraceJudged,
+    asked: &[AskedChannel],
+    definition: &[ChannelValues],
+) -> Result<Value, String> {
+    let mut row = view_row(view);
+    let names = view.channels.as_deref().unwrap_or_default();
+    let agreed = match judged {
+        TraceJudged::Undecided(detail) => {
+            not_compared_row(&mut row, &NotCompared::Undecided(detail));
+            return Ok(row);
+        }
+        TraceJudged::Different(difference) => {
+            if !names.contains(&difference.channel) {
+                return Err(format!(
+                    "the front end's difference is at `{}`, no channel of the view `{}`",
+                    difference.channel, view.name
+                ));
+            }
+            row["verdict"] = json!("different");
+            row["difference"] = difference.value();
+            return Ok(row);
+        }
+        TraceJudged::Agree(agreed) => agreed,
+    };
+    if agreed.len() != names.len()
+        || agreed
+            .iter()
+            .zip(names)
+            .any(|(agreed, name)| agreed.channel != *name)
+    {
+        return Err(format!(
+            "the front end's agreement is not one per channel of the view `{}`, in its order",
+            view.name
+        ));
+    }
+    let mut horizon = Map::new();
+    let mut bounds = Vec::new();
+    let mut short = false;
+    // Whether some position was compared: an element, or a closure of both sides.
+    let mut compared = false;
+    for ChannelAgreed {
+        channel,
+        elements,
+        reach,
+    } in agreed
+    {
+        let missing = || format!("the channel `{channel}` was not asked for");
+        let values = definition
+            .iter()
+            .find(|values| values.name == channel)
+            .ok_or_else(missing)?;
+        let positions = asked
+            .iter()
+            .find(|asked| asked.name == channel)
+            .ok_or_else(missing)?
+            .positions;
+        let held = u64::try_from(values.elements.len()).unwrap_or(u64::MAX);
+        let ending = values.ending();
+        match reach {
+            TraceReach::Closed => {
+                if !matches!(ending, ValuesEnd::End | ValuesEnd::Undefined) || elements != held {
+                    return Err(format!(
+                        "the front end says `{channel}` agrees to both sides' closure after \
+                         {elements} elements, and the definition's channel is not closed there \
+                         (it holds {held})"
+                    ));
+                }
+                compared = true;
+            }
+            TraceReach::Bounded { implementation } => {
+                if elements > held {
+                    return Err(format!(
+                        "the front end says {elements} elements of `{channel}` agree, and the \
+                         definition's channel holds {held}"
+                    ));
+                }
+                let opening = match &ending {
+                    ValuesEnd::Open { index, opening, .. }
+                        if u64::try_from(*index).ok() == Some(elements) =>
+                    {
+                        Some(opening.name())
+                    }
+                    _ => None,
+                };
+                let limited_by = match (opening, &implementation) {
+                    (Some(_), _) => "definition",
+                    (None, Some(_)) => "implementation",
+                    (None, None) => {
+                        return Err(format!(
+                            "the front end says `{channel}` is bounded after {elements} \
+                             elements, where neither side's channel is open"
+                        ));
+                    }
+                };
+                compared |= elements > 0;
+                short |= limited_by == "implementation";
+                bounds.push(match (opening, &implementation) {
+                    (Some("bound"), _) => format!(
+                        "`{channel}` {}, then the definition's run is cut (bound)",
+                        elements_agree(elements)
+                    ),
+                    (Some(opening), _) => format!(
+                        "`{channel}` {}, then the definition's channel is open ({opening})",
+                        elements_agree(elements)
+                    ),
+                    (None, reason) => format!(
+                        "`{channel}` {}, then the implementation's channel is open ({}) before \
+                         the {positions} positions asked",
+                        elements_agree(elements),
+                        reason.as_deref().unwrap_or_default()
+                    ),
+                });
+                horizon.insert(
+                    channel,
+                    json!({
+                        "elements": elements,
+                        "limited_by": limited_by,
+                        "definition": opening,
+                        "implementation": implementation,
+                    }),
+                );
+            }
+        }
+    }
+    if horizon.is_empty() {
+        row["verdict"] = json!("equal");
+    } else if !compared {
+        not_compared_row(
+            &mut row,
+            &NotCompared::ObservedNothing(format!(
+                "no element of {} was compared: {}",
+                names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                bounds.join("; ")
+            )),
+        );
+    } else {
+        row["verdict"] = json!("agree-up-to");
+        row["horizon"] = Value::Object(horizon);
+        row["detail"] = json!(format!(
+            "{}; nothing past it is compared",
+            bounds.join("; ")
+        ));
+        row["status"] = json!(if short { EXIT_UNANSWERED } else { EXIT_YES });
+    }
+    Ok(row)
+}
+
+/// A view's row before its verdict. A trace view's also has `horizon` and says what its verdict
+/// rests on ([`CORRESPONDENCE`]); an end view's row has neither key.
 fn view_row(view: &ViewSection) -> Value {
-    json!({
+    let mut row = json!({
         "view": view.name,
         "required": view.required,
         "verdict": null,
@@ -701,7 +1536,25 @@ fn view_row(view: &ViewSection) -> Value {
         "detail": null,
         "omitted": [],
         "status": null,
-    })
+    });
+    if view.is_trace() {
+        row["horizon"] = Value::Null;
+        row["correspondence"] = json!(CORRESPONDENCE);
+    }
+    row
+}
+
+/// Every view of `implementation` not compared for `reason`.
+fn not_compared_rows(implementation: &ImplementationSection, reason: &NotCompared) -> Vec<Value> {
+    implementation
+        .views
+        .iter()
+        .map(|view| {
+            let mut row = view_row(view);
+            not_compared_row(&mut row, reason);
+            row
+        })
+        .collect()
 }
 
 fn not_compared_row(row: &mut Value, reason: &NotCompared) {
@@ -748,7 +1601,9 @@ fn definition_rows(
 
 /// The status of one (implementation, program) row: the join of its required views' verdicts
 /// (`equal` and `could-not-apply` [`EXIT_YES`], `different` [`EXIT_NO`], `not-compared` its
-/// reason's status), and of its failure where some view is required. A view that is not
+/// reason's status, `agree-up-to` its own: [`EXIT_YES`] where the definition limits every
+/// horizon, [`EXIT_UNANSWERED`] where the implementation's answer limits one), and of its failure
+/// where some view is required. A view that is not
 /// required decides nothing.
 #[must_use]
 pub fn row_status(row: &Value) -> u8 {
@@ -764,7 +1619,7 @@ pub fn row_status(row: &Value) -> u8 {
             match view["verdict"].as_str() {
                 Some("equal" | "could-not-apply") => EXIT_YES,
                 Some("different") => EXIT_NO,
-                Some("not-compared") => view["status"]
+                Some("not-compared" | "agree-up-to") => view["status"]
                     .as_u64()
                     .and_then(|status| u8::try_from(status).ok())
                     .unwrap_or(EXIT_UNASKED),
@@ -901,8 +1756,77 @@ fn lock_refused(manifest: &FlowManifest, path: &Path, detail: &str) -> Value {
     document
 }
 
-/// [`command`] without its lock.
+/// [`command`] without its lock. The document of a flow some selected implementation of which
+/// declares another protocol than [`PROTOCOL`] names the protocols of the selected
+/// implementations (`protocols`, in place of `protocol`) and says what its verdicts are
+/// (`evidence`, [`EVIDENCE`]); every other document is as it was before a second protocol
+/// existed.
 fn compared(
+    manifest: &FlowManifest,
+    options: &CompareOptions,
+    vocabulary: Option<&dyn Vocabulary>,
+) -> Value {
+    let mut document = compared_selected(manifest, options, vocabulary);
+    let protocols = manifest
+        .implementations
+        .iter()
+        .filter(|i| options.only.is_empty() || options.only.contains(&i.name))
+        .map(|implementation| implementation.protocol.as_str())
+        .collect::<BTreeSet<_>>();
+    if protocols.iter().any(|protocol| *protocol != PROTOCOL)
+        && let Some(members) = document.as_object_mut()
+    {
+        members.remove("protocol");
+        members.insert("protocols".into(), json!(protocols));
+        members.insert("evidence".into(), json!(EVIDENCE));
+    }
+    document
+}
+
+/// Why a trace view of a program whose baseline has several paths is not compared.
+const SEVERAL_PATHS: &str = "the definition's run of the program has several paths: its record \
+     holds the paths' prefix sets and no one sequence of elements, and one answer against several \
+     paths is a question of inclusion, which compare does not decide";
+
+/// The values of the channels `channels` of `program`'s baseline run
+/// (`BaselineRunner::observed_values`), whose observation record is `observed`.
+fn value_run(
+    runner: &BaselineRunner<'_>,
+    inputs: &mut crate::admit::InputSession<'_>,
+    program: &Program,
+    row: &ProgramRow,
+    observed: Option<&Observed>,
+    channels: &[String],
+) -> Result<Vec<ChannelValues>, ValuesRefusal> {
+    let Some(Observed::Record(record)) = observed else {
+        return Err(ValuesRefusal::Capture(
+            "the baseline's observation record was not read".to_owned(),
+        ));
+    };
+    let test = match (&row.test, &row.inputs) {
+        (Some(test), _) => test.clone(),
+        (None, Some(case)) => inputs
+            .test_case(program, case)
+            .map_err(|refusal| ValuesRefusal::Capture(refusal.detail))?,
+        (None, None) => {
+            return Err(ValuesRefusal::Capture(
+                "the program's inputs cannot be read".to_owned(),
+            ));
+        }
+    };
+    runner.observed_values(test, record, channels)
+}
+
+/// What stops the trace views of an answer from being compared.
+enum Trouble {
+    /// The answer's `observations` is malformed: the run failed.
+    Malformed(String),
+    /// The command fails: the refusal's reason and detail.
+    Command(&'static str, String),
+}
+
+/// [`compared`]'s document before its protocols are named.
+fn compared_selected(
     manifest: &FlowManifest,
     options: &CompareOptions,
     vocabulary: Option<&dyn Vocabulary>,
@@ -960,6 +1884,9 @@ fn compared(
         Err(refusal) => return refused(manifest, "manifest-directory", refusal.detail),
     };
     let mut declared = Vec::new();
+    // Per selected implementation with a trace view: the channels its requests ask for and
+    // their shapes, which no program changes.
+    let mut traced = Vec::new();
     for implementation in &selected {
         // What of the declaration depends on the flow, before what depends on the definition.
         if let Err(detail) = implementation.declaration(manifest.observe.as_ref()) {
@@ -976,6 +1903,21 @@ fn compared(
                 format!("implementation `{}`: {detail}", implementation.name),
             );
         }
+        let channels = traced_channels(implementation, manifest.observe.as_ref());
+        traced.push(if channels.is_empty() {
+            None
+        } else {
+            match channel_shapes(vocabulary, &channels) {
+                Ok(shapes) => Some((channels, shapes)),
+                Err(detail) => {
+                    return refused(
+                        manifest,
+                        "declaration",
+                        format!("implementation `{}`: {detail}", implementation.name),
+                    );
+                }
+            }
+        });
         let mut value = implementation.value();
         if let Some(identity) = &implementation.identity {
             match std::fs::read(root.join(&identity.file)) {
@@ -1010,6 +1952,24 @@ fn compared(
     let update = update_results(&spec, manifest, &mut inputs, &runner, &cache, false, None);
     let not_compared = spec.result.not_compared.clone();
     let answers = Store::new(&cache);
+    // Every channel some selected implementation's trace view names, in `[observe]`'s order: a
+    // program's one value run reads them all.
+    let observed_channels = manifest
+        .observe
+        .iter()
+        .flat_map(ObserveSection::channel_names)
+        .filter(|name| {
+            traced
+                .iter()
+                .flatten()
+                .any(|(channels, _)| channels.iter().any(|channel| channel == name))
+        })
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let several_paths = NotCompared::SeveralPaths(SEVERAL_PATHS.to_owned());
+    let second_protocol = selected
+        .iter()
+        .any(|implementation| implementation.protocol != PROTOCOL);
     let mut document = head(&record, Some(update.spec_digest.to_string()));
     let mut rows = Vec::new();
     let mut programs = Vec::new();
@@ -1028,7 +1988,11 @@ fn compared(
         // The request's parts every implementation shares: its inputs and the start, each
         // read once.
         let mut shared: Option<RequestParts> = None;
-        for (implementation, declaration) in selected.iter().zip(&declared) {
+        // The definition's observation record and the values of its channels, each read once,
+        // and only where an implementation with a trace view needs it.
+        let mut observed: Option<Observed> = None;
+        let mut values: Option<Result<Vec<ChannelValues>, ValuesRefusal>> = None;
+        for ((implementation, declaration), shapes) in selected.iter().zip(&declared).zip(&traced) {
             let mut out = json!({
                 "implementation": implementation.name,
                 "program": program.id,
@@ -1041,7 +2005,7 @@ fn compared(
                 "clock_stopped": null,
                 "views": [],
             });
-            let (ends, words) = match &definition {
+            let ends = match &definition {
                 Definition::None { class, cause } => {
                     out["views"] = json!(definition_rows(implementation, class, cause.as_deref()));
                     if baseline_stopped {
@@ -1050,8 +2014,63 @@ fn compared(
                     rows.push(out);
                     continue;
                 }
-                Definition::Ends { ends, words } => (ends, words),
+                // No trace view: nothing of the program is compared, and nothing is asked. An
+                // implementation of the first protocol is told so as it was before the second
+                // existed.
+                Definition::Prefix { cause } if shapes.is_none() => {
+                    out["views"] = if implementation.protocol() == Some(Protocol::V2) {
+                        json!(not_compared_rows(implementation, &no_end(implementation)))
+                    } else {
+                        json!(definition_rows(
+                            implementation,
+                            ResultClass::ComparablePrefix.as_str(),
+                            cause.as_deref()
+                        ))
+                    };
+                    if baseline_stopped {
+                        out["clock_stopped"] = json!("baseline");
+                    }
+                    rows.push(out);
+                    continue;
+                }
+                Definition::Prefix { .. } => None,
+                Definition::Ends { ends, words } => Some((ends, words)),
             };
+            // The channels to ask for with their positions, or why the trace views are not
+            // compared on this program; `None` for an implementation without a trace view.
+            let trace = shapes.as_ref().map(|(channels, _)| {
+                let observed = observed.get_or_insert_with(|| {
+                    observed_record(manifest, &runner, update.execution, program, row, &cache)
+                });
+                match observed {
+                    Observed::Record(record) => {
+                        asked_channels(record, channels).map_err(NotCompared::Unreadable)
+                    }
+                    Observed::SeveralPaths => Err(several_paths.clone()),
+                    Observed::Unreadable(detail) => Err(NotCompared::Unreadable(detail.clone())),
+                }
+            });
+            let asked = trace.as_ref().and_then(|trace| trace.as_ref().ok());
+            let unasked = trace.as_ref().and_then(|trace| trace.as_ref().err());
+            let end_views = implementation.views.iter().any(|view| !view.is_trace());
+            if let Some(reason) = unasked
+                && (ends.is_none() || !end_views)
+            {
+                // No view can be compared, so nothing is asked: the trace views for their
+                // reason, an end view because the definition has no end.
+                let views = implementation.views.iter().map(|view| {
+                    let mut row = view_row(view);
+                    if view.is_trace() {
+                        not_compared_row(&mut row, reason);
+                    } else {
+                        not_compared_row(&mut row, &no_end(implementation));
+                    }
+                    row
+                });
+                out["views"] = json!(views.collect::<Vec<_>>());
+                rows.push(out);
+                continue;
+            }
             let parts = shared.get_or_insert_with(|| {
                 request_parts(
                     vocabulary,
@@ -1062,11 +2081,19 @@ fn compared(
                     selected.iter().any(|i| i.given == Given::Start),
                 )
             });
+            let observe = asked
+                .zip(shapes.as_ref())
+                .map(|(asked, (_, shapes))| observe_value(shapes, asked));
             let request = match parts {
                 Err(detail) => Err(NotCompared::Unreadable(detail.clone())),
-                Ok((typed, start)) => {
-                    request(manifest, program, implementation, typed, start.as_ref())
-                }
+                Ok((typed, start)) => request(
+                    manifest,
+                    program,
+                    implementation,
+                    typed,
+                    start.as_ref(),
+                    observe,
+                ),
             };
             let request = match request {
                 Ok(request) => request,
@@ -1074,17 +2101,7 @@ fn compared(
                     if matches!(reason, NotCompared::ClockStopped(_)) {
                         out["clock_stopped"] = json!("start");
                     }
-                    out["views"] = json!(
-                        implementation
-                            .views
-                            .iter()
-                            .map(|view| {
-                                let mut row = view_row(view);
-                                not_compared_row(&mut row, &reason);
-                                row
-                            })
-                            .collect::<Vec<_>>()
-                    );
+                    out["views"] = json!(not_compared_rows(implementation, &reason));
                     rows.push(out);
                     continue;
                 }
@@ -1109,21 +2126,35 @@ fn compared(
                 }),
             };
             let fresh = out["cached"] == false;
+            let asks = Asked {
+                observe: asked.is_some(),
+                end_view: end_views,
+            };
             let answer = stdout.and_then(|stdout| {
-                let answer =
-                    read_answer(&stdout).map_err(|detail| Failure::new("malformed", detail))?;
+                // Each answer is read by its implementation's protocol, so an answer of the
+                // second is never read as one of the first, nor the reverse.
+                let stated = match implementation.protocol() {
+                    Some(Protocol::V2) => read_answer_2(&stdout, asks),
+                    _ => read_answer(&stdout).map(Stated::from),
+                }
+                .map_err(|detail| Failure::new("malformed", detail))?;
                 if fresh && let Some(key) = &key {
                     // A cache that cannot be written costs the next run a start, nothing else.
                     key.write(&answers, &stdout);
                 }
-                if let Answer::Ended { cells, .. } = &answer {
+                if let Some(cells) = &stated.cells {
                     vocabulary
                         .read_answer(implementation, cells)
                         .map_err(|detail| {
                             Failure::new("malformed", format!("`cells`: {detail}"))
                         })?;
                 }
-                Ok(answer)
+                if let (Some(asked), Some(observations)) = (asked, &stated.observations) {
+                    stated_channels(observations, asked).map_err(|detail| {
+                        Failure::new("malformed", format!("`observations`: {detail}"))
+                    })?;
+                }
+                Ok(stated)
             });
             match answer {
                 Err(failure) => {
@@ -1132,22 +2163,93 @@ fn compared(
                     }
                     out["failure"] = failure.value();
                 }
-                Ok(answer) => {
-                    out["answer"] = answer.value();
-                    match view_rows(
-                        vocabulary,
-                        implementation,
-                        &answer,
-                        (ends, words),
-                        &not_compared,
-                    ) {
-                        Ok(views) => out["views"] = json!(views),
-                        Err(detail) => {
+                Ok(stated) => {
+                    // The trace views' side: the front end's comparison of the answer's
+                    // observations with the values of the definition's channels, which one
+                    // more run of the program's baseline reads, once per program.
+                    let side = match (unasked, asked, &stated.observations) {
+                        (Some(reason), ..) => Ok(Some(TraceSide::Not(reason))),
+                        (None, Some(asked), Some(observations)) => {
+                            let definition = values.get_or_insert_with(|| {
+                                value_run(
+                                    &runner,
+                                    &mut inputs,
+                                    program,
+                                    row,
+                                    observed.as_ref(),
+                                    &observed_channels,
+                                )
+                            });
+                            match definition {
+                                Err(ValuesRefusal::SeveralPaths) => {
+                                    Ok(Some(TraceSide::Not(&several_paths)))
+                                }
+                                Err(ValuesRefusal::Capture(why)) => Err(Trouble::Command(
+                                    "trace-capture",
+                                    format!("trace-capture:{}: {why}", program.id),
+                                )),
+                                Ok(definition) => {
+                                    let question = TraceQuestion {
+                                        implementation,
+                                        channels: asked,
+                                        observations,
+                                        definition,
+                                    };
+                                    match judge_trace(vocabulary, &question) {
+                                        Err(detail) => Err(Trouble::Command(
+                                            "front-end",
+                                            format!(
+                                                "implementation `{}`, program `{}`: {detail}",
+                                                implementation.name, program.id
+                                            ),
+                                        )),
+                                        Ok(Err(detail)) => Err(Trouble::Malformed(detail)),
+                                        Ok(Ok(judged)) => Ok(Some(TraceSide::Judged {
+                                            judged,
+                                            asked,
+                                            definition,
+                                        })),
+                                    }
+                                }
+                            }
+                        }
+                        // An answer of `could-not-apply`, or an implementation with no trace
+                        // view.
+                        _ => Ok(None),
+                    };
+                    match side {
+                        Err(Trouble::Malformed(detail)) => {
+                            out["failure"] =
+                                Failure::new("malformed", format!("`observations`: {detail}"))
+                                    .value();
+                        }
+                        Err(Trouble::Command(reason, detail)) => {
+                            out["answer"] = stated.value();
                             document["refusal"] = json!({
                                 "stage": "compare",
-                                "reason": "front-end",
-                                "detail": format!("implementation `{}`, program `{}`: {detail}", implementation.name, program.id),
+                                "reason": reason,
+                                "detail": detail,
                             });
+                        }
+                        Ok(side) => {
+                            out["answer"] = stated.value();
+                            match answered_rows(
+                                vocabulary,
+                                implementation,
+                                &stated,
+                                ends,
+                                &not_compared,
+                                side,
+                            ) {
+                                Ok(views) => out["views"] = json!(views),
+                                Err(detail) => {
+                                    document["refusal"] = json!({
+                                        "stage": "compare",
+                                        "reason": "front-end",
+                                        "detail": format!("implementation `{}`, program `{}`: {detail}", implementation.name, program.id),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -1161,7 +2263,7 @@ fn compared(
         document["stop"] = stop;
     }
     document["result"] = json!({"not_compared": not_compared});
-    document["summary"] = summary(&rows);
+    document["summary"] = summary(&rows, second_protocol);
     document["rows"] = json!(rows);
     if programs_failed(&update) && document["refusal"].is_null() {
         document["cache_error"] = json!(true);
@@ -1223,18 +2325,21 @@ fn request_parts(
     Ok((typed, Some(start)))
 }
 
-/// The request to `implementation` for `program` ([`PROTOCOL`]): `{protocol, program, inputs,
-/// stop, start}`, `stop` the corpus's count for the program where it has a `[stop]`, `start`
-/// where the implementation is given it.
+/// The request to `implementation` for `program`: `{protocol, program, inputs, stop, start,
+/// observe}`, `protocol` the implementation's, `stop` the corpus's count for the program where
+/// it has a `[stop]`, `start` where the implementation is given it, and `observe`
+/// ([`observe_value`]) where a trace is asked of it, which only a request of [`Protocol::V2`]
+/// is. A request of [`PROTOCOL`] is what it was before a second protocol existed.
 fn request(
     manifest: &FlowManifest,
     program: &Program,
     implementation: &ImplementationSection,
     typed: &Value,
     start: Option<&Result<Value, NotCompared>>,
+    observe: Option<Value>,
 ) -> Result<Value, NotCompared> {
     let mut request = Map::new();
-    request.insert("protocol".into(), json!(PROTOCOL));
+    request.insert("protocol".into(), json!(implementation.protocol));
     request.insert("program".into(), json!(program.id));
     request.insert("inputs".into(), typed.clone());
     if let Some(stop) = &manifest.stop {
@@ -1256,10 +2361,13 @@ fn request(
             }
         }
     }
+    if let Some(observe) = observe {
+        request.insert("observe".into(), observe);
+    }
     Ok(Value::Object(request))
 }
 
-/// Where a cached answer of an implementation is, and what it is the answer to: the protocol,
+/// Where a cached answer of an implementation is, and what it is the answer to: its protocol,
 /// the digest of the implementation's `identity` file, its command and the request's digest
 /// (module documentation). A run with the same four reads the answer instead of starting the
 /// implementation.
@@ -1272,7 +2380,7 @@ impl AnswerKey {
     fn new(implementation: &ImplementationSection, identity: &str, request_sha256: &str) -> Self {
         let record = json!({
             "version": IMPLEMENTATION_ANSWER_VERSION,
-            "protocol": PROTOCOL,
+            "protocol": implementation.protocol,
             "identity_sha256": identity,
             "command": implementation.command,
             "request_sha256": request_sha256,
@@ -1319,8 +2427,9 @@ impl AnswerKey {
 /// difference, request_sha256, identity_sha256}`. `reason` is a `not-compared` verdict's reason
 /// and a `could-not-apply` verdict's own (the implementation's words); `difference` is a
 /// `different` verdict's first difference as canonical JSON, a text that is a function of the
-/// difference; `identity_sha256` is null for an implementation that declares no `identity`. A
-/// row of a run that gave no answer has no verdict, so it has none here.
+/// difference; `identity_sha256` is null for an implementation that declares no `identity`. An
+/// `agree-up-to` verdict's row also has `horizon`, its horizon as canonical JSON; no other row
+/// has the key. A row of a run that gave no answer has no verdict, so it has none here.
 #[must_use]
 pub fn verdict_rows(document: &Value) -> Vec<Value> {
     let rows = document["rows"].as_array().map_or(&[][..], Vec::as_slice);
@@ -1343,7 +2452,7 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
                     json!(canonical_json(&view["difference"]))
                 };
                 let name_of_view = view["view"].as_str().unwrap_or_default();
-                verdicts.push(json!({
+                let mut verdict = json!({
                     "id": compare_row_id(name, program, name_of_view),
                     "implementation": name,
                     "program": program,
@@ -1354,7 +2463,11 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
                     "difference": difference,
                     "request_sha256": row["request_sha256"],
                     "identity_sha256": identity,
-                }));
+                });
+                if !view["horizon"].is_null() {
+                    verdict["horizon"] = json!(canonical_json(&view["horizon"]));
+                }
+                verdicts.push(verdict);
             }
         }
     }
@@ -1430,9 +2543,15 @@ pub fn keep(lock: &Lock, document: &Value) -> Kept {
         }
         undecided.insert(pair);
     }
+    // What a lock compares of a row: a horizon only where the row has one, so a row without
+    // one is compared, and reported, as it was before a verdict had a horizon.
     let compared = |row: &Value| {
-        json!({"verdict": row["verdict"], "reason": row["reason"],
-               "difference": row["difference"]})
+        let mut compared = json!({"verdict": row["verdict"], "reason": row["reason"],
+               "difference": row["difference"]});
+        if let Some(horizon) = row.get("horizon").filter(|horizon| !horizon.is_null()) {
+            compared["horizon"] = horizon.clone();
+        }
+        compared
     };
     let mut verdicts = Vec::new();
     let mut kept = Vec::new();
@@ -1532,12 +2651,28 @@ pub fn clock_lines(document: &Value) -> Vec<String> {
     lines
 }
 
+/// The verdicts a summary counts, in the order its line gives them; `agree-up-to` only in the
+/// document of a flow with an implementation of a second protocol (`second_protocol`), since
+/// only a trace view has that verdict.
+fn counted(second_protocol: bool) -> impl Iterator<Item = &'static str> {
+    [
+        "equal",
+        "agree-up-to",
+        "different",
+        "could-not-apply",
+        "not-compared",
+    ]
+    .into_iter()
+    .filter(move |verdict| second_protocol || *verdict != "agree-up-to")
+}
+
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
-/// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`.
-fn summary(rows: &[Value]) -> Value {
+/// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`, each
+/// with `agree-up-to` under `second_protocol` ([`counted`]).
+fn summary(rows: &[Value], second_protocol: bool) -> Value {
     let mut verdicts = Map::new();
     let mut required = Map::new();
-    for verdict in ["equal", "different", "could-not-apply", "not-compared"] {
+    for verdict in counted(second_protocol) {
         let count = |only_required: bool| {
             rows.iter()
                 .flat_map(|row| row["views"].as_array().into_iter().flatten())
@@ -1583,9 +2718,9 @@ pub fn text(document: &Value) -> Result<String, String> {
         ));
     }
     for row in document["rows"].as_array().into_iter().flatten() {
+        let implementation = row["implementation"].as_str().unwrap_or("?");
         let name = format!(
-            "{} {}",
-            row["implementation"].as_str().unwrap_or("?"),
+            "{implementation} {}",
             row["program"].as_str().unwrap_or("?")
         );
         if let Some(failure) = row["failure"].as_object() {
@@ -1604,19 +2739,31 @@ pub fn text(document: &Value) -> Result<String, String> {
             };
             let verdict = view["verdict"].as_str().unwrap_or("?");
             let detail = match verdict {
+                "different" if view["difference"]["format"] == TRACE_DIFFERENCE_FORMAT => {
+                    format!(" at {}", trace_difference_text(&view["difference"]))
+                }
                 "different" => view["difference"]["at"]
                     .as_str()
                     .or_else(|| view["difference"]["path"].as_str())
                     .map(|at| format!(" at {at}"))
                     .unwrap_or_default(),
-                "could-not-apply" | "not-compared" => view["detail"]
+                "could-not-apply" | "not-compared" | "agree-up-to" => view["detail"]
                     .as_str()
                     .map(|detail| format!(": {detail}"))
                     .unwrap_or_default(),
                 _ => String::new(),
             };
+            // A trace view's line ends with what its verdict rests on.
+            let testing = if view["correspondence"] == CORRESPONDENCE {
+                format!(
+                    " (testing: that element k is the definition's point k is \
+                     {implementation}'s claim)"
+                )
+            } else {
+                String::new()
+            };
             text.push_str(&format!(
-                "{name} {} ({required}): {verdict}{detail}\n",
+                "{name} {} ({required}): {verdict}{detail}{testing}\n",
                 view["view"].as_str().unwrap_or("?")
             ));
         }
@@ -1624,9 +2771,8 @@ pub fn text(document: &Value) -> Result<String, String> {
     let summary = &document["summary"];
     if summary.is_object() {
         let counts = |member: &str| {
-            ["equal", "different", "could-not-apply", "not-compared"]
-                .iter()
-                .map(|verdict| format!("{} {verdict}", summary[member][*verdict]))
+            counted(summary[member].get("agree-up-to").is_some())
+                .map(|verdict| format!("{} {verdict}", summary[member][verdict]))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
@@ -1638,6 +2784,48 @@ pub fn text(document: &Value) -> Result<String, String> {
         ));
     }
     Ok(text)
+}
+
+/// A trace view's first difference ([`TraceDifference::value`]) as a line says it: the channel,
+/// the index and the place in the value, then each side there: the definition's element with the
+/// point it was read at and the steps its run took to it, or its closure; the implementation's
+/// element with its own count, or its closure.
+fn trace_difference_text(difference: &Value) -> String {
+    let index = &difference["index"];
+    let place = difference["path"]
+        .as_str()
+        .map(|path| format!(" at `{path}`"))
+        .unwrap_or_default();
+    let stated = |side: &Value| match side["closed"].as_str() {
+        Some(closure) => format!("closed ({closure})"),
+        None => canonical_json(&side["element"]),
+    };
+    let definition = &difference["definition"];
+    let read = match (definition["rule"].as_str(), definition["steps"].as_u64()) {
+        (Some(rule), Some(steps)) => format!(
+            " ({} `{rule}`, after {steps} steps)",
+            definition["side"].as_str().unwrap_or("at")
+        ),
+        (Some(rule), None) => format!(
+            " ({} `{rule}`)",
+            definition["side"].as_str().unwrap_or("at")
+        ),
+        (None, Some(steps)) => format!(" (after {steps} steps)"),
+        (None, None) => String::new(),
+    };
+    let implementation = &difference["implementation"];
+    let count = match implementation["count"].as_u64() {
+        Some(count) if implementation["closed"].is_null() => {
+            format!(" (its element {index}, its count {count})")
+        }
+        _ => format!(" (its position {index})"),
+    };
+    format!(
+        "`{}` element {index}{place}: definition {}{read}; implementation {}{count}",
+        difference["channel"].as_str().unwrap_or("?"),
+        stated(definition),
+        stated(implementation),
+    )
 }
 
 #[cfg(test)]
@@ -1885,6 +3073,1139 @@ mod tests {
         ] {
             assert_eq!(row_status(&row), status, "{row}");
         }
+    }
+
+    // ---- `kink-implementation/2`: trace views ----
+
+    use kink_campaign::{ChannelEnd, Closure, Element, Opened, Opening, ValueElement};
+
+    const OBSERVE: &str = "[[observe.point]]\nname = \"ticks\"\nbefore = [\"CALC.tick\"]\nstutter \
+                           = \"count\"\ncells = [\"n\"]\n\n[[observe.log]]\nname = \
+                           \"writes\"\ncell = \"bus\"\nat = [\"ticks\"]\n\n";
+
+    /// An implementation `fake` of the second protocol with the views `views`.
+    fn second(views: &str) -> ImplementationSection {
+        decoded(&format!(
+            "{OBSERVE}[[implementation]]\nname = \"fake\"\nprotocol = \
+             \"kink-implementation/2\"\ncommand = [\"fake\"]\ngiven = \"inputs\"\nviews = \
+             [{views}]\n"
+        ))
+        .unwrap()
+        .implementations
+        .remove(0)
+    }
+
+    const TICKS: &str = "{ name = \"ticks\", channels = [\"ticks\"], required = true }";
+    const BOTH: &str = "{ name = \"both\", channels = [\"writes\", \"ticks\"], required = true }";
+    const END: &str = "{ name = \"end\", required = true }";
+
+    /// A front end whose every answer is given: the shapes it asks, its comparison of an end
+    /// view and its comparison of the trace views.
+    struct Mock {
+        shapes: Result<Vec<Value>, String>,
+        end: Judged,
+        trace: Result<TraceAnswer, String>,
+    }
+
+    impl Mock {
+        fn judging(judged: Vec<TraceJudged>) -> Self {
+            Self {
+                shapes: Ok(Vec::new()),
+                end: Judged::Equal {
+                    omitted: Vec::new(),
+                },
+                trace: Ok(TraceAnswer::Judged(judged)),
+            }
+        }
+    }
+
+    impl Vocabulary for Mock {
+        fn check(&self, _: &ImplementationSection) -> Result<(), String> {
+            Ok(())
+        }
+        fn start(&self, _: &Pattern) -> Result<Value, String> {
+            unreachable!("no start is asked")
+        }
+        fn inputs(
+            &self,
+            _: &Program,
+            _: &mut dyn crate::admit::InputFiles,
+        ) -> Result<Value, String> {
+            unreachable!("no inputs are asked")
+        }
+        fn read_answer(&self, _: &ImplementationSection, _: &Value) -> Result<(), String> {
+            Ok(())
+        }
+        fn compare(&self, _: &Question<'_>) -> Result<Judged, String> {
+            Ok(self.end.clone())
+        }
+        fn observe_request(&self, _: &[String]) -> Result<Vec<Value>, String> {
+            self.shapes.clone()
+        }
+        fn judge_trace(&self, _: &TraceQuestion<'_>) -> Result<TraceAnswer, String> {
+            self.trace.clone()
+        }
+    }
+
+    /// The definition's values of the channel `name`: `elements` elements, ended by `end`.
+    fn channel(name: &str, elements: u64, end: ChannelEnd) -> ChannelValues {
+        ChannelValues {
+            name: name.to_owned(),
+            elements: (0..elements)
+                .map(|index| ValueElement {
+                    element: Element::Evaluated(json!({"n": index})),
+                    depth: index,
+                    point: None,
+                })
+                .collect(),
+            end,
+        }
+    }
+
+    fn open(opening: Opening) -> ChannelEnd {
+        ChannelEnd::Open(Opened {
+            opening,
+            reason: "the path was cut by a bound".to_owned(),
+        })
+    }
+
+    const CLOSED: ChannelEnd = ChannelEnd::Closed(Closure::End);
+
+    fn asked(channels: &[(&str, u64)]) -> Vec<AskedChannel> {
+        channels
+            .iter()
+            .map(|(name, positions)| AskedChannel {
+                name: (*name).to_owned(),
+                positions: *positions,
+            })
+            .collect()
+    }
+
+    fn agreed(channel: &str, elements: u64, reach: TraceReach) -> ChannelAgreed {
+        ChannelAgreed {
+            channel: channel.to_owned(),
+            elements,
+            reach,
+        }
+    }
+
+    fn bounded(implementation: Option<&str>) -> TraceReach {
+        TraceReach::Bounded {
+            implementation: implementation.map(str::to_owned),
+        }
+    }
+
+    /// The row of the trace view `ticks` for the front end's `agreement` of its one channel,
+    /// against a definition that holds `held` elements ended by `end`, and the status it gives
+    /// its (implementation, program) row as a required view.
+    fn ticks_row(
+        held: u64,
+        end: ChannelEnd,
+        positions: u64,
+        judged: TraceJudged,
+    ) -> Result<(Value, u8), String> {
+        let implementation = second(TICKS);
+        let row = judged_row(
+            &implementation.views[0],
+            judged,
+            &asked(&[("ticks", positions)]),
+            &[channel("ticks", held, end)],
+        )?;
+        let status = row_status(&json!({"views": [row], "failure": null, "required": true}));
+        Ok((row, status))
+    }
+
+    fn difference() -> TraceDifference {
+        TraceDifference {
+            channel: "ticks".to_owned(),
+            kind: "value".to_owned(),
+            index: 3,
+            path: Some("acc".to_owned()),
+            definition: json!({"element": {"n": -1, "acc": 3}, "rule": "crate::spin",
+                               "side": "before", "steps": 3}),
+            implementation: json!({"element": {"n": -1, "acc": 5}, "count": 3}),
+        }
+    }
+
+    /// The status table of a trace view: which verdict the front end's comparison gives, and
+    /// what a required view of it decides.
+    #[test]
+    fn a_trace_view_has_the_verdict_its_agreement_reaches() {
+        // Both sides close after the same elements: `equal`.
+        let (row, status) = ticks_row(
+            6,
+            CLOSED,
+            7,
+            TraceJudged::Agree(vec![agreed("ticks", 6, TraceReach::Closed)]),
+        )
+        .unwrap();
+        assert_eq!((row["verdict"].as_str(), status), (Some("equal"), EXIT_YES));
+        assert_eq!(row["horizon"], Value::Null);
+        assert_eq!(row["correspondence"], "implementation-claim");
+        // END against END with no element is a compared position: `equal`.
+        let (row, status) = ticks_row(
+            0,
+            CLOSED,
+            1,
+            TraceJudged::Agree(vec![agreed("ticks", 0, TraceReach::Closed)]),
+        )
+        .unwrap();
+        assert_eq!((row["verdict"].as_str(), status), (Some("equal"), EXIT_YES));
+
+        // The definition's run is cut after 6 elements, and the answer agrees with all 6:
+        // agreement up to the definition's horizon, which passes, and is not `equal`.
+        for implementation in [Some("the requested positions"), None] {
+            let (row, status) = ticks_row(
+                6,
+                open(Opening::Bound),
+                6,
+                TraceJudged::Agree(vec![agreed("ticks", 6, bounded(implementation))]),
+            )
+            .unwrap();
+            assert_eq!(
+                (row["verdict"].as_str(), status),
+                (Some("agree-up-to"), EXIT_YES)
+            );
+            assert_eq!(
+                row["horizon"],
+                json!({"ticks": {"elements": 6, "limited_by": "definition",
+                                 "definition": "bound", "implementation": implementation}})
+            );
+            assert_eq!(
+                row["detail"],
+                "`ticks` 6 elements agree, then the definition's run is cut (bound); nothing \
+                 past it is compared"
+            );
+        }
+
+        // The answer stops after 2 of the 6 positions asked: the question is left open, so a
+        // required view is unanswered. An implementation that answers one element does not pass.
+        let (row, status) = ticks_row(
+            6,
+            open(Opening::Bound),
+            6,
+            TraceJudged::Agree(vec![agreed("ticks", 2, bounded(Some("its own budget")))]),
+        )
+        .unwrap();
+        assert_eq!(
+            (row["verdict"].as_str(), status),
+            (Some("agree-up-to"), EXIT_UNANSWERED)
+        );
+        assert_eq!(
+            row["horizon"]["ticks"],
+            json!({"elements": 2, "limited_by": "implementation", "definition": null,
+                   "implementation": "its own budget"})
+        );
+        // The same of a definition that closes: the answer is open at the closure's position.
+        let (row, status) = ticks_row(
+            6,
+            CLOSED,
+            7,
+            TraceJudged::Agree(vec![agreed("ticks", 6, bounded(Some("the positions")))]),
+        )
+        .unwrap();
+        assert_eq!(
+            (row["verdict"].as_str(), status),
+            (Some("agree-up-to"), EXIT_UNANSWERED)
+        );
+        assert_eq!(row["horizon"]["ticks"]["limited_by"], "implementation");
+
+        // No element compared and nothing closed: a comparison of nothing is no agreement.
+        for (held, implementation) in [(0, None), (6, Some("it stated nothing"))] {
+            let (row, status) = ticks_row(
+                held,
+                open(Opening::Bound),
+                held,
+                TraceJudged::Agree(vec![agreed("ticks", 0, bounded(implementation))]),
+            )
+            .unwrap();
+            assert_eq!(
+                (row["verdict"].as_str(), row["reason"].as_str(), status),
+                (
+                    Some("not-compared"),
+                    Some("observed-nothing"),
+                    EXIT_UNANSWERED
+                )
+            );
+            assert_eq!(row["horizon"], Value::Null);
+        }
+
+        // A difference: `different`, with the `kink-trace/1` document.
+        let (row, status) = ticks_row(
+            6,
+            open(Opening::Bound),
+            6,
+            TraceJudged::Different(difference()),
+        )
+        .unwrap();
+        assert_eq!(
+            (row["verdict"].as_str(), status),
+            (Some("different"), EXIT_NO)
+        );
+        assert_eq!(
+            row["difference"],
+            json!({"format": "kink-trace/1", "channel": "ticks", "kind": "value", "index": 3,
+                   "path": "acc",
+                   "definition": {"element": {"n": -1, "acc": 3}, "rule": "crate::spin",
+                                  "side": "before", "steps": 3},
+                   "implementation": {"element": {"n": -1, "acc": 5}, "count": 3},
+                   "correspondence": "implementation-claim"})
+        );
+
+        // An element that is not decided: `not-compared` (`undecided`).
+        let (row, status) = ticks_row(
+            6,
+            open(Opening::Bound),
+            6,
+            TraceJudged::Undecided("`ticks` element 2 of the definition is undecided".to_owned()),
+        )
+        .unwrap();
+        assert_eq!(
+            (row["verdict"].as_str(), row["reason"].as_str(), status),
+            (Some("not-compared"), Some("undecided"), EXIT_UNANSWERED)
+        );
+    }
+
+    /// Agreement up to a horizon is never spelled `equal`, whatever the front end says: a
+    /// closure the definition's channel does not have is refused, and so is every other
+    /// comparison that is none of the view against the definition's values.
+    #[test]
+    fn a_front_end_cannot_close_what_the_definition_leaves_open() {
+        for (held, end, judged, expected) in [
+            (
+                6,
+                open(Opening::Bound),
+                TraceJudged::Agree(vec![agreed("ticks", 6, TraceReach::Closed)]),
+                "the definition's channel is not closed there",
+            ),
+            // Closed by a cycle is read as open: no `equal` either.
+            (
+                6,
+                ChannelEnd::Closed(Closure::Cycle),
+                TraceJudged::Agree(vec![agreed("ticks", 6, TraceReach::Closed)]),
+                "the definition's channel is not closed there",
+            ),
+            (
+                6,
+                CLOSED,
+                TraceJudged::Agree(vec![agreed("ticks", 5, TraceReach::Closed)]),
+                "the definition's channel is not closed there",
+            ),
+            (
+                6,
+                CLOSED,
+                TraceJudged::Agree(vec![agreed("ticks", 7, bounded(Some("x")))]),
+                "the definition's channel holds 6",
+            ),
+            (
+                6,
+                CLOSED,
+                TraceJudged::Agree(vec![agreed("ticks", 3, bounded(None))]),
+                "neither side's channel is open",
+            ),
+            (
+                6,
+                CLOSED,
+                TraceJudged::Agree(vec![agreed("writes", 6, TraceReach::Closed)]),
+                "not one per channel of the view",
+            ),
+            (
+                6,
+                CLOSED,
+                TraceJudged::Agree(Vec::new()),
+                "not one per channel of the view",
+            ),
+            (
+                6,
+                CLOSED,
+                TraceJudged::Different(TraceDifference {
+                    channel: "writes".to_owned(),
+                    ..difference()
+                }),
+                "no channel of the view",
+            ),
+        ] {
+            let error = ticks_row(held, end, 7, judged).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+        // A channel closed by a cycle, compared through its elements, is a horizon of the
+        // definition's.
+        let (row, status) = ticks_row(
+            6,
+            ChannelEnd::Closed(Closure::Cycle),
+            6,
+            TraceJudged::Agree(vec![agreed("ticks", 6, bounded(None))]),
+        )
+        .unwrap();
+        assert_eq!(
+            (row["verdict"].as_str(), status),
+            (Some("agree-up-to"), EXIT_YES)
+        );
+        assert_eq!(row["horizon"]["ticks"]["definition"], "cycle");
+    }
+
+    /// A view of several channels: `equal` only when each closes; one bounded channel makes it
+    /// `agree-up-to`, naming that channel alone; and it is compared when some channel was.
+    #[test]
+    fn a_view_of_several_channels_names_each_bounded_one() {
+        let implementation = second(BOTH);
+        let definition = [
+            channel("ticks", 6, open(Opening::Bound)),
+            channel("writes", 2, CLOSED),
+        ];
+        let asked = asked(&[("ticks", 6), ("writes", 3)]);
+        let row = |judged| judged_row(&implementation.views[0], judged, &asked, &definition);
+        let mixed = row(TraceJudged::Agree(vec![
+            agreed("writes", 2, TraceReach::Closed),
+            agreed("ticks", 6, bounded(None)),
+        ]))
+        .unwrap();
+        assert_eq!(mixed["verdict"], "agree-up-to");
+        assert_eq!(
+            mixed["horizon"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>(),
+            ["ticks"]
+        );
+        assert_eq!(mixed["status"], EXIT_YES);
+        // One channel short of its positions leaves the view unanswered, the other reaching the
+        // definition's horizon.
+        let short = row(TraceJudged::Agree(vec![
+            agreed("writes", 1, bounded(Some("budget"))),
+            agreed("ticks", 6, bounded(None)),
+        ]))
+        .unwrap();
+        assert_eq!(
+            (short["verdict"].as_str(), short["status"].as_u64()),
+            (Some("agree-up-to"), Some(u64::from(EXIT_UNANSWERED)))
+        );
+        assert_eq!(
+            short["detail"],
+            "`writes` 1 element agrees, then the implementation's channel is open (budget) \
+             before the 3 positions asked; `ticks` 6 elements agree, then the definition's run \
+             is cut (bound); nothing past it is compared"
+        );
+        // The agreement is in the view's order of channels.
+        assert!(
+            row(TraceJudged::Agree(vec![
+                agreed("ticks", 6, bounded(None)),
+                agreed("writes", 2, TraceReach::Closed),
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn positions_count_the_elements_and_a_closure() {
+        let record = json!({"channels": [
+            {"name": "ticks", "elements": ["00", "01", null], "closed": null,
+             "open": {"index": 3, "opening": "bound", "reason": "cut"}},
+            {"name": "writes", "elements": ["00", "01"], "closed": "end", "open": null},
+            {"name": "halts", "elements": [], "closed": "undefined", "open": null},
+            {"name": "loops", "elements": ["00"], "closed": "cycle", "open": null},
+        ], "prefix": true, "crashed": false});
+        let names = ["ticks", "writes", "halts", "loops"].map(str::to_owned);
+        assert_eq!(
+            asked_channels(&record, &names).unwrap(),
+            asked(&[("ticks", 3), ("writes", 3), ("halts", 1), ("loops", 1)])
+        );
+        assert_eq!(
+            asked_channels(&record, &["tocks".to_owned()]).unwrap_err(),
+            "the baseline's observation record holds no channel `tocks`"
+        );
+    }
+
+    /// A request's `observe` is the front end's shapes of the channels the implementation's
+    /// trace views name, in `[observe]`'s order, each with its positions.
+    #[test]
+    fn a_request_asks_for_the_channels_of_the_trace_views() {
+        let implementation = second(&format!("{END}, {BOTH}, {TICKS}"));
+        let manifest = decoded(OBSERVE).unwrap();
+        let channels = traced_channels(&implementation, manifest.observe.as_ref());
+        assert_eq!(channels, ["ticks", "writes"]);
+        assert!(traced_channels(&second(END), manifest.observe.as_ref()).is_empty());
+        let shapes = vec![
+            json!({"name": "ticks", "kind": "point", "stutter": "count", "filtered": false,
+                   "components": [{"name": "n", "type": "Int"}],
+                   "points": {"before": ["CALC.tick"], "after": []}}),
+            json!({"name": "writes", "kind": "log", "element": {"type": "Int"}, "at": ["ticks"]}),
+        ];
+        let mock = |shapes| Mock {
+            shapes,
+            ..Mock::judging(Vec::new())
+        };
+        assert_eq!(
+            channel_shapes(&mock(Ok(shapes.clone())), &channels).unwrap(),
+            shapes
+        );
+        assert_eq!(
+            observe_value(&shapes, &asked(&[("ticks", 6), ("writes", 3)])),
+            json!({"channels": [
+                {"name": "ticks", "kind": "point", "stutter": "count", "filtered": false,
+                 "components": [{"name": "n", "type": "Int"}],
+                 "points": {"before": ["CALC.tick"], "after": []}, "positions": 6},
+                {"name": "writes", "kind": "log", "element": {"type": "Int"}, "at": ["ticks"],
+                 "positions": 3},
+            ]})
+        );
+        // The shapes are the channels asked, in order, and the positions are kink-flow's.
+        for wrong in [
+            Ok(vec![shapes[0].clone()]),
+            Ok(vec![shapes[1].clone(), shapes[0].clone()]),
+            Ok(vec![
+                json!({"name": "ticks", "positions": 1}),
+                shapes[1].clone(),
+            ]),
+            Err("no document form".to_owned()),
+        ] {
+            assert!(channel_shapes(&mock(wrong), &channels).is_err());
+        }
+    }
+
+    const PROGRAM: &str = "[[program]]\nid = \"p\"\ntext = \"1 + 2\"\n\n";
+
+    /// A request of the first protocol and its cached answer's record are what they were before
+    /// a second protocol existed; a request of the second names it and holds `observe`, and its
+    /// answers are cached apart.
+    #[test]
+    fn a_first_protocol_request_and_its_cache_record_are_unchanged() {
+        let manifest = decoded(&format!("{PROGRAM}{ONE}")).unwrap();
+        let (program, first) = (&manifest.programs[0], &manifest.implementations[0]);
+        let start = Ok(json!({"pc": 0}));
+        let typed = json!({"n": 3});
+        let request = |implementation, observe| {
+            request(
+                &manifest,
+                program,
+                implementation,
+                &typed,
+                Some(&start),
+                observe,
+            )
+            .map(|request| canonical_json(&request))
+        };
+        assert_eq!(
+            request(first, None).unwrap(),
+            r#"{"inputs":{"n":3},"program":"p","protocol":"kink-implementation/1","start":{"pc":0}}"#
+        );
+        let key = AnswerKey::new(first, "aa", "bb");
+        assert_eq!(
+            canonical_json(&key.record),
+            r#"{"command":["bin/cpu","--kink"],"identity_sha256":"aa","protocol":"kink-implementation/1","request_sha256":"bb","version":"kink-flow/implementation-answer/v1"}"#
+        );
+        assert_eq!(key.name, digest(canonical_json(&key.record).as_bytes()));
+
+        let second = ImplementationSection {
+            protocol: Protocol::V2.as_str().to_owned(),
+            ..first.clone()
+        };
+        assert_eq!(
+            request(&second, Some(json!({"channels": []}))).unwrap(),
+            r#"{"inputs":{"n":3},"observe":{"channels":[]},"program":"p","protocol":"kink-implementation/2","start":{"pc":0}}"#
+        );
+        let other = AnswerKey::new(&second, "aa", "bb");
+        assert_eq!(other.record["protocol"], "kink-implementation/2");
+        assert_ne!(other.name, key.name);
+    }
+
+    #[test]
+    fn a_second_protocol_answer_is_read_by_what_its_request_asked() {
+        let traced = Asked {
+            observe: true,
+            end_view: false,
+        };
+        let both = Asked {
+            observe: true,
+            end_view: true,
+        };
+        let ended = Asked {
+            observe: false,
+            end_view: true,
+        };
+        let observations = json!({"schema": "krs-observations/1", "channels": []});
+        assert_eq!(
+            read_answer_2(
+                br#"{"end": "horizon", "observations": {"schema": "krs-observations/1", "channels": []}}"#,
+                traced
+            ),
+            Ok(Stated {
+                end: StatedEnd::Horizon,
+                cells: None,
+                observations: Some(observations.clone()),
+            })
+        );
+        assert_eq!(
+            read_answer_2(
+                br#"{"end": "final", "cells": {"pc": 1}, "observations": {"schema": "krs-observations/1", "channels": []}}"#,
+                both
+            ),
+            Ok(Stated {
+                end: StatedEnd::Ended(EndWord::Final),
+                cells: Some(json!({"pc": 1})),
+                observations: Some(observations),
+            })
+        );
+        // Without an end view the end's cells may be left out.
+        assert!(
+            read_answer_2(br#"{"end": "stopped", "observations": {}}"#, traced)
+                .is_ok_and(|stated| stated.cells.is_none())
+        );
+        // A request without `observe` is answered as the first protocol's is.
+        assert_eq!(
+            read_answer_2(br#"{"end": "stopped", "cells": {}}"#, ended),
+            Ok(Stated::from(
+                read_answer(br#"{"end": "stopped", "cells": {}}"#).unwrap()
+            ))
+        );
+        assert_eq!(
+            read_answer_2(br#"{"end": "could-not-apply", "reason": "late"}"#, both),
+            Ok(Stated {
+                end: StatedEnd::CouldNotApply("late".to_owned()),
+                cells: None,
+                observations: None,
+            })
+        );
+        for (bytes, asked, expected) in [
+            (
+                &br#"{"end": "final", "cells": {}}"#[..],
+                both,
+                "a `final` answer to a request with `observe` states its `observations`",
+            ),
+            (
+                br#"{"end": "horizon"}"#,
+                traced,
+                "a `horizon` answer to a request with `observe` states its `observations`",
+            ),
+            (
+                br#"{"end": "final", "observations": {}}"#,
+                both,
+                "a `final` answer states its end's `cells`",
+            ),
+            (
+                br#"{"end": "horizon", "cells": {}, "observations": {}}"#,
+                both,
+                "a `horizon` answer states no `cells`",
+            ),
+            (
+                br#"{"end": "final", "cells": {}, "observations": {}}"#,
+                ended,
+                "the answer states `observations`, and the request has no `observe`",
+            ),
+            (
+                br#"{"end": "horizon"}"#,
+                ended,
+                "`end` is `horizon`, and the request has no `observe`",
+            ),
+            (
+                br#"{"end": "final", "cells": {}, "observations": []}"#,
+                both,
+                "`observations` is not a JSON object",
+            ),
+            (
+                br#"{"end": "could-not-apply", "reason": "x", "observations": {}}"#,
+                both,
+                "a `could-not-apply` answer states no `observations`",
+            ),
+            (
+                br#"{"end": "final", "cells": {}, "observations": {}, "rule": 1}"#,
+                both,
+                "the answer has the key `rule`",
+            ),
+            (
+                br#"{"end": "stuck", "observations": {}}"#,
+                traced,
+                "`end` is `stuck`",
+            ),
+        ] {
+            let error = read_answer_2(bytes, asked).unwrap_err();
+            assert!(error.starts_with(expected), "{error}");
+        }
+        // The first protocol's reader reads no answer of the second.
+        for bytes in [
+            &br#"{"end": "final", "cells": {}, "observations": {}}"#[..],
+            br#"{"end": "horizon", "observations": {}}"#,
+        ] {
+            assert!(read_answer(bytes).is_err());
+        }
+    }
+
+    /// An answer that leaves a requested channel out is malformed: it is never a comparison of
+    /// the channels it does state.
+    #[test]
+    fn a_missing_requested_channel_is_malformed() {
+        let asked = asked(&[("ticks", 6), ("writes", 3)]);
+        let named = |names: &[&str]| json!({"channels": names.iter().map(|name| json!({"name": name})).collect::<Vec<_>>()});
+        assert_eq!(
+            stated_channels(&named(&["writes", "ticks"]), &asked),
+            Ok(())
+        );
+        for (observations, expected) in [
+            (
+                named(&["ticks"]),
+                "no channel `writes`, which the request asked for",
+            ),
+            (
+                named(&[]),
+                "no channel `ticks`, which the request asked for",
+            ),
+            (
+                named(&["ticks", "writes", "tocks"]),
+                "`channels[2]` is `tocks`, a channel the request did not ask for",
+            ),
+            (
+                named(&["ticks", "ticks", "writes"]),
+                "`channels[1]`: `ticks` is stated twice",
+            ),
+            (json!({}), "`channels` is not an array"),
+            (
+                json!({"channels": [{"kind": "point"}]}),
+                "`channels[0]` is no object with a `name` string",
+            ),
+        ] {
+            assert_eq!(
+                stated_channels(&observations, &asked).unwrap_err(),
+                expected
+            );
+        }
+        // What the front end finds malformed in the record is the run's failure too, and a
+        // front end that compares another number of views than declared fails the command.
+        let implementation = second(TICKS);
+        let definition = [channel("ticks", 6, CLOSED)];
+        let observations = named(&["ticks"]);
+        let question = TraceQuestion {
+            implementation: &implementation,
+            channels: &asked[..1],
+            observations: &observations,
+            definition: &definition,
+        };
+        let mock = |trace| Mock {
+            trace,
+            ..Mock::judging(Vec::new())
+        };
+        assert_eq!(
+            judge_trace(
+                &mock(Ok(TraceAnswer::Malformed(
+                    "channels[0].elements[1].value.n: expected an Int".to_owned()
+                ))),
+                &question
+            ),
+            Ok(Err(
+                "channels[0].elements[1].value.n: expected an Int".to_owned()
+            ))
+        );
+        assert!(judge_trace(&mock(Ok(TraceAnswer::Judged(Vec::new()))), &question).is_err());
+        assert!(judge_trace(&mock(Err("no definition".to_owned())), &question).is_err());
+    }
+
+    fn stated(end: StatedEnd, cells: bool, observations: bool) -> Stated {
+        Stated {
+            end,
+            cells: cells.then(|| json!({"pc": 1})),
+            observations: observations.then(|| json!({"channels": [{"name": "ticks"}]})),
+        }
+    }
+
+    /// The rows of an answer of the second protocol, view by view: a trace view by the front
+    /// end's comparison, an end view by the definition's ends, or `no-end` on a program whose
+    /// baseline has none, where a required trace view carries the requirement (status 0) and
+    /// nothing else does (status 3).
+    #[test]
+    fn an_answer_has_one_row_per_view_of_either_kind() {
+        let mock = Mock::judging(Vec::new());
+        let ends = BTreeSet::new();
+        let words = BTreeSet::from(["final"]);
+        let definition = [channel("ticks", 6, open(Opening::Bound))];
+        let asked = asked(&[("ticks", 6)]);
+        let side = || {
+            Some(TraceSide::Judged {
+                judged: vec![TraceJudged::Agree(vec![agreed("ticks", 6, bounded(None))])],
+                asked: &asked,
+                definition: &definition,
+            })
+        };
+        let verdicts = |rows: &[Value]| {
+            rows.iter()
+                .map(|row| {
+                    (
+                        row["verdict"].as_str().unwrap().to_owned(),
+                        row["reason"].as_str().map(str::to_owned),
+                        row["status"].as_u64(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let status =
+            |rows: &[Value]| row_status(&json!({"views": rows, "failure": null, "required": true}));
+
+        // A program that never ends: the end view has no end, the trace view carries it.
+        let mixed = second(&format!("{END}, {TICKS}"));
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &stated(StatedEnd::Horizon, false, true),
+            None,
+            &[],
+            side(),
+        )
+        .unwrap();
+        assert_eq!(
+            verdicts(&rows),
+            [
+                (
+                    "not-compared".to_owned(),
+                    Some("no-end".to_owned()),
+                    Some(0)
+                ),
+                ("agree-up-to".to_owned(), None, Some(0)),
+            ]
+        );
+        assert_eq!(status(&rows), EXIT_YES);
+        assert!(rows[0].get("correspondence").is_none() && rows[0].get("horizon").is_none());
+
+        // The same where the trace view is only reported: nothing required carries the program.
+        let reported = second(&format!(
+            "{END}, {{ name = \"ticks\", channels = [\"ticks\"] }}"
+        ));
+        let rows = answered_rows(
+            &mock,
+            &reported,
+            &stated(StatedEnd::Horizon, false, true),
+            None,
+            &[],
+            side(),
+        )
+        .unwrap();
+        assert_eq!(rows[0]["reason"], "no-end");
+        assert_eq!(status(&rows), EXIT_UNANSWERED);
+        assert_eq!(
+            status(&not_compared_rows(&second(END), &no_end(&second(END)))),
+            EXIT_UNANSWERED
+        );
+
+        // A program that ends, answered with `horizon`: the end view differs in its end's word.
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &stated(StatedEnd::Horizon, false, true),
+            Some((&ends, &words)),
+            &[],
+            side(),
+        )
+        .unwrap();
+        assert_eq!(
+            rows[0]["difference"],
+            json!({"format": "kink-end/1", "at": "end", "definition": "final",
+                   "implementation": "horizon"})
+        );
+        assert_eq!(status(&rows), EXIT_NO);
+
+        // It ends as the definition does: the end view is the front end's, the trace view too.
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &stated(StatedEnd::Ended(EndWord::Final), true, true),
+            Some((&ends, &words)),
+            &[],
+            side(),
+        )
+        .unwrap();
+        assert_eq!(
+            verdicts(&rows),
+            [
+                ("equal".to_owned(), None, None),
+                ("agree-up-to".to_owned(), None, Some(0)),
+            ]
+        );
+
+        // The baseline has several paths: the trace view is not compared, the end view is.
+        let several = NotCompared::SeveralPaths(SEVERAL_PATHS.to_owned());
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &stated(StatedEnd::Ended(EndWord::Final), true, false),
+            Some((&ends, &words)),
+            &[],
+            Some(TraceSide::Not(&several)),
+        )
+        .unwrap();
+        assert_eq!(
+            verdicts(&rows),
+            [
+                ("equal".to_owned(), None, None),
+                (
+                    "not-compared".to_owned(),
+                    Some("several-paths".to_owned()),
+                    Some(3)
+                ),
+            ]
+        );
+        assert_eq!(rows[1]["correspondence"], "implementation-claim");
+        assert_eq!(status(&rows), EXIT_UNANSWERED);
+
+        // It declined the program: every view says so, in its words.
+        let rows = answered_rows(
+            &mock,
+            &mixed,
+            &stated(StatedEnd::CouldNotApply("late".to_owned()), false, false),
+            None,
+            &[],
+            None,
+        )
+        .unwrap();
+        assert!(
+            rows.iter()
+                .all(|row| row["verdict"] == "could-not-apply" && row["detail"] == "late")
+        );
+        assert_eq!(status(&rows), EXIT_YES);
+
+        // A trace view the front end did not compare fails the command.
+        assert!(
+            answered_rows(
+                &mock,
+                &mixed,
+                &stated(StatedEnd::Horizon, false, true),
+                None,
+                &[],
+                None
+            )
+            .is_err()
+        );
+    }
+
+    /// The rows, the summary and the text of an implementation of the first protocol are what
+    /// they were before a second existed: no key and no word of a trace.
+    #[test]
+    fn a_first_protocol_row_summary_and_text_are_unchanged() {
+        let manifest = decoded(ONE).unwrap();
+        let implementation = &manifest.implementations[0];
+        let ends = BTreeSet::new();
+        let words = BTreeSet::from(["stopped"]);
+        let mock = Mock {
+            end: Judged::Different {
+                difference: json!({"format": "krs-difference/3", "path": "acc"}),
+                omitted: vec!["k".to_owned()],
+            },
+            ..Mock::judging(Vec::new())
+        };
+        let answer = read_answer(br#"{"end": "stopped", "cells": {"pc": 1}}"#).unwrap();
+        let rows = answered_rows(
+            &mock,
+            implementation,
+            &Stated::from(answer.clone()),
+            Some((&ends, &words)),
+            &[],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&rows).unwrap(),
+            r#"[{"detail":null,"difference":{"format":"krs-difference/3","path":"acc"},"omitted":["k"],"reason":null,"required":true,"status":null,"verdict":"different","view":"writes"},{"detail":null,"difference":{"format":"krs-difference/3","path":"acc"},"omitted":["k"],"reason":null,"required":false,"status":null,"verdict":"different","view":"all"}]"#
+        );
+        assert_eq!(
+            Stated::from(answer).value().to_string(),
+            r#"{"end":"stopped","reason":null}"#
+        );
+        // A program its bounds cut is told of as before, and nothing is asked.
+        assert_eq!(
+            serde_json::to_string(&definition_rows(implementation, "comparable-prefix", None))
+                .unwrap(),
+            r#"[{"detail":"the definition's run of the program is `comparable-prefix`: it has no end to compare","difference":null,"omitted":[],"reason":"definition","required":true,"status":3,"verdict":"not-compared","view":"writes"},{"detail":"the definition's run of the program is `comparable-prefix`: it has no end to compare","difference":null,"omitted":[],"reason":"definition","required":false,"status":3,"verdict":"not-compared","view":"all"}]"#
+        );
+        let rows = vec![
+            json!({"implementation": "cpu", "program": "p", "required": true,
+                               "failure": null, "views": rows}),
+        ];
+        let summary = summary(&rows, false);
+        assert_eq!(
+            summary.to_string(),
+            r#"{"failures":0,"required":{"could-not-apply":0,"different":1,"equal":0,"not-compared":0},"verdicts":{"could-not-apply":0,"different":2,"equal":0,"not-compared":0}}"#
+        );
+        let document = json!({"schema": COMPARE_SCHEMA, "rows": rows, "summary": summary});
+        assert_eq!(
+            text(&document).unwrap(),
+            "cpu p writes (required): different at acc\ncpu p all (reported): different at \
+             acc\nverdicts: 0 equal, 2 different, 0 could-not-apply, 0 not-compared; required \
+             views: 0 equal, 1 different, 0 could-not-apply, 0 not-compared; failed runs: 0\n"
+        );
+        assert!(
+            verdict_rows(&json!({"implementations": [{"name": "cpu"}], "rows": document["rows"]}))
+                .iter()
+                .all(|row| row.get("horizon").is_none())
+        );
+        // The document names its one protocol as before, and nothing more.
+        let refused = command(
+            &manifest,
+            &CompareOptions::default(),
+            None,
+            "kink-flow compare",
+        );
+        assert_eq!(refused["protocol"], "kink-implementation/1");
+        assert!(refused.get("protocols").is_none() && refused.get("evidence").is_none());
+    }
+
+    /// The document of a flow with an implementation of the second protocol says what its
+    /// verdicts are: tests. Each trace line ends with what its verdict rests on, the summary
+    /// counts `agree-up-to` apart from `equal`, a lock row holds the horizon, and no key or line
+    /// relates two definitions.
+    #[test]
+    fn a_trace_document_is_labelled_as_testing() {
+        let implementation = second(&format!("{END}, {TICKS}"));
+        let definition = [channel("ticks", 6, open(Opening::Bound))];
+        let asked = asked(&[("ticks", 6)]);
+        let view = &implementation.views[1];
+        let row = |judged| judged_row(view, judged, &asked, &definition).unwrap();
+        let mut none = view_row(view);
+        not_compared_row(
+            &mut none,
+            &NotCompared::SeveralPaths(SEVERAL_PATHS.to_owned()),
+        );
+        let views = vec![
+            row(TraceJudged::Agree(vec![agreed("ticks", 6, bounded(None))])),
+            row(TraceJudged::Different(difference())),
+            row(TraceJudged::Different(TraceDifference {
+                kind: "closure".to_owned(),
+                index: 6,
+                path: None,
+                definition: json!({"element": {"n": 0}, "rule": null, "side": null, "steps": 9}),
+                implementation: json!({"closed": "end"}),
+                ..difference()
+            })),
+            row(TraceJudged::Agree(vec![agreed(
+                "ticks",
+                0,
+                bounded(Some("nothing")),
+            )])),
+            none,
+        ];
+        let rows = views
+            .into_iter()
+            .enumerate()
+            .map(|(index, view)| {
+                json!({"implementation": "fake", "program": format!("p{index}"),
+                       "required": true, "request_sha256": "rr", "failure": null,
+                       "views": [view]})
+            })
+            .collect::<Vec<_>>();
+        let summary = summary(&rows, true);
+        assert_eq!(
+            summary["required"],
+            json!({"equal": 0, "agree-up-to": 1, "different": 2, "could-not-apply": 0,
+                   "not-compared": 2})
+        );
+        let document = json!({
+            "schema": COMPARE_SCHEMA,
+            "implementations": [{"name": "fake", "identity": null}],
+            "rows": rows,
+            "summary": summary,
+        });
+        let testing = " (testing: that element k is the definition's point k is fake's claim)";
+        let text = text(&document).unwrap();
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            [
+                format!(
+                    "fake p0 ticks (required): agree-up-to: `ticks` 6 elements agree, then the \
+                     definition's run is cut (bound); nothing past it is compared{testing}"
+                ),
+                format!(
+                    "fake p1 ticks (required): different at `ticks` element 3 at `acc`: \
+                     definition {{\"acc\":3,\"n\":-1}} (before `crate::spin`, after 3 steps); \
+                     implementation {{\"acc\":5,\"n\":-1}} (its element 3, its count 3){testing}"
+                ),
+                format!(
+                    "fake p2 ticks (required): different at `ticks` element 6: definition \
+                     {{\"n\":0}} (after 9 steps); implementation closed (end) (its position \
+                     6){testing}"
+                ),
+                format!(
+                    "fake p3 ticks (required): not-compared: no element of `ticks` was \
+                     compared: `ticks` 0 elements agree, then the implementation's channel is \
+                     open (nothing) before the 6 positions asked{testing}"
+                ),
+                format!("fake p4 ticks (required): not-compared: {SEVERAL_PATHS}{testing}"),
+                "verdicts: 0 equal, 1 agree-up-to, 2 different, 0 could-not-apply, 2 \
+                 not-compared; required views: 0 equal, 1 agree-up-to, 2 different, 0 \
+                 could-not-apply, 2 not-compared; failed runs: 0"
+                    .to_owned(),
+            ]
+        );
+        // A lock row of a horizon holds it, as canonical JSON; no other row has the key.
+        let verdicts = verdict_rows(&document);
+        assert_eq!(
+            verdicts[0]["horizon"],
+            r#"{"ticks":{"definition":"bound","elements":6,"implementation":null,"limited_by":"definition"}}"#
+        );
+        assert_eq!(verdicts[0]["verdict"], "agree-up-to");
+        assert!(verdicts[1..].iter().all(|row| row.get("horizon").is_none()));
+
+        // The document names the protocols of its implementations and its evidence.
+        let manifest = decoded(&format!(
+            "{OBSERVE}{ONE}\n[[implementation]]\nname = \"fake\"\nprotocol = \
+             \"kink-implementation/2\"\ncommand = [\"fake\"]\ngiven = \"inputs\"\nviews = \
+             [{TICKS}]\n"
+        ))
+        .unwrap();
+        let refused = command(
+            &manifest,
+            &CompareOptions::default(),
+            None,
+            "kink-flow compare",
+        );
+        assert_eq!(
+            refused["protocols"],
+            json!(["kink-implementation/1", "kink-implementation/2"])
+        );
+        assert_eq!(refused["evidence"], "testing");
+        assert!(refused.get("protocol").is_none());
+        // Selecting the first protocol's implementation alone gives its document.
+        let only = CompareOptions {
+            only: vec!["cpu".to_owned()],
+            ..CompareOptions::default()
+        };
+        let refused = command(&manifest, &only, None, "kink-flow compare");
+        assert_eq!(refused["protocol"], "kink-implementation/1");
+        assert!(refused.get("evidence").is_none());
+
+        // Nothing relates two definitions: no key and no line names a standing, a relation or
+        // a transfer.
+        let all = format!(
+            "{document}{verdicts:?}{text}{}",
+            NotCompared::reason(&no_end(&implementation))
+        );
+        for word in ["standing", "relation", "transfer"] {
+            assert!(!all.contains(word), "{word}");
+        }
+    }
+
+    /// A front end that asks no trace refuses the declaration before any run, so a trace view
+    /// is never run as an end view.
+    #[test]
+    fn a_front_end_without_traces_refuses_a_trace_view() {
+        let manifest = decoded(&format!(
+            "{OBSERVE}[[implementation]]\nname = \"fake\"\nprotocol = \
+             \"kink-implementation/2\"\ncommand = [\"fake\"]\ngiven = \"inputs\"\nviews = \
+             [{TICKS}]\n"
+        ))
+        .unwrap();
+        let mock = Mock {
+            shapes: Err("this front end compares no trace yet".to_owned()),
+            ..Mock::judging(Vec::new())
+        };
+        let document = command(
+            &manifest,
+            &CompareOptions::default(),
+            Some(&mock),
+            "kink-flow compare",
+        );
+        assert_eq!(
+            document["refusal"],
+            json!({"stage": "implementation", "reason": "declaration",
+                   "detail": "implementation `fake`: this front end compares no trace yet"})
+        );
+        assert_eq!(compare_status(&document), EXIT_UNASKED);
     }
 
     fn sh(script: &str, limit: Duration) -> Result<Ran, Failure> {

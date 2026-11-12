@@ -512,7 +512,9 @@ fn nonblank(entry: &Table, prefix: &str, name: &str) -> Result<String, ManifestE
 mod tests {
     use super::{ImplementationSection, Protocol};
     use crate::admit::InputFiles;
-    use crate::compare::{CompareOptions, Judged, Question, Vocabulary, command};
+    use crate::compare::{
+        CompareOptions, Judged, Question, TraceAnswer, TraceQuestion, Vocabulary, command,
+    };
     use crate::manifest::{FlowManifest, Program};
     use k_rust::kore::ast::Pattern;
     use serde_json::{Value, json};
@@ -665,6 +667,12 @@ mod tests {
             unreachable!("no run")
         }
         fn compare(&self, _: &Question<'_>) -> Result<Judged, String> {
+            unreachable!("no run")
+        }
+        fn observe_request(&self, _: &[String]) -> Result<Vec<Value>, String> {
+            unreachable!("no run")
+        }
+        fn judge_trace(&self, _: &TraceQuestion<'_>) -> Result<TraceAnswer, String> {
             unreachable!("no run")
         }
     }

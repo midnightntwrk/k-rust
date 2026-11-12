@@ -29,7 +29,8 @@ use std::sync::Arc;
 
 use k_rust::kore::ast::Pattern;
 use kink_flow::{
-    ImplementationSection, Judged, NotCompared, Program, Question, ViewSection, Vocabulary,
+    ImplementationSection, Judged, NotCompared, Program, Question, TraceAnswer, TraceQuestion,
+    ViewSection, Vocabulary,
 };
 use krs_exec::{
     CellInfo, Compared, Comparison, ConfigValue, End, EndClass, EndError, Ends, Halt, Semantics,
@@ -206,8 +207,30 @@ fn answer_end(semantics: &Semantics, cells: &Value) -> Result<End, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Why a trace view is refused: this front end does not compare one yet.
+fn trace_view_unsupported(view: &str) -> String {
+    format!(
+        "the view `{view}` compares a trace (`channels`), which `krs kink compare` does not \
+         compare yet: this front end has no reading of an answer's `observations`. Until it has, \
+         declare end views only"
+    )
+}
+
 impl Vocabulary for KrsImplementations {
     fn check(&self, implementation: &ImplementationSection) -> Result<(), String> {
+        // A trace view is never run as an end view: until this front end compares traces, a
+        // declaration with one is refused before any run.
+        if let Some((index, view)) = implementation
+            .views
+            .iter()
+            .enumerate()
+            .find(|(_, view)| view.is_trace())
+        {
+            return Err(format!(
+                "views[{index}].channels: {}",
+                trace_view_unsupported(&view.name)
+            ));
+        }
         self.inputs
             .with_semantics("checking an implementation's cells", |semantics| {
                 let cells = semantics.cells();
@@ -396,6 +419,24 @@ impl Vocabulary for KrsImplementations {
                 judge(semantics, &comparison, &definition, &answered, omitted)
             },
         )
+    }
+
+    fn observe_request(&self, channels: &[String]) -> Result<Vec<Value>, String> {
+        Err(format!(
+            "`krs kink compare` does not ask an implementation for a trace yet (channels {})",
+            channels
+                .iter()
+                .map(|channel| format!("`{channel}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+
+    fn judge_trace(&self, question: &TraceQuestion<'_>) -> Result<TraceAnswer, String> {
+        Err(question.implementation.trace_views().next().map_or_else(
+            || "the implementation declares no trace view".to_owned(),
+            |view| trace_view_unsupported(&view.name),
+        ))
     }
 }
 

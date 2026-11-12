@@ -90,7 +90,11 @@ pub use cli::{
     CommandFiles, CommandSpelling, FlowCommand, FrontEnd, KinkFlowSpelling, OutputFormat, Verb,
     dispatch, on_stack,
 };
-pub use compare::{Answer, CompareOptions, EndWord, Judged, NotCompared, Question, Vocabulary};
+pub use compare::{
+    Answer, AskedChannel, ChannelAgreed, CompareOptions, EndWord, Judged, NotCompared, Question,
+    Stated, StatedEnd, TraceAnswer, TraceDifference, TraceJudged, TraceQuestion, TraceReach,
+    Vocabulary,
+};
 pub use evidence::{EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
 /// The values of a baseline run's channels ([`results::BaselineRunner::observed_values`]).
