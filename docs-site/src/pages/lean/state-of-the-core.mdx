@@ -12,6 +12,8 @@ This is the only page of the Lean course that changes as the work moves; the les
 
 Newest first.
 
+- KEVM: new deciders cut the facts left under `FnHyp` for kompile's text from 365 to 164 (termination 175 → 37, totality 115 → 98, agreement 45 → 29 functions, matches 30 → 0). A package generated from `coreOK` now states soundness and completeness from its remaining named facts.
+- KEVM as written cannot meet `FnHyp`. Two pairs of its equations contradict each other, so kompile's own theory for KEVM has no model. Several `[total]` functions have arguments no equation covers. Details are under the goal; decisions 6 and 7 are new.
 - KEVM: kompile's own text is now read as written, with nothing refused, and so is k-rust's. For both, the kernel checks the check on the semantics (`coreOK`) and states both theorems. They hold under the four statements about functions (`FnHyp`), which are not yet proved for KEVM: about 370 facts are left (see the goal).
 - The three name conditions that ran out of memory in the kernel are now decided on numeric codes of the names, proved to imply the conditions in the core. The core did not change.
 - Decision 5 was corrected. The first proposal was wrong: the text's equation says `f(p) = r` and `C` is true, so where `C` fails the text gives `f` no value, and dropping the `ensures` would give it one.
@@ -34,7 +36,7 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 | Definition | read | well-formed | obligations | sound and complete | used by a proof |
 | --- | --- | --- | --- | --- | --- |
 | imp | ✓ | ✓ | ✓ (none named) | ✓ | — |
-| KEVM | ✓ | ✓ | listed, open | — (stated, under `FnHyp`, not yet proved) | — |
+| KEVM | ✓ | ✓ | 164 named; 9 look false of KEVM as written (below) | stated from the named facts | — |
 | wasm | — | — | — | — | — |
 | mir | — | — | — | — | — |
 | K in K | — | — | — | — | — |
@@ -50,8 +52,17 @@ One caveat: the package is not tied to the text, so the reader is trusted for it
 The peano and fprio examples are also read from kompile's own KORE now.
 The other 15 examples are read from k-rust's KORE.
 
-KEVM, measured 2026-11-13: kompile's own text and k-rust's are both read, with nothing refused. For each, the kernel checks `coreOK` and states both theorems under `FnHyp`, using only the standard axioms (about 5 minutes, 6.8 GB at peak). The larger well-formedness check fails only "every sort has a value", which the theorems do not ask. What is open is `FnHyp`: about 370 facts are left to the author. For kompile's text: 139 functions whose termination no declaration order shows, 36 whose termination certificate is open, 115 `[total]` functions not confirmed to have a value, 45 functions whose clauses of one priority are not confirmed to agree, and 30 clauses whose matches are not confirmed to agree. Work on them is running.
+KEVM, measured 2026-11-13: kompile's own text and k-rust's are both read, with nothing refused. For each, the kernel checks `coreOK` and states both theorems, using only the standard axioms (about 6 minutes, 6.8 GB at peak). The larger well-formedness check fails only "every sort has a value", which the theorems do not ask.
+What is open is `FnHyp`: for kompile's text, 164 facts are left to the author, and the package states soundness and completeness from them. They are 37 functions whose termination is not shown, 98 `[total]` functions not confirmed to have a value, and 29 functions whose clauses of one priority are not confirmed to agree. Every clause's matches are confirmed to agree.
 The KEVM package is not a committed example, since its input is 8 MB; `examples/kevm.sh` builds it.
+
+Nine of these facts look false of KEVM as written:
+
+- **Two pairs of equations contradict each other**, so kompile's own theory for KEVM has no model. `#blockhash(_, _, _, 256) => 0` and `#blockhash(ListItem(H) _, N, N, _) => H` both apply at a count of 256 (evm.md lines 1212 and 1214). `WS [ N := _ ] => WS requires N <Int 0` and `.WordStack [ N := W ] => (0 : .WordStack) [ N := W ]` both apply at the empty stack with a negative `N` (evm-types.md lines 275 and 276).
+- **Four `[total]` functions have arguments no equation covers**: `Cgascap_Int` at a negative cap; `_s<Word_` outside [0, 2^256); `_<Gas_` and `_<=Gas_`, whose missing cases exist only as `[simplification]` rules, which are not read (decision 6).
+- **Three more pairs of equations overlap at unusual arguments**: `Cgascap_Gas` at a negative cap, where the kernel's reading gives one no value and the other 0 (consistent in kompile's theory); `#merkleExtensionSplitter` where both paths are empty; `senderTxData` at a negative chain id. The last two give different results in general; no particular pair of values was computed.
+
+57 of the 98 totality facts are about functions that call a parameter: Bytes, String and KRYPTO operations, which have no interpretation here. With no interpretation they are false. For a definition with parameters, the proposal is to state the theorems for every interpretation that is total where the text declares the parameter total; that work is running.
 
 ## The core, layer by layer
 
@@ -91,3 +102,5 @@ Each is a question you can answer by replying.
 3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
 4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.
 5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed (and implemented): `ensures C` on a function equation is read as an extra `requires` condition, when all of the function's equations have one priority; otherwise the function is refused. Under that restriction the two readings agree wherever the text is consistent. Such a definition cannot be tied to its text. KEVM's one case meets the restriction. Agree?
+6. **A `[total]` function that no equation covers at some arguments.** The kernel reads a function as what its equations say, so such a declaration is false and the definition cannot meet `FnHyp`. K's own theory instead says the function has some unspecified value there. Keep the strict reading, which means KEVM needs four small fixes, or read such a function as unspecified outside its equations? (Recommended: keep the strict reading.)
+7. **KEVM as written.** Two pairs of its equations contradict each other, so no reading can prove it sound as written. Proposed: the KEVM row of the scoreboard counts as met for KEVM plus a short reviewed list of fixes (about nine equations), each listed on this page with its reason, and you decide whether to report them to KEVM's authors. Agree?
