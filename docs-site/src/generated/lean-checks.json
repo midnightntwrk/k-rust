@@ -4,6 +4,10 @@
    "at": "703af652",
    "text": "example : Eval c Sym.«pr» [int 0] (some (int 1)) := pr_0\nexample : Eval c Sym.«pr» [int 3] (some (int 2)) := pr_3\nexample : Eval c Sym.«pr» [int 9] (some (int 3)) := pr_9\n\nexample : Eval c Sym.«ow» [int (-3)] (some (int 3)) := ow_m3\nexample : Eval c Sym.«ow» [int (-200)] none := ow_m200"
   },
+  "t4": {
+   "at": "703af652",
+   "text": "-- t4 in the k cell: its rule applies, but res(ow(-200)) has no value, so no step leaves it\nexample (hf : c.sortOf (cfg (cmd Sym.«t4»)) = some topCellSort) : ∀ y, ¬ Step c ⟨_, hf⟩ y :=\n  t4_ends hf"
+  },
   "colls": {
    "at": "884fddff",
    "text": "-- the stack cell holds [1, 2]\n-- pop: ListItem(X) L in the stack cell, X variable 1, L variable 2\nexample : c.rules[1]?.map Rule.lhs = some\n  (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj Srt.«Op» KCore.Srt.kitem (.app Sym.«pop» []), .var 0]],\n    .app Sym.«<stack>» [.app KCore.listConcat [.app KCore.listElem [.inj KCore.Srt.int KCore.Srt.kitem (.var 1)], .var 2]],\n    .app Sym.«<sum>» [.var 3], .var 4]) := pop_lhs\nexample : PatVal c [(1, ival 1), (2, list [iv 2])]\n    (.app KCore.listConcat [.app KCore.listElem [.inj KCore.Srt.int KCore.Srt.kitem (.var 1)], .var 2])\n    (list [iv 1, iv 2]) := pop_matches\n\n-- drop: L ListItem(_) in the stack cell, L variable 1, _ variable 2\nexample : c.rules[2]?.map Rule.lhs = some\n  (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj Srt.«Op» KCore.Srt.kitem (.app Sym.«drop» []), .var 0]],\n    .app Sym.«<stack>» [.app KCore.listConcat [.var 1, .app KCore.listElem [.var 2]]],\n    .var 3, .var 4]) := drop_lhs\nexample : PatVal c [(1, list [iv 1]), (2, iv 2)]\n    (.app KCore.listConcat [.var 1, .app KCore.listElem [.var 2]])\n    (list [iv 1, iv 2]) := drop_matches"

@@ -17,6 +17,7 @@ const k = peanoK
 
 const workedRun = checked('step1')
 const workedPrio = checked('prio')
+const t4Ends = checked('t4')
 const workedRunAll = checked('steps')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
@@ -98,10 +99,13 @@ export const step6: Lesson = {
     {
       id: 's4',
       title: 'A step has a value',
-      panes: [{ id: 'k', label: 'fprio.k', source: fprioK, lang: 'k' }],
+      panes: [
+        { id: 'k', label: 'fprio.k', source: fprioK, lang: 'k' },
+        { id: 'w', label: checkedLabel(t4Ends), source: t4Ends, lang: 'lean' },
+      ],
       frames: [
         {
-          hl: { k: [at(fprioK, 'rule [t4]')] },
+          hl: { k: [at(fprioK, 'rule [t4]')], w: span(t4Ends, 'example (hf', 't4_ends hf') },
           notes: [note('k', at(fprioK, 'rule [t4]'), '`ow(-200)` is undefined (lesson 5), so this right side has no value, and no step leaves `t4`.', 'ow(-200)')],
           say: 'A rule steps only where its right side has a value. It still applies, though, so it blocks rules of larger priorities there.',
         },
@@ -143,6 +147,6 @@ export const step6: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so are \`prio.k\` and \`fprio.k\`.`,
-    `The panes headed “Checked by Lean” state peano's and prio's steps in Lean, each a theorem of their packages.`,
+    `The panes headed “Checked by Lean” state peano's, prio's and fprio's steps in Lean, each a theorem of their packages.`,
   ],
 }

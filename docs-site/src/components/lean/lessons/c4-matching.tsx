@@ -92,7 +92,7 @@ export const matching4: Lesson = {
         {
           hl: { k: [at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})')], w: span(workedMap, 'example : c.rules[19]', 'rule19_lhs') },
           notes: [note('k', at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})'), 'The same `X`, in the k cell.', 'VarX')],
-          say: 'The k cell holds `x`, and the same `X` stands there, so only the split at `x` matches the whole left side.',
+          say: 'The k cell holds `x`, and the left side puts the same `X` there, so you can see that only the split at `x` fits the whole left side.',
         },
       ],
     },
