@@ -5027,13 +5027,13 @@ fn a_single_body_rule_whose_every_rewrite_keeps_its_content_changes_no_cell() {
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
     lines.sort();
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         group-child: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 79:5
         instance-child: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 80:5
         item-part: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 79:5
         item: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 79:5
         leaf-and-item: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 80:5
-        term-route: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 77:26"#]].assert_eq(&lines.join("\n"));
+        term-route: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 77:26"]].assert_eq(&lines.join("\n"));
     let admitted = [
         (
             "one-changes",
@@ -5055,9 +5055,9 @@ fn a_single_body_rule_whose_every_rewrite_keeps_its_content_changes_no_cell() {
         let manifest = library_package(temporary.path(), &format!("kept-rewrite-{name}"), &source);
         format!("{name}: {}", emitted_sentence(target.path(), &manifest, label))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         one-changes: rule [make]: <k> (make ( X:Int ) => make ( X:Int )) ... </k> <acc> A:Int => X:Int </acc>
-        claim-twin: claim [c]: <k> make ( X:Int ) ~> Tail:K </k> [one-path]"#]].assert_eq(&admitted.join("\n"));
+        claim-twin: claim [c]: <k> make ( X:Int ) ~> Tail:K </k> [one-path]"]].assert_eq(&admitted.join("\n"));
 }
 
 /// CELLS4 item 2, SMALLVERDICTS item 1: an entry written as a term without a wrapper, or as a
@@ -5131,7 +5131,7 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         let manifest = library_package(temporary.path(), &format!("unwrapped-{name}"), &source);
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         leaf-literal: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 54:78
         result-literal: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 56:58
         leaf-call: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 56:58
@@ -5140,7 +5140,7 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         group-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
         group-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
         leaf-rewrite: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 80:90
-        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"#]].assert_eq(&refused.join("\n"));
+        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"]].assert_eq(&refused.join("\n"));
     let accepted = [
         (
             "leaf-literal",
@@ -6736,10 +6736,10 @@ fn a_record_naming_an_undeclared_cell_is_undeclared_on_both_routes() {
         let manifest = library_package(temporary.path(), &format!("undeclared-{name}"), &source);
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         readable-subject: error[krs::expand::undeclared-cell]: `Machine` declares no cell `nosuch`: a readable record's entries name the configuration's cells, each by its name @ 92:26
         readable-result: error[krs::expand::undeclared-cell]: `Machine` declares no cell `nosuch`: a readable record's entries name the configuration's cells, each by its name @ 92:41
         readable-claim: error[krs::expand::undeclared-cell]: `Machine` declares no cell `nosuch`: a readable record's entries name the configuration's cells, each by its name @ 93:26
         cells-subject: error[krs::expand::undeclared-cell]: `Machine` declares no cell of this name @ 90:69
-        cells-result: error[krs::expand::undeclared-cell]: `Machine` declares no cell of this name @ 91:53"#]].assert_eq(&lines.join("\n"));
+        cells-result: error[krs::expand::undeclared-cell]: `Machine` declares no cell of this name @ 91:53"]].assert_eq(&lines.join("\n"));
 }
