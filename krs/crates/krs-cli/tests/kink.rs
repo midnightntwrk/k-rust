@@ -2799,6 +2799,14 @@ fn a_stale_definition_is_written_or_refused() {
             .contains("krs kink emit --package story-plus-edit --definition main"),
         "{document:#}"
     );
+    // The advice says what the command rewrites: the corpus's record is not what is stale.
+    assert!(
+        document["spec"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("which rewrites that file and nothing else"),
+        "{document:#}"
+    );
     assert_eq!(project.read("kink/definition.k"), emitted);
 
     let results = project.kink("coverage", &[]);

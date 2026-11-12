@@ -1410,7 +1410,7 @@ fn build(
 fn stale_detail(shown: &str, flag: &str, spelling: &spelling::KrsSpelling) -> String {
     format!(
         "{shown} differs from the K this krs emits for the package's current sources ({flag}); \
-         run `{}` and commit the file",
+         run `{}`, which rewrites that file and nothing else, and commit it where it is tracked",
         spelling.emit()
     )
 }
