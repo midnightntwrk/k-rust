@@ -3580,6 +3580,241 @@ fn a_result_s_dots_over_a_whole_match_keep_the_children_it_leaves_unnamed() {
     assert_eq!(cells_stdout, stdout);
 }
 
+/// A machine for `a_result_record_s_map_child_is_the_map_it_builds`: the fixed group `mg` and the
+/// `?` group `og`, each a map child beside an `Int` child, and a Map collection of accounts whose
+/// group child `aframe` holds a map; `{RULES}` is the rules.
+const MAP_CHILDREN: &str = r#"
+use k::builtin::{Int, KSequence, Map};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence(cmd (M1, M2, O1, A1, Mk) > right seq (Seq))]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("m1 {x}")] M1 { x: Int },
+    #[k::syntax("m2 {x}")] M2 { x: Int },
+    #[k::syntax("o1 {x}")] O1 { x: Int },
+    #[k::syntax("a1 {x}")] A1 { x: Int },
+    #[k::syntax("mk")] Mk(),
+    #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
+}
+
+#[k::cell]
+pub struct Og {
+    #[k::cell]
+    pub om: Map<Int, Int>,
+    #[k::cell]
+    pub ov: Int,
+}
+
+#[k::cell]
+pub struct Mg {
+    #[k::cell]
+    pub mm: Map<Int, Int>,
+    #[k::cell]
+    pub mv: Int,
+}
+
+#[k::cell]
+pub struct Ag {
+    #[k::cell]
+    pub am: Map<Int, Int>,
+    #[k::cell]
+    pub aa: Int,
+}
+
+#[k::cell]
+pub struct Acct {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell(nested)]
+    pub aframe: Ag,
+}
+
+#[k::cell]
+pub struct Bank {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub acct: Acct,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub mg: Mg,
+    #[k::cell(multiplicity = "?", nested)]
+    pub og: Option<Og>,
+    #[k::cell(nested)]
+    pub bank: Bank,
+    #[k::cell]
+    pub slot: k::KItem,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            mg: Mg { mm: k::map![1 -> 2], mv: 5 },
+            og: Some(Og { om: k::map![1 -> 2], ov: 6 }),
+            bank: Bank { acct: Acct { id: 0, aframe: Ag { am: k::map![], aa: 0 } } },
+            slot: 0,
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use Cmd::*;
+
+    seq: Seq { first, second } => k::k![first, second];
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    mk: { k: [Mk(), ..], acct: { .. } } => { k: [..], acct: { Acct { id: 0, aframe: Ag { am: k::map![0 -> 3], aa: 1 } }, .. } };
+}
+
+{RULES}
+"#;
+
+/// WHOLEKEEP round 2: a result record's `..` keeps the children it leaves unnamed where it writes
+/// a map child too. A map child's exact entries are the map they build, a term of the child's
+/// content, so the record is the update of the subject's match, as it is without the map: a
+/// binder of the fixed group `mg` (read elsewhere too) and a `?` group's present match each
+/// emit the K a readable record writes for the same rule, and a `cells!` account's group child
+/// whose subject reads its map (`k::map![0 -> v, ..]`) keeps that map by an alias of its
+/// pattern. A map written over a rest is no term, so a present group's record that writes one
+/// stays a stated limit. Runs keep `mv`, `ov` and the account's map.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Two routes of the same rules, the limit's text, and the runs."
+)]
+fn a_result_record_s_map_child_is_the_map_it_builds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable = "k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    m1: { k: [M1(x), ..], mg: m } => { k: [..], mg: Mg { mm: k::map![0 -> x], .. } };
+    m2: { k: [M2(x), ..], mg: m, slot: _ } => { k: [..], mg: Mg { mm: k::map![0 -> x], .. }, slot: m };
+    o1: { k: [O1(x), ..], og: Some(Og { .. }) } => { k: [..], og: Some(Og { om: k::map![0 -> x], .. }) };
+}
+";
+    let cells = r#"
+#[k::rule(label = "m1")]
+fn m1(x: Int, m: Mg, k::cells! { k: k::configuration::KCell(Cmd::M1 { x }, tail @ ..), mg: m, state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), mg: k::fragment![crate::Mg { mm: k::map![0 -> x], .. }], ..state }
+}
+
+#[k::rule(label = "m2")]
+fn m2(x: Int, m: Mg, k::cells! { k: k::configuration::KCell(Cmd::M2 { x }, tail @ ..), mg: m, slot: k::configuration::Cell(_), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), mg: k::fragment![crate::Mg { mm: k::map![0 -> x], .. }], slot: k::configuration::Cell(m), ..state }
+}
+
+#[k::rule(label = "o1")]
+fn o1(x: Int, k::cells! { k: k::configuration::KCell(Cmd::O1 { x }, tail @ ..), og: Some(k::fragment![crate::Og { .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![0 -> x], .. }]), ..state }
+}
+
+#[k::rule(label = "a1")]
+fn a1(
+    x: Int,
+    v: Int,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::A1 { x }, tail @ ..),
+        Bank::acct: { me @ k::fragment![crate::Acct { aframe: crate::Ag { am: k::map![0 -> v, ..], .. }, .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Bank::acct: { k::fragment![crate::Acct { aframe: crate::Ag { aa: x, .. }, ..me }], ..instances0 },
+        ..state
+    }
+}
+"#;
+    let [readable, cells] =
+        [("map-children", readable), ("map-children-cells", cells)].map(|(name, rules)| {
+            library_package(
+                temporary.path(),
+                name,
+                &MAP_CHILDREN.replace("{RULES}", rules),
+            )
+        });
+    let [readable_k, cells_k] =
+        [&readable, &cells].map(|manifest| emitted_k(target.path(), manifest));
+    // The computation cell aside, each `cells!` rule is its readable twin.
+    let without_k = |k: &str, label: &str| {
+        let rule = rule(k, label)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let end = rule.find("</k>").map_or(0, |end| end + "</k>".len());
+        rule[end..].trim().to_owned()
+    };
+    for label in ["m1", "m2", "o1"] {
+        assert_eq!(
+            without_k(&readable_k, label),
+            without_k(&cells_k, label),
+            "{label}"
+        );
+    }
+    let emitted = ["m1", "m2", "o1", "a1"].map(|label| without_k(&cells_k, label));
+    expect_test::expect![[r#"
+        [
+            "(<mg> <mm> _ </mm> <mv> MMv:Int </mv> </mg> => <mg> <mm> .Map [ 0 <- X:Int ] </mm> <mv> MMv:Int </mv> </mg>)",
+            "(<mg> <mm> MMm:Map </mm> <mv> MMv:Int </mv> </mg> => <mg> <mm> .Map [ 0 <- X:Int ] </mm> <mv> MMv:Int </mv> </mg>) <slot> _ => <mg> <mm> MMm:Map </mm> <mv> MMv:Int </mv> </mg> </slot>",
+            "(<og> <om> _ </om> <ov> OgOv:Int </ov> </og> => <og> <om> .Map [ 0 <- X:Int ] </om> <ov> OgOv:Int </ov> </og>)",
+            "<acct> (<aframe> <am> ( 0 |-> V:Int _ #as MeAframeAm:Map ) </am> <aa> _ </aa> </aframe> => <aframe> <am> MeAframeAm:Map </am> <aa> X:Int </aa> </aframe>) ... </acct>",
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+    for (manifest, program) in [(&readable, "m1 7 o1 8"), (&cells, "m1 7 o1 8 mk a1 9")] {
+        let file = manifest.with_file_name("program.txt");
+        fs::write(&file, program).unwrap();
+        let (success, stdout, stderr) =
+            krs(target.path(), manifest, "run", &[file.to_str().unwrap()]);
+        assert!(success, "{stdout}\n{stderr}");
+        let end = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            end.contains("<mg> <mm> 0 |-> 7 </mm> <mv> 5 </mv> </mg>"),
+            "{end}"
+        );
+        assert!(
+            end.contains("<og> <om> 0 |-> 8 </om> <ov> 6 </ov> </og>"),
+            "{end}"
+        );
+        if program.ends_with("a1 9") {
+            assert!(end.contains("<am> 0 |-> 3 </am> <aa> 9 </aa>"), "{end}");
+        }
+    }
+    // A map written over a rest is no term, and a present group is written as one term.
+    let rest = library_package(
+        temporary.path(),
+        "map-children-rest",
+        &MAP_CHILDREN.replace(
+            "{RULES}",
+            r#"
+#[k::rule(label = "o2")]
+fn o2(x: Int, v: Int, k::cells! { k: k::configuration::KCell(Cmd::O1 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![0 -> v, r @ ..], .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![0 -> x, ..r], .. }]), ..state }
+}
+"#,
+        ),
+    );
+    expect_test::expect!["error[krs::analysis::collection-entry]: not supported yet: the present group `og` is written whole, as one term naming every child, and its record writes the child `om` as an entry no term spells (a map or a computation written over a rest), which a group term cannot hold (the Semantic IR has no map concatenation); write that child's entry as a term, or name its entries exactly"].assert_eq(&check_errors(target.path(), &rest));
+}
+
 /// EDOTS item 2: a readable record's own `..` stands for the cells it does not name, which a
 /// subject leaves unconstrained and a result unchanged, as leaving them out already does, so a
 /// rule or claim with it is the one without it. A named rest, `rest @ ..` or `..rest`, would

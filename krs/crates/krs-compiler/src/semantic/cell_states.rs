@@ -1440,14 +1440,98 @@ fn record_fields<'t>(
 }
 
 /// The group term a state of a group place writes: its term, or its record's
-/// ([`ProtocolRuleRecord::group_term`]); `None` for a record whose child is no term, and for
-/// any other state.
-fn group_state_term(state: &DescriptorState) -> Option<DescriptorTerm> {
+/// ([`ProtocolRuleRecord::group_term`]), each map child written as the map term it is
+/// ([`map_term`]); `None` for a record whose child is no term, and for any other state.
+pub(super) fn group_state_term(state: &DescriptorState) -> Option<DescriptorTerm> {
     match state {
         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
             Some(term.clone())
         }
-        ProtocolRuleStateTerm::Record(record) => record.group_term(),
+        ProtocolRuleStateTerm::Record(record) => {
+            let mut record = record.clone();
+            for field in &mut record.fields {
+                if let Some(term) = map_term(&field.value) {
+                    field.value = ProtocolRuleStateTerm::Term(term);
+                } else if let ProtocolRuleStateTerm::Record(_) = &field.value
+                    && let Some(term) = group_state_term(&field.value)
+                {
+                    field.value = ProtocolRuleStateTerm::Group(term);
+                }
+            }
+            record.group_term()
+        }
+        _ => None,
+    }
+}
+
+/// The term a map child's entry is, where one is: a pattern's entries with its rest, `..` or
+/// `rest @ ..`, are a map pattern (`0 |-> V _`); a result's exact entries are the map they build
+/// over the empty one (`map::update(map::empty(), k, v)`), as a readable record writes them.
+/// `None` for a result's entries written over a rest, which a term would hold as a map
+/// concatenation, and for any other state.
+pub(super) fn map_term(state: &DescriptorState) -> Option<DescriptorTerm> {
+    let ProtocolRuleStateTerm::Map(map) = state else {
+        return None;
+    };
+    let application = |key: &ProvenanceKey,
+                       operation: krs_ir::TermMapOperation,
+                       arguments: Vec<DescriptorTerm>| {
+        DescriptorTerm::Application {
+            head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+            reference: krs_ir::DescriptorApplicationReference {
+                key: key.clone(),
+                application: krs_ir::DescriptorApplicationRef::Map(operation),
+            },
+            path_key: key.clone(),
+            arguments: krs_ir::Arguments::Positional(arguments.into_iter().map(Box::new).collect()),
+            instance: Vec::new(),
+            update: None,
+            open: false,
+        }
+    };
+    let empty = || {
+        application(
+            &map.payload_key,
+            krs_ir::TermMapOperation::Empty,
+            Vec::new(),
+        )
+    };
+    match &map.body {
+        krs_ir::ProtocolRuleMapBody::Empty { .. } => Some(empty()),
+        krs_ir::ProtocolRuleMapBody::Items {
+            items,
+            remainder: ProtocolRuleFrame::Exact,
+        } => Some(items.iter().fold(empty(), |built, item| {
+            application(
+                &item.key_key,
+                krs_ir::TermMapOperation::Update,
+                vec![built, item.key.clone(), item.value.clone()],
+            )
+        })),
+        krs_ir::ProtocolRuleMapBody::Items { items, remainder } if !items.is_empty() => {
+            let rest = match remainder {
+                ProtocolRuleFrame::Anonymous { key } => {
+                    DescriptorTerm::Wildcard { key: key.clone() }
+                }
+                ProtocolRuleFrame::Bind { key, binding } => DescriptorTerm::Variable {
+                    key: key.clone(),
+                    path_key: key.clone(),
+                    name: binding.clone(),
+                },
+                ProtocolRuleFrame::Reuse { .. } | ProtocolRuleFrame::Exact => return None,
+            };
+            Some(DescriptorTerm::MapEntries {
+                key: map.payload_key.clone(),
+                entries: items
+                    .iter()
+                    .map(|item| krs_ir::DescriptorMapTermEntry {
+                        key: Box::new(item.key.clone()),
+                        value: Box::new(item.value.clone()),
+                    })
+                    .collect(),
+                rest: Some(Box::new(rest)),
+            })
+        }
         _ => None,
     }
 }
