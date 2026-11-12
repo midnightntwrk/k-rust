@@ -649,6 +649,12 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         ),
         ("k", rule("go: { k: [Go(), ..] } => { k: [] };")),
         (
+            "child-ll",
+            rule(
+                "go: { k: [Go(), ..], th: { me @ Th { tl: [..], .. }, .. } } => { k: [..], th: { Th { tl: [], ..me }, .. } };",
+            ),
+        ),
+        (
             "cells-k",
             cells(
                 "",
@@ -673,6 +679,7 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         aux: error[krs::syntax::invalid-list-notation]: the entry of the cell `aux` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another cell, or drop it where a condition reads it
         ll-items: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
         k: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another cell, or drop it where a condition reads it
+        child-ll: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)
         cells-k: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another cell, or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused
         cells-k-moved: rule [go]: <k> put ( A:Int , B:Int ) ~> Rest:K => go ~> Rest:K </k>"]].assert_eq(&lines.join("\n"));
 }
