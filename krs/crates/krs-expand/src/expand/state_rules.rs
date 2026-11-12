@@ -1083,9 +1083,20 @@ pub(super) fn unbound_result_remainder(
         if let StateMacroRemainder::Reuse { binding, .. } = rest
             && !bound.iter().any(|name| name.unraw() == binding.unraw())
         {
-            return Err(
-                terms.unbound_name(&Path::from(binding.clone()), &binding.unraw().to_string())
-            );
+            let path = Path::from(binding.clone());
+            let name = binding.unraw().to_string();
+            // A name that is no snake-case binder (a constant's) is told as such: a computation's
+            // or a map's rest writes back what its subject binds.
+            if super::terms::snake_case_bare_name(&path).is_none() {
+                return Err(ExpandError::new(
+                    expand::UNBOUND_NAME,
+                    binding.span(),
+                    format!(
+                        "`{name}` after `..` is no name this sentence binds: a computation's or a map's rest writes back a remainder or a term binder its subject binds, and a constant is neither; a K-sorted constant stands as an item (`KCell(x, {name})`)"
+                    ),
+                ));
+            }
+            return Err(terms.unbound_name(&path, &name));
         }
     }
     Ok(())

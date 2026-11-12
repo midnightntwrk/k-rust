@@ -2325,9 +2325,10 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!(
-                    "the readable {} names the computation cell `{}` beside the brackets that rewrite the head of its computation: a record names each cell once, so write the cell's items and its rest in those brackets (`{}: [x, ..]`)",
+                    "the readable {} names the computation cell `{}` as one of its other cells, though the {} rewrites the head of that computation: a computation cell is named once, by the head it rewrites, which a record writes in the cell's brackets (`{}: [x, ..]`)",
                     self.sentence(),
                     reference.name,
+                    self.sentence(),
                     computation
                         .names
                         .first()
