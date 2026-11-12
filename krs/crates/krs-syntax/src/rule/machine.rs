@@ -1025,31 +1025,19 @@ fn named_rest_of(map: &proc_macro2::Group) -> Option<Ident> {
 }
 
 /// The braces of a value spelled as a map read with its other entries open, `{ k -> v, .. }`:
-/// one braced group whose items hold a top-level arrow and end in `..`. The map pattern
-/// `k::map![k -> v, ..]` (or `map![..]`) that a group record's child writes is the same map read,
-/// the map holding those entries and any others (the form step admits it there only:
-/// `crate::cell_entries`), so it is read as braces holding its payload.
+/// one braced group whose items hold a top-level arrow and end in `..`.
 fn map_read_group(tokens: &TokenStream) -> Option<proc_macro2::Group> {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
-    let group = match trees.as_slice() {
-        [TokenTree::Group(group)] if group.delimiter() == proc_macro2::Delimiter::Brace => {
-            group.clone()
-        }
-        [.., TokenTree::Group(payload)]
-            if payload.delimiter() == proc_macro2::Delimiter::Bracket
-                && crate::state_macro::qualified_macro_payload(tokens)
-                    .is_some_and(|(name, _)| name == "map") =>
+    match trees.as_slice() {
+        [TokenTree::Group(group)]
+            if group.delimiter() == proc_macro2::Delimiter::Brace
+                && contains_top_level_arrow(group)
+                && top_level_items(group.stream()).last().is_some_and(is_dots) =>
         {
-            let mut braces =
-                proc_macro2::Group::new(proc_macro2::Delimiter::Brace, payload.stream());
-            braces.set_span(payload.span());
-            braces
+            Some(group.clone())
         }
-        _ => return None,
-    };
-    (contains_top_level_arrow(&group)
-        && top_level_items(group.stream()).last().is_some_and(is_dots))
-    .then_some(group)
+        _ => None,
+    }
 }
 
 /// A map read `{ k -> v, .. }` that `tokens` spell, as a map cell's entries in `context`, or
@@ -1875,7 +1863,7 @@ fn readable_record(
         [TokenTree::Group(map)] => {
             map.delimiter() == proc_macro2::Delimiter::Brace && contains_top_level_arrow(map)
         }
-        _ => map_read_group(&value.iter().cloned().collect::<TokenStream>()).is_some(),
+        _ => false,
     };
     let items = top_level_items(body.stream());
     let maps = items.iter().any(|item| {
@@ -1908,12 +1896,6 @@ fn readable_record(
         if fields.iter().any(|field| field.name() == name) {
             return Ok(None);
         }
-        // A child written as the map pattern `k::map![k -> v, ..]` is the map read its braces
-        // are ([`map_read_group`]).
-        let value = match map_read_group(&value) {
-            Some(map) => TokenTree::Group(map).into(),
-            None => value,
-        };
         let state = match value.clone().into_iter().collect::<Vec<_>>().as_slice() {
             [TokenTree::Group(map)]
                 if map.delimiter() == proc_macro2::Delimiter::Brace
