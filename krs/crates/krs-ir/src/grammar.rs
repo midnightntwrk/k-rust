@@ -581,6 +581,17 @@ pub enum ProductionAttribute<S, D> {
         /// Why the gap is intended, as written.
         reason: String,
     },
+    /// `assumed = ".."` of a total function: the author states that every application has a
+    /// value for the reason given, and KRS does not check the results of its equations. The
+    /// function is `total` to every reader as a checked one is; the attribute stays on the
+    /// production in the Definition IR, so that a report of a proof or a verdict can list the
+    /// functions whose totality it took on the author's word. Nothing is emitted to K for it.
+    Assumed {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Why the function is total, as written.
+        reason: String,
+    },
     /// `skipped_operand = ".."` of a function: the author states that its
     /// values may depend on an operand `&&`, `||` or `kequal::ite` does not
     /// evaluate, which silences `krs::analysis::skipped-operand` at its
@@ -643,6 +654,7 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::Smtlib { origin, .. }
             | Self::SmtHook { origin, .. }
             | Self::Underspecified { origin, .. }
+            | Self::Assumed { origin, .. }
             | Self::SkippedOperand { origin, .. } => origin,
         }
     }
@@ -681,6 +693,7 @@ impl<S, D> ProductionAttribute<S, D> {
             }
             Self::Desugar { .. } => Some(crate::ProductionAttributeFamily::Desugar),
             Self::Underspecified { .. } => Some(crate::ProductionAttributeFamily::Underspecified),
+            Self::Assumed { .. } => Some(crate::ProductionAttributeFamily::Assumed),
             Self::SkippedOperand { .. } => Some(crate::ProductionAttributeFamily::SkippedOperand),
         }
     }

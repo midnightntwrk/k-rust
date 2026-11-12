@@ -292,7 +292,10 @@ impl Adapter<'_> {
         attribute_index: u32,
     ) -> Result<(), AdapterError> {
         match attribute {
-            DefinitionProductionAttribute::Documentation { .. } => {}
+            // `assumed` is KRS's record of a totality it did not check; `total` carries the
+            // claim itself.
+            DefinitionProductionAttribute::Documentation { .. }
+            | DefinitionProductionAttribute::Assumed { .. } => {}
             DefinitionProductionAttribute::Function { .. } => {
                 attributes.insert("function", json!(""));
             }

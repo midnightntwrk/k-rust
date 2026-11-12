@@ -1652,8 +1652,12 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     reason: sample::<String>(),
                 },
+                Self::Assumed {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            28,
+            29,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1683,6 +1687,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Desugar { .. } => 24,
                 Self::Underspecified { .. } => 25,
                 Self::SkippedOperand { .. } => 27,
+                Self::Assumed { .. } => 28,
                 Self::ConsList { .. } => 26,
             },
         )
@@ -2296,8 +2301,12 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     reason: sample::<String>(),
                 },
+                Self::Assumed {
+                    origin: sample::<NodeOrigin>(),
+                    reason: sample::<String>(),
+                },
             ],
-            28,
+            29,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2328,6 +2337,7 @@ impl<
                 Self::Desugar { .. } => 25,
                 Self::Underspecified { .. } => 26,
                 Self::SkippedOperand { .. } => 27,
+                Self::Assumed { .. } => 28,
             },
         )
     }
@@ -3104,8 +3114,12 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     reason: sample::<String>(),
                 },
+                Self::Assumed {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            28,
+            29,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -3135,6 +3149,7 @@ impl Sample for WireProductionAttribute {
                 Self::Desugar { .. } => 24,
                 Self::Underspecified { .. } => 25,
                 Self::SkippedOperand { .. } => 27,
+                Self::Assumed { .. } => 28,
                 Self::ConsList { .. } => 26,
             },
         )

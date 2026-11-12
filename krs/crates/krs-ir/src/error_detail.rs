@@ -95,6 +95,7 @@ details! {
         Desugar => "desugar",
         Underspecified => "underspecified",
         SkippedOperand => "skipped operand",
+        Assumed => "assumed",
     }
 }
 

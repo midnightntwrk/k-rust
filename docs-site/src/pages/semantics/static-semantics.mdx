@@ -17,7 +17,7 @@ The checked static-semantics fixture exercises the current function, equation, a
 ## Total and partial functions
 
 `#[k::function]` declares a function symbol with a result sort and concrete syntax.
-A total function promises a defined result over its intended domain.
+A total function has a defined result on every argument: KRS checks that the result of each of its equations has a value wherever the equation applies, and warns where no equation applies.
 A partial function may be undefined, which denotes semantic bottom—not `Option::None` and not a host panic.
 This is not Rust `Option`; undefinedness belongs to the symbolic theory.
 

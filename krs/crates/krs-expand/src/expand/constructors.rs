@@ -190,6 +190,22 @@ fn underspecified_wire(
         .transpose()
 }
 
+/// The wire attribute of a function's `assumed` key.
+fn assumed_wire(
+    ledger: &KeyLedger<'_>,
+    function: &krs_syntax::FunctionAttribute,
+) -> crate::Result<Option<WireProductionAttribute>> {
+    function
+        .assumed()
+        .map(|reason| -> crate::Result<_> {
+            Ok(WireProductionAttribute::Assumed {
+                key: ledger.define(function.assumed_key())?,
+                reason: reason.value(),
+            })
+        })
+        .transpose()
+}
+
 /// The wire attribute of a function's `skipped_operand` key.
 fn skipped_operand_wire(
     ledger: &KeyLedger<'_>,
@@ -1286,6 +1302,14 @@ fn constructor_grammar(
         .flatten()
     {
         attributes.push(skipped_operand);
+    }
+    // `assumed` is no K attribute; the Definition IR keeps it for the reports.
+    if let Some(assumed) = function
+        .map(|function| assumed_wire(ledger, function))
+        .transpose()?
+        .flatten()
+    {
+        attributes.push(assumed);
     }
     if let Some(marker) = static_marker {
         attributes.insert(

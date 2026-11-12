@@ -137,8 +137,9 @@ So `times(zero, pred(zero))` equals `zero` by the first equation, but only if `p
 `pred(zero)` has none, so that condition does not hold, and the run is undefined, as the note says.
 The `k` cell shows the configuration the condition guarded, not a value of the program.
 
-**Total**, as on `plus` and `times`, is a promise that every application has a value.
-KRS does not prove the promise, but it uses it: with `pred` declared total, the same run ends stuck with `zero`, and no note, as the second exercise shows.
+**Total**, as on `plus` and `times`, states that every application has a value.
+KRS checks one half of the statement and uses all of it: the result of each equation must have a value wherever the equation applies, given that the functions it applies have one, and a result that is not shown to is an error (`krs::analysis::total-without-value`).
+The other half, that some equation applies to every argument, is a warning where it fails: with `pred` declared total, the same run ends stuck with `zero`, and no note, as the second exercise shows.
 A total `pred` without an equation for `zero` would mean that `pred(zero)` is some number the definition does not name.
 
 ## The generated K

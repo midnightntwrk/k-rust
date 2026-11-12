@@ -3292,6 +3292,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut raw_hook = false;
     let mut underspecified = false;
     let mut skipped_operand = false;
+    let mut assumed = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -3338,6 +3339,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
             ProductionAttribute::SkippedOperand { .. } => {
                 std::mem::replace(&mut skipped_operand, true)
             }
+            ProductionAttribute::Assumed { .. } => std::mem::replace(&mut assumed, true),
         };
         if already {
             let name = attribute
@@ -3388,6 +3390,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::RawHook { .. }
             | ProductionAttribute::Desugar { .. } => {}
             ProductionAttribute::Underspecified { reason, .. }
+            | ProductionAttribute::Assumed { reason, .. }
             | ProductionAttribute::SkippedOperand { reason, .. } => {
                 if reason.trim().is_empty() {
                     return Err(L::error(ValidationError::InvalidFunctionProduction));
@@ -3465,6 +3468,10 @@ pub(crate) fn validate_production_shape<L: Validation>(
     }
     // The coverage lint's opt-out states a gap in a total function's equations.
     if underspecified && !(function && total) {
+        return Err(L::error(ValidationError::InvalidFunctionProduction));
+    }
+    // `assumed` takes a total function's totality on the author's word.
+    if assumed && !(function && total) {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     // `skipped_operand` silences a lint at a function's equations.

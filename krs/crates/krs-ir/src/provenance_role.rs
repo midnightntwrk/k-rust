@@ -453,6 +453,8 @@ provenance_roles! {
     FunctionUnderspecified => "function_underspecified",
     /// `skipped_operand = ".."` reason string of a function production.
     FunctionSkippedOperand => "function_skipped_operand",
+    /// `assumed = ".."` reason string of a total function production.
+    FunctionAssumed => "function_assumed",
     /// One `{field}` placeholder of a function's `smt_hook` template.
     SmtHookPlaceholder => "smt_hook_placeholder",
     /// `concrete` or `concrete(..)` of an equation or simplification.

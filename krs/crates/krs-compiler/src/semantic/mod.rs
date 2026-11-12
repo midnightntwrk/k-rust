@@ -65,6 +65,7 @@ use crate::overlap::OverlapViolation;
 pub use definedness::guard_warnings;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
 pub use raw_k::{RawKPolicy, raw_k_policy};
+pub use total_values::assumed_warnings;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};

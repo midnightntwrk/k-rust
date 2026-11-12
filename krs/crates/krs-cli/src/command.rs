@@ -1835,6 +1835,7 @@ fn prepare_bundle_with<Kept>(
     let coverage = krs_compiler::coverage_warnings(semantic.modules())
         .into_iter()
         .chain(krs_compiler::guard_warnings(semantic.modules()))
+        .chain(krs_compiler::assumed_warnings(semantic.modules()))
         .chain(krs_compiler::never_cooling_warnings(semantic.modules()));
     Ok((
         PreparedDefinition {
@@ -2214,8 +2215,8 @@ fn push_trusted_claim_warnings(
 /// `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of the
 /// package's allowed raw K, the `krs::analysis::trivial-sort-test`,
 /// `krs::analysis::uncovered-total-function`,
-/// `krs::analysis::stale-underspecified`, `krs::analysis::dead-guard`, and
-/// `krs::analysis::never-cools` warnings, then
+/// `krs::analysis::stale-underspecified`, `krs::analysis::dead-guard`,
+/// `krs::analysis::stale-assumed`, and `krs::analysis::never-cools` warnings, then
 /// `warning[krs::partition::not-program-syntax]` for each `program`
 /// production that lowering placed in its package's semantics module.
 ///

@@ -103,9 +103,15 @@ pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 ///
 /// `total` adds K's `total` attribute to the emitted `function`
-/// production, which promises that every application has a value: one that no
+/// production, which states that every application has a value: one that no
 /// equation covers still has some value, which the definition does not name.
-/// `partial` omits it, so an application that no equation covers is
+/// KRS checks that the result of each equation has a value wherever the
+/// equation applies, given that the functions it applies have one, and refuses
+/// a function it cannot show (`krs::analysis::total-without-value`); it warns
+/// where no equation applies. `total, assumed = "reason"` states the totality
+/// on the author's word instead: the function is not checked, it is emitted as
+/// a checked one is, and the reason is recorded with the production.
+/// `partial` omits the attribute, so an application that no equation covers is
 /// unconstrained: the definition neither names a value for it nor says that it
 /// has none.
 ///

@@ -496,6 +496,9 @@ pub struct FunctionAttribute {
     /// `skipped_operand = "reason"`: the author states that the function's
     /// values may depend on an operand `&&`, `||` or `kequal::ite` skips.
     skipped_operand: Option<LitStr>,
+    /// `assumed = "reason"`: the author states why this total function has a value on every
+    /// argument, and KRS does not check the results of its equations.
+    assumed: Option<LitStr>,
     totality_key: Option<ProvenanceKey>,
     memo_key: Option<ProvenanceKey>,
     fresh_generator_key: Option<ProvenanceKey>,
@@ -503,6 +506,7 @@ pub struct FunctionAttribute {
     smtlib_key: Option<ProvenanceKey>,
     underspecified_key: Option<ProvenanceKey>,
     skipped_operand_key: Option<ProvenanceKey>,
+    assumed_key: Option<ProvenanceKey>,
     /// The anchors of the function's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
@@ -738,6 +742,18 @@ impl FunctionAttribute {
         self.hook_key.as_ref()
     }
 
+    /// The `assumed = "reason"` statement that the function is total, which KRS does not check.
+    #[must_use]
+    pub const fn assumed(&self) -> Option<&LitStr> {
+        self.assumed.as_ref()
+    }
+
+    /// The key of the `assumed` reason.
+    #[must_use]
+    pub const fn assumed_key(&self) -> Option<&ProvenanceKey> {
+        self.assumed_key.as_ref()
+    }
+
     /// The key of the `smtlib` literal; an `smt_hook` template holds its
     /// own keys.
     #[must_use]
@@ -765,7 +781,7 @@ impl FunctionAttribute {
 
     /// Keys the function as a sentence of its own: its production's full
     /// view, then the totality marker, `memo`, `fresh_generator`, `hook`,
-    /// the SMT translation, `underspecified` and `skipped_operand`. The
+    /// the SMT translation, `underspecified`, `skipped_operand` and `assumed`. The
     /// production is keyed alone, which gives its full and sort-argument views; its full view
     /// starts the function's sentence, whose keying records the keys the
     /// production's nodes hold and continues after them.
@@ -809,6 +825,11 @@ impl FunctionAttribute {
             &mut keys,
             ProvenanceRole::FunctionSkippedOperand,
             self.skipped_operand.as_ref(),
+        )?;
+        self.assumed_key = optional_key(
+            &mut keys,
+            ProvenanceRole::FunctionAssumed,
+            self.assumed.as_ref(),
         )?;
         self.anchors = keys.into_anchors();
         Ok(())
@@ -1589,6 +1610,7 @@ fn parse_function_keys(
     let mut smt = None;
     let mut underspecified: Option<LitStr> = None;
     let mut skipped_operand: Option<LitStr> = None;
+    let mut assumed: Option<LitStr> = None;
     let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
@@ -1703,6 +1725,14 @@ fn parse_function_keys(
                 .into());
             }
             "skipped_operand" => skipped_operand = Some(parse_skipped_operand(&key, input)?),
+            "assumed" if assumed.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument { name: "assumed" },
+                    key.span(),
+                )
+                .into());
+            }
+            "assumed" => assumed = Some(parse_assumed(&key, input)?),
             "sort" => {
                 input.parse::<Token![=]>()?;
                 let (path, arguments) = parse_function_sort_value(input.parse()?)?;
@@ -1757,6 +1787,15 @@ fn parse_function_keys(
         )
         .into());
     }
+    if let (Some(reason), FunctionTotality::Partial(_)) = (&assumed, &totality) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidAssumed {
+                reason: "`assumed` states that a `total` function has a value on every argument without KRS checking it; a `partial` function claims no such thing, so remove `assumed`".to_owned(),
+            },
+            reason.span(),
+        )
+        .into());
+    }
     let sort = match shorthand_sort {
         Some(sort) => sort,
         None => sort.ok_or_else(|| {
@@ -1798,6 +1837,7 @@ fn parse_function_keys(
         smt,
         underspecified,
         skipped_operand,
+        assumed,
         totality_key: None,
         memo_key: None,
         fresh_generator_key: None,
@@ -1805,6 +1845,7 @@ fn parse_function_keys(
         smtlib_key: None,
         underspecified_key: None,
         skipped_operand_key: None,
+        assumed_key: None,
         anchors: Vec::new(),
         production: 0,
     }
@@ -1883,6 +1924,46 @@ pub(crate) fn parse_skipped_operand(
             "`skipped_operand` takes a string literal: write `skipped_operand = \"why the strict meaning is intended\"`",
             value.span(),
         )),
+    }
+}
+
+/// Parses `assumed = "reason"`: a nonempty string literal.
+fn parse_assumed(key: &Ident, input: ParseStream<'_>) -> Result<LitStr, ParseError> {
+    if !input.peek(Token![=]) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidAssumed {
+                reason: "`assumed` takes a reason: write `assumed = \"why every application has a value\"`".to_owned(),
+            },
+            key.span(),
+        )
+        .into());
+    }
+    input.parse::<Token![=]>()?;
+    let value: Expr = input.parse()?;
+    match &value {
+        Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(literal),
+            attrs,
+        }) if attrs.is_empty() => {
+            if literal.value().trim().is_empty() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidAssumed {
+                        reason: "an `assumed` reason must not be empty; say why every application has a value".to_owned(),
+                    },
+                    literal.span(),
+                )
+                .into());
+            }
+            Ok(literal.clone())
+        }
+        _ => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "assumed",
+                expected: "a string literal",
+            },
+            value.span(),
+        )
+        .into()),
     }
 }
 
@@ -2476,6 +2557,9 @@ mod keyed {
             }
             if let Some(skipped_operand) = &self.skipped_operand {
                 nodes.push_tokens(self.skipped_operand_key.as_ref(), skipped_operand)?;
+            }
+            if let Some(assumed) = &self.assumed {
+                nodes.push_tokens(self.assumed_key.as_ref(), assumed)?;
             }
             Ok(())
         }

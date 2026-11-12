@@ -202,7 +202,12 @@ fn emit_production(
                 .filter(|attribute| !matches!(attribute, ProductionAttribute::ListCons { .. })),
         );
     for attribute in attributes {
-        if matches!(attribute, ProductionAttribute::Documentation { .. }) {
+        // Neither is a K attribute: documentation is a comment, and `assumed` is KRS's record
+        // of a totality it did not check.
+        if matches!(
+            attribute,
+            ProductionAttribute::Documentation { .. } | ProductionAttribute::Assumed { .. }
+        ) {
             continue;
         }
         if !first {
@@ -345,7 +350,7 @@ fn emit_production_attribute(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     match attribute {
-        ProductionAttribute::Documentation { .. } => {}
+        ProductionAttribute::Documentation { .. } | ProductionAttribute::Assumed { .. } => {}
         ProductionAttribute::Function { .. } => writer.push("function"),
         ProductionAttribute::Total { .. } => writer.push("total"),
         ProductionAttribute::Hook { operation, .. } => {

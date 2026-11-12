@@ -2683,6 +2683,7 @@ fn validate_production(
             | ProductionAttribute::FreshGenerator { .. }
             | ProductionAttribute::Smtlib { .. }
             | ProductionAttribute::SmtHook { .. }
+            | ProductionAttribute::Assumed { .. }
             | ProductionAttribute::RawHook { .. } => {}
             ProductionAttribute::Overload { target, .. }
             | ProductionAttribute::ListCons {

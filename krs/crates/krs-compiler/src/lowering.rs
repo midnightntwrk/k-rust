@@ -4439,6 +4439,12 @@ fn lower_authored_production_attributes(
                     origin,
                     values: values.clone(),
                 },
+                // No K attribute, and kept: the reports of a proof list the functions whose
+                // totality is the author's word.
+                ProductionAttribute::Assumed { reason, .. } => ProductionAttribute::Assumed {
+                    origin,
+                    reason: reason.clone(),
+                },
                 ProductionAttribute::Internal { .. }
                 | ProductionAttribute::Program { .. }
                 | ProductionAttribute::Underspecified { .. }

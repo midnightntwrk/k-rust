@@ -854,6 +854,13 @@ stage_shape! {
             /// The stated reason, nonempty.
             reason: String => [keep],
         },
+        /// A total function's totality taken on the author's word (`assumed = ".."`).
+        Assumed {
+            /// Reason-string provenance.
+            key: ProvenanceKey => [keep],
+            /// The stated reason, nonempty.
+            reason: String => [keep],
+        },
         /// Marks a constructor production as a one-way static desugar (K's `macro`).
         Desugar {
             /// Desugar-marker provenance.
@@ -3468,6 +3475,15 @@ impl DescriptorProduction {
                     }
                     "skipped_operand"
                 }
+                DescriptorProductionAttribute::Assumed { key, reason } => {
+                    require_key(key, provenance)?;
+                    if reason.trim().is_empty() {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::EmptyAssumedReason,
+                        ));
+                    }
+                    "assumed"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3544,6 +3560,11 @@ impl DescriptorProduction {
         if families.contains("underspecified") && !families.contains("total") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::UnderspecifiedWithoutTotal,
+            ));
+        }
+        if families.contains("assumed") && !families.contains("total") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::AssumedWithoutTotal,
             ));
         }
         if families.contains("skipped_operand") && !families.contains("function") {
@@ -4129,6 +4150,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::SkippedOperand { key, .. } => {
                     keys.define(key, ProvenanceRole::FunctionSkippedOperand)?;
+                }
+                DescriptorProductionAttribute::Assumed { key, .. } => {
+                    keys.define(key, ProvenanceRole::FunctionAssumed)?;
                 }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
                     keys.define(key, ProvenanceRole::FunctionSmtHook)?;

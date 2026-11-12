@@ -597,6 +597,10 @@ fn lower_production_attribute(
                 reason: reason.clone(),
             }
         }
+        DescriptorProductionAttribute::Assumed { key, reason } => ProductionAttribute::Assumed {
+            origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+            reason: reason.clone(),
+        },
         DescriptorProductionAttribute::SkippedOperand { key, reason } => {
             ProductionAttribute::SkippedOperand {
                 origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,

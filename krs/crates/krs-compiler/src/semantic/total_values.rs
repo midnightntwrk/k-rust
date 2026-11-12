@@ -35,9 +35,17 @@
 //!
 //! A hooked function, one with an SMT hook, and one with no equation are not judged: nothing
 //! here defines them. A simplification is no defining equation.
+//!
+//! `#[k::function(total, assumed = "reason")]` is the unchecked spelling: the author states why
+//! every application has a value, and the function is not judged. It is `total` to every reader
+//! as a checked one is, and the attribute stays on the production in the Definition IR, where a
+//! report of a proof or a verdict can list the totalities it took on the author's word. Where
+//! the check would have accepted the function, `assumed` states nothing and is itself reported
+//! (`warning[krs::analysis::stale-assumed]`).
 
 use std::collections::BTreeMap;
 
+use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
     DomainFact, DomainTerm, InsertedNode, ProductionAttribute, SentenceKind, SourceRange,
     StableItemId,
@@ -52,7 +60,7 @@ use super::error::DescriptorLoweringError;
 use crate::coverage::{display_name, sort_name};
 
 /// What the author of a refused function may write instead.
-const WAYS_OUT: &str = "Ways out: state the domain in the equation's condition (`#[k::requires(..)]`) and give the remaining arguments an equation (`#[k::equation(owise)]`); or use a form that has a value everywhere (`get_or` at the sort the collection holds, an `if` block whose test is the construct's); or declare the function `partial`";
+const WAYS_OUT: &str = "Ways out: state the domain in the equation's condition (`#[k::requires(..)]`) and give the remaining arguments an equation (`#[k::equation(owise)]`); or use a form that has a value everywhere (`get_or` at the sort the collection holds, an `if` block whose test is the construct's); or declare the function `partial`; or, where the function is total for a reason KRS does not read, say so with `#[k::function(total, assumed = \"reason\")]`, which a proof's report then lists";
 
 /// The functions refused after the first that one error names.
 const ALSO_LIMIT: usize = 8;
@@ -65,7 +73,7 @@ pub(super) fn check_total_values(
     let judge = Judge::new(modules);
     let mut refused = Vec::new();
     for production in modules.iter().flat_map(SemanticModule::productions) {
-        if !crate::coverage::checked(production) {
+        if !crate::coverage::checked(production) || assumed(production).is_some() {
             continue;
         }
         if let Some(finding) = judge.findings(production.id()).into_iter().next() {
@@ -99,6 +107,46 @@ pub(super) fn check_total_values(
         reason,
         range: finding.range.clone().map(Box::new),
     })
+}
+
+/// The `warning[krs::analysis::stale-assumed]` diagnostics of a theory's guarded modules: each
+/// function that states `assumed` and that the check accepts without it (the module
+/// documentation), at the key.
+#[must_use]
+pub fn assumed_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
+    let judge = Judge::new(modules);
+    let mut warnings = Vec::new();
+    for production in modules.iter().flat_map(SemanticModule::productions) {
+        let Some(attribute) = assumed(production) else {
+            continue;
+        };
+        if crate::coverage::checked(production) && !judge.findings(production.id()).is_empty() {
+            continue;
+        }
+        let mut warning = Diagnostic::error(
+            codes::analysis::STALE_ASSUMED,
+            format!(
+                "`{}` states `assumed`, but KRS shows that each of its equations' results has a value wherever the equation applies, so the function is checked without it; remove `assumed`",
+                display_name(production.id())
+            ),
+            attribute
+                .origin()
+                .origin()
+                .exact_authored_range()
+                .map_or(Location::None, Location::Source),
+        );
+        warning.severity = Severity::Warning;
+        warnings.push(warning);
+    }
+    warnings
+}
+
+/// The `assumed` attribute of `production`, when it states one.
+fn assumed(production: &SemanticProduction) -> Option<&krs_ir_levels::SemanticProductionAttribute> {
+    production
+        .attributes()
+        .iter()
+        .find(|attribute| matches!(attribute, ProductionAttribute::Assumed { .. }))
 }
 
 /// One construct or application of an equation's result that is not shown to have a value.

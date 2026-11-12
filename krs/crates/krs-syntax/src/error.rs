@@ -469,6 +469,11 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// A function's `assumed` key was malformed or misplaced.
+    InvalidAssumed {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
     /// An item's `skipped_operand` key was malformed.
     InvalidSkippedOperand {
         /// Complete explanation, naming the fix.
@@ -615,6 +620,7 @@ impl SyntaxErrorKind {
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidSkippedOperand { .. } => codes::syntax::INVALID_SKIPPED_OPERAND,
+            Self::InvalidAssumed { .. } => codes::syntax::INVALID_ASSUMED,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
             Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
             Self::InvalidSpecModule { .. } => codes::syntax::INVALID_SPEC_MODULE,
@@ -946,6 +952,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
             | SyntaxErrorKind::InvalidUnderspecified { reason }
             | SyntaxErrorKind::InvalidSkippedOperand { reason }
+            | SyntaxErrorKind::InvalidAssumed { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }

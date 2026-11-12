@@ -2,7 +2,8 @@
 //! value wherever the equation applies, or `krs check` refuses the function at the construct or
 //! the application that is not shown to have one. The three definitions whose false claims
 //! `krs prove` reported `proven` are refused; each way out the error names is accepted; and with
-//! the function declared `partial` the false claim fails.
+//! the function declared `partial` the false claim fails. `assumed = "reason"` is the unchecked
+//! spelling, recorded in the IR.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -330,7 +331,7 @@ fn a_total_function_whose_result_may_have_no_value_is_refused() {
         assert!(!stdout.contains("proven"), "{name}: {stdout}");
         assert!(
             stderr.contains("error[krs::analysis::total-without-value]")
-                && stderr.contains("Ways out: state the domain in the equation's condition (`#[k::requires(..)]`) and give the remaining arguments an equation (`#[k::equation(owise)]`); or use a form that has a value everywhere (`get_or` at the sort the collection holds, an `if` block whose test is the construct's); or declare the function `partial`"),
+                && stderr.contains("Ways out: state the domain in the equation's condition (`#[k::requires(..)]`) and give the remaining arguments an equation (`#[k::equation(owise)]`); or use a form that has a value everywhere (`get_or` at the sort the collection holds, an `if` block whose test is the construct's); or declare the function `partial`; or, where the function is total for a reason KRS does not read, say so with `#[k::function(total, assumed = \"reason\")]`"),
             "{name}: {stderr}"
         );
     }
@@ -465,4 +466,98 @@ pub fn Text(m: k::Term<Map<Int, Int>>) -> k::Term<String>;
             "at `pub fn F(m: k::Term<Map<Int, Int>>) -> k::Term<Int> { string::to_int(Text(m)) }`",
         ]
     "#]].assert_debug_eq(&reported);
+}
+
+/// A function total on the author's word, and one that states `assumed` although the check
+/// accepts it.
+const ASSUMED: &str = r#"
+#[k::function(total, internal, assumed = "the memory holds key 9 from its first state on")]
+pub fn At9(memory: k::Term<Map<Int, Int>>) -> k::Term<Int> {
+    memory[9]
+}
+
+#[k::function(total, internal, assumed = "nothing here needs it")]
+pub fn Same(x: k::Term<Int>) -> k::Term<Int> {
+    x
+}
+"#;
+
+/// `#[k::function(total, assumed = "reason")]` is not judged: the definition is accepted, the
+/// function is emitted `[function, total]` as a checked one is, and the Definition IR keeps the
+/// reason on the production (the Semantic IR too), where a report can list it. `krs expand`
+/// keeps the key. `assumed` on a function the check accepts is `stale-assumed`, at the reason.
+#[test]
+fn an_assumed_total_function_is_accepted_recorded_and_stale_when_checked() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "unchecked", ASSUMED, "At9(m)");
+    let (success, lines) = checked(target.path(), &manifest);
+    assert!(success, "{lines:#?}");
+    expect_test::expect![[r#"
+        [
+            "warning[krs::analysis::stale-assumed]: `Same` states `assumed`, but KRS shows that each of its equations' results has a value wherever the equation applies, so the function is checked without it; remove `assumed`",
+            "at `#[k::function(total, internal, assumed = \"nothing here needs it\")]`",
+        ]
+    "#]].assert_debug_eq(&lines);
+
+    let output = temporary.path().join("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--ir", "--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    assert!(
+        definition.contains(r#"syntax Int ::= "at9" "(" Map ")" [symbol(at9), function, total]"#),
+        "{definition}"
+    );
+    assert!(!definition.contains("assumed"), "{definition}");
+    for document in ["definition-ir.json", "semantic-ir.json"] {
+        let ir: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(output.join(document)).unwrap()).unwrap();
+        let mut reasons = Vec::new();
+        assumed_reasons(&ir, &mut reasons);
+        reasons.sort();
+        assert_eq!(
+            reasons,
+            [
+                "nothing here needs it",
+                "the memory holds key 9 from its first state on"
+            ],
+            "{document}"
+        );
+    }
+
+    let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    assert!(
+        expanded.contains(r#"assumed = "the memory holds key 9 from its first state on""#),
+        "{expanded}"
+    );
+}
+
+/// The reason of every `assumed` production attribute in an IR document.
+fn assumed_reasons(value: &serde_json::Value, reasons: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            if fields
+                .get("attribute_kind")
+                .and_then(serde_json::Value::as_str)
+                == Some("assumed")
+            {
+                reasons.push(fields["reason"].as_str().unwrap().to_owned());
+            }
+            for field in fields.values() {
+                assumed_reasons(field, reasons);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                assumed_reasons(item, reasons);
+            }
+        }
+        _ => {}
+    }
 }

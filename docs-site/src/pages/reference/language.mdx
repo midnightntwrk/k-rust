@@ -76,6 +76,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 `#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
+`#[k::function(total, assumed = "reason", ...)]` states that the function has a value on every argument for the reason given, and turns off the [check of its equations' results](#values-of-total-functions); it emits nothing to K, the function is `[function, total]` as a checked one is, and it is an error on a `partial` function (`krs::syntax::invalid-assumed`).
 `#[k::function(.., skipped_operand = "reason")]` states that the function's values may depend on an operand that `&&`, `||` or `kequal::ite` does not evaluate, which silences the [skipped-operand warning](#skipped-operands) at the function's equations; it is KRS-only and emits nothing to K.
 Every configuration has exactly one `#[k::init]`, in an inherent `impl`: it is where the initial state is written, and no cell has a default value, since a cell's sort does not determine its initial content (a computation cell may start empty or with the program).
 Without one, including when a `cfg` removes it, `krs check` reports `krs::expand::missing-initializer` at the struct.
@@ -933,9 +934,33 @@ The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and 
 A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct or a cell group, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
 A group cell's entry, a `?` cell's `Some(..)` and a collection's instance list mean there what they mean in a rule's subject, and are not supported yet ([a context alias's and a function context's limit](#optional-cells-and-cell-collections), `krs::expand::cell-collection-placement`).
 
+### Values of total functions
+
+`total` states that a function has a value on every argument.
+An equation states that the function is its result wherever its pattern matches and its condition holds.
+Where the result has no value there, the two statements contradict each other, and a proof that uses both may conclude anything.
+So KRS checks every function declared `total`: the result of each of its equations must have a value wherever the equation applies, given that each function the result applies has one where its own declaration says so.
+
+A result has a value where every construct it evaluates has one.
+A partial construct (a lookup, a read KRS projects to its position's sort, `k::project!`, a builtin operation outside its domain such as a division by zero or a shift by a negative amount, a `let` whose pattern may not match) must have its test among the conjuncts of the equation's condition, or be decided by the bounds those conjuncts state: `#[k::requires(x != 0)]`, or `x > 0`, for `100 / x`; `m.contains_key(k) && k::is!(Int, m[k])` for `m[k]` over a `Map<Int, Int>`.
+A condition that evaluates the construct itself counts: the equation applies only where the condition has a value.
+An `if` block is two equations, whose conditions are its test and the test's negation, so its test guards its branches; `kequal::ite`, `&&` and `||` guard nothing, since each keeps the definedness of every operand.
+The element sort of a typed collection is not a fact the check reads: a read projected to `V` needs `k::is!(V, ..)` of the read, and so does `get_or`.
+A function the result applies must be declared `total`.
+
+A result that is not shown to have a value is `error[krs::analysis::total-without-value]` at the construct or the application.
+The ways out are to state the domain in the equation's condition and give the remaining arguments an equation (`#[k::equation(owise)]`); to use a form that has a value everywhere; to declare the function `partial`; or to write `#[k::function(total, assumed = "reason")]`.
+
+The check is sound and incomplete.
+It refuses a result that has a value by a fact it does not read: a range it does not compute (`1 << (b & 7)`), a divisor that is a constant beyond 128 bits, a condition that applies a function, an invariant of the states a definition reaches.
+`assumed` is for those: the function is then `total` on the author's word, with the reason written beside it, and it is recorded on the production in the Definition IR.
+`assumed` on a function the check accepts is a warning (`krs::analysis::stale-assumed`).
+Recursion is not judged: a recursive application is an application of a `total` function, so for a function in a call cycle the check shows totality given that the calls terminate.
+A hooked function, one with `smt_hook`, and one with no equation are not judged.
+
 ### Coverage of total functions
 
-`total` claims that a function has a value on every argument, and KRS trusts the claim: where no equation applies, the function still has a value, but the definition does not say which.
+Where no equation applies, a `total` function still has a value, but the definition does not say which.
 Every command that lowers the definition reports such arguments as `warning[krs::analysis::uncovered-total-function]` at the function, with a witness: ``total function `R8` has no equation for `R8(8)` ``, or, when the equations are guarded, ``has no equation for `DecodeCb(opcode)` when `FieldX(opcode)` is 4``.
 A condition is a refutation: every argument that satisfies it is uncovered, and an argument it does not constrain may be anything, shown as `0` for an Int, so ``has no equation for `SignedLess(0, right)` when `Sign(right)` is 0`` holds for every `left`.
 It is a warning, not an error, because the definition means something: an unconstrained value, not a contradiction.
