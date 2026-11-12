@@ -93,6 +93,8 @@ pub use cli::{
 pub use compare::{Answer, CompareOptions, EndWord, Judged, NotCompared, Question, Vocabulary};
 pub use evidence::{EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
+/// The values of a baseline run's channels ([`results::BaselineRunner::observed_values`]).
+pub use kink_campaign::{ChannelValues, StopSide, ValueElement, ValuesEnd, ValuesRefusal};
 /// A front end's functions of an observer for `[observe]`
 /// ([`FlowManifest::with_observe_functions`]).
 pub use kink_campaign::{

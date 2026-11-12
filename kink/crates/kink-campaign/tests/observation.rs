@@ -1957,3 +1957,488 @@ mod several_paths {
         });
     }
 }
+
+/// A value run of the baseline (`observed_values`): the value of every element of a recorded
+/// run's channels, with the depth, rule and side each was read at, tied to the record by its
+/// digests.
+mod values {
+    use super::*;
+    use kink_campaign::{
+        BaselineSession, ChannelValues, Closure, Opening, Stop, StopSide, ValueElement, ValuesEnd,
+        ValuesRefusal, observed_values, run_campaign_multi_with,
+    };
+    use kink_native::execution::StopRules;
+    use kink_patch::Discovery;
+
+    /// The generation of a call with no mutant.
+    fn no_mutant(baseline: &Baseline) -> CandidateGeneration<'_> {
+        select(
+            &Discovery::empty(baseline, false, false),
+            SelectionPolicy::Each,
+            1,
+        )
+        .unwrap()
+        .fold("none", |_| -> Patch { unreachable!("no site") })
+        .unwrap()
+    }
+
+    fn options(run: RunOptions) -> CampaignOptions {
+        CampaignOptions {
+            schedule: ScheduleMode::Full,
+            selection: Sel::None,
+            share_evidence: true,
+            run,
+            compile_workers: 1,
+        }
+    }
+
+    /// The record of the campaign's one test as a result record holds it, from a judging call
+    /// through `session`.
+    fn recorded(
+        campaign: &Campaign<'_>,
+        options: &CampaignOptions,
+        session: &mut BaselineSession<'_>,
+    ) -> serde_json::Value {
+        let generation = no_mutant(campaign.validator.baseline());
+        let run = run_campaign_multi_with(
+            campaign,
+            std::slice::from_ref(&generation),
+            options,
+            session,
+        )
+        .unwrap();
+        let Some(Observation::Recorded(record)) = &run.baseline[0].notes.observation else {
+            panic!("the baseline records its channels");
+        };
+        record.value()
+    }
+
+    /// The values of `channels` of the campaign's one test: the judging call that records it,
+    /// then the value run tied to that record, both through one session, which the value run
+    /// leaves as the judging call left it.
+    fn values_of(
+        campaign: &Campaign<'_>,
+        run: RunOptions,
+        channels: &[&str],
+    ) -> Result<Vec<ChannelValues>, ValuesRefusal> {
+        let options = options(run);
+        let mut session = BaselineSession::new(campaign.validator);
+        let recorded = recorded(campaign, &options, &mut session);
+        let before = (
+            session.live_runs(),
+            session.reused_runs(),
+            session.stored_runs(),
+            session.last_call().baseline.len(),
+        );
+        let generation = no_mutant(campaign.validator.baseline());
+        let channels = channels
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>();
+        let values = observed_values(
+            campaign,
+            std::slice::from_ref(&generation),
+            &options,
+            &mut session,
+            &recorded,
+            &channels,
+        );
+        assert_eq!(
+            before,
+            (
+                session.live_runs(),
+                session.reused_runs(),
+                session.stored_runs(),
+                session.last_call().baseline.len(),
+            )
+        );
+        // The digests of the value run are the record's: one element per recorded element.
+        if let Ok(values) = &values {
+            for channel in values {
+                let kept = recorded["channels"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|kept| kept["name"] == channel.name.as_str())
+                    .unwrap();
+                assert_eq!(
+                    kept["elements"].as_array().unwrap().len(),
+                    channel.elements.len()
+                );
+            }
+        }
+        values
+    }
+
+    fn int_at(value: i64, depth: u64, rule: &str, side: StopSide) -> ValueElement {
+        ValueElement {
+            element: Element::Content(vec![support::int(value)]),
+            depth,
+            point: Some((rule.into(), side)),
+        }
+    }
+
+    /// The point class `ticked`: `<n>` after each tick.
+    fn ticked() -> PointClass {
+        PointClass {
+            name: "ticked".into(),
+            before: BTreeSet::new(),
+            after: BTreeSet::from([TICK.to_owned()]),
+            cells: vec!["n".into()],
+            stutter: Stutter::Count,
+        }
+    }
+
+    /// The point class `phase`: `<phase>` before each tick and after each emit, under `stutter`.
+    fn phase(stutter: Stutter) -> PointClass {
+        PointClass {
+            name: "phase".into(),
+            before: BTreeSet::from([TICK.to_owned()]),
+            after: BTreeSet::from([EMIT.to_owned()]),
+            cells: vec!["phase".into()],
+            stutter,
+        }
+    }
+
+    fn open(channel: &ChannelValues) -> (usize, Opening) {
+        match channel.ending() {
+            ValuesEnd::Open { index, opening, .. } => (index, opening),
+            closed => panic!("{}: {closed:?}", channel.name),
+        }
+    }
+
+    /// A run of `run` cut by its depth bound after 16 ticks and 8 emits (two ticks, then an emit).
+    /// The clock, counted, has the count before each tick: 0 to 15, the tick `i` at depth
+    /// `i + i / 2`, and is open at 16 by the bound. `emitted`, which has no cell and collapses,
+    /// has one element, the first emit's, read in its successor at depth 3. The log has the items
+    /// 2 and 4, each read after the emit that appended it, and is open at 2, where its third item
+    /// `show(6)` is no value. The channels come in the order asked for.
+    #[test]
+    fn a_value_run_gives_each_elements_value_depth_rule_and_side() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test("console")];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let declared = observe(vec![clock(Stutter::Count), emitted()], vec![out("emitted")]);
+            let values = values_of(&campaign, declared, &["out", "clock", "emitted"]).unwrap();
+            let [out, clock, emitted] = values.as_slice() else {
+                panic!("{values:?}");
+            };
+            assert_eq!(
+                [&out.name, &clock.name, &emitted.name],
+                ["out", "clock", "emitted"]
+            );
+            let ticks = (0..16)
+                .map(|tick| {
+                    int_at(
+                        tick,
+                        (tick + tick / 2).unsigned_abs(),
+                        TICK,
+                        StopSide::Before,
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(clock.elements, ticks);
+            assert_eq!(open(clock), (16, Opening::Bound));
+            assert_eq!(
+                emitted.elements,
+                [ValueElement {
+                    element: Element::Content(Vec::new()),
+                    depth: 3,
+                    point: Some((EMIT.into(), StopSide::After)),
+                }]
+            );
+            assert_eq!(open(emitted), (1, Opening::Bound));
+            // A log's element is its item, a `KItem`.
+            let item = |value: i64, depth: u64| ValueElement {
+                element: Element::Content(vec![
+                    k_rust::kore::parser::parse_pattern(&format!(
+                        r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{value}"))"#
+                    ))
+                    .unwrap(),
+                ]),
+                depth,
+                point: Some((EMIT.into(), StopSide::After)),
+            };
+            assert_eq!(out.elements, [item(2, 3), item(4, 6)]);
+            assert_eq!(open(out), (2, Opening::UndecidedElement));
+            // Only the channels asked for are kept.
+            let one = values_of(&campaign, declared, &["clock"]).unwrap();
+            assert_eq!(one.len(), 1);
+            assert_eq!(one[0].elements, ticks);
+        });
+    }
+
+    /// A depth bound of 5 cuts the run after its fourth tick: the clock is open at 4, the index
+    /// of the first element the run did not reach.
+    #[test]
+    fn a_run_cut_by_the_depth_bound_is_open_at_its_horizon() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test("console")];
+            let campaign = campaign(&validator, &tests, 5);
+            let declared = observe(vec![clock(Stutter::Count)], Vec::new());
+            let values = values_of(&campaign, declared, &["clock"]).unwrap();
+            assert_eq!(
+                values[0].elements,
+                [
+                    int_at(0, 0, TICK, StopSide::Before),
+                    int_at(1, 1, TICK, StopSide::Before),
+                    int_at(2, 3, TICK, StopSide::Before),
+                    int_at(3, 4, TICK, StopSide::Before),
+                ]
+            );
+            assert_eq!(open(&values[0]), (4, Opening::Bound));
+        });
+    }
+
+    /// The record's digests are the tie. A record with one digest changed, a record of another
+    /// budget, and a name the record has no channel of are each an error, never values.
+    #[test]
+    fn a_value_run_that_is_not_the_recorded_run_is_an_error() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test("console")];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let options = options(observe(vec![clock(Stutter::Count)], Vec::new()));
+            let mut session = BaselineSession::new(&validator);
+            let recorded = recorded(&campaign, &options, &mut session);
+            let generation = no_mutant(validator.baseline());
+            let clock = ["clock".to_owned()];
+            let mut ask = |campaign: &Campaign<'_>, recorded: &serde_json::Value, of: &[String]| {
+                observed_values(
+                    campaign,
+                    std::slice::from_ref(&generation),
+                    &options,
+                    &mut session,
+                    recorded,
+                    of,
+                )
+            };
+            assert!(ask(&campaign, &recorded, &clock).is_ok());
+            let mut forged = recorded.clone();
+            forged["channels"][0]["elements"][3] = serde_json::json!("0000000000000000");
+            let Err(ValuesRefusal::Capture(why)) = ask(&campaign, &forged, &clock) else {
+                panic!("a forged digest is refused");
+            };
+            assert!(why.contains("the element 3 of \"clock\""), "{why}");
+            assert!(why.contains("not the recorded run"), "{why}");
+            // The same record against a run of another depth bound.
+            let shorter = super::campaign(&validator, &tests, 12);
+            let Err(ValuesRefusal::Capture(why)) = ask(&shorter, &recorded, &clock) else {
+                panic!("a run of another budget is refused");
+            };
+            assert!(why.contains("\"clock\" has 8 elements against 16"), "{why}");
+            let Err(ValuesRefusal::Capture(why)) = ask(&campaign, &recorded, &["out".to_owned()])
+            else {
+                panic!("an unrecorded channel is refused");
+            };
+            assert_eq!(why, "the record has no channel `out`");
+            let twice = ["clock".to_owned(), "clock".to_owned()];
+            let Err(ValuesRefusal::Capture(why)) = ask(&campaign, &recorded, &twice) else {
+                panic!("a channel asked for twice is refused");
+            };
+            assert_eq!(why, "the channel `clock` is asked for twice");
+        });
+    }
+
+    /// From -50 `fall` beside `tick` gives the run two paths: its record holds prefix sets and
+    /// no element, so the value run is refused before anything runs.
+    #[test]
+    fn a_record_of_several_paths_is_refused() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test_from("fall", -50, CrashPolicy::Reject)];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let declared = observe(vec![clock(Stutter::Count)], Vec::new());
+            assert_eq!(
+                values_of(&campaign, declared, &["clock"]),
+                Err(ValuesRefusal::SeveralPaths)
+            );
+        });
+    }
+
+    /// A stop at tick's third event. Before the rule, the path ends before the step: the third
+    /// arrival is no point, so the clock has the counts 0 and 1 and closes with END. After the
+    /// rule the step is taken: its before point and its after point are both elements, and the
+    /// after point's depth is one more than its before point's.
+    #[test]
+    fn a_stop_before_a_rule_emits_no_element_and_a_stop_after_it_does() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test("console")];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let stop = |before: &[&str], after: &[&str]| {
+                let names = |rules: &[&str]| rules.iter().map(|rule| (*rule).to_owned()).collect();
+                Stop::new(
+                    StopRules {
+                        before: names(before),
+                        after: names(after),
+                    },
+                    std::num::NonZeroU64::new(3).unwrap(),
+                )
+                .unwrap()
+            };
+            let declared = |stop| RunOptions {
+                stop,
+                ..observe(vec![clock(Stutter::Count), ticked()], Vec::new())
+            };
+            let before = values_of(
+                &campaign,
+                declared(stop(&[TICK], &[])),
+                &["clock", "ticked"],
+            )
+            .unwrap();
+            assert_eq!(
+                before[0].elements,
+                [
+                    int_at(0, 0, TICK, StopSide::Before),
+                    int_at(1, 1, TICK, StopSide::Before)
+                ]
+            );
+            assert_eq!(before[0].ending(), ValuesEnd::End);
+            assert_eq!(
+                before[1].elements,
+                [
+                    int_at(1, 1, TICK, StopSide::After),
+                    int_at(2, 2, TICK, StopSide::After)
+                ]
+            );
+            let after = values_of(
+                &campaign,
+                declared(stop(&[], &[TICK])),
+                &["clock", "ticked"],
+            )
+            .unwrap();
+            assert_eq!(
+                after[0].elements,
+                [
+                    int_at(0, 0, TICK, StopSide::Before),
+                    int_at(1, 1, TICK, StopSide::Before),
+                    int_at(2, 3, TICK, StopSide::Before)
+                ]
+            );
+            assert_eq!(
+                after[1].elements,
+                [
+                    int_at(1, 1, TICK, StopSide::After),
+                    int_at(2, 2, TICK, StopSide::After),
+                    int_at(3, 4, TICK, StopSide::After)
+                ]
+            );
+            assert_eq!(after[1].ending(), ValuesEnd::End);
+        });
+    }
+
+    /// The phase before each tick and after each emit is 0, 1, 0 (after the emit), 0 (before the
+    /// next tick), 1, ... Counted, every event is an element: 24 of them. Collapsed, the phase
+    /// before a tick that follows an emit equals the element kept and is none: the channel has 17
+    /// elements (three of the first two ticks and emit, two of each later seven), and each is the
+    /// first event of its run of equal contents, here the emit's successor, with that point's
+    /// depth, rule and side.
+    #[test]
+    fn a_collapsing_class_has_a_value_per_element_kept_and_a_counting_one_per_event() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test("console")];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let counted = observe(vec![phase(Stutter::Count)], Vec::new());
+            let counted = values_of(&campaign, counted, &["phase"]).unwrap();
+            assert_eq!(counted[0].elements.len(), 24);
+            assert_eq!(
+                counted[0].elements[..4],
+                [
+                    int_at(0, 0, TICK, StopSide::Before),
+                    int_at(1, 1, TICK, StopSide::Before),
+                    int_at(0, 3, EMIT, StopSide::After),
+                    int_at(0, 3, TICK, StopSide::Before),
+                ]
+            );
+            let collapsed = observe(vec![phase(Stutter::Collapse)], Vec::new());
+            let collapsed = values_of(&campaign, collapsed, &["phase"]).unwrap();
+            assert_eq!(collapsed[0].elements.len(), 17);
+            assert_eq!(
+                collapsed[0].elements[..4],
+                [
+                    int_at(0, 0, TICK, StopSide::Before),
+                    int_at(1, 1, TICK, StopSide::Before),
+                    int_at(0, 3, EMIT, StopSide::After),
+                    int_at(1, 4, TICK, StopSide::Before),
+                ]
+            );
+            assert_eq!(open(&collapsed[0]), (17, Opening::Bound));
+        });
+    }
+
+    /// From -1003 the run ticks three times and then idles forever: its record closes the clock
+    /// by a cycle after 3 elements. The values keep that closure, and a reader that knows END and
+    /// UNDEF only is told the channel is open at 3, by the cycle.
+    #[test]
+    fn a_channel_closed_by_a_cycle_is_stated_open_with_its_reason() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test_from("idle", -1003, CrashPolicy::Reject)];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let declared = observe(vec![clock(Stutter::Collapse)], Vec::new());
+            let values = values_of(&campaign, declared, &["clock"]).unwrap();
+            assert_eq!(
+                values[0].elements,
+                [
+                    int_at(-1003, 0, TICK, StopSide::Before),
+                    int_at(-1002, 1, TICK, StopSide::Before),
+                    int_at(-1001, 3, TICK, StopSide::Before),
+                ]
+            );
+            assert_eq!(values[0].end, ChannelEnd::Closed(Closure::Cycle));
+            let ValuesEnd::Open {
+                index,
+                opening,
+                reason,
+            } = values[0].ending()
+            else {
+                panic!("a cycle is stated open");
+            };
+            assert_eq!((index, opening), (3, Opening::Cycle));
+            assert!(reason.contains("returned to an earlier state"), "{reason}");
+        });
+    }
+
+    /// Under a front end's functions an element's value is the document they give
+    /// ([`Halved`]: the even counts, halved); under an observer that gives no evaluator each tick
+    /// is an element whose content is undecided, as the record holds it.
+    #[test]
+    fn a_front_ends_values_and_undecided_elements_are_kept_as_the_record_holds_them() {
+        on_a_big_stack(|| {
+            let validator = validator();
+            let tests = [test("console")];
+            let campaign = campaign(&validator, &tests, DEPTH);
+            let halved = with_functions(
+                observe(vec![clock(Stutter::Collapse)], Vec::new()),
+                serde_json::json!({"halved": 1}),
+                Halved,
+            );
+            let values = values_of(&campaign, halved, &["clock"]).unwrap();
+            assert_eq!(values[0].elements.len(), 8);
+            for (half, element) in values[0].elements.iter().enumerate() {
+                assert_eq!(element.element, Element::Evaluated(serde_json::json!(half)));
+                assert_eq!(element.depth, 3 * u64::try_from(half).unwrap());
+            }
+            let unloaded = with_functions(
+                observe(vec![clock(Stutter::Count)], Vec::new()),
+                serde_json::json!({"unloaded": {"filtered": false}}),
+                Unloaded {
+                    cells: Vec::new(),
+                    filtered: false,
+                },
+            );
+            let values = values_of(&campaign, unloaded, &["clock"]).unwrap();
+            assert_eq!(values[0].elements.len(), 16);
+            assert!(
+                values[0]
+                    .elements
+                    .iter()
+                    .all(|element| element.element == Element::Undecided)
+            );
+        });
+    }
+}

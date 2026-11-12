@@ -206,8 +206,8 @@ use kink_native::execution::{
 
 use crate::condition::{KoreSignature, StopWhen};
 use crate::observation::{
-    BaselineRecord, Comparison, Element, LeafFacts, Observation, ObservationProbe, Observe,
-    Resolved, Trace,
+    BaselineRecord, ChannelValues, Comparison, Element, LeafFacts, Observation, ObservationProbe,
+    Observe, Resolved, Trace, ValueElement,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
@@ -1576,6 +1576,16 @@ pub struct BaselineSession<'v> {
     /// The depth up to which every baseline result run of the session's calls collects rule
     /// windows and syntax paths ([`Self::with_depth`]); 1 collects neither.
     depth: std::num::NonZeroUsize,
+    /// A value run's request while its call runs ([`observed_values`]), and what its baseline
+    /// run kept; `None` for every other call.
+    capture: Option<ValueCapture>,
+}
+
+/// A value run's request ([`observed_values`]): the channels whose elements' values the call's
+/// baseline run keeps, and those values once it ran.
+struct ValueCapture {
+    channels: Vec<String>,
+    taken: Option<Vec<Vec<ValueElement>>>,
 }
 
 impl<'v> BaselineSession<'v> {
@@ -1593,6 +1603,7 @@ impl<'v> BaselineSession<'v> {
             baseline_data: None,
             bindings: None,
             depth: std::num::NonZeroUsize::MIN,
+            capture: None,
         }
     }
 
@@ -1754,6 +1765,21 @@ impl<'v> BaselineSession<'v> {
         test: &TestCase,
         memoise: bool,
     ) -> (TestEvidence, RunCache) {
+        // A value run ([`observed_values`]) is live, whatever the session stores, and leaves
+        // nothing in it: the session's runs, counts and recording are those of the calls that
+        // judge, and a stored run keeps no values.
+        if let Some(capture) = &mut self.capture {
+            runtime.values = Some(capture.channels.clone());
+            let (evidence, mut executed) = runtime.run_keeping(
+                campaign,
+                test,
+                RunBounds::work(runtime.baseline_max_work),
+                None,
+            );
+            runtime.values = None;
+            capture.taken = executed.values.take();
+            return (evidence, executed.cache);
+        }
         if !memoise {
             let (evidence, cache) =
                 runtime.run_bounded(campaign, test, RunBounds::work(runtime.baseline_max_work));
@@ -2554,6 +2580,219 @@ fn capture_element(
     execution.map_err(|failure| format!("the capture run failed: {failure:?}"))?;
     captured
         .ok_or_else(|| format!("the capture run did not reach the element {index} of its channel"))
+}
+
+/// Why a value run gives no values ([`observed_values`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ValuesRefusal {
+    /// The record is of a run with several paths (its `paths`): its channels hold no element,
+    /// only prefix sets over the paths, and no one path holds a channel's values. Nothing ran.
+    /// A fact of the recorded run, for the caller to report; never an error.
+    SeveralPaths,
+    /// The value run is not shown to be the recorded run, or gave no values: why. An error of
+    /// the command that asked, never a result.
+    Capture(String),
+}
+
+impl std::fmt::Display for ValuesRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SeveralPaths => f.write_str("the recorded run has several paths"),
+            Self::Capture(why) => f.write_str(why),
+        }
+    }
+}
+
+/// The value of every element of the channels `channels` of the baseline's run of the one test
+/// of `campaign`, whose record a result record holds as `recorded` ([`BaselineRecord::value`]);
+/// one [`ChannelValues`] per name of `channels`, in their order.
+///
+/// A record keeps 8 bytes of each element's digest and no value. The values are read by a value
+/// run: the call of `campaign` under `options` through `session` again, with no mutant, whose
+/// baseline run is made live with a probe that also keeps each element's value
+/// ([`ObservationProbe::with_values`]), where a capture run ([`observed_difference`]) keeps one.
+/// It is the call that made the record: the same preparation of the baseline, the same request,
+/// and the same judgement of the run into its record ([`crate::observation::record`]), so the
+/// record it makes is held to the same facts (an element is kept only of a settled path).
+///
+/// The tie to the recorded run: the value run's record, as a result record holds it
+/// ([`BaselineRecord::value`]), must equal `recorded`, whole: every channel's digests and end,
+/// and the run's `prefix`, `crashed` and `refusal`. The record is a function of the request, so
+/// an equal record is what the recorded run gives, and each value is the one whose digest the
+/// record holds at its index; a value run that differs anywhere (another build, another budget,
+/// a clock) is an error. Each element's decidedness is checked against its digest as a capture
+/// run's is: a content where the record holds a digest, undecided where it holds none.
+///
+/// Every element of a channel is an element of its record: under [`crate::Stutter::Collapse`]
+/// an event whose content equals the last element kept is no element, and has no value here;
+/// the element kept is the first of its run of equal contents, with that point's depth, rule and
+/// side. Under [`crate::Stutter::Count`] every event is an element, undecided ones included.
+///
+/// The value run holds, beside what the baseline's run holds, one [`ValueElement`] per element
+/// of the channels asked for: the element's value (a point class's cells' values as KORE, a
+/// log's item, or the front end's document of the content), its depth (8 bytes), and a shared
+/// pointer to its rule's name with its side (17 bytes; each name is held once). Nothing is held
+/// per step, nor per event that is no element. The session keeps nothing of the run: its stored
+/// runs, its counts and its last call's recording are as before the call.
+///
+/// # Errors
+///
+/// [`ValuesRefusal::SeveralPaths`] where `recorded` is of a run with several paths, before
+/// anything runs. [`ValuesRefusal::Capture`] where `recorded` is no record or has no channel of
+/// a name asked for, a name is asked for twice, the campaign has not exactly one test or `generations` holds a mutant, the
+/// call was refused, its baseline run made no record or kept no values, the record it made is
+/// not `recorded`, or a value's decidedness is not its digest's.
+pub fn observed_values(
+    campaign: &Campaign<'_>,
+    generations: &[CandidateGeneration<'_>],
+    options: &CampaignOptions,
+    session: &mut BaselineSession<'_>,
+    recorded: &Value,
+    channels: &[String],
+) -> Result<Vec<ChannelValues>, ValuesRefusal> {
+    let capture = |why: String| ValuesRefusal::Capture(why);
+    let names = recorded
+        .get("channels")
+        .and_then(Value::as_array)
+        .ok_or_else(|| capture("the record holds no channels".to_owned()))?
+        .iter()
+        .map(|channel| channel.get("name").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    if recorded.get("paths").is_some_and(|paths| !paths.is_null()) {
+        return Err(ValuesRefusal::SeveralPaths);
+    }
+    let indices = channels
+        .iter()
+        .map(|name| {
+            names
+                .iter()
+                .position(|recorded| *recorded == Some(name.as_str()))
+                .ok_or_else(|| capture(format!("the record has no channel `{name}`")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(name) = channels
+        .iter()
+        .enumerate()
+        .find_map(|(at, name)| channels[..at].contains(name).then_some(name))
+    {
+        return Err(capture(format!("the channel `{name}` is asked for twice")));
+    }
+    let [test] = campaign.tests else {
+        return Err(capture("a value run is of one test".to_owned()));
+    };
+    if generations
+        .iter()
+        .any(|generation| !generation.candidates().is_empty())
+    {
+        return Err(capture("a value run takes no mutant".to_owned()));
+    }
+    // The session's recording of its last call is the judging call's, which its caller may still
+    // read: the value run's replaces it only while it runs.
+    let last_call = std::mem::take(&mut session.last_call);
+    session.capture = Some(ValueCapture {
+        channels: channels.to_vec(),
+        taken: None,
+    });
+    let run = run_campaign_session(campaign, generations, options, session, None);
+    let taken = session.capture.take().and_then(|capture| capture.taken);
+    session.last_call = last_call;
+    let run = run.map_err(|failure| capture(format!("the value run was refused: {failure}")))?;
+    let record = match run.baseline.as_slice() {
+        [evidence] if evidence.test_id == test.id => baseline_record(evidence),
+        _ => None,
+    }
+    .ok_or_else(|| capture("the value run recorded no channels".to_owned()))?;
+    if record.value() != *recorded {
+        return Err(capture(format!(
+            "the value run's record is not the recorded one ({}): the value run is not the \
+             recorded run",
+            record_difference(&record.value(), recorded)
+        )));
+    }
+    let mut taken =
+        taken.ok_or_else(|| capture("the value run kept no values of its path".to_owned()))?;
+    channels
+        .iter()
+        .zip(indices)
+        .map(|(name, index)| {
+            let channel = &record.channels[index];
+            let mut elements = taken.get_mut(index).map(std::mem::take).unwrap_or_default();
+            // A path that is not settled keeps no element in its record
+            // ([`crate::observation::record`]), so none of its values is one of the record's.
+            if channel.elements.is_empty() {
+                elements.clear();
+            }
+            if elements.len() != channel.elements.len() {
+                return Err(capture(format!(
+                    "the value run kept {} values of `{name}`, whose record holds {} elements",
+                    elements.len(),
+                    channel.elements.len()
+                )));
+            }
+            for (at, (value, digest)) in elements.iter().zip(&channel.elements).enumerate() {
+                let content = matches!(value.element, Element::Content(_) | Element::Evaluated(_));
+                if content != digest.is_some() {
+                    return Err(capture(format!(
+                        "the value run's element {at} of `{name}` is {} where the record's is {}",
+                        decidedness(&value.element),
+                        if digest.is_some() {
+                            "a content"
+                        } else {
+                            "undecided"
+                        }
+                    )));
+                }
+            }
+            Ok(ChannelValues {
+                name: name.clone(),
+                elements,
+                end: channel.end.clone(),
+            })
+        })
+        .collect()
+}
+
+/// Where two records ([`BaselineRecord::value`]) first differ, for an error of
+/// [`observed_values`]: the channel and the element or the end, or the member of the record.
+fn record_difference(run: &Value, recorded: &Value) -> String {
+    let empty = Vec::new();
+    let channels = |record: &Value| record["channels"].as_array().unwrap_or(&empty).clone();
+    let (ran, kept) = (channels(run), channels(recorded));
+    if ran.len() != kept.len() {
+        return format!("{} channels against {}", ran.len(), kept.len());
+    }
+    for (ran, kept) in ran.iter().zip(&kept) {
+        let name = &ran["name"];
+        if name != &kept["name"] {
+            return format!("the channel {name} against {}", kept["name"]);
+        }
+        let elements = |channel: &Value| channel["elements"].as_array().unwrap_or(&empty).clone();
+        let (ran_elements, kept_elements) = (elements(ran), elements(kept));
+        if let Some(index) = ran_elements
+            .iter()
+            .zip(&kept_elements)
+            .position(|(ran, kept)| ran != kept)
+        {
+            return format!("the element {index} of {name} has another digest");
+        }
+        if ran_elements.len() != kept_elements.len() {
+            return format!(
+                "{name} has {} elements against {}",
+                ran_elements.len(),
+                kept_elements.len()
+            );
+        }
+        if ran["closed"] != kept["closed"] || ran["open"] != kept["open"] {
+            return format!("{name} ends otherwise");
+        }
+    }
+    ["prefix", "crashed", "refusal", "paths"]
+        .into_iter()
+        .find(|member| run.get(member) != recorded.get(member))
+        .map_or_else(
+            || "another member".to_owned(),
+            |member| format!("its `{member}` differs"),
+        )
 }
 
 /// Why the mutant whose runtime is `mutant` is not admitted under the observation `observing`,
@@ -3643,6 +3882,10 @@ struct Executed {
     /// whether it compared them with a baseline's record (a mutant's run); `None` for a run
     /// without a declaration.
     observed: Option<(Trace, bool)>,
+    /// What the probe of a value run kept beside its trace ([`Runtime::values`]): per channel of
+    /// the declaration, the value of each element; `None` for every other run, and for a value
+    /// run that split into several paths.
+    values: Option<Vec<Vec<ValueElement>>>,
 }
 
 /// Stepped evidence retained from the primary run, its rule coverage when the side records
@@ -4169,6 +4412,9 @@ struct Runtime {
     /// The campaign's observation declaration as the side's result runs observe it
     /// ([`RunOptions::observe`]); `None` without one.
     observe: Option<Arc<Observing>>,
+    /// The channels whose elements' values the side's result runs keep beside their record, on
+    /// a value run of the baseline ([`observed_values`]); `None` for every other run.
+    values: Option<Vec<String>>,
 }
 
 /// An observation declaration as every side's runs observe it: resolved on the baseline
@@ -4305,6 +4551,7 @@ impl Runtime {
             solver,
             signature,
             observe: None,
+            values: None,
         })
     }
 
@@ -4425,6 +4672,7 @@ impl Runtime {
         let mut pattern_failure = OracleSide::Unknown;
         let mut undecided = None;
         let mut observed = None;
+        let mut values = None;
         let execution = if has_pattern {
             match self.adapter.execute_steps(
                 &mut self.backend,
@@ -4477,17 +4725,22 @@ impl Runtime {
             let declared = observing
                 .as_ref()
                 .map_or(Observe::NONE, |observing| observing.declared);
-            let (execution, asked, trace) =
+            let capture = self.values.as_deref().filter(|_| against.is_none());
+            let (execution, asked, trace, kept) =
                 crate::observation::evaluating(declared, |evaluation| {
                     let mut probe = observing.as_ref().map(|observing| {
-                        ObservationProbe::new(
+                        let probe = ObservationProbe::new(
                             &observing.resolved,
                             &observing.shared,
                             observing.trusted && trusted,
                             &test.initial_state,
                             against,
                             evaluation.within(),
-                        )
+                        );
+                        match capture {
+                            Some(channels) => probe.with_values(channels),
+                            None => probe,
+                        }
                     });
                     let request = probe.as_mut().map(|probe| RequestProbe {
                         rules: probe.rules(),
@@ -4503,9 +4756,11 @@ impl Runtime {
                         run,
                         request,
                     );
-                    (execution, asked, probe.map(ObservationProbe::finish))
+                    let kept = probe.as_mut().and_then(ObservationProbe::take_values);
+                    (execution, asked, probe.map(ObservationProbe::finish), kept)
                 });
             observed = trace.map(|trace| (trace, against.is_some()));
+            values = kept;
             undecided = asked;
             execution
         };
@@ -4524,6 +4779,7 @@ impl Runtime {
             cache,
             undecided,
             observed,
+            values,
         }
     }
 
@@ -5894,6 +6150,7 @@ mod tests {
                         cache: RunCache::default(),
                         undecided: None,
                         observed: None,
+                        values: None,
                     }
                 };
                 let mut stopped = raw();
@@ -6197,6 +6454,7 @@ mod tests {
                         cache: RunCache::default(),
                         undecided: None,
                         observed: None,
+                        values: None,
                     }
                 };
                 let ground = RecordedRun {
@@ -6551,6 +6809,7 @@ mod tests {
                     cache: RunCache::default(),
                     undecided: None,
                     observed: None,
+                    values: None,
                 };
                 assert_eq!(
                     runtime.judge_with(campaign, test, &executed(raw()), None),

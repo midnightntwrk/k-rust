@@ -250,6 +250,7 @@
 //! A baseline run cut by the clock stays a timeout.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use k_rust::k_rust_backend::definition::BackendDefinition;
 use k_rust::k_rust_backend::rewrite::HaltReason;
@@ -1367,6 +1368,93 @@ pub enum Element {
     Cycle,
 }
 
+/// One element of a channel of a value run of the baseline ([`crate::observed_values`]): its
+/// value, and where on the run's path it was read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValueElement {
+    /// The element as a reader is shown it, in the form a capture run gives one element
+    /// ([`crate::ObservedDifference::baseline`]): a content ([`Element::Content`], or
+    /// [`Element::Evaluated`] under a front end's functions), or [`Element::Undecided`] where the
+    /// record holds an undecided element (a class under [`Stutter::Count`]). Never a closure:
+    /// how the channel ends is [`ChannelValues::end`].
+    pub element: Element,
+    /// The depth of the state the element was read at: the number of steps its path took to it.
+    /// A before point's state is the state before its step, an after point's the step's
+    /// successor, so the two points of one step are one apart.
+    pub depth: u64,
+    /// The rule and the side of the point the element was read at; `None` for a log item read
+    /// where the path ended or where it returned to an earlier state of itself, which is no
+    /// point.
+    pub point: Option<(Arc<str>, StopSide)>,
+}
+
+/// One channel of a value run of the baseline ([`crate::observed_values`]): the value of every
+/// element the baseline's record holds of it, in order, and how the record ends it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelValues {
+    pub name: String,
+    /// One per element of the record's channel, at its index.
+    pub elements: Vec<ValueElement>,
+    /// How the record ends the channel ([`ChannelRecord::end`]).
+    pub end: ChannelEnd,
+}
+
+/// How a channel of a value run ends for a reader that knows two closures only, END and UNDEF
+/// ([`ChannelValues::ending`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ValuesEnd {
+    /// Closed by END after its elements.
+    End,
+    /// Closed by UNDEF after its elements.
+    Undefined,
+    /// Open after `index` elements. `opening` is why, as the record names it; it is
+    /// [`Opening::Cycle`] for a channel the record closes by a cycle.
+    Open {
+        index: usize,
+        opening: Opening,
+        reason: String,
+    },
+}
+
+impl ChannelValues {
+    /// How the channel ends, a cycle's closure stated as an opening. The record's
+    /// [`Closure::Cycle`] says the channel has no element past those it holds, ever; a reader
+    /// without that closure is told less, that nothing is known past them, and why. That loses
+    /// what an element of another side at that index would decide, and decides nothing the
+    /// record does not.
+    #[must_use]
+    pub fn ending(&self) -> ValuesEnd {
+        match &self.end {
+            ChannelEnd::Closed(Closure::End) => ValuesEnd::End,
+            ChannelEnd::Closed(Closure::Undefined) => ValuesEnd::Undefined,
+            ChannelEnd::Closed(Closure::Cycle) => ValuesEnd::Open {
+                index: self.elements.len(),
+                opening: Opening::Cycle,
+                reason: "the path returned to an earlier state of itself with nothing new \
+                         observed: the channel is silent from here, which is stated as open"
+                    .to_owned(),
+            },
+            ChannelEnd::Open(Opened { opening, reason }) => ValuesEnd::Open {
+                index: self.elements.len(),
+                opening: *opening,
+                reason: reason.clone(),
+            },
+        }
+    }
+}
+
+/// What the probe of a value run keeps beside its trace ([`ObservationProbe::with_values`]).
+struct Values {
+    /// Per channel, whether its elements' values are kept.
+    wanted: Vec<bool>,
+    /// Per channel, the value of each element its trace holds, at its index.
+    taken: Vec<Vec<ValueElement>>,
+    /// The names of the rules read at, each held once.
+    rules: BTreeSet<Arc<str>>,
+    /// The rule and side of the point being answered, while it is.
+    at: Option<(Arc<str>, StopSide)>,
+}
+
 /// Where the slot found a difference: the channel, the index, and whether it was read where the
 /// mutant's path ended (an END or UNDEF, or a log item appended by the last step) rather than at
 /// a point.
@@ -1867,6 +1955,9 @@ pub(crate) struct ObservationProbe<'a> {
     /// re-derives, and that element once read, with its recorded digest bytes.
     capture: Option<(usize, usize)>,
     captured: Option<(Element, Option<[u8; 8]>)>,
+    /// A value run's values ([`Self::with_values`]): what a capture run keeps of one element,
+    /// kept of every element of the channels asked for.
+    values: Option<Values>,
 }
 
 static NO_SOLVER: NoSolver = NoSolver;
@@ -1926,6 +2017,7 @@ impl<'a> ObservationProbe<'a> {
             histories: std::cell::RefCell::default(),
             capture: None,
             captured: None,
+            values: None,
         }
     }
 
@@ -1980,6 +2072,38 @@ impl<'a> ObservationProbe<'a> {
         let mut probe = Self::new(resolved, shared, trusted, initial, None, evaluation);
         probe.capture = Some((channel, index));
         probe
+    }
+
+    /// The probe, also keeping the value of every element of the channels named in `channels`
+    /// (a value run of the baseline, [`crate::observed_values`]), as a capture run keeps one
+    /// element's. It answers every question as without them: what it keeps is read from the
+    /// state after the element is taken, and nothing it answers or records reads it.
+    ///
+    /// It holds one [`ValueElement`] per element kept, and nothing per step or per point that
+    /// keeps no element (an event a collapsing class drops, a point of a channel already open).
+    /// The values are of the run's one path: where the run splits into several they are dropped
+    /// ([`Self::take_values`]), since no one path holds them.
+    pub(crate) fn with_values(mut self, channels: &[String]) -> Self {
+        let wanted = self
+            .resolved
+            .names
+            .iter()
+            .map(|name| channels.contains(name))
+            .collect::<Vec<_>>();
+        self.values = Some(Values {
+            taken: vec![Vec::new(); wanted.len()],
+            wanted,
+            rules: BTreeSet::new(),
+            at: None,
+        });
+        self
+    }
+
+    /// A value run's values, per channel of the declaration (empty for one not asked for):
+    /// `None` for a probe that keeps none, and for a run that split into several paths.
+    pub(crate) fn take_values(&mut self) -> Option<Vec<Vec<ValueElement>>> {
+        let values = self.values.take()?;
+        (!self.several).then_some(values.taken)
     }
 
     /// The element a capture run read, with its digest bytes as the run recorded them: `None`
@@ -2058,24 +2182,44 @@ impl<'a> ObservationProbe<'a> {
             .map_or(Element::Undecided, |value| Element::Content(vec![value]))
     }
 
-    /// Whether the element just taken on `channel`, which had `before` elements, is a capture
-    /// run's target: it is then kept, as `element` gives it, with its recorded digest bytes.
+    /// The element just taken on `channel`, which had `before` elements, read at a state of
+    /// depth `depth`, is kept where the run keeps values: by a value run for every channel it was
+    /// asked for ([`Self::with_values`]), and by a capture run where it is the run's target, with
+    /// its recorded digest bytes. `element` gives it as a reader is shown it. Nothing is kept
+    /// where the take added no element (an event a collapsing class drops, an undecided content
+    /// that opened the channel).
     fn capture_taken(
         &mut self,
         channel: usize,
         before: usize,
+        depth: u64,
         element: impl FnOnce(&mut Self) -> Element,
     ) {
+        if self.trace.channels[channel].elements.len() != before + 1 {
+            return;
+        }
+        if self
+            .values
+            .as_ref()
+            .is_some_and(|values| values.wanted[channel])
+            && !self.several
+        {
+            let element = element(self);
+            let values = self.values.as_mut().expect("a value run");
+            // The values follow the trace index by index: an element is kept for each one taken.
+            debug_assert_eq!(values.taken[channel].len(), before);
+            values.taken[channel].push(ValueElement {
+                element,
+                depth,
+                point: values.at.clone(),
+            });
+            return;
+        }
         let Some((target, index)) = self.capture else {
             return;
         };
-        let trace = &self.trace.channels[channel];
-        if target == channel
-            && before == index
-            && trace.elements.len() == index + 1
-            && self.captured.is_none()
-        {
-            let digest = trace.elements[index];
+        if target == channel && before == index && self.captured.is_none() {
+            let digest = self.trace.channels[channel].elements[index];
             self.captured = Some((element(self), digest));
         }
     }
@@ -2346,7 +2490,7 @@ impl<'a> ObservationProbe<'a> {
                     }
                     return Some(index);
                 }
-                self.capture_taken(channel, before, |probe| {
+                self.capture_taken(channel, before, state.depth(), |probe| {
                     probe.item_value(channel, &item, position)
                 });
                 if self.captured.is_some()
@@ -2392,6 +2536,26 @@ impl<'a> ObservationProbe<'a> {
         if self.trace.cycled.is_some() {
             return ProbeDecision::Continue;
         }
+        if let Some(values) = &mut self.values {
+            let rule = match values.rules.get(point.rule()) {
+                Some(rule) => Arc::clone(rule),
+                None => {
+                    let rule = Arc::<str>::from(point.rule());
+                    values.rules.insert(Arc::clone(&rule));
+                    rule
+                }
+            };
+            values.at = Some((rule, point.side()));
+        }
+        let decision = self.observe_point(point);
+        if let Some(values) = &mut self.values {
+            values.at = None;
+        }
+        decision
+    }
+
+    /// [`Self::observe_here`], once a value run knows the point it is asked at.
+    fn observe_point(&mut self, point: &ProbeArrival<'_>) -> ProbeDecision {
         let (rule, side) = (point.rule().to_owned(), point.side());
         for channel in 0..self.resolved.channels.len() {
             if !self.resolved.channels[channel].selects(&rule, side) {
@@ -2411,7 +2575,9 @@ impl<'a> ObservationProbe<'a> {
                             let value = self.values(channel, point);
                             self.trace.differing = Some(Box::new(value));
                         }
-                        self.capture_taken(channel, before, |probe| probe.values(channel, point));
+                        self.capture_taken(channel, before, point.depth(), |probe| {
+                            probe.values(channel, point)
+                        });
                         difference
                     }
                 }
@@ -2801,6 +2967,13 @@ impl Probe for ObservationProbe<'_> {
     /// renames the path, and one into none leaves no path of the definition there.
     fn split(&mut self, path: ProbePath, _depth: u64, into: &[ProbePath]) {
         self.several |= into.len() > 1;
+        if self.several
+            && let Some(values) = &mut self.values
+        {
+            // The run has several paths: no one path holds the values kept so far.
+            values.taken = Vec::new();
+            values.wanted.fill(false);
+        }
         self.histories.borrow_mut().remove(&path);
         self.asked.remove(&path);
         if let Some(trace) = self.live.remove(&path)

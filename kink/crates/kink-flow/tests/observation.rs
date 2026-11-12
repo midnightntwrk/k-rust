@@ -798,6 +798,84 @@ fn a_capture_run_rederives_the_baselines_element() {
     );
 }
 
+/// A value run gives the value of every element of the baseline's channels, each with its depth,
+/// rule and side, for the record a result holds (the `observations` of its baseline row, here
+/// read back from its JSON text as a stored record gives it). It is tied to that record by its
+/// digests: a record with another digest is an error, never values. The command's baseline runs
+/// are counted as before it.
+#[test]
+fn a_value_run_gives_the_values_of_the_recorded_run() {
+    let dir = fixture("values", &[]);
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let (_, admitted) = kink_flow::admit_spec(&manifest);
+    let (spec, mut inputs) = admitted.expect("the console is admitted");
+    let mut session = inputs.session(&spec);
+    let program = &manifest.programs[0];
+    let case = session.read(program).unwrap();
+    let test = session.test_case(program, &case).unwrap();
+    let runner = BaselineRunner::new(&spec, &manifest).unwrap();
+    let result = runner.run(test.clone());
+    let text = result.baseline.as_ref().unwrap()["observations"].to_string();
+    let record: Value = serde_json::from_str(&text).unwrap();
+    let runs = runner.baseline_runs();
+    let channels = ["out".to_owned(), "clock".to_owned()];
+    let values = runner
+        .observed_values(test.clone(), &record, &channels)
+        .unwrap();
+    assert_eq!(runner.baseline_runs(), runs);
+    let [out, clock] = values.as_slice() else {
+        panic!("{values:?}");
+    };
+    let int = |value: u64| {
+        k_rust::kore::parser::parse_pattern(&format!("\\dv{{SortInt{{}}}}(\"{value}\")")).unwrap()
+    };
+    // Sixteen ticks before the depth bound, two and then an emit: the tick `i` at depth
+    // `i + i / 2`.
+    assert_eq!(clock.elements.len(), 16);
+    for (tick, element) in (0..).zip(&clock.elements) {
+        assert_eq!(element.element, Element::Content(vec![int(tick)]));
+        assert_eq!(element.depth, tick + tick / 2);
+        assert_eq!(
+            element.point,
+            Some(("CONSOLE.tick".into(), kink_campaign::StopSide::Before))
+        );
+    }
+    assert_eq!(
+        clock.ending(),
+        kink_campaign::ValuesEnd::Open {
+            index: 16,
+            opening: Opening::Bound,
+            reason: "the path was cut by a bound".to_owned(),
+        }
+    );
+    // The log is read at the clock's events: each item before the tick that follows its emit.
+    assert_eq!(
+        out.elements
+            .iter()
+            .map(|element| element.depth)
+            .collect::<Vec<_>>(),
+        [3, 6]
+    );
+    assert!(matches!(
+        out.ending(),
+        kink_campaign::ValuesEnd::Open {
+            index: 2,
+            opening: Opening::UndecidedElement,
+            ..
+        }
+    ));
+    let mut forged = record.clone();
+    forged["channels"][0]["elements"][1] = json!("0000000000000000");
+    let refused = runner
+        .observed_values(test, &forged, &channels)
+        .unwrap_err();
+    let kink_campaign::ValuesRefusal::Capture(why) = &refused else {
+        panic!("{refused:?}");
+    };
+    assert!(why.contains("not the recorded run"), "{why}");
+    assert_eq!(runner.baseline_runs(), runs);
+}
+
 /// Under `count` an event whose content is not decided is still an element: the log cell before
 /// each tick holds `show(6)`, no value, from the seventh tick on, so the baseline's element 6 is
 /// undecided, and a mutant that halts once the count passes 5 ends its channel there. END against

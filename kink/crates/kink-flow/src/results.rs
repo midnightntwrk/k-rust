@@ -1001,6 +1001,68 @@ impl<'a> BaselineRunner<'a> {
         kink_campaign::observed_difference(&campaign, &options, test, record, verdict)
     }
 
+    /// The value of every element of the channels `channels` of `test`'s baseline run (a test of
+    /// a call of this command; its oracles are replaced by the specification's, as [`Self::run`]
+    /// does), whose result record holds the observation record `recorded`: the `observations`
+    /// member of its baseline row ([`baseline_row`]; kink-campaign `BaselineRecord::value`), as
+    /// a live result or a stored record gives it. One value record per name, in their order, each
+    /// with how its channel ends (kink-campaign `ChannelValues::ending`: closed, or open at an
+    /// index with the reason).
+    ///
+    /// The values are read by a value run (kink-campaign `observed_values`): the call
+    /// [`Self::run`] makes for the program, again, through the command's session and under the
+    /// options every call of the command runs with, its baseline run live with a probe that also
+    /// keeps the values. The record that run makes must equal `recorded`, whole, so the values
+    /// are those of the recorded run; no record is decoded for that, the two are compared as the
+    /// documents a result record holds. The session's runs, counts and last recording are left
+    /// as they were. The run costs what a live baseline run of the program costs, and holds one
+    /// value per element of the channels asked for beside it.
+    ///
+    /// # Errors
+    ///
+    /// `ValuesRefusal::SeveralPaths` where `recorded` is of a run with several paths: nothing
+    /// ran, and the caller reports the program as not compared. `ValuesRefusal::Capture` where
+    /// the value run is not shown to be the recorded run or gave no values: an error of the
+    /// command, `trace-capture:<program id>`, as `observation-capture` is for a capture run;
+    /// never a result.
+    pub fn observed_values(
+        &self,
+        mut test: TestCase,
+        recorded: &Value,
+        channels: &[String],
+    ) -> Result<Vec<kink_campaign::ChannelValues>, kink_campaign::ValuesRefusal> {
+        test.oracles = self.spec.result.oracles();
+        let options = CampaignOptions {
+            schedule: ScheduleMode::FirstKill,
+            selection: kink_campaign::SelectionPolicy::None,
+            share_evidence: true,
+            run: kink_campaign::RunOptions {
+                baseline_max_work: self.baseline_max_work,
+                smt_resource_limit: self.smt_resource_limit,
+                stop: self.stop,
+                observe: self.observe,
+                ..kink_campaign::RunOptions::default()
+            },
+            compile_workers: 1,
+        };
+        let campaign = Campaign {
+            validator: &self.spec.validator,
+            module: &self.module,
+            observation: &[],
+            classify: &classify,
+            tests: std::slice::from_ref(&test),
+            budget: self.budget,
+        };
+        kink_campaign::observed_values(
+            &campaign,
+            &self.generations,
+            &options,
+            &mut self.session.borrow_mut(),
+            recorded,
+            channels,
+        )
+    }
+
     /// The compiled baseline's rule authors: the baseline sentences behind each compiled id.
     pub const fn authors(&self) -> &RuleAuthors {
         &self.authors
