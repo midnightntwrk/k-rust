@@ -2065,6 +2065,22 @@ fn validate_remainder_reuse(
 ) -> Result<(), SyntaxError> {
     // A built map's rest may also be a map the subject binds whole (`env: Cell(m)` and
     // `map![k -> v, ..m]`), which its entries are written over; the compiler checks its sort.
+    // An instance child's computation rest (`tk: [x, rest @ ..]`) is a term the subject binds, as
+    // is any other term binder, and no computation cell's frame.
+    if let StateMacroRemainder::Reuse { binding, range } = remainder
+        && expected == StateRuleBindingKind::KSequenceFrame
+        && !bindings.iter().any(|existing| {
+            existing.name == *binding && existing.kind == StateRuleBindingKind::KSequenceFrame
+        })
+        && bindings.iter().any(|existing| {
+            existing.name == *binding && existing.kind == StateRuleBindingKind::Term
+        })
+    {
+        return Err(body_error(
+            "a result's `..rest` in a computation writes the rest a computation cell's subject binds (`rest @ ..`), and this name is a term the subject binds, as an instance child's computation rest is: moving a rest between an instance child and another computation cell is not supported yet",
+            range.first(),
+        ));
+    }
     if let StateMacroRemainder::Reuse { binding, range } = remainder
         && !bindings.iter().any(|existing| {
             existing.name == *binding
