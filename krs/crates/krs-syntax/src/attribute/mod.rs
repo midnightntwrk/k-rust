@@ -8,8 +8,8 @@ mod value;
 
 pub(crate) use constructor::ConstructorFamilyMode;
 pub use constructor::{
-    ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionHook, FunctionSmt,
-    FunctionTotality, PlacementFlag, ProductionKeys, VariantSyntaxAttribute,
+    ConstructorAttribute, ConstructorsAttribute, EndMarker, FunctionAttribute, FunctionHook,
+    FunctionSmt, FunctionTotality, PlacementFlag, ProductionKeys, VariantSyntaxAttribute,
     default_function_syntax,
 };
 pub use placement::{Marker, SENTENCE_KEYS, misplaced_key, misplaced_key_named};

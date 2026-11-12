@@ -265,3 +265,4 @@ InitializerAbsent=initializer_absent
 ConfigurationCellUnobservable=configuration_cell_unobservable
 RuleLeftSequenceRest=rule_left_sequence_rest
 PatternMap=pattern_map
+EndClass=end_class

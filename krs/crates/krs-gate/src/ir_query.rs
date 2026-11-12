@@ -1109,7 +1109,11 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     let owned = fs::read(directory.join(krs_compiler::ARTIFACT_MARKER_FILE))
                         .is_ok_and(|bytes| bytes == krs_compiler::ARTIFACT_MARKER.as_bytes());
                     Ok(json!({
-                        "expected": krs_compiler::emitted_artifact_names(has_claims, true),
+                        "expected": krs_compiler::emitted_artifact_names(
+                            has_claims,
+                            true,
+                            !krs_compiler::declared_ends(&definition)?.is_empty(),
+                        ),
                         "actual": actual,
                         "owned": owned,
                         "has_claims": has_claims,

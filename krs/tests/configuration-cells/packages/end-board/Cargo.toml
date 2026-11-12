@@ -1,0 +1,22 @@
+[package]
+name = "krs-configuration-cells-end-board"
+description = "A second definition that holds the group, with an end true at its initial state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_end_board"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+end-core = { package = "krs-configuration-cells-end-core", path = "../end-core" }
+
+[package.metadata.krs]
+k-namespace = "KRS-END-BOARD"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

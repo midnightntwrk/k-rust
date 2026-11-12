@@ -105,6 +105,103 @@ pub(crate) fn function(
     function_production(env, &function, item)
 }
 
+/// `#[k::end(..)]` on a `fn`: the functions and equations the shared parser lowers the end
+/// to, each expanded as an authored function or equation is. On any other item the attribute
+/// declares nothing: a constructor takes it as a helper, after its own attribute.
+pub(crate) fn end(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let function = match krs_syntax::parse_fn_item(item.clone()) {
+        Ok(function) => function,
+        Err(error) => {
+            krs_syntax::EndAttribute::parse_tokens(attributes)?;
+            return Err(match syn::parse2::<syn::Item>(item) {
+                Ok(syn::Item::Fn(_)) | Err(_) => error.into(),
+                Ok(syn::Item::Struct(_)) => ExpandError::at_invocation(
+                    expand::ORPHAN_HELPER,
+                    "`#[k::end]` on a struct is a constructor helper; place `#[k::constructor(...)]` before it".to_owned(),
+                ),
+                Ok(other) => krs_syntax::end_placement_error(
+                    match other {
+                        syn::Item::Enum(_) => "an enum: write it on each variant that heads an end, inside the `#[k::constructors]` enum",
+                        syn::Item::Impl(_) => "an `impl`",
+                        syn::Item::Trait(_) => "a trait",
+                        syn::Item::Mod(_) => "a module",
+                        syn::Item::Const(_) | syn::Item::Static(_) => "a constant",
+                        _ => "this item",
+                    },
+                    Span::call_site(),
+                )
+                .into(),
+            });
+        }
+    };
+    let facade = env.facade_path()?;
+    let declaration = krs_syntax::EndDeclaration::lower_fn(attributes, function, &facade)?;
+    expand_end(env, &declaration)
+}
+
+/// The expansion of a lowered end: each function's production, then each equation.
+pub(super) fn expand_end(
+    env: &dyn MacroEnvironment,
+    declaration: &krs_syntax::EndDeclaration,
+) -> crate::Result<TokenStream> {
+    let mut output = TokenStream::new();
+    for function in declaration.functions() {
+        output.extend(function_production(
+            env,
+            function.attribute(),
+            function.structure().to_token_stream(),
+        )?);
+    }
+    for equation in declaration.equations() {
+        output.extend(super::rules::equation(
+            env,
+            equation.keys(),
+            equation.item().to_token_stream(),
+        )?);
+    }
+    Ok(output)
+}
+
+/// Takes the struct's `#[k::end(..)]` helper: the end the constructor declares.
+fn take_end_helper(
+    attributes: &mut Vec<Attribute>,
+) -> crate::Result<Option<krs_syntax::EndAttribute>> {
+    let mut end = None;
+    let mut retained = Vec::with_capacity(attributes.len());
+    for attribute in std::mem::take(attributes) {
+        if helper_entry(attribute.path()) == Some(AttributeMacro::End) {
+            let parsed = krs_syntax::EndAttribute::parse_helper(&attribute)?;
+            if end.replace(parsed).is_some() {
+                return Err(krs_syntax::end_placement_error(
+                    "a constructor that already declares one: a constructor declares one end",
+                    attribute.span(),
+                )
+                .into());
+            }
+        } else {
+            retained.push(attribute);
+        }
+    }
+    *attributes = retained;
+    Ok(end)
+}
+
+/// The end a `#[k::constructor]` struct declares with its `#[k::end(..)]` helper, expanded.
+fn constructor_end(
+    env: &dyn MacroEnvironment,
+    end: &krs_syntax::EndAttribute,
+    attribute: &krs_syntax::ConstructorAttribute,
+    item: &ItemStruct,
+) -> crate::Result<TokenStream> {
+    let lowered =
+        krs_syntax::EndDeclaration::lower_struct(end, item, &attribute.sort, &env.facade_path()?)?;
+    expand_end(env, &lowered)
+}
+
 /// `#[k::function(..)]` on a `fn`: the function struct, and with a body its
 /// equations (one per branch of an `if` or `match` body), lowered by the
 /// shared parser so that the collector's reparse sees the same authored
@@ -201,6 +298,25 @@ fn assumed_wire(
             Ok(WireProductionAttribute::Assumed {
                 key: ledger.define(function.assumed_key())?,
                 reason: reason.value(),
+            })
+        })
+        .transpose()
+}
+
+/// The wire attribute that marks a function as one of a declared end's (`#[k::end(..)]`).
+fn end_wire(
+    ledger: &KeyLedger<'_>,
+    function: &krs_syntax::FunctionAttribute,
+) -> crate::Result<Option<WireProductionAttribute>> {
+    function
+        .end()
+        .map(|end| -> crate::Result<_> {
+            Ok(WireProductionAttribute::End {
+                key: ledger.define(function.end_key())?,
+                class: end.class,
+                role: end.role,
+                form: end.form,
+                item: end.item.clone(),
             })
         })
         .transpose()
@@ -399,6 +515,20 @@ fn constructor_like(
     let explicit_symbol = take_explicit_symbol_helper(&mut raw_item.attrs)?;
     let strictness = take_strictness_helpers(&mut raw_item.attrs)?;
     let static_marker = take_static_helper(&mut raw_item.attrs)?;
+    let end = take_end_helper(&mut raw_item.attrs)?;
+    if let Some(end) = &end
+        && (functional || static_marker.is_some())
+    {
+        return Err(krs_syntax::end_placement_error(
+            if functional {
+                "a function, which is evaluated away and so heads no state"
+            } else {
+                "an `alias` or `desugar` production, which is expanded before anything runs and so heads no state"
+            },
+            end.word().span(),
+        )
+        .into());
+    }
     if functional && let Some((marker, _)) = &static_marker {
         return Err(ExpandError::new(
             expand::FUNCTION_ALIAS_CONFLICT,
@@ -689,6 +819,11 @@ fn constructor_like(
         }
     });
 
+    let end_items = end
+        .as_ref()
+        .map(|end| constructor_end(env, end, &attribute, &raw_item))
+        .transpose()?;
+
     Ok(quote! {
         #item
 
@@ -717,6 +852,8 @@ fn constructor_like(
         #factory_tokens
 
         #grammar
+
+        #end_items
     })
 }
 
@@ -1310,6 +1447,14 @@ fn constructor_grammar(
         .flatten()
     {
         attributes.push(assumed);
+    }
+    // The mark of a declared end's function follows them.
+    if let Some(end) = function
+        .map(|function| end_wire(ledger, function))
+        .transpose()?
+        .flatten()
+    {
+        attributes.push(end);
     }
     if let Some(marker) = static_marker {
         attributes.insert(

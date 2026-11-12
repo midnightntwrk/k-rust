@@ -398,6 +398,7 @@ pub(crate) const fn sentence_marker(entry: AttributeMacro) -> Option<krs_syntax:
         | AttributeMacro::Configuration
         | AttributeMacro::Cell
         | AttributeMacro::Init
+        | AttributeMacro::End
         | AttributeMacro::Priority
         | AttributeMacro::Requires
         | AttributeMacro::Exists

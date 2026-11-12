@@ -499,6 +499,9 @@ pub struct FunctionAttribute {
     /// `assumed = "reason"`: the author states why this total function has a value on every
     /// argument, and KRS does not check the results of its equations.
     assumed: Option<LitStr>,
+    /// The declared end the function is one of the two functions of
+    /// (`#[k::end(..)]`); no `#[k::function]` key states it.
+    end: Option<EndMarker>,
     totality_key: Option<ProvenanceKey>,
     memo_key: Option<ProvenanceKey>,
     fresh_generator_key: Option<ProvenanceKey>,
@@ -507,11 +510,29 @@ pub struct FunctionAttribute {
     underspecified_key: Option<ProvenanceKey>,
     skipped_operand_key: Option<ProvenanceKey>,
     assumed_key: Option<ProvenanceKey>,
+    end_key: Option<ProvenanceKey>,
     /// The anchors of the function's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
     /// How many of [`Self::anchors`] are the production's full view.
     production: usize,
+}
+
+/// What makes a function one of the two a declared end is emitted as: the class word of the
+/// `#[k::end(..)]` that declares the end, which function of the end this is, the spelling the
+/// end was declared in, and the declaring item's name.
+#[derive(Clone, Debug)]
+pub struct EndMarker {
+    /// The authored class word, `finished` or `refused`.
+    pub word: Ident,
+    /// The class the word names.
+    pub class: krs_ir::EndClass,
+    /// Which of the end's functions this is.
+    pub role: krs_ir::EndRole,
+    /// The spelling the end was declared in.
+    pub form: krs_ir::EndForm,
+    /// The declaring item's name.
+    pub item: String,
 }
 
 /// A function's SMT-LIB translation (KF-044): `smtlib` and `smt_hook` are
@@ -773,6 +794,29 @@ impl FunctionAttribute {
         self.skipped_operand_key.as_ref()
     }
 
+    /// The key of the class word of the declared end this function belongs to.
+    #[must_use]
+    pub const fn end_key(&self) -> Option<&ProvenanceKey> {
+        self.end_key.as_ref()
+    }
+
+    /// The declared end this function is one of the two functions of.
+    #[must_use]
+    pub const fn end(&self) -> Option<&EndMarker> {
+        self.end.as_ref()
+    }
+
+    /// Makes the function one of a declared end's, keyed at the end's class word.
+    ///
+    /// # Errors
+    ///
+    /// The errors of keying the class word.
+    pub(crate) fn with_end(mut self, end: EndMarker) -> Result<Self, SyntaxError> {
+        self.end = Some(end);
+        self.rekey()?;
+        Ok(self)
+    }
+
     /// The function keyed as a sentence of its own.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         self.rekey()?;
@@ -830,6 +874,11 @@ impl FunctionAttribute {
             &mut keys,
             ProvenanceRole::FunctionAssumed,
             self.assumed.as_ref(),
+        )?;
+        self.end_key = optional_key(
+            &mut keys,
+            ProvenanceRole::EndClass,
+            self.end.as_ref().map(|end| &end.word),
         )?;
         self.anchors = keys.into_anchors();
         Ok(())
@@ -1838,6 +1887,7 @@ fn parse_function_keys(
         underspecified,
         skipped_operand,
         assumed,
+        end: None,
         totality_key: None,
         memo_key: None,
         fresh_generator_key: None,
@@ -1846,6 +1896,7 @@ fn parse_function_keys(
         underspecified_key: None,
         skipped_operand_key: None,
         assumed_key: None,
+        end_key: None,
         anchors: Vec::new(),
         production: 0,
     }
@@ -2560,6 +2611,9 @@ mod keyed {
             }
             if let Some(assumed) = &self.assumed {
                 nodes.push_tokens(self.assumed_key.as_ref(), assumed)?;
+            }
+            if let Some(end) = &self.end {
+                nodes.push_tokens(self.end_key.as_ref(), &end.word)?;
             }
             Ok(())
         }

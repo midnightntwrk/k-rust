@@ -612,6 +612,73 @@ pub enum ProductionAttribute<S, D> {
         #[serde(default, skip_serializing_if = "is_false")]
         recursive: bool,
     },
+    /// The function is one of the two a declared end is emitted as (`#[k::end(..)]`): a function
+    /// of the whole configuration, which no sentence applies. Its equations state the end's
+    /// clauses; the K production takes the configuration as its one argument.
+    End {
+        /// Provenance of the class word of `#[k::end(..)]`.
+        origin: NodeOrigin,
+        /// The class the end belongs to.
+        class: EndClass,
+        /// Which of the end's two functions this is.
+        role: EndRole,
+        /// The spelling the end was declared with.
+        form: EndForm,
+        /// The name of the declaring item, in the production's module.
+        item: String,
+    },
+}
+
+/// The class of a declared end: the closed set of words `#[k::end(..)]` takes.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndClass {
+    /// The computation completed.
+    Finished,
+    /// The definition refuses to continue, for a stated reason.
+    Refused,
+}
+
+impl EndClass {
+    /// The word `#[k::end(..)]` takes.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Finished => "finished",
+            Self::Refused => "refused",
+        }
+    }
+
+    /// The class the word `word` names.
+    #[must_use]
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "finished" => Some(Self::Finished),
+            "refused" => Some(Self::Refused),
+            _ => None,
+        }
+    }
+}
+
+/// Which function of a declared end a production is.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndRole {
+    /// The total Bool function that is true exactly on the end's clauses.
+    Holds,
+    /// The partial function that gives a refused end's reason where the end holds.
+    Reason,
+}
+
+/// The spelling a declared end was written in.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndForm {
+    /// `#[k::end(..)]` on a `fn` whose parameter is a `k::cells!` pattern.
+    Clause,
+    /// `#[k::end(..)]` on a constructor: the constructor at the head of the main computation
+    /// cell.
+    Constructor,
 }
 
 #[expect(
@@ -655,7 +722,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::SmtHook { origin, .. }
             | Self::Underspecified { origin, .. }
             | Self::Assumed { origin, .. }
-            | Self::SkippedOperand { origin, .. } => origin,
+            | Self::SkippedOperand { origin, .. }
+            | Self::End { origin, .. } => origin,
         }
     }
 
@@ -695,6 +763,7 @@ impl<S, D> ProductionAttribute<S, D> {
             Self::Underspecified { .. } => Some(crate::ProductionAttributeFamily::Underspecified),
             Self::Assumed { .. } => Some(crate::ProductionAttributeFamily::Assumed),
             Self::SkippedOperand { .. } => Some(crate::ProductionAttributeFamily::SkippedOperand),
+            Self::End { .. } => Some(crate::ProductionAttributeFamily::End),
         }
     }
 }

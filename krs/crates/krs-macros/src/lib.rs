@@ -610,3 +610,34 @@ pub fn context(attributes: TokenStream, item: TokenStream) -> TokenStream {
 pub fn constant(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Constant, attributes, item)
 }
+
+/// Declares an end of the definition: a set of states where the run is over, in the class
+/// `finished` or `refused`.
+///
+/// On a `fn`, the last parameter is a `k::cells!` pattern typed by the configuration or by a
+/// cell group it holds, and the end holds at the states the pattern matches under the fn's
+/// `#[k::requires]`. A `refused` end returns its reason; a `finished` end returns nothing and
+/// has an empty body.
+///
+/// ```ignore
+/// #[k::end(refused)]
+/// #[k::requires(!memory.contains_key(addr))]
+/// fn unmapped_read(
+///     addr: k::Term<Int>,
+///     memory: k::Term<Map<Int, Int>>,
+///     k::cells! { k: KCell(Bus::Read { addr }, _rest @ ..), memory: Cell(memory), .. }: Machine,
+/// ) -> k::Term<Int> {
+///     addr
+/// }
+/// ```
+///
+/// On a constructor (a `#[k::constructor]` struct, after that attribute, or a variant of a
+/// `#[k::constructors]` enum) it is the shorthand for the states whose main computation cell
+/// starts with that constructor, whose term is the reason of a `refused` end.
+///
+/// Each end is emitted as a total K function of the whole configuration, `true` exactly on
+/// the end's states, and a `refused` end as a second, partial function that gives its reason.
+#[proc_macro_attribute]
+pub fn end(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::End, attributes, item)
+}

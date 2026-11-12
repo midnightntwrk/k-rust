@@ -832,6 +832,21 @@ impl Sample for RawSentenceKind {
         vec![Self::Rule]
     }
 }
+impl Sample for krs_ir::EndClass {
+    fn samples() -> Vec<Self> {
+        vec![Self::Finished, Self::Refused]
+    }
+}
+impl Sample for krs_ir::EndRole {
+    fn samples() -> Vec<Self> {
+        vec![Self::Holds, Self::Reason]
+    }
+}
+impl Sample for krs_ir::EndForm {
+    fn samples() -> Vec<Self> {
+        vec![Self::Clause, Self::Constructor]
+    }
+}
 impl Sample for RawSentence {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -1656,8 +1671,15 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     reason: sample::<String>(),
                 },
+                Self::End {
+                    key: sample::<ProvenanceKey>(),
+                    class: krs_ir::EndClass::Refused,
+                    role: krs_ir::EndRole::Reason,
+                    form: krs_ir::EndForm::Constructor,
+                    item: sample::<String>(),
+                },
             ],
-            29,
+            30,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1689,6 +1711,7 @@ impl Sample for DescriptorProductionAttribute {
                 Self::SkippedOperand { .. } => 27,
                 Self::Assumed { .. } => 28,
                 Self::ConsList { .. } => 26,
+                Self::End { .. } => 29,
             },
         )
     }
@@ -2305,8 +2328,15 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     reason: sample::<String>(),
                 },
+                Self::End {
+                    origin: sample::<NodeOrigin>(),
+                    class: krs_ir::EndClass::Refused,
+                    role: krs_ir::EndRole::Reason,
+                    form: krs_ir::EndForm::Constructor,
+                    item: sample::<String>(),
+                },
             ],
-            29,
+            30,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2338,6 +2368,7 @@ impl<
                 Self::Underspecified { .. } => 26,
                 Self::SkippedOperand { .. } => 27,
                 Self::Assumed { .. } => 28,
+                Self::End { .. } => 29,
             },
         )
     }
@@ -3118,8 +3149,15 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     reason: sample::<String>(),
                 },
+                Self::End {
+                    key: sample::<ProvenanceKey>(),
+                    class: krs_ir::EndClass::Refused,
+                    role: krs_ir::EndRole::Reason,
+                    form: krs_ir::EndForm::Constructor,
+                    item: sample::<String>(),
+                },
             ],
-            29,
+            30,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -3151,6 +3189,7 @@ impl Sample for WireProductionAttribute {
                 Self::SkippedOperand { .. } => 27,
                 Self::Assumed { .. } => 28,
                 Self::ConsList { .. } => 26,
+                Self::End { .. } => 29,
             },
         )
     }

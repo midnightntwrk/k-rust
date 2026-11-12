@@ -447,9 +447,9 @@ pub const SENTENCE_MACROS: [&str; 16] = [
     "priority",
 ];
 
-/// The attribute macros that declare (a sort, a production, a configuration or a module): their
+/// The attribute macros that declare (a sort, a production, a configuration, a module or an end): their
 /// keys are out of the axis, and their headers are K5's.
-pub const DECLARATION_MACROS: [&str; 13] = [
+pub const DECLARATION_MACROS: [&str; 14] = [
     "sort",
     "symbol",
     "constructor",
@@ -463,6 +463,7 @@ pub const DECLARATION_MACROS: [&str; 13] = [
     "cell",
     "syntax_list",
     "spec_module",
+    "end",
 ];
 
 /// A malformed attribute, or keys that cannot stand together, on a form that takes the key, and

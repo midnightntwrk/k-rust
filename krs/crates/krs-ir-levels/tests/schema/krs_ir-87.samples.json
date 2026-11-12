@@ -12115,6 +12115,17 @@
         "role": "sort_declaration"
       },
       "reason": "sample"
+    },
+    {
+      "attribute_kind": "end",
+      "class": "refused",
+      "form": "constructor",
+      "item": "sample",
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "role": "reason"
     }
   ],
   "DescriptorProductionItem": [
@@ -20638,6 +20649,55 @@
         ]
       },
       "reason": "sample"
+    },
+    {
+      "attribute_kind": "end",
+      "class": "refused",
+      "form": "constructor",
+      "item": "sample",
+      "origin": {
+        "key": "source-map",
+        "origin": [
+          {
+            "frame_type": "ranged",
+            "kind": "authored",
+            "range": {
+              "end_byte": 3,
+              "file": {
+                "content_sha256": "a000000000000000000000000000000000000000000000000000000000000000",
+                "package": {
+                  "cargo_name": "schema",
+                  "cargo_source": "workspace",
+                  "cargo_version": "0.1.0",
+                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                },
+                "package_relative_path": "src/lib.rs"
+              },
+              "start_byte": 0
+            }
+          },
+          {
+            "frame_type": "transformation",
+            "item": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
+            },
+            "kind": "semantic_ir",
+            "label": "transform"
+          }
+        ]
+      },
+      "role": "reason"
     }
   ],
   "ProductionContextAliasReference": [
@@ -23747,7 +23807,8 @@
     "initializer_absent",
     "configuration_cell_unobservable",
     "rule_left_sequence_rest",
-    "pattern_map"
+    "pattern_map",
+    "end_class"
   ],
   "RawSentence": [
     {
@@ -35541,6 +35602,17 @@
         "role": "sort_declaration"
       },
       "reason": "sample"
+    },
+    {
+      "attribute_kind": "end",
+      "class": "refused",
+      "form": "constructor",
+      "item": "sample",
+      "key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "role": "reason"
     }
   ],
   "WireProductionItem": [

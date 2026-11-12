@@ -465,8 +465,75 @@ fn collect_struct_constructors(
             constructor_visibility.clone(),
             constructor_symbol,
         ));
+        if let Some(helper) = item_struct
+            .attrs
+            .iter()
+            .find(|candidate| resolver.invokes(candidate, AttributeMacro::End))
+        {
+            let end = krs_syntax::EndAttribute::parse_helper(helper).map_err(source_syntax)?;
+            let mut constructor = item_struct.clone();
+            constructor.attrs.retain(|candidate| {
+                !resolver.invokes(candidate, AttributeMacro::End)
+                    && !resolver.invokes(candidate, AttributeMacro::Constructor)
+            });
+            let lowered = krs_syntax::EndDeclaration::lower_struct(
+                &end,
+                &constructor,
+                &parsed.sort,
+                &generated_facade(attribute),
+            )
+            .map_err(source_syntax)?;
+            push_end_invocations(&lowered, resolver, output)?;
+        }
     }
     Ok(())
+}
+
+/// The invocations of a declared end (`#[k::end(..)]`), lowered by the shared parser: each
+/// function's, as a function struct's, then each equation's.
+fn push_end_invocations(
+    declaration: &krs_syntax::EndDeclaration,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    for function in declaration.functions() {
+        let structure = function.structure();
+        let (visibility, symbol) = declaration_metadata(
+            resolver,
+            &structure.vis,
+            &structure.attrs,
+            AttributeMacro::Constructor,
+        )?;
+        let constructor =
+            ConstructorDeclaration::from_item(structure.clone()).map_err(source_syntax)?;
+        let helpers = production_helpers(&structure.attrs, resolver)?;
+        push_function_invocations(
+            function.attribute(),
+            structure,
+            &constructor,
+            &visibility,
+            symbol.as_ref(),
+            &helpers,
+            output,
+        )?;
+    }
+    for equation in declaration.equations() {
+        let attribute =
+            krs_syntax::EquationAttribute::parse_tokens(equation.keys()).map_err(source_syntax)?;
+        push_equation_invocation(equation.item(), &attribute, output)?;
+    }
+    Ok(())
+}
+
+/// The path generated code names the facade by where the authored attribute `attribute`
+/// names it `<alias>::<entry>`: `::<alias>`, which is what rustc's expansion writes.
+fn generated_facade(attribute: &Attribute) -> syn::Path {
+    let alias = attribute
+        .path()
+        .segments
+        .first()
+        .map(|segment| segment.ident.clone());
+    syn::parse_quote!(::#alias)
 }
 
 /// The helper attributes of a production struct that its descriptors key
@@ -726,6 +793,13 @@ fn collect_enum_invocations(
             ParsedInvocationPayload::Declaration,
         )?);
     }
+    // The ends its variants declare follow the family, as in the macro's expansion.
+    for end in declaration
+        .ends(&generated_facade(invoking))
+        .map_err(source_syntax)?
+    {
+        push_end_invocations(&end, resolver, output)?;
+    }
     Ok(())
 }
 
@@ -793,6 +867,24 @@ fn collect_fn_invocations(
     resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
+    // `#[k::end(..)]` on a `fn` declares the items the shared parser lowers it to, which read
+    // the fn's remaining attributes.
+    if let Some(index) = item_fn
+        .attrs
+        .iter()
+        .position(|attribute| resolver.invokes(attribute, AttributeMacro::End))
+    {
+        let invoking = &item_fn.attrs[index];
+        let mut remaining = item_fn.clone();
+        remaining.attrs.remove(index);
+        let lowered = krs_syntax::EndDeclaration::lower_fn(
+            attribute_tokens(invoking)?,
+            remaining,
+            &generated_facade(invoking),
+        )
+        .map_err(source_syntax)?;
+        return push_end_invocations(&lowered, resolver, output);
+    }
     for attribute in item_fn
         .attrs
         .iter()

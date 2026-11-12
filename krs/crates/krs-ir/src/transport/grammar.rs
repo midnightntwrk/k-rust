@@ -861,6 +861,19 @@ stage_shape! {
             /// The stated reason, nonempty.
             reason: String => [keep],
         },
+        /// One of the two functions a declared end is emitted as (`#[k::end(..)]`).
+        End {
+            /// Class-word provenance.
+            key: ProvenanceKey => [keep],
+            /// The end's class.
+            class: crate::EndClass => [keep],
+            /// Which of the end's functions this is.
+            role: crate::EndRole => [keep],
+            /// The spelling the end was declared with.
+            form: crate::EndForm => [keep],
+            /// The declaring item's name.
+            item: String => [keep],
+        },
         /// Marks a constructor production as a one-way static desugar (K's `macro`).
         Desugar {
             /// Desugar-marker provenance.
@@ -2891,15 +2904,16 @@ impl StructuredRuleDescriptor {
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
     ) -> Result<(), GrammarTransportError> {
         // With a function context the list is mandatory and also declares
-        // the context's term binders, after the subject's (X5.1).
+        // the context's term binders, after the subject's (X5.1). A sentence
+        // that binds no name declares them all with no list.
         let mut expected = self.bindings.iter().map(String::as_str).collect::<Vec<_>>();
         if let Some(context) = &self.function_context {
-            if self.typed_bindings.is_empty() {
+            expected.extend(context.term_binding_names());
+            if self.typed_bindings.is_empty() && !expected.is_empty() {
                 return Err(GrammarTransportError::InvalidTerm(
                     GrammarTermReason::InvalidFunctionContext,
                 ));
             }
-            expected.extend(context.term_binding_names());
         }
         if self.typed_bindings.is_empty() {
             return Ok(());
@@ -3484,6 +3498,15 @@ impl DescriptorProduction {
                     }
                     "assumed"
                 }
+                DescriptorProductionAttribute::End { key, item, .. } => {
+                    require_key(key, provenance)?;
+                    if item.trim().is_empty() {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::EndWithoutItem,
+                        ));
+                    }
+                    "end"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3555,6 +3578,11 @@ impl DescriptorProduction {
         if families.contains("fresh_generator") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::FreshGeneratorWithoutFunction,
+            ));
+        }
+        if families.contains("end") && !families.contains("function") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::EndWithoutFunction,
             ));
         }
         if families.contains("underspecified") && !families.contains("total") {
@@ -4153,6 +4181,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Assumed { key, .. } => {
                     keys.define(key, ProvenanceRole::FunctionAssumed)?;
+                }
+                DescriptorProductionAttribute::End { key, .. } => {
+                    keys.define(key, ProvenanceRole::EndClass)?;
                 }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
                     keys.define(key, ProvenanceRole::FunctionSmtHook)?;

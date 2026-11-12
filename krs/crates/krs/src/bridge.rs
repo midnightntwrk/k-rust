@@ -11,6 +11,12 @@ use std::marker::PhantomData;
 
 use crate::{HostApplicationTarget, Term};
 
+/// `#[k::end(..)]`, re-exported here and not in `lib.rs`'s list of the `krs-macros` entry points:
+/// that file's bytes are part of every definition's emitted artifacts (the module documentation
+/// above), so an entry point added to its list would change the artifacts of every definition,
+/// including those that declare no end.
+pub use krs_macros::end;
+
 /// Rust-resolved metadata for an unqualified term head: the declaration a
 /// one-segment path names, as rustc resolves it in the author's scope.
 ///

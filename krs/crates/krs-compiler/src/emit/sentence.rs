@@ -202,11 +202,14 @@ fn emit_production(
                 .filter(|attribute| !matches!(attribute, ProductionAttribute::ListCons { .. })),
         );
     for attribute in attributes {
-        // Neither is a K attribute: documentation is a comment, and `assumed` is KRS's record
-        // of a totality it did not check.
+        // None is a K attribute: documentation is a comment, `assumed` is KRS's record of a
+        // totality it did not check, and the mark of a declared end's function is written as
+        // the function's configuration argument.
         if matches!(
             attribute,
-            ProductionAttribute::Documentation { .. } | ProductionAttribute::Assumed { .. }
+            ProductionAttribute::Documentation { .. }
+                | ProductionAttribute::Assumed { .. }
+                | ProductionAttribute::End { .. }
         ) {
             continue;
         }
@@ -227,8 +230,17 @@ fn emit_production_items(
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
+    // A declared end's function takes the whole configuration, its one K argument, written
+    // before the closing parenthesis of the function's syntax.
+    let configuration_argument = crate::ends::definition_mark(sentence)
+        .is_some()
+        .then(|| sentence.items().len().saturating_sub(1));
     for (index, item) in sentence.items().iter().enumerate() {
         if index != 0 {
+            writer.push(" ");
+        }
+        if configuration_argument == Some(index) {
+            writer.push(krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT);
             writer.push(" ");
         }
         let start = writer.source.len();
@@ -350,7 +362,11 @@ fn emit_production_attribute(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     match attribute {
-        ProductionAttribute::Documentation { .. } | ProductionAttribute::Assumed { .. } => {}
+        // The mark of a declared end's function is no K attribute: [`emit_production`] writes
+        // the function's configuration argument for it and skips it here.
+        ProductionAttribute::Documentation { .. }
+        | ProductionAttribute::Assumed { .. }
+        | ProductionAttribute::End { .. } => {}
         ProductionAttribute::Function { .. } => writer.push("function"),
         ProductionAttribute::Total { .. } => writer.push("total"),
         ProductionAttribute::Hook { operation, .. } => {
@@ -881,6 +897,10 @@ fn emit_rule(
             emit_rule_attributes(sentence, context, writer)?;
             record_claim_binders(sentence, &names, context, sentence_start, writer)?;
             Ok(())
+        }
+        // An equation of a declared end's function takes the configuration as its argument.
+        RuleBodyRef::Term(body) if end_function(body, context)?.is_some() => {
+            emit_end_equation(sentence, body, &names, context, sentence_start, writer)
         }
         RuleBodyRef::Term(body) => {
             writer.push("rule ");
@@ -1896,6 +1916,90 @@ fn emit_context_alias_cell(
     writer.push(">");
     writer.record(cell.origin().key(), start, writer.source.len())?;
     Ok(())
+}
+
+/// Writes an equation of a declared end's function. The function's one argument is the whole
+/// configuration, so the cells the equation reads are that argument's pattern, open to every
+/// cell it does not name; the equation with no cells takes any configuration.
+fn emit_end_equation(
+    sentence: &RuleSentence,
+    body: &krs_ir_levels::IrRewrite<krs_ir_levels::DefinitionLevel>,
+    names: &SentenceVariables,
+    context: &EmitContext<'_>,
+    sentence_start: usize,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    let function = end_function(body, context)?.ok_or_else(|| EmitError::UnsupportedShape {
+        node: "declared end",
+        detail: "the equation applies no end's function".to_owned(),
+    })?;
+    writer.push("rule ");
+    let head = writer.source.len();
+    writer.push(function);
+    writer.push(" ( ");
+    match sentence.function_context() {
+        Some(function_context) => {
+            writer.push("<generatedTop>");
+            let start = writer.source.len();
+            let cells = function_context.cells().cells();
+            emit_in_instances(
+                cells.iter().map(FixedCellPattern::cell),
+                context,
+                writer,
+                |index, indent, writer| {
+                    emit_function_context_cell(&cells[index], names, context, indent, writer)
+                },
+            )?;
+            writer.record(function_context.origin().key(), start, writer.source.len())?;
+            writer.push("\n    ... </generatedTop>");
+        }
+        None => writer.push("_"),
+    }
+    writer.push(" )");
+    writer.record(body.from().origin().key(), head, writer.source.len())?;
+    writer.push(" => ");
+    writer.append_rendered(render_term(body.to(), context, names, false)?)?;
+    writer.record(body.origin().key(), head, writer.source.len())?;
+    emit_requires(sentence, names, context, writer)?;
+    emit_ensures(sentence, names, context, writer)?;
+    emit_term_rule_attributes(sentence, names, context, writer)?;
+    record_claim_binders(sentence, names, context, sentence_start, writer)?;
+    Ok(())
+}
+
+/// The K name of the declared end's function whose equation `body` is: the leading terminal of
+/// the production its left side applies, where that production is marked as an end's.
+fn end_function<'c>(
+    body: &krs_ir_levels::IrRewrite<krs_ir_levels::DefinitionLevel>,
+    context: &'c EmitContext<'_>,
+) -> Result<Option<&'c str>, EmitError> {
+    if body.local_term().is_some() {
+        return Ok(None);
+    }
+    let DefinitionTermKind::Application {
+        application: krs_ir::ApplicationRef::Declared(symbol),
+        ..
+    } = body.from().kind()
+    else {
+        return Ok(None);
+    };
+    let production = context.production(symbol)?;
+    if crate::ends::definition_mark(production).is_none() {
+        return Ok(None);
+    }
+    production
+        .items()
+        .first()
+        .and_then(|item| match item.kind() {
+            GrammarProductionItemKind::Terminal { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .map(Some)
+        .ok_or_else(|| EmitError::UnsupportedShape {
+            node: "declared end",
+            detail: "an end's function is written as its name applied to the configuration"
+                .to_owned(),
+        })
 }
 
 /// One cell an equation's function context reads (KF-025):

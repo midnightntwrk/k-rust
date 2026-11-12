@@ -49,6 +49,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-end-board"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-end-core",
+]
+
+[[package]]
+name = "krs-configuration-cells-end-core"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-configuration-cells-end-small"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-end-core",
+]
+
+[[package]]
 name = "krs-configuration-cells-framing"
 version = "0.1.0"
 dependencies = [

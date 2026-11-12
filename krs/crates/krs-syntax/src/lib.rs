@@ -13,6 +13,7 @@ mod collection_literal;
 mod configuration;
 mod constant;
 mod descriptor;
+mod end;
 mod enum_constructor;
 mod error;
 mod function_shorthand;
@@ -47,12 +48,12 @@ pub use attribute::{
     ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributeKeys, CellAttributePayload,
     ClaimAttribute, ClaimBinder, ClaimModality, ConfigurationAttribute, ConstantAttribute,
     ConstructorAttribute, ConstructorsAttribute, ContextAliasAttribute, ContextAttribute,
-    DesugarAttribute, EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook,
-    FunctionSmt, FunctionTotality, InitAttribute, Marker, MatchRestriction, PlacementFlag,
-    PriorityAttribute, ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_ALIAS_CLAUSE,
-    REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute, SENTENCE_KEYS,
-    SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode,
-    StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
+    DesugarAttribute, EndMarker, EquationAttribute, ExistsAttribute, FunctionAttribute,
+    FunctionHook, FunctionSmt, FunctionTotality, InitAttribute, Marker, MatchRestriction,
+    PlacementFlag, PriorityAttribute, ProductionKeys, RECURSIVE_ON_CLAUSE,
+    REQUIRES_ON_ALIAS_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute,
+    SENTENCE_KEYS, SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem,
+    StaticMode, StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
     UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
     VariantSyntaxAttribute, default_function_syntax, misplaced_key, misplaced_key_named,
     validate_spec_module_name,
@@ -66,6 +67,10 @@ pub use constant::ConstantItem;
 pub use descriptor::{
     BracketDescriptor, ProductionAttribute, ProductionDescriptor, ProductionItem, RuleDescriptor,
     RuleSentence,
+};
+pub use end::{
+    EndAttribute, EndConstructorShape, EndDeclaration, EndEquation, EndFunction, end_item_name,
+    end_placement_error, end_placement_reason,
 };
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
@@ -131,7 +136,7 @@ pub use term::{
     TermTree, UnboundAlternative, is_constant_island_macro, is_island_macro, parse_fn_item,
     parse_lexeme_arguments, parse_matches_arguments, parse_sort_test_arguments,
 };
-pub use term_sort::TermSort;
+pub use term_sort::{TermSort, binder_sort_type};
 pub use trivia::{
     BlockCommentTrivia, DocCommentStyle, LineCommentTrivia, SourceRange, Trivia, TriviaAttachment,
     TriviaKind, TriviaTable, WhitespaceTrivia, lex_gaps,

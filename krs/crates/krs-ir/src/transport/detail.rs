@@ -215,6 +215,8 @@ details! {
         EmptySkippedOperandReason => "`skipped_operand` requires a nonempty reason",
         AssumedWithoutTotal => "`assumed` requires total function metadata",
         EmptyAssumedReason => "`assumed` requires a nonempty reason",
+        EndWithoutFunction => "a declared end's metadata requires function metadata",
+        EndWithoutItem => "a declared end's metadata names its declaring item",
         InvalidSmtlibSymbol => "an `smtlib` symbol is an SMT-LIB simple symbol",
         InvalidSmtTemplate => "an `smt_hook` template is nonempty text and placeholders that name nonterminal fields",
         ListMetadata => "syntactic-list metadata belongs on a constructor production without function, token, bracket, alias, or desugar metadata",

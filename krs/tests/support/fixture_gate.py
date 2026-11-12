@@ -29,6 +29,15 @@ its `hook` is the rule's `UNIQUE_ID`, a digest of the emitted rule, so the entry
 `<UNIQUE_ID> fresh-association` moves whenever that rule's text does (with the
 emitted artifact's digest), with no change in what the run marked.
 
+A program may also name declared ends (`Program.ends`): functions of the whole configuration
+that the definition emits for `#[k::end(..)]`, each with the sort of its value and the value
+expected at the program's final state. The Java route prints that state as KORE, and both
+routes then evaluate the function applied to it: the application stands as the one item of the
+state's computation cell, so the state each route ends with holds the value there (a function
+application is evaluated where it stands, and no rule rewrites a value). Both routes evaluate
+at the same state, the Java route's, which the run comparison shows equal to the native one in
+the cells it names.
+
 A fixture may pin a named divergence in its ledger's `known_divergences` table,
 with the native and Java outcomes recorded separately. The gate fails closed when
 either side changes, and when a pinned divergence disappears.
@@ -163,6 +172,13 @@ class Program:
     """When set, the native route requires `run` to be the whole final computation
     cell, as the Java route reads it from `krun`'s output, instead of its first
     item: for a run that stops with more than one item left."""
+    ends: tuple[tuple[str, str, str], ...] = ()
+    """Declared-end functions `(K label, K sort of its value, text)` evaluated at the final state.
+
+    The label is the function's symbol in the emitted K (`endHalt`, `endTrapReason`), the sort
+    that of its values (`Bool` for the function that says whether the end holds), and the text
+    the value both routes must compute, as the computation cell prints it. It is evaluated only
+    for a program with a `run` expectation."""
 
 
 @dataclass
@@ -381,6 +397,7 @@ class FixtureGate:
         java = self._java_outcomes(
             emitted, programs, sort=sort, search=search, attributes=attributes, kore=kore,
         )
+        self._native_ends(emitted, programs, native, java)
         if attributes is not None:
             self._compare_kore_attributes(emitted, attributes)
         if kore:
@@ -408,6 +425,8 @@ class FixtureGate:
                 expected["cells"] = dict(program.cells)
             if program.search is not None:
                 expected["search"] = sorted(program.search)
+            if program.ends and program.run is not None:
+                expected["ends"] = {label: text for label, _, text in program.ends}
             if routes["native"] != expected:
                 raise GateError(
                     f"{emitted.fixture.package} {program.name}: both routes observed "
@@ -432,6 +451,39 @@ class FixtureGate:
                     chosen[program.name] = session.take_chosen_values()
         self.pins.expect(("implementation_chosen", emitted.fixture.package), chosen)
         return outcomes
+
+    def _end_pattern(self, emitted: Emitted, program: str, label: str) -> Path:
+        return self.workspace / "ends" / emitted.fixture.package / f"{program}-{label}.kore"
+
+    def _native_ends(
+        self, emitted: Emitted, programs: Sequence[Program],
+        native: dict[str, dict[str, Any]], java: dict[str, dict[str, Any]],
+    ) -> None:
+        """Evaluate each program's declared ends natively, at the state the Java route ended with.
+
+        `_java_outcomes` wrote, for each end, the Java route's final state with the end's
+        function applied to it as the one item of its computation cell. The native route runs
+        from that pattern: the application is evaluated where it stands and no rule rewrites its
+        value, so the run ends with the value as the computation cell.
+        """
+
+        evaluated = [program for program in programs if program.ends and "ends" in java[program.name]]
+        if not evaluated:
+            return
+        with krs_gate.Session(self.gate, environment=self.environment) as session:
+            session.load(emitted.definition_ir, emitted.main_module)
+            for program in evaluated:
+                values: dict[str, str] = {}
+                for label, _, text in program.ends:
+                    pattern = self._end_pattern(emitted, program.name, label).read_text(encoding="utf-8")
+                    state = f"{program.name}#end#{label}"
+                    try:
+                        session.execute(pattern, keep=state)
+                        session.expect(state, "k", text=text)
+                        values[label] = text
+                    except GateError as error:
+                        values[label] = "differs: " + re.sub(r"^gate request \d+ failed: ", "", str(error))
+                native[program.name]["ends"] = values
 
     def _attribute_text(self, emitted: Emitted) -> Path:
         return self.workspace / "kore-attributes" / f"{emitted.fixture.package}.txt"
@@ -595,6 +647,26 @@ class FixtureGate:
                 outcomes[program.name] = {"parse": ACCEPTED, "run": java_run_outcome(executed)}
                 if program.cells:
                     outcomes[program.name]["cells"] = printed_cells(executed.stdout, program.cells)
+                if program.ends:
+                    final = k.run(
+                        f"krun-kore/{program.name}", "krun",
+                        ["--definition", compiled, "--output", "kore", *bindings, paths[program.name]],
+                        timeout=120,
+                    )
+                    if final.returncode != 0:
+                        raise GateError(f"{program.name}: krun --output kore failed:\n{final.stderr}")
+                    values: dict[str, str] = {}
+                    for label, value_sort, _ in program.ends:
+                        pattern = self._end_pattern(emitted, program.name, label)
+                        pattern.parent.mkdir(parents=True, exist_ok=True)
+                        pattern.write_text(end_application(final.stdout.strip(), label, value_sort) + "\n", encoding="utf-8")
+                        evaluated = k.run(
+                            f"krun-end/{program.name}-{label}", "krun",
+                            ["--definition", compiled, "--term", "--parser", "cat", pattern],
+                            timeout=120,
+                        )
+                        values[label] = java_run_outcome(evaluated)
+                    outcomes[program.name]["ends"] = values
             if program.search is not None:
                 if not search:
                     raise GateError(f"{program.name}: a search expectation needs compare(..., search=True)")
@@ -616,6 +688,33 @@ def printed_cells(printed: str, cells: Sequence[tuple[str, str]]) -> dict[str, s
         match = re.search(rf"<{re.escape(name)}>\s*(.*?)\s*</{re.escape(name)}>", printed, re.DOTALL)
         contents[name] = None if match is None else re.sub(r"\s+", " ", match.group(1)).strip()
     return contents
+
+
+_K_CELL_KORE = "Lbl'-LT-'k'-GT-'{}("
+
+
+def end_application(state: str, label: str, sort: str) -> str:
+    """`state`, a configuration in KORE text, with its computation cell holding one item: the
+    function `label` (a K label of letters and digits, whose values have the K sort `sort`)
+    applied to `state`.
+
+    The computation cell is the cell `<k>`, whose one argument is its K sequence.
+    """
+
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", label) or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", sort):
+        raise GateError(f"a declared end's label and sort are letters and digits: {label!r}, {sort!r}")
+    start = state.find(_K_CELL_KORE)
+    if start < 0 or state.find(_K_CELL_KORE, start + 1) >= 0:
+        raise GateError("the final state has no one computation cell `<k>`")
+    start += len(_K_CELL_KORE)
+    depth, end = 1, start
+    while depth:
+        if end >= len(state):
+            raise GateError("the final state's computation cell is not closed")
+        depth += {"(": 1, ")": -1}.get(state[end], 0)
+        end += 1
+    item = f"inj{{Sort{sort}{{}}, SortKItem{{}}}}(Lbl{label}{{}}({state}))"
+    return f"{state[:start]}kseq{{}}({item}, dotk{{}}()){state[end - 1:]}"
 
 
 def java_run_outcome(process: subprocess.CompletedProcess[str]) -> str:

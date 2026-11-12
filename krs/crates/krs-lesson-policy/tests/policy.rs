@@ -502,6 +502,22 @@ fn krs_facade_reexports_every_entry_point_under_its_own_name() {
             reexported.insert(name.ident.to_string());
         }
     }
+    // An entry point added after the facade's source became part of every definition's
+    // artifacts is re-exported from `bridge.rs`, which `lib.rs` re-exports whole.
+    let bridge =
+        syn::parse_file(include_str!("../../krs/src/bridge.rs")).expect("krs/src/bridge.rs parses");
+    for item in bridge.items {
+        if let syn::Item::Use(item) = item
+            && matches!(item.vis, syn::Visibility::Public(_))
+            && let syn::UseTree::Path(path) = &item.tree
+            && path.ident == "krs_macros"
+        {
+            let syn::UseTree::Name(name) = &*path.tree else {
+                panic!("krs re-exports krs_macros entries without renaming");
+            };
+            reexported.insert(name.ident.to_string());
+        }
+    }
     let expected: BTreeSet<String> = AttributeMacro::ALL
         .iter()
         .filter(|entry| !entry.is_reserved())

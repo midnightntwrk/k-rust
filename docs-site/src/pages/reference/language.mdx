@@ -25,6 +25,7 @@ It is not an alternate learning order: follow each link back to the chapter that
 | `#[k::function]`, `#[k::equation]` | total/partial functions and defining equations | [Static semantics](/semantics/static-semantics) |
 | `#[k::function]` on a `fn` | a function declared by its signature, and with a body its equations: one, or one per branch of an `if` or `match` | [Functions declared by a fn](#functions-declared-by-a-fn) |
 | `k::equations!` | a table of labelled equations of one function | [Equation tables](#equation-tables) |
+| `#[k::end(finished)]`, `#[k::end(refused)]` | a declared end: a set of states where the run is over, on a `fn` whose pattern is `k::cells!` or on a constructor; emitted as a total function of the whole configuration | [Declared ends](#declared-ends) |
 | `#[k::alias]`, `#[k::context_alias]` | reversible static aliases and named evaluation contexts | [Static semantics](/semantics/static-semantics) |
 | `#[k::context]` | an evaluation context, K's `context`: where evaluation may happen; K turns it into a heat rule and a cool rule | [Contexts](#contexts) |
 | `#[k::desugar]` | one-way static expansion, K's `macro`; with `recursive` on the production, `macro-rec` (and `#[k::alias(recursive)]` is `alias-rec`) | [Desugar and recursive aliases](#desugar-and-recursive-aliases) |
@@ -968,6 +969,85 @@ It refuses a result that has a value by a fact it does not read: a range it does
 `assumed` on a function the check accepts is a warning (`krs::analysis::stale-assumed`).
 Recursion is not judged: a recursive application is an application of a `total` function, so for a function in a call cycle the check shows totality given that the calls terminate.
 A hooked function, one with `smt_hook`, and one with no equation are not judged.
+
+### Declared ends
+
+An end is a set of states of the definition at which the definition says a run is over.
+Each end belongs to one of two classes: `finished`, or `refused`, which carries a reason.
+The classes are a closed set, so every tool reads an end's class alike.
+`#[k::end(finished)]` or `#[k::end(refused)]` declares one end, in one of two spellings.
+
+On a `fn`, the last parameter is a `k::cells!` pattern typed by the configuration struct or by a [cell group](#rules-for-a-cell-group) the configuration holds, framed by an anonymous `..`, as a [function context](#function-contexts) is.
+The end holds at every state the pattern matches under the fn's `#[k::requires]` conditions.
+The parameters before the pattern declare the names it binds, each `name: k::Term<Sort>`, in first-occurrence order.
+A `refused` end returns its reason, `-> k::Term<Sort>`, and its body is the reason's term over those names.
+A `finished` end has no result and an empty body.
+
+```rust
+/// A read of an address the memory does not map is refused, with the address.
+#[k::end(refused)]
+#[k::requires(!map::in_keys(addr, mem))]
+fn unmapped_read(
+    addr: Term<Int>,
+    mem: Term<Map>,
+    k::cells! {
+        lib::Core::k: k::configuration::KCell(lib::BusOp::Read { addr }, ..),
+        mem: k::configuration::Cell(mem),
+        ..
+    }: Small,
+) -> Term<Int> {
+    addr
+}
+
+/// Nothing is left to compute.
+#[k::end(finished)]
+pub fn drained(k::cells! { k: k::configuration::KCell(), .. }: Core) {}
+```
+
+On a constructor, the attribute is the shorthand for the states whose main computation cell starts with that constructor, whatever its arguments.
+The reason of a `refused` end declared this way is the constructor's term.
+It is written on a variant of a `#[k::constructors]` enum, or on a `#[k::constructor]` struct after that attribute.
+
+```rust
+#[k::constructors(sort = Instr, result = KResult)]
+pub enum Op {
+    #[k::end(finished)]
+    #[k::syntax("halt")] Halt(),
+    #[k::end(refused)]
+    #[k::syntax("trap ( {code} )")] Trap { code: Int },
+}
+```
+
+The shorthand names no cell: it reads the definition's main computation cell wherever the configuration places it, including the computation cell of a group the configuration holds.
+A constructor's end is the item named by the constructor's name in snake case, in the constructor's module: `Halt` declares `halt`, and `BadRead` declares `bad_read`.
+`krs expand` prints the shorthand as the `fn` it stands for, typed by the configuration, `#[k::end(finished)] pub fn halt(k::cells! { k: k::configuration::KCell(Op::Halt(), ..), .. }: crate::Machine) {}`, and the printed package emits the same K.
+
+An end is a statement about states and adds no condition to any rule: the definition's transitions are the same with and without it.
+So an end is declared where no rule applies: a state at which an end holds and a rule applies is not where the run is over.
+A refusal is stated, never inferred: a state where no rule applies and no end holds is in no class.
+A definition refuses some of its inputs by an end that holds at its initial state: the initializer writes an item that holds the inputs at the head of the computation cell, one rule replaces the item by the loaded state where the inputs are accepted, and `#[k::end(refused)]` on the item's constructor declares the state where they are not.
+
+Each end is emitted as a K function of one argument, the whole configuration.
+The function `end<Name>`, where `<Name>` is the item's name in upper camel case, is total and of sort `Bool`: `syntax Bool ::= "endHalt" "(" GeneratedTopCell ")" [symbol(endHalt), function, total]`.
+It has one equation whose result is `true`, the function applied to `<generatedTop> .. ... </generatedTop>` with the cells the end reads, under the end's conditions, and one `owise` equation whose result is `false`, so it is true exactly at the end's states.
+A `refused` end is also emitted as the partial function `end<Name>Reason`, of the reason's sort, whose one equation has the same left side and conditions: `rule endTrapReason ( <generatedTop> <k> trap ( Code:Int ) ... </k> ... </generatedTop> ) => trap ( Code:Int )`.
+The equations are labelled by the item (`halt`), by `<item>_otherwise` and by `<item>_reason`.
+The declaration therefore takes those three item names in its module, and the Rust names `End<Name>` and `End<Name>Reason`, which are the functions' structs: another item of one of those names is the Rust error a second declaration of a name is.
+
+The functions are applied by tools, to a whole configuration, and by no sentence of the definition.
+A rule, an equation, a context alias or the initializer that names one is refused (`krs::analysis::invalid-end`): a sentence that asked whether the state is an end would make the transitions depend on the classes.
+An end reads only cells that every state holds exactly once.
+A pattern that reads a cell inside an [optional cell or a cell collection](#optional-cells-and-cell-collections) is refused (`krs::analysis::invalid-end`), since the function has the configuration as its only argument and so no one instance to read; so is the shorthand in a definition whose main computation cell lies inside one, or that has no configuration or no one main computation cell.
+The attribute is refused on any other item (`krs::syntax::invalid-end`): on a function, which is evaluated away, on a parametric constructor, and on an `alias` or `desugar` production, which is expanded before anything runs.
+On a struct it is a constructor's helper, so it follows `#[k::constructor]` (`krs::expand::orphan-helper` otherwise).
+
+An end declared in the package of a cell group, on a `fn` typed by the group or on a constructor, is an end of every definition whose configuration holds the group, as the group's rules are its rules.
+It is one item in each of them, named by its Rust path under its crate's name (`lib::halt`).
+A containing definition adds its own ends, typed by its configuration, whose patterns name the group's cells through the group's struct.
+
+`krs emit-k` writes the table `ends.json` beside `definition.k` for a definition that declares an end, and no such file for one that declares none, whose artifacts are what they were.
+The table has the schema `krs-ends/1`, the sort of the functions' argument (`argument_sort`, `GeneratedTopCell`), and one entry per end: its `class`; its `item`, the Rust path with `crate::` for an item of the definition's root package and with its crate's name for an item of a dependency; the item's `package`, `module` and `name`; its `form`, `clause` for a `fn` and `constructor` for the shorthand; `holds`, the function that says whether the end holds, by its Definition IR `production`, its K `label` and its `kore` symbol; for a `refused` end `reason`, the reason's function alike with the `sort` of its values; and `origin`, the file and byte range of the declaration.
+Running a definition does not read the declaration yet: `krs run` reports the end of a run as it does for a definition that declares none.
 
 ### Coverage of total functions
 

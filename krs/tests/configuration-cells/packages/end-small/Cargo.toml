@@ -1,0 +1,22 @@
+[package]
+name = "krs-configuration-cells-end-small"
+description = "A definition that holds the group and declares an end of its own"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_end_small"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+end-core = { package = "krs-configuration-cells-end-core", path = "../end-core" }
+
+[package.metadata.krs]
+k-namespace = "KRS-END-SMALL"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -54,7 +54,7 @@ pub(super) fn remove_other_emitted<'a>(
     written: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), CommandError> {
     let written = written.into_iter().collect::<Vec<_>>();
-    for name in emitted_artifact_names(true, true) {
+    for name in emitted_artifact_names(true, true, true) {
         if name == ARTIFACT_MARKER_FILE || written.contains(&name) {
             continue;
         }

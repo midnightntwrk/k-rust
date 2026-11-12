@@ -413,6 +413,120 @@ impl<'a> Expansion<'a> {
         })
     }
 
+    /// Takes the `#[k::end(..)]` of the constructor `item` (a `#[k::constructor]` struct) or of
+    /// the variants of `item` (a `#[k::constructors]` enum), and returns the reference form of
+    /// each: the `#[k::end(..)]` fn whose `k::cells!` pattern holds the constructor at the head
+    /// of the definition's main computation cell, and whose result, for a `refused` end, is the
+    /// constructor's term. The fn is named as the shorthand's item is
+    /// ([`krs_syntax::end_item_name`]), so both spellings declare one item.
+    ///
+    /// # Errors
+    ///
+    /// [`ReferenceExpansionError::ConstructorEnd`] where the definition has no one main
+    /// computation cell to write: the shorthand names none, and the fn must.
+    fn materialize_constructor_ends(
+        &self,
+        item: &mut syn::Item,
+        package: PathScope<'_>,
+    ) -> Result<Vec<syn::Item>, ReferenceExpansionError> {
+        let mut found = Vec::new();
+        match item {
+            syn::Item::Struct(structure) if has_attribute(&structure.attrs, "constructor") => {
+                if let Some(end) = take_end_helper(&mut structure.attrs)? {
+                    let name = structure.ident.clone();
+                    found.push((
+                        end,
+                        structure.vis.clone(),
+                        name.clone(),
+                        quote!(#name),
+                        structure.fields.clone(),
+                    ));
+                }
+            }
+            syn::Item::Enum(family) if has_attribute(&family.attrs, "constructors") => {
+                let owner = family.ident.clone();
+                for variant in &mut family.variants {
+                    if let Some(end) = take_end_helper(&mut variant.attrs)? {
+                        let name = variant.ident.clone();
+                        found.push((
+                            end,
+                            family.vis.clone(),
+                            name.clone(),
+                            quote!(#owner::#name),
+                            variant.fields.clone(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        if found.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (configuration, cell) = self
+            .bundle
+            .descriptors()
+            .iter()
+            .find_map(|descriptor| match descriptor.payload() {
+                DescriptorPayload::FixedConfiguration(configuration) => {
+                    Some((descriptor.id(), configuration.main_cell().cell()))
+                }
+                _ => None,
+            })
+            .and_then(|(configuration, cell)| Some((configuration, cell?)))
+            .ok_or(ReferenceExpansionError::ConstructorEnd)?;
+        let configuration_type = render_declared_path(configuration, package)?;
+        let cell = render_rule_cell_field(&cell.cell, configuration, package)?;
+        found
+            .into_iter()
+            .map(|(end, visibility, name, application, fields)| {
+                let function = rust_ident(&krs_syntax::end_item_name(&name.unraw().to_string()))?;
+                let word = end.word();
+                let (binders, pattern) = match &fields {
+                    syn::Fields::Unit => (Vec::new(), application),
+                    syn::Fields::Unnamed(_) => (Vec::new(), quote!(#application())),
+                    syn::Fields::Named(record) => {
+                        let bound = record
+                            .named
+                            .iter()
+                            .filter_map(|field| field.ident.clone())
+                            .collect::<Vec<_>>();
+                        let binders = record
+                            .named
+                            .iter()
+                            .filter_map(|field| {
+                                let name = field.ident.as_ref()?;
+                                // A binder names only its sort: a collection's element types
+                                // are the field's.
+                                let sort = krs_syntax::binder_sort_type(&field.ty);
+                                Some(quote!(#name: #sort))
+                            })
+                            .collect::<Vec<_>>();
+                        (binders, quote!(#application { #(#bound),* }))
+                    }
+                };
+                let sort = constructor_sort(item, &name)?;
+                let (result, body) = match end.class() {
+                    krs_ir::EndClass::Finished => (TokenStream::new(), TokenStream::new()),
+                    krs_ir::EndClass::Refused => (quote!(-> k::Term<#sort>), pattern.clone()),
+                };
+                syn::parse2(quote! {
+                    #[k::end(#word)]
+                    #visibility fn #function(
+                        #(#binders,)*
+                        k::cells! {
+                            #cell: k::configuration::KCell(#pattern, ..),
+                            ..
+                        }: #configuration_type,
+                    ) #result {
+                        #body
+                    }
+                })
+                .map_err(ReferenceExpansionError::GeneratedRust)
+            })
+            .collect()
+    }
+
     /// `file`, the module `module_path`'s file, printed, and whether its items changed.
     fn file(
         &self,
@@ -604,6 +718,9 @@ impl<'a> Expansion<'a> {
                     semantic_rules,
                 )?;
             }
+            // A constructor's `#[k::end(..)]` is written as the `fn` it stands for, after the
+            // constructor's item.
+            let trailing_ends = self.materialize_constructor_ends(&mut item, package)?;
             if let syn::Item::Struct(item_struct) = &mut item {
                 materialize_configuration_wrappers(item_struct)?;
                 materialize_constructor_flags(item_struct);
@@ -635,6 +752,7 @@ impl<'a> Expansion<'a> {
                 items.extend(
                     trailing_enum_grammar
                         .into_iter()
+                        .chain(trailing_ends)
                         .map(|grammar| with_attributes(grammar, &conditions)),
                 );
                 continue;
@@ -2187,6 +2305,48 @@ fn qualify_reference_initializer_state_macro(
     expression.mac.path =
         syn::parse2(quote!(k::#name)).map_err(ReferenceExpansionError::GeneratedRust)?;
     Ok(())
+}
+
+/// The sort the constructor `name` of `item` constructs, as its attribute writes it.
+fn constructor_sort(item: &syn::Item, name: &Ident) -> Result<syn::Path, ReferenceExpansionError> {
+    let (attributes, entry) = match item {
+        syn::Item::Struct(structure) => (&structure.attrs, "constructor"),
+        syn::Item::Enum(family) => (&family.attrs, "constructors"),
+        _ => return Err(ReferenceExpansionError::ConstructorEnd),
+    };
+    let attribute = attributes
+        .iter()
+        .find(|attribute| attribute_is(attribute, entry))
+        .ok_or(ReferenceExpansionError::ConstructorEnd)?;
+    let tokens = match &attribute.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => TokenStream::new(),
+    };
+    let sort = if entry == "constructor" {
+        krs_syntax::ConstructorAttribute::parse_tokens(tokens).map(|attribute| attribute.sort)
+    } else {
+        krs_syntax::ConstructorsAttribute::parse_tokens(tokens)
+            .map(|attribute| attribute.sort().clone())
+    };
+    sort.map_err(|error| {
+        ReferenceExpansionError::GeneratedRust(syn::Error::new(name.span(), error.to_string()))
+    })
+}
+
+/// Takes the `#[k::end(..)]` helper out of a constructor's attributes.
+fn take_end_helper(
+    attributes: &mut Vec<syn::Attribute>,
+) -> Result<Option<krs_syntax::EndAttribute>, ReferenceExpansionError> {
+    let Some(index) = attributes
+        .iter()
+        .position(|attribute| attribute_is(attribute, "end"))
+    else {
+        return Ok(None);
+    };
+    let attribute = attributes.remove(index);
+    krs_syntax::EndAttribute::parse_helper(&attribute)
+        .map(Some)
+        .map_err(ReferenceExpansionError::KrsSyntax)
 }
 
 fn has_attribute(attributes: &[syn::Attribute], name: &str) -> bool {
@@ -5475,6 +5635,9 @@ pub enum ReferenceExpansionError {
     MissingSemanticRule(Box<StableItemId>),
     /// Lowering kept no elaborated `cells!` rule for a collected readable rule.
     MissingPrintedRule(Box<StableItemId>),
+    /// A constructor declares an end and the definition has no one main computation cell,
+    /// which the end's `fn` would name.
+    ConstructorEnd,
     /// An item of a package the printed package does not depend on directly, to which the
     /// printed clause writes no path the long form can print (`WrittenPaths`).
     ExternalDeclaration(Box<StableItemId>),
@@ -5561,6 +5724,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::MissingConstructorField { .. } => codes::reference::MISSING_CONSTRUCTOR_FIELD,
             Self::MissingSemanticRule(_) => codes::reference::MISSING_SEMANTIC_RULE,
             Self::MissingPrintedRule(_) => codes::reference::MISSING_PRINTED_RULE,
+            Self::ConstructorEnd => codes::analysis::INVALID_END,
             Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
             Self::DependencyPath { .. } => codes::reference::DEPENDENCY_PATH,
             Self::PrivateModule { .. } => codes::reference::PRIVATE_MODULE,
@@ -5582,6 +5746,9 @@ impl ToDiagnostic for ReferenceExpansionError {
         Diagnostic::error(code, self.to_string(), Location::None)
     }
 }
+
+/// Why a constructor's end cannot be printed as its `fn`.
+const CONSTRUCTOR_END: &str = "`#[k::end(..)]` on a constructor declares the states whose main computation cell starts with it, and this definition has no one main computation cell to write in the end's `fn`";
 
 impl fmt::Display for ReferenceExpansionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -5630,6 +5797,7 @@ impl fmt::Display for ReferenceExpansionError {
                     "readable rule {id} has no elaborated `cells!` rule to print"
                 )
             }
+            Self::ConstructorEnd => formatter.write_str(CONSTRUCTOR_END),
             Self::ExternalDeclaration(item) => write!(
                 formatter,
                 "cannot print a path to {item}: its package is no direct dependency of the printed package, so the source has no crate name for it, and the clause writes no path to it that the long form can print (a path of one name that no one `use` of the module binds, or a path a glob of the block may reach); name it in the clause by a path through the dependency that re-exports it (`dep::Item`), or depend on its package"
@@ -5700,6 +5868,7 @@ impl Error for ReferenceExpansionError {
             | Self::MissingConstructorField { .. }
             | Self::MissingSemanticRule(_)
             | Self::MissingPrintedRule(_)
+            | Self::ConstructorEnd
             | Self::ExternalDeclaration(_)
             | Self::DependencyPath { .. }
             | Self::PrivateModule { .. }

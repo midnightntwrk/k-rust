@@ -138,6 +138,32 @@ the outcomes must agree:
   reaches one final state on both routes. `krs expand` prints its rules for
   `Cluster` and for `Hart` as `cells!` rules typed by the group, as it prints
   every rule for a group, and the print emits the readable K;
+- `end-core`, `end-small` and `end-board`: declared ends. `end-core` declares the group
+  `Core` and four ends of every definition that holds it: `#[k::end(finished)]` on the
+  constructor `halt` and `#[k::end(refused)]` on `trap ( code )`, each the states whose main
+  computation cell starts with the constructor, and the fns `drained` (`finished`: the
+  computation is empty) and `overflow` (`refused`, with the accumulator: `inc` applies only
+  below 3), typed by the group. `end-small` holds the group beside a memory and adds
+  `unmapped_read`, a fn typed by its configuration with a condition and the address as its
+  reason, and `#[k::end(refused)]` on the enum variant `guarded ( addr )`; `end-board` holds
+  it beside a timer and adds `#[k::end(refused)]` on the struct constructor
+  `boot ( rom , pgm )`, the item its computation starts with, which the rule `accept` consumes
+  only when the ROM number is not negative: an input the board does not accept is at a
+  `refused` end after no step. Each end is emitted as a total function of the whole
+  configuration, `syntax Bool ::= "endHalt" "(" GeneratedTopCell ")" [.., function, total]`,
+  with one equation per clause whose result is `true`, the function applied to
+  `<generatedTop> .. ... </generatedTop>` with the cells the clause reads, and an `owise`
+  equation whose result is `false`; a `refused` end also as a partial function of its reason's
+  sort with the clause's left side. Both definitions emit the library's modules with the same
+  text, apart from the configuration module the main one imports, and write `ends.json`, in
+  which the group's ends have the same items (`end_core::halt`, ..) and the same functions in
+  both; a definition that declares no end writes none. `krs expand` prints each
+  `#[k::end(..)]` on a constructor of the printed package as the `#[k::end(..)]` fn typed by
+  the configuration, and the printed package emits the same K. Each program ends with the same
+  cells on both routes, each end function has the same value at that state on both routes
+  (true at the states of its clauses and false at the others, the reason where it is true),
+  and both routes compile the same `definition.kore`. A `load` of an address the board cannot
+  answer is stuck where every end function is false;
 - negative fixtures: a rule without the computation cell whose only pattern
   is an unguarded variable (`krs::analysis::always-enabled-rule`), one
   that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
@@ -150,8 +176,11 @@ the outcomes must agree:
   field without `multiplicity = "?"`, a `None` template, `..ghost` naming no
   labelled instance, braces on a List collection, one List rule changing
   both ends, a created Map instance without its key, a stream cell inside
-  a `?` group, and a `?` template that reads a configuration variable
-  written `k::absent!(..)`;
+  a `?` group, a `?` template that reads a configuration variable
+  written `k::absent!(..)`, a rule that names the function a declared end is
+  emitted as, an end whose pattern reads a cell of a Map collection's instance
+  (each `krs::analysis::invalid-end`), and `#[k::end(..)]` on a function
+  (`krs::syntax::invalid-end`);
 - `optional-config-var-initial`: the same `?` cell written `Some(start)` is
   accepted without a warning and starts present on both routes, holding
   `$START`: from `-cSTART=3`, `go 2` writes 5 to the computation cell
@@ -571,6 +600,135 @@ GROUP_CORE_CELLS = (
     "    </core>\n"
 )
 
+END_CORE = "krs-configuration-cells-end-core"
+END_SMALL = Fixture(MANIFEST, "krs-configuration-cells-end-small", dependencies=(f"{END_CORE}:main",))
+END_BOARD = Fixture(MANIFEST, "krs-configuration-cells-end-board", dependencies=(f"{END_CORE}:main",))
+END_MODULE = "KRS-END-CORE"
+# The functions of the group's ends, each `false` unless a program says otherwise: the function
+# that says whether the end holds is total, so it has a value at every state.
+END_CORE_HOLDS = ("endHalt", "endTrap", "endDrained", "endOverflow")
+
+
+def end_values(holds: tuple[str, ...], true: tuple[str, ...], reasons: tuple[tuple[str, str, str], ...] = ()):
+    """The ends of one program: each function of `holds` is `true` if named in `true` and `false`
+    otherwise, and each reason `(label, sort, text)` has the text as its value."""
+
+    return (
+        *((label, "Bool", "true" if label in true else "false") for label in holds),
+        *reasons,
+    )
+
+
+END_SMALL_HOLDS = (*END_CORE_HOLDS, "endUnmappedRead", "endGuarded")
+END_BOARD_HOLDS = (*END_CORE_HOLDS, "endBoot")
+# Each program of `Small`: the whole computation cell it ends with, its other cells, and the
+# ends that hold there. `mapped` reads the address the memory maps; `unmapped` and `guarded` read
+# addresses it does not, the second the guarded one, at which a rule applies.
+END_SMALL_PROGRAMS = tuple(
+    Program(name, text, "accepted", run, cells=cells, whole=True, ends=end_values(END_SMALL_HOLDS, true, reasons))
+    for name, text, run, cells, true, reasons in (
+        ("halt", "inc ; halt ; done", "halt ~> done", (("pc", "1"), ("acc", "1")), ("endHalt",), ()),
+        (
+            "trap", "trap ( 7 ) ; done", "trap ( 7 ) ~> done", (("pc", "0"), ("acc", "0")),
+            ("endTrap",), (("endTrapReason", "Instr", "trap ( 7 )"),),
+        ),
+        ("drained", "inc ; done", ".K", (("pc", "1"), ("acc", "1")), ("endDrained",), ()),
+        (
+            "overflow", "inc ; inc ; inc ; inc ; done", "inc ~> done", (("pc", "3"), ("acc", "3")),
+            ("endOverflow",), (("endOverflowReason", "Int", "3"),),
+        ),
+        ("mapped", "load ( 7 ) ; done", ".K", (("pc", "1"), ("acc", "2")), ("endDrained",), ()),
+        (
+            "unmapped", "load ( 9 ) ; done", "busRead ( 9 ) ~> done", (("pc", "1"), ("acc", "0")),
+            ("endUnmappedRead",), (("endUnmappedReadReason", "Int", "9"),),
+        ),
+        (
+            "guarded", "load ( 13 ) ; done", "guarded ( 13 ) ~> done", (("pc", "1"), ("acc", "0")),
+            ("endGuarded",), (("endGuardedReason", "Fault", "guarded ( 13 )"),),
+        ),
+    )
+)
+# Each program of `Board` with its ROM number. `refused-input` is at the end `boot` at its
+# initial state: no step ran, and the timer and the counters hold what the initializer wrote.
+# `gap` is stuck at a read the board has no memory to answer, where no end holds.
+END_BOARD_PROGRAMS = tuple(
+    Program(
+        name, text, "accepted", run, cells=cells, whole=True, variables=(("ROM", rom),),
+        ends=end_values(END_BOARD_HOLDS, true, reasons),
+    )
+    for name, rom, text, run, cells, true, reasons in (
+        (
+            "refused-input", "-1", "inc ; done", "boot ( -1 , inc ; done )",
+            (("pc", "0"), ("acc", "0"), ("timer", "0")),
+            ("endBoot",), (("endBootReason", "Start", "boot ( -1 , inc ; done )"),),
+        ),
+        (
+            "accepted", "5", "inc ; halt ; done", "halt ~> done",
+            (("pc", "1"), ("acc", "1"), ("timer", "5")), ("endHalt",), (),
+        ),
+        (
+            "trap", "0", "inc ; trap ( 2 ) ; done", "trap ( 2 ) ~> done",
+            (("pc", "1"), ("acc", "1"), ("timer", "0")),
+            ("endTrap",), (("endTrapReason", "Instr", "trap ( 2 )"),),
+        ),
+        (
+            "gap", "0", "load ( 9 ) ; done", "busRead ( 9 ) ~> done",
+            (("pc", "1"), ("acc", "0"), ("timer", "0")), (), (),
+        ),
+    )
+)
+# The group's ends as each definition's `ends.json` names them, and each definition's own.
+END_CORE_ENDS = (
+    ("finished", "end_core::drained", "clause", "endDrained", None),
+    ("finished", "end_core::halt", "constructor", "endHalt", None),
+    ("refused", "end_core::overflow", "clause", "endOverflow", ("endOverflowReason", "Int")),
+    ("refused", "end_core::trap", "constructor", "endTrap", ("endTrapReason", "Instr")),
+)
+END_OWN_ENDS = {
+    "krs-configuration-cells-end-small": (
+        ("refused", "crate::guarded", "constructor", "endGuarded", ("endGuardedReason", "Fault")),
+        ("refused", "crate::unmapped_read", "clause", "endUnmappedRead", ("endUnmappedReadReason", "Int")),
+    ),
+    "krs-configuration-cells-end-board": (
+        ("refused", "crate::boot", "constructor", "endBoot", ("endBootReason", "Start")),
+    ),
+}
+# What the emitted K writes for an end: its total function of the configuration, its clause
+# over the open configuration, and the equation that makes it false elsewhere; and a refused
+# end's reason, with the clause's left side.
+END_K = (
+    '  syntax Bool ::= "endHalt" "(" GeneratedTopCell ")" [symbol(endHalt), function, total]\n',
+    "  rule endHalt ( <generatedTop>\n"
+    "    <k> halt ... </k>\n"
+    "    ... </generatedTop> ) => true [label(krs_end_core--halt)]\n",
+    "  rule endHalt ( _ ) => false [owise, label(krs_end_core--halt_otherwise)]\n",
+    '  syntax Int ::= "endOverflowReason" "(" GeneratedTopCell ")" [symbol(endOverflowReason), function]\n',
+    "  rule endOverflow ( <generatedTop>\n"
+    "    <k> inc ... </k>\n"
+    "    <acc> Acc:Int </acc>\n"
+    "    ... </generatedTop> ) => true\n"
+    "    requires 3 <=Int Acc:Int [label(krs_end_core--overflow)]\n",
+    "  rule endOverflowReason ( <generatedTop>\n"
+    "    <k> inc ... </k>\n"
+    "    <acc> Acc:Int </acc>\n"
+    "    ... </generatedTop> ) => Acc:Int\n"
+    "    requires 3 <=Int Acc:Int [label(krs_end_core--overflow_reason)]\n",
+)
+# What `krs expand` prints for `#[k::end(refused)]` on the struct constructor `Boot`: the
+# reference form, typed by the configuration, naming the group's computation cell.
+END_BOARD_EXPANSION = (
+    "#[k::end(refused)]\n"
+    "pub fn boot(\n"
+    "    rom: k::Term<Int>,\n"
+    "    pgm: k::Term<end_core::Prog>,\n"
+    "    k::cells! {\n"
+    "        ::end_core::Core::k : k::configuration::KCell(Boot { rom, pgm }, ..), ..\n"
+    "    }: crate::Board,\n"
+    ") -> k::Term<Start> {\n"
+    "    Boot { rom, pgm }\n"
+    "}\n"
+)
+
 GROUP_BOOT_ROM = "krs-configuration-cells-group-boot-rom"
 GROUP_BOOT = Fixture(
     MANIFEST, "krs-configuration-cells-group-boot-board",
@@ -772,6 +930,9 @@ NEGATIVE = (
     "map-created-without-key",
     "stream-in-optional",
     "optional-config-var",
+    "end-named-by-rule",
+    "end-in-collection",
+    "end-on-function",
 )
 
 # Accepted: a `?` cell that reads a configuration variable, written `Some(..)`.
@@ -940,6 +1101,59 @@ def verify_group(harness: FixtureGate) -> None:
         )
 
 
+def end_rows(table: dict) -> tuple:
+    """An `ends.json` table's ends as `(class, item, form, holds label, (reason label, sort))`."""
+
+    return tuple(
+        (
+            end["class"], end["item"], end["form"], end["holds"]["label"],
+            (end["reason"]["label"], end["reason"]["sort"]) if "reason" in end else None,
+        )
+        for end in table["ends"]
+    )
+
+
+def verify_ends(harness: FixtureGate) -> None:
+    """Each declared end is a total function of the configuration on both routes, a group's ends
+    are one item in every holder, and only a declaring definition writes `ends.json`."""
+
+    library = {}
+    tables = {}
+    for fixture, configuration, programs in (
+        (END_SMALL, "KRS-END-SMALL-CONFIGURATION", END_SMALL_PROGRAMS),
+        (END_BOARD, "KRS-END-BOARD-CONFIGURATION", END_BOARD_PROGRAMS),
+    ):
+        harness.check(fixture)
+        expansion = harness.expand(fixture)
+        if fixture is END_BOARD and END_BOARD_EXPANSION not in expansion:
+            raise GateError(f"{fixture.package}: krs expand does not print the constructor's end as its fn:\n{expansion}")
+        if "#[k::end(refused)]\npub struct" in expansion or "#[k::end(refused)]\n    #[k::syntax" in expansion:
+            raise GateError(f"{fixture.package}: krs expand left an end on a constructor:\n{expansion}")
+        emitted = harness.emit(fixture)
+        source = emitted.source.read_text(encoding="utf-8")
+        library[fixture.package] = library_modules(source, configuration, END_MODULE)
+        for text in END_K:
+            if text not in library[fixture.package][END_MODULE]:
+                raise GateError(f"{fixture.package}: the emitted K does not hold\n{text}in:\n{source}")
+        table = json.loads((emitted.directory / "ends.json").read_text(encoding="utf-8"))
+        if table.get("schema") != "krs-ends/1" or table.get("argument_sort") != "GeneratedTopCell":
+            raise GateError(f"{fixture.package}: ends.json is not a krs-ends/1 table:\n{table}")
+        rows = end_rows(table)
+        expected = tuple(sorted((*END_CORE_ENDS, *END_OWN_ENDS[fixture.package]), key=lambda row: row[1]))
+        if tuple(sorted(rows, key=lambda row: row[1])) != expected:
+            raise GateError(f"{fixture.package}: ends.json declares {rows}, not {expected}")
+        tables[fixture.package] = [end for end in table["ends"] if end["package"] == END_CORE]
+        harness.compare(emitted, programs, sort="Prog", kore=True)
+    if library[END_SMALL.package] != library[END_BOARD.package]:
+        raise GateError("the group's modules differ between its definitions:\n" + json.dumps(library, indent=2))
+    if tables[END_SMALL.package] != tables[END_BOARD.package]:
+        raise GateError("the group's ends differ between its definitions:\n" + json.dumps(tables, indent=2))
+    # A definition that declares no end writes no table.
+    for package in (GROUP_SMALL.package, GROUP_BOARD.package):
+        if (harness.workspace / "emitted" / package / "ends.json").exists():
+            raise GateError(f"{package}: a definition that declares no end wrote ends.json")
+
+
 def verify_group_boot(harness: FixtureGate) -> None:
     """The configuration module declares the productions the initializer names, their equations
     stay in their packages' modules, and both routes start from the state they compute."""
@@ -1091,6 +1305,13 @@ def main() -> int:
         print(
             "PASS group-slot: the configuration module holds the subsort sentences its configuration's typing "
             "reads, into Map and List; both routes start from the same state"
+        )
+
+        verify_ends(harness)
+        print(
+            "PASS ends: each declared end is a total function of the configuration, true exactly at its "
+            "states on both routes; the group's ends are one item in both holders, and ends.json is "
+            "written only by a definition that declares an end"
         )
 
         verify_group_harts(harness)

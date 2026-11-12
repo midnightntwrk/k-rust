@@ -820,6 +820,9 @@ fn registry() -> Registry {
     trace!(IntLiterals: IntLiterals);
     trace!(RawKProfile: RawKProfile);
     trace!(RawSentenceKind: RawSentenceKind);
+    trace!(EndClass: krs_ir::EndClass);
+    trace!(EndRole: krs_ir::EndRole);
+    trace!(EndForm: krs_ir::EndForm);
     trace!(ModuleRole: ModuleRole);
     trace!(PackageSettings: PackageSettings);
     trace!(TimingsDocument: TimingsDocument);

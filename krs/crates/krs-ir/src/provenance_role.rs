@@ -600,6 +600,8 @@ provenance_roles! {
     /// Complete `map![k -> v, ..]` map pattern (K's `(K |-> V) REST`) in a
     /// left-hand side: a map's entries and rest matched where a term stands.
     PatternMap => "pattern_map",
+    /// The class word of `#[k::end(..)]`, on a declared end's function productions.
+    EndClass => "end_class",
 }
 
 impl Serialize for ProvenanceRole {

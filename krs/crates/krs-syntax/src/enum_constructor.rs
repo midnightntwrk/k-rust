@@ -114,6 +114,9 @@ pub struct EnumConstructorVariant {
     precedence_group: Option<usize>,
     precedence_member_range: Option<TokenRange>,
     explicit_symbol: Option<SymbolAttribute>,
+    /// The variant's `#[k::end(..)]`: the end it declares as the head of the main computation
+    /// cell.
+    end: Option<crate::EndAttribute>,
     /// The enum's `#[k::cons_list]` marker, on its cons variant (F6).
     cons_list_range: Option<TokenRange>,
     sort_key: Option<ProvenanceKey>,
@@ -279,6 +282,12 @@ impl EnumConstructorVariant {
     #[must_use]
     pub const fn syntax(&self) -> Option<&VariantSyntaxAttribute> {
         self.syntax.as_ref()
+    }
+
+    /// The variant's `#[k::end(..)]`, when it declares an end.
+    #[must_use]
+    pub const fn end(&self) -> Option<&crate::EndAttribute> {
+        self.end.as_ref()
     }
 
     /// Returns inherited readable strictness metadata, when present.
@@ -553,6 +562,19 @@ impl EnumConstructorDeclaration {
                 }),
                 None => None,
             };
+            if let (Some(end), Some(marker)) = (&helpers.end, &helpers.static_marker) {
+                return Err(crate::end_placement_error(
+                    match marker.attribute.mode() {
+                        StaticMode::Alias => {
+                            "an `alias` production, which is expanded before anything runs and so heads no state"
+                        }
+                        StaticMode::Desugar => {
+                            "a `desugar` production, which is expanded before anything runs and so heads no state"
+                        }
+                    },
+                    end.word().span(),
+                ));
+            }
             variants.push(EnumConstructorVariant {
                 variant: variant.clone(),
                 fields,
@@ -564,6 +586,7 @@ impl EnumConstructorDeclaration {
                 precedence_group: None,
                 precedence_member_range: None,
                 explicit_symbol: helpers.symbol,
+                end: helpers.end,
                 cons_list_range: None,
                 sort_key: None,
                 key: None,
@@ -730,6 +753,53 @@ impl EnumConstructorDeclaration {
     #[must_use]
     pub const fn sort(&self) -> &Path {
         &self.sort
+    }
+
+    /// The ends the family's variants declare with `#[k::end(..)]`, each lowered to its
+    /// functions and equations; `facade` is the path generated code names the `krs` facade by.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`crate::EndDeclaration::lower_constructor`].
+    pub fn ends(&self, facade: &Path) -> Result<Vec<crate::EndDeclaration>, SyntaxError> {
+        let family = &self.item.ident;
+        self.variants
+            .iter()
+            .filter_map(|variant| variant.end.as_ref().map(|end| (variant, end)))
+            .map(|(variant, end)| {
+                let name = &variant.variant.ident;
+                let shape = match &variant.variant.fields {
+                    Fields::Unit => crate::EndConstructorShape::Unit,
+                    Fields::Unnamed(_) => crate::EndConstructorShape::Call,
+                    Fields::Named(_) => crate::EndConstructorShape::Record(
+                        variant
+                            .fields
+                            .iter()
+                            .map(|field| field.name().clone())
+                            .collect(),
+                    ),
+                };
+                let cfg = variant
+                    .variant
+                    .attrs
+                    .iter()
+                    .chain(&self.item.attrs)
+                    .filter(|attribute| attribute.path().is_ident("cfg"))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                crate::EndDeclaration::lower_constructor(
+                    end,
+                    (&self.item.vis, name),
+                    // The variant's path, every token at the variant's name: a key names a
+                    // pattern by the range of its tokens, and the enum's name stands elsewhere.
+                    &crate::end::at(quote::quote!(#family::#name), name.span()),
+                    &shape,
+                    &self.sort,
+                    &cfg,
+                    facade,
+                )
+            })
+            .collect()
     }
 
     /// Returns constructor variants in Rust declaration order.
@@ -1226,6 +1296,7 @@ struct VariantHelpers {
     strictness: Option<VariantStrictness>,
     static_marker: Option<VariantStaticMarker>,
     symbol: Option<SymbolAttribute>,
+    end: Option<crate::EndAttribute>,
 }
 
 /// A variant's `#[k::alias]` or `#[k::desugar]` marker (KF-028).
@@ -1288,6 +1359,8 @@ fn take_variant_helpers(
             helpers.syntax = Some(VariantSyntaxAttribute::parse_tokens(list.tokens.clone())?);
         } else if is_helper_named(&attribute, "symbol") {
             helpers.symbol = Some(variant_symbol(&attribute, helpers.symbol.is_some())?);
+        } else if is_helper_named(&attribute, "end") {
+            helpers.end = Some(variant_end(&attribute, helpers.end.is_some())?);
         } else if is_helper_named(&attribute, "format") {
             if helpers.format.is_some() {
                 return Err(unsupported_enum(
@@ -1365,6 +1438,17 @@ fn take_variant_helpers(
     }
     *attributes = retained;
     Ok(helpers)
+}
+
+/// A variant's `#[k::end(..)]` helper; `duplicate` when the variant already carries one.
+fn variant_end(attribute: &Attribute, duplicate: bool) -> Result<crate::EndAttribute, SyntaxError> {
+    if duplicate {
+        return Err(unsupported_enum(
+            "a constructor declares one end: a variant may carry only one `#[k::end]`",
+            attribute.span(),
+        ));
+    }
+    crate::EndAttribute::parse_helper(attribute)
 }
 
 /// A variant's `#[k::symbol("path::Name")]` helper; `duplicate` when the

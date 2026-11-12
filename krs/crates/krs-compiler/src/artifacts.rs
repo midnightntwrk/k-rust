@@ -14,6 +14,8 @@ pub const DEFINITION_IR_ARTIFACT: &str = "definition-ir.json";
 pub const SYMBOLS_ARTIFACT: &str = "symbols.json";
 /// The compiler source sidecar artifact.
 pub const SOURCES_ARTIFACT: &str = "sources.json";
+/// The table of the ends a definition declares, written only where it declares one.
+pub const ENDS_ARTIFACT: &str = "ends.json";
 /// The directory ownership marker filename.
 pub const ARTIFACT_MARKER_FILE: &str = ".krs-artifacts";
 /// Exact contents required for a directory to be owned by KRS.
@@ -28,10 +30,11 @@ pub const IR_ARTIFACTS: [&str; 3] = [
 ];
 
 /// Returns the exact artifact filenames of an `emit-k` output directory in lexical order.
-/// `has_claims` controls whether the claims-only source must be emitted, and `ir` whether the
-/// directory holds [`IR_ARTIFACTS`] (`emit-k --ir`).
+/// `has_claims` controls whether the claims-only source must be emitted, `ir` whether the
+/// directory holds [`IR_ARTIFACTS`] (`emit-k --ir`), and `has_ends` whether the definition
+/// declares an end, whose table is [`ENDS_ARTIFACT`].
 #[must_use]
-pub fn emitted_artifact_names(has_claims: bool, ir: bool) -> Vec<&'static str> {
+pub fn emitted_artifact_names(has_claims: bool, ir: bool, has_ends: bool) -> Vec<&'static str> {
     let mut names = vec![
         ARTIFACT_MARKER_FILE,
         DEFINITION_ARTIFACT,
@@ -43,6 +46,9 @@ pub fn emitted_artifact_names(has_claims: bool, ir: bool) -> Vec<&'static str> {
     }
     if has_claims {
         names.push(SPEC_ARTIFACT);
+    }
+    if has_ends {
+        names.push(ENDS_ARTIFACT);
     }
     names.sort_unstable();
     names

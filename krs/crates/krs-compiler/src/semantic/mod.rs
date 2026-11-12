@@ -451,6 +451,7 @@ fn lower_bundle(
             }
         }
         patterns::check_outside_closure(&pattern_packages, root, &module_ids, &modules)?;
+        crate::ends::import_configuration(&mut modules);
         if let Some(root) = root.and_then(|root| module_ids.get(root)) {
             composition::import_composition(&mut modules, root);
         }
@@ -745,6 +746,7 @@ pub(crate) fn admit_rules(
     spec_modules::check_spec_lemmas(&modules)?;
     spec_modules::check_spec_identifiers(&modules)?;
     subjects::check_instance_contexts(&modules, declarations)?;
+    crate::ends::check_ends(&modules)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {
             declarations

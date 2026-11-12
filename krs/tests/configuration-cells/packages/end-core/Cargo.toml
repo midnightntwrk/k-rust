@@ -1,0 +1,21 @@
+[package]
+name = "krs-configuration-cells-end-core"
+description = "A cell group that declares the ends of every definition that holds it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "end_core"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-END-CORE"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

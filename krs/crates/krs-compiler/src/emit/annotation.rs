@@ -261,6 +261,11 @@ impl<'a> SentenceSources<'a> {
         };
         let symbol = equation_head(rule)?;
         let production = self.productions.get(symbol)?;
+        // An equation of a declared end is named by its own item, the end's: the function is
+        // what the end is emitted as, and the source writes none.
+        if crate::ends::definition_mark(production).is_some() {
+            return None;
+        }
         let head = rewrite.from().origin().origin().exact_authored_range()?;
         if production.origin().origin().exact_authored_range()? != head {
             return None;

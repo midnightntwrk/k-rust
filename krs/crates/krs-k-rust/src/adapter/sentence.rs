@@ -213,6 +213,7 @@ impl Adapter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
+        let items = with_configuration_argument(sentence, items);
         // K's outer syntax desugars `List{Elem, "sep"}` privately; this is
         // k-rust's `lower_user_list` (`bison_lists = false`) for the cons
         // sentence: `[Elem, Terminal(sep), List]`, unnamed, the separator kept
@@ -292,10 +293,13 @@ impl Adapter<'_> {
         attribute_index: u32,
     ) -> Result<(), AdapterError> {
         match attribute {
-            // `assumed` is KRS's record of a totality it did not check; `total` carries the
-            // claim itself.
+            // Neither is a K attribute. `assumed` is KRS's record of a totality it did not
+            // check; `total` carries the claim itself. The mark of a declared end's function
+            // is written as the production's one argument, the configuration
+            // ([`Self::production`]).
             DefinitionProductionAttribute::Documentation { .. }
-            | DefinitionProductionAttribute::Assumed { .. } => {}
+            | DefinitionProductionAttribute::Assumed { .. }
+            | DefinitionProductionAttribute::End { .. } => {}
             DefinitionProductionAttribute::Function { .. } => {
                 attributes.insert("function", json!(""));
             }
@@ -785,6 +789,51 @@ impl Adapter<'_> {
     ) -> Result<NativeSentence, AdapterError> {
         self.variable_names = self.naming.rule(sentence);
         let body = match sentence.relational_body() {
+            // An equation of a declared end's function: the function's one argument is the
+            // whole configuration, so the cells the equation reads are that argument's
+            // pattern, open to every cell it does not name; the equation with no cells takes
+            // any configuration.
+            RuleBodyRef::Term(term) if self.end_function(term).is_some() => {
+                let function = self
+                    .end_function(term)
+                    .expect("the guard found the function")
+                    .to_owned();
+                self.map_sentence_origin(
+                    term.origin(),
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::Term(Vec::new()),
+                );
+                self.map_sentence_origin(
+                    term.from().origin(),
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::Term(vec![0]),
+                );
+                let configuration = match sentence.function_context() {
+                    Some(context) => incomplete_cell(
+                        "generatedTop",
+                        self.function_context(context, module, sentence_index)?,
+                        true,
+                    ),
+                    None => NativeTerm::Variable {
+                        name: format!("_{}", generated_variable_name("configuration")),
+                        sort: Some(NativeSort::new(
+                            krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT,
+                        )),
+                    },
+                };
+                NativeTerm::Rewrite {
+                    left: Box::new(NativeTerm::apply(function, vec![configuration])),
+                    right: Box::new(self.term(
+                        term.to(),
+                        module,
+                        sentence_index,
+                        vec![1],
+                        TermContext::Normal,
+                    )?),
+                }
+            }
             RuleBodyRef::Term(term) => {
                 // A single-body rule (KF-011) keeps its rewrites in place;
                 // k-rust lifts them as K does. Its term is the body's root.
@@ -1572,6 +1621,26 @@ impl Adapter<'_> {
         Ok(native_cells(self.in_instances(cells)?))
     }
 
+    /// The K label of the declared end's function whose equation `body` is: the symbol of the
+    /// production its left side applies, where that production is marked as an end's.
+    fn end_function(
+        &self,
+        body: &krs_ir_levels::IrRewrite<krs_ir_levels::DefinitionLevel>,
+    ) -> Option<&str> {
+        if body.local_term().is_some() {
+            return None;
+        }
+        let krs_ir_levels::DefinitionTermKind::Application {
+            application: krs_ir::ApplicationRef::Declared(symbol),
+            ..
+        } = body.from().kind()
+        else {
+            return None;
+        };
+        let production = self.index.production(symbol)?;
+        is_end_function(production).then(|| production.symbol().emitted_name())
+    }
+
     /// The `#cells` an equation's function context reads (KF-025), inside the instances they
     /// lie in ([`Self::in_instances`]); its term paths start at `2`, after the rewrite's
     /// endpoints.
@@ -1792,6 +1861,33 @@ fn native_config_cell(name: &str, properties: NativeTerm, contents: NativeTerm) 
         "#configCell",
         vec![name_token(), properties, contents, name_token()],
     )
+}
+
+/// `items`, the native items of `production`, with the configuration argument of a declared
+/// end's function: the function takes the whole configuration, its one K argument, before the
+/// closing parenthesis of its syntax, as the emitted K writes it.
+fn with_configuration_argument(
+    production: &ProductionSentence,
+    mut items: Vec<NativeItem>,
+) -> Vec<NativeItem> {
+    if is_end_function(production) {
+        items.insert(
+            items.len().saturating_sub(1),
+            NativeItem::NonTerminal {
+                sort: NativeSort::new(krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT),
+                name: None,
+            },
+        );
+    }
+    items
+}
+
+/// Whether `production` is one of the functions a declared end is emitted as.
+fn is_end_function(production: &ProductionSentence) -> bool {
+    production
+        .attributes()
+        .iter()
+        .any(|attribute| matches!(attribute, DefinitionProductionAttribute::End { .. }))
 }
 
 fn is_empty_cells(term: &NativeTerm) -> bool {

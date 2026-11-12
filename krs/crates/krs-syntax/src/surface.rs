@@ -142,6 +142,8 @@ entry_points! {
         Context = "context",
         /// `#[k::constant]` on a `const` item.
         Constant = "constant",
+        /// `#[k::end]` on a `fn`, and outside a constructor item.
+        End = "end",
     }
 }
 
@@ -253,6 +255,7 @@ pub const VARIANT_HELPERS: &[&str] = &[
     "seqstrict",
     "alias",
     "desugar",
+    "end",
 ];
 
 /// Helpers that `#[k::syntax_list]` consumes from its cons variant.

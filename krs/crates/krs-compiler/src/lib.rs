@@ -10,6 +10,7 @@ mod console;
 mod coverage;
 mod edit_origin;
 mod emit;
+mod ends;
 mod equation_domain;
 mod error;
 mod guard_families;
@@ -51,6 +52,7 @@ pub use emit::{
     definition_module_imports, definition_sentence_source, emit_k, emit_patterns,
     smt_only_function_warnings, trusted_claim_warnings,
 };
+pub use ends::{DeclaredEnd, ENDS_SCHEMA, EndSymbol, declared_ends, ends_json};
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use guard_families::{
     AtomKind, AtomOccurrence, FamilyKind, FamilySentence, Flip, FlipOperator, GuardAtom,

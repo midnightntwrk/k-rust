@@ -436,6 +436,29 @@ impl<'a> Adapter<'a> {
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(std::sync::Arc::new(native));
         }
+        // A declared end's function takes the configuration's sort, which exists once the
+        // configuration is expanded. Until then the module that declares such a function
+        // states the sort as a parse aid of its own, which k-rust's reader of K text adds
+        // for every cell sort a production names and the loader drops after expansion.
+        if module.sentences().iter().any(|sentence| {
+            matches!(
+                sentence,
+                DefinitionSentence::Production(production)
+                    if production.attributes().iter().any(|attribute| {
+                        matches!(attribute, DefinitionProductionAttribute::End { .. })
+                    })
+            )
+        }) {
+            let mut attributes = NativeAttributes::default();
+            attributes.insert("temporary-cell-sort-decl", json!(""));
+            local_sentences.push(std::sync::Arc::new(
+                native_definition::Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: NativeSort::new(krs_ir_levels::k_surface::GENERATED_TOP_CELL_SORT),
+                    attributes,
+                },
+            ));
+        }
         let mut imports = builtin_imports(module, ImportPolicy::NativeFrontend.for_module(module))
             .into_iter()
             .map(str::to_owned)

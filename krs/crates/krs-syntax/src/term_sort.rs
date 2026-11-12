@@ -242,6 +242,31 @@ pub(crate) fn without_collection_arguments(ty: &Type) -> Type {
     ty
 }
 
+/// The type a binder for a constructor field of type `ty` is declared with: `k::Term<Sort>`
+/// naming only the sort. A field is written `k::Term<Sort>` or, in a readable family, as its
+/// sort alone, and a typed collection's element types are the field's, not the binder's.
+#[must_use]
+pub fn binder_sort_type(ty: &Type) -> Type {
+    let is_term = matches!(
+        ty,
+        Type::Path(path) if path.qself.is_none()
+            && path.path.segments.last().is_some_and(|segment| segment.ident == "Term")
+    );
+    if is_term {
+        return without_collection_arguments(ty);
+    }
+    let sort = match ty {
+        Type::Path(sort) if sort.qself.is_none() && parametric_collection(&sort.path).is_some() => {
+            Type::Path(syn::TypePath {
+                qself: None,
+                path: without_last_arguments(&sort.path),
+            })
+        }
+        _ => ty.clone(),
+    };
+    syn::parse_quote!(k::Term<#sort>)
+}
+
 fn invalid_collection_argument(span: proc_macro2::Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidCollectionArgument, span)
 }

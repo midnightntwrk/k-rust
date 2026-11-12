@@ -321,6 +321,13 @@ fn constructors_inner(
         fallback,
     )?;
 
+    // The ends its variants declare, each as the functions and equations it is lowered to.
+    let ends = declaration
+        .ends(&facade)?
+        .iter()
+        .map(|end| super::constructors::expand_end(env, end))
+        .collect::<crate::Result<Vec<_>>>()?;
+
     // Only K rules construct the variants of a family that is not `pub`, so
     // rustc would report them as never constructed.
     let dead_code =
@@ -351,6 +358,8 @@ fn constructors_inner(
 
         #(#variant_expansions)*
         #family_grammar
+
+        #(#ends)*
     })
 }
 

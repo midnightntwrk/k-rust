@@ -755,6 +755,9 @@ struct NamingPass {
     configuration: Option<ConfigurationSplit>,
     /// The keys each function evaluated in one instance of a Map collection receives.
     instance_keys: crate::instance_keys::InstanceKeys,
+    /// The functions of the ends declared on a constructor: each is declared with one field,
+    /// the pattern its equations place at the head of the main computation cell.
+    end_heads: BTreeSet<StableItemId>,
     /// Each authored sort's K name, with the sort and its provenance.
     named_sorts: Vec<(String, String, OriginStack)>,
     /// Each production's symbol, with the production and its provenance.
@@ -899,6 +902,16 @@ impl NamingPass {
     fn run(theory: &SemanticTheory) -> Result<Self, LoweringError> {
         let mut pass = Self {
             instance_keys: crate::instance_keys::InstanceKeys::of(theory.modules()),
+            end_heads: theory
+                .modules()
+                .iter()
+                .flat_map(SemanticModule::productions)
+                .filter(|production| {
+                    crate::ends::semantic_mark(production)
+                        .is_some_and(|mark| mark.form == krs_ir::EndForm::Constructor)
+                })
+                .map(|production| production.id().clone())
+                .collect(),
             ..Self::default()
         };
         let mut identities = Claims::new();
@@ -1762,6 +1775,7 @@ fn lower_production_sentence(
                 production
                     .field_arguments()
                     .iter()
+                    .filter(|_| !names.end_heads.contains(production.id()))
                     .map(|(field, arguments)| {
                         Ok((field.clone(), lower_cell_arguments(arguments, names)?))
                     })
@@ -1788,7 +1802,19 @@ fn lower_rule_sentence(
     };
     let dropped = match rule.relational_body() {
         RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
-        RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
+        // The equation that makes a constructor's end `false` elsewhere takes any head: the
+        // wildcard it writes for the head is no variable of the sentence lowered from it.
+        RuleBodyRef::Term(body) => end_head_pattern(body, names)
+            .and_then(|head| match head.kind() {
+                SemanticTermKind::Variable { variable }
+                    if variable.kind() == krs_ir::SemanticIdKind::Wildcard =>
+                {
+                    Some(BTreeSet::from([variable.clone()]))
+                }
+                _ => None,
+            })
+            .unwrap_or_default(),
+        RuleBodyRef::Predicate(_) => BTreeSet::new(),
     };
     let (keys, key_variables, bound, replaced) = sentence_keys(rule, names)?;
     let kept = rule
@@ -1820,7 +1846,15 @@ fn lower_rule_sentence_body(
     })?;
     let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
     let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
+    let mut end_context = None;
     let sentence = match rule.relational_body() {
+        // An equation of a constructor's end: the head its function is declared with is the
+        // head of the main computation cell, which the equation reads as its function context.
+        RuleBodyRef::Term(body) if end_head_pattern(body, names).is_some() => {
+            let (rewrite, context) = end_head_rewrite(body, rule.id(), names, origins)?;
+            end_context = context;
+            RuleSentence::new(origin, label, rule.kind(), variables, rewrite)?
+        }
         // A term rule at the head of the main cell that passes the keys of the instances
         // holding the main cell is written as the main cell's clause, beside the key cells.
         RuleBodyRef::Term(body) if names.instance_keys.completes(rule) => {
@@ -1862,6 +1896,9 @@ fn lower_rule_sentence_body(
         ),
     };
     let sentence = lower_rule_metadata(sentence, rule, names, origins)?;
+    if end_context.is_some() {
+        return Ok(sentence.with_function_context(end_context));
+    }
     match (sentence.function_context(), rule.function_context()) {
         (Some(context), Some(semantic)) if !bound.is_empty() => {
             let context =
@@ -3753,10 +3790,16 @@ fn lower_production_items(
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<Vec<ProductionItem>, LoweringError> {
+    // The one field of a constructor's end function is the pattern its equations place at the
+    // head of the main computation cell ([`end_head_rewrite`]), no argument of the function.
+    let end_head = names.end_heads.contains(production.id());
     production
         .items()
         .iter()
         .enumerate()
+        .filter(|(_, item)| {
+            !(end_head && matches!(item.kind(), GrammarProductionItemKind::NonTerminal { .. }))
+        })
         .map(|(index, item)| {
             let origin = origins.lower(
                 item.origin(),
@@ -4187,6 +4230,132 @@ fn main_cell_rewrite(
     .map_err(state_shape_error)
 }
 
+/// The head pattern of an equation of a constructor's end: the one argument its left side
+/// applies the end's function to.
+fn end_head_pattern<'b>(
+    body: &'b krs_ir_levels::IrRewrite<krs_ir_levels::SemanticLevel>,
+    names: &NamingPass,
+) -> Option<&'b SemanticTerm> {
+    if body.local_term().is_some() {
+        return None;
+    }
+    match body.from().kind() {
+        SemanticTermKind::Application {
+            application: ApplicationRef::Declared(function),
+            arguments,
+            ..
+        } if names.end_heads.contains(function) => arguments.first(),
+        _ => None,
+    }
+}
+
+/// The rewrite and function context of an equation of a constructor's end.
+///
+/// The end's function is declared with one field, the head: `endHalt(HEAD) => true` says the
+/// end holds where the main computation cell starts with `HEAD`. The function the definition
+/// has takes the whole configuration, so the equation is the function applied to nothing more,
+/// reading the main cell `<k> HEAD ... </k>` as its context, every other cell left as it is. A
+/// head that is a wildcard reads no cell: the equation takes any configuration.
+fn end_head_rewrite(
+    body: &krs_ir_levels::IrRewrite<krs_ir_levels::SemanticLevel>,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<
+    (
+        DefinitionTerm,
+        Option<krs_ir_levels::DefinitionFunctionContext>,
+    ),
+    LoweringError,
+> {
+    let lowered = lower_term(body.from(), names, origins)?;
+    let krs_ir_levels::DefinitionTermKind::Application {
+        application,
+        arguments,
+        ..
+    } = lowered.kind()
+    else {
+        return Err(LoweringError::unsupported_shape(
+            "declared end",
+            format!("{item} does not apply its end's function"),
+        ));
+    };
+    let [head] = arguments.as_slice() else {
+        return Err(LoweringError::unsupported_shape(
+            "declared end",
+            format!("{item} applies its end's function to no one head"),
+        ));
+    };
+    let from = DefinitionTerm::application(
+        lowered.origin().clone(),
+        lowered.sort().clone(),
+        application.clone(),
+        Vec::new(),
+    );
+    let rewrite = DefinitionTerm::rewrite(
+        origins.lower(body.origin(), "term", None, None)?,
+        lower_sort_ref(body.sort(), names)?,
+        from,
+        lower_term(body.to(), names, origins)?,
+    )?;
+    if matches!(
+        head.kind(),
+        krs_ir_levels::DefinitionTermKind::Variable { variable }
+            if variable.kind() == krs_ir::SemanticIdKind::Wildcard
+    ) {
+        return Ok((rewrite, None));
+    }
+    let main = names.instance_keys.main().ok_or_else(|| {
+        LoweringError::unsupported_shape(
+            "declared end",
+            format!("{item} is a constructor's end in a configuration without one main cell"),
+        )
+    })?;
+    let semantic = body.origin();
+    let mut inserted = |role: &'static str| {
+        origins.lower_inserted(
+            semantic,
+            role,
+            Some(item),
+            None,
+            krs_ir::InsertedNode::CellFrame,
+        )
+    };
+    let cell = FixedCellPattern::new(
+        inserted("end-main-cell")?,
+        lower_cell_id(&main.cell, names)?,
+        DefinitionTerm::k_sequence(
+            inserted("end-main-cell-subject")?,
+            head.sort().clone(),
+            vec![head.clone()],
+        ),
+        CellContentFrame::KSequenceTail {
+            origin: inserted("end-main-cell-tail")?,
+            binding: None,
+        },
+    );
+    let omitted = main
+        .leaves
+        .iter()
+        .filter(|leaf| **leaf != main.cell)
+        .map(|leaf| lower_cell_id(leaf, names))
+        .collect::<Result<Vec<_>, _>>()?;
+    let cells = FixedConfigurationPattern::new(
+        inserted("end-main-cell-pattern")?,
+        main.configuration.clone(),
+        vec![cell],
+        omitted,
+    )
+    .map_err(state_shape_error)?;
+    Ok((
+        rewrite,
+        Some(krs_ir_levels::IrFunctionContext::new(
+            inserted("end-context")?,
+            cells,
+        )),
+    ))
+}
+
 /// [`bind_key_clauses`] for an equation's function context: its cells.
 fn bind_key_cells(
     context: &krs_ir_levels::DefinitionFunctionContext,
@@ -4267,7 +4436,13 @@ fn lower_production_attributes(
     // modules, that one and its package's, which holds its equations and
     // rules, so it cannot be `private`. Rust visibility still keeps every
     // other package's KRS sentences from naming it.
-    if crate::partition::is_private(production) && !names.configuration_declares(production.id()) {
+    //
+    // A function of a declared end is named by no sentence of any module, and is applied by
+    // tools from outside every module, so no module's visibility applies to it.
+    if crate::partition::is_private(production)
+        && !names.configuration_declares(production.id())
+        && crate::ends::semantic_mark(production).is_none()
+    {
         let origin = origins.lower(
             production.origin(),
             "production-private",
@@ -4383,6 +4558,19 @@ fn lower_authored_production_attributes(
                 ProductionAttribute::Avoid { .. } => ProductionAttribute::Avoid { origin },
                 ProductionAttribute::Prefer { .. } => ProductionAttribute::Prefer { origin },
                 ProductionAttribute::Memo { .. } => ProductionAttribute::Memo { origin },
+                ProductionAttribute::End {
+                    class,
+                    role,
+                    form,
+                    item,
+                    ..
+                } => ProductionAttribute::End {
+                    origin,
+                    class: *class,
+                    role: *role,
+                    form: *form,
+                    item: item.clone(),
+                },
                 ProductionAttribute::FreshGenerator { .. } => {
                     ProductionAttribute::FreshGenerator { origin }
                 }

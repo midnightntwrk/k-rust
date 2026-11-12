@@ -85,12 +85,12 @@ pub use generated::{
     generated_production_id, lifted_from_claim, local_function_ids,
 };
 pub use grammar::{
-    ApplicationRef, BuiltinOperation, FormatFragment, GeneratedOperation, GrammarProductionItem,
-    GrammarProductionItemKind, GrammarShapeError, GroupAssociativity, GroupAssociativitySentence,
-    HookOperation, LayoutSentence, LexicalSentence, PrecedenceRelation, ProductionAttribute,
-    ProductionContextAliasReference, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionResultSort, RawSentence, RawSentenceKind, SmtFragment,
-    StrictnessKind, is_smtlib_simple_symbol,
+    ApplicationRef, BuiltinOperation, EndClass, EndForm, EndRole, FormatFragment,
+    GeneratedOperation, GrammarProductionItem, GrammarProductionItemKind, GrammarShapeError,
+    GroupAssociativity, GroupAssociativitySentence, HookOperation, LayoutSentence, LexicalSentence,
+    PrecedenceRelation, ProductionAttribute, ProductionContextAliasReference, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, RawSentence,
+    RawSentenceKind, SmtFragment, StrictnessKind, is_smtlib_simple_symbol,
 };
 pub use host::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,

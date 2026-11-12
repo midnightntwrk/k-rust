@@ -2464,6 +2464,15 @@ fn render_emitted(
             (SYMBOLS_ARTIFACT, symbols.into_bytes()),
             (SOURCES_ARTIFACT, sources.into_bytes()),
         ]);
+        // The table of the definition's declared ends, written only where it declares one: a
+        // definition without an end has the artifacts it had.
+        let ends = krs_compiler::declared_ends(prepared.lowered.definition())?;
+        if !ends.is_empty() {
+            artifacts.push((
+                krs_compiler::ENDS_ARTIFACT,
+                krs_compiler::ends_json(&ends, &|label| krs_k_rust::kore_label(label)).into_bytes(),
+            ));
+        }
         Ok::<_, CommandError>(artifacts)
     })
 }

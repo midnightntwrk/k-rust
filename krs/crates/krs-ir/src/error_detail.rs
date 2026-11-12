@@ -96,6 +96,7 @@ details! {
         Underspecified => "underspecified",
         SkippedOperand => "skipped operand",
         Assumed => "assumed",
+        End => "end",
     }
 }
 

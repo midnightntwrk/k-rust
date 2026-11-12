@@ -77,6 +77,7 @@ pub fn expand_attribute(
         AttributeMacro::SpecModule => expand::spec_module(env, attributes, item),
         AttributeMacro::Context => expand::context(env, attributes, item),
         AttributeMacro::Constant => expand::constant(env, attributes, item),
+        AttributeMacro::End => expand::end(env, attributes, item),
     }
 }
 

@@ -1206,6 +1206,35 @@ pub struct Zero;
 ",
     ),
     (
+        "end",
+        r"
+/// A read of an address the memory does not map is refused, with the address.
+#[k::end(refused)]
+#[k::requires(!map::in_keys(addr, mem))]
+fn unmapped_read(
+    addr: Term<Int>,
+    mem: Term<Map>,
+    k::cells! {
+        k: k::configuration::KCell(Read { addr }, ..),
+        mem: k::configuration::Cell(mem),
+        ..
+    }: Machine,
+) -> Term<Int> {
+    addr
+}
+",
+    ),
+    (
+        "end_constructor",
+        r#"
+#[k::constructor(sort = Start, syntax = "boot ( {rom} )", internal)]
+#[k::end(refused)]
+pub struct Boot {
+    pub rom: k::Term<Int>,
+}
+"#,
+    ),
+    (
         "constant",
         r"
 /// Interrupt flag register.

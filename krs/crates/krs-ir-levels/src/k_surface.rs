@@ -21,6 +21,10 @@ use krs_ir::{
     ProductionAttribute, ProductionGroupId, StableItemId,
 };
 
+/// The K sort of a whole configuration, which K declares for every definition: the sort of
+/// the one argument a declared end's function takes.
+pub const GENERATED_TOP_CELL_SORT: &str = "GeneratedTopCell";
+
 /// Borrowed declarations and names from one Definition IR.
 #[derive(Default)]
 pub struct DefinitionIndex<'a> {

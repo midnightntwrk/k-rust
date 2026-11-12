@@ -3293,6 +3293,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut underspecified = false;
     let mut skipped_operand = false;
     let mut assumed = false;
+    let mut end = None;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -3340,6 +3341,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
                 std::mem::replace(&mut skipped_operand, true)
             }
             ProductionAttribute::Assumed { .. } => std::mem::replace(&mut assumed, true),
+            ProductionAttribute::End { role, .. } => end.replace(*role).is_some(),
         };
         if already {
             let name = attribute
@@ -3393,6 +3395,11 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::Assumed { reason, .. }
             | ProductionAttribute::SkippedOperand { reason, .. } => {
                 if reason.trim().is_empty() {
+                    return Err(L::error(ValidationError::InvalidFunctionProduction));
+                }
+            }
+            ProductionAttribute::End { item, .. } => {
+                if item.trim().is_empty() {
                     return Err(L::error(ValidationError::InvalidFunctionProduction));
                 }
             }
@@ -3476,6 +3483,13 @@ pub(crate) fn validate_production_shape<L: Validation>(
     }
     // `skipped_operand` silences a lint at a function's equations.
     if skipped_operand && !function {
+        return Err(L::error(ValidationError::InvalidFunctionProduction));
+    }
+    // A declared end's functions are functions of the configuration, which no backend hook
+    // computes; the one that says whether the end holds has a value at every state.
+    if let Some(role) = end
+        && (!function || hook.is_some() || raw_hook || (role == krs_ir::EndRole::Holds) != total)
+    {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if (hook.is_some() || raw_hook) && !(function && total) {

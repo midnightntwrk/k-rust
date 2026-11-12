@@ -2684,7 +2684,8 @@ fn validate_production(
             | ProductionAttribute::Smtlib { .. }
             | ProductionAttribute::SmtHook { .. }
             | ProductionAttribute::Assumed { .. }
-            | ProductionAttribute::RawHook { .. } => {}
+            | ProductionAttribute::RawHook { .. }
+            | ProductionAttribute::End { .. } => {}
             ProductionAttribute::Overload { target, .. }
             | ProductionAttribute::ListCons {
                 terminator: target, ..

@@ -796,6 +796,16 @@ pub enum DescriptorLoweringError {
         /// The second clause's authored range.
         range: Option<Box<SourceRange>>,
     },
+    /// A declared end (`#[k::end(..)]`) that the definition cannot hold: a sentence names one
+    /// of its functions, or its states lie where no function of the configuration reads.
+    InvalidEnd {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Complete reason, naming the fix.
+        reason: String,
+        /// The authored range of what is refused.
+        range: Option<Box<SourceRange>>,
+    },
     /// A package holding a `k::patterns!` block defines a function (FB-49 item 7).
     PatternHelper {
         /// Item the diagnostic is about.
@@ -1397,6 +1407,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::InvalidEnd {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::DuplicatePatternId {
                 range: $named_range,
                 item: $named_item,
@@ -1957,6 +1972,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::InvalidListNotation { reason, .. }
             | Self::PatternsPackage { reason, .. }
             | Self::PatternHelper { reason, .. }
+            | Self::InvalidEnd { reason, .. }
             | Self::DuplicatePatternId { reason, .. }
             | Self::AmbiguousListPattern { reason, .. }
             | Self::InvalidConsList { reason, .. }
@@ -2074,6 +2090,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidListNotation { .. } => codes::analysis::INVALID_LIST_NOTATION,
             Self::PatternsPackage { .. } => codes::analysis::PATTERNS_PACKAGE,
             Self::PatternHelper { .. } => codes::analysis::PATTERN_HELPER,
+            Self::InvalidEnd { .. } => codes::analysis::INVALID_END,
             Self::DuplicatePatternId { .. } => codes::syntax::INVALID_PATTERN,
             Self::AmbiguousListPattern { .. } => codes::analysis::AMBIGUOUS_LIST_PATTERN,
             Self::InvalidConsList { .. } => codes::analysis::INVALID_CONS_LIST,

@@ -1193,6 +1193,36 @@
       }
     ]
   },
+  "EndClass": {
+    "ENUM": {
+      "0": {
+        "finished": "UNIT"
+      },
+      "1": {
+        "refused": "UNIT"
+      }
+    }
+  },
+  "EndForm": {
+    "ENUM": {
+      "0": {
+        "clause": "UNIT"
+      },
+      "1": {
+        "constructor": "UNIT"
+      }
+    }
+  },
+  "EndRole": {
+    "ENUM": {
+      "0": {
+        "holds": "UNIT"
+      },
+      "1": {
+        "reason": "UNIT"
+      }
+    }
+  },
   "EvaluationKind": {
     "ENUM": {
       "0": {

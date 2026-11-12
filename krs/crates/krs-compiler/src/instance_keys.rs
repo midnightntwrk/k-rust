@@ -183,9 +183,6 @@ impl InstanceKeys {
         };
         let mut leaves = Vec::new();
         keys.walk(configuration.cells(), &mut Vec::new(), &mut leaves);
-        if keys.holders.is_empty() {
-            return keys;
-        }
         keys.main = krs_ir_levels::k_surface::main_cell(configuration)
             .cell()
             .map(|cell| MainCell {
@@ -193,6 +190,9 @@ impl InstanceKeys {
                 cell: cell.id().clone(),
                 leaves,
             });
+        if keys.holders.is_empty() {
+            return keys;
+        }
         let rules = modules
             .into_iter()
             .flat_map(SemanticModule::rules)
@@ -387,6 +387,12 @@ impl InstanceKeys {
     /// Whether any function receives keys.
     pub(crate) fn is_empty(&self) -> bool {
         self.functions.is_empty()
+    }
+
+    /// The optional and collection cells strictly above `cell`, outermost first: none for a
+    /// cell every state holds exactly once.
+    pub(crate) fn enclosing(&self, cell: &SemanticId) -> &[SemanticId] {
+        self.chains.get(cell).map_or(&[], Vec::as_slice)
     }
 
     /// The main cell a term rule that passes keys is written at ([`Self::completes`]).
@@ -840,7 +846,7 @@ pub(crate) fn evaluated_applications(rule: &SemanticRule) -> Vec<(&StableItemId,
 
 /// Every declared application in `rule`, in its terms' order, but an equation's own head:
 /// its rewrite, its function context, its conditions; the applications lowering writes.
-fn applications(rule: &SemanticRule) -> Vec<(&StableItemId, &SemanticTerm)> {
+pub(crate) fn applications(rule: &SemanticRule) -> Vec<(&StableItemId, &SemanticTerm)> {
     let head = defined_function(rule).and_then(|_| match rule.relational_body() {
         RuleBodyRef::Term(body) => Some(body.from()),
         _ => None,
