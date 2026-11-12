@@ -1891,6 +1891,11 @@ fn readable_record(
                 if map.delimiter() == proc_macro2::Delimiter::Brace
                     && contains_top_level_arrow(map) =>
             {
+                // A named rest binds a map no readable rule can use, as at an instance's group
+                // child ([`record_maps_as_terms`]).
+                if let Some(rest) = named_rest_of(map) {
+                    return Err(named_child_map_rest_refusal(&rest));
+                }
                 // A map read's `..` is the map's anonymous rest, as at a record's top level.
                 StateTerm::Map(crate::state_macro::parse_map(
                     map.stream(),

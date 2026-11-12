@@ -959,8 +959,19 @@ pub(super) fn with_implicit_bases_in_head_rule(
             _ => {}
         }
     }
-    // A head rule lists no binders: each variable, a map rest a group term holds included, is
-    // typed where it occurs.
+    // A head rule declares its binders by their refinements: each map rest a group term now
+    // holds as a variable is declared the term of the builtin `Map` sort it is, as
+    // [`declare_map_rests`] declares a `cells!` rule's.
+    for binding in rewritten
+        .bindings
+        .iter_mut()
+        .filter(|binding| bases.held.contains(&binding.name))
+    {
+        binding.refinement = Some(krs_ir::DescriptorSortReference {
+            key: rule.pattern_key.clone(),
+            sort: krs_ir::DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Map),
+        });
+    }
     Ok(bases.changed.then_some(rewritten))
 }
 
