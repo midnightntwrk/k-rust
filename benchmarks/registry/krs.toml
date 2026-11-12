@@ -8,6 +8,9 @@ version = 1
 # The `krs/frontend-*` workloads measure krust compiling the K that a port emits, the k-rust frontend part of `krs build` on its own.
 # The KEVM port has no `krs prove` workload: `krs prove` of its 8 claims exits 2 with `error[krs::exec::result]: domain value of sort Bytes is not valid UTF-8` (2026-10-16, any --output format).
 # The emitted K is much smaller than the semantics it ports (KEVM about 2,400 lines, KMIR about 1,400, KWasm about 80), so no KRS row compares with kevm/compile, kmir/compile or kwasm/compile.
+# The `krs/run-machine-*` workloads measure `krs run` on a long concrete run: the machine of krs/tests/perf/fixtures/run-machine (its README states the shape and the user workload it stands for) on the program benchmarks/programs/krs/run-machine/program.py writes.
+# They do not pass `--no-reuse`: `run` reuses no result, and the compiled stage is restored from the cache their prepare step fills, as it is for a user's second run of an unchanged definition, so depth 1 is the start-up a warm run pays and the deeper rows add the steps.
+# `krs run` writes its status line to standard error, so their checks read `check.stderr`: the end class, the step count and the head of `<k>` there.
 
 # Builds the `krs` tool and writes the wrapper `${prepared}/krs-tool/krs`, the argv[0] of every krs workload.
 # The tool links the Z3 release krs/Krs.lock [solver] linked names on the route the KRS gates take (krs/tests/support/tools.py, z3_route).
@@ -111,6 +114,27 @@ argv = [
 ]
 creates = "${prepared}/krs-emit-kwasm/definition.k"
 env = { CARGO_TARGET_DIR = "${prepared}/krs-semantics-target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable" }
+timeout_seconds = 3600
+
+# Writes the long-run benchmark's program and runs it for no step, which builds the definition's collector in a Cargo target of its own and stores the compiled stage, so the timed region holds neither.
+[[prepare]]
+name = "krs-run-machine"
+engine = "command"
+prepare = ["krs-tool"]
+argv = [
+  "bash", "-c",
+  '''set -euo pipefail
+mkdir -p "${prepared}/krs-run-machine"
+python3 "${programs}/krs/run-machine/program.py" >"${prepared}/krs-run-machine/program.partial"
+mv "${prepared}/krs-run-machine/program.partial" "${prepared}/krs-run-machine/program.bin"
+"${prepared}/krs-tool/krs" run "${prepared}/krs-run-machine/program.bin" --depth 0 --output none \
+  --manifest-path "${workspace}/krs/tests/perf/fixtures/run-machine/Cargo.toml" \
+  --package krs-perf-run-machine --definition main --dependency krs-perf-run-cpu:cpu
+touch "${prepared}/krs-run-machine/ready"
+''',
+]
+creates = "${prepared}/krs-run-machine/ready"
+env = { CARGO_TARGET_DIR = "${prepared}/krs-run-machine/target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-run-machine/stage-cache" }
 timeout_seconds = 3600
 
 [[workload]]
@@ -354,6 +378,140 @@ stdout = ["KRS-KWASM-SPEC.simple-addition: proven"]
 status = "untested"
 note = "The KRS gates' --java-reference mode proves the port's emitted spec with reference kprove; no pairing has been written here."
 
+[[workload]]
+id = "krs/run-machine-start"
+semantics = "krs"
+operation = "execute"
+title = "Start `krs run` on the long-run machine: one step, warm compiled stage"
+stresses = "What every `krs run` pays before its first step on a definition of this size: two `cargo metadata` calls, the collector run, both lowerings and the restore of the compiled stage."
+origin = "a user's report of `krs run` speed on game-length runs (2026-11-12); krs/tests/perf/fixtures/run-machine/README.md"
+tier = "quick"
+memory_gib = 2
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-run-machine"]
+argv = [
+  "${prepared}/krs-tool/krs", "run", "${prepared}/krs-run-machine/program.bin",
+  "--depth", "1",
+  "--output", "none",
+  "--manifest-path", "${workspace}/krs/tests/perf/fixtures/run-machine/Cargo.toml",
+  "--package", "krs-perf-run-machine",
+  "--definition", "main",
+  "--dependency", "krs-perf-run-cpu:cpu",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-run-machine/target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-run-machine/stage-cache" }
+[workload.krust.check]
+exit = 0
+stderr = ["krs run: depth-bound after 1 step; <k> starts with `#irqSample`"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend, and no K text of this machine is kept beside it."
+
+[[workload]]
+id = "krs/run-machine-100k"
+semantics = "krs"
+operation = "execute"
+title = "Run the long-run machine for 100,000 steps with `krs run --output none`"
+stresses = "Concrete execution of a register machine whose every bus access is a request the CPU group leaves open and its holder answers, with a decoder of 39 bit-pattern equations and an event log that grows by one element per bus cycle: about one frame of the user workload it stands for."
+origin = "a user's report of `krs run` speed on game-length runs (2026-11-12); krs/tests/perf/fixtures/run-machine/README.md"
+tier = "quick"
+memory_gib = 2
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-run-machine"]
+argv = [
+  "${prepared}/krs-tool/krs", "run", "${prepared}/krs-run-machine/program.bin",
+  "--depth", "100000",
+  "--output", "none",
+  "--manifest-path", "${workspace}/krs/tests/perf/fixtures/run-machine/Cargo.toml",
+  "--package", "krs-perf-run-machine",
+  "--definition", "main",
+  "--dependency", "krs-perf-run-cpu:cpu",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-run-machine/target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-run-machine/stage-cache" }
+[workload.krust.check]
+exit = 0
+stderr = ["krs run: depth-bound after 100000 steps; <k> starts with `#boundary`"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend, and no K text of this machine is kept beside it."
+
+[[workload]]
+id = "krs/run-machine-1m"
+semantics = "krs"
+operation = "execute"
+title = "Run the long-run machine for 1,000,000 steps with `krs run --output none`"
+stresses = "The steady state of a long concrete run: steps per second and memory per step, over a memory-clearing loop of 4,096 iterations and then a polling loop, with the log at 189,000 events when the run ends."
+origin = "a user's report of `krs run` speed on game-length runs (2026-11-12); krs/tests/perf/fixtures/run-machine/README.md"
+tier = "standard"
+memory_gib = 4
+pins = []
+runs = 3
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-run-machine"]
+argv = [
+  "${prepared}/krs-tool/krs", "run", "${prepared}/krs-run-machine/program.bin",
+  "--depth", "1000000",
+  "--output", "none",
+  "--manifest-path", "${workspace}/krs/tests/perf/fixtures/run-machine/Cargo.toml",
+  "--package", "krs-perf-run-machine",
+  "--definition", "main",
+  "--dependency", "krs-perf-run-cpu:cpu",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-run-machine/target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-run-machine/stage-cache" }
+[workload.krust.check]
+exit = 0
+stderr = ["krs run: depth-bound after 1000000 steps; <k> starts with `#busRead(15, opcode)`"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend, and no K text of this machine is kept beside it."
+
+[[workload]]
+id = "krs/run-machine-pretty-10k"
+semantics = "krs"
+operation = "execute"
+title = "Run the long-run machine for 10,000 steps and print the end state with `krs run --output pretty`"
+stresses = "Printing a configuration whose log cell holds about 1,600 elements: the printer's bracket pass is quadratic in a list cell's length (about 1.16 KiB per squared element, 3 GiB at this depth), so the row is in the heavy tier and its memory limit is 6 GiB until the printer is linear, when it moves to the quick tier with the limit of its neighbours."
+origin = "a user's report of `krs run` speed on game-length runs (2026-11-12); krs/tests/perf/fixtures/run-machine/README.md"
+tier = "heavy"
+memory_gib = 6
+pins = []
+
+[workload.krust]
+engine = "command"
+prepare = ["krs-run-machine"]
+argv = [
+  "${prepared}/krs-tool/krs", "run", "${prepared}/krs-run-machine/program.bin",
+  "--depth", "10000",
+  "--output", "pretty",
+  "--manifest-path", "${workspace}/krs/tests/perf/fixtures/run-machine/Cargo.toml",
+  "--package", "krs-perf-run-machine",
+  "--definition", "main",
+  "--dependency", "krs-perf-run-cpu:cpu",
+]
+env = { CARGO_TARGET_DIR = "${prepared}/krs-run-machine/target", CARGO_NET_OFFLINE = "true", RUSTUP_TOOLCHAIN = "stable", KRS_STAGE_CACHE_DIR = "${prepared}/krs-run-machine/stage-cache" }
+[workload.krust.check]
+exit = 0
+stdout_squeezed = ["<regs>0|->01|->02|->38703|->04|->49379", "<pc>8</pc>", "ListItem(write(49378,0))ListItem(read(7,35))</log>"]
+stderr = ["krs run: depth-bound after 10000 steps; <k> starts with `#fetch`"]
+
+[workload.reference]
+status = "unsupported"
+reason = "no-counterpart"
+note = "Reference K has no Rust authoring frontend, and no K text of this machine is kept beside it."
+
 [[gap]]
 semantics = "krs"
 operation = "parse"
@@ -371,12 +529,6 @@ semantics = "krs"
 operation = "load"
 reason = "no-workload"
 note = "KRS has no load-only mode."
-
-[[gap]]
-semantics = "krs"
-operation = "execute"
-reason = "no-workload"
-note = "`krs run` exists, but the ports' corpus programs run a few steps each; no program worth timing has been chosen."
 
 [[gap]]
 semantics = "krs"

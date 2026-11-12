@@ -1,0 +1,18 @@
+[package]
+name = "krs-perf-run-cpu"
+description = "The long-run benchmark's CPU as a cell group: its state, its decoder and its rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_perf_run_cpu"
+
+[dependencies]
+k = { workspace = true }
+
+[package.metadata.krs]
+k-namespace = "KRS-PERF-RUN-CPU"
+
+[package.metadata.krs.definitions.cpu]

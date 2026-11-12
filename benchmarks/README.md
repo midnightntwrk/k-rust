@@ -185,6 +185,13 @@ The reference JVM runs with `-Xmx4096m`; a JVM grows its heap toward its limit b
 
 A pair compares the same work only where the table says so: a paired `prove` row includes the spec compile on both sides, while a bundle proof (`imp/execute-*`, `kevm/execute-trivial-claim`) measures krust alone on prepared work that the reference has no counterpart for.
 
+## Long concrete runs of `krs run`
+
+The `krs/run-machine-*` workloads run a register machine written for them (`krs/tests/perf/fixtures/run-machine`, whose README states its shape, its step counts and how its baseline is recorded) for 1, 100,000 and 1,000,000 steps with `--output none`, and for 10,000 steps with `--output pretty`.
+Steps per second and memory per step are the differences of the 1,000,000-step and the 100,000-step rows over 900,000 steps.
+The pretty row is in the heavy tier with a 6 GiB limit: the printer is quadratic in the length of a list cell, about 3 GiB for this row's 1,591 log elements, and the row moves to the quick tier when the printer is linear.
+`krs run` writes its status line to standard error, so these checks pin the end class, the step count and the head of `<k>` with `check.stderr`.
+
 ## Adding a workload
 
 Add a `[[workload]]` to the registry file of its semantics (schema in [`registry/SCHEMA.md`](registry/SCHEMA.md)).

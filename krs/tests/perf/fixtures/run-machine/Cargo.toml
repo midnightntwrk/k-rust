@@ -1,0 +1,13 @@
+# The long-run `krs run` benchmark's definition (README.md): a CPU cell group and the machine
+# that holds it. One lock and one target directory for both packages.
+[workspace]
+resolver = "3"
+members = ["cpu", "machine"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+
+[workspace.dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }

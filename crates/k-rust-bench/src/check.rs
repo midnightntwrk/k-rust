@@ -84,6 +84,7 @@ pub fn verify(
     vars: &Vars,
     exit_code: i32,
     stdout: Option<&Path>,
+    stderr: &Path,
 ) -> Result<(), String> {
     let expected_exit = check.exit.unwrap_or(0);
     if exit_code != expected_exit {
@@ -113,6 +114,12 @@ pub fn verify(
             if found {
                 return Err(format!("standard output contains {needle:?}"));
             }
+        }
+    }
+    let on_stderr = vars.expand_all(&check.stderr)?;
+    for (needle, found) in on_stderr.iter().zip(find_all(stderr, &on_stderr, false)?) {
+        if !found {
+            return Err(format!("standard error lacks {needle:?}"));
         }
     }
     for file in vars.expand_all(&check.files)? {
@@ -148,6 +155,28 @@ mod tests {
         assert_eq!(found, vec![true, false]);
         let squeezed = find_all(&path, &["needlehere".to_owned()], true).unwrap();
         assert_eq!(squeezed, vec![true]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn checks_standard_error() {
+        let dir = std::env::temp_dir().join(format!("kbench-check-stderr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stderr = dir.join("stderr");
+        std::fs::write(&stderr, "krs run: depth-bound after 100 steps\n").unwrap();
+        let check = |needle: &str| Check {
+            stderr: vec![needle.to_owned()],
+            ..Check::default()
+        };
+        let vars = Vars::default();
+        assert_eq!(
+            verify(&check("after 100 steps"), &vars, 0, None, &stderr),
+            Ok(())
+        );
+        assert_eq!(
+            verify(&check("after 101 steps"), &vars, 0, None, &stderr),
+            Err("standard error lacks \"after 101 steps\"".to_owned())
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

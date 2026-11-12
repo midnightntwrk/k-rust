@@ -1,0 +1,19 @@
+[package]
+name = "krs-perf-run-machine"
+description = "The long-run benchmark's machine: the CPU group beside a program ROM and a memory map"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_perf_run_machine"
+
+[dependencies]
+k = { workspace = true }
+cpu = { package = "krs-perf-run-cpu", path = "../cpu" }
+
+[package.metadata.krs]
+k-namespace = "KRS-PERF-RUN"
+
+[package.metadata.krs.definitions.main]

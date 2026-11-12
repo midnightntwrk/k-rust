@@ -728,6 +728,7 @@ impl<'a> Runner<'a> {
                 &point.vars,
                 code,
                 point.invocation.stdout.as_deref(),
+                &point.invocation.stderr,
             )
             .map_err(|error| format!("check: {error}")),
         };

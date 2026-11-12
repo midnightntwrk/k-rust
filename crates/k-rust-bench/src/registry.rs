@@ -101,6 +101,10 @@ pub struct Check {
     pub stdout_squeezed: Vec<String>,
     #[serde(default)]
     pub stdout_absent: Vec<String>,
+    /// Substrings standard error must contain: the place a tool such as `krs run` writes its
+    /// status line.
+    #[serde(default)]
+    pub stderr: Vec<String>,
     #[serde(default)]
     pub files: Vec<String>,
     pub expect: Option<String>,

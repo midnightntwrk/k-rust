@@ -95,6 +95,7 @@ Each side is one engine invocation, or a short sequence timed as one unit.
 | `stdout` | substrings standard output must contain |
 | `stdout_squeezed` | substrings that standard output with all whitespace removed must contain |
 | `stdout_absent` | substrings standard output must not contain |
+| `stderr` | substrings standard error must contain (`krs run` writes its status line there) |
 | `files` | files that must exist and be non-empty after the run |
 | `expect` | an integer expression over ladder parameters (`+ - * //`, parentheses) bound to `${expect}` |
 | `expect_out` | a file whose `#Equals <int>` value is bound to `${expect}` |
