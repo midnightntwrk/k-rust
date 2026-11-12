@@ -28,9 +28,9 @@ use crate::{
 enum MachinePatternCell {
     /// The computation cell's `[p1, .., pn, ..]` or `[p1, .., pn]`.
     KItems(Box<KPattern>),
-    /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell, and the name of its rest
-    /// where it is written `rest @ ..`, which the clause refuses once it knows the result.
-    MapItems(Vec<(TermExpression, Ident)>, TokenRange, Option<Ident>),
+    /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell and the range of its `..`
+    /// (a named rest makes the value a term: [`named_rest_record`]).
+    MapItems(Vec<(TermExpression, Ident)>, TokenRange),
     Term {
         pattern: Box<RulePattern>,
         tree: Box<TermTree>,
@@ -762,11 +762,15 @@ fn parse_readable_child(
         )?));
     }
     // A map cell's entries, all of them, `{ k -> v }`: the map the child holds, on either side,
-    // as a `cells!` instance writes `map![k -> v]`.
+    // as a `cells!` instance writes `map![k -> v]`; naming its rest (`rest @ ..`), the map pattern
+    // those braces denote, as its top cell's twin is ([`named_rest_record`]).
     if let [TokenTree::Group(group)] = trees.as_slice()
         && group.delimiter() == proc_macro2::Delimiter::Brace
         && contains_top_level_arrow(group)
     {
+        if let Some(map) = named_map_pattern(group) {
+            return Ok(StateTerm::Term(read(map)?));
+        }
         return Ok(StateTerm::Map(crate::state_macro::parse_map(
             group.stream(),
             context,
@@ -1242,13 +1246,13 @@ fn parse_machine_pattern_record(
                 StateMacroContext::Pattern,
                 faults,
             )?)
-        } else if content.peek(syn::token::Brace) {
-            {
-                let (entries, rest, named) = parse_machine_map_pattern(&content)?;
-                MachinePatternCell::MapItems(entries, rest, named)
-            }
         } else if let Some(cell) = named_rest_record(&content)? {
             cell
+        } else if content.peek(syn::token::Brace) {
+            {
+                let (entries, rest, _) = parse_machine_map_pattern(&content)?;
+                MachinePatternCell::MapItems(entries, rest)
+            }
         } else if let Some(presences) = value_presences(&content, StateMacroContext::Pattern) {
             skip_value(&content)?;
             presences.carry(faults)?;
@@ -1360,29 +1364,6 @@ fn named_map_rest(map: ParseStream<'_>) -> Result<Option<Ident>, ParseError> {
         return Ok(Some(name));
     }
     Ok(None)
-}
-
-/// The refusal of a machine-rule map read's named rest `name` on the cell `cell`, which a
-/// readable rule can never use: no readable result writes a map over it and no readable
-/// condition reads it. A result that writes the cell drops it, the moved remainder's mistake at a
-/// record child's map read too; one that leaves the cell out keeps the cell whole, so the name
-/// binds nothing.
-fn named_map_rest_refusal(name: &Ident, written: bool) -> ParseError {
-    let advice = "a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it";
-    let reason = if written {
-        format!(
-            "the subject names the rest of the map `..{name}`, and the result neither puts it back with `..{name}` nor uses it, so the rule would drop it: {advice}"
-        )
-    } else {
-        format!(
-            "the subject names the rest of the map `..{name}`, which the rule leaves as it is, as it does the whole cell the result leaves out, so the name binds nothing a readable rule can use: write `..`; {advice}"
-        )
-    };
-    crate::SyntaxError::new(
-        crate::SyntaxErrorKind::InvalidListNotation { reason },
-        name.span(),
-    )
-    .into()
 }
 
 /// The tokens of a map item's key, up to its `->`, which `input` is left
@@ -1933,13 +1914,18 @@ fn readable_record(
     )?))
 }
 
-/// The group's term a subject record value `Group { .. }` is when a child names its map's rest,
-/// `Group { child: { k -> v, rest @ .. }, .. }`: the rest is the map's other entries, a map term,
-/// which the record read as its children's own cells binds no name for, so the record is read as
-/// the group's term whose child holds the map its entries denote (`k::map![k -> v, rest @ ..]`),
-/// as a record inside an instance or a `?` group's `Some(..)` is ([`record_maps_as_terms`]), and
-/// as a `cells!` record's child writes it. The value is consumed; `None`, consuming nothing, for
-/// any other value.
+/// The term a subject value is read as when a spelling of it names what no reading as entries can:
+/// - a map cell's braces naming its rest, `{ k -> v, rest @ .. }`: the rest is the map's other
+///   entries, a map term, so the value is the map pattern those braces denote,
+///   `k::map![k -> v, rest @ ..]`, as the `cells!` twin `Cell(k::map![k -> v, rest @ ..])` reads;
+/// - a group record `Group { .. }` whose map child names its rest the same way: the group's term
+///   whose child holds that map pattern, as a record inside an instance or a `?` group's
+///   `Some(..)` is ([`record_maps_as_terms`]);
+/// - a group record whose child is brackets holding their rest alone, `[..]`: the child's whole
+///   content, whatever it is, which a term of the group writes `_` (a computation child's
+///   `KCell(..)`, a list child's whole list).
+///
+/// The value is consumed; `None`, consuming nothing, for any other value.
 fn named_rest_record(content: ParseStream<'_>) -> Result<Option<MachinePatternCell>, ParseError> {
     let fork = content.fork();
     let mut value = TokenStream::new();
@@ -1947,36 +1933,68 @@ fn named_rest_record(content: ParseStream<'_>) -> Result<Option<MachinePatternCe
         value.extend([fork.parse::<TokenTree>()?]);
     }
     let trees = value.clone().into_iter().collect::<Vec<_>>();
-    let Some((TokenTree::Group(body), owner)) = trees.split_last() else {
-        return Ok(None);
-    };
-    if body.delimiter() != proc_macro2::Delimiter::Brace || owner.is_empty() {
-        return Ok(None);
-    }
-    let named = top_level_items(body.stream()).iter().any(|item| {
-        match item.clone().into_iter().collect::<Vec<_>>().as_slice() {
-            [
-                TokenTree::Ident(_),
-                TokenTree::Punct(colon),
-                TokenTree::Group(map),
-            ] if colon.as_char() == ':'
-                && map.delimiter() == proc_macro2::Delimiter::Brace
-                && contains_top_level_arrow(map) =>
-            {
-                named_rest_of(map).is_some()
+    let named_map = |map: &proc_macro2::Group| named_map_pattern(map).is_some();
+    let term = match trees.as_slice() {
+        [TokenTree::Group(map)] if let Some(term) = named_map_pattern(map) => term,
+        [owner @ .., TokenTree::Group(body)]
+            if body.delimiter() == proc_macro2::Delimiter::Brace && !owner.is_empty() =>
+        {
+            let mut item_less = false;
+            let mut named = false;
+            let mut stream = TokenStream::new();
+            for (index, item) in top_level_items(body.stream()).into_iter().enumerate() {
+                if index > 0 {
+                    stream.extend(quote!(,));
+                }
+                match item.clone().into_iter().collect::<Vec<_>>().as_slice() {
+                    [
+                        TokenTree::Ident(child),
+                        TokenTree::Punct(colon),
+                        TokenTree::Group(group),
+                    ] if colon.as_char() == ':'
+                        && group.delimiter() == proc_macro2::Delimiter::Bracket
+                        && is_dots(&group.stream()) =>
+                    {
+                        item_less = true;
+                        let wildcard = quote_spanned!(group.span()=> _);
+                        stream.extend(quote!(#child: #wildcard));
+                    }
+                    [
+                        TokenTree::Ident(_),
+                        TokenTree::Punct(colon),
+                        TokenTree::Group(map),
+                    ] if colon.as_char() == ':' && named_map(map) => {
+                        named = true;
+                        stream.extend(item);
+                    }
+                    _ => stream.extend(item),
+                }
             }
-            _ => false,
+            if !item_less && !named {
+                return Ok(None);
+            }
+            let mut record = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, stream);
+            record.set_span(body.span());
+            let record = owner
+                .iter()
+                .cloned()
+                .chain([TokenTree::Group(record)])
+                .collect::<TokenStream>();
+            if named {
+                let Some(record) = record_maps_as_terms(&record, StateMacroContext::Pattern)?
+                else {
+                    return Ok(None);
+                };
+                record
+            } else {
+                record
+            }
         }
-    });
-    if !named {
-        return Ok(None);
-    }
-    let Some(record) = record_maps_as_terms(&value, StateMacroContext::Pattern)? else {
-        return Ok(None);
+        _ => return Ok(None),
     };
     skip_value(content)?;
     let (pattern, signs) =
-        crate::parse::structured_with(record, parse_pattern_with_signs, crate::SyntaxError::from)?;
+        crate::parse::structured_with(term, parse_pattern_with_signs, crate::SyntaxError::from)?;
     let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
     Ok(Some(MachinePatternCell::Term {
         pattern: Box::new(pattern),
@@ -1984,19 +2002,43 @@ fn named_rest_record(content: ParseStream<'_>) -> Result<Option<MachinePatternCe
     }))
 }
 
-/// The names of the cells a readable record `record` writes, as written: the first identifier of
-/// each of its top-level entries.
-fn record_cell_names(record: &TokenTree) -> Vec<String> {
+/// The map pattern `k::map![k -> v, rest @ ..]` that a map cell's braces naming its rest,
+/// `{ k -> v, rest @ .. }`, denote; `None` for other braces and any other group.
+fn named_map_pattern(map: &proc_macro2::Group) -> Option<TokenStream> {
+    if map.delimiter() != proc_macro2::Delimiter::Brace
+        || !contains_top_level_arrow(map)
+        || named_rest_of(map).is_none()
+    {
+        return None;
+    }
+    let span = map.span();
+    let mut entries = proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, map.stream());
+    entries.set_span(span);
+    Some(quote_spanned!(span=> k::map!#entries))
+}
+
+/// The value a readable record `record` writes for the cell `cell`, as written: the tokens after
+/// the `:` of its entry. `None` where the record writes no entry of that cell, or writes it as
+/// the shorthand `cell`.
+fn record_cell_value(record: &TokenTree, cell: &Ident) -> Option<TokenStream> {
     let TokenTree::Group(group) = record else {
-        return Vec::new();
+        return None;
     };
     top_level_items(group.stream())
         .into_iter()
-        .filter_map(|item| match item.into_iter().next() {
-            Some(TokenTree::Ident(name)) => Some(name.unraw().to_string()),
-            _ => None,
+        .find_map(|item| {
+            let trees = item.into_iter().collect::<Vec<_>>();
+            match trees.as_slice() {
+                [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..]
+                    if name.unraw() == cell.unraw()
+                        && colon.as_char() == ':'
+                        && !value.is_empty() =>
+                {
+                    Some(value.iter().cloned().collect())
+                }
+                _ => None,
+            }
         })
-        .collect()
 }
 
 /// Skips a record value whose reading is refused: its tokens up to the `,` that ends it.
@@ -3528,13 +3570,7 @@ fn assemble_machine_clause(
                     .into());
                 }
             }
-            MachinePatternCell::MapItems(entries, rest, named) => {
-                if let Some(name) = named {
-                    let written = result_cells
-                        .iter()
-                        .any(|(result_cell, _)| result_cell.unraw() == cell.unraw());
-                    return Err(named_map_rest_refusal(name, written));
-                }
+            MachinePatternCell::MapItems(entries, rest) => {
                 let entries = entries
                     .iter()
                     .map(|(key, value)| (key, wildcards.binder(value)))
@@ -3707,13 +3743,12 @@ fn assemble_machine_clause(
                     // judged and lowered as that one ([`StateTerm::Group`]).
                     Some((result_cell, MachineResultCell::State(after)))
                         if matches!(**after, StateTerm::Record(_))
-                            && record_cell_names(pattern_record)
-                                .contains(&cell.unraw().to_string())
-                            && let Some(native) = pattern.native_pattern() =>
+                            && pattern.native_pattern().is_some()
+                            && let Some(written) = record_cell_value(pattern_record, cell) =>
                     {
-                        let before = StateTerm::Group(TermExpression::parse_pattern_tokens(
-                            native.to_token_stream(),
-                        )?);
+                        // The subject's own tokens, so every node keeps its authored span.
+                        let before =
+                            StateTerm::Group(TermExpression::parse_pattern_tokens(written)?);
                         for binding in readable_state_bindings(&before) {
                             if !state_bindings
                                 .iter()
@@ -3734,11 +3769,16 @@ fn assemble_machine_clause(
                         if let Some((result_cell, after)) = found {
                             // A result group record of entries over a cell the subject does not
                             // name writes children of a group the rule never matched.
-                            let reason = if matches!(
+                            let record = matches!(
                                 after,
                                 MachineResultCell::State(state)
                                     if matches!(**state, StateTerm::Record(_))
-                            ) {
+                            );
+                            let reason = if record
+                                && record_cell_value(pattern_record, cell).is_some()
+                            {
+                                "not supported yet: a result group record whose child is a map entry, over a subject written as a term macro (`k::term![..]`); write the subject's group as its record (`g: G { .. }`) or a record of its children"
+                            } else if record {
                                 "not supported yet: a result group record whose child is a map entry, over a group cell the subject does not match; match the group in the subject, with its term (`g: G { .. }`) or a record of its children"
                             } else {
                                 "an ordinary fixed cell's result is one term; `[..]` writes only the computation cell or a List collection"
