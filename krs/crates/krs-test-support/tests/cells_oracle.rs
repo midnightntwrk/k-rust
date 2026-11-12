@@ -673,6 +673,10 @@ fn read_as(spelling: &EntrySpelling, texts: bool) -> Spelling {
         EntrySpelling::MapRead(entries) => Spelling::MapRead(map(entries)),
         EntrySpelling::Record(fields) => Spelling::Record(record(fields)),
         EntrySpelling::Alias(name, inner) => Spelling::Alias(name.clone(), boxed(inner)),
+        // The oracle has no form for pattern alternatives: a term holding each one, in order.
+        EntrySpelling::Alternatives(alternatives) => {
+            Spelling::Call(alternatives.iter().map(read).collect())
+        }
         EntrySpelling::Cell(inner) => Spelling::Cell(boxed(inner)),
         EntrySpelling::KCell(items) => Spelling::KCell(seq(items)),
         EntrySpelling::Fragment(fields) => Spelling::Fragment(record(fields)),

@@ -1065,7 +1065,9 @@ fn inner(spelling: &EntrySpelling) -> Vec<&EntrySpelling> {
         EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
             record.fields.iter().map(|(_, value)| value).collect()
         }
-        EntrySpelling::Call(arguments) => arguments.iter().collect(),
+        EntrySpelling::Call(arguments) | EntrySpelling::Alternatives(arguments) => {
+            arguments.iter().collect()
+        }
         _ => sequence(spelling).map_or_else(
             || {
                 map_entries(spelling).map_or_else(Vec::new, |map| {
@@ -1158,9 +1160,7 @@ impl Admission<'_> {
             // `..name`; the subject drops a rest by naming it `_rest @ ..` and not putting it
             // back. An initializer is a result with no subject: nothing in it is a pattern.
             // A nameless alias is parentheses, which name nothing and group a term anywhere.
-            EntrySpelling::Alias(name, _)
-                if !pattern && !name.is_empty() && name != crate::cell_entry::ALTERNATIVES =>
-            {
+            EntrySpelling::Alias(name, _) if !pattern && !name.is_empty() => {
                 return Err(Refusal::AliasOutsidePattern);
             }
             _ if !pattern && named_rest => {
@@ -1224,13 +1224,11 @@ impl Admission<'_> {
         head: bool,
     ) -> Result<(), Refusal> {
         // Each alternative is an entry of the same cell, judged by its kind whatever its order.
-        if let Some(alternatives) = crate::cell_entry::alternatives(spelling) {
-            return self.within(0, |admission| {
-                for (step, alternative) in alternatives.iter().enumerate() {
-                    admission.within(step, |admission| admission.kind(stack, alternative, head))?;
-                }
-                Ok(())
-            });
+        if let EntrySpelling::Alternatives(alternatives) = spelling {
+            for (step, alternative) in alternatives.iter().enumerate() {
+                self.within(step, |admission| admission.kind(stack, alternative, head))?;
+            }
+            return Ok(());
         }
         if let EntrySpelling::Alias(_, pattern) = spelling {
             return self.within(0, |admission| admission.kind(stack, pattern, head));
@@ -1605,9 +1603,7 @@ fn keeps_anonymous_rest(spelling: &EntrySpelling) -> bool {
 /// it is written in one: an alias, parentheses or alternatives, a term around the entry.
 fn below_aliases(mut spelling: &EntrySpelling) -> (&EntrySpelling, bool) {
     let mut aliased = false;
-    while let EntrySpelling::Alias(_, inner) = spelling
-        && crate::cell_entry::alternatives(spelling).is_none()
-    {
+    while let EntrySpelling::Alias(_, inner) = spelling {
         spelling = inner;
         aliased = true;
     }
@@ -1618,7 +1614,7 @@ fn root(spelling: &EntrySpelling) -> Root<'_> {
     let (spelling, _) = below_aliases(spelling);
     // Alternatives match a rest where any one of them does, whatever their order: the anonymous
     // one first, as a result's `..` would keep it.
-    if let Some(alternatives) = crate::cell_entry::alternatives(spelling) {
+    if let EntrySpelling::Alternatives(alternatives) = spelling {
         return alternatives
             .iter()
             .map(root)
@@ -1657,6 +1653,10 @@ fn matches_all(spelling: &EntrySpelling, stack: &[Layer]) -> bool {
     match spelling {
         EntrySpelling::Wild | EntrySpelling::Binder(_) => true,
         EntrySpelling::Alias(_, one) | EntrySpelling::Cell(one) => matches_all(one, stack),
+        // Alternatives match every content where one of them does.
+        EntrySpelling::Alternatives(alternatives) => alternatives
+            .iter()
+            .any(|alternative| matches_all(alternative, stack)),
         EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
             let Some(Layer::Group(group)) = stack.first() else {
                 return false;
@@ -1686,6 +1686,8 @@ fn binds(spelling: &EntrySpelling) -> bool {
     let reads = |name: &str| !name.starts_with('_');
     match spelling {
         EntrySpelling::Binder(name) => reads(name),
+        // Parentheses group a pattern and name nothing.
+        EntrySpelling::Alias(name, inner) if name.is_empty() => binds(inner),
         EntrySpelling::Alias(..) => true,
         _ => {
             let named = sequence(spelling)
@@ -1888,11 +1890,15 @@ pub fn key_spelling(spelling: &EntrySpelling) -> krs_ir::subject::KeySpelling<'_
     use krs_ir::subject::KeySpelling;
     match spelling {
         EntrySpelling::Binder(name) => KeySpelling::Binder(name),
+        // Parentheses group a pattern and name nothing.
+        EntrySpelling::Alias(name, pattern) if name.is_empty() => key_spelling(pattern),
         EntrySpelling::Alias(name, pattern) => {
             KeySpelling::Alias(name, Box::new(key_spelling(pattern)))
         }
         EntrySpelling::Literal(literal) => KeySpelling::Literal(literal),
         EntrySpelling::Cell(inner) => key_spelling(inner),
+        // Any other value, alternatives included, which are no one key, is not provably the
+        // matched instance's.
         _ => KeySpelling::Other,
     }
 }
@@ -2030,7 +2036,7 @@ fn pair_content(
             }
             if anonymous(root(spelling)) {
                 let (subject, aliased) = below_aliases(subject);
-                if crate::cell_entry::alternatives(subject).is_some() {
+                if matches!(subject, EntrySpelling::Alternatives(_)) {
                     return Err(Refusal::KeptRestAmongAlternatives);
                 }
                 if aliased && lists(stack) {

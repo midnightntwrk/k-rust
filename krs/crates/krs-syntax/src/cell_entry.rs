@@ -162,11 +162,11 @@ pub enum EntrySpelling {
     MapRead(EntryMap),
     /// A record.
     Record(EntryRecord),
-    /// `name @ pattern`; with no name, parentheses around a pattern, a term that names nothing
-    /// and matches the pattern's rest inside it; named [`ALTERNATIVES`], pattern alternatives,
-    /// `p | q`, each an entry of the same cell, in order, as the arguments of the
-    /// [`EntrySpelling::Call`] it holds ([`alternatives`]).
+    /// `name @ pattern`; with no name, parentheses around a pattern, which group it and name
+    /// nothing, so its rest is matched inside a term, not by the cell's own brackets.
     Alias(String, Box<Self>),
+    /// Pattern alternatives, `p | q`, each an entry of the same cell, in order.
+    Alternatives(Vec<Self>),
     /// `Cell(..)`.
     Cell(Box<Self>),
     /// `KCell(..)`.
@@ -493,10 +493,7 @@ impl<'a> EntryReading<'a> {
                 .into_iter()
                 .map(|alternative| self.value(alternative))
                 .collect::<syn::Result<Vec<_>>>()?;
-            return Ok(EntrySpelling::Alias(
-                ALTERNATIVES.to_owned(),
-                Box::new(EntrySpelling::Call(alternatives)),
-            ));
+            return Ok(EntrySpelling::Alternatives(alternatives));
         }
         let expression = input.parse::<syn::Expr>()?;
         if self.form != EntryForm::Initializer
@@ -682,23 +679,6 @@ fn starts_entry(input: ParseStream<'_>) -> bool {
 /// pattern's level ([`crate::recover::holds_alternatives`]) and no rest (`..`) outside a macro.
 fn denotes_term(expression: &syn::Expr) -> bool {
     !holds_rest(expression) && !crate::recover::holds_alternatives(expression)
-}
-
-/// The name of the alias that holds pattern alternatives ([`EntrySpelling::Alias`]), which no
-/// Rust identifier spells.
-pub const ALTERNATIVES: &str = "|";
-
-/// The alternatives `spelling` joins, each an entry of the same cell, where it is pattern
-/// alternatives ([`ALTERNATIVES`]).
-#[must_use]
-pub fn alternatives(spelling: &EntrySpelling) -> Option<&[EntrySpelling]> {
-    match spelling {
-        EntrySpelling::Alias(name, inner) if name == ALTERNATIVES => match &**inner {
-            EntrySpelling::Call(alternatives) => Some(alternatives),
-            _ => None,
-        },
-        _ => None,
-    }
 }
 
 /// The tokens of each alternative of a pattern `p | q | ..` that `input` starts with, read to
@@ -968,7 +948,7 @@ fn spelling_children(spelling: &EntrySpelling) -> usize {
         | EntrySpelling::Cell(_)
         | EntrySpelling::Alias(..) => 1,
         EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => record.fields.len(),
-        EntrySpelling::Call(arguments) => arguments.len(),
+        EntrySpelling::Call(arguments) | EntrySpelling::Alternatives(arguments) => arguments.len(),
         EntrySpelling::Brackets(seq)
         | EntrySpelling::Braces(seq)
         | EntrySpelling::KCell(seq)
@@ -1046,15 +1026,8 @@ fn child_tokens<'s>(
         Some((stream(part), Some(items.get(step)?)))
     };
     match spelling {
-        // Alternatives: their call holds each alternative's tokens, between the top-level `|`s.
-        EntrySpelling::Alias(name, inner) if step == 0 && name == ALTERNATIVES => {
-            Some((tokens.clone(), Some(&**inner)))
-        }
-        EntrySpelling::Call(arguments)
-            if trees
-                .iter()
-                .any(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == '|')) =>
-        {
+        // Each alternative's tokens stand between the top-level `|`s.
+        EntrySpelling::Alternatives(arguments) => {
             let part = trees
                 .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == '|'))
                 .nth(step)?;
@@ -1282,10 +1255,6 @@ mod cells_fields_tests {
     /// the entry around it is judged alike (RDRA item 2, AUDIT-R P7). Where a pattern may stand,
     /// alternatives and a rest are no term and stay unread.
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One reading per spelling, over every form, its expectation inline."
-    )]
     fn an_operator_value_is_a_term_on_every_form() {
         let term = || EntrySpelling::Call(Vec::new());
         for form in [
@@ -1335,12 +1304,7 @@ mod cells_fields_tests {
             // Pattern alternatives are each an entry of the cell, in order, so every one is the
             // kind's to judge; an initializer builds, so they are its term.
             let literal = |text: &str| EntrySpelling::Literal(text.to_owned());
-            let alternatives = |each: Vec<EntrySpelling>| {
-                EntrySpelling::Alias(
-                    super::ALTERNATIVES.to_owned(),
-                    Box::new(EntrySpelling::Call(each)),
-                )
-            };
+            let alternatives = EntrySpelling::Alternatives;
             if form == super::EntryForm::Initializer {
                 assert_eq!(
                     read("Some(1 | 2)"),
@@ -1379,13 +1343,10 @@ mod cells_fields_tests {
         assert_eq!(
             cells("Some(k::configuration::Cell(s | s))"),
             Some(EntrySpelling::Present(Box::new(EntrySpelling::Cell(
-                Box::new(EntrySpelling::Alias(
-                    super::ALTERNATIVES.to_owned(),
-                    Box::new(EntrySpelling::Call(vec![
-                        EntrySpelling::Binder("s".to_owned()),
-                        EntrySpelling::Binder("s".to_owned()),
-                    ]))
-                ))
+                Box::new(EntrySpelling::Alternatives(vec![
+                    EntrySpelling::Binder("s".to_owned()),
+                    EntrySpelling::Binder("s".to_owned()),
+                ]))
             ))))
         );
         let Some(EntrySpelling::Brackets(seq)) =

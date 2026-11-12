@@ -1065,3 +1065,30 @@ fn an_instance_child_s_brackets_in_a_step_are_judged_as_its_cell_s() {
           error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
           error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"]].assert_eq(&refusals.join("\n"));
 }
+
+/// Parentheses group a pattern and name nothing: a subject entry `ll: (_)` over a cell the rule
+/// keeps owes the no-effect lint `ll: _` owes, one verdict for the two spellings.
+#[test]
+fn parentheses_around_an_entry_are_grouping_only() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let warnings = ["_", "(_)"].map(|value| {
+        let rules = format!(
+            "k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n    go: {{ k: [Go(), ..], ll: {value} }} => {{ k: [..] }};\n}}\n"
+        );
+        let manifest = package(
+            temporary.path(),
+            if value == "_" { "plain" } else { "parenthesized" },
+            &rules,
+        );
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
+        assert!(success, "{stderr}");
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("warning["))
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
+    assert_eq!(warnings[0], warnings[1]);
+    expect_test::expect!["warning[krs::analysis::no-effect-entry]: the entry of the cell `ll` has no effect: it matches every content the cell can hold and binds nothing, and the sentence keeps the cell as it is, so it means the same without the entry; drop the entry, or bind or constrain the content it matches"].assert_eq(&warnings[1]);
+}
