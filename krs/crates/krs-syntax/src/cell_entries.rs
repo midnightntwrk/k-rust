@@ -194,11 +194,12 @@ pub enum Refusal {
     /// limitation of the readable record's top-level route; inside an instance record the value
     /// is matched, P5).
     MapReadValueBinder,
-    /// A result that keeps with `..` the rest of an instance child whose subject matches items
-    /// after that rest (`[.., x]`, `[x, .., y]`) or matches it below an alias (`l @ [x, ..]`):
-    /// the lowering keeps an instance child's unnamed rest only where the subject's own brackets
-    /// end with it (a stated limitation).
-    InstanceChildRestKept,
+    /// A result whose `..` keeps a list's rest that its subject matches inside a term (below an
+    /// alias, in parentheses or among alternatives: `l @ [x, ..]`), or, in an instance child, with
+    /// items after it (`[.., x]`), or that writes an instance child's items after its `..`
+    /// (`[.., a]`): the lowering keeps a rest only where the subject's own brackets end with it,
+    /// and an instance child's only after its items (a stated limitation).
+    KeptRestUnlowered,
 }
 
 impl Refusal {
@@ -241,7 +242,7 @@ impl Refusal {
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
-            Self::InstanceChildRestKept => "instance-child-rest-kept",
+            Self::KeptRestUnlowered => "kept-rest-unlowered",
         }
     }
 }
@@ -289,7 +290,7 @@ impl Refusal {
             | Self::SeveralRestsInstances
             | Self::CollectionWithoutInstances
             | Self::BelowCollectionAncestor
-            | Self::InstanceChildRestKept => analysis::COLLECTION_ENTRY,
+            | Self::KeptRestUnlowered => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
             Self::CellWrapper => analysis::CELL_WRAPPER,
             Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
@@ -345,7 +346,7 @@ impl Refusal {
         Self::MapReadInResult,
         Self::MapCollectionKey,
         Self::MapReadValueBinder,
-        Self::InstanceChildRestKept,
+        Self::KeptRestUnlowered,
     ];
 
     /// Why the entry of the cell `cell`, of the kind `kind` (a leaf of the sort `sort`, where
@@ -480,6 +481,9 @@ impl Refusal {
             Self::AbsenceTestWithoutCreation => format!(
                 "the subject tests that the optional cell `{cell}` is absent (`None`), and the result does not create it: K tests a cell's absence only by creating the cell, so a subject's `None` stands where its result creates it with `Some(..)`"
             ),
+            Self::RestMismatch if lists(&kind.own.layers) => format!(
+                "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed"
+            ),
             Self::RestMismatch => format!(
                 "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader"
             ),
@@ -521,8 +525,8 @@ impl Refusal {
             Self::MapReadValueBinder => format!(
                 "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level the value names what the entry maps to (a stated limitation; inside an instance record the value is matched)"
             ),
-            Self::InstanceChildRestKept => format!(
-                "the result's unnamed rest `..` keeps the rest of the instance child `{cell}`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds"
+            Self::KeptRestUnlowered => format!(
+                "the result's unnamed rest `..` keeps a rest of `{cell}` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item"
             ),
         }
     }
@@ -1125,7 +1129,10 @@ impl Admission<'_> {
             // result keeps the subject's anonymous rest with `..` and puts a named one back with
             // `..name`; the subject drops a rest by naming it `_rest @ ..` and not putting it
             // back. An initializer is a result with no subject: nothing in it is a pattern.
-            EntrySpelling::Alias(..) if !pattern => return Err(Refusal::AliasOutsidePattern),
+            // A nameless alias is parentheses, which name nothing and group a term anywhere.
+            EntrySpelling::Alias(name, _) if !pattern && !name.is_empty() => {
+                return Err(Refusal::AliasOutsidePattern);
+            }
             _ if !pattern && named_rest => {
                 self.path.push(REST);
                 return Err(Refusal::AliasOutsidePattern);
@@ -1242,6 +1249,18 @@ impl Admission<'_> {
             (Layer::Computation, _) => self.computation(spelling),
             (Layer::Leaf(notation), EntrySpelling::Brackets(seq)) => {
                 cons_front(*notation, seq)?;
+                // A record child's result items after its `..` would keep the subject's rest in
+                // front of them, which an instance child's sequence, kept after its items, does
+                // not write yet (a stated limitation; a cell of its own writes it).
+                if self.child
+                    && self.side == EntrySide::Result
+                    && *notation == Notation::List
+                    && matches!(seq.rest, Some((EntryRest::Anonymous, _)))
+                    && !seq.back().is_empty()
+                {
+                    self.path.push(seq.items.len() - seq.back().len());
+                    return Err(Refusal::KeptRestUnlowered);
+                }
                 self.items(seq)
             }
             _ => sequence(spelling).map_or(Ok(()), |seq| self.items(seq)),
@@ -1543,11 +1562,21 @@ fn keeps_anonymous_rest(spelling: &EntrySpelling) -> bool {
     root(spelling) == Root::Rest(&EntryRest::Anonymous)
 }
 
+/// `spelling` below every alias it is written in (`l @ m @ [x, ..]` is `[x, ..]`), with whether
+/// it is written in one: an alias, parentheses or alternatives, a term around the entry.
+fn below_aliases(mut spelling: &EntrySpelling) -> (&EntrySpelling, bool) {
+    let mut aliased = false;
+    while let EntrySpelling::Alias(_, inner) = spelling {
+        spelling = inner;
+        aliased = true;
+    }
+    (spelling, aliased)
+}
+
 fn root(spelling: &EntrySpelling) -> Root<'_> {
+    let (spelling, _) = below_aliases(spelling);
     match spelling {
-        EntrySpelling::Present(one) | EntrySpelling::Cell(one) | EntrySpelling::Alias(_, one) => {
-            root(one)
-        }
+        EntrySpelling::Present(one) | EntrySpelling::Cell(one) => root(one),
         _ => sequence(spelling)
             .and_then(|seq| seq.rest.as_ref().map(|(rest, _)| rest))
             .or_else(|| map_entries(spelling).and_then(|map| map.rest.as_ref()))
@@ -1943,6 +1972,9 @@ fn pair_content(
             if anonymous(root(spelling)) != anonymous(root(subject)) {
                 return Err(Refusal::RestMismatch);
             }
+            if anonymous(root(spelling)) && lists(stack) && below_aliases(subject).1 {
+                return Err(Refusal::KeptRestUnlowered);
+            }
         }
         Other::Created => {
             if anonymous(root(spelling)) {
@@ -1951,6 +1983,14 @@ fn pair_content(
         }
     }
     pair_records(form, stack, spelling, other, whole, bound, path)
+}
+
+/// Whether `stack`'s content is a list, a builtin `List` or a cons list.
+fn lists(stack: &[Layer]) -> bool {
+    matches!(
+        stack.first(),
+        Some(Layer::Leaf(Notation::List | Notation::Cons))
+    )
 }
 
 /// The group and instance records a result's content writes, each record's children paired
@@ -2099,11 +2139,12 @@ fn pair_records(
     }
 }
 
-/// [`Refusal::InstanceChildRestKept`] at the first child of `record`, a result instance record of
-/// `group` whose other side is `other`, that keeps with `..` the anonymous rest of the subject's
-/// same child where the subject matches items after it (its back, or a second rest) or matches
-/// it below an alias (`l @ [x, ..]`). The subject child is then the term its brackets or its
-/// alias denote, whose unnamed rest no instance child's sequence keeps yet; a named rest is
+/// [`Refusal::KeptRestUnlowered`] at the first child of `record`, a result instance record of
+/// `group` whose other side is `other`, whose `..` keeps a rest the lowering does not keep yet:
+/// the anonymous rest of the subject's same child where the subject matches items after it (its
+/// back, or a second rest) or matches it inside a term (an alias, parentheses, alternatives). The
+/// subject child is then the term its
+/// brackets denote, whose unnamed rest no instance child's sequence keeps yet; a named rest is
 /// kept by its name, as a term.
 fn kept_child_rest(
     group: &GroupKind,
@@ -2115,20 +2156,19 @@ fn kept_child_rest(
         let Other::Matched(subject) = other.child(group, name) else {
             continue;
         };
-        let Some(seq) = sequence(unaliased(subject)) else {
+        if root(value) != Root::Rest(&EntryRest::Anonymous) {
             continue;
-        };
-        let Some((rest, _)) = &seq.rest else {
-            continue;
-        };
-        if *rest == EntryRest::Anonymous
-            && root(value) == Root::Rest(&EntryRest::Anonymous)
-            && (matches!(subject, EntrySpelling::Alias(..))
-                || !seq.back().is_empty()
-                || seq.more_rests > 0)
-        {
+        }
+        let (unaliased, aliased) = below_aliases(subject);
+        let matched_inside = sequence(unaliased).is_some_and(|seq| {
+            seq.rest
+                .as_ref()
+                .is_some_and(|(rest, _)| *rest == EntryRest::Anonymous)
+                && (aliased || !seq.back().is_empty() || seq.more_rests > 0)
+        });
+        if matched_inside {
             path.push(step);
-            return Err(Refusal::InstanceChildRestKept);
+            return Err(Refusal::KeptRestUnlowered);
         }
     }
     Ok(())
@@ -2824,7 +2864,7 @@ mod tests {
         }
         assert_eq!(
             Refusal::ALL.len(),
-            Refusal::InstanceChildRestKept as usize + 1,
+            Refusal::KeptRestUnlowered as usize + 1,
             "the last refusal ends the list"
         );
         let group = GroupKind {

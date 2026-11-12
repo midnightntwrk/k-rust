@@ -360,11 +360,6 @@ code = "krs::analysis::collection-entry"
 doc = "an instance record naming a child that is a `?` cell, its presence or absence (`acounter: Some(y)`, `acounter: None`), or a group child's `*` collection (`aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }`): inside one instance it means whether, or which, cells that instance holds there (P1, P2), and no lowering writes it; not supported yet, said at the child"
 advice = "none"
 
-[class.instance-child-rest-kept]
-code = "krs::analysis::collection-entry"
-doc = "a result that keeps with `..` the rest of an instance child (`Th { tl: [..], ..me }`, `[y, ..]`, by a label or a Map key) whose subject matches items after that rest (`tl: [.., x]`, `[x, .., y]`) or matches it below an alias (`l @ [x, ..]`): the subject child is then the term its brackets or alias denote, and an instance child keeps an unnamed rest only where the subject's own brackets end with it; not supported yet, said at the child (a named rest, `[r @ .., x]` then `[y, ..r]`, is kept by its name)"
-advice = "none"
-
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
 doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item other than a name or `_` in an unordered collection's braces (Q2: its instance is chosen by a written record, and a name or `_` is a whole instance, `x @ Decl { .. }`); or, a stated limitation, a List collection rule the product does not lower: one that changes instances at both ends, or keeps a back instance in place (it creates or removes instances at the back, and reads and updates them at the front)"
@@ -386,6 +381,11 @@ advice = "none"
 code = "krs::syntax::unsupported-rule-pattern"
 doc = "a compiler-owned island (`k::fragment!`, `k::bytes!`, `k::is!`, `k::matches!`, ..) for the whole subject of a fn, a context or a static clause, whose root names the production the sentence is written for, which the island does not (decision D3)"
 advice = "terms/sort-rule/subject-root/k::bytes!(b\"ab\")"
+
+[class.kept-rest-unlowered]
+code = "krs::analysis::collection-entry"
+doc = "a result whose `..` keeps a list's rest that its subject matches inside a term, below an alias, in parentheses or among alternatives (`ll: l @ [x, ..]`, `([x, ..])`, then `[..]`), or, in an instance child, with items after it (`tl: [.., x]`, `[x, .., y]`, then `Th { tl: [y, ..], ..me }`), or a result that writes an instance child's items after its `..` (`Th { tl: [.., a], ..me }`): the lowering keeps a rest only where the subject's own brackets end with it, and an instance child's only after its items; not supported yet, said at the cell or child (a named rest, `[r @ .., x]` then `[y, ..r]`, is kept by its name)"
+advice = "none"
 
 [class.key-value-shape]
 code = "krs::syntax::invalid-argument-value"

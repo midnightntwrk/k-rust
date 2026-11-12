@@ -162,7 +162,9 @@ pub enum EntrySpelling {
     MapRead(EntryMap),
     /// A record.
     Record(EntryRecord),
-    /// `name @ pattern`.
+    /// `name @ pattern`; with no name, a pattern inside a term that names nothing, which
+    /// matches its rest there: parentheses around it, or the first of alternatives holding a
+    /// rest.
     Alias(String, Box<Self>),
     /// `Cell(..)`.
     Cell(Box<Self>),
@@ -255,6 +257,18 @@ impl<'a> EntryReading<'a> {
                 name,
                 Box::new(self.parse(input, head)?),
             ));
+        }
+        // A pattern in parentheses is the pattern they group, `([x, ..])`, as Rust reads it: the
+        // entry inside a term that names nothing ([`EntrySpelling::Alias`] with no name), so its
+        // rest is matched inside a term, not by the cell's own brackets. A tuple is no entry.
+        if input.peek(syn::token::Paren) && self.form != EntryForm::Initializer {
+            let content;
+            parenthesized!(content in input);
+            let inner = self.marked(&content, head)?;
+            if !content.is_empty() {
+                return Err(content.error("a tuple is no entry"));
+            }
+            return Ok(EntrySpelling::Alias(String::new(), Box::new(inner)));
         }
         if input.peek(syn::token::Bracket) {
             let content;
@@ -394,11 +408,19 @@ impl<'a> EntryReading<'a> {
     fn rest(input: ParseStream<'_>) -> syn::Result<Option<EntryRest>> {
         if input.peek(Token![..]) {
             input.parse::<Token![..]>()?;
-            if input.peek(Ident::peek_any) {
+            if input.is_empty() || input.peek(Token![,]) {
+                return Ok(Some(EntryRest::Anonymous));
+            }
+            // `..name` puts back the list `name`; `..term` the list a term denotes.
+            let ahead = input.fork();
+            if ahead.call(Ident::parse_any).is_ok() && (ahead.is_empty() || ahead.peek(Token![,])) {
                 let name = input.call(Ident::parse_any)?.unraw().to_string();
                 return Ok(Some(EntryRest::Splice(name)));
             }
-            return Ok(Some(EntryRest::Anonymous));
+            let term = input.parse::<syn::Expr>()?;
+            return Ok(Some(EntryRest::Splice(
+                quote::ToTokens::to_token_stream(&term).to_string(),
+            )));
         }
         if input.peek(Ident::peek_any) && input.peek2(Token![@]) && input.peek3(Token![..]) {
             let name = input.call(Ident::parse_any)?.unraw().to_string();
@@ -455,6 +477,17 @@ impl<'a> EntryReading<'a> {
             _ => {}
         }
         let expression = input.parse::<syn::Expr>()?;
+        // Alternatives whose patterns hold a rest (`[x, ..] | [x]`) match that rest inside a
+        // term: they are read as their first alternative's entry inside a term that names
+        // nothing ([`EntrySpelling::Alias`] with no name), so the rest is never taken for the
+        // cell's own brackets' rest; the other alternatives are the term's.
+        if self.form != EntryForm::Initializer
+            && holds_rest(&expression)
+            && let Some(first) = first_alternative(&expression)
+        {
+            let first = self.value(quote::ToTokens::to_token_stream(first))?;
+            return Ok(EntrySpelling::Alias(String::new(), Box::new(first)));
+        }
         if self.form != EntryForm::Initializer
             && !denotes_term(&expression)
             && (!marked || holds_rest(&expression))
@@ -497,7 +530,9 @@ impl<'a> EntryReading<'a> {
                 };
                 rest = Some((found, place));
             } else {
-                items.push(self.inner(content)?);
+                // An item's alternatives (`Go() | Last()`) are the one term pattern they make,
+                // matching either, as a mark's content is: the item is a term either way.
+                items.push(self.marked(content, false)?);
             }
             if content.is_empty() {
                 break;
@@ -621,6 +656,18 @@ fn starts_entry(input: ParseStream<'_>) -> bool {
 /// pattern's level ([`crate::recover::holds_alternatives`]) and no rest (`..`) outside a macro.
 fn denotes_term(expression: &syn::Expr) -> bool {
     !holds_rest(expression) && !crate::recover::holds_alternatives(expression)
+}
+
+/// The first of the alternatives `expression` joins at its top level (`a | b | c` is `a`), or
+/// `None` where it joins none.
+fn first_alternative(expression: &syn::Expr) -> Option<&syn::Expr> {
+    let syn::Expr::Binary(binary) = expression else {
+        return None;
+    };
+    if !matches!(binary.op, syn::BinOp::BitOr(_)) {
+        return None;
+    }
+    Some(first_alternative(&binary.left).unwrap_or(&binary.left))
 }
 
 /// Whether `expression` holds a rest (`..`) outside a macro.
@@ -943,6 +990,18 @@ fn child_tokens<'s>(
         Some((stream(part), Some(items.get(step)?)))
     };
     match spelling {
+        EntrySpelling::Alias(name, inner) if step == 0 && name.is_empty() => {
+            let inside = match trees.as_slice() {
+                [TokenTree::Group(group)] if group.delimiter() == Delimiter::Parenthesis => {
+                    group.stream().into_iter().collect::<Vec<_>>()
+                }
+                _ => trees
+                    .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == '|'))
+                    .next()?
+                    .to_vec(),
+            };
+            Some((stream(&inside), Some(&**inner)))
+        }
         EntrySpelling::Alias(_, inner) if step == 0 => {
             Some((stream(trees.get(2..)?), Some(&**inner)))
         }

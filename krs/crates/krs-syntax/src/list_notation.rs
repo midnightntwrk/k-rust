@@ -94,6 +94,11 @@ fn join_head(rest: Span, brackets: Span) -> Path {
 /// The reason given for a second rest in one bracket.
 pub(crate) const TWO_RESTS: &str = "a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`";
 
+/// The refusal of a second rest in one bracket, at `span` ([`TWO_RESTS`]).
+pub(crate) fn two_rests(span: Span) -> SyntaxError {
+    list_error(TWO_RESTS, span)
+}
+
 /// The reason given for an anonymous `..` in a result's list notation, which names no list: a
 /// result's `..` keeps a rest only in a list cell's own brackets (a readable record's list cell,
 /// a `cells!` leaf's `Cell([x, ..])` or `Cell([..])`), where it is read before list notation is.

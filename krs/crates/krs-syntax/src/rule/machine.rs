@@ -717,7 +717,6 @@ fn parse_readable_child(
         && group.delimiter() == proc_macro2::Delimiter::Bracket
     {
         let chunks = top_level_items(group.stream());
-        let count = chunks.len();
         // An instance child is a cell, so its brackets mean what they mean at a cell of its
         // kind outside every instance. A pattern's rest before its last item (a back, `[.., x]`
         // or `[x, .., y]`, or a second rest) and a named rest (`[x, r @ ..]`) are no
@@ -729,18 +728,22 @@ fn parse_readable_child(
         if reads_as_list_term(&chunks, context) {
             return Ok(StateTerm::Term(read(tokens)?));
         }
+        // A result's `..` before an item keeps the subject's rest in front of it. A second one is
+        // refused as list notation refuses it; one is read as the child's sequence with its
+        // rest, whose place the child's kind judges first (a computation's back item, brackets
+        // on a Set), and the entry table refuses on a list child as not lowered yet
+        // ([`crate::cell_entries::Refusal::KeptRestUnlowered`]).
+        let rests = chunks
+            .iter()
+            .filter(|chunk| is_dots(chunk))
+            .collect::<Vec<_>>();
+        if let [_, second, ..] = rests.as_slice() {
+            return Err(crate::list_notation::two_rests(second.span()).into());
+        }
         let mut items = Vec::new();
         let mut tail = StateMacroRemainder::Exact;
-        for (index, chunk) in chunks.into_iter().enumerate() {
+        for chunk in chunks {
             if is_dots(&chunk) {
-                // A result's `..` before an item would keep the subject's rest in front of it,
-                // and the sequence a result child holds keeps its rest after its items only.
-                if index + 1 != count {
-                    return Err(readable_error(
-                        chunk.span(),
-                        "a readable sequence ends in `..`",
-                    ));
-                }
                 tail = StateMacroRemainder::Anonymous(TokenRange::for_tokens(&chunk)?);
                 continue;
             }
@@ -768,19 +771,32 @@ fn parse_readable_child(
 /// Whether a readable instance child's bracketed items `chunks`, read in `context`, are the term
 /// their list notation denotes rather than a computation's items, whose anonymous rest ends them:
 /// a pattern's rest before its last item (a back or a second rest) or a named rest anywhere, and
-/// a result's `..r`, which puts back the list the subject's `r @ ..` bound.
+/// a result's `..term`, which puts back the list a term denotes (`..r`, the subject's `r @ ..`).
 fn reads_as_list_term(chunks: &[TokenStream], context: StateMacroContext) -> bool {
     let count = chunks.len();
     chunks.iter().enumerate().any(|(index, chunk)| {
         if is_dots(chunk) {
             return context == StateMacroContext::Pattern && index + 1 != count;
         }
-        match readable_instances_rest(chunk, context) {
-            Ok(Some(StateMacroRemainder::Bind { .. })) => context == StateMacroContext::Pattern,
-            Ok(Some(StateMacroRemainder::Reuse { .. })) => context == StateMacroContext::Expression,
-            _ => false,
+        if context == StateMacroContext::Expression {
+            return splices(chunk);
         }
+        matches!(
+            readable_instances_rest(chunk, context),
+            Ok(Some(StateMacroRemainder::Bind { .. }))
+        )
     })
+}
+
+/// Whether the item `chunk` is a result's `..term`: `..` followed by the term it puts back.
+fn splices(chunk: &TokenStream) -> bool {
+    let trees = chunk.clone().into_iter().collect::<Vec<_>>();
+    matches!(
+        trees.as_slice(),
+        [TokenTree::Punct(first), TokenTree::Punct(second), _, ..]
+            if first.as_char() == '.' && second.as_char() == '.'
+                && first.spacing() == proc_macro2::Spacing::Joint
+    )
 }
 
 /// The braces of a value spelled as a map read with its other entries open, `{ k -> v, .. }`:
