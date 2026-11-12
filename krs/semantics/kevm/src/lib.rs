@@ -365,7 +365,11 @@ pub const POW256: Int =
 pub const POW255: Int =
     0x8000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 
-#[k::function(total, syntax = "#kevmChop({value})")]
+#[k::function(
+    total,
+    assumed = "the divisor is the constant 2^256, which is not zero; the check reads a literal divisor only within 128 bits",
+    syntax = "#kevmChop({value})"
+)]
 pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
     int::rem_euclid(value, POW256)
 }
@@ -472,7 +476,11 @@ pub fn WordShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> 
     }
 }
 
-#[k::function(total, syntax = "#kevmSignedShiftRight({value}, {shift})")]
+#[k::function(
+    total,
+    assumed = "the branch that shifts is reached only where the first test failed, so shift >= 0; the check does not read the negation of `value < 0 || shift < 0`",
+    syntax = "#kevmSignedShiftRight({value}, {shift})"
+)]
 pub fn WordSignedShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> {
     if value < 0 || shift < 0 {
         0
@@ -485,7 +493,11 @@ pub fn WordSignedShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term
     }
 }
 
-#[k::function(total, syntax = "#kevmByte({index}, {value})")]
+#[k::function(
+    total,
+    assumed = "0 <= index < 32 in the branch that shifts, so the amount 8 * (31 - index) is at least 0; the check does not bound a product",
+    syntax = "#kevmByte({index}, {value})"
+)]
 pub fn WordByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     if index >= 0 && index < 32 {
         int::rem_euclid(value >> (8 * (31 - index)), 256)
@@ -494,7 +506,11 @@ pub fn WordByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     }
 }
 
-#[k::function(total, syntax = "#kevmSignExtend({index}, {value})")]
+#[k::function(
+    total,
+    assumed = "0 <= index < 32 in the branches that shift, so the amount 8 * (index + 1) is at least 8; the check does not bound a product, nor read the negation of `index < 0 || index >= 32`",
+    syntax = "#kevmSignExtend({index}, {value})"
+)]
 pub fn WordSignExtend(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     if index < 0 || index >= 32 {
         value
@@ -510,6 +526,7 @@ pub fn WordSignExtend(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> 
 #[k::function(
     total,
     underspecified = "a byte position is never negative: WordSignExtend reads it only for 0 <= index < 32",
+    assumed = "the equation requires index >= 0, so the amount 8 * index is at least 0; the check does not bound a product",
     syntax = "#kevmSignExtendByte({index}, {value})"
 )]
 pub fn SignExtendByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
@@ -682,7 +699,11 @@ pub struct EcdsaRecover {
 /// s·R = e·G, where the recovered point r^-1·(s·R - e·G) is the point at infinity.
 /// `plugin/krypto.md` gives no value there, so the hook's empty result is k-rust's failure value,
 /// and the test maps it to the EVM's empty output.
-#[k::function(total, syntax = "#kevmEcrecOutput({public_key})")]
+#[k::function(
+    total,
+    assumed = "CopyBytes writes the 20 indexes 12 .. 31 of a memory of 32 bytes, each a byte MemoryByte gives, and its count falls to 0",
+    syntax = "#kevmEcrecOutput({public_key})"
+)]
 pub fn EcrecOutput(public_key: k::Term<Bytes>) -> k::Term<Bytes> {
     if bytes::length(public_key) <= 0 {
         bytes::empty()
@@ -724,7 +745,11 @@ pub const SECP256K1_P: Int =
 /// (R the point with x-coordinate r and the parity v selects, e the hash), and then the recovered
 /// point is the point at infinity, which is no public key. `plugin/krypto.md` gives no value for
 /// that input; `EcrecOutput`'s length test maps the hook's empty result to the EVM's empty output.
-#[k::function(total, syntax = "#kevmEcrecRecoverable({v}, {r}, {s})")]
+#[k::function(
+    total,
+    assumed = "the exponent (p - 1) / 2 and the modulus p of `int::pow_mod` are positive constants; the check reads a literal only within 128 bits and does not fold the exponent",
+    syntax = "#kevmEcrecRecoverable({v}, {r}, {s})"
+)]
 pub fn EcrecRecoverable(v: k::Term<Int>, r: k::Term<Int>, s: k::Term<Int>) -> k::Term<Bool> {
     (v == 27 || v == 28)
         && 0 < r
@@ -960,8 +985,11 @@ pub fn ModExpOutputBody(
     }
 }
 
+/// MODEXP's output: the power as `modulus_length` bytes, most significant first, and no bytes
+/// for a length that is not positive (padding to a negative length has no value).
 #[k::function(
     total,
+    assumed = "where modulus_length > 0, WriteMemoryWord writes the indexes 0 .. modulus_length - 1 of a memory of modulus_length bytes, each a byte value, and its count falls to 0",
     syntax = "#kevmModExpOutputExponent({body}, {base}, {exponent_length}, {modulus_length})"
 )]
 pub fn ModExpOutputExponent(
@@ -970,15 +998,19 @@ pub fn ModExpOutputExponent(
     exponent_length: k::Term<Int>,
     modulus_length: k::Term<Int>,
 ) -> k::Term<Bytes> {
-    WriteMemoryWord {
-        memory: bytes::pad_right(bytes::empty(), modulus_length, 0),
-        index: 0,
-        remaining: modulus_length,
-        value: ModExpPower {
-            base,
-            exponent: BytesToInt(ReturnBytes(body, 0, exponent_length), 0, 0),
-            modulus: BytesToInt(ReturnBytes(body, exponent_length, modulus_length), 0, 0),
-        },
+    if modulus_length <= 0 {
+        bytes::empty()
+    } else {
+        WriteMemoryWord {
+            memory: bytes::pad_right(bytes::empty(), modulus_length, 0),
+            index: 0,
+            remaining: modulus_length,
+            value: ModExpPower {
+                base,
+                exponent: BytesToInt(ReturnBytes(body, 0, exponent_length), 0, 0),
+                modulus: BytesToInt(ReturnBytes(body, exponent_length, modulus_length), 0, 0),
+            },
+        }
     }
 }
 
@@ -989,6 +1021,10 @@ pub fn ModExpPower(
     modulus: k::Term<Int>,
 ) -> k::Term<Int> {
     if modulus <= 0 {
+        0
+    } else if exponent < 0 {
+        // `int::pow_mod` has no value for a negative exponent. MODEXP reads its exponent from
+        // bytes, so none is negative.
         0
     } else {
         int::pow_mod(base, exponent, modulus)
@@ -1084,7 +1120,11 @@ pub fn EcAddSecondPoint(data: k::Term<Bytes>) -> k::Term<G1Point> {
     }
 }
 
-#[k::function(total, syntax = "#kevmBn128PointBytes({point})")]
+#[k::function(
+    total,
+    assumed = "each WriteMemoryWord writes 32 indexes, 0 .. 31 and 32 .. 63, of a memory of 64 bytes, each a byte value, and its count falls to 0",
+    syntax = "#kevmBn128PointBytes({point})"
+)]
 pub fn Bn128PointBytes(point: k::Term<G1Point>) -> k::Term<Bytes>;
 
 k::equations! {
@@ -1274,7 +1314,11 @@ pub fn EcPairingPointsValid(
     }
 }
 
-#[k::function(total, syntax = "#kevmEcPairingPrecompileOutput({data})")]
+#[k::function(
+    total,
+    assumed = "WriteMemoryWord writes the indexes 0 .. 31 of a memory of 32 bytes, each a byte value, and its count falls to 0",
+    syntax = "#kevmEcPairingPrecompileOutput({data})"
+)]
 pub fn EcPairingPrecompileOutput(data: k::Term<Bytes>) -> k::Term<Bytes> {
     WriteMemoryWord {
         memory: bytes::pad_right(bytes::empty(), 32, 0),
@@ -1355,8 +1399,11 @@ pub fn ExternalCopyGasCost(
         + (MemoryExpansionCost { used, start, width } + 3 * ((width + 31) / 32))
 }
 
+/// The memory grown to hold `width` bytes from `start`. It has no value where the usage
+/// `MemoryUsageUpdate` gives is negative (a negative `used` with a region that ends below 0):
+/// padding to a negative length has none.
 #[k::function(
-    total,
+    partial,
     syntax = "#kevmPrepareCopyMemory({memory}, {used}, {start}, {width})"
 )]
 pub fn PrepareCopyMemory(
@@ -1410,12 +1457,16 @@ pub fn Keccak(value: k::Term<Bytes>) -> k::Term<Int> {
 }
 
 #[k::function(total, syntax = "#kevmStorageValue({storage}, {index})")]
-pub fn StorageValue(storage: k::Term<Map>, index: k::Term<Int>) -> k::Term<Int> {
-    if map::in_keys(index, storage) {
-        map::get(storage, index)
-    } else {
-        0
-    }
+pub fn StorageValue(storage: k::Term<Map>, index: k::Term<Int>) -> k::Term<Int>;
+
+// The read is an `Int` only where the word stored is one, which nothing states of a `Map`: the
+// condition tests it, and a slot that holds no word reads as an absent one does.
+k::equations! {
+    for StorageValue;
+    #[k::requires(map::in_keys(index, storage) && k::is!(Int, map::get(storage, index)))]
+    storage_value_present: (storage, index) => map::get(storage, index);
+    #[k::equation(owise)]
+    storage_value_absent:  (_, _)           => 0;
 }
 
 #[k::function(total, syntax = "#kevmStorageWarm({accessed}, {account}, {index})")]
@@ -1423,12 +1474,16 @@ pub fn StorageWarm(
     accessed: k::Term<Map>,
     account: k::Term<Int>,
     index: k::Term<Int>,
-) -> k::Term<Bool> {
-    if map::in_keys(account, accessed) {
-        set::contains(index, map::get(accessed, account))
-    } else {
-        false
-    }
+) -> k::Term<Bool>;
+
+// An account's entry is read as a `Set` only where it is one, which the condition tests.
+k::equations! {
+    for StorageWarm;
+    #[k::requires(map::in_keys(account, accessed) && k::is!(Set, map::get(accessed, account)))]
+    storage_warm_listed:   (accessed, account, index)
+                           => set::contains(index, map::get(accessed, account));
+    #[k::equation(owise)]
+    storage_warm_unlisted: (_, _, _) => false;
 }
 
 #[k::function(
@@ -1439,16 +1494,22 @@ pub fn MarkStorageAccess(
     accessed: k::Term<Map<Int, Set<Int>>>,
     account: k::Term<Int>,
     index: k::Term<Int>,
-) -> k::Term<Map<Int, Set<Int>>> {
-    if map::in_keys(account, accessed) {
-        map::update(
-            accessed,
-            account,
-            set::union(map::get(accessed, account), set::item(index)),
-        )
-    } else {
-        map::update(accessed, account, set::item(index))
-    }
+) -> k::Term<Map<Int, Set<Int>>>;
+
+// An account's entry is read as a `Set` only where it is one, which the condition tests; an
+// account with no such entry gets the one slot.
+k::equations! {
+    for MarkStorageAccess;
+    #[k::requires(map::in_keys(account, accessed) && k::is!(Set, map::get(accessed, account)))]
+    mark_storage_access_listed:   (accessed, account, index)
+                                  => map::update(
+                                      accessed,
+                                      account,
+                                      set::union(map::get(accessed, account), set::item(index)),
+                                  );
+    #[k::equation(owise)]
+    mark_storage_access_unlisted: (accessed, account, index)
+                                  => map::update(accessed, account, set::item(index));
 }
 
 #[k::function(total, syntax = "#kevmColdStorageSurcharge({warm})")]
@@ -1619,18 +1680,28 @@ pub fn CopyBytes(
     }
 }
 
-#[k::function(total, syntax = "#kevmReturnBytes({memory}, {start}, {width})")]
+/// The `width` bytes of `memory` from `start`, a byte outside it read as 0, and no bytes for a
+/// width that is not positive (padding to a negative length has no value).
+#[k::function(
+    total,
+    assumed = "where width > 0, CopyBytes writes the indexes 0 .. width - 1 of a memory of width bytes, each a byte MemoryByte gives, and its count falls to 0",
+    syntax = "#kevmReturnBytes({memory}, {start}, {width})"
+)]
 pub fn ReturnBytes(
     memory: k::Term<Bytes>,
     start: k::Term<Int>,
     width: k::Term<Int>,
 ) -> k::Term<Bytes> {
-    CopyBytes {
-        memory: bytes::pad_right(bytes::empty(), width, 0),
-        destination: 0,
-        source: memory,
-        source_index: start,
-        remaining: width,
+    if width <= 0 {
+        bytes::empty()
+    } else {
+        CopyBytes {
+            memory: bytes::pad_right(bytes::empty(), width, 0),
+            destination: 0,
+            source: memory,
+            source_index: start,
+            remaining: width,
+        }
     }
 }
 
@@ -1769,8 +1840,11 @@ pub fn PreparePush(
     }
 }
 
+/// It has no value where `topics` is below 0 and the stack holds fewer than two words: the
+/// stack test then passes and `StackAt` reads a word the stack lacks. A LOG opcode's topic
+/// count is 0 to 4.
 #[k::function(
-    total,
+    partial,
     syntax = "#kevmPrepareLog({topics}, {stack}, {gas}, {used}, {static_mode})"
 )]
 pub fn PrepareLog(
@@ -1800,6 +1874,7 @@ pub fn PrepareLog(
 
 #[k::function(
     total,
+    assumed = "StackAt reads the indexes 1 .. 5 only where StackSize(stack) >= 6, and it has a value at every index below a stack's size",
     syntax = "#kevmPrepareStaticCall({stack}, {accessed}, {used}, {gas})"
 )]
 pub fn PrepareStaticCall(

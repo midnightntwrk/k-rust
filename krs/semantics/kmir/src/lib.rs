@@ -663,6 +663,9 @@ k::equations! {
     #[k::equation(priority = 40)]
     get_ty_of_unknown:   (_, TyUnknown(), _) => TyUnknown();
     get_ty_of_done:      (_, ty, [])         => ty;
+    /// The type table is read only where it holds the type's information; a type it lacks
+    /// is unknown, as `get_ty_of_other` says.
+    #[k::requires(map::in_keys(ty, types) && k::is!(TypeInfo, map::get(types, ty)))]
     get_ty_of_deref:     (types, ty, [Deref(), tail @ ..])
                          => GetTyOf {
                              types,
@@ -671,6 +674,7 @@ k::equations! {
                          };
     get_ty_of_field:     (types, _, [Field { ty, .. }, tail @ ..])
                          => GetTyOf { types, ty, projections: tail };
+    #[k::requires(map::in_keys(ty, types) && k::is!(TypeInfo, map::get(types, ty)))]
     get_ty_of_element:   (types, ty, [Index { .. } | ConstantIndex { .. }, tail @ ..])
                          => GetTyOf {
                              types,
@@ -684,7 +688,8 @@ k::equations! {
     get_ty_of_other:     (_, _, _)           => TyUnknown();
 }
 
-#[k::function(total, syntax = "#lookupMaybeTy({types}, {ty})")]
+/// The information of a type the table holds, and none for a known type it lacks.
+#[k::function(partial, syntax = "#lookupMaybeTy({types}, {ty})")]
 pub fn LookupMaybeTy(types: k::Term<Map>, ty: k::Term<MaybeTy>) -> k::Term<TypeInfo>;
 
 /// A known type is looked up in the type map. `ty` is declared `Ty`, not the
@@ -955,6 +960,9 @@ k::equations! {
                               ) => LayoutSize(layout);
     size_of_dynamic_array:    (_, ArrayType { size: MirMaybeTyConst::NoTyConst(), .. })
                               => 0;
+    /// An element type the table lacks has no size to multiply: the array then has
+    /// `size_of_other`'s size, as a type with no layout does. So has a pointee below.
+    #[k::requires(map::in_keys(element, types) && k::is!(TypeInfo, map::get(types, element)))]
     size_of_static_array:     (
                                   types,
                                   ArrayType {
@@ -973,6 +981,7 @@ k::equations! {
                                   1,
                                   0,
                               );
+    #[k::requires(map::in_keys(pointee, types) && k::is!(TypeInfo, map::get(types, pointee)))]
     size_of_pointer:          (types, PointerType(pointee) | ReferenceType(pointee))
                               => SizeOfTypeInfo(
                                   types,
@@ -1000,6 +1009,7 @@ k::equations! {
                                    | UnionType { layout, .. }
                                    | TupleType { layout, .. },
                                ) => LayoutAlign(layout);
+    #[k::requires(map::in_keys(element, types) && k::is!(TypeInfo, map::get(types, element)))]
     align_of_array:            (types, ArrayType { element, .. })
                                => AlignOfTypeInfo(types, map::get(types, element));
     align_of_pointer:          (types, PointerType(_) | ReferenceType(_))
@@ -2526,7 +2536,11 @@ pub enum ReturnValue {
     Returned { value: MirValue },
 }
 
-#[k::function(total, syntax = "#truncateUnsigned({value}, {width})")]
+#[k::function(
+    total,
+    assumed = "the equation that divides requires width > 0, so the divisor 1 << width is a positive power of two; the check does not bound a shift",
+    syntax = "#truncateUnsigned({value}, {width})"
+)]
 pub fn TruncateUnsigned(value: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int>;
 
 #[k::function(total, syntax = "#truncateSigned({value}, {width})")]
@@ -2617,7 +2631,14 @@ k::equations! {
 #[k::function(total, syntax = "#adjustRef({value}, {offset})")]
 pub fn AdjustRef(value: k::Term<MirValue>, offset: k::Term<Int>) -> k::Term<MirValue>;
 
-#[k::function(partial, syntax = "#mapRefOffset({values}, {offset})")]
+/// `AdjustRef` over the fields of an aggregate or the elements of a range. It is `total` as
+/// `AdjustRef` is, which applies it: each of the two has a value where the other has one, and
+/// the list shrinks at every step.
+#[k::function(
+    total,
+    underspecified = "the fields of an aggregate and the elements of a range are values; a list that holds another item has no equation",
+    syntax = "#mapRefOffset({values}, {offset})"
+)]
 pub fn MapRefOffset(values: k::Term<List>, offset: k::Term<Int>) -> k::Term<List>;
 
 k::equations! {
