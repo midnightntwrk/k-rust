@@ -376,8 +376,14 @@ impl Refusal {
             Self::InitializerRemainder => format!(
                 "the initial value of the cell `{cell}` holds a rest (`..`), but an initializer's value is complete: it has no subject whose rest the `..` could keep, so it lists every item"
             ),
+            // NT-19: a readable record writes a map cell's entries in braces; its `map![..]` is a
+            // literal, at a cell, at a record's child, and in a term alike. A built map's rest is
+            // the map its entries are written over.
+            Self::AnonymousRestInMapLiteral if form.is_readable() => format!(
+                "the entry of the cell `{cell}` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{{ k -> v, .. }}`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)"
+            ),
             Self::AnonymousRestInMapLiteral => format!(
-                "the entry of the cell `{cell}` holds a map literal with an anonymous `..`, which names no map here: the literal is not the cell's content, so there is no map whose other entries the `..` could stand for"
+                "the entry of the cell `{cell}` builds `k::map![..]` with an anonymous `..`, which names no map: a built map's rest is the map its entries are written over (`k::map![k -> v, ..m]`), and keeping the entries a subject's `..` matched is a frame write no route lowers yet (a stated limitation), so a rule names that rest in its subject (`k::map![k -> v, rest @ ..]`) and builds the map over it (`k::map![k -> w, ..rest]`)"
             ),
             Self::PresenceOnPlainCell => format!(
                 "the cell `{cell}` holds {holds} and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: {} are the presence of an optional cell, which `{cell}` has none of",
@@ -509,7 +515,7 @@ impl Refusal {
                 "the `cells!` entry of the cell `{cell}` takes a record's other children from a base (`..base`) that is no instance its subject labels: `cells!` is the reference notation, which names every child, and its one update rewrites in place the instance of a collection its subject labels; write each other child the record takes, and a group's children as their own entries"
             ),
             Self::MapReadInResult => format!(
-                "the entry of the cell `{cell}` reads a map (`{{ k -> v, .. }}`) in a result: a map read is a pattern, and a readable record's result has no map write yet (a stated limitation; a `cells!` result has `Cell(k::map![k -> v, ..])`)"
+                "the entry of the cell `{cell}` writes braces in a result (`{{ k -> v }}`, `{{ k -> v, .. }}`, `{{ k -> v, ..m }}`): a readable record's braces at a cell, and a record child's braces holding a rest, are a map read, a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or the literal of those entries alone (`map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)"
             ),
             Self::MapCollectionKey => {
                 let key = match own.as_slice() {

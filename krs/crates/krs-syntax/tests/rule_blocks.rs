@@ -1040,11 +1040,11 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: { y -> n, .. } };",
-            "reads a map (`{ k -> v, .. }`) in a result",
+            "writes braces in a result",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], env: { y -> 1, .. } };",
-            "reads a map (`{ k -> v, .. }`) in a result",
+            "writes braces in a result",
         ),
         // A presence is lexical over a matched term too: it pairs with no term.
         (
@@ -1154,7 +1154,7 @@ fn a_notation_fault_waits_for_the_cells_kind() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], acct: { Gm { ma: x, .. }, .. } } => { k: [..], acct: { y -> x, .. } };",
-            "reads a map (`{ k -> v, .. }`) in a result",
+            "writes braces in a result",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)
