@@ -123,17 +123,25 @@ impl After<SourceRange> {
 
 /// The refusals `rule`'s parser leaves until its entries are admitted, in the order they are
 /// asked: an item after a computation's rest, which the entry's kind answers first, then a result
-/// remainder that reuses no subject frame of its kind, which pairs the result with the subject.
+/// remainder that reuses no subject frame of its kind, which pairs the result with the subject,
+/// each with the kind it is built with.
 fn after_admission(
     rule: &krs_syntax::StateRuleItem,
 ) -> Vec<(CollectionErrorKind, krs_syntax::SyntaxError)> {
     rule.misplaced_tail()
         .map(|error| (deferred(&error), error))
         .into_iter()
-        .chain(
-            rule.reuse_refusal()
-                .map(|error| (CollectionErrorKind::ResultRemainderReuse, error)),
-        )
+        .chain(rule.reuse_refusal().map(|error| {
+            // A remainder that reuses no subject frame is the result's unsupported body; a
+            // refusal of another kind (a `..x` of a sort that is no computation) keeps its own.
+            let kind =
+                if error.kind().code() == krs_diagnostic::codes::syntax::UNSUPPORTED_RULE_BODY {
+                    CollectionErrorKind::ResultRemainderReuse
+                } else {
+                    deferred(&error)
+                };
+            (kind, error)
+        }))
         .collect()
 }
 
