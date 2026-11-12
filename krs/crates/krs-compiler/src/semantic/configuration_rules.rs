@@ -893,6 +893,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         requires_sorts,
         mut variables,
     } = configuration_rule_bindings(rule)?;
+    check_spliced_sorts(descriptor, rule, &subject_sorts)?;
     // Each list cell's unnamed rest is one variable of the cell's sort, which the subject binds
     // and a result keeps, declared once for the sentence; so is each hidden binder of the long
     // form, at its field's declared sort.
@@ -2525,6 +2526,66 @@ pub(super) fn moved_computation(
         exact: spliced.is_some() || moved.is_some(),
         moved,
     })
+}
+
+/// Refuses a result computation's `..x` whose `x` is a subject term binder (`subject_sorts`) of a
+/// sort that is no computation: `..x` writes the computation `x` after the result's items
+/// ([`spliced_computation`]), which a term of another sort is not. The sort is the declared one,
+/// resolved, so a binder spelled through a path or an alias of `KSequence` is a computation.
+fn check_spliced_sorts(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    subject_sorts: &BTreeMap<String, SemanticSortRef>,
+) -> Result<(), DescriptorLoweringError> {
+    fn tails<'a>(
+        state: &'a ProtocolRuleStateTerm<DescriptorTerm>,
+        found: &mut Vec<(&'a ProvenanceKey, &'a str)>,
+    ) {
+        match state {
+            ProtocolRuleStateTerm::KSequence(sequence) => {
+                if let ProtocolRuleFrame::Reuse { key, binding } = &sequence.tail {
+                    found.push((key, binding));
+                }
+            }
+            ProtocolRuleStateTerm::Present { value } => tails(value, found),
+            ProtocolRuleStateTerm::Record(record) => {
+                for field in &record.fields {
+                    tails(&field.value, found);
+                }
+            }
+            ProtocolRuleStateTerm::Instances(instances) => {
+                for instance in instances.front.iter().chain(&instances.back) {
+                    for field in &instance.fields {
+                        tails(&field.value, found);
+                    }
+                }
+            }
+            ProtocolRuleStateTerm::Term(_)
+            | ProtocolRuleStateTerm::Group(_)
+            | ProtocolRuleStateTerm::Map(_)
+            | ProtocolRuleStateTerm::Absent => {}
+        }
+    }
+    let mut found = Vec::new();
+    for cell in rule.result.iter().flat_map(|result| &result.cells) {
+        tails(&cell.value, &mut found);
+    }
+    for (key, binding) in found {
+        if let Some(sort) = subject_sorts.get(binding)
+            && *sort != SemanticSortRef::k_sequence()
+        {
+            return Err(DescriptorLoweringError::CellCollection {
+                code: krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+                reason: format!(
+                    "`..{binding}` in a computation writes the computation `{binding}` after the result's items, and `{binding}` is a term of sort `{}`, not a computation (`K`): write it as an item, without `..`",
+                    super::overload::sort_name(sort)
+                ),
+                range: key_range(descriptor, key).map(Box::new),
+                item: None,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The term `after` of the computation a result creates, `result` lowered: a created cell has no

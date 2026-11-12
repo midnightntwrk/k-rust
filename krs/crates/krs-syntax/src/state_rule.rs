@@ -2066,39 +2066,16 @@ fn validate_remainder_reuse(
     // A built map's rest may also be a map the subject binds whole (`env: Cell(m)` and
     // `map![k -> v, ..m]`), which its entries are written over; the compiler checks its sort.
     // A computation's `..x` writes the computation `x` after the result's items, whatever binds it:
-    // a computation cell's rest, or a term binder of sort `K` (a constructor's `K` field, an
-    // instance child's computation rest `tk: [x, rest @ ..]`). A term of another sort is no
-    // computation to write after them.
-    if let StateMacroRemainder::Reuse { binding, range } = remainder
+    // a computation cell's rest, or a term binder of sort `K` (a constructor's `K` field). Whether
+    // the binder's sort is `K` is its resolved sort's question, which the lowering answers
+    // (`check_spliced_sorts`), since a path or an alias may spell `KSequence`.
+    if let StateMacroRemainder::Reuse { binding, .. } = remainder
         && expected == StateRuleBindingKind::KSequenceFrame
-        && !bindings.iter().any(|existing| {
-            existing.name == *binding && existing.kind == StateRuleBindingKind::KSequenceFrame
-        })
-        && let Some(term) = bindings.iter().find(|existing| {
+        && bindings.iter().any(|existing| {
             existing.name == *binding && existing.kind == StateRuleBindingKind::Term
         })
     {
-        let sort = term.sort.as_ref();
-        if sort.is_some_and(|sort| {
-            sort.sort()
-                .segments
-                .last()
-                .is_some_and(|segment| segment.ident == "KSequence")
-        }) {
-            return Ok(());
-        }
-        let sort = sort.map_or_else(
-            || "another sort".to_owned(),
-            |sort| format!("`{}`", sort.sort_token_text()),
-        );
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::InvalidListNotation {
-                reason: format!(
-                    "`..{binding}` in a computation writes the computation `{binding}` after the result's items, and `{binding}` is a term of sort {sort}, not a computation (`KSequence`): write it as an item, without `..`"
-                ),
-            },
-            range.first(),
-        ));
+        return Ok(());
     }
     if let StateMacroRemainder::Reuse { binding, range } = remainder
         && !bindings.iter().any(|existing| {
