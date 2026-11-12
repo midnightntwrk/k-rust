@@ -855,7 +855,8 @@ fn matches_whole_sequence(clause: &ConfigurationClause<SemanticId, SemanticTerm>
 }
 
 /// Whether no clause of a rule changes its cell: each only reads it or
-/// restates it. An optional cell (KF-023) changes when it goes from present
+/// restates it, or rewrites it in place by rewrites that each keep what they
+/// match. An optional cell (KF-023) changes when it goes from present
 /// to absent or from absent to present, and a collection clause whenever it
 /// removes or creates an instance, whether or not it mentions the instance's
 /// children (`<obj> _ </obj> => .Bag` mentions none); a kept instance changes
@@ -864,7 +865,7 @@ pub(super) fn changes_no_cell(clauses: &[ConfigurationClause<SemanticId, Semanti
     use krs_ir::{InstanceClause, Presence};
     let fixed = |clause: &FixedCellClause<SemanticId, SemanticTerm>| match clause.after() {
         CellPost::Preserve => true,
-        CellPost::Local => false,
+        CellPost::Local => keeps_every_rewrite(clause.before()),
         CellPost::Replace { term } => same_term(clause.before(), term),
     };
     clauses.iter().all(|clause| match clause {
@@ -884,6 +885,18 @@ pub(super) fn changes_no_cell(clauses: &[ConfigurationClause<SemanticId, Semanti
             })
         }
     })
+}
+
+/// Whether every rewrite at or below `term`, a content rewritten in place, has the same term on
+/// both sides (`(make(X) => make(X))`): such a rewrite leaves its content as it found it, so the
+/// content changes nowhere. A rewrite's sides are a pre-pattern and a post-term, and no binder of
+/// a rewrite's own stands on both (an alias or alternatives only in the pre-pattern, a `let` or a
+/// test only in the post-term), so sides that are the same term are the same up to such names.
+fn keeps_every_rewrite(term: &SemanticTerm) -> bool {
+    match term.kind() {
+        krs_ir_levels::SemanticTermKind::Rewrite { from, to } => same_term(from, to),
+        _ => term.children().into_iter().all(keeps_every_rewrite),
+    }
 }
 
 /// Whether two semantic terms are the same term, ignoring their origins.
@@ -1921,14 +1934,15 @@ pub(super) fn lower_structured_rule_descriptor(
         && rule.evaluation.is_none()
         && restriction.is_none()
         && super::function_patterns::collection_rooted(&rule.subject, catalog);
-    // A transition whose result is its subject rewrites the item to itself:
+    // A transition whose result is its subject rewrites the item to itself,
+    // and so does a single-body one whose every rewrite keeps what it matches:
     // the step from a configuration to itself that `check_step_effect`
     // refuses on the cell routes, so it is refused here too.
-    if transition
-        && result
-            .as_ref()
-            .is_some_and(|result| same_term(&subject, result))
-    {
+    let unchanged = match &result {
+        Some(result) => same_term(&subject, result),
+        None => subject.contains_rewrite() && keeps_every_rewrite(&subject),
+    };
+    if transition && unchanged {
         return Err(DescriptorLoweringError::RuleChangesNoCell {
             rule: Box::new(descriptor.id().clone()),
             range: step_range(descriptor, &rule.pattern_key)?,

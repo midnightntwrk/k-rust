@@ -4967,6 +4967,99 @@ fn a_single_body_rule_that_marks_no_change_changes_no_cell() {
         wildcard: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5"]].assert_eq(&lines.join("\n"));
 }
 
+/// SMALLVERDICTS item 2: a rewrite whose two sides are the same term keeps the content it
+/// matches, so a single-body rule whose every rewrite does so changes no cell, at any depth, in
+/// any cell: a computation's item rewritten to itself, a part of it, a leaf's content, a group's
+/// child, an instance's child, and the term route's item. It is the rule whose result restates
+/// its subject, with its class and text. One rewrite that changes its content makes the rule a
+/// change; a claim whose end state is its start is a statement that the state reaches itself,
+/// admitted as before.
+#[test]
+fn a_single_body_rule_whose_every_rewrite_keeps_its_content_changes_no_cell() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cell = "k::configuration::Cell";
+    let item = "k: k::configuration::KCell(k::rewrite!(Cmd::Make { x } => Cmd::Make { x }), ..)";
+    let single = |parameters: &str, entries: &str| {
+        format!(
+            "{SINGLE_BODY}#[k::rule(label = \"make\")]\npub fn make(\n{parameters}    k::cells! {{ {entries}, .. }}: Machine,\n) {{}}\n"
+        )
+    };
+    let mut lines = [
+        ("item", single("    x: Int,\n", item)),
+        (
+            "item-part",
+            single(
+                "    x: Int,\n",
+                "k: k::configuration::KCell(Cmd::Make { x: k::rewrite!(x => x) }, ..)",
+            ),
+        ),
+        (
+            "leaf-and-item",
+            single(
+                "    x: Int,\n    a: Int,\n",
+                &format!("{item}, acc: {cell}(k::rewrite!(a => a))"),
+            ),
+        ),
+        (
+            "group-child",
+            single(
+                "    p: Int,\n",
+                "frame: k::fragment![crate::Frame { pc: k::rewrite!(p => p), .. }]",
+            ),
+        ),
+        (
+            "instance-child",
+            single(
+                "    i: Int,\n    v: Int,\n",
+                "crate::Objs::obj: { k::fragment![crate::Obj { oid: i, val: k::rewrite!(v => v), .. }], .. }",
+            ),
+        ),
+        (
+            "term-route",
+            format!(
+                "{SINGLE_BODY}#[k::rule(label = \"make\")]\nfn make(x: k::Term<Int>, k::term![Cmd::Make {{ x: k::rewrite!(x => x) }}]: k::Term<Stmt>) {{}}\n"
+            ),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("kept-rewrite-{name}"), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    lines.sort();
+    expect_test::expect![[r#"
+        group-child: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 79:5
+        instance-child: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 80:5
+        item-part: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 79:5
+        item: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 79:5
+        leaf-and-item: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 80:5
+        term-route: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 77:26"#]].assert_eq(&lines.join("\n"));
+    let admitted = [
+        (
+            "one-changes",
+            single(
+                "    x: Int,\n    a: Int,\n",
+                &format!("{item}, acc: {cell}(k::rewrite!(a => x))"),
+            ),
+            "make",
+        ),
+        (
+            "claim-twin",
+            format!(
+                "{SINGLE_BODY}#[k::claim(one_path, label = \"c\")]\nfn c(\n    x: Int,\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, tail @ ..), .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(Cmd::Make {{ x }}, ..tail) }}\n}}\n"
+            ),
+            "c",
+        ),
+    ]
+    .map(|(name, source, label)| {
+        let manifest = library_package(temporary.path(), &format!("kept-rewrite-{name}"), &source);
+        format!("{name}: {}", emitted_sentence(target.path(), &manifest, label))
+    });
+    expect_test::expect![[r#"
+        one-changes: rule [make]: <k> (make ( X:Int ) => make ( X:Int )) ... </k> <acc> A:Int => X:Int </acc>
+        claim-twin: claim [c]: <k> make ( X:Int ) ~> Tail:K </k> [one-path]"#]].assert_eq(&admitted.join("\n"));
+}
+
 /// CELLS4 item 2, SMALLVERDICTS item 1: an entry written as a term without a wrapper, or as a
 /// whole `k::rewrite!(a => b)` of contents, is a content outside its wrapper. On a leaf or the
 /// computation that is the entry's missing wrapper, one meaning whatever term it writes, so a
