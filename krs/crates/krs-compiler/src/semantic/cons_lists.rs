@@ -269,10 +269,17 @@ impl StructuredTermBuilder<'_> {
             ));
         };
         let Some(list) = self.cons_list_of(expected) else {
+            // Brackets at a computation are its items only where the reader reads them so: at a
+            // computation cell or child, ending in no rest or an anonymous one.
+            let computation = if *expected == SemanticSortRef::k_sequence() {
+                "; brackets are a computation's items only at a computation cell or child, with no rest or an anonymous `..` at their end: a named rest (`rest @ ..`, `..rest`) at a child of an instance or a group, and a `?` computation's items in a readable record, are not supported yet"
+            } else {
+                ""
+            };
             return Err(self.invalid_list_notation(
                 &reference.key,
                 format!(
-                    "list notation builds a list, but this position has sort `{}`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",
+                    "list notation builds a list, but this position has sort `{}`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum{computation}",
                     sort_name(expected)
                 ),
             ));

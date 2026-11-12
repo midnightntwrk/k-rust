@@ -2065,19 +2065,38 @@ fn validate_remainder_reuse(
 ) -> Result<(), SyntaxError> {
     // A built map's rest may also be a map the subject binds whole (`env: Cell(m)` and
     // `map![k -> v, ..m]`), which its entries are written over; the compiler checks its sort.
-    // An instance child's computation rest (`tk: [x, rest @ ..]`) is a term the subject binds, as
-    // is any other term binder, and no computation cell's frame.
+    // A computation's `..x` writes the computation `x` after the result's items, whatever binds it:
+    // a computation cell's rest, or a term binder of sort `K` (a constructor's `K` field, an
+    // instance child's computation rest `tk: [x, rest @ ..]`). A term of another sort is no
+    // computation to write after them.
     if let StateMacroRemainder::Reuse { binding, range } = remainder
         && expected == StateRuleBindingKind::KSequenceFrame
         && !bindings.iter().any(|existing| {
             existing.name == *binding && existing.kind == StateRuleBindingKind::KSequenceFrame
         })
-        && bindings.iter().any(|existing| {
+        && let Some(term) = bindings.iter().find(|existing| {
             existing.name == *binding && existing.kind == StateRuleBindingKind::Term
         })
     {
-        return Err(body_error(
-            "a result's `..rest` in a computation writes the rest a computation cell's subject binds (`rest @ ..`), and this name is a term the subject binds, as an instance child's computation rest is: moving a rest between an instance child and another computation cell is not supported yet",
+        let sort = term.sort.as_ref();
+        if sort.is_some_and(|sort| {
+            sort.sort()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "KSequence")
+        }) {
+            return Ok(());
+        }
+        let sort = sort.map_or_else(
+            || "another sort".to_owned(),
+            |sort| format!("`{}`", sort.sort_token_text()),
+        );
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidListNotation {
+                reason: format!(
+                    "`..{binding}` in a computation writes the computation `{binding}` after the result's items, and `{binding}` is a term of sort {sort}, not a computation (`KSequence`): write it as an item, without `..`"
+                ),
+            },
             range.first(),
         ));
     }

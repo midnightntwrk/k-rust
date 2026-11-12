@@ -2579,11 +2579,11 @@ fn brackets_bound_by_a_local_are_the_list_of_its_uses() {
             ),
             (
                 "sequence-direct",
-                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum at `1]`",
+                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only at a computation cell or child, with no rest or an anonymous `..` at their end: a named rest (`rest @ ..`, `..rest`) at a child of an instance or a group, and a `?` computation's items in a readable record, are not supported yet at `1]`",
             ),
             (
                 "sequence-local",
-                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum at `1]`",
+                "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only at a computation cell or child, with no rest or an anonymous `..` at their end: a named rest (`rest @ ..`, `..rest`) at a child of an instance or a group, and a `?` computation's items in a readable record, are not supported yet at `1]`",
             ),
             (
                 "two-lists",
