@@ -1448,25 +1448,7 @@ fn infer_readable_state(
             }
         },
         State::Term(term) | State::Group(term) => builder.infer(term, Some(&sort), subject)?,
-        // Brackets in a list leaf, an instance's child among them, hold the list's elements, so
-        // each item is one element of the leaf's sort (`al: [y, ..]` binds `y` to an element of
-        // `al`); in a computation, an instance's computation child among them, they are its
-        // items, each typed as the head's are ([`head_item_sort`]: `_` is any one item).
-        State::KSequence(sequence) => {
-            let computation = sort == SemanticSortRef::k_sequence();
-            let list = (!computation)
-                .then(|| builder.cons_list_of(&sort))
-                .flatten();
-            let k_item = builder.k_item_sort.clone();
-            for item in &sequence.items {
-                let expected = match &list {
-                    Some(list) => builder.list_element_expected(&item.value, list),
-                    None if computation => head_item_sort(&item.value, None, &k_item).cloned(),
-                    None => None,
-                };
-                builder.infer(&item.value, expected.as_ref(), subject)?;
-            }
-        }
+        State::KSequence(sequence) => infer_readable_items(builder, &sort, sequence, subject)?,
         State::Record(record) => {
             infer_readable_record(builder, declarations, field, record, subject)?;
         }
@@ -1519,6 +1501,31 @@ fn infer_readable_state(
             builder.in_key = enclosing;
             inferred?;
         }
+    }
+    Ok(())
+}
+
+/// Infers the bracketed items `sequence` of a readable entry of a cell of sort `sort`. Brackets in a
+/// list leaf, an instance's child among them, hold the list's elements, so each item is one element
+/// of the leaf's sort (`al: [y, ..]` binds `y` to an element of `al`); in a computation, an
+/// instance's computation child among them, they are its items, each typed as the head's are
+/// ([`head_item_sort`]: `_` is any one item).
+fn infer_readable_items(
+    builder: &mut StructuredTermBuilder<'_>,
+    sort: &SemanticSortRef,
+    sequence: &krs_ir::ProtocolRuleKSequence<DescriptorTerm>,
+    subject: bool,
+) -> Result<(), DescriptorLoweringError> {
+    let computation = *sort == SemanticSortRef::k_sequence();
+    let list = (!computation).then(|| builder.cons_list_of(sort)).flatten();
+    let k_item = builder.k_item_sort.clone();
+    for item in &sequence.items {
+        let expected = match &list {
+            Some(list) => builder.list_element_expected(&item.value, list),
+            None if computation => head_item_sort(&item.value, None, &k_item).cloned(),
+            None => None,
+        };
+        builder.infer(&item.value, expected.as_ref(), subject)?;
     }
     Ok(())
 }
