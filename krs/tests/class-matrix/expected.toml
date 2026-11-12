@@ -1995,11 +1995,6 @@ at = "spelling"
 
 # S5.0g: the cases the ticket lists beside the kinds array (`class_matrix::kinds` `listed`)
 [[refuse]]
-match = 'cells/result/kinds/frame/k::fragment![crate::G \{ a: x\, .. \}]'
-class = "open-record-outside-pattern"
-at = "spelling"
-
-[[refuse]]
 match = '{claim,readable}/descendant/kinds/frame/x'
 class = "group-and-descendant"
 at = "item"
@@ -4235,11 +4230,6 @@ at = "spelling"
 
 [[refuse]]
 match = 'sweep/{claim,readable}/result/{counter,olist,omap}/Some(G \{ .. \})'
-class = "open-record-outside-pattern"
-at = "spelling"
-
-[[refuse]]
-match = 'sweep/{claim,readable}/result/ogroup/Some(Gp \{ .. \})'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -7699,6 +7689,15 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/kinds/frame/k::fragment![crate::G { a: x, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(<frame> <a> _ </a> <b> V2:Int </b> </frame> => <frame> <a> V0:Int </a> <b> V2:Int </b> </frame>)
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -14928,6 +14927,15 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."sweep/claim/result/ogroup/Some(Gp { .. })"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> V0:Int </pa> <pb> V1:Int </pb> </ogroup> => <ogroup> <pa> V0:Int </pa> <pb> V1:Int </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."sweep/claim/result/olist/None"]
 k = """
 claim [case-TAG]:
@@ -17008,6 +17016,15 @@ k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
 (<ogroup> <pa> V0:Int </pa> <pb> _ </pb> </ogroup> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/ogroup/Some(Gp { .. })"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> V0:Int </pa> <pb> V1:Int </pb> </ogroup> => <ogroup> <pa> V0:Int </pa> <pb> V1:Int </pb> </ogroup>)
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
