@@ -195,10 +195,6 @@ pub enum Refusal {
     /// after it (`[.., x]`, `[x, .., y]`): an instance child's rest is kept only after its
     /// subject's items (a stated limitation).
     KeptRestBeforeItems,
-    /// A result that writes a group record child's items after its `..` (`[.., a]`), which would
-    /// keep the subject's rest before them: a group record's child keeps a rest only after its
-    /// items (a stated limitation; an instance's child and a cell of its own keep it before).
-    ResultItemsAfterRest,
 }
 
 impl Refusal {
@@ -239,10 +235,9 @@ impl Refusal {
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
-            Self::KeptRestInTerm
-            | Self::KeptRestAmongAlternatives
-            | Self::KeptRestBeforeItems
-            | Self::ResultItemsAfterRest => "kept-rest-unlowered",
+            Self::KeptRestInTerm | Self::KeptRestAmongAlternatives | Self::KeptRestBeforeItems => {
+                "kept-rest-unlowered"
+            }
         }
     }
 }
@@ -292,8 +287,7 @@ impl Refusal {
             | Self::BelowCollectionAncestor
             | Self::KeptRestInTerm
             | Self::KeptRestAmongAlternatives
-            | Self::KeptRestBeforeItems
-            | Self::ResultItemsAfterRest => analysis::COLLECTION_ENTRY,
+            | Self::KeptRestBeforeItems => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
             Self::CellWrapper => analysis::CELL_WRAPPER,
             Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
@@ -313,7 +307,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 34] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -348,7 +342,6 @@ impl Refusal {
         Self::KeptRestInTerm,
         Self::KeptRestAmongAlternatives,
         Self::KeptRestBeforeItems,
-        Self::ResultItemsAfterRest,
     ];
 
     /// Why the entry of the cell `cell`, of the kind `kind` (a leaf of the sort `sort`, where
@@ -539,9 +532,6 @@ impl Refusal {
             ),
             Self::KeptRestBeforeItems => format!(
                 "the result's unnamed rest `..` keeps the rest of the instance child `{cell}`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name"
-            ),
-            Self::ResultItemsAfterRest => format!(
-                "the result writes items after the unnamed rest `..` of the group record child `{cell}`, which would keep the subject's rest before them: not supported yet in a group's record, whose children keep a rest only after their items; name the rest in the subject and write it back by its name"
             ),
         }
     }
@@ -1107,10 +1097,6 @@ fn inner(spelling: &EntrySpelling) -> Vec<&EntrySpelling> {
     }
 }
 
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Independent flags of where the spelling judged stands, each read where it applies."
-)]
 struct Admission<'b> {
     form: EntryForm,
     side: EntrySide,
@@ -1127,11 +1113,6 @@ struct Admission<'b> {
     /// Whether the spelling being judged stands in a record's or a fragment's child, which is
     /// written as the child's content ([`Marks`]).
     child: bool,
-    /// Whether the record the next [`Self::group`] judges is an instance's, set by
-    /// [`Self::instances`] for that one call.
-    instance_record: bool,
-    /// Whether the spelling being judged stands in an instance record's own child.
-    instance_child: bool,
 }
 
 impl Admission<'_> {
@@ -1148,8 +1129,6 @@ impl Admission<'_> {
             path: Vec::new(),
             in_term: false,
             child: false,
-            instance_record: false,
-            instance_child: false,
         }
     }
 
@@ -1325,19 +1304,6 @@ impl Admission<'_> {
             (Layer::Computation, _) => self.computation(spelling),
             (Layer::Leaf(notation), EntrySpelling::Brackets(seq)) => {
                 cons_front(*notation, seq)?;
-                // A group record child's result items after its `..` would keep the subject's
-                // rest in front of them, which the group's record does not write yet (a stated
-                // limitation; a cell of its own and an instance's child write it).
-                if self.child
-                    && !self.instance_child
-                    && self.side == EntrySide::Result
-                    && *notation == Notation::List
-                    && matches!(seq.rest, Some((EntryRest::Anonymous, _)))
-                    && !seq.back().is_empty()
-                {
-                    self.path.push(seq.items.len() - seq.back().len());
-                    return Err(Refusal::ResultItemsAfterRest);
-                }
                 self.items(seq)
             }
             _ => sequence(spelling).map_or(Ok(()), |seq| self.items(seq)),
@@ -1434,7 +1400,6 @@ impl Admission<'_> {
                         EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
                         Some(Layer::Group(group)),
                     ) => {
-                        admission.instance_record = true;
                         admission.group(group, item)?;
                     }
                     // One instance of an ordered collection is its front one.
@@ -1492,8 +1457,6 @@ impl Admission<'_> {
             _ => return self.value(spelling),
         };
         let child = std::mem::replace(&mut self.child, true);
-        let instance_record = std::mem::replace(&mut self.instance_record, false);
-        let instance_child = std::mem::replace(&mut self.instance_child, instance_record);
         let children = record
             .fields
             .iter()
@@ -1503,7 +1466,6 @@ impl Admission<'_> {
                 self.within(step, |admission| admission.kind(child, value, false))
             });
         self.child = child;
-        self.instance_child = instance_child;
         children?;
         names_every_child(record, group)
     }
@@ -3060,7 +3022,7 @@ mod tests {
         }
         assert_eq!(
             Refusal::ALL.len(),
-            Refusal::ResultItemsAfterRest as usize + 1,
+            Refusal::KeptRestBeforeItems as usize + 1,
             "the last refusal ends the list"
         );
         let group = GroupKind {

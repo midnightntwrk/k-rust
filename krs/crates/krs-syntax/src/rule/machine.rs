@@ -453,8 +453,8 @@ fn parse_readable_instances(
 type ChildFaults<'a> = Option<&'a std::cell::RefCell<Option<crate::SyntaxError>>>;
 
 /// [`parse_readable_instances`], with the first fault of a child it reads that waits for the
-/// clause's judgement: a result child's items after its `..`
-/// ([`crate::cell_entries::Refusal::ResultItemsAfterRest`]). Where there is one, the instances
+/// clause's judgement: a result child's second rest, judged after the child's kind. Where there
+/// is one, the instances
 /// hold a child state that does not mean what the child writes, so a caller carries the fault as
 /// the cell's refusal, the cell only read, and never lowers them.
 fn parse_instances_with_fault(
@@ -887,10 +887,7 @@ fn reads_as_list_term(chunks: &[TokenStream], context: StateMacroContext) -> boo
 /// Whether `error` is a child's fault the clause carries until its entries are judged
 /// ([`parse_instances_with_fault`]).
 fn is_child_fault(error: &crate::SyntaxError) -> bool {
-    matches!(
-        error.kind(),
-        crate::SyntaxErrorKind::KeptRestUnlowered { .. }
-    ) || crate::list_notation::is_two_rests(error)
+    crate::list_notation::is_two_rests(error)
 }
 
 /// Whether the item `chunk` is a result's `..term`: `..` followed by the term it puts back.
@@ -1724,21 +1721,31 @@ fn read_result_presence(content: ParseStream<'_>) -> Result<MachineResultCell, P
             Ok(MachineResultCell::State(Box::new(state)))
         }
         Err(ParseError::Structured(error)) if crate::list_notation::is_anonymous_rest(&error) => {
-            // `Some(..)` around a present group's record writes the record as the group's term;
-            // around a leaf's brackets, the present cell's content.
-            let record = {
+            // `Some(..)` around a record (a present group's, or a constructor's) says a record
+            // field's text; the root of `Some([..])`'s own brackets the present cell's; a list
+            // anywhere else in `Some(..)` is a term's.
+            let inside = {
                 let fork = content.fork();
-                fork.parse::<Ident>().is_ok()
-                    && fork
-                        .parse::<proc_macro2::Group>()
-                        .is_ok_and(|inside| !inside.stream().into_iter().next().is_some_and(
-                            |first| matches!(first, TokenTree::Group(group) if group.delimiter() == proc_macro2::Delimiter::Bracket),
-                        ))
+                fork.parse::<Ident>()
+                    .ok()
+                    .and(fork.parse::<proc_macro2::Group>().ok())
+                    .map(|inside| inside.stream())
             };
-            let reason = if record {
-                crate::list_notation::GROUP_CHILD_ANONYMOUS_REST
-            } else {
-                crate::list_notation::PRESENT_ANONYMOUS_REST
+            let reason = match inside {
+                Some(inside) if syn::parse2::<syn::ExprStruct>(inside.clone()).is_ok() => {
+                    crate::list_notation::GROUP_CHILD_ANONYMOUS_REST
+                }
+                Some(inside)
+                    if matches!(
+                        inside.clone().into_iter().collect::<Vec<_>>().as_slice(),
+                        [TokenTree::Group(brackets)]
+                            if brackets.delimiter() == proc_macro2::Delimiter::Bracket
+                                && top_level_items(brackets.stream()).iter().any(is_dots)
+                    ) =>
+                {
+                    crate::list_notation::PRESENT_ANONYMOUS_REST
+                }
+                _ => crate::list_notation::ANONYMOUS_REST,
             };
             skip_value(content)?;
             Ok(MachineResultCell::Refused(Box::new(
@@ -1920,7 +1927,15 @@ fn readable_record(
                     Some(TokenRange::for_tokens(&value)?),
                 )?)
             }
-            _ => StateTerm::Term(readable_term(value, reading)?),
+            _ => StateTerm::Term(readable_term(value, reading).map_err(|error| match error {
+                ParseError::Structured(error) => {
+                    ParseError::Structured(crate::list_notation::anonymous_rest_in(
+                        error,
+                        crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+                    ))
+                }
+                error @ ParseError::Syn(_) => error,
+            })?),
         };
         fields.push(InstanceField::new(name.clone(), state));
     }

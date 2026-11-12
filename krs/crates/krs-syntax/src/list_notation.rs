@@ -115,16 +115,19 @@ pub(crate) fn is_two_rests(error: &SyntaxError) -> bool {
 /// [`PRESENT_ANONYMOUS_REST`]).
 pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a cell's own brackets, a list cell's or an instance's child's, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result";
 
-/// [`ANONYMOUS_REST`] in a result's group record (`H { hl: [x, ..], hb: 0 }`, a `cells!`
-/// `k::fragment![..]`, a present `?` group's record): the record is read as one term of the
-/// group, which writes each child's whole content, so no child keeps a rest there yet. A list
-/// child names its rest; a fixed group's computation child is written as its own cell, where its
-/// `..` keeps the rest; a `?` group's computation child is not lowered at all yet (F5).
-pub(crate) const GROUP_CHILD_ANONYMOUS_REST: &str = "an anonymous `..` in a result group record's child keeps no rest yet (a stated limitation): the record is read as one term of the group, which writes each child's whole content; a list child's rest is named instead, `rest @ ..` in the pattern and `..rest` in the result, and a fixed group's computation child keeps its rest written as its own cell (`c: [x, ..]` in a readable record, `G::c: KCell(x, ..)` in `cells!`); a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest";
+/// [`ANONYMOUS_REST`] in a result record's field (`H { hl: [x, ..], hb: 0 }`, a `cells!`
+/// `k::fragment![..]`, a present `?` group's record, a constructor's record `Open { n: [1, ..] }`):
+/// the reader cannot tell a group's record from a constructor's by its spelling, so the text is
+/// true of both. A group record is read as one term of the group, which writes each child's whole
+/// content, so no child keeps a rest there yet; a constructor's field is a term. A list's rest is
+/// named in either; a fixed group's computation child is written as its own cell, where its `..`
+/// keeps the rest; a `?` group's computation child is not lowered at all yet (F5).
+pub(crate) const GROUP_CHILD_ANONYMOUS_REST: &str = "an anonymous `..` in a result record's field keeps no rest: a group's record is read as one term of the group, which writes each child's whole content, so its child keeps none yet (a stated limitation), and a constructor's field is a term; in either a list's rest is named instead, `rest @ ..` in the pattern and `..rest` in the result, and a fixed group's computation child keeps its rest written as its own cell (`c: [x, ..]` in a readable record, `G::c: KCell(x, ..)` in `cells!`); a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest";
 
-/// [`ANONYMOUS_REST`] inside a result's `Some(..)` (`Some([x, ..])`): the present cell's content
-/// keeps no rest there yet, but over the subject's `Some([..])`, which keeps the present cell.
-pub(crate) const PRESENT_ANONYMOUS_REST: &str = "an anonymous `..` inside a result's `Some(..)` keeps no rest yet (a stated limitation), except as `Some([..])` over the subject's `Some([..])`, which keeps the present cell; elsewhere the rest is named: `rest @ ..` in the pattern and `..rest` in the result";
+/// [`ANONYMOUS_REST`] at the root of a result's `Some([..])`, the present cell's own brackets:
+/// they keep no rest there yet, but over the subject's `Some([..])`, which keeps the present cell.
+/// A list nested deeper in `Some(..)` is a term's, whose rest is named ([`ANONYMOUS_REST`]).
+pub(crate) const PRESENT_ANONYMOUS_REST: &str = "an anonymous `..` in the brackets of a result's `Some([..])` keeps no rest yet (a stated limitation), except as `Some([..])` over the subject's `Some([..])`, which keeps the present cell; name the rest instead: `rest @ ..` in the pattern and `..rest` in the result";
 
 /// Whether `error` is the refusal of an anonymous `..` in a result's list notation, in any of the
 /// places that say it ([`ANONYMOUS_REST`]).

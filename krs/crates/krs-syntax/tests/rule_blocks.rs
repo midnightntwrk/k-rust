@@ -1064,7 +1064,7 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: C { cc: [n, ..], cn: 0 } };",
-            "an anonymous `..` in a result group record's child keeps no rest yet",
+            "an anonymous `..` in a result record's field keeps no rest",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], pc: [.., x] };",
@@ -1072,11 +1072,11 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], counter: Some([..]) };",
-            "an anonymous `..` inside a result's `Some(..)` keeps no rest yet",
+            "an anonymous `..` in the brackets of a result's `Some([..])` keeps no rest yet",
         ),
         (
             "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: Some([n, ..]) };",
-            "an anonymous `..` inside a result's `Some(..)` keeps no rest yet",
+            "an anonymous `..` in the brackets of a result's `Some([..])` keeps no rest yet",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)
