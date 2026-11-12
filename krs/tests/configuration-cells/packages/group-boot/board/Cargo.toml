@@ -1,0 +1,23 @@
+[package]
+name = "krs-configuration-cells-group-boot-board"
+description = "A definition that holds the group and computes its initial state with internal functions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_group_boot_board"
+
+[dependencies]
+k = { package = "krs", path = "../../../../../crates/krs" }
+group-core = { package = "krs-configuration-cells-group-core", path = "../../group-core" }
+rom = { package = "krs-configuration-cells-group-boot-rom", path = "../rom" }
+
+[package.metadata.krs]
+k-namespace = "KRS-GROUP-BOOT-BOARD"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

@@ -2,6 +2,8 @@
 members = [
     "packages/framing",
     "packages/group-board",
+    "packages/group-boot/board",
+    "packages/group-boot/rom",
     "packages/group-core",
     "packages/group-harts/hart",
     "packages/group-harts/nested",

@@ -28,8 +28,9 @@ use krs_ir_levels::{
 use sha2::{Digest, Sha256};
 
 use crate::partition::{
-    CONFIGURATION_SUFFIX, ModulePlacement, Partition, PartitionError, is_framework_module,
-    production_display_name, program_syntax_module_name,
+    CONFIGURATION_SUFFIX, ConfigurationObstacle, ConfigurationVisibility, ModulePlacement,
+    Partition, PartitionError, is_framework_module, production_display_name,
+    program_syntax_module_name,
 };
 use crate::{SourceMap, SymbolMap};
 
@@ -316,7 +317,7 @@ impl ToDiagnostic for LoweringError {
             Self::Partition(PartitionError::SignedIntegerLeak { .. }) => {
                 codes::partition::SIGNED_INTEGER_LEAK
             }
-            Self::Partition(PartitionError::ConfigurationVisibility { .. }) => {
+            Self::Partition(PartitionError::ConfigurationVisibility(_)) => {
                 codes::partition::CONFIGURATION_VISIBILITY
             }
         };
@@ -350,7 +351,7 @@ impl ToDiagnostic for LoweringError {
             | Self::InvalidSidecar(_)
             | Self::Partition(
                 PartitionError::SignedIntegerLeak { .. }
-                | PartitionError::ConfigurationVisibility { .. },
+                | PartitionError::ConfigurationVisibility(_),
             ) => Location::None,
         };
         let unlocated = matches!(location, Location::None);
@@ -443,7 +444,12 @@ impl LoweringError {
             | Self::ReservedKName { .. }
             | Self::ListSymbolCollision { .. }
             | Self::InvalidSidecar(_)
-            | Self::Partition(_) => None,
+            | Self::Partition(
+                PartitionError::MixedGroup { .. } | PartitionError::SignedIntegerLeak { .. },
+            ) => None,
+            Self::Partition(PartitionError::ConfigurationVisibility(hidden)) => {
+                hidden.item.as_ref()
+            }
         }
     }
 
@@ -494,7 +500,12 @@ fn of_item<T>(
 /// names, naming/source-map collisions, or a failed Definition IR invariant.
 pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinition, LoweringError> {
     let partition = Partition::of(theory).map_err(LoweringError::Partition)?;
-    let names = NamingPass::run(theory)?;
+    let mut names = NamingPass::run(theory)?;
+    let (declares, supplies) = configuration_declarations(theory, &partition, &names)?;
+    if let Some(split) = names.configuration.as_mut() {
+        split.declares = declares;
+        split.supplies = supplies;
+    }
     let mut origins = OriginPass::default();
     let mut declared_production_groups = BTreeSet::new();
     let mut lowered_modules = Vec::new();
@@ -527,10 +538,12 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
                 .filter(|split| split.configured == *module.id())
             {
                 lowered_modules.push(lower_configuration_module(
+                    theory,
                     module,
                     split,
                     &names,
                     &mut origins,
+                    &mut declared_production_groups,
                 )?);
             }
         } else {
@@ -747,6 +760,15 @@ struct NamingPass {
 /// such an import exists only for the configuration. The dependency's module
 /// imports `<NS>-CONFIGURATION` instead, which imports `<NS>-SYNTAX` and every
 /// import of `<NS>` that does not reach `<NS>`, and `<NS>` imports it too.
+///
+/// The configuration sentence may name only productions declared in its
+/// module's import closure. A production's declaration needs only its sorts,
+/// which the program-syntax modules declare, and its equations are rules of
+/// the definition, which the initial term is evaluated in. So
+/// `<NS>-CONFIGURATION` declares each production the configuration names
+/// that its imports do not supply ([`configuration_declarations`]): the
+/// equations stay in the module of the production's package, which reaches
+/// `<NS>-CONFIGURATION` and so sees the declaration.
 struct ConfigurationSplit {
     /// The configured semantic module.
     configured: ModuleId,
@@ -756,6 +778,13 @@ struct ConfigurationSplit {
     dependents: BTreeSet<ModuleId>,
     /// Every module other than `configured` that reaches `configured`.
     reaching: BTreeSet<ModuleId>,
+    /// The productions the configuration module declares in place of their
+    /// packages' semantics modules.
+    declares: BTreeSet<StableItemId>,
+    /// The semantics modules the configuration module imports beyond the
+    /// configured module's own imports: each declares a production the
+    /// configuration names and does not reach the configured module.
+    supplies: BTreeSet<ModuleId>,
     /// The configured module's origin.
     origin: NodeOrigin,
 }
@@ -827,6 +856,8 @@ impl ConfigurationSplit {
             id,
             dependents,
             reaching,
+            declares: BTreeSet::new(),
+            supplies: BTreeSet::new(),
             origin,
         }))
     }
@@ -1205,6 +1236,14 @@ impl NamingPass {
             .map(|split| &split.id)
     }
 
+    /// Whether the configuration module declares `production` in place of
+    /// its package's semantics module.
+    fn configuration_declares(&self, production: &StableItemId) -> bool {
+        self.configuration
+            .as_ref()
+            .is_some_and(|split| split.declares.contains(production))
+    }
+
     /// Whether `module`'s import of `import` exists only for the
     /// configuration and would close a cycle (FU-18).
     fn is_configuration_cut(&self, module: &ModuleId, import: &ModuleId) -> bool {
@@ -1413,6 +1452,7 @@ fn lower_module(
         .productions()
         .iter()
         .filter(|production| part.has(|placement| placement.production_is_syntax(production.id())))
+        .filter(|production| !names.configuration_declares(production.id()))
         .collect::<Vec<_>>();
     for production in &productions {
         for attribute in production.attributes() {
@@ -1477,37 +1517,7 @@ fn lower_module(
     }
 
     for production in productions {
-        sentences.push(of_item(production.id(), || {
-            Ok(DefinitionSentence::Production(
-                ProductionSentence::new(
-                    origins.lower(
-                        production.origin(),
-                        "production",
-                        Some(production.id()),
-                        None,
-                    )?,
-                    names.production(production.id())?,
-                    lower_sort_ref(production.result_sort(), names)?,
-                    [
-                        lower_production_items(production, names, origins)?,
-                        key_items(production, names, origins)?,
-                    ]
-                    .concat(),
-                    lower_production_attributes(production, names, origins)?,
-                )?
-                .with_parameters(production.parameters().to_vec())
-                .with_arguments(
-                    production
-                        .field_arguments()
-                        .iter()
-                        .map(|(field, arguments)| {
-                            Ok((field.clone(), lower_cell_arguments(arguments, names)?))
-                        })
-                        .collect::<Result<_, LoweringError>>()?,
-                    lower_cell_arguments(production.result_arguments(), names)?,
-                ),
-            ))
-        })?);
+        sentences.push(lower_production_sentence(production, names, origins)?);
     }
 
     for (index, precedence) in module
@@ -1683,6 +1693,45 @@ fn lower_module(
     ))
 }
 
+/// Lowers one production of the semantic theory to its Definition IR sentence.
+fn lower_production_sentence(
+    production: &SemanticProduction,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<DefinitionSentence, LoweringError> {
+    of_item(production.id(), || {
+        Ok(DefinitionSentence::Production(
+            ProductionSentence::new(
+                origins.lower(
+                    production.origin(),
+                    "production",
+                    Some(production.id()),
+                    None,
+                )?,
+                names.production(production.id())?,
+                lower_sort_ref(production.result_sort(), names)?,
+                [
+                    lower_production_items(production, names, origins)?,
+                    key_items(production, names, origins)?,
+                ]
+                .concat(),
+                lower_production_attributes(production, names, origins)?,
+            )?
+            .with_parameters(production.parameters().to_vec())
+            .with_arguments(
+                production
+                    .field_arguments()
+                    .iter()
+                    .map(|(field, arguments)| {
+                        Ok((field.clone(), lower_cell_arguments(arguments, names)?))
+                    })
+                    .collect::<Result<_, LoweringError>>()?,
+                lower_cell_arguments(production.result_arguments(), names)?,
+            ),
+        ))
+    })
+}
+
 /// Lowers one rule of the semantic theory to its Definition IR sentence, with the stream cells
 /// `stdin` read as stream cells unless the rule is a claim.
 fn lower_rule_sentence(
@@ -1836,14 +1885,253 @@ impl RuleLowering {
     }
 }
 
+/// The productions the configuration module declares and the semantics
+/// modules it imports beyond the configured module's own imports, when the
+/// configuration has a module of its own.
+///
+/// The configuration module's imports supply the program syntax of every
+/// package the configured package reaches, and the whole of each package that
+/// does not reach the configured package. A production the configuration
+/// names that is in neither is declared by a semantics module at or above
+/// the configuration. When that module does not reach the configured one,
+/// the configuration module imports it. Otherwise the configuration module
+/// declares the production itself, unless one of its sorts is a cell sort or
+/// a sentence of its package orders its group.
+///
+/// # Errors
+///
+/// Returns [`PartitionError::ConfigurationVisibility`] for a production the
+/// configuration module can neither import nor declare.
+fn configuration_declarations(
+    theory: &SemanticTheory,
+    partition: &Partition,
+    names: &NamingPass,
+) -> Result<(BTreeSet<StableItemId>, BTreeSet<ModuleId>), LoweringError> {
+    let Some(split) = &names.configuration else {
+        return Ok(Default::default());
+    };
+    let modules = theory
+        .modules()
+        .iter()
+        .filter(|module| !module.is_spec())
+        .map(|module| (module.id(), module))
+        .collect::<BTreeMap<_, _>>();
+    let Some(configuration) = modules
+        .get(&split.configured)
+        .and_then(|module| module.configuration())
+    else {
+        return Ok(Default::default());
+    };
+    // The symbols are read from the lowered sentence, as the check of the
+    // lowered modules reads them; this lowering's origins are discarded.
+    let DefinitionSentence::Configuration(sentence) =
+        lower_configuration(configuration, names, &mut OriginPass::default())?
+    else {
+        return Ok(Default::default());
+    };
+    let mentioned = krs_ir_levels::k_surface::configuration_symbols(&sentence);
+    // The modules the configuration module imports whole.
+    let mut whole = BTreeSet::new();
+    let mut pending = modules
+        .get(&split.configured)
+        .into_iter()
+        .flat_map(|module| module.imports())
+        .filter(|import| !split.reaching.contains(*import))
+        .collect::<Vec<_>>();
+    while let Some(id) = pending.pop() {
+        if whole.insert(id)
+            && let Some(module) = modules.get(id)
+        {
+            pending.extend(module.imports());
+        }
+    }
+    let mut declares = BTreeSet::new();
+    let mut supplies = BTreeSet::new();
+    for module in theory.modules().iter().filter(|module| !module.is_spec()) {
+        if whole.contains(module.id()) {
+            continue;
+        }
+        // The framework module is not partitioned: every program-syntax
+        // module reaches it whole.
+        let Some(placement) = partition.module(module.id()) else {
+            continue;
+        };
+        let above = *module.id() == split.configured || split.reaching.contains(module.id());
+        for production in module.productions() {
+            if !mentioned.contains(names.production(production.id())?.id())
+                || placement.production_is_syntax(production.id())
+            {
+                continue;
+            }
+            if !above {
+                supplies.insert(module.id().clone());
+                continue;
+            }
+            if let Some(obstacle) = configuration_obstacle(module, production) {
+                return Err(LoweringError::Partition(configuration_visibility(
+                    split,
+                    names.production(production.id())?.emitted_name().to_owned(),
+                    Some(module),
+                    obstacle,
+                    Some(production),
+                )));
+            }
+            declares.insert(production.id().clone());
+            // A syntactic list's cons and terminator are one K sentence.
+            for other in module.productions() {
+                if list_cons(other) == Some(production.id())
+                    || list_cons(production) == Some(other.id())
+                {
+                    declares.insert(other.id().clone());
+                }
+            }
+        }
+    }
+    Ok((declares, supplies))
+}
+
+/// The cons production of the syntactic list `production` terminates.
+fn list_cons(production: &SemanticProduction) -> Option<&StableItemId> {
+    production
+        .attributes()
+        .iter()
+        .find_map(|attribute| match attribute {
+            ProductionAttribute::ListTerminator { cons, .. } => Some(cons),
+            _ => None,
+        })
+}
+
+/// The groups of `production`.
+fn production_groups(production: &SemanticProduction) -> impl Iterator<Item = &ProductionGroupId> {
+    production
+        .attributes()
+        .iter()
+        .filter_map(|attribute| match attribute {
+            ProductionAttribute::Group { group, .. } => Some(group),
+            _ => None,
+        })
+}
+
+/// Whether a precedence or associativity sentence of `module` names `group`.
+fn group_is_ordered(module: &SemanticModule, group: &ProductionGroupId) -> bool {
+    module.precedences().iter().any(|precedence| {
+        precedence
+            .higher()
+            .iter()
+            .chain(precedence.lower())
+            .any(|ordered| ordered == group)
+    }) || module
+        .associativities()
+        .iter()
+        .any(|associativity| associativity.groups().contains(group))
+}
+
+/// Why the configuration module cannot declare `production` of `module`.
+fn configuration_obstacle(
+    module: &SemanticModule,
+    production: &SemanticProduction,
+) -> Option<ConfigurationObstacle> {
+    let cell_sort = std::iter::once(production.result_sort())
+        .chain(
+            production
+                .items()
+                .iter()
+                .filter_map(|item| match item.kind() {
+                    GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+                    GrammarProductionItemKind::Terminal { .. }
+                    | GrammarProductionItemKind::RegexTerminal { .. } => None,
+                }),
+        )
+        .find(|sort| {
+            matches!(
+                sort,
+                SemanticSortRef::Cell(_)
+                    | SemanticSortRef::LeafCell(_)
+                    | SemanticSortRef::CellCollection(_)
+            )
+        });
+    if let Some(sort) = cell_sort {
+        return Some(ConfigurationObstacle::CellSort {
+            sort: crate::partition::sort_display(sort),
+        });
+    }
+    production_groups(production)
+        .any(|group| group_is_ordered(module, group))
+        .then_some(ConfigurationObstacle::OrderedGroup)
+}
+
+/// The error for a symbol the configuration names that its module can
+/// neither import nor declare.
+fn configuration_visibility(
+    split: &ConfigurationSplit,
+    symbol: String,
+    owner: Option<&SemanticModule>,
+    obstacle: ConfigurationObstacle,
+    production: Option<&SemanticProduction>,
+) -> PartitionError {
+    // Program syntax is an arrangement that works only when every production
+    // the sentences order with this one can be program syntax too: a
+    // sentence is in the program-syntax module only when each group it names
+    // has a member there.
+    let program = match (&obstacle, owner, production) {
+        (ConfigurationObstacle::OrderedGroup, Some(module), Some(production)) => {
+            let mut groups = production_groups(production).collect::<BTreeSet<_>>();
+            loop {
+                let before = groups.len();
+                for precedence in module.precedences() {
+                    let named = || precedence.higher().iter().chain(precedence.lower());
+                    if named().any(|group| groups.contains(group)) {
+                        groups.extend(named());
+                    }
+                }
+                for associativity in module.associativities() {
+                    if associativity
+                        .groups()
+                        .iter()
+                        .any(|group| groups.contains(group))
+                    {
+                        groups.extend(associativity.groups());
+                    }
+                }
+                if groups.len() == before {
+                    break;
+                }
+            }
+            module
+                .productions()
+                .iter()
+                .filter(|member| production_groups(member).any(|group| groups.contains(group)))
+                .all(crate::partition::could_be_program_syntax)
+        }
+        _ => false,
+    };
+    PartitionError::ConfigurationVisibility(Box::new(ConfigurationVisibility {
+        module: split.id.as_str().to_owned(),
+        configured: split.configured.as_str().to_owned(),
+        dependents: split
+            .dependents
+            .iter()
+            .map(|id| id.as_str().to_owned())
+            .collect(),
+        symbol,
+        owner: owner.map(|module| module.id().as_str().to_owned()),
+        obstacle,
+        program,
+        item: production.map(|production| production.id().clone()),
+    }))
+}
+
 /// Lowers the configured module's configuration into its own module
-/// (FU-18), which imports the module's program syntax and every import of the
-/// module that does not reach it.
+/// (FU-18), which imports the module's program syntax, every import of the
+/// module that does not reach it, and the modules `split` supplies, and
+/// declares the productions `split` declares.
 fn lower_configuration_module(
+    theory: &SemanticTheory,
     module: &SemanticModule,
     split: &ConfigurationSplit,
     names: &NamingPass,
     origins: &mut OriginPass,
+    declared_production_groups: &mut BTreeSet<ProductionGroupId>,
 ) -> Result<DefinitionModule, LoweringError> {
     let configuration = module.configuration().ok_or_else(|| {
         LoweringError::unsupported_shape(
@@ -1851,12 +2139,38 @@ fn lower_configuration_module(
             format!("{} has no configuration", module.id()),
         )
     })?;
-    let sentence = lower_configuration(configuration, names, origins)?;
+    let mut sentences = Vec::new();
+    let mut production_groups_declared = Vec::new();
+    for production in theory
+        .modules()
+        .iter()
+        .filter(|module| !module.is_spec())
+        .flat_map(SemanticModule::productions)
+        .filter(|production| split.declares.contains(production.id()))
+    {
+        for attribute in production.attributes() {
+            if let ProductionAttribute::Group { origin, group } = attribute
+                && declared_production_groups.insert(group.clone())
+            {
+                let emitted_name = format!("krsgroup-{}", short_hash(group.as_str()));
+                production_groups_declared.push(ProductionGroupIdentity::new(
+                    origins.lower(origin, "production-group", None, Some(group.as_str()))?,
+                    group.clone(),
+                    emitted_name,
+                )?);
+            }
+        }
+        sentences.push(lower_production_sentence(production, names, origins)?);
+    }
+    sentences.push(lower_configuration(configuration, names, origins)?);
     let mut imports = BTreeSet::from([names.syntax_module(module.id())?]);
     for import in module.imports() {
         if !split.reaching.contains(import) {
             imports.insert(names.module(import)?);
         }
+    }
+    for import in &split.supplies {
+        imports.insert(names.module(import)?);
     }
     Ok(DefinitionModule::new(
         origins.lower(
@@ -1867,13 +2181,15 @@ fn lower_configuration_module(
         )?,
         split.id.clone(),
         imports.into_iter().collect(),
-        Vec::new(),
-        vec![sentence],
+        production_groups_declared,
+        sentences,
     ))
 }
 
 /// Requires every sort and production the configuration names to be
-/// declared in its configuration module's import closure (FU-18).
+/// declared in its configuration module or that module's import closure
+/// (FU-18). [`configuration_declarations`] arranges it for every production
+/// of the theory, so this is the check of what it arranged.
 fn check_configuration_visibility(
     modules: &[DefinitionModule],
     split: &ConfigurationSplit,
@@ -1932,18 +2248,15 @@ fn check_configuration_visibility(
         .into_iter()
         .find(|symbol| !visible.contains(symbol))
     {
-        return Err(LoweringError::Partition(
-            PartitionError::ConfigurationVisibility {
-                module: split.id.as_str().to_owned(),
-                dependent: split
-                    .dependents
-                    .first()
-                    .map_or_else(String::new, |id| id.as_str().to_owned()),
-                symbol: names
-                    .get(&hidden)
-                    .map_or_else(|| hidden.as_str().to_owned(), |name| (*name).to_owned()),
-            },
-        ));
+        return Err(LoweringError::Partition(configuration_visibility(
+            split,
+            names
+                .get(&hidden)
+                .map_or_else(|| hidden.as_str().to_owned(), |name| (*name).to_owned()),
+            None,
+            ConfigurationObstacle::Undeclared,
+            None,
+        )));
     }
     Ok(())
 }
@@ -3457,7 +3770,12 @@ fn lower_production_attributes(
     // A production whose Rust item is not `pub` is K `private`: only its own
     // module, `<NS>`, sees it, so neither programs nor dependents nor proof
     // modules can name it.
-    if crate::partition::is_private(production) {
+    //
+    // A production the configuration module declares is named by two
+    // modules, that one and its package's, which holds its equations and
+    // rules, so it cannot be `private`. Rust visibility still keeps every
+    // other package's KRS sentences from naming it.
+    if crate::partition::is_private(production) && !names.configuration_declares(production.id()) {
         let origin = origins.lower(
             production.origin(),
             "production-private",

@@ -14,7 +14,8 @@
     "krs-configuration-cells-group-harts-smp": "f6a2063e67982273c4f93318e426e8aa6661ad5e83cf37d8d3b7ebc173950073",
     "krs-configuration-cells-group-harts-nested": "16c1b27b8bb2d498ac69978c96ba390b9baeb74a0c27cea38894f826ef0f589e",
     "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274",
-    "krs-configuration-cells-shared-memory": "32d7468470830bbea240c472b719658ac9630a14faa48597baaf1bf2678e020e"
+    "krs-configuration-cells-shared-memory": "32d7468470830bbea240c472b719658ac9630a14faa48597baaf1bf2678e020e",
+    "krs-configuration-cells-group-boot-board": "2eaedf69e56786268170a71c1af94ee94379a8dcb0bf73d26a49303e6628a4a1"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -58,6 +59,9 @@
     },
     "krs-configuration-cells-shared-memory": {
       "definition.k": "92637b808b6628f6100cba97800de462039a4c354ffbfd15d7c54f6756c6e6a4"
+    },
+    "krs-configuration-cells-group-boot-board": {
+      "definition.k": "b34fffe3ce26b797d51d6213c8257e4ef3fde5a67b8ee3242a8db0ab1f14db87"
     }
   },
   "reference_sha256": {
@@ -74,7 +78,8 @@
     "krs-configuration-cells-group-harts-smp": "6c4e912f54d88a7e18ffede691df59f735817e1e006bc9846dd528a45038afff",
     "krs-configuration-cells-group-harts-nested": "0a5968396c65bea2ff443f25c897617de6add477f091d561aecad5132f67246d",
     "krs-configuration-cells-group-harts-opt": "d392076ea60cff51e41e2e72c635bd8bd6556f3091db8d7a688d90333ff723bd",
-    "krs-configuration-cells-shared-memory": "f4a02b3393a1059a4a70a024f18cac967ab4523c82f637347ae7573eb876a1f8"
+    "krs-configuration-cells-shared-memory": "f4a02b3393a1059a4a70a024f18cac967ab4523c82f637347ae7573eb876a1f8",
+    "krs-configuration-cells-group-boot-board": "b2d6b61d61b39889250375795bcf79bc61bb574ee4fc7e98a1bf4ea975563e10"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -562,6 +567,32 @@
           "1"
         ]
       }
+    },
+    "krs-configuration-cells-group-boot-board": {
+      "start": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "0",
+          "acc": "3",
+          "timer": "11",
+          "mode": "cold",
+          "mem": "3 |-> 9 4 |-> 10",
+          "shadow": "0 |-> 10"
+        }
+      },
+      "bus": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "3",
+          "acc": "10",
+          "timer": "31",
+          "mode": "warm",
+          "mem": "3 |-> 9 4 |-> 10 5 |-> 10",
+          "shadow": "0 |-> 10"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -709,6 +740,10 @@
       "store-load": [],
       "peek": [],
       "race": []
+    },
+    "krs-configuration-cells-group-boot-board": {
+      "start": [],
+      "bus": []
     }
   },
   "known_round_trip_failures": {}

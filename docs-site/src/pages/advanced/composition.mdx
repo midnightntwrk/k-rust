@@ -46,6 +46,7 @@ KRS does not resolve a constructor by comparing the text `Same`; ordinary Rust p
 
 Rust privacy is K privacy.
 A production whose Rust item is not `pub`, including `pub(crate)` and `pub(in ..)`, is emitted with K's `private` attribute, so only its own package's rules can use it.
+The exception is a production that an initializer calls in a definition whose configuration has a module of its own: `<NS>-CONFIGURATION` declares it and its package's module holds its equations, so it is emitted without `private`, and Rust visibility alone keeps other packages from naming it ([program syntax and the module pair](/reference/language#program-syntax-and-the-module-pair)).
 A dependent that names it is rejected by rustc (E0603), and K's private syntax is invisible to every importing module, programs and proof modules included.
 KRS keeps K imports public on purpose: a package's module imports the packages it references, and a claim may name a dependency's `pub` production.
 A production that rules everywhere need but programs must not contain is `pub` and `internal`.

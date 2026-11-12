@@ -1,6 +1,10 @@
-//! The configuration initializes `<mode>` with the non-`pub` `ready`, which
-//! lives in `KRS-CONFIGURATION-VISIBILITY`, a module the configuration module
-//! cannot import: `krs::partition::configuration-visibility`.
+//! The configuration initializes `<mode>` with the non-`pub` `ready`, whose
+//! precedence group a sentence of this package orders above `after`'s. The
+//! sentence stays in `KRS-CONFIGURATION-VISIBILITY` with `after`, a module
+//! above the configuration's, so the configuration module cannot declare
+//! `ready`: `krs::partition::configuration-visibility`. Without the order,
+//! the configuration module declares `ready` and the definition is accepted
+//! (`krs-cli --test initializer_calls`).
 
 use base::Exp;
 use k::KResult;
@@ -11,11 +15,13 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Mode, result = KResult)]
-#[k::precedence((Ready))]
+#[k::precedence((Ready) > (After))]
 #[rustfmt::skip]
 enum ModeSyntax {
     #[k::syntax("ready")]
     Ready(),
+    #[k::syntax("after {mode}")]
+    After { mode: Mode },
 }
 
 #[k::configuration]

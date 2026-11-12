@@ -84,6 +84,19 @@ the outcomes must agree:
   and `mem` in both definitions on both routes, and `board`'s timer counts
   the bus accesses; a load of an address `mem` does not map is stuck at
   `busRead` in both;
+- `group-boot`: what the initializer of a definition that holds a group may
+  call. `group-boot/board` holds `Core` in `Booted { core, timer, mode, mem,
+  shadow }` and starts from productions no program can contain: `Shadow()`,
+  `internal` and `Map`-valued, and `Tick(..)`, which its bus rules apply
+  too, of its own package; `rom::RomImage()` and `rom::Cost(..)`, the second
+  over the group's sort `Instr`, of `group-boot/rom`, which depends on the
+  group's package; and `Mode::Cold()`, which is not `pub`. The group's rules
+  need the configuration, so it is emitted below the group's module, in
+  `KRS-GROUP-BOOT-BOARD-CONFIGURATION`, which declares those five
+  productions, none `private`; their equations stay in the modules of their
+  packages, with `romWord`, which only an equation names. `done` ends with
+  the state the functions compute, and a program that loads and stores ends
+  with the same cells on both routes;
 - `group-harts`: rules for a cell group held in instances. The library
   `group-harts/hart` declares `Hart { id, k, pc, regs, reservation?, jobs }`,
   whose `jobs` holds a Map collection of jobs, and rules for it (`for Hart`)
@@ -545,6 +558,51 @@ GROUP_CORE_CELLS = (
     "    </core>\n"
 )
 
+GROUP_BOOT_ROM = "krs-configuration-cells-group-boot-rom"
+GROUP_BOOT = Fixture(
+    MANIFEST, "krs-configuration-cells-group-boot-board",
+    dependencies=(f"{GROUP_CORE}:main", f"{GROUP_BOOT_ROM}:main"),
+)
+GROUP_BOOT_CONFIGURATION = "KRS-GROUP-BOOT-BOARD-CONFIGURATION"
+# `start` ends with the state the initializer's functions compute: `cost ( store ( 0 ) )` is 3,
+# `tick ( 1 )` is 11, and the two memories are `romImage ( )` and `shadow ( )`. `bus` loads the
+# word `romImage` maps at 4 and stores it at 5, each access one `tick` and the mode `warm`.
+GROUP_BOOT_PROGRAMS = (
+    Program(
+        "start", "done", "accepted", ".K",
+        cells=(
+            ("pc", "0"), ("acc", "3"), ("timer", "11"), ("mode", "cold"),
+            ("mem", "3 |-> 9 4 |-> 10"), ("shadow", "0 |-> 10"),
+        ),
+        whole=True,
+    ),
+    Program(
+        "bus", "inc ; load ( 4 ) ; store ( 5 ) ; done", "accepted", ".K",
+        cells=(
+            ("pc", "3"), ("acc", "10"), ("timer", "31"), ("mode", "warm"),
+            ("mem", "3 |-> 9 4 |-> 10 5 |-> 10"), ("shadow", "0 |-> 10"),
+        ),
+        whole=True,
+    ),
+)
+# The productions the configuration names, declared in its module, and the one only an equation
+# names, declared in its package's.
+GROUP_BOOT_DECLARED = (
+    '  syntax Int ::= "cost" "(" Instr ")" [symbol(cost), function, total]\n',
+    '  syntax Phase ::= "cold" [symbol(modeCold), format(%1)]\n',
+    '  syntax Map ::= "romImage" "(" ")" [symbol(romImage), function, total]\n',
+    '  syntax Map ::= "shadow" "(" ")" [symbol(shadow), function, total]\n',
+    '  syntax Int ::= "tick" "(" Int ")" [symbol(tick), function, total]\n',
+)
+GROUP_BOOT_KEPT = (
+    ("KRS-GROUP-BOOT-ROM", '  syntax Int ::= "romWord" "(" ")" [symbol(romWord), function, total]\n'),
+    ("KRS-GROUP-BOOT-ROM", "  rule romImage ( ) => "),
+    ("KRS-GROUP-BOOT-ROM", "  rule cost ( inc ) => 1 "),
+    ("KRS-GROUP-BOOT-BOARD", '  syntax Phase ::= "warm" [symbol(modeWarm), private, format(%1)]\n'),
+    ("KRS-GROUP-BOOT-BOARD", "  rule shadow ( ) => "),
+    ("KRS-GROUP-BOOT-BOARD", "  rule tick ( Timer:Int ) => "),
+)
+
 GROUP_HARTS_LIBRARY = "krs-configuration-cells-group-harts-hart"
 GROUP_HARTS_MODULE = "KRS-GROUP-HART"
 GROUP_HARTS = tuple(
@@ -836,6 +894,29 @@ def verify_group(harness: FixtureGate) -> None:
         )
 
 
+def verify_group_boot(harness: FixtureGate) -> None:
+    """The configuration module declares the productions the initializer names, their equations
+    stay in their packages' modules, and both routes start from the state they compute."""
+
+    harness.check(GROUP_BOOT)
+    harness.expand(GROUP_BOOT)
+    emitted = harness.emit(GROUP_BOOT)
+    source = emitted.source.read_text(encoding="utf-8")
+    bodies = modules(source)
+    declared = tuple(
+        line + "\n" for line in bodies.get(GROUP_BOOT_CONFIGURATION, "").splitlines()
+        if line.startswith("  syntax ")
+    )
+    if declared != GROUP_BOOT_DECLARED:
+        raise GateError(
+            f"{GROUP_BOOT_CONFIGURATION} declares {declared}, not the productions its configuration names:\n{source}"
+        )
+    for module, text in GROUP_BOOT_KEPT:
+        if text not in bodies.get(module, ""):
+            raise GateError(f"{module} lost a sentence that stays in its package's module:\n{text}\nin:\n{source}")
+    harness.compare(emitted, GROUP_BOOT_PROGRAMS, sort="Prog")
+
+
 def verify_group_harts(harness: FixtureGate) -> None:
     """Each definition holding harts in an instance emits the library's rules inside `<hart>`,
     and runs them alike on both routes."""
@@ -928,6 +1009,13 @@ def main() -> int:
         print(
             "PASS group: the library's rules for Core run in small and board alike, each resolving the bus "
             "with its own rules; only board's timer counts the bus accesses; an unmapped load is stuck at busRead"
+        )
+
+        verify_group_boot(harness)
+        print(
+            "PASS group-boot: the configuration module declares the productions the initializer names, "
+            "of the holder's package and of one that depends on the group's; both routes start from the "
+            "state they compute"
         )
 
         verify_group_harts(harness)

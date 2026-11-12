@@ -1621,7 +1621,7 @@ Each production chooses its module; the Rust module that declares it plays no pa
 | `pub` with a `Map`, `List`, or `Set` result or field | `<NS>`, placed automatically because K has no MAP-SYNTAX, LIST-SYNTAX, or SET-SYNTAX module | no |
 | `pub` function evaluated in one instance of a Map collection | `<NS>`, placed automatically because it receives the instance's key and a program is evaluated in no instance ([a group held in a collection](#a-group-held-in-an-optional-cell-or-a-collection)) | no; rules about one instance may use it |
 
-A production that is not `pub` is also emitted with K's `private` attribute: K hides it from every importing module, so a dependent's rules, programs, and claims cannot name it, and `krs check` rejects a claim or a spec-module simplification lemma that does with `krs::analysis::private-production-in-spec` (see [Spec modules](/verification/reachability-claims#spec-modules)).
+A production that is not `pub` is also emitted with K's `private` attribute, unless the configuration module declares it (below): K hides it from every importing module, so a dependent's rules, programs, and claims cannot name it, and `krs check` rejects a claim or a spec-module simplification lemma that does with `krs::analysis::private-production-in-spec` (see [Spec modules](/verification/reachability-claims#spec-modules)).
 Token productions follow the visibility of their `#[k::token]` carrier: the tokens of a struct or type alias that is not `pub` are `private` too, so only the package's own rules lex them, a spec module does not, and `krs check` rejects a program production whose field sort has only private tokens (`krs::analysis::invalid-token-sort`), because no program could spell that field.
 Only K rules construct the variants of a `#[k::constructors]` family that is not `pub`, so the macro allows rustc's `dead_code` lint on it.
 `internal` is the bare flag `#[k::syntax("...", internal)]` on a variant, `internal = true` in the reference layer and on `#[k::constructor]`, a bare flag on `#[k::function]`, or the family flag `#[k::constructors(sort = ..., result = ..., internal)]`, which marks every variant.
@@ -1636,7 +1636,15 @@ A dependency package may hold rules but no configuration: a `for Exp` rule rewri
 Its module must import that configuration, while the configured package's `<NS>` imports the dependency, and K rejects the cycle.
 KRS then emits the configuration in a third module, `<NS>-CONFIGURATION`, which imports `<NS>-SYNTAX` and every import of `<NS>` that does not import `<NS>` back; the dependency's module imports `<NS>-CONFIGURATION` instead of `<NS>`, and `<NS>` imports it too.
 A definition without such a dependency keeps the configuration in `<NS>`.
-The configuration may then name only what `<NS>-CONFIGURATION` imports: an initializer that names a production of `<NS>` that is not program syntax is rejected with `krs::partition::configuration-visibility`.
+An initializer of such a definition may call what any initializer may: a constructor or a function of its own package or of any package it depends on, `internal` or not `pub` included, whether or not that package depends on the dependency whose rules need the configuration.
+The configuration names only the productions of its initial terms, and a production's declaration needs only its sorts, which the `-SYNTAX` modules declare.
+So `<NS>-CONFIGURATION` declares each production the configuration names that its imports do not supply, and the production's equations stay in its package's `<NS>`, with every function only those equations call.
+A production declared there is named by two modules, so it is emitted without `private` even when its Rust item is not `pub`; rustc still rejects another package's sentence that names it.
+An initializer that writes `timer: Tick(1)` and `mem: rom::RomImage()` therefore starts from the values `Tick` and `RomImage` compute, whichever of those packages declares them.
+Two productions cannot be declared there, and an initializer that calls one is rejected with `krs::partition::configuration-visibility`, which names the arrangement that works:
+
+- a production with a cell sort among its argument and result sorts, because the configuration itself declares its cell sorts;
+- a production in a group that a `#[k::precedence]` chain orders against another group or gives an associativity, because K applies priorities and associativity per module and the sentence stays in the package's `<NS>` with the group's other productions. A family with one unordered tier, or with no chain, has no such sentence.
 
 ## Checked islands
 

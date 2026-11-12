@@ -16,9 +16,12 @@ partition end to end on both routes:
   package that imports it. KRS emits that configuration in
   `KRS-DEPENDENCY-RULES-CONFIGURATION`, which the dependency's module imports
   instead of `KRS-DEPENDENCY-RULES`, so the imports have no cycle and
-  `double 21` runs to `42` on both routes. `configuration-visibility`, whose
-  configuration names a non-`pub` production that module cannot import, is
-  rejected with `krs::partition::configuration-visibility`;
+  `double 21` runs to `42` on both routes. That module declares the
+  productions the configuration names that its imports do not supply.
+  `configuration-visibility`, whose configuration names a non-`pub`
+  production of a group that a precedence sentence orders, which that module
+  cannot declare apart from the sentence, is rejected with
+  `krs::partition::configuration-visibility`;
 - `kevm-case`: KEVM's `LogRecord::Entry` and `BlockHashLookup` take a `List`,
   and K has no LIST-SYNTAX module, so both are placed in `KRS-EVM`; the
   `krs check --partition` text is pinned and programs cannot contain them;

@@ -12,6 +12,11 @@
 //! automatically too ([`PlacementReason::InstanceFunction`]): it receives the
 //! instance's key as a hidden argument, and a program is evaluated in no
 //! instance, so no program can apply it.
+//!
+//! When a dependency package's rules need the configuration, a third module,
+//! `<NS>-CONFIGURATION`, holds it below that package's module, and declares
+//! the productions the configuration names that its imports do not supply
+//! (`lowering::ConfigurationSplit`). Such a production is not `private`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -250,15 +255,52 @@ pub enum PartitionError {
     },
     /// A dependency package's rules need the configuration, so it is emitted
     /// in a module of its own, but the configuration names a symbol that
-    /// module cannot import.
-    ConfigurationVisibility {
-        /// The configuration module.
-        module: String,
-        /// A dependency module whose rules need the configuration.
-        dependent: String,
-        /// The emitted name of the symbol the configuration names.
-        symbol: String,
+    /// module can neither import nor declare.
+    ConfigurationVisibility(Box<ConfigurationVisibility>),
+}
+
+/// The subject of [`PartitionError::ConfigurationVisibility`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigurationVisibility {
+    /// The configuration module.
+    pub module: String,
+    /// The configured package's semantics module.
+    pub configured: String,
+    /// The dependency modules whose rules need the configuration.
+    pub dependents: Vec<String>,
+    /// The emitted name of the symbol the configuration names.
+    pub symbol: String,
+    /// The module of the package that declares the symbol, when it is known.
+    pub owner: Option<String>,
+    /// Why the configuration module cannot declare the symbol.
+    pub obstacle: ConfigurationObstacle,
+    /// Whether the symbol could be program syntax: no sort of it, and of
+    /// no production a sentence orders with it, lacks a `-SYNTAX` module.
+    pub program: bool,
+    /// The production, when the symbol is one.
+    pub item: Option<StableItemId>,
+}
+
+/// Why the configuration module cannot declare a production the
+/// configuration names ([`ConfigurationVisibility`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConfigurationObstacle {
+    /// An argument or the result has a cell sort. The configuration sentence
+    /// declares its cell sorts, so the production's declaration needs the
+    /// configuration that names the production. KRS does not declare the
+    /// two in one module.
+    CellSort {
+        /// The cell sort.
+        sort: String,
     },
+    /// The production is in a group that a precedence or associativity
+    /// sentence of its package orders. K applies priorities and
+    /// associativity per module, and the sentence stays with the group's
+    /// other productions, above the configuration.
+    OrderedGroup,
+    /// No production of the theory declares the symbol below the
+    /// configuration, and the configuration module cannot declare it.
+    Undeclared,
 }
 
 impl fmt::Display for PartitionError {
@@ -277,14 +319,51 @@ impl fmt::Display for PartitionError {
                 formatter,
                 "`{module}` uses `int-literals = \"unsigned\"` but imports `{signed}`, whose signed INT-SYNTAX literals would leak into programs (K imports are unions)"
             ),
-            Self::ConfigurationVisibility {
-                module,
-                dependent,
-                symbol,
-            } => write!(
-                formatter,
-                "the rules of `{dependent}` need the configuration, so it is emitted in `{module}`, which cannot import the configured package's semantics module or any module that imports it; the configuration names `{symbol}`, which is declared outside the modules `{module}` imports, so make `{symbol}` program syntax (`pub`, not `internal`) or move the rules of `{dependent}` into the configured package"
-            ),
+            Self::ConfigurationVisibility(hidden) => {
+                let ConfigurationVisibility {
+                    module,
+                    configured,
+                    dependents,
+                    symbol,
+                    owner,
+                    obstacle,
+                    program,
+                    ..
+                } = &**hidden;
+                let dependents = dependents
+                    .iter()
+                    .map(|dependent| format!("`{dependent}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let owner = owner.as_deref().unwrap_or(configured);
+                write!(
+                    formatter,
+                    "the rules of {dependents} need the configuration, so it is emitted in `{module}`, a module below theirs; the configuration names `{symbol}`, "
+                )?;
+                match obstacle {
+                    ConfigurationObstacle::CellSort { sort } => write!(
+                        formatter,
+                        "which `{owner}` declares over the cell sort `{sort}`; the configuration sentence declares its cell sorts, so the production and the configuration would each need the other declared first, and `{module}` does not declare `{symbol}`. An initializer may call a production of `{configured}` or of a package it depends on whose argument and result sorts are not cell sorts"
+                    ),
+                    ConfigurationObstacle::OrderedGroup => {
+                        write!(
+                            formatter,
+                            "which `{owner}` declares in a group that one of its precedence or associativity sentences orders; K applies priorities and associativity per module and the sentence stays in `{owner}` with the group's other productions, so `{module}` cannot declare `{symbol}`. Declare the production the initializer calls outside every ordered group, in `{configured}` or in a package it depends on"
+                        )?;
+                        if *program {
+                            write!(
+                                formatter,
+                                ", or make every production those sentences order program syntax (`pub`, not `internal`), which lets programs contain them"
+                            )?;
+                        }
+                        Ok(())
+                    }
+                    ConfigurationObstacle::Undeclared => write!(
+                        formatter,
+                        "which no module that `{module}` imports declares. Declare it in `{configured}`, or in a package `{configured}` depends on"
+                    ),
+                }
+            }
         }
     }
 }
@@ -403,6 +482,12 @@ fn needs_full_module(production: &SemanticProduction) -> Option<PlacementReason>
             GrammarProductionItemKind::Terminal { .. }
             | GrammarProductionItemKind::RegexTerminal { .. } => None,
         })
+}
+
+/// Whether an author could make `production` program syntax: none of its
+/// sorts is a builtin that K supplies only with a full module.
+pub(crate) fn could_be_program_syntax(production: &SemanticProduction) -> bool {
+    needs_full_module(production).is_none()
 }
 
 fn is_bracket(production: &SemanticProduction) -> bool {

@@ -64,6 +64,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-group-boot-board"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-group-boot-rom",
+ "krs-configuration-cells-group-core",
+]
+
+[[package]]
+name = "krs-configuration-cells-group-boot-rom"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-group-core",
+]
+
+[[package]]
 name = "krs-configuration-cells-group-core"
 version = "0.1.0"
 dependencies = [

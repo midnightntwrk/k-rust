@@ -293,8 +293,15 @@ bug — report it, don't guess.
   and the imports of `<NS>` that do not reach `<NS>`; the dependency imports
   it instead of `<NS>`, and `<NS>` imports it too. Rust crates cannot depend
   on each other cyclically, so such an import exists only for the
-  configuration. A configuration that names a symbol outside its module's
-  imports is rejected (`krs::partition::configuration-visibility`).
+  configuration. The configuration sentence names the productions of its
+  initial terms, and a declaration needs only its sorts, so
+  `<NS>-CONFIGURATION` declares each production the configuration names
+  that its imports do not supply; the equations stay in the production's
+  package, which reaches `<NS>-CONFIGURATION`. Such a production is named
+  by two modules and is emitted without `private`. A production over a cell
+  sort, or in a group that a precedence or associativity sentence orders,
+  cannot be declared there, and a configuration that names one is rejected
+  (`krs::partition::configuration-visibility`).
 
 ## E. Rules
 
