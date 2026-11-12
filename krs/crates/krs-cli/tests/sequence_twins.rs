@@ -691,7 +691,7 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
             ),
         ),
     ]);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         ll: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)
         ll-dropped: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard
         aux: error[krs::syntax::invalid-list-notation]: the entry of the cell `aux` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`) or drop it where a condition reads it
@@ -702,7 +702,7 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         two-instances: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)
         unmatched-child: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
         cells-k-condition: rule [go]: <k> go ~> Rest:K => .K </k> requires isKResult(Rest:K)
-        cells-k-moved: rule [go]: <k> put ( A:Int , B:Int ) ~> Rest:K => go ~> Rest:K </k>"#]].assert_eq(&lines.join("\n"));
+        cells-k-moved: rule [go]: <k> put ( A:Int , B:Int ) ~> Rest:K => go ~> Rest:K </k>"]].assert_eq(&lines.join("\n"));
 }
 
 /// The verdict of the library `library`'s readable rule `go`, its `krs expand` print's `go`
