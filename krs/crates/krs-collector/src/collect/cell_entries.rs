@@ -14,14 +14,14 @@ use std::collections::BTreeMap;
 
 use krs_diagnostic::{Diagnostic, Location, Severity};
 use krs_ir::cell_kind::{
-    CellKind, DescriptorCell, EntryKind, GroupKind, Layer, Multiplicity, Order,
+    CellKind, DescriptorCell, EntryKind, GroupKind, Layer, Multiplicity, Notation, Order,
 };
 use krs_ir::{
     ConfigurationSentenceKind, DescriptorBundle, DescriptorCellDeclaration, DescriptorCellIdentity,
     DescriptorIndex, DescriptorPayload, ProtocolCellContent, SourceRange, StableItemId,
 };
 use krs_syntax::cell_entries::{self, EntrySide, Lint, Refusal, Rewrite, Sentence, SentenceEntry};
-use krs_syntax::cell_entry::{EntryForm, EntrySpelling};
+use krs_syntax::cell_entry::{EntryForm, EntryRest, EntrySpelling};
 
 use super::provenance::Coordinates;
 use super::resolve::MarkedAncestor;
@@ -555,6 +555,7 @@ pub(super) fn judge_readable(
             Err(refused(
                 authored.form,
                 entry,
+                subject_twin(&subject, entry, side),
                 side,
                 Rewrite::Result,
                 authored.form.is_claim(),
@@ -662,6 +663,7 @@ pub(super) fn judge_initializer(
         refused(
             EntryForm::Initializer,
             &entries[at],
+            None,
             EntrySide::Initializer,
             Rewrite::Result,
             false,
@@ -1388,6 +1390,7 @@ fn judge_sentence(
             Err(refused(
                 EntryForm::Cells,
                 entry(at),
+                subject_twin(&subject, entry(at), side),
                 side,
                 rewrite,
                 claim,
@@ -1965,10 +1968,7 @@ fn advice(
         Refusal::BelowOptionalAncestor | Refusal::BelowCollectionAncestor => {
             below_ancestor(form, entry, entry.ancestor?, side, rewrite, claim, groups)
         }
-        Refusal::RestMismatch => Some(
-            "write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"
-                .to_owned(),
-        ),
+        Refusal::RestMismatch => Some(rest_mismatch_advice(form, entry)),
         Refusal::MapCollectionKey => {
             let key = match own {
                 [Layer::Instances(order), Layer::Group(group), ..] => group.key(*order)?,
@@ -2279,6 +2279,48 @@ struct RefusedCell<'a> {
     ancestor: Option<&'a Ancestor>,
     /// The cell's content as written.
     spelling: Option<&'a EntrySpelling>,
+    /// A result entry's subject twin, the same cell's subject entry as written, which a
+    /// pairing refusal's advice reads.
+    twin: Option<&'a EntrySpelling>,
+}
+
+/// The subject entry of the cell of the result entry `entry` (on `side`), as written: what a
+/// pairing refusal at the result reads of the subject.
+fn subject_twin<'e>(
+    subject: &'e [Entry<'_>],
+    entry: &Entry<'_>,
+    side: EntrySide,
+) -> Option<&'e EntrySpelling> {
+    if side != EntrySide::Result {
+        return None;
+    }
+    subject
+        .iter()
+        .find(|twin| twin.cell == entry.cell)
+        .and_then(|twin| twin.field.spelling.as_ref())
+}
+
+/// What a rest on one side of a cell is fixed by: `..` on both sides keeps the rest, and a
+/// subject that names its rest (`rest @ ..`) drops or moves it. A subject of brackets holding
+/// only the rest (`[..]`) has no rest to name there (`[rest @ ..]` is refused): a list is then
+/// matched whole, by `_` to drop it or by a binder to move it, and a readable computation keeps
+/// its rest always, which a `cells!` rule's `KCell(.., rest @ ..)` names.
+fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
+    let keep = "write `..` on both sides to keep the rest";
+    let item_less = matches!(
+        entry.twin,
+        Some(EntrySpelling::Brackets(seq))
+            if seq.items.is_empty() && matches!(seq.rest, Some((EntryRest::Anonymous, _)))
+    );
+    match entry.layers {
+        [Layer::Computation] if item_less && form.is_readable() => format!(
+            "{keep}: a readable rule keeps a computation's rest, and a `cells!` rule's `KCell(.., rest @ ..)` drops or moves it"
+        ),
+        [Layer::Leaf(Notation::List | Notation::Cons)] if item_less => format!(
+            "{keep}, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)"
+        ),
+        _ => format!("{keep}, or name it in the subject (`rest @ ..`) to drop or move it"),
+    }
 }
 
 /// The refusal `located` of the entry `entry`, on the side `side` of a sentence written in
@@ -2288,9 +2330,14 @@ struct RefusedCell<'a> {
 /// (P1, P7), but for a form refusal, which is judged without the declaration and names the entry's
 /// cell ([`Refusal::is_form`]); it stands at the spelling it is raised at, or at the entry's value
 /// where that spelling has no range.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a refusal reads its entry, the entry's subject twin and the sentence around it"
+)]
 fn refused(
     form: EntryForm,
     entry: &Entry<'_>,
+    twin: Option<&EntrySpelling>,
     side: EntrySide,
     rewrite: Rewrite,
     claim: bool,
@@ -2318,6 +2365,7 @@ fn refused(
                 spelling: spelling.and_then(|spelling| {
                     cell_entries::spelling_at(spelling, &located.at[..nested.depth])
                 }),
+                twin: None,
             },
             kind,
             None,
@@ -2329,6 +2377,7 @@ fn refused(
                 path: &entry.kind.path.layers,
                 ancestor: entry.ancestor.as_ref(),
                 spelling,
+                twin,
             },
             &entry.kind,
             entry.sort.as_deref(),

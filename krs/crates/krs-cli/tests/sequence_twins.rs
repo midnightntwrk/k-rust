@@ -626,3 +626,29 @@ fn a_refused_value_s_names_raise_nothing_ahead_of_its_refusal() {
         assert_eq!(verdict, apart, "{name}");
     }
 }
+
+/// Round 2, Q5: the advice of a rest on one side names a spelling that works for its subject. A
+/// list matched by `[..]` has no rest to name there (`[rest @ ..]` is refused), so it is matched
+/// whole, `_` to drop it or a binder to move it; a readable computation keeps its rest, which
+/// `cells!` names; a subject with items names its rest (`rest @ ..`).
+#[test]
+fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
+    let rule = |body: &str| readable(body, false);
+    let lines = verdicts(&[
+        ("ll", rule("go: { ll: [..] } => { ll: [] };")),
+        ("ll-dropped", rule("go: { ll: _ } => { ll: [] };")),
+        (
+            "aux",
+            rule("go: { aux: [..], ll: _ } => { aux: [], ll: [] };"),
+        ),
+        (
+            "ll-items",
+            rule("go: { ll: [x, ..], out: _ } => { ll: [], out: [x] };"),
+        ),
+    ]);
+    expect_test::expect![[r#"
+        ll: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)
+        ll-dropped: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard
+        aux: error[krs::syntax::invalid-list-notation]: the entry of the cell `aux` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule's `KCell(.., rest @ ..)` drops or moves it
+        ll-items: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"#]].assert_eq(&lines.join("\n"));
+}
