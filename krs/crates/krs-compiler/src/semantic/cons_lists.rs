@@ -272,7 +272,7 @@ impl StructuredTermBuilder<'_> {
             // Brackets at a computation are its items only where the reader reads them so: as a
             // computation cell's or child's entry. A term of sort `K` elsewhere is a binder.
             let computation = if *expected == SemanticSortRef::k_sequence() {
-                "; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; a `?` computation's items in a readable record are not supported yet"
+                "; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; a named rest in the brackets of a computation child of a group written inside another record (`tg: Tg { gk: [x, rest @ ..], .. }` in an instance, a group nested in a fragment), and a `?` computation's items in a readable record, are not supported yet"
             } else {
                 ""
             };
