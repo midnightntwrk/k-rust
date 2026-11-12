@@ -2276,38 +2276,6 @@ fn render_rule(
         left_cells.push(left);
         right_cells.extend(right);
     }
-    // A list rest the print names is a binder of the cell's sort, fresh against every
-    // identifier the rule prints: `rest`, then `rest_2`.
-    if !rendering.list_rests.is_empty() {
-        let mut spelled = BTreeSet::new();
-        for part in left_cells.iter().chain(&right_cells) {
-            spelled_identifiers(part.clone(), &mut spelled);
-        }
-        for (name, _) in &parameters {
-            spelled.insert(name.clone());
-        }
-        let mut names = BTreeMap::new();
-        for (placeholder, sort) in &rendering.list_rests {
-            let name = (1..=spelled.len() + 1)
-                .map(|ordinal| {
-                    if ordinal == 1 {
-                        "rest".to_owned()
-                    } else {
-                        format!("rest_{ordinal}")
-                    }
-                })
-                .find(|name| !spelled.contains(name))
-                .expect("one of more names than the spelled ones is free");
-            spelled.insert(name.clone());
-            let ident = rust_ident(&name)?;
-            let ty = render_binding_type(sort, package)?;
-            parameters.push((name, quote!(#ident: #ty)));
-            names.insert(placeholder.to_string(), ident);
-        }
-        for cell in left_cells.iter_mut().chain(&mut right_cells) {
-            *cell = rename_identifiers(cell.clone(), &names);
-        }
-    }
     let state = match (
         &printed.subject.remainder,
         printed.result.as_ref().map(|result| &result.remainder),
@@ -2401,6 +2369,42 @@ fn render_rule(
             &label,
         )?,
     };
+    // A list rest the print names is a binder of the cell's sort, fresh against every
+    // identifier the sentence prints, its restated conditions and helpers, attributes and path
+    // segments included: `rest`, then `rest_2`.
+    if !rendering.list_rests.is_empty() {
+        let mut spelled = BTreeSet::new();
+        for part in left_cells.iter().chain(&right_cells).chain([
+            &quote!(#requires #(#existential_helpers)* #state),
+            &quote!(#(#attrs)* #rule_attribute #root_type),
+        ]) {
+            spelled_identifiers(part.clone(), &mut spelled);
+        }
+        for (name, _) in &parameters {
+            spelled.insert(name.clone());
+        }
+        let mut names = BTreeMap::new();
+        for (placeholder, sort) in &rendering.list_rests {
+            let name = (1..=spelled.len() + 1)
+                .map(|ordinal| {
+                    if ordinal == 1 {
+                        "rest".to_owned()
+                    } else {
+                        format!("rest_{ordinal}")
+                    }
+                })
+                .find(|name| !spelled.contains(name))
+                .expect("one of more names than the spelled ones is free");
+            spelled.insert(name.clone());
+            let ident = rust_ident(&name)?;
+            let ty = render_binding_type(sort, package)?;
+            parameters.push((name, quote!(#ident: #ty)));
+            names.insert(placeholder.to_string(), ident);
+        }
+        for cell in left_cells.iter_mut().chain(&mut right_cells) {
+            *cell = rename_identifiers(cell.clone(), &names);
+        }
+    }
     // A sorted wildcard is named last, fresh against every identifier the rule prints.
     let wildcards = wildcard_names(
         printed

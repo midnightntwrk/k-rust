@@ -653,12 +653,12 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         ll-items: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"]].assert_eq(&lines.join("\n"));
 }
 
-/// The readable rule `source`'s verdict, its `krs expand` print's `go` function, and that
-/// print's verdict.
-fn printed_twin(name: &str, source: &str) -> (String, String, String) {
+/// The verdict of the library `library`'s readable rule `go`, its `krs expand` print's `go`
+/// function, and that print's verdict.
+fn printed_twin(name: &str, library: &str) -> (String, String, String) {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let manifest = package(temporary.path(), &format!("seq-{name}-readable"), source);
+    let manifest = library_package(temporary.path(), &format!("seq-{name}-readable"), library);
     let (success, stderr, print) = krs(target.path(), &manifest, "expand", &[]);
     assert!(success, "{stderr}");
     let printed = library_package(temporary.path(), &format!("seq-{name}-printed"), &print);
@@ -683,9 +683,12 @@ fn printed_twin(name: &str, source: &str) -> (String, String, String) {
 fn a_named_rest_never_renames_an_author_s_name() {
     let (readable_k, print, printed_k) = printed_twin(
         "r21",
-        &readable(
-            "go: { k: [Put(list_rest_0, b), ..], ll: [..] } => { k: [..], ll: [list_rest_0, ..] };",
-            false,
+        &format!(
+            "{PREAMBLE}{}",
+            readable(
+                "go: { k: [Put(list_rest_0, b), ..], ll: [..] } => { k: [..], ll: [list_rest_0, ..] };",
+                false,
+            )
         ),
     );
     expect_test::expect![[r"
@@ -693,4 +696,41 @@ fn a_named_rest_never_renames_an_author_s_name() {
         pub fn go( list_rest_0: k::Term<k::builtin::Int>, b: k::Term<k::builtin::Int>, rest: k::Term<k::builtin::List>, k::cells! { k : k::configuration::KCell(crate ::Cmd::Put(list_rest_0, b), ..), ll : k::configuration::Cell(rest), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ll : k::configuration::Cell([list_rest_0, ..rest]), ..state } }
         rule [go]: <k> put ( ListRest0:Int , B:Int ) => .K ... </k> <ll> Rest:List => ListItem(ListRest0:Int) Rest:List </ll>"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
     assert_eq!(readable_k.replace("Krs_RestLl", "Rest"), printed_k);
+}
+
+/// Round 3, R2-2: the printed rest's name is fresh against every name the printed sentence
+/// holds, a restated condition's path segments included: beside `crate::rest::Check(a)` it is
+/// `rest_2`, and the print emits the readable K but for the rest's name.
+#[test]
+fn a_named_rest_is_fresh_against_the_restated_condition() {
+    const CHECK: &str = r"
+pub mod rest {
+    use k::Term;
+    use k::builtin::{Bool, Int};
+
+    #[k::function(total, internal)]
+    pub fn Check(value: Term<Int>) -> Term<Bool>;
+
+    k::equations! {
+        for Check;
+        check_any: n => true;
+    }
+}
+";
+    let (readable_k, print, printed_k) = printed_twin(
+        "r22",
+        &format!(
+            "{PREAMBLE}{CHECK}{}",
+            readable(
+                "#[k::requires(crate::rest::Check(a))] go: { k: [Put(a, b), ..], ll: [..] } => { k: [..], ll: [a, ..] };",
+                false,
+            )
+        ),
+    );
+    expect_test::expect![[r"
+        rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List </ll> requires check ( A:Int ) rule check ( N:Int ) => true [label(org_krs_seqtwins--rest--check_any)]
+        pub fn go( a: k::Term<k::builtin::Int>, b: k::Term<k::builtin::Int>, rest_2: k::Term<k::builtin::List>, k::cells! { k : k::configuration::KCell(crate ::Cmd::Put(a, b), ..), ll : k::configuration::Cell(rest_2), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ll : k::configuration::Cell([a, ..rest_2]), ..state } }
+        rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Rest2:List => ListItem(A:Int) Rest2:List </ll> requires check ( A:Int ) rule check ( N:Int ) => true [label(org_krs_seqtwins--rest--check_any)]"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
+    assert!(print.contains("Cell(rest_2)"), "{print}");
+    assert_eq!(readable_k.replace("Krs_RestLl", "Rest2"), printed_k);
 }
