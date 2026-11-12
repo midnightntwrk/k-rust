@@ -990,8 +990,8 @@ fn a_moved_rest_has_one_rule_at_fixed_and_optional_cells() {
         readable-ok-mismatch: error[krs::syntax::invalid-list-notation]: the entry of the cell `ok` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; a readable record does not read the items of a `?` computation cell yet; a `cells!` rule writes them in `Some(KCell(..))`, where `..` on both sides keeps the rest and a subject that names it (`Some(KCell(x, rest @ ..))`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it where a condition reads it
         readable-tm-whole: rule [go]: <k> go => .K ... </k> <th> <tm> M:Map => M:Map [ 0 <- 1 ] </tm> ... </th>
         readable-tm-named: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it
-        readable-env-named: error[krs::syntax::rust-syntax]: a readable map read names no rest: the cell it reads keeps its content, rest and all, and `rest @ ..` would bind a map no readable result can write and no readable condition can read, so write `..`; a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule's subject names the rest (`map![k -> v, rest @ ..]`)
-        tk-into-aux: error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only at a computation cell or child, with no rest or an anonymous `..` at their end: a named rest (`rest @ ..`, `..rest`) at a child of an instance or a group, and a `?` computation's items in a readable record, are not supported yet"]].assert_eq(&lines.join("\n"));
+        readable-env-named: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, which the rule leaves as it is, as it does the whole cell the result leaves out, so the name binds nothing a readable rule can use: write `..`; a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it
+        tk-into-aux: error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; an instance or group child's brackets with a named rest (`rest @ ..`, `..rest`), and a `?` computation's items in a readable record, are not supported yet"]].assert_eq(&lines.join("\n"));
 }
 
 /// The rows of [`a_built_computation_writes_every_rest_it_names`]: the rests a built
@@ -1115,18 +1115,10 @@ fn passed_on_rows() -> [(&'static str, String); 5] {
     ]
 }
 
-/// FRAMEMOVE round 3: a built computation writes every rest it names, or is refused with a true
-/// text. A cell created from `None` ends in the rest its `..rest` names (`created`, with a
-/// condition too), as an exact one does; `..t` writes any `K` the subject binds, a constructor's
-/// `K` field as a rest (`field`), and another sort is refused naming it (`field-map`). An
-/// instance child's named computation rest is a stated limit (`child-rest`), as a `?` group's
-/// computation child is (`og-in`, `og-kept`). A `KCell(..)` entry on a `?` List or Map
-/// (`olist-kcell`, `omap-kcell`) and `Some(..)` on a fixed computation (`aux-some`) are told
-/// their cells' own spelling.
-#[test]
-fn a_built_computation_writes_every_rest_it_names() {
-    let target = shared_fixture_target();
-    let temporary = temp_dir();
+/// The preamble of [`a_built_computation_writes_every_rest_it_names`] and its round-4 sibling:
+/// the `K` and `Map` fields `Saved` and `Held`, the `?` cells `ok`, `olist`, `omap` and the `?`
+/// group `og` with its computation child `oc`, and the Map cells `env` and `env2`.
+fn built_computation_preamble() -> String {
     let preamble = PREAMBLE
         .replace("List, Set, list, set}", "List, Map, Set, list, map, set}")
         .replace(
@@ -1139,11 +1131,11 @@ fn a_built_computation_writes_every_rest_it_names() {
         )
         .replace(
             "    #[k::cell]\n    pub out: List,\n",
-            "    #[k::cell]\n    pub out: List,\n    #[k::cell(multiplicity = \"?\")]\n    pub ok: Option<KSequence>,\n    #[k::cell(multiplicity = \"?\")]\n    pub olist: Option<List>,\n    #[k::cell(multiplicity = \"?\")]\n    pub omap: Option<Map>,\n    #[k::cell(multiplicity = \"?\", nested)]\n    pub og: Option<Og>,\n",
+            "    #[k::cell]\n    pub out: List,\n    #[k::cell]\n    pub env: Map,\n    #[k::cell]\n    pub env2: Map,\n    #[k::cell(multiplicity = \"?\")]\n    pub ok: Option<KSequence>,\n    #[k::cell(multiplicity = \"?\")]\n    pub olist: Option<List>,\n    #[k::cell(multiplicity = \"?\")]\n    pub omap: Option<Map>,\n    #[k::cell(multiplicity = \"?\", nested)]\n    pub og: Option<Og>,\n",
         )
         .replace(
             "out: list::empty(),",
-            "out: list::empty(),\n            ok: k::absent!(k::k![]),\n            olist: k::absent!(list::empty()),\n            omap: k::absent!(k::map![]),\n            og: k::absent!(Og { oc: k::k![], on: 0 }),",
+            "out: list::empty(),\n            env: k::map![],\n            env2: k::map![],\n            ok: k::absent!(k::k![]),\n            olist: k::absent!(list::empty()),\n            omap: k::absent!(k::map![]),\n            og: k::absent!(Og { oc: k::k![], on: 0 }),",
         );
     assert!(
         [
@@ -1156,6 +1148,22 @@ fn a_built_computation_writes_every_rest_it_names() {
         .all(|part| preamble.contains(part)),
         "the preamble has `Saved`, `Held`, `ok`, `olist`, `omap` and `og`"
     );
+    preamble
+}
+
+/// FRAMEMOVE round 3: a built computation writes every rest it names, or is refused with a true
+/// text. A cell created from `None` ends in the rest its `..rest` names (`created`, with a
+/// condition too), as an exact one does; `..t` writes any `K` the subject binds, a constructor's
+/// `K` field as a rest (`field`), and another sort is refused naming it (`field-map`). An
+/// instance child's named computation rest is a stated limit (`child-rest`), as a `?` group's
+/// computation child is (`og-in`, `og-kept`). A `KCell(..)` entry on a `?` List or Map
+/// (`olist-kcell`, `omap-kcell`) and `Some(..)` on a fixed computation (`aux-some`) are told
+/// their cells' own spelling.
+#[test]
+fn a_built_computation_writes_every_rest_it_names() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = built_computation_preamble();
     let lines = built_computation_rows()
         .into_iter()
         .map(|(name, source)| {
@@ -1171,13 +1179,156 @@ fn a_built_computation_writes_every_rest_it_names() {
         created: rule [go]: <k> go ~> Rest:K => .K </k> (.Bag => <ok> go ~> Rest:K </ok>)
         created-condition: rule [go]: <k> go ~> Rest:K => .K </k> (.Bag => <ok> go ~> Rest:K </ok>) requires isKResult(Rest:K)
         field: rule [go]: <k> saved ( T:K ) => .K ... </k> <aux> .K => T:K </aux>
-        field-map: error[krs::syntax::unsupported-rule-body]: `..m` in a computation writes the computation `m` after the result's items, and `m` is a term of sort `Map`, not a computation (`KSequence`): write it as an item, without `..`
-        child-rest: error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only at a computation cell or child, with no rest or an anonymous `..` at their end: a named rest (`rest @ ..`, `..rest`) at a child of an instance or a group, and a `?` computation's items in a readable record, are not supported yet
+        field-map: error[krs::syntax::invalid-list-notation]: `..m` in a computation writes the computation `m` after the result's items, and `m` is a term of sort `Map`, not a computation (`K`): write it as an item, without `..`
+        child-rest: error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; an instance or group child's brackets with a named rest (`rest @ ..`, `..rest`), and a `?` computation's items in a readable record, are not supported yet
         olist-kcell: error[krs::analysis::cell-wrapper]: the cell `olist` holds an optional `List` leaf, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `Some(k::configuration::Cell(..))`
         omap-kcell: error[krs::analysis::cell-wrapper]: the cell `omap` holds an optional `Map` leaf, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `Some(k::configuration::Cell(..))`
         aux-some: error[krs::analysis::optional-presence]: the cell `aux` holds a computation and is not optional (it is declared without `multiplicity = "?"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `aux` has none of
         og-in: error[krs::analysis::collection-entry]: not supported yet: the present group `og` is written whole, as one term naming every child, and its record writes the child `oc` as a computation's items, which no term of the group holds yet
-        og-kept: error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result"#]].assert_eq(&lines.join("\n"));
+        og-kept: error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result; a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest: the present group is read as one term, which holds no computation's items"#]].assert_eq(&lines.join("\n"));
+}
+
+/// A function of a `K` argument, for [`rest_text_rows`].
+const SIZE: &str = "#[k::function(total, internal)]\npub fn Size(body: k::Term<KSequence>) -> k::Term<Int>;\nk::equations! {\n    for Size;\n    size_any: b => 0;\n}\n";
+
+/// The rows of [`each_rest_text_is_true_of_its_input`].
+fn rest_text_rows() -> [(&'static str, String); 12] {
+    const KC: &str = "k::configuration::";
+    let rule = |body: &str| readable(body, false);
+    let moved = |name: &'static str, binder: &str, held: &str| {
+        (
+            name,
+            cells(
+                &format!("t: {binder},\n    "),
+                &format!("k: {KC}KCell({held}, ..), aux: {KC}KCell()"),
+                &format!("k: {KC}KCell(..), aux: {KC}KCell(..t)"),
+                false,
+            ),
+        )
+    };
+    [
+        (
+            "env-written",
+            rule(
+                "go: { k: [Go(), ..], env: { 0 -> v, rest @ .. }, env2: e } => { k: [..], env: e };",
+            ),
+        ),
+        (
+            "env-kept",
+            rule("go: { k: [Go(), ..], env: { 0 -> v, rest @ .. } } => { k: [..] };"),
+        ),
+        (
+            "cell-brackets",
+            cells(
+                "",
+                &format!("k: {KC}KCell(Cmd::Go(), ..), aux: {KC}Cell([Cmd::Go()])"),
+                &format!("k: {KC}KCell(..), aux: {KC}Cell([])"),
+                false,
+            ),
+        ),
+        (
+            "field-brackets",
+            cells(
+                "",
+                &format!("k: {KC}KCell(Cmd::Go(), ..)"),
+                &format!("k: {KC}KCell(Cmd::Saved {{ body: [Cmd::Go()] }}, ..)"),
+                false,
+            ),
+        ),
+        (
+            "argument-brackets",
+            format!(
+                "{SIZE}{}",
+                cells(
+                    "",
+                    &format!("k: {KC}KCell(Cmd::Go(), ..)"),
+                    &format!("k: {KC}KCell(Size([Cmd::Go()]), ..)"),
+                    false,
+                )
+            ),
+        ),
+        (
+            "argument-binder",
+            format!(
+                "{SIZE}{}",
+                cells(
+                    "t: KSequence,\n    ",
+                    &format!("k: {KC}KCell(Cmd::Saved {{ body: t }}, ..)"),
+                    &format!("k: {KC}KCell(Size(t), ..)"),
+                    false,
+                )
+            ),
+        ),
+        moved("sort-term", "k::Term<KSequence>", "Cmd::Saved { body: t }"),
+        moved(
+            "sort-path",
+            "k::builtin::KSequence",
+            "Cmd::Saved { body: t }",
+        ),
+        (
+            "sort-alias",
+            format!(
+                "pub type Seq = KSequence;\n{}",
+                moved("", "Seq", "Cmd::Saved { body: t }").1
+            ),
+        ),
+        moved("sort-map", "k::Term<Map>", "Cmd::Held { m: t }"),
+        (
+            "og-kept",
+            cells(
+                "",
+                &format!(
+                    "k: {KC}KCell(Cmd::Go(), ..), og: Some(k::fragment![crate::Og {{ oc: [Cmd::Go(), ..], .. }}])"
+                ),
+                &format!(
+                    "k: {KC}KCell(..), og: Some(k::fragment![crate::Og {{ oc: [Cmd::Put {{ a: 1, b: 2 }}, ..], .. }}])"
+                ),
+                false,
+            ),
+        ),
+        (
+            "readable-og-kept",
+            rule(
+                "go: { k: [Go(), ..], og: Some(Og { oc: [Go(), ..], .. }) } => { k: [..], og: Some(Og { oc: [Put(1, 2), ..], .. }) };",
+            ),
+        ),
+    ]
+}
+
+/// FRAMEMOVE round 4: each rest text is true of its input. A top readable map read's named rest
+/// is a dropped rest where the result writes the cell (`env-written`) and binds nothing where it
+/// leaves it out (`env-kept`); brackets at a `K` place that is no computation cell's or child's
+/// entry name the binder spelling (`field-brackets`, `argument-brackets`, accepted
+/// `argument-binder`), and a `Cell(..)` on a computation is told its wrapper first
+/// (`cell-brackets`); a `..t` is a computation by `t`'s resolved sort, however spelled
+/// (`sort-term`, `sort-path`, `sort-alias`), and another sort is refused naming it (`sort-map`);
+/// a `?` group's computation child is a stated limit, rest or not (`og-kept`, its readable twin).
+#[test]
+fn each_rest_text_is_true_of_its_input() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = built_computation_preamble();
+    let lines = rest_text_rows().map(|(name, source)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("seq-fm4-{name}"),
+            &format!("{preamble}{source}"),
+        );
+        format!("{name}: {}", verdict(target.path(), &manifest))
+    });
+    expect_test::expect![[r"
+        env-written: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it
+        env-kept: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, which the rule leaves as it is, as it does the whole cell the result leaves out, so the name binds nothing a readable rule can use: write `..`; a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it
+        cell-brackets: error[krs::analysis::cell-wrapper]: the cell `aux` holds a computation, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::KCell(..)`
+        field-brackets: error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; an instance or group child's brackets with a named rest (`rest @ ..`, `..rest`), and a `?` computation's items in a readable record, are not supported yet
+        argument-brackets: error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `K`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; an instance or group child's brackets with a named rest (`rest @ ..`, `..rest`), and a `?` computation's items in a readable record, are not supported yet
+        argument-binder: rule [go]: <k> saved ( T:K ) => size ( T:K ) ... </k> rule size ( B:K ) => 0 [label(org_krs_seqtwins--size_any)]
+        sort-term: rule [go]: <k> saved ( T:K ) => .K ... </k> <aux> .K => T:K </aux>
+        sort-path: rule [go]: <k> saved ( T:K ) => .K ... </k> <aux> .K => T:K </aux>
+        sort-alias: rule [go]: <k> saved ( T:K ) => .K ... </k> <aux> .K => T:K </aux>
+        sort-map: error[krs::syntax::invalid-list-notation]: `..t` in a computation writes the computation `t` after the result's items, and `t` is a term of sort `Map`, not a computation (`K`): write it as an item, without `..`
+        og-kept: error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result; a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest: the present group is read as one term, which holds no computation's items
+        readable-og-kept: error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result; a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest: the present group is read as one term, which holds no computation's items"]].assert_eq(&lines.join("\n"));
 }
 
 /// The verdict of the library `library`'s readable rule `go`, its `krs expand` print's `go`

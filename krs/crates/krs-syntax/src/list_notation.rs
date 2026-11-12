@@ -102,7 +102,11 @@ pub(crate) fn two_rests(span: Span) -> SyntaxError {
 /// The reason given for an anonymous `..` in a result's list notation, which names no list: a
 /// result's `..` keeps a rest only in a list cell's own brackets (a readable record's list cell,
 /// a `cells!` leaf's `Cell([x, ..])` or `Cell([..])`), where it is read before list notation is.
-pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result";
+///
+/// A `?` group's computation child is read inside the group's one term, which holds no
+/// computation's items yet, so its `..` reaches this reading too: the text states that limit
+/// rather than advise a named rest, which is refused there as well.
+pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result; a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest: the present group is read as one term, which holds no computation's items";
 
 /// Whether `error` is the refusal of an anonymous `..` in a result's list notation
 /// ([`ANONYMOUS_REST`]).
