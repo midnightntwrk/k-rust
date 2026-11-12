@@ -335,7 +335,7 @@ pub(crate) fn pattern_level(slice: &PatSlice) -> Result<(Path, Vec<Pat>), Syntax
         }
         if elements.len() == 1 {
             return Err(list_error(
-                "`[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, and the second is the binder `rest` itself",
+                "`[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, or a binder `rest` to write the list again (`[a, ..rest]`), and the second is the binder `rest` itself",
                 rest.span(),
             ));
         }

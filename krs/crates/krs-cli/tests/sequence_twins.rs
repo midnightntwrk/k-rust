@@ -98,9 +98,14 @@ fn krs_path() -> String {
 
 /// Writes a one-package workspace whose library is the preamble and `source`.
 fn package(root: &Path, name: &str, source: &str) -> PathBuf {
+    library_package(root, name, &format!("{PREAMBLE}{source}"))
+}
+
+/// Writes a one-package workspace whose library is `library`.
+fn library_package(root: &Path, name: &str, library: &str) -> PathBuf {
     let directory = root.join(name);
     fs::create_dir_all(directory.join("src")).unwrap();
-    fs::write(directory.join("src/lib.rs"), format!("{PREAMBLE}{source}")).unwrap();
+    fs::write(directory.join("src/lib.rs"), library).unwrap();
     fs::write(
         directory.join("Cargo.toml"),
         format!(
@@ -112,8 +117,9 @@ fn package(root: &Path, name: &str, source: &str) -> PathBuf {
     directory.join("Cargo.toml")
 }
 
-/// Runs `krs <command>` on the package's `main` definition.
-fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, String) {
+/// Runs `krs <command>` on the package's `main` definition: whether it succeeded, its stderr,
+/// and its stdout.
+fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, String, String) {
     let package = manifest
         .parent()
         .and_then(Path::file_name)
@@ -133,6 +139,7 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
     (
         output.status.success(),
         String::from_utf8(output.stderr).unwrap(),
+        String::from_utf8(output.stdout).unwrap(),
     )
 }
 
@@ -140,7 +147,7 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 /// one line.
 fn verdict(target: &Path, manifest: &Path) -> String {
     let output = manifest.with_file_name("emitted");
-    let (success, stderr) = krs(
+    let (success, stderr, _) = krs(
         target,
         manifest,
         "emit-k",
@@ -500,4 +507,70 @@ fn an_item_less_sequence_subject_alone_is_always_enabled() {
         aux-guarded: rule [go]: <aux> .K => X:KItem ... </aux> <ll> ListItem(X:KItem) Krs_RestLl:List => Krs_RestLl:List </ll>"#]].assert_eq(&lines.join("\n"));
     assert_eq!(of(&lines, "aux"), of(&lines, "cells-aux"));
     assert_eq!(of(&lines, "aux"), of(&lines, "k"));
+}
+
+/// Round 2, D3: readable `ll: [..] => ll: [a, ..]` matches any list and puts `a` in front of it.
+/// `krs expand` prints it in the spelling `cells!` reads, with the rest named (`Cell(rest)`,
+/// `Cell([a, ..rest])`), and that print emits the rule's K but for the rest's name, as the
+/// hand-written named twin does. `cells!` keeps `Cell([..])` in a subject as a stated limit,
+/// whose text names that spelling.
+#[test]
+fn an_item_less_list_subject_prints_with_its_rest_named() {
+    const KC: &str = "k::configuration::";
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable_source = readable(
+        "go: { k: [Put(a, b), ..], ll: [..] } => { k: [..], ll: [a, ..] };",
+        false,
+    );
+    let manifest = package(temporary.path(), "seq-print-readable", &readable_source);
+    let (success, stderr, print) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let printed = library_package(temporary.path(), "seq-print-printed", &print);
+    let lines = [
+        ("readable".to_owned(), verdict(target.path(), &manifest)),
+        ("printed".to_owned(), verdict(target.path(), &printed)),
+    ]
+    .into_iter()
+    .chain(
+        verdicts(&[
+            (
+                "cells-named",
+                cells(
+                    "a: Int,\n    b: Int,\n    rest: List,\n    ",
+                    &format!("k: {KC}KCell(Cmd::Put {{ a, b }}, ..), ll: {KC}Cell(rest)"),
+                    &format!("k: {KC}KCell(..), ll: {KC}Cell([a, ..rest])"),
+                    false,
+                ),
+            ),
+            (
+                "cells-dots",
+                cells(
+                    "a: Int,\n    b: Int,\n    ",
+                    &format!("k: {KC}KCell(Cmd::Put {{ a, b }}, ..), ll: {KC}Cell([..])"),
+                    &format!("k: {KC}KCell(..), ll: {KC}Cell([a, ..])"),
+                    false,
+                ),
+            ),
+        ])
+        .into_iter()
+        .filter_map(|line| {
+            line.split_once(": ")
+                .map(|(name, verdict)| (name.to_owned(), verdict.to_owned()))
+        }),
+    )
+    .map(|(name, verdict)| format!("{name}: {verdict}"))
+    .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        readable: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List </ll>
+        printed: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Rest:List => ListItem(A:Int) Rest:List </ll>
+        cells-named: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Rest:List => ListItem(A:Int) Rest:List </ll>
+        cells-dots: error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, or a binder `rest` to write the list again (`[a, ..rest]`), and the second is the binder `rest` itself"#]].assert_eq(&lines.join("\n"));
+    assert!(
+        print.contains("Cell(rest)") && print.contains("Cell([a, ..rest])"),
+        "{print}"
+    );
+    let unnamed = |line: &str| line.replace("Krs_RestLl", "Rest");
+    assert_eq!(unnamed(of(&lines, "readable")), of(&lines, "printed"));
+    assert_eq!(of(&lines, "printed"), of(&lines, "cells-named"));
 }

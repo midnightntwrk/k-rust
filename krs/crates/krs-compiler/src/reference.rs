@@ -2260,6 +2260,7 @@ fn render_rule(
         descriptor_index,
         root: &root,
         brackets: &brackets,
+        list_rests: Vec::new(),
     };
     let results = printed
         .result
@@ -2274,6 +2275,38 @@ fn render_rule(
         let (left, right) = render_rule_cell(before, after, &mut rendering)?;
         left_cells.push(left);
         right_cells.extend(right);
+    }
+    // A list rest the print names is a binder of the cell's sort, fresh against every
+    // identifier the rule prints: `rest`, then `rest_2`.
+    if !rendering.list_rests.is_empty() {
+        let mut spelled = BTreeSet::new();
+        for part in left_cells.iter().chain(&right_cells) {
+            spelled_identifiers(part.clone(), &mut spelled);
+        }
+        for (name, _) in &parameters {
+            spelled.insert(name.clone());
+        }
+        let mut names = BTreeMap::new();
+        for (placeholder, sort) in &rendering.list_rests {
+            let name = (1..=spelled.len() + 1)
+                .map(|ordinal| {
+                    if ordinal == 1 {
+                        "rest".to_owned()
+                    } else {
+                        format!("rest_{ordinal}")
+                    }
+                })
+                .find(|name| !spelled.contains(name))
+                .expect("one of more names than the spelled ones is free");
+            spelled.insert(name.clone());
+            let ident = rust_ident(&name)?;
+            let ty = render_binding_type(sort, package)?;
+            parameters.push((name, quote!(#ident: #ty)));
+            names.insert(placeholder.to_string(), ident);
+        }
+        for cell in left_cells.iter_mut().chain(&mut right_cells) {
+            *cell = rename_identifiers(cell.clone(), &names);
+        }
     }
     let state = match (
         &printed.subject.remainder,
@@ -2678,6 +2711,9 @@ struct CellRendering<'a> {
     /// What the rule is about, relative to which each cell is named.
     root: &'a StableItemId,
     brackets: &'a ListBrackets<'a>,
+    /// The list rests the print names that the elaborated rule leaves unnamed, each by the
+    /// placeholder its entries print, with its list cell's sort ([`render_list_cell`]).
+    list_rests: Vec<(Ident, krs_ir::DescriptorSortRef)>,
 }
 
 /// One cell of an elaborated rule's subject (`before`) and of its result (`after`, absent where
@@ -2900,10 +2936,28 @@ fn render_list_cell(
     field: &TokenStream,
     before: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     after: Option<&krs_ir::ProtocolHeadRuleList<DescriptorTerm>>,
-    rendering: &CellRendering<'_>,
+    rendering: &mut CellRendering<'_>,
 ) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
     let (package, bundle) = (rendering.package, rendering.bundle);
     let kind = list_kind(cell, rendering.descriptor_index);
+    // Subject brackets holding only the rest, `[..]`, match any list, and a result that keeps
+    // the rest writes that list again (`[a, ..]`): `cells!` names such a rest, `Cell(rest)` and
+    // `Cell([a, ..rest])`, so the print names it ([`render_rule`]).
+    let shared = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
+        matches!(list.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
+    };
+    let named_rest = (before.items.is_empty() && before.back.is_empty() && shared(before))
+        .then_some(after)
+        .flatten()
+        .filter(|after| shared(after))
+        .map(|_| -> Result<_, ReferenceExpansionError> {
+            let sort = list_cell_sort(cell, rendering.descriptor_index)
+                .ok_or(ReferenceExpansionError::UnsupportedState)?;
+            let placeholder = format_ident!("list_rest_{}", rendering.list_rests.len());
+            rendering.list_rests.push((placeholder.clone(), sort));
+            Ok(entries::Rest::Named(quote!(#placeholder)))
+        })
+        .transpose()?;
     let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
                  pattern: bool|
      -> Result<entries::Entry, ReferenceExpansionError> {
@@ -2915,7 +2969,9 @@ fn render_list_cell(
         };
         let rest = match &list.rest {
             krs_ir::ProtocolHeadRuleListRest::Exact => entries::Rest::Exact,
-            krs_ir::ProtocolHeadRuleListRest::Shared(_) => entries::Rest::Anonymous,
+            krs_ir::ProtocolHeadRuleListRest::Shared(_) => {
+                named_rest.clone().unwrap_or(entries::Rest::Anonymous)
+            }
             krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
                 entries::Rest::Named(render_term(rest, pattern, package, bundle)?)
             }
@@ -2940,6 +2996,20 @@ fn render_list_cell(
         })
         .transpose()?;
     Ok((left, right))
+}
+
+/// The declared sort of the leaf cell `cell`, `None` for a cell that is no leaf.
+fn list_cell_sort(
+    cell: &krs_ir::DescriptorCellIdentity,
+    index: &DescriptorIndex<'_>,
+) -> Option<krs_ir::DescriptorSortRef> {
+    let owner = index.cell_owner(&cell.owner).ok()?;
+    owner.fields.iter().find_map(|field| match &field.content {
+        krs_ir::ProtocolCellContent::Leaf { sort, .. } if field.rust_field == cell.field => {
+            Some(sort.sort.clone())
+        }
+        _ => None,
+    })
 }
 
 /// The list the leaf cell `cell` holds: a cons list where its declared sort is one, else K's
