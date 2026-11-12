@@ -382,13 +382,6 @@ impl<S> ProductionResultSort<S> {
 /// `S` is the level's sort reference and `D` its declaration identity: an
 /// authored item at the Semantic level and a generated symbol at the
 /// Definition level.
-#[cfg_attr(
-    target_pointer_width = "64",
-    expect(
-        clippy::large_enum_variant,
-        reason = "Public production attribute payloads retain their unboxed construction API; the size imbalance is specific to 64-bit targets."
-    )
-)]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProductionAttribute<S, D> {

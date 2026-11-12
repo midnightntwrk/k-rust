@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -148,9 +149,16 @@ impl<'de> Deserialize<'de> for ExplicitSymbol {
 /// `cargo_source` is a locked, logical source identity such as
 /// `registry+https://github.com/rust-lang/crates.io-index`, a pinned Git URL,
 /// or `workspace`. It must never be an absolute checkout path.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+///
+/// The identity is shared: a clone names the same allocation, since every node of an artifact
+/// repeats the identity of its package in each frame of its origin stack.
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize)]
 #[serde(try_from = "PackageIdWire")]
-pub struct PackageId {
+pub struct PackageId(Arc<PackageIdFields>);
+
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename = "PackageId")]
+struct PackageIdFields {
     /// Immutable namespace contributed to the final K definition.
     k_namespace: String,
     /// Cargo's package name.
@@ -174,7 +182,7 @@ impl PackageId {
         cargo_version: impl Into<String>,
         cargo_source: impl Into<String>,
     ) -> Result<Self, IdentityError> {
-        let package = Self {
+        let package = PackageIdFields {
             k_namespace: k_namespace.into(),
             cargo_name: cargo_name.into(),
             cargo_version: cargo_version.into(),
@@ -190,38 +198,62 @@ impl PackageId {
         if DisplayPath::is_absolute_spelling(&package.cargo_source) {
             return Err(IdentityError::AbsoluteCargoSource);
         }
-        Ok(package)
+        Ok(Self(Arc::new(package)))
     }
 
     /// Returns the immutable K namespace.
     #[must_use]
     pub fn k_namespace(&self) -> &str {
-        &self.k_namespace
+        &self.0.k_namespace
     }
 
     /// Returns the Cargo package name.
     #[must_use]
     pub fn cargo_name(&self) -> &str {
-        &self.cargo_name
+        &self.0.cargo_name
     }
 
     /// Returns the locked Cargo package version.
     #[must_use]
     pub fn cargo_version(&self) -> &str {
-        &self.cargo_version
+        &self.0.cargo_version
     }
 
     /// Returns the stable Cargo source identity.
     #[must_use]
     pub fn cargo_source(&self) -> &str {
-        &self.cargo_source
+        &self.0.cargo_source
     }
 
     /// Returns the crate name Cargo gives the package's library when the package's `[lib]`
     /// section does not name it otherwise: the package name with `-` written `_`.
     #[must_use]
     pub fn default_crate_name(&self) -> String {
-        self.cargo_name.replace('-', "_")
+        self.0.cargo_name.replace('-', "_")
+    }
+}
+
+impl fmt::Debug for PackageId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let PackageIdFields {
+            k_namespace,
+            cargo_name,
+            cargo_version,
+            cargo_source,
+        } = &*self.0;
+        formatter
+            .debug_struct("PackageId")
+            .field("k_namespace", k_namespace)
+            .field("cargo_name", cargo_name)
+            .field("cargo_version", cargo_version)
+            .field("cargo_source", cargo_source)
+            .finish()
+    }
+}
+
+impl Serialize for PackageId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
     }
 }
 
@@ -393,9 +425,15 @@ pub enum ItemKind {
 }
 
 /// A stable declaration identity, independent of linker and collection order.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+///
+/// The identity is shared, as a [`PackageId`] is.
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize)]
 #[serde(try_from = "StableItemIdWire")]
-pub struct StableItemId {
+pub struct StableItemId(Arc<StableItemIdFields>);
+
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename = "StableItemId")]
+struct StableItemIdFields {
     /// Package containing the declaration.
     package: PackageId,
     /// Rust module segments below the crate root.
@@ -437,13 +475,13 @@ impl StableItemId {
         if disambiguator.contains(['/', '\\']) {
             return Err(IdentityError::InvalidDisambiguator(disambiguator));
         }
-        Ok(Self {
+        Ok(Self(Arc::new(StableItemIdFields {
             package,
             module_path,
             item_name,
             item_kind,
             disambiguator,
-        })
+        })))
     }
 
     pub(crate) fn generated_production(
@@ -463,37 +501,63 @@ impl StableItemId {
     /// Recognizes the reserved generated-production item name regardless of namespace.
     #[must_use]
     pub fn is_generated_production(&self) -> bool {
-        self.item_name == GENERATED_PRODUCTION_ITEM_NAME
+        self.0.item_name == GENERATED_PRODUCTION_ITEM_NAME
     }
 
     /// Returns the package containing this item.
     #[must_use]
     pub fn package(&self) -> &PackageId {
-        &self.package
+        &self.0.package
     }
 
     /// Returns module segments below the crate root.
     #[must_use]
     pub fn module_path(&self) -> &[String] {
-        &self.module_path
+        &self.0.module_path
     }
 
     /// Returns the Rust item or generated item name.
     #[must_use]
     pub fn item_name(&self) -> &str {
-        &self.item_name
+        &self.0.item_name
     }
 
     /// Returns the declaration namespace.
     #[must_use]
-    pub const fn item_kind(&self) -> ItemKind {
-        self.item_kind
+    pub fn item_kind(&self) -> ItemKind {
+        self.0.item_kind
     }
 
     /// Returns the stable same-scope disambiguator.
     #[must_use]
     pub fn disambiguator(&self) -> &str {
-        &self.disambiguator
+        &self.0.disambiguator
+    }
+}
+
+impl fmt::Debug for StableItemId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let StableItemIdFields {
+            package,
+            module_path,
+            item_name,
+            item_kind,
+            disambiguator,
+        } = &*self.0;
+        formatter
+            .debug_struct("StableItemId")
+            .field("package", package)
+            .field("module_path", module_path)
+            .field("item_name", item_name)
+            .field("item_kind", item_kind)
+            .field("disambiguator", disambiguator)
+            .finish()
+    }
+}
+
+impl Serialize for StableItemId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
     }
 }
 
@@ -575,9 +639,15 @@ impl<'de> Deserialize<'de> for Sha256Digest {
 }
 
 /// Stable identity of a source file, without a machine-specific prefix.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+///
+/// The identity is shared, as a [`PackageId`] is.
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize)]
 #[serde(try_from = "SourceFileIdWire")]
-pub struct SourceFileId {
+pub struct SourceFileId(Arc<SourceFileIdFields>);
+
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename = "SourceFileId")]
+struct SourceFileIdFields {
     /// Package owning the source file.
     package: PackageId,
     /// Normalized, slash-separated path relative to the package root.
@@ -602,29 +672,51 @@ impl SourceFileId {
             DisplayPath::new(package_relative_path.into()).map_err(|error| {
                 IdentityError::InvalidSourcePath(error.spelling().replace('\\', "/"))
             })?;
-        Ok(Self {
+        Ok(Self(Arc::new(SourceFileIdFields {
             package,
             package_relative_path: package_relative_path.as_str().to_owned(),
             content_sha256,
-        })
+        })))
     }
 
     /// Returns the package owning the file.
     #[must_use]
     pub fn package(&self) -> &PackageId {
-        &self.package
+        &self.0.package
     }
 
     /// Returns the normalized path relative to the package root.
     #[must_use]
     pub fn package_relative_path(&self) -> &str {
-        &self.package_relative_path
+        &self.0.package_relative_path
     }
 
     /// Returns the identity of the exact file contents.
     #[must_use]
     pub fn content_sha256(&self) -> &Sha256Digest {
-        &self.content_sha256
+        &self.0.content_sha256
+    }
+}
+
+impl fmt::Debug for SourceFileId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let SourceFileIdFields {
+            package,
+            package_relative_path,
+            content_sha256,
+        } = &*self.0;
+        formatter
+            .debug_struct("SourceFileId")
+            .field("package", package)
+            .field("package_relative_path", package_relative_path)
+            .field("content_sha256", content_sha256)
+            .finish()
+    }
+}
+
+impl Serialize for SourceFileId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
     }
 }
 

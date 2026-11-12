@@ -124,10 +124,6 @@ pub(crate) struct Undecided;
 
 /// The value of a ground term.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "A constructor term is a value like the others; values are few and short-lived."
-)]
 pub(crate) enum Ground {
     Int(i128),
     Bool(bool),
