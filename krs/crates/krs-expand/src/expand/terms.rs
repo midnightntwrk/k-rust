@@ -1583,7 +1583,7 @@ impl<'a> TermBuilder<'a> {
     /// `name`, the bare snake-case name `path`, which nothing in scope
     /// binds: an initializer's names are its parameters, a sentence's its
     /// pattern's and its local binders.
-    fn unbound_name(&self, path: &Path, name: &str) -> ExpandError {
+    pub(super) fn unbound_name(&self, path: &Path, name: &str) -> ExpandError {
         if let Some(inputs) = self.default_of {
             if inputs.iter().any(|input| input.unraw() == name) {
                 return ExpandError::new(

@@ -190,11 +190,15 @@ fn configuration_claim(
         RuleSide::Right,
         Form::CellsClaim,
     );
-    let result = right.expand_cells(
-        rule.result().expect("a claim parses only with a result"),
-        result_type,
-        &mut slots,
-    )?;
+    let result_cells = rule.result().expect("a claim parses only with a result");
+    let bound = rule
+        .bindings()
+        .iter()
+        .map(krs_syntax::StateRuleBinding::name)
+        .chain(&existential_idents)
+        .collect::<Vec<_>>();
+    super::state_rules::unbound_result_remainder(&right.terms, result_cells, &bound)?;
+    let result = right.expand_cells(result_cells, result_type, &mut slots)?;
     let mut condition_builder = TermBuilder::new(
         &facade,
         &ledger,

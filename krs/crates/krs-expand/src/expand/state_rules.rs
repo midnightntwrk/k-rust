@@ -465,6 +465,14 @@ pub(super) fn configuration_rule(
     );
     let result = match (rule.result(), &result_type) {
         (Some(result), Some(result_type)) => {
+            let existentials = rule.existentials().names();
+            let bound = rule
+                .bindings()
+                .iter()
+                .map(krs_syntax::StateRuleBinding::name)
+                .chain(&existentials)
+                .collect::<Vec<_>>();
+            unbound_result_remainder(&right.terms, result, &bound)?;
             Some(right.expand_cells(result, result_type, &mut slots)?)
         }
         _ => None,
@@ -1039,6 +1047,48 @@ fn expand_frame(
             binding: binding.unraw().to_string(),
         }),
     }
+}
+
+/// The refusal of the first computation's or map's rest `..name` the result `cells` writes back
+/// whose name the sentence binds nowhere: not as a term, nor as a remainder of any kind, nor as an
+/// existential or fresh binder (`bound`). A name bound nowhere is an unbound name wherever it is
+/// written, a computation's or a map's rest as a list's (`Cell([x, ..zz])`), whose term the term
+/// reader refuses as such; a rest of the wrong kind is the result's own refusal, once its entries
+/// are admitted. A collection's instance rest is judged with its instance list, whose cell's kind
+/// is asked first.
+pub(super) fn unbound_result_remainder(
+    terms: &TermBuilder<'_>,
+    cells: &krs_syntax::CellsExpression,
+    bound: &[&Ident],
+) -> crate::Result<()> {
+    fn written<'c>(state: &'c StateTerm, rests: &mut Vec<&'c StateMacroRemainder>) {
+        match state {
+            StateTerm::KSequence(sequence) => rests.push(sequence.tail()),
+            StateTerm::Map(map) => {
+                if let MapBody::Items { remainder, .. } = map.body() {
+                    rests.push(remainder);
+                }
+            }
+            _ => {}
+        }
+        for nested in state.nested_states() {
+            written(nested, rests);
+        }
+    }
+    let mut rests = Vec::new();
+    for entry in cells.entries() {
+        written(entry.value(), &mut rests);
+    }
+    for rest in rests {
+        if let StateMacroRemainder::Reuse { binding, .. } = rest
+            && !bound.iter().any(|name| name.unraw() == binding.unraw())
+        {
+            return Err(
+                terms.unbound_name(&Path::from(binding.clone()), &binding.unraw().to_string())
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Every term of a `cells!` pattern, which one match matches together.
