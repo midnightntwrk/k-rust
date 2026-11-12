@@ -188,6 +188,9 @@ pub enum EntrySpelling {
 pub struct EntryReading<'a> {
     form: EntryForm,
     variables: &'a [String],
+    /// Whether the entries are a result's, which build their terms: there `|` is the bitwise
+    /// operator, and only a pattern's `|` joins alternatives.
+    builds: bool,
 }
 
 impl<'a> EntryReading<'a> {
@@ -195,7 +198,21 @@ impl<'a> EntryReading<'a> {
     /// variables.
     #[must_use]
     pub const fn new(form: EntryForm, variables: &'a [String]) -> Self {
-        Self { form, variables }
+        Self {
+            form,
+            variables,
+            builds: false,
+        }
+    }
+
+    /// The reading of a result's entries, which build their terms: a `|` there is the bitwise
+    /// operator's, no alternatives.
+    #[must_use]
+    pub const fn building(self) -> Self {
+        Self {
+            builds: true,
+            ..self
+        }
     }
 
     /// Reads an entry's value.
@@ -487,6 +504,7 @@ impl<'a> EntryReading<'a> {
         // Pattern alternatives, `[x, ..] | [x]`, `Go() | Last()`: each is an entry of the cell,
         // read in order, so every one is judged by the cell's kind and none by its place.
         if self.form != EntryForm::Initializer
+            && !self.builds
             && let Some(alternatives) = pattern_alternatives(input)
         {
             let alternatives = alternatives
@@ -496,10 +514,14 @@ impl<'a> EntryReading<'a> {
             return Ok(EntrySpelling::Alternatives(alternatives));
         }
         let expression = input.parse::<syn::Expr>()?;
-        if self.form != EntryForm::Initializer
-            && !denotes_term(&expression)
-            && (!marked || holds_rest(&expression))
-        {
+        // A result builds its terms, so its `|` is the bitwise operator and only a rest is no
+        // term there.
+        let unread = if self.builds {
+            holds_rest(&expression)
+        } else {
+            !denotes_term(&expression) && (!marked || holds_rest(&expression))
+        };
+        if self.form != EntryForm::Initializer && unread {
             return Err(syn::Error::new_spanned(
                 &expression,
                 "alternatives or a rest are no term",
@@ -784,6 +806,13 @@ pub fn cells_fields(tokens: &TokenStream) -> Option<Vec<CellsField>> {
 #[must_use]
 pub fn entry_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsField>> {
     EntryReading::new(form, &[]).fields(tokens)
+}
+
+/// [`entry_fields`] of a result's record, whose entries build their terms
+/// ([`EntryReading::building`]).
+#[must_use]
+pub fn entry_result_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsField>> {
+    EntryReading::new(form, &[]).building().fields(tokens)
 }
 
 impl EntryReading<'_> {
@@ -1260,6 +1289,10 @@ mod cells_fields_tests {
     /// the entry around it is judged alike (RDRA item 2, AUDIT-R P7). Where a pattern may stand,
     /// alternatives and a rest are no term and stay unread.
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One reading per spelling, over every form and side, its expectation inline."
+    )]
     fn an_operator_value_is_a_term_on_every_form() {
         let term = || EntrySpelling::Call(Vec::new());
         for form in [
@@ -1334,6 +1367,17 @@ mod cells_fields_tests {
                     "{form:?}"
                 );
             }
+        }
+        // A result builds its terms: there `|` is the bitwise operator, one term, no alternatives.
+        for form in [super::EntryForm::Readable, super::EntryForm::Cells] {
+            let built = |text: &str| {
+                super::EntryReading::new(form, &[])
+                    .building()
+                    .value(text.parse().expect("lexes"))
+                    .ok()
+            };
+            assert_eq!(built("x | 1"), Some(term()), "{form:?}");
+            assert_eq!(built("x | y + 1"), Some(term()), "{form:?}");
         }
         let cells = |text: &str| {
             super::EntryReading::new(super::EntryForm::Cells, &[])

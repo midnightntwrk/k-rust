@@ -1364,12 +1364,25 @@ fn instance_tail(
     }
     // A tail is recorded only where the subject's same child is brackets ending in `..`; a rest
     // it matches otherwise (inside a term, with items after it) is not kept yet.
-    subject
-        .and_then(|subject| tails.get(&(subject, field.to_owned())))
+    let computation = matches!(kind, ProtocolRuleBindingKind::KSequenceFrame);
+    let Some(subject) = subject else {
+        return Err(Unelaborated::Limit(format!(
+            "the result's unnamed rest `..` keeps a rest of the instance child `{field}` in an instance the subject does not match, so no rest was matched for it to keep: write the child's whole content"
+        )));
+    };
+    tails
+        .get(&(subject, field.to_owned()))
         .cloned()
-        .ok_or_else(|| Unelaborated::Limit(format!(
-            "the result's unnamed rest `..` keeps the rest of the instance child `{field}`, which the subject's same child does not match with brackets that end in `..`: an instance child keeps only that rest, so keeping this one is not supported yet; name the rest in the subject and write it back by its name"
-        )))
+        .ok_or_else(|| {
+            let advice = if computation {
+                "match the subject's child with brackets that end in `..`"
+            } else {
+                "name the rest in the subject and write it back by its name"
+            };
+            Unelaborated::Limit(format!(
+                "the result's unnamed rest `..` keeps the rest of the instance child `{field}`, which the subject's same child does not match with brackets that end in `..`: an instance child keeps only that rest, so keeping this one is not supported yet; {advice}"
+            ))
+        })
 }
 
 /// The sort of the instance child `field` when it is a list leaf, whose brackets hold its

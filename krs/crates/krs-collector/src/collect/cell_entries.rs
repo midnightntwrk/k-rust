@@ -164,6 +164,14 @@ fn read_fields(
     located_fields(krs_syntax::cell_entry::entry_fields(tokens, form)?)
 }
 
+/// [`read_fields`] of a result's record, whose `|` is the bitwise operator, no alternatives.
+fn read_result_fields(
+    tokens: &proc_macro2::TokenStream,
+    form: EntryForm,
+) -> Option<Vec<ParsedField<Coordinates>>> {
+    located_fields(krs_syntax::cell_entry::entry_result_fields(tokens, form)?)
+}
+
 fn located_fields(
     fields: Vec<krs_syntax::cell_entry::CellsField>,
 ) -> Option<Vec<ParsedField<Coordinates>>> {
@@ -232,7 +240,7 @@ impl ParsedCells<Coordinates> {
             form: EntryForm::Cells,
             subject: fields(rule.subject())?,
             result: match rule.result() {
-                Some(result) => Some(fields(result)?),
+                Some(result) => Some(read_result_fields(result.tokens(), EntryForm::Cells)?),
                 None => None,
             },
             parameters: rule
@@ -279,7 +287,10 @@ impl ParsedCells<Coordinates> {
             }))
             .collect::<Vec<_>>();
         let fields = clause.records().and_then(|(subject, result)| {
-            Some((read_fields(subject, form)?, read_fields(result, form)?))
+            Some((
+                read_fields(subject, form)?,
+                read_result_fields(result, form)?,
+            ))
         });
         let (subject, result) = match fields {
             Some(fields) => fields,

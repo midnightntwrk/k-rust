@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_syntax::cell_entry::{EntryForm, entry_fields};
+use krs_syntax::cell_entry::{EntryForm, entry_fields, entry_result_fields};
 use krs_syntax::{ClaimBlock, KrsSyntax, RuleBlock, RuleClause};
 
 /// Every `.rs` file below `root`, recursively, skipping build outputs.
@@ -107,8 +107,11 @@ fn the_entry_table_spells_every_entry_the_readable_reader_admits() {
                 let Some((subject, result)) = clause.records() else {
                     continue;
                 };
-                for record in [subject, result] {
-                    match entry_fields(record, form) {
+                for fields in [
+                    entry_fields(subject, form),
+                    entry_result_fields(result, form),
+                ] {
+                    match fields {
                         Some(fields) => {
                             for field in fields {
                                 read += 1;

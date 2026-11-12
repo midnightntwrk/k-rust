@@ -91,6 +91,8 @@ pub struct Machine {
     pub ths: Ths,
     #[k::cell(nested)]
     pub jobs: Jobs,
+    #[k::cell]
+    pub n: Int,
 }
 
 impl Machine {
@@ -104,6 +106,7 @@ impl Machine {
             out: list::empty(),
             ths: Ths { th: Th { tid: 0, tl: list::empty(), tk: k::k![], ts: set::empty() } },
             jobs: Jobs { job: Job { jl: list::empty(), jk: k::k![], js: set::empty() } },
+            n: 0,
         }
     }
 }
@@ -1119,4 +1122,38 @@ fn computed_alternatives_beside_an_instance_child_are_read_by_the_table() {
     expect_test::expect![[r"
         unbound: error[krs::syntax::invalid-pattern-or]: variable `n` is not bound in all alternatives
         bound: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name"]].assert_eq(&rows.join("\n"));
+}
+
+/// A result builds its terms, so its `|` is the bitwise operator, one term, read so by the entry
+/// table as by the term reader: `n: x | 1` beside `n: x` writes `X |Int 1`, as the method
+/// `x.bit_or::<Int>(1)` does, and only a pattern's `|` joins alternatives.
+#[test]
+fn a_result_s_bar_is_the_bitwise_operator() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        (
+            "bar",
+            "go: { k: [Go(), ..], n: x } => { k: [..], n: x | 1 };",
+        ),
+        (
+            "computed",
+            "go: { k: [Go(), ..], n: x } => { k: [..], n: x | x + 1 };",
+        ),
+        (
+            "method",
+            "go: { k: [Go(), ..], n: x } => { k: [..], n: x.bit_or::<Int>(1) };",
+        ),
+    ]
+    .map(|(name, clause)| {
+        format!(
+            "{name}: {}",
+            verdict(target.path(), temporary.path(), name, clause, false)
+        )
+    });
+    expect_test::expect![[r"
+        bar: rule [go]: <k> go => .K ... </k> <n> X:Int => X:Int |Int 1 </n>
+        computed: rule [go]: <k> go => .K ... </k> <n> X:Int => X:Int |Int (X:Int +Int 1) </n>
+        method: rule [go]: <k> go => .K ... </k> <n> X:Int => X:Int |Int 1 </n>"]]
+    .assert_eq(&rows.join("\n"));
 }

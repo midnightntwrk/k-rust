@@ -1747,7 +1747,11 @@ fn readable_form_step(
         ReadableSentence::Claim => EntryForm::Claim,
     };
     for (side, tokens) in [(EntrySide::Subject, &subject), (EntrySide::Result, &result)] {
-        for field in entry_fields(tokens, form).unwrap_or_default() {
+        let fields = match side {
+            EntrySide::Result => crate::cell_entry::entry_result_fields(tokens, form),
+            _ => entry_fields(tokens, form),
+        };
+        for field in fields.unwrap_or_default() {
             let Some(spelling) = &field.spelling else {
                 continue;
             };

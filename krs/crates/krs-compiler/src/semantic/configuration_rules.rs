@@ -357,6 +357,13 @@ impl<'a> StateRuleTerms<'a> {
         base: Option<&MapBase<'_>>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let descriptor = self.descriptor;
+        // A cell's content is never an absence: the entry table refuses `None` on a cell that is
+        // no `?` cell, and a result instance child's fault leaves its cell only read, the
+        // absence it holds in its place never lowered (krs-syntax `parse_instances_with_fault`).
+        debug_assert!(
+            !matches!(state, ProtocolRuleStateTerm::Absent),
+            "an absence reached a cell's content: a dropped instance child fault, or a presence no table judged"
+        );
         match state {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent
