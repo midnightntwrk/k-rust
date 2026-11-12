@@ -2893,9 +2893,10 @@ fn matches_one_item(term: &SemanticTerm) -> bool {
 ///   a computation read from its front never is, as an item after its rest is not
 ///   ([`DescriptorLoweringError::ComputationBackItem`]).
 /// - Otherwise the pattern has a part of sort `K` beside another part of unknown length (a
-///   rest, another `K` part). Patterns whose every part has unknown length (`KCell(b, ..)`,
-///   `KCell(b, c, ..)`) are admitted as they read; one that also holds an item is not supported
-///   yet. Both are held as they were until those patterns are ruled on together.
+///   rest, another `K` part). Patterns whose every part is a binder of unknown length
+///   (`KCell(b, ..)`, `KCell(b, c, ..)`) are admitted as they read; one that also holds an item,
+///   or a rewrite whose left side has unknown length (`KCell(k::rewrite!(b => t), ..)`), is not
+///   supported yet. Both are held as they were until those patterns are ruled on together.
 fn matched_parts(
     descriptor: &Descriptor,
     sequence: &krs_ir::ProtocolRuleKSequence<DescriptorTerm>,
@@ -2936,7 +2937,18 @@ fn matched_parts(
                 item: Some(Box::new(descriptor.id().clone())),
             })
         }
-        _ if parts.len() == items.len() => Ok(()),
+        // Patterns of binders of unknown length only read as they did; a rewrite whose left side
+        // has unknown length is held with the rest.
+        _ if parts.len() == items.len()
+            && !parts.iter().any(|&index| {
+                matches!(
+                    items[index].kind(),
+                    krs_ir_levels::SemanticTermKind::Rewrite { .. }
+                )
+            }) =>
+        {
+            Ok(())
+        }
         _ => Err(DescriptorLoweringError::invalid_term(
             descriptor.id(),
             "a computation pattern with a `K` part beside another part of unknown length is not supported yet",
