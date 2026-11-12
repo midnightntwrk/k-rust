@@ -1429,10 +1429,6 @@ fn head_item_sort<'a>(
 
 /// Infers the terms of a readable optional or collection state (KF-023) at
 /// its cell's sort, an instance child's at the child's sort.
-#[expect(
-    clippy::too_many_lines,
-    reason = "One arm per state form, each inferring the terms it holds."
-)]
 fn infer_readable_state(
     builder: &mut StructuredTermBuilder<'_>,
     declarations: &DescriptorIndex<'_>,
