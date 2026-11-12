@@ -993,6 +993,12 @@ fn a_result_reports_untested_operations_applications_and_names_a_let_binds() {
     let text = var("S", builtin_sort(BuiltinSort::String));
     let parsed = apply(BuiltinOperation::StringToInt, int(), vec![text]);
     assert_eq!(not_shown(&parsed, &[]), ["String2Int(S) untested"]);
+    // A projection to the sort its operand has denotes the operand; one from `KItem` does not.
+    let project = |operand: SemanticTerm| {
+        generated(GeneratedOperation::SortProjection(int()), int(), operand)
+    };
+    assert_eq!(not_shown(&project(var("X", int())), &[]), [""; 0]);
+    assert_eq!(not_shown(&project(var("A", k_item())), &[]).len(), 1);
     let helper = item("syntax", "helper", ItemKind::Constructor);
     let called = SemanticTerm::application(
         origin("call"),

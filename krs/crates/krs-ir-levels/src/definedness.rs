@@ -1865,6 +1865,16 @@ impl ResultWalk<'_, '_, '_> {
             }
         }
         for requirement in requirements(term, projected, self.sorts) {
+            // A projection to a sort its operand already has denotes the operand.
+            if let Requirement::Sort {
+                sort,
+                operand,
+                read: false,
+            } = requirement
+                && self.sorts.is_subsort(operand.sort(), sort)
+            {
+                continue;
+            }
             if reads_any(&requirement, bound) || !requirement.established_by(self.facts, self.sorts)
             {
                 (self.visit)(term, NotShown::Requirement(&requirement));
