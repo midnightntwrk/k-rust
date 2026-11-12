@@ -719,15 +719,14 @@ fn parse_readable_child(
         let chunks = top_level_items(group.stream());
         let count = chunks.len();
         // An instance child is a cell, so its brackets mean what they mean at a cell of its
-        // kind outside every instance. A pattern's `..` before its last item (a back, `[.., x]`
-        // or `[x, .., y]`, or a second rest) is no computation's items, whose rest ends them:
-        // the brackets are read as the term their list notation denotes, as a `cells!` instance
-        // child's are, and the child's kind judges that reading. A builtin List child matches
-        // its back; a computation child refuses an item after its rest, and a Set child
+        // kind outside every instance. A pattern's rest before its last item (a back, `[.., x]`
+        // or `[x, .., y]`, or a second rest) and a named rest (`[x, r @ ..]`) are no
+        // computation's items, whose anonymous rest ends them: the brackets are read as the term
+        // their list notation denotes, as a `cells!` instance child's are, and the child's kind
+        // judges that reading. A builtin List child matches its back and binds its rest; a
+        // computation child refuses an item after its rest or a named one, and a Set child
         // brackets, as at their own cell.
-        if context == StateMacroContext::Pattern
-            && chunks[..count.saturating_sub(1)].iter().any(is_dots)
-        {
+        if reads_as_list_term(&chunks, context) {
             return Ok(StateTerm::Term(read(tokens)?));
         }
         let mut items = Vec::new();
@@ -764,6 +763,24 @@ fn parse_readable_child(
         )?));
     }
     Ok(StateTerm::Term(read(tokens)?))
+}
+
+/// Whether a readable instance child's bracketed items `chunks`, read in `context`, are the term
+/// their list notation denotes rather than a computation's items, whose anonymous rest ends them:
+/// a pattern's rest before its last item (a back or a second rest) or a named rest anywhere, and
+/// a result's `..r`, which puts back the list the subject's `r @ ..` bound.
+fn reads_as_list_term(chunks: &[TokenStream], context: StateMacroContext) -> bool {
+    let count = chunks.len();
+    chunks.iter().enumerate().any(|(index, chunk)| {
+        if is_dots(chunk) {
+            return context == StateMacroContext::Pattern && index + 1 != count;
+        }
+        match readable_instances_rest(chunk, context) {
+            Ok(Some(StateMacroRemainder::Bind { .. })) => context == StateMacroContext::Pattern,
+            Ok(Some(StateMacroRemainder::Reuse { .. })) => context == StateMacroContext::Expression,
+            _ => false,
+        }
+    })
 }
 
 /// The braces of a value spelled as a map read with its other entries open, `{ k -> v, .. }`:

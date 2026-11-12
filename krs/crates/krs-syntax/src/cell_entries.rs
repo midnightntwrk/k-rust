@@ -194,6 +194,11 @@ pub enum Refusal {
     /// limitation of the readable record's top-level route; inside an instance record the value
     /// is matched, P5).
     MapReadValueBinder,
+    /// A result that keeps with `..` the rest of an instance child whose subject matches items
+    /// after that rest (`[.., x]`, `[x, .., y]`) or matches it below an alias (`l @ [x, ..]`):
+    /// the lowering keeps an instance child's unnamed rest only where the subject's own brackets
+    /// end with it (a stated limitation).
+    InstanceChildRestKept,
 }
 
 impl Refusal {
@@ -236,6 +241,7 @@ impl Refusal {
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
+            Self::InstanceChildRestKept => "instance-child-rest-kept",
         }
     }
 }
@@ -282,7 +288,8 @@ impl Refusal {
             | Self::ListBackKept
             | Self::SeveralRestsInstances
             | Self::CollectionWithoutInstances
-            | Self::BelowCollectionAncestor => analysis::COLLECTION_ENTRY,
+            | Self::BelowCollectionAncestor
+            | Self::InstanceChildRestKept => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
             Self::CellWrapper => analysis::CELL_WRAPPER,
             Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
@@ -304,7 +311,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 34] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -338,6 +345,7 @@ impl Refusal {
         Self::MapReadInResult,
         Self::MapCollectionKey,
         Self::MapReadValueBinder,
+        Self::InstanceChildRestKept,
     ];
 
     /// Why the entry of the cell `cell`, of the kind `kind` (a leaf of the sort `sort`, where
@@ -512,6 +520,9 @@ impl Refusal {
             }
             Self::MapReadValueBinder => format!(
                 "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level the value names what the entry maps to (a stated limitation; inside an instance record the value is matched)"
+            ),
+            Self::InstanceChildRestKept => format!(
+                "the result's unnamed rest `..` keeps the rest of the instance child `{cell}`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds"
             ),
         }
     }
@@ -2062,6 +2073,7 @@ fn pair_records(
                 if !keyed(*order, group, record) {
                     return Err(Refusal::MapCollectionKey);
                 }
+                kept_child_rest(group, record, other, path)?;
                 // An update that moves its labelled instance to a key not provably its own is a
                 // created instance, whose children are paired as one's ([`pair_moved`]).
                 if moves(*order, group, other, record) {
@@ -2085,6 +2097,41 @@ fn pair_records(
         }
         _ => Ok(()),
     }
+}
+
+/// [`Refusal::InstanceChildRestKept`] at the first child of `record`, a result instance record of
+/// `group` whose other side is `other`, that keeps with `..` the anonymous rest of the subject's
+/// same child where the subject matches items after it (its back, or a second rest) or matches
+/// it below an alias (`l @ [x, ..]`). The subject child is then the term its brackets or its
+/// alias denote, whose unnamed rest no instance child's sequence keeps yet; a named rest is
+/// kept by its name, as a term.
+fn kept_child_rest(
+    group: &GroupKind,
+    record: &EntryRecord,
+    other: Other<'_>,
+    path: &mut Vec<usize>,
+) -> Result<(), Refusal> {
+    for (step, (name, value)) in record.fields.iter().enumerate() {
+        let Other::Matched(subject) = other.child(group, name) else {
+            continue;
+        };
+        let Some(seq) = sequence(unaliased(subject)) else {
+            continue;
+        };
+        let Some((rest, _)) = &seq.rest else {
+            continue;
+        };
+        if *rest == EntryRest::Anonymous
+            && root(value) == Root::Rest(&EntryRest::Anonymous)
+            && (matches!(subject, EntrySpelling::Alias(..))
+                || !seq.back().is_empty()
+                || seq.more_rests > 0)
+        {
+            path.push(step);
+            return Err(Refusal::InstanceChildRestKept);
+        }
+    }
+    Ok(())
 }
 
 /// Whether `record`, a result instance record of `group` in a collection ordered by `order` whose
@@ -2777,7 +2824,7 @@ mod tests {
         }
         assert_eq!(
             Refusal::ALL.len(),
-            Refusal::MapReadValueBinder as usize + 1,
+            Refusal::InstanceChildRestKept as usize + 1,
             "the last refusal ends the list"
         );
         let group = GroupKind {

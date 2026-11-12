@@ -1,11 +1,17 @@
 //! An instance child is a cell, so its brackets in a pattern mean what they mean at a cell of
 //! the child's kind outside every instance: a builtin `List` child's `[.., x]` and `[x, .., y]`
-//! match its back, a computation child refuses an item after its rest, a `Set` child refuses
-//! brackets, and a second rest is refused as at its own cell. The verdict is the same whether
-//! the collection's instances are written in braces (a Map collection) or brackets (a List
-//! collection), in a rule and in a claim, and an instance rule matching a list child's back
-//! runs.
+//! match its back, a named rest (`[r @ .., x]`) binds the list it matches, a computation child
+//! refuses an item after its rest or a named one, a `Set` child refuses brackets, and a second
+//! rest is refused as at its own cell. The verdict is the same whether the collection's instances
+//! are written in braces (a Map collection) or brackets (a List collection), in a rule, a claim
+//! and a `k::patterns!` step, and an instance rule matching a list child's back runs.
+//!
+//! A result that keeps such a child's unnamed rest, `[..]` or `[y, ..]` over a subject
+//! `[.., x]`, or over an aliased `l @ [x, ..]`, is a stated limit (`collection-entry`): the rest
+//! an instance child keeps is the one its subject's own brackets end with. A named rest is kept
+//! by its name, `[r @ .., x]` then `[x, ..r]`, as at the child's own cell.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -220,8 +226,13 @@ fn class(verdict: &str) -> &str {
 /// For each child kind and pattern shape, the instance child's verdict in braces (a Map
 /// collection) and in brackets (a List collection) is its twin's, the same spelling at a top cell
 /// of the same kind: the class always, and where accepted the same match of the child's content.
-/// A second rest leaves its item unused, as a twin that reads it has no other verdict.
+/// A second rest leaves its item unused, as a twin that reads it has no other verdict. A named
+/// rest is the child's rest bound to a name, matched where it stands.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of every kind and shape against its twin, its expectation inline."
+)]
 fn an_instance_child_s_brackets_are_judged_as_its_cell_s() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
@@ -229,6 +240,10 @@ fn an_instance_child_s_brackets_are_judged_as_its_cell_s() {
         ("back", "[.., x]", ", out: _", ", out: [x]"),
         ("ends", "[x, .., y]", ", out: _", ", out: [x, y]"),
         ("mid", "[.., x, ..]", "", ""),
+        ("named-back", "[r @ .., x]", ", out: _", ", out: [x]"),
+        ("named-ends", "[x, r @ .., y]", ", out: _", ", out: [x, y]"),
+        ("named-front", "[x, r @ ..]", ", out: _", ", out: [x]"),
+        ("named-mid", "[r @ .., x, ..]", "", ""),
     ];
     // (kind, Map child, List child, twin cell)
     let kinds = [
@@ -301,6 +316,22 @@ fn an_instance_child_s_brackets_are_judged_as_its_cell_s() {
           twin: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
           braces: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
           brackets: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+        list-named-back
+          twin: rule [go]: <k> go => .K ... </k> <ll> R:List ListItem(X:KItem) </ll> <out> _ => ListItem(X:KItem) </out>
+          braces: rule [go]: <k> go => .K ... </k> <th> <tl> R:List ListItem(X:KItem) </tl> ... </th> <out> _ => ListItem(X:KItem) </out>
+          brackets: rule [go]: <k> go => .K ... </k> <out> _ => ListItem(X:KItem) </out> <jobs> <job> <jl> R:List ListItem(X:KItem) </jl> ... </job> ... </jobs>
+        list-named-ends
+          twin: rule [go]: <k> go => .K ... </k> <ll> ListItem(X:KItem) R:List ListItem(Y:KItem) </ll> <out> _ => ListItem(X:KItem) ListItem(Y:KItem) </out>
+          braces: rule [go]: <k> go => .K ... </k> <th> <tl> ListItem(X:KItem) R:List ListItem(Y:KItem) </tl> ... </th> <out> _ => ListItem(X:KItem) ListItem(Y:KItem) </out>
+          brackets: rule [go]: <k> go => .K ... </k> <out> _ => ListItem(X:KItem) ListItem(Y:KItem) </out> <jobs> <job> <jl> ListItem(X:KItem) R:List ListItem(Y:KItem) </jl> ... </job> ... </jobs>
+        list-named-front
+          twin: rule [go]: <k> go => .K ... </k> <ll> ListItem(X:KItem) R:List </ll> <out> _ => ListItem(X:KItem) </out>
+          braces: rule [go]: <k> go => .K ... </k> <th> <tl> ListItem(X:KItem) R:List </tl> ... </th> <out> _ => ListItem(X:KItem) </out>
+          brackets: rule [go]: <k> go => .K ... </k> <out> _ => ListItem(X:KItem) </out> <jobs> <job> <jl> ListItem(X:KItem) R:List </jl> ... </job> ... </jobs>
+        list-named-mid
+          twin: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+          braces: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+          brackets: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
         computation-back
           twin: error[krs::collect::invalid-configuration]: the entry of the computation cell `aux` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
           braces: error[krs::collect::invalid-configuration]: the entry of the computation cell `tk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
@@ -313,6 +344,22 @@ fn an_instance_child_s_brackets_are_judged_as_its_cell_s() {
           twin: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
           braces: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
           brackets: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+        computation-named-back
+          twin: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `aux` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+          braces: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `tk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+          brackets: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `jk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+        computation-named-ends
+          twin: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `aux` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+          braces: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `tk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+          brackets: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `jk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+        computation-named-front
+          twin: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `aux` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+          braces: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `tk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+          brackets: error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `jk` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it
+        computation-named-mid
+          twin: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+          braces: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+          brackets: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
         set-back
           twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
           braces: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
@@ -322,6 +369,22 @@ fn an_instance_child_s_brackets_are_judged_as_its_cell_s() {
           braces: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
           brackets: error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
         set-mid
+          twin: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+          braces: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+          brackets: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
+        set-named-back
+          twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          braces: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          brackets: error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+        set-named-ends
+          twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          braces: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          brackets: error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+        set-named-front
+          twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          braces: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          brackets: error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+        set-named-mid
           twin: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
           braces: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
           brackets: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`"]].assert_eq(&table.join("\n"));
@@ -384,4 +447,278 @@ k::rules! {
     let start = flat.find("<out>").unwrap();
     let end = flat.find("</ths>").unwrap() + "</ths>".len();
     expect_test::expect!["<out> ListItem ( 2 ) </out> <ths> <th> <tid> 1 </tid> <tl> ListItem ( 4 ) ListItem ( 3 ) ListItem ( 2 ) </tl> <tk> .K </tk> <ts> .Set </ts> </th> </ths>"].assert_eq(&flat[start..end]);
+}
+
+/// A result keeping with `..` the rest of an instance child whose subject matches items after
+/// that rest, or matches it below an alias, is the stated limit at the child, by a label or a
+/// Map key, in braces and brackets, in a rule and a claim; a named rest is kept by its name, as
+/// at the child's own cell.
+#[test]
+fn a_kept_rest_of_an_instance_child_matched_at_its_back_is_a_stated_limit() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let go = "k: [Go(), ..]";
+    let rows = [
+        (
+            "label-all",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [.., x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [..], ..me }}, .. }}, out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "label-front",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x, .., y], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [y, ..], ..me }}, .. }}, out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "brackets",
+            format!(
+                "go: {{ {go}, job: [me @ Job {{ jl: [.., x], .. }}, ..], out: _ }} => {{ k: [..], job: [Job {{ jl: [x, ..], ..me }}, ..], out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "map-key",
+            format!(
+                "go: {{ {go}, th: {{ Th {{ tid: i, tl: [.., x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tid: i, tl: [x, ..], .. }}, .. }}, out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "alias-back",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: l @ [.., x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [..], ..me }}, .. }}, out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "alias-front",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: l @ [x, ..], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [x, ..], ..me }}, .. }}, out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "claim",
+            format!(
+                "go: {{ {go}, job: [me @ Job {{ jl: [.., x], .. }}, ..], out: _ }} => {{ k: [..], job: [Job {{ jl: [..], ..me }}, ..], out: [x] }};"
+            ),
+            true,
+        ),
+        (
+            "named",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [r @ .., x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [x, ..r], ..me }}, .. }}, out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "named-twin",
+            format!(
+                "go: {{ {go}, ll: [r @ .., x], out: _ }} => {{ k: [..], ll: [x, ..r], out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "named-brackets",
+            format!(
+                "go: {{ {go}, job: [me @ Job {{ jl: [x, r @ .., y], .. }}, ..], out: _ }} => {{ k: [..], job: [Job {{ jl: [y, ..r, x], ..me }}, ..], out: [x] }};"
+            ),
+            false,
+        ),
+        (
+            "named-brackets-twin",
+            format!(
+                "go: {{ {go}, ll: [x, r @ .., y], out: _ }} => {{ k: [..], ll: [y, ..r, x], out: [x] }};"
+            ),
+            false,
+        ),
+    ]
+    .map(|(name, clause, claim)| {
+        format!(
+            "{name}: {}",
+            verdict(target.path(), temporary.path(), name, &clause, claim)
+        )
+    });
+    expect_test::expect![[r"
+        label-all: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        label-front: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        brackets: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `jl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        map-key: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        alias-back: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        alias-front: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        claim: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `jl`, whose subject matches that rest with items after it or below an alias: keeping such a rest is not supported yet, since an instance child's `..` keeps a rest only where the subject's own brackets end with it; name the rest in the subject and write it back by its name, or name every item the child holds
+        named: rule [go]: <k> go => .K ... </k> <th> <tl> R:List ListItem(X:KItem) => ListItem(X:KItem) R:List </tl> ... </th> <out> _ => ListItem(X:KItem) </out>
+        named-twin: rule [go]: <k> go => .K ... </k> <ll> R:List ListItem(X:KItem) => ListItem(X:KItem) R:List </ll> <out> _ => ListItem(X:KItem) </out>
+        named-brackets: rule [go]: <k> go => .K ... </k> <out> _ => ListItem(X:KItem) </out> <jobs> <job> <jl> ListItem(X:KItem) R:List ListItem(Y:KItem) => ListItem(Y:KItem) R:List ListItem(X:KItem) </jl> ... </job> ... </jobs>
+        named-brackets-twin: rule [go]: <k> go => .K ... </k> <ll> ListItem(X:KItem) R:List ListItem(Y:KItem) => ListItem(Y:KItem) R:List ListItem(X:KItem) </ll> <out> _ => ListItem(X:KItem) </out>"]].assert_eq(&rows.join("\n"));
+}
+
+/// A workspace of a specification package, [`SOURCE`] with no sentence, and a `k::patterns!`
+/// package `pats` over it holding `steps`; the patterns package's manifest.
+fn patterns_workspace(root: &Path, steps: &str) -> PathBuf {
+    let spec = package(root, "spec", "");
+    let manifest = fs::read_to_string(&spec)
+        .unwrap()
+        .replace("\n[workspace]\nresolver = \"3\"\n", "");
+    fs::write(&spec, manifest).unwrap();
+    let pats = root.join("pats");
+    fs::create_dir_all(pats.join("src")).unwrap();
+    fs::write(
+        pats.join("src/lib.rs"),
+        format!("k::patterns! {{\n    for spec::Machine;\n\n{steps}\n}}\n"),
+    )
+    .unwrap();
+    fs::write(
+        pats.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"pats\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {} }}\nspec = {{ path = \"../spec\" }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-CHILD-SEQUENCE-STEPS\"\n\n[package.metadata.krs.definitions.main]\n",
+            krs_path(),
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"spec\", \"pats\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    pats.join("Cargo.toml")
+}
+
+/// The verdict on the steps of a patterns package: each step's K, or the first error line.
+fn step_verdicts(target: &Path, root: &Path, steps: &str) -> Result<Vec<(String, String)>, String> {
+    let manifest = patterns_workspace(root, steps);
+    let output = root.join("emitted");
+    let (success, _, stderr) = krs(
+        target,
+        &manifest,
+        "emit-k",
+        &[
+            "--dependency",
+            "spec:main",
+            "--ir",
+            "--output",
+            output.to_str().unwrap(),
+        ],
+    );
+    if !success {
+        return Err(stderr
+            .lines()
+            .find(|line| line.starts_with("error["))
+            .unwrap_or_else(|| panic!("no error headline:\n{stderr}"))
+            .to_owned());
+    }
+    let definition: krs_ir_levels::DefinitionIr =
+        serde_json::from_str(&fs::read_to_string(output.join("definition-ir.json")).unwrap())
+            .unwrap();
+    Ok(krs_compiler::emit_patterns(&definition)
+        .unwrap()
+        .into_iter()
+        .map(|pattern| (pattern.id, pattern.steps[0].pattern.clone()))
+        .collect())
+}
+
+/// The content of the cell `cell` in a step's K, a list rest the step names for the cell's
+/// unnamed `..` written `_`: the rest occurs once, so its name matches what `_` matches.
+fn content(k: &str, cell: &str) -> String {
+    let open = format!("<{cell}> ");
+    let start = k.find(&open).unwrap_or_else(|| panic!("<{cell}> in {k}")) + open.len();
+    let end = k[start..].find(&format!(" </{cell}>")).unwrap() + start;
+    k[start..end]
+        .split_whitespace()
+        .map(|token| {
+            if token.starts_with("Krs_Rest") && token.ends_with(":List") {
+                "_"
+            } else {
+                token
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A `k::patterns!` step, whose lists may hold several rests, reads an instance child's brackets
+/// as its twin's at its own cell: the same match of a List child, in braces and brackets, and the
+/// same refusal of a computation child's item after its rest and of a Set child's brackets.
+#[test]
+fn an_instance_child_s_brackets_in_a_step_are_judged_as_its_cell_s() {
+    let target = shared_fixture_target();
+    let shapes = [
+        ("several", "[.., a, .., b, ..]"),
+        ("back", "[.., x]"),
+        ("named", "[r @ .., x]"),
+        ("ends", "[x, .., y]"),
+    ];
+    let temporary = temp_dir();
+    let mut steps = String::new();
+    for (shape, value) in shapes {
+        writeln!(
+            steps,
+            "    twin_{shape}: {{ ll: {value} }};\n    braces_{shape}: {{ th: {{ spec::Th {{ tl: {value}, .. }}, .. }} }};\n    brackets_{shape}: {{ job: [spec::Job {{ jl: {value}, .. }}, ..] }};"
+        )
+        .unwrap();
+    }
+    let emitted = step_verdicts(target.path(), temporary.path(), &steps).unwrap();
+    let step = |id: String| {
+        emitted
+            .iter()
+            .find(|(emitted, _)| *emitted == id)
+            .unwrap_or_else(|| panic!("step {id} in {emitted:?}"))
+            .1
+            .clone()
+    };
+    let mut table = Vec::new();
+    for (shape, _) in shapes {
+        let twin = step(format!("twin-{shape}"));
+        let braces = step(format!("braces-{shape}"));
+        let brackets = step(format!("brackets-{shape}"));
+        assert_eq!(content(&braces, "tl"), content(&twin, "ll"), "{shape}");
+        assert_eq!(content(&brackets, "jl"), content(&twin, "ll"), "{shape}");
+        table.push(format!("{shape}: {}", content(&twin, "ll")));
+    }
+    expect_test::expect![[r"
+        several: _ ListItem(A:KItem) _ ListItem(B:KItem) _
+        back: _ ListItem(X:KItem)
+        named: R:List ListItem(X:KItem)
+        ends: ListItem(X:KItem) _ ListItem(Y:KItem)"]]
+    .assert_eq(&table.join("\n"));
+
+    let mut refusals = Vec::new();
+    for (row, twin, braces, brackets) in [
+        (
+            "computation",
+            "{ aux: [.., x, ..] }",
+            "{ th: { spec::Th { tk: [.., x, ..], .. }, .. } }",
+            "{ job: [spec::Job { jk: [.., x, ..], .. }, ..] }",
+        ),
+        (
+            "set",
+            "{ ss: [.., x] }",
+            "{ th: { spec::Th { ts: [.., x], .. }, .. } }",
+            "{ job: [spec::Job { js: [.., x], .. }, ..] }",
+        ),
+    ] {
+        let verdicts = [("twin", twin), ("braces", braces), ("brackets", brackets)].map(
+            |(position, pattern)| {
+                let root = temporary.path().join(format!("{row}-{position}"));
+                step_verdicts(target.path(), &root, &format!("    p: {pattern};"))
+                    .expect_err("refused")
+            },
+        );
+        assert_eq!(class(&verdicts[1]), class(&verdicts[0]), "{row}");
+        assert_eq!(class(&verdicts[2]), class(&verdicts[0]), "{row}");
+        refusals.push(format!("{row}:\n  {}", verdicts.join("\n  ")));
+    }
+    expect_test::expect![[r"
+        computation:
+          error[krs::collect::invalid-configuration]: the entry of the computation cell `aux` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+          error[krs::collect::invalid-configuration]: the entry of the computation cell `tk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+          error[krs::collect::invalid-configuration]: the entry of the computation cell `jk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+        set:
+          error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"]].assert_eq(&refusals.join("\n"));
 }
