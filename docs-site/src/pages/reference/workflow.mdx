@@ -1075,9 +1075,39 @@ A `--lock FILE` whose header names another definition is refused the same way (`
 A flow without `package` is refused at stage `manifest` (`spec.krs.package: missing`), saying what to add.
 A K corpus (`[spec] entry = ..`) is refused, naming `kink-flow`, which runs it.
 
+### Several definitions over one corpus
+
 Several definitions of one interface (a specification and a refined or optimized one) can read one tree of cases.
 A case is a value for each input, which every definition that takes those inputs reads alike, while every other file of a flow is a function of one definition.
-So a flow may name the root its cases are under, and keep its own files beside it:
+So the cases live under a corpus root that is no definition's directory, and each definition keeps its flow beside it:
+
+```text
+corpus/cpu/                    the corpus root
+  cases/boot/case.toml         a case document; its id is cases/boot/case.toml in every flow
+  cases/boot/boot.bin          a file the case document names
+cpu/provable/                  the package cpu-provable
+  Cargo.toml
+  src/lib.rs
+  kink/
+    FLOW.toml                  the flow of cpu-provable:main
+    definition.k               the K that definition emits
+    mutations/alu.toml         patches of that K
+    PATTERNS.toml              patterns over that definition's runs
+    TEMPLATES.toml             case templates for fuzz
+    kink.lock                  that definition's verdicts
+    .kink-flow/                its cache, not committed
+cpu/hardware/                  the package cpu-hardware
+  Cargo.toml
+  src/lib.rs
+  kink/
+    FLOW.toml                  the flow of cpu-hardware:main
+    definition.k
+    mutations/bus.toml
+    kink.lock
+    .kink-flow/
+```
+
+Each flow names its definition and the root:
 
 ```toml
 # cpu/provable/kink/FLOW.toml
@@ -1091,19 +1121,35 @@ root = "../../../corpus/cpu"   # relative to this file's directory; it may climb
 cases = "cases/*/case.toml"    # matched under the root
 ```
 
+The corpus root holds the cases and nothing of a definition.
 Under the root, and required to stay inside it: a `[[program]]`'s `file`, its `files` and `cases` patterns, each case document, the files it includes and the files its inputs and its expectation name.
 A case's id is its path relative to the root (`cases/boot/case.toml`), so every flow that names the root gives the case the same id, in its documents and in its `kink.lock`.
 A path that climbs above the root, or a file a link leads out of it, is refused, naming the root as the flow writes it (``cases/t5.nat escapes the corpus root `../../../corpus/cpu` ``); the flow's own directory is outside the root.
-Beside the flow, as without `[corpus]`: `definition.k`, `mutations/` (else `MUTATIONS.toml`), `PATTERNS.toml` and the lists `[[patterns]] files` matches, `TEMPLATES.toml` and a template's own `file`, an `[[implementation]]`'s `command` and `identity.file`, `kink.lock` and `.kink-flow/`.
+
+A flow owns every file that is a function of its definition, and keeps it beside `FLOW.toml`, as without `[corpus]`:
+
+- `FLOW.toml` itself, with the tables that name the definition's rules and cells or bound its runs (`[stop]`, `[observe]`, `[budget]`, `[[implementation]]`);
+- `definition.k`, the definition's emitted K;
+- `mutations/` (else `MUTATIONS.toml`), patches of that K;
+- `PATTERNS.toml` and the lists `[[patterns]] files` matches, and `TEMPLATES.toml` and a template's own `file`;
+- an `[[implementation]]`'s `command` and `identity.file`;
+- `kink.lock`, the definition's verdicts, and `.kink-flow/`, its cache.
+
 Every file a command writes is one of these, so nothing is written under a root that does not contain the flow's directory.
+The flow and its `kink.lock` each name the definition they are for (`[spec] krs`, and the lock's `definition = "cpu-provable:main"`), and a command that selects another package or facet is refused before it builds or writes anything (above).
+So a command given one flow's directory cannot write another definition's K or verdicts into it.
 No digest or cache key holds the root's path or the flow's.
 `fuzz` reads a template that names a `[[program]]` from that program's file under the root, `query` and `prune` name each case by its id under the root, and `compare` states each case's inputs to an implementation from the files under the root.
 Without `[corpus]` the root is the flow's directory, the layout above, with the same documents and the same `kink.lock`.
 
 What the layout does not give:
 
-- It does not compare the definitions: each flow runs the cases on its own definition and keeps its own verdicts, and nothing checks that two definitions end a case alike.
-- `prune` answers for one flow: a case redundant in this flow may be the only one that discharges an obligation of another flow, so the document of a flow that names a root carries `scope` (`{flow_only: true, corpus_root, detail}`) and `--output text` a `note:` line saying that the report holds for this flow alone.
+- It does not compare two KRS definitions.
+  Each flow runs the cases on its own definition and keeps its own verdicts, and no command of the corpus loop checks that two definitions end a case alike.
+  A statement about two definitions (that one refines the other) is a claim about every run of both, not a verdict on the corpus's runs: it belongs to the proof tool, and the corpus loop does not make it.
+- `prune` answers for one flow.
+  A case redundant in this flow may be the only one that discharges an obligation of another flow, so a case is removable from the root only when the cases kept discharge every flow's obligations.
+  The document of a flow that names a root carries `scope` (`{flow_only: true, corpus_root, detail}`), and `--output text` a `note:` line saying that the report holds for this flow alone.
 - A case's `expect` is checked by every flow that reads the case, so an expectation true of one definition only is unmet in the others.
 - A case added under the root is run by every flow that reads it, on that flow's next command, and each flow's `--locked` commands judge it for that flow's definition.
 

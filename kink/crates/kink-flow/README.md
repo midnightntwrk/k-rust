@@ -137,6 +137,34 @@ A case is a value for each input of a machine, which every definition that takes
 Every other file of a flow is a function of one definition: the emitted K, a mutation (a patch of that K), a pattern list (a statement over its runs), a template, the corpus record, the cache, and an implementation's command and identity file (one build of one system).
 So the cases live under a root that belongs to no definition, and a definition's files stay beside its flow.
 
+Two definitions over one corpus, each flow naming `root = "../../corpus"`:
+
+```text
+corpus/                       the corpus root
+  cases/t1.nat                a case; its id is cases/t1.nat in every flow
+  cases/t2.nat
+spec/kink/                    the flow of one definition
+  FLOW.toml                   [spec] names the definition; [corpus] root = "../../corpus"
+  definition.k                under `krs kink`, the K that definition emits
+  mutations/plus.toml         patches of that K
+  PATTERNS.toml               patterns over that definition's runs
+  TEMPLATES.toml              case templates for `fuzz`
+  kink.lock                   that definition's verdicts
+  .kink-flow/                 its cache
+refined/kink/                 the flow of another definition
+  FLOW.toml                   the same root
+  definition.k
+  mutations/zero.toml
+  kink.lock
+  .kink-flow/
+```
+
+What each owns:
+
+- The corpus root owns the cases: the program files, the case documents, and the files they include or name. Each has one id, its path relative to the root, in every flow.
+- A flow owns what is a function of its definition: the manifest's tables that name the definition's rules and cells or bound its runs (`[stop]`, `[observe]`, `[budget]`, `[[implementation]]`), the specification's files, the mutation lists, the pattern and template lists, an implementation's command and identity file, the corpus record and the cache.
+- A KRS flow and its corpus record each name the definition they are for (`[spec] krs`, and the record's `definition`), and a command that selects another package or facet is refused before it builds or writes anything ("`FLOW.toml`").
+
 What is relative to the root, and must stay inside it:
 
 - a `[[program]]`'s `file`, and its `files` and `cases` patterns ("Programs from a pattern");
@@ -161,10 +189,10 @@ A flow moved to another depth, naming the same root by another path, reads the c
 
 What the layout does not give:
 
-- No comparison between the definitions. Each flow runs the cases on its own definition and records its own verdicts; nothing checks that two definitions end a case alike. An `[[implementation]]` compares a definition with one other system ("Comparing implementations").
+- No comparison between the definitions. Each flow runs the cases on its own definition and records its own verdicts; nothing checks that two definitions end a case alike. An `[[implementation]]` compares a definition with one other system ("Comparing implementations"). A statement about two definitions (that one refines the other) is a claim about every run of both, not a verdict on the corpus's runs: it belongs to the proof tool, and no kink command makes it.
 - No shared verdicts. Each flow has its own record and cache; a case added under the root is run by every flow that reads it on that flow's next command, and each flow's `--locked` gate judges it for that flow's definition.
 - No shared expectation scope. A case's `expect` is checked by every flow that reads the case, so an expectation true of one definition only is unmet in the others.
-- No corpus-wide `prune`. A flow's report is of that flow's obligations; a case redundant in one flow may be the only discharger of an obligation of another ("Redundant programs").
+- No corpus-wide `prune`. A flow's report is of that flow's obligations and answers for that flow only; a case redundant in one flow may be the only discharger of an obligation of another, so a case is removable from the root only when the cases kept discharge every flow's obligations ("Redundant programs").
 - No check that two flows are of one interface. A definition that cannot read a case's inputs refuses that case (`inputs`), naming it.
 
 ### Programs from a pattern
