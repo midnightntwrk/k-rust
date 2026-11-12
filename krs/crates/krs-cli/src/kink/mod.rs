@@ -138,6 +138,7 @@ mod render;
 mod spelling;
 mod stop;
 mod syntax;
+mod traces;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1275,10 +1276,14 @@ fn bound_manifest(
         .map_err(|error| command.manifest_refused(&error))?;
     let (manifest, stop_items) = stop::bind(manifest, &decoder, &observers, &emitted.ir)
         .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))?;
-    let (manifest, observe_items) = observe::bind(manifest, &decoder, &observers, &emitted.ir)
-        .map_err(|unbound| refused(command, "observe", unbound.reason, &unbound.detail))?;
-    let implementations =
-        implementations::KrsImplementations::new(Arc::clone(&decoder), Arc::clone(&observers));
+    let (manifest, observe_items, observations) =
+        observe::bind(manifest, &decoder, &observers, &emitted.ir)
+            .map_err(|unbound| refused(command, "observe", unbound.reason, &unbound.detail))?;
+    let implementations = implementations::KrsImplementations::new(
+        Arc::clone(&decoder),
+        Arc::clone(&observers),
+        observations,
+    );
     let invariants = invariant::KrsInvariants::new(decoder);
     Ok((
         manifest,

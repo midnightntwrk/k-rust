@@ -23,6 +23,13 @@
 //!   cells, since kink-flow compares the words `stopped` and `final` itself. Where the definition
 //!   has several ends and they differ under the view from each other, one answer cannot be
 //!   compared with them by equality: `several-ends`.
+//! - A trace view (`channels`) compares no cell: it compares the implementation's record of the
+//!   corpus's `[observe]` channels with the definition's ([`super::traces`]). The request's
+//!   `observe` asks each channel in the declaration's own vocabulary
+//!   ([`krs_exec::ResolvedObservations::channel_shapes`]), and a view over a channel some
+//!   component of which has no value with a document is refused before any run, since no
+//!   implementation can state an element of it. An implementation with no end view states the
+//!   cells it likes: those it states are read as an end's, and none is demanded.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -39,6 +46,7 @@ use krs_exec::{
 use serde_json::{Value, json};
 
 use super::inputs::{KrsInputs, ManifestFiles};
+use super::observe::KrsObservations;
 use super::render::{Observers, read_ends, unstated};
 use crate::DEFAULT_VIEW_BUDGET;
 
@@ -47,11 +55,28 @@ use crate::DEFAULT_VIEW_BUDGET;
 pub(crate) struct KrsImplementations {
     inputs: Arc<KrsInputs>,
     observers: Arc<Observers>,
+    /// The corpus's `[observe]`, which a trace view's channels are of; `None` without one.
+    observations: Option<Arc<KrsObservations>>,
 }
 
 impl KrsImplementations {
-    pub(crate) const fn new(inputs: Arc<KrsInputs>, observers: Arc<Observers>) -> Self {
-        Self { inputs, observers }
+    pub(crate) const fn new(
+        inputs: Arc<KrsInputs>,
+        observers: Arc<Observers>,
+        observations: Option<Arc<KrsObservations>>,
+    ) -> Self {
+        Self {
+            inputs,
+            observers,
+            observations,
+        }
+    }
+
+    /// The corpus's `[observe]`, which a trace is a record of.
+    fn observations(&self) -> Result<&KrsObservations, String> {
+        self.observations
+            .as_deref()
+            .ok_or_else(|| "the corpus declares no `[observe]`, so it has no channel".to_owned())
     }
 
     /// `body` with the definition's semantics and the observer `view` names, when it names one
@@ -207,30 +232,8 @@ fn answer_end(semantics: &Semantics, cells: &Value) -> Result<End, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Why a trace view is refused: this front end does not compare one yet.
-fn trace_view_unsupported(view: &str) -> String {
-    format!(
-        "the view `{view}` compares a trace (`channels`), which `krs kink compare` does not \
-         compare yet: this front end has no reading of an answer's `observations`. Until it has, \
-         declare end views only"
-    )
-}
-
 impl Vocabulary for KrsImplementations {
     fn check(&self, implementation: &ImplementationSection) -> Result<(), String> {
-        // A trace view is never run as an end view: until this front end compares traces, a
-        // declaration with one is refused before any run.
-        if let Some((index, view)) = implementation
-            .views
-            .iter()
-            .enumerate()
-            .find(|(_, view)| view.is_trace())
-        {
-            return Err(format!(
-                "views[{index}].channels: {}",
-                trace_view_unsupported(&view.name)
-            ));
-        }
         self.inputs
             .with_semantics("checking an implementation's cells", |semantics| {
                 let cells = semantics.cells();
@@ -250,7 +253,21 @@ impl Vocabulary for KrsImplementations {
                 }
                 Ok(())
             })?;
-        for view in &implementation.views {
+        for (index, view) in implementation.views.iter().enumerate() {
+            // A trace view compares channels, never cells: it is no end view over every cell.
+            if let Some(channels) = &view.channels {
+                self.observations()
+                    .and_then(|observations| {
+                        observations.with_resolved(|resolved| resolved.document_forms(channels))
+                    })
+                    .map_err(|reason| {
+                        format!(
+                            "views[{index}].channels: {reason}; no implementation can state an                              element of it, so the view `{}` would compare nothing",
+                            view.name
+                        )
+                    })?;
+                continue;
+            }
             self.with_observer(
                 "resolving an implementation's views",
                 view,
@@ -348,6 +365,11 @@ impl Vocabulary for KrsImplementations {
         self.inputs
             .with_semantics("reading an implementation's end", |semantics| {
                 let end = answer_end(semantics, cells)?;
+                // Only an end view compares cells: without one, the cells stated are read, and
+                // none is demanded.
+                if implementation.views.iter().all(ViewSection::is_trace) {
+                    return Ok(());
+                }
                 let all = semantics.cells();
                 let omitted = implementation
                     .omits
@@ -422,21 +444,38 @@ impl Vocabulary for KrsImplementations {
     }
 
     fn observe_request(&self, channels: &[String]) -> Result<Vec<Value>, String> {
-        Err(format!(
-            "`krs kink compare` does not ask an implementation for a trace yet (channels {})",
+        self.observations()?.with_resolved(|resolved| {
+            resolved.document_forms(channels)?;
+            let shapes = resolved.channel_shapes(channels)?;
             channels
                 .iter()
-                .map(|channel| format!("`{channel}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ))
+                .map(|name| {
+                    shapes
+                        .iter()
+                        .find(|shape| shape["name"] == name.as_str())
+                        .cloned()
+                        .ok_or_else(|| format!("`[observe]` has no shape of the channel `{name}`"))
+                })
+                .collect()
+        })
     }
 
     fn judge_trace(&self, question: &TraceQuestion<'_>) -> Result<TraceAnswer, String> {
-        Err(question.implementation.trace_views().next().map_or_else(
-            || "the implementation declares no trace view".to_owned(),
-            |view| trace_view_unsupported(&view.name),
-        ))
+        let mut answer = self
+            .observations()?
+            .with_resolved(|resolved| super::traces::judge(resolved, question))?;
+        if let TraceAnswer::Judged(judged) = &mut answer
+            && judged
+                .iter()
+                .any(|judged| matches!(judged, kink_flow::TraceJudged::Different(_)))
+        {
+            self.inputs
+                .with_semantics("naming a difference's rule", |semantics| {
+                    super::traces::name_rules(semantics, judged);
+                    Ok(())
+                })?;
+        }
+        Ok(answer)
     }
 }
 

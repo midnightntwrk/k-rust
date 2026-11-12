@@ -65,6 +65,12 @@ use super::inputs::KrsInputs;
 use super::render::{Observer, Observers, definition_digest};
 use super::stop::{Unbound, rule_labels};
 
+/// A corpus's `[observe]` bound ([`bind`]): the manifest; the `krs` object the documents'
+/// `observe` gains; and the declaration's own functions, for a reader of another producer's
+/// record of it ([`KrsObservations::with_resolved`]). The last two are `None` without
+/// `[observe]`.
+pub(crate) type Bound = (FlowManifest, Option<Value>, Option<Arc<KrsObservations>>);
+
 /// `manifest` with its `[observe]` resolved (module documentation): the rule names mapped to
 /// exact K labels, the cells to K cell names, and the functions set
 /// ([`FlowManifest::with_observe_functions`]); and the `krs` object the documents' `observe`
@@ -84,12 +90,13 @@ pub(crate) fn bind(
     decoder: &Arc<KrsInputs>,
     observers: &Observers,
     definition: &krs_ir_levels::DefinitionIr,
-) -> Result<(FlowManifest, Option<Value>), Unbound> {
+) -> Result<Bound, Unbound> {
     let Some(mut section) = manifest.observe.clone() else {
-        return Ok((manifest, None));
+        return Ok((manifest, None, None));
     };
     let spec = written(&section)?;
-    let functions = KrsObservations::bind(spec.clone(), definition, decoder, observers)?;
+    let (functions, declaration) =
+        KrsObservations::bind(spec.clone(), definition, decoder, observers)?;
     let names = spec
         .points
         .iter()
@@ -167,7 +174,11 @@ pub(crate) fn bind(
     }
     manifest.observe = Some(section);
     let manifest = manifest.with_observe_functions(functions);
-    Ok((manifest, Some(json!({"items": items, "cells": cells}))))
+    Ok((
+        manifest,
+        Some(json!({"items": items, "cells": cells})),
+        Some(declaration),
+    ))
 }
 
 /// The declaration `section` states with KRS's spellings, its front end's keys read.
@@ -325,7 +336,7 @@ fn written_value(spec: &ObservationSpec) -> Value {
 }
 
 /// The functions of one corpus's `[observe]` ([`ObservationFunctions`]).
-struct KrsObservations {
+pub(crate) struct KrsObservations {
     spec: ObservationSpec,
     observer: Arc<Observer>,
     subject: Subject,
@@ -344,7 +355,7 @@ impl KrsObservations {
         definition: &krs_ir_levels::DefinitionIr,
         inputs: &Arc<KrsInputs>,
         observers: &Observers,
-    ) -> Result<ObserveFunctions, Unbound> {
+    ) -> Result<(ObserveFunctions, Arc<Self>), Unbound> {
         let unresolved = |detail: String| Unbound {
             reason: "observe-unresolved",
             detail: format!("[observe]: {detail}"),
@@ -391,7 +402,23 @@ impl KrsObservations {
             identity["subject"] =
                 json!({"definition_ir": definition_digest(definition).map_err(unresolved)?});
         }
-        Ok(ObserveFunctions::new(identity, Arc::new(functions)))
+        let functions = Arc::new(functions);
+        Ok((
+            ObserveFunctions::new(identity, Arc::clone(&functions) as _),
+            functions,
+        ))
+    }
+
+    /// `body` with the declaration resolved as every run of the baseline resolves it
+    /// ([`Self::resolve`]), in its observer loaded on this thread: what tells which channels it
+    /// has, what each asks of another producer, and how another producer's record of it is read
+    /// ([`ResolvedObservations::channel_shapes`], [`ResolvedObservations::foreign_record`]).
+    pub(crate) fn with_resolved<T>(
+        &self,
+        body: impl FnOnce(&ResolvedObservations) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.observer
+            .with_loaded(|observer| body(&self.resolve(observer)?))
     }
 
     /// The declaration resolved for runs of the baseline, evaluated in `observer` (this
