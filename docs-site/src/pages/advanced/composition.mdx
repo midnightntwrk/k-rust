@@ -25,7 +25,8 @@ The root package exposes `main` and renames two dependencies:
 // [!include ~/snippets/composition-root.Cargo.toml]
 ```
 
-A facet table needs no keys: every package emits a program-syntax module `<NS>-SYNTAX` and a semantics module `<NS>`, and each production chooses its module through its Rust visibility and `internal` flag.
+The root's facet declares the dependency facet it is composed with, so no command has to name it ([select the composition](#select-the-composition)).
+A facet table needs no other key: every package emits a program-syntax module `<NS>-SYNTAX` and a semantics module `<NS>`, and each production chooses its module through its Rust visibility and `internal` flag.
 When a dependency's rules need the root's configuration, the root also emits `<NS>-CONFIGURATION`, so the dependency can import the configuration without importing the root ([program syntax and the module pair](/reference/language#program-syntax-and-the-module-pair)).
 The package-level `k-namespace` keeps emitted K names explicit.
 The package-level `int-literals` key selects the module that supplies integer literals to the package's program syntax: `"signed"` (the default, `INT-SYNTAX`) or `"unsigned"` (`UNSIGNED-INT-SYNTAX`).
@@ -51,7 +52,31 @@ A production that rules everywhere need but programs must not contain is `pub` a
 
 ## Select the composition
 
-The command shape is:
+A definition's composition is the dependency facets and the cfg values it is composed with.
+It is part of what the definition is: its rules and its configuration differ by it.
+The root facet therefore declares it, in the facet's table of the package's `Cargo.toml`:
+
+```toml
+[package.metadata.krs.definitions.main]
+dependencies = ["base-semantics:base"]
+cfg = ["tour_mode=extended"]
+```
+
+`dependencies` lists dependency facets, each written `PACKAGE:FACET`, and `cfg` lists KRS compiler inputs, each written `KEY` or `KEY=VALUE`; both keys are optional.
+Every command that selects the definition reads them: `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, `cases`, `compare` and `krs kink`, and the observer and patterns packages those commands compose with the definition.
+The command shape is then:
+
+```console
+krs check \
+  --manifest-path tests/tour-composition/Cargo.toml \
+  --package root-semantics \
+  --definition main
+```
+
+The teaching fixture declares its dependency facet and no cfg value.
+A corpus whose flow names its definition needs no selection at all: `krs kink coverage --corpus DIR` takes the package and the facet from the flow and the composition from the facet's declaration.
+
+The command line gives the same two kinds with the same spellings:
 
 ```console
 krs check \
@@ -64,9 +89,20 @@ krs check \
 
 `--dependency PACKAGE:FACET` is repeatable and always names both halves.
 `--cfg KEY` and `--cfg KEY=VALUE` are repeatable KRS compiler inputs; they are not Cargo features.
+The command line replaces the declaration, one kind at a time: a command with any `--dependency` composes exactly the facets its flags name and none of the declared ones, and a command with any `--cfg` passes exactly the values its flags name.
+A kind the command line does not give is read from the declaration, so `--cfg` beside a declared `dependencies` list keeps the list.
+The command line cannot give an empty kind: a definition that some command composes with no cfg value, or with no dependency facet, declares none of that kind, and its other commands give theirs.
+Only the selected root facet's declaration is read: the keys of a dependency facet, and of the facet of an observer or a patterns package, are not followed.
+A composition given by declaration is the definition the same flags give: both emit the same K, with the same symbol and source maps.
+The next steps `krs kink` prints repeat the flags the command line gave, so they name no selection that is declared.
+
 In the teaching fixture, `tour_mode=extended` includes the `extended-root` constructor; the release gate emits the definition both with and without that value and checks that only the configured artifact contains the production.
 An ambiguous root package name can be replaced by the exact `--package-id` selected from Cargo metadata.
 Dependency selectors currently accept package names only, so an ambiguous dependency package cannot be disambiguated with `--package-id`.
+
+A declaration is checked at planning, whatever the command line gives: a `dependencies` entry that names a package outside the graph, a facet its package does not declare, or a package outside the root package's resolved dependency closure is refused, and so is a key or an entry of another form.
+The refusal names the manifest key (`package.metadata.krs.definitions.main.dependencies`), the manifest, and the facets the package declares.
+A source that names an item of a package no selected facet is of is refused with `krs::collect::package-not-selected`, whose help names the `--dependency PACKAGE:FACET` that selects the package and the `dependencies` key that selects it for every command.
 
 Missing packages, missing facets, and ambiguous package selections fail during planning before the collector is built.
 A dependency facet must be in the root package's resolved dependency closure; the commands that evaluate views in an observer ([views and the observer](/reference/workflow#expectations)) give each composition, the definition and each observer, the facets its own closure holds.

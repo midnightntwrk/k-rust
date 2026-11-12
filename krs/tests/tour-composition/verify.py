@@ -30,9 +30,8 @@ def command(
     operation: str,
     *extra: os.PathLike[str] | str,
 ) -> list[os.PathLike[str] | str]:
-    return Invocation(binary, MANIFEST, "root-semantics", "main").argv(
-        operation, "--dependency", "base-semantics:base", *extra
-    )
+    # The root facet declares its dependency facet (`dependencies` in its Cargo metadata).
+    return Invocation(binary, MANIFEST, "root-semantics", "main").argv(operation, *extra)
 
 
 def artifacts(directory: Path) -> dict[str, bytes]:

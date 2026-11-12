@@ -47,9 +47,9 @@ pub use metadata::{
 };
 pub use plan::valid_identifier_segment;
 pub use plan::{
-    CollectorEntrypoint, CollectorPlan, CollectorRequest, CollectorRuntime, DefinitionRequest,
-    FacetSelector, KrsCfg, PackageSelector, PlanningError, PlanningErrorKind, RegistrationMode,
-    ResolvedFacet, ResolvedPackage,
+    CollectorEntrypoint, CollectorPlan, CollectorRequest, CollectorRuntime, DeclaredComposition,
+    DefinitionRequest, FacetSelector, KrsCfg, PackageSelector, PlanningError, PlanningErrorKind,
+    RegistrationMode, ResolvedFacet, ResolvedPackage,
 };
 
 pub use render::DiagnosticSources;

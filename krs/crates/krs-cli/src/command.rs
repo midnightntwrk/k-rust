@@ -498,14 +498,25 @@ fn execute_with_sources(
 ) -> Result<CommandOutcome, CommandError> {
     measurement.counters.set("result.reused", 0u64);
     validate_request(request)?;
-    let timings = &mut measurement.timings;
-    let metadata = timings.try_span("cargo.metadata.input", |_| {
+    let metadata = measurement.timings.try_span("cargo.metadata.input", |_| {
         cargo_metadata(&request.manifest_path)
     })?;
-    let (dependencies, observer_dependencies) = composed_dependencies(request, &metadata)?;
-    let plan = plan_collector(request, &dependencies, &metadata, timings)?;
+    let request = &composed_request(request, &metadata)?;
+    execute_composed(request, &metadata, measurement, sources)
+}
+
+/// [`execute_with_sources`] of `request`, whose composition is complete ([`composed_request`]),
+/// in the package graph `metadata`.
+fn execute_composed(
+    request: &CommandRequest,
+    metadata: &crate::CargoMetadata,
+    measurement: &mut Measurement,
+    sources: &mut crate::DiagnosticSources,
+) -> Result<CommandOutcome, CommandError> {
+    let (dependencies, observer_dependencies) = composed_dependencies(request, metadata)?;
+    let plan = plan_collector(request, &dependencies, metadata, &mut measurement.timings)?;
     *sources = crate::DiagnosticSources::from_plan(&plan);
-    let collector_directory = generate_collector(&metadata, &plan, measurement)?;
+    let collector_directory = generate_collector(metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &plan, None, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
     let reuse =
@@ -520,7 +531,13 @@ fn execute_with_sources(
             return Ok(outcome);
         }
     }
-    let collected = run_collector(&collector_directory, &executable, &metadata, measurement)?;
+    let collected = run_collector(
+        &collector_directory,
+        &executable,
+        metadata,
+        Some(&plan),
+        measurement,
+    )?;
     let read_set = collected.read_set;
     // `krs expand` prints each readable rule's elaborated rule, which lowering keeps when asked.
     let retain = match &request.command {
@@ -602,6 +619,35 @@ fn execute_with_sources(
     outcome
         .map(|value| value.outcome)
         .map_err(|error| error.warned(warnings))
+}
+
+/// `request` with the composition of its definition: for each of the dependency facets and the
+/// cfg values, what the command line gives when it gives any, and otherwise what the root facet
+/// declares in its package's Cargo metadata ([`crate::DeclaredComposition`]).
+///
+/// Which facets and cfg values a definition is composed with is part of what the definition is,
+/// so every command that selects a definition reads them from one place, and two commands
+/// without `--dependency` or `--cfg` select one definition. Everything after this reads the
+/// composition from the request, so a composition given by declaration and the same one given by
+/// flags are one request: the same plan, the same caches and the same recorded digests.
+///
+/// # Errors
+///
+/// Returns the planning error of a malformed declaration ([`crate::DeclaredComposition::of`]).
+pub(crate) fn composed_request<'request>(
+    request: &'request CommandRequest,
+    metadata: &crate::CargoMetadata,
+) -> Result<Cow<'request, CommandRequest>, CommandError> {
+    let declared = crate::DeclaredComposition::of(metadata, &request.root)?;
+    let composition = declared.or_given(&request.dependencies, &request.cfg);
+    if composition.dependencies == request.dependencies && composition.cfg == request.cfg {
+        return Ok(Cow::Borrowed(request));
+    }
+    Ok(Cow::Owned(CommandRequest {
+        dependencies: composition.dependencies,
+        cfg: composition.cfg,
+        ..request.clone()
+    }))
 }
 
 /// The dependency facets of `request` its definition composes, and those it leaves to the
@@ -1233,6 +1279,7 @@ fn prepare_observer_with(
     }
     let refuse = |error: CommandError| observer_refusal(name, None, &error);
     let metadata = cargo_metadata(&request.manifest_path).map_err(refuse)?;
+    let request = &composed_request(request, &metadata).map_err(refuse)?;
     let outside = outside_the_graph(package, &request.manifest_path, &metadata);
     let (prepared, _) = composed_facet(request, selector, &metadata, sources, composed)
         .map_err(|error| observer_refusal(name, Some(&outside), &error))?;
@@ -1291,7 +1338,7 @@ fn composed_facet(
     *sources = crate::DiagnosticSources::from_plan(&plan);
     let directory = generate_collector(metadata, &plan, measurement)?;
     let executable = build_collector_measured(&directory, &plan, None, measurement)?;
-    let collected = run_collector(&directory, &executable, metadata, measurement)?;
+    let collected = run_collector(&directory, &executable, metadata, None, measurement)?;
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
@@ -1329,6 +1376,7 @@ pub(crate) fn patterns_definition(
     let refuse = |error: CommandError| patterns_refusal(package, &error);
     let prepared = cargo_metadata(&request.manifest_path)
         .and_then(|metadata| {
+            let request = &composed_request(request, &metadata)?;
             let selector = patterns_facet(request, &metadata, package)?;
             composed_facet(request, selector, &metadata, &mut own, &mut composed)
         })

@@ -27,6 +27,20 @@ pub struct FacetSelector {
     pub definition: String,
 }
 
+impl FacetSelector {
+    /// The facet `PACKAGE:FACET` names, as `--dependency` and a facet's `dependencies` key spell
+    /// one: the Cargo package name before the last `:` and the facet name after it, both
+    /// non-empty; `None` for another form.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        let (package, definition) = value.rsplit_once(':')?;
+        (!package.is_empty() && !definition.is_empty()).then(|| Self {
+            package: PackageSelector::Name(package.to_owned()),
+            definition: definition.to_owned(),
+        })
+    }
+}
+
 /// One rustc cfg passed to the selected semantics graph.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct KrsCfg {
@@ -34,6 +48,206 @@ pub struct KrsCfg {
     pub key: String,
     /// Optional string value, such as `llvm` in `k_backend = "llvm"`.
     pub value: Option<String>,
+}
+
+impl KrsCfg {
+    /// The cfg value `KEY` or `KEY=VALUE` names, as `--cfg` and a facet's `cfg` key spell one;
+    /// `None` when `KEY` is not a Rust identifier.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        let (key, value) = value
+            .split_once('=')
+            .map_or((value, None), |(key, value)| (key, Some(value.to_owned())));
+        valid_identifier_segment(key).then(|| Self {
+            key: key.to_owned(),
+            value,
+        })
+    }
+}
+
+/// The composition a definition facet declares in its package's Cargo metadata
+/// (`[package.metadata.krs.definitions.<facet>]`): the dependency facets (`dependencies`) and
+/// the cfg values (`cfg`) the definition is composed with, each in the order written.
+///
+/// The composition is part of what the definition is (its rules and its configuration differ by
+/// it), so it is stated with the definition, and a command reads it for each kind its command
+/// line does not give ([`Self::or_given`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DeclaredComposition {
+    /// `dependencies = ["PACKAGE:FACET", ..]`.
+    pub dependencies: Vec<FacetSelector>,
+    /// `cfg = ["KEY", "KEY=VALUE", ..]`.
+    pub cfg: Vec<KrsCfg>,
+}
+
+impl DeclaredComposition {
+    /// The composition the root facet `root` declares in `metadata`; empty for a key the facet
+    /// does not write, and for a root that planning refuses (a package or a facet that does not
+    /// exist), which planning reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlanningErrorKind::InvalidDefinition`] for a key of another shape than a list
+    /// of `PACKAGE:FACET` or `KEY[=VALUE]` strings, [`PlanningErrorKind::MissingPackage`],
+    /// [`PlanningErrorKind::AmbiguousPackage`] or [`PlanningErrorKind::MissingDefinition`] for a
+    /// declared dependency facet that does not exist, and
+    /// [`PlanningErrorKind::UnreachableSelection`] for one outside the root package's resolved
+    /// dependency closure; each names the manifest key.
+    pub fn of(metadata: &CargoMetadata, root: &FacetSelector) -> Result<Self, PlanningError> {
+        let Ok(package) = select_package(metadata, &root.package) else {
+            return Ok(Self::default());
+        };
+        let Some(facet) = definition_facets(package)
+            .and_then(|definitions| definitions.get(&root.definition))
+            .and_then(Value::as_object)
+        else {
+            return Ok(Self::default());
+        };
+        let key = |name: &str| {
+            format!(
+                "`package.metadata.krs.definitions.{}.{name}` of package `{}` ({})",
+                root.definition, package.name, package.manifest_path
+            )
+        };
+        let entries = |name: &str, form: &str| -> Result<Vec<&str>, PlanningError> {
+            let Some(value) = facet.get(name) else {
+                return Ok(Vec::new());
+            };
+            value
+                .as_array()
+                .and_then(|entries| {
+                    entries
+                        .iter()
+                        .map(Value::as_str)
+                        .collect::<Option<Vec<_>>>()
+                })
+                .ok_or_else(|| {
+                    PlanningError::new(
+                        PlanningErrorKind::InvalidDefinition,
+                        format!(
+                            "{} is `{value}`; expected a list of {form} strings",
+                            key(name)
+                        ),
+                    )
+                })
+        };
+
+        let mut dependencies = Vec::new();
+        let declared = entries("dependencies", "`PACKAGE:FACET`")?;
+        if !declared.is_empty() {
+            let packages = package_map(metadata)?;
+            let nodes = node_map(metadata, &packages)?;
+            let reachable = reachable_packages(&package.id, &nodes)?;
+            let key = key("dependencies");
+            for entry in declared {
+                let (selector, dependency) = declared_dependency(metadata, entry, &key)?;
+                if !reachable.contains(&dependency.id) {
+                    return Err(PlanningError::new(
+                        PlanningErrorKind::UnreachableSelection,
+                        format!(
+                            "{key} declares the dependency facet `{entry}`: package `{}` is not in package `{}`'s resolved dependency closure",
+                            dependency.name, package.name
+                        ),
+                    ));
+                }
+                dependencies.push(selector);
+            }
+        }
+
+        let cfg = entries("cfg", "`KEY` or `KEY=VALUE`")?
+            .into_iter()
+            .map(|entry| {
+                KrsCfg::parse(entry).ok_or_else(|| {
+                    PlanningError::new(
+                        PlanningErrorKind::InvalidCfg,
+                        format!(
+                            "{} declares the cfg value `{entry}`, whose key is not a Rust identifier; a cfg value is written `KEY` or `KEY=VALUE`, as `--cfg` takes it",
+                            key("cfg")
+                        ),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        validate_cfg(&cfg)?;
+        Ok(Self { dependencies, cfg })
+    }
+
+    /// The composition of a command whose command line gives `dependencies` and `cfg`: for each
+    /// of the two kinds, what the command line gives when it gives any, and the declaration
+    /// otherwise. The command line replaces a kind whole; it does not add to the declaration.
+    #[must_use]
+    pub fn or_given(self, dependencies: &[FacetSelector], cfg: &[KrsCfg]) -> Self {
+        Self {
+            dependencies: if dependencies.is_empty() {
+                self.dependencies
+            } else {
+                dependencies.to_vec()
+            },
+            cfg: if cfg.is_empty() {
+                self.cfg
+            } else {
+                cfg.to_vec()
+            },
+        }
+    }
+}
+
+/// The dependency facet the entry `entry` of the manifest key `key` (as a refusal names it)
+/// declares, and its package in `metadata`.
+///
+/// # Errors
+///
+/// Refuses, naming `key` and the entry, an entry of another form than `PACKAGE:FACET`, a package
+/// name that selects no package or several, and a facet the package does not declare, with the
+/// facets it declares.
+fn declared_dependency<'a>(
+    metadata: &'a CargoMetadata,
+    entry: &str,
+    key: &str,
+) -> Result<(FacetSelector, &'a MetadataPackage), PlanningError> {
+    let refuse = |kind, why: String| {
+        PlanningError::new(
+            kind,
+            format!("{key} declares the dependency facet `{entry}`: {why}"),
+        )
+    };
+    let selector = FacetSelector::parse(entry).ok_or_else(|| {
+        refuse(
+            PlanningErrorKind::InvalidDefinition,
+            "a dependency facet is written `PACKAGE:FACET`, as `--dependency` takes it".to_owned(),
+        )
+    })?;
+    let package = select_package(metadata, &selector.package)
+        .map_err(|error| refuse(error.kind(), error.to_string()))?;
+    let facets = definition_facets(package)
+        .map(|definitions| definitions.keys().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if !facets.contains(&&selector.definition) {
+        let available = match facets.as_slice() {
+            [] => "it declares no definition facet".to_owned(),
+            facets => format!(
+                "its definition facets are {}",
+                facets
+                    .iter()
+                    .map(|facet| format!("`{}:{facet}`", package.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        return Err(refuse(
+            PlanningErrorKind::MissingDefinition,
+            format!(
+                "package `{}` declares no KRS definition facet `{}`; {available}",
+                package.name, selector.definition
+            ),
+        ));
+    }
+    Ok((selector, package))
+}
+
+/// The facet tables of `package` (`package.metadata.krs.definitions`), by facet name.
+fn definition_facets(package: &MetadataPackage) -> Option<&serde_json::Map<String, Value>> {
+    package.metadata.get("krs")?.get("definitions")?.as_object()
 }
 
 /// The generated program's single collector function.

@@ -6,7 +6,6 @@ use krs_cli::{
     FacetSelector, KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource,
     ProveRequest, RegistrationMode, RunRequest, SearchMode, SearchRequest, SideFile, StopCriterion,
     StopRules, StopWhen, TermOutput, execute_command_reported, exit_status, supervise_prove,
-    valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
@@ -86,8 +85,12 @@ Options:
   --package PACKAGE          Root Cargo package name
   --package-id ID            Exact root Cargo package ID
   --definition NAME          Root package definition facet
-  --dependency PACKAGE:NAME  Composed dependency facet; repeatable
-  --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
+  --dependency PACKAGE:NAME  Composed dependency facet; repeatable. Given, the flags replace
+                             the facets the root facet declares
+                             (package.metadata.krs.definitions.NAME.dependencies); not given,
+                             every command composes the declared facets
+  --cfg KEY[=VALUE]          KRS rustc cfg; repeatable. Given, the flags replace the values
+                             the root facet declares (package.metadata.krs.definitions.NAME.cfg)
   --backend llvm|haskell     Native target dialect (default: llvm); with check, judge only
                              that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
@@ -2791,35 +2794,23 @@ fn execute_format(request: &FormatRequest) -> Result<bool, String> {
 
 fn parse_dependency(value: OsString) -> Result<FacetSelector, UsageError> {
     let value = utf8(value, "dependency")?;
-    let (package, definition) = value.rsplit_once(':').ok_or_else(|| {
-        usage(format!(
-            "dependency `{value}` must have the form CargoPackage:definition"
-        ))
-    })?;
-    if package.is_empty() || definition.is_empty() {
+    if !value.contains(':') {
         return Err(usage(format!(
-            "dependency `{value}` must have non-empty package and definition names"
+            "dependency `{value}` must have the form CargoPackage:definition"
         )));
     }
-    Ok(FacetSelector {
-        package: PackageSelector::Name(package.to_owned()),
-        definition: definition.to_owned(),
+    FacetSelector::parse(&value).ok_or_else(|| {
+        usage(format!(
+            "dependency `{value}` must have non-empty package and definition names"
+        ))
     })
 }
 
 fn parse_cfg(value: OsString) -> Result<KrsCfg, UsageError> {
     let value = utf8(value, "cfg")?;
-    let (key, value) = value
-        .split_once('=')
-        .map_or((value.as_str(), None), |(key, value)| {
-            (key, Some(value.to_owned()))
-        });
-    if !valid_identifier_segment(key) {
-        return Err(usage(format!("invalid cfg key `{key}`")));
-    }
-    Ok(KrsCfg {
-        key: key.to_owned(),
-        value,
+    KrsCfg::parse(&value).ok_or_else(|| {
+        let key = value.split_once('=').map_or(value.as_str(), |(key, _)| key);
+        usage(format!("invalid cfg key `{key}`"))
     })
 }
 

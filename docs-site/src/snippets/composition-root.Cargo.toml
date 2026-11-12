@@ -16,6 +16,7 @@ semantic-base = { package = "base-semantics", path = "../base-semantics" }
 k-namespace = "ORG-KRS-COMPOSITION-ROOT"
 
 [package.metadata.krs.definitions.main]
+dependencies = ["base-semantics:base"]
 
 [lints]
 workspace = true

@@ -73,10 +73,15 @@ pub(super) struct CollectorRun {
 ///
 /// The collector writes its diagnostics to the sidecar named by [`COLLECTOR_DIAGNOSTIC_ENV`]:
 /// a failure's error, which is the run's error, or a success's warnings, which the run gives.
+///
+/// `declares` is the plan of a composition whose root facet's declaration the command reads
+/// ([`super::composed_request`]): the command's own definition, and not an observer's or a
+/// patterns package's composition, whose dependency facets are the definition's.
 pub(super) fn run_collector(
     collector_directory: &Path,
     executable: &Path,
     metadata: &crate::CargoMetadata,
+    declares: Option<&CollectorPlan>,
     measurement: &mut Measurement,
 ) -> Result<CollectorRun, CommandError> {
     let read_set = scratch_file("krs-collector-read-set-")?;
@@ -113,7 +118,7 @@ pub(super) fn run_collector(
         }
     }
     let (output, warnings) = collector_result(output, diagnostics.path())
-        .map_err(|error| naming_selections(error, metadata))?;
+        .map_err(|error| naming_selections(error, metadata, declares))?;
     let bytes = fs::read(read_set.path()).map_err(|source| CommandError::Io {
         path: read_set.path().to_path_buf(),
         source,
@@ -133,7 +138,12 @@ pub(super) fn run_collector(
 /// A definition holds the items of the facets its command selects and of no other package, so
 /// the fix of a source that names another package's item is to select one of that package's
 /// facets; the collector, which finds the item, knows the package and not its facets.
-fn naming_selections(error: CommandError, metadata: &crate::CargoMetadata) -> CommandError {
+fn naming_selections(
+    error: CommandError,
+    metadata: &crate::CargoMetadata,
+    declares: Option<&CollectorPlan>,
+) -> CommandError {
+    let root = declares.and_then(|plan| plan.facets().iter().find(|facet| facet.is_root));
     let CommandError::Diagnostics(mut diagnostics) = error else {
         return error;
     };
@@ -151,6 +161,9 @@ fn naming_selections(error: CommandError, metadata: &crate::CargoMetadata) -> Co
         });
         if let Some(package) = package {
             diagnostic.help.push(selection_help(package));
+            if let Some(help) = root.and_then(|root| declaration_help(package, root)) {
+                diagnostic.help.push(help);
+            }
         }
     }
     CommandError::Diagnostics(diagnostics)
@@ -183,6 +196,29 @@ fn selection_help(package: &crate::MetadataPackage) -> String {
                 .join(" or ")
         ),
     }
+}
+
+/// Where the selection of `package` is stated once for every command: the `dependencies` key of
+/// the root facet `root`, which a command reads when its command line gives no `--dependency`
+/// ([`crate::DeclaredComposition`]); `None` when `package` declares no facet to list there.
+fn declaration_help(
+    package: &crate::MetadataPackage,
+    root: &crate::plan::ResolvedFacet,
+) -> Option<String> {
+    let facets = package
+        .metadata
+        .get("krs")?
+        .get("definitions")?
+        .as_object()?;
+    let facet = match facets.keys().collect::<Vec<_>>().as_slice() {
+        [] => return None,
+        [facet] => facet.as_str(),
+        _ => "FACET",
+    };
+    Some(format!(
+        "to select it in every command, declare it with the definition: add `\"{}:{facet}\"` to `package.metadata.krs.definitions.{}.dependencies` in package `{}`'s Cargo.toml; a command without --dependency composes the facets that key lists",
+        package.name, root.definition, root.package_name
+    ))
 }
 
 /// The collector's output and the warnings of its collection, read from the diagnostic sidecar

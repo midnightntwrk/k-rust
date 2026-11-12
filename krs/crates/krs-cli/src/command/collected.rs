@@ -158,6 +158,7 @@ pub(crate) fn plan_collection(
     let metadata = measurement.timings.try_span("cargo.metadata.input", |_| {
         cargo_metadata_in(&request.manifest_path, target_directory)
     })?;
+    let request = &super::composed_request(request, &metadata)?;
     let plan = plan_collector(
         request,
         &request.dependencies,
@@ -208,6 +209,7 @@ impl PlannedCollection {
             &collector_directory,
             &executable,
             &self.metadata,
+            Some(&self.plan),
             measurement,
         )?;
         let bundle = measurement.timings.try_span("protocol.decode", |_| {
