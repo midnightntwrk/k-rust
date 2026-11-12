@@ -28,8 +28,9 @@ use crate::{
 enum MachinePatternCell {
     /// The computation cell's `[p1, .., pn, ..]` or `[p1, .., pn]`.
     KItems(Box<KPattern>),
-    /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell.
-    MapItems(Vec<(TermExpression, Ident)>, TokenRange),
+    /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell, and the name of its rest
+    /// where it is written `rest @ ..`, which the clause refuses once it knows the result.
+    MapItems(Vec<(TermExpression, Ident)>, TokenRange, Option<Ident>),
     Term {
         pattern: Box<RulePattern>,
         tree: Box<TermTree>,
@@ -1102,8 +1103,8 @@ fn parse_machine_pattern_record(
             )?)
         } else if content.peek(syn::token::Brace) {
             {
-                let (entries, rest) = parse_machine_map_pattern(&content)?;
-                MachinePatternCell::MapItems(entries, rest)
+                let (entries, rest, named) = parse_machine_map_pattern(&content)?;
+                MachinePatternCell::MapItems(entries, rest, named)
             }
         } else if let Some(presences) = value_presences(&content, StateMacroContext::Pattern) {
             skip_value(&content)?;
@@ -1143,9 +1144,10 @@ fn parse_machine_pattern_record(
 /// entries, each a key read as every map read's key is
 /// ([`TermExpression::parse_key_pattern_tokens`]) and a value binder (or
 /// `_`), and the range of its required `..`.
-fn parse_machine_map_pattern(
-    content: ParseStream<'_>,
-) -> Result<(Vec<(TermExpression, Ident)>, TokenRange), ParseError> {
+/// A machine-rule map read: its entries, the range of its `..`, and the name of its rest.
+type MachineMapRead = (Vec<(TermExpression, Ident)>, TokenRange, Option<Ident>);
+
+fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<MachineMapRead, ParseError> {
     let map = content.call(|input| {
         let map;
         braced!(map in input);
@@ -1153,8 +1155,12 @@ fn parse_machine_map_pattern(
     })?;
     let mut entries: Vec<(TermExpression, Ident)> = Vec::new();
     let mut spellings: Vec<String> = Vec::new();
+    let mut named = None;
     loop {
-        reject_named_map_rest(&map)?;
+        if let Some(name) = named_map_rest(&map)? {
+            named = Some(name);
+            break;
+        }
         let tokens = tokens_before_arrow(&map)?;
         let text = tokens.to_string();
         let key = TermExpression::parse_key_pattern_tokens(tokens.clone())?;
@@ -1198,23 +1204,42 @@ fn parse_machine_map_pattern(
             .error("a machine-rule map pattern is `{ key -> value, .. }`")
             .into());
     }
-    Ok((entries, TokenRange::for_tokens(&dots)?))
+    Ok((entries, TokenRange::for_tokens(&dots)?, named))
 }
 
-/// Refuses a named rest `rest @ ..` where a machine-rule map read's next item stands. A machine
-/// rule's map read is only read, its cell kept whole; no readable result writes a map over the
-/// rest and no readable condition reads it, so the name would bind nothing a readable rule can
-/// use.
-fn reject_named_map_rest(map: ParseStream<'_>) -> Result<(), ParseError> {
+/// The name of a rest `rest @ ..` where a machine-rule map read's next item stands, consumed up
+/// to its `..`, which the read's end then parses.
+fn named_map_rest(map: ParseStream<'_>) -> Result<Option<Ident>, ParseError> {
     let fork = map.fork();
     if fork.parse::<Ident>().is_ok() && fork.parse::<Token![@]>().is_ok() && fork.peek(Token![..]) {
-        return Err(map
-            .error(
-                "a readable map read names no rest: the cell it reads keeps its content, rest and all, and `rest @ ..` would bind a map no readable result can write and no readable condition can read, so write `..`; a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule's subject names the rest (`map![k -> v, rest @ ..]`)",
-            )
-            .into());
+        let name = map.parse::<Ident>()?;
+        map.parse::<Token![@]>()?;
+        return Ok(Some(name));
     }
-    Ok(())
+    Ok(None)
+}
+
+/// The refusal of a machine-rule map read's named rest `name` on the cell `cell`, which a
+/// readable rule can never use: no readable result writes a map over it and no readable
+/// condition reads it. A result that writes the cell drops it, the moved remainder's mistake at a
+/// record child's map read too; one that leaves the cell out keeps the cell whole, so the name
+/// binds nothing.
+fn named_map_rest_refusal(name: &Ident, written: bool) -> ParseError {
+    let advice = "a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it";
+    let reason = if written {
+        format!(
+            "the subject names the rest of the map `..{name}`, and the result neither puts it back with `..{name}` nor uses it, so the rule would drop it: {advice}"
+        )
+    } else {
+        format!(
+            "the subject names the rest of the map `..{name}`, which the rule leaves as it is, as it does the whole cell the result leaves out, so the name binds nothing a readable rule can use: write `..`; {advice}"
+        )
+    };
+    crate::SyntaxError::new(
+        crate::SyntaxErrorKind::InvalidListNotation { reason },
+        name.span(),
+    )
+    .into()
 }
 
 /// The tokens of a map item's key, up to its `->`, which `input` is left
@@ -3252,7 +3277,13 @@ fn assemble_machine_clause(
                     .into());
                 }
             }
-            MachinePatternCell::MapItems(entries, rest) => {
+            MachinePatternCell::MapItems(entries, rest, named) => {
+                if let Some(name) = named {
+                    let written = result_cells
+                        .iter()
+                        .any(|(result_cell, _)| result_cell.unraw() == cell.unraw());
+                    return Err(named_map_rest_refusal(name, written));
+                }
                 let entries = entries
                     .iter()
                     .map(|(key, value)| (key, wildcards.binder(value)))
