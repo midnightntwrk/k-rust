@@ -20,11 +20,11 @@ const workedPred = checked('predEval')
 const workedPr = checked('fprioEval')
 
 const workedRhs = textSource('worked by hand', [
-  "-- the first rule's right-hand side, run(pred(s(N))), under N ↦ s(z)",
-  'EvalTerm c σ (.var 0) (some s(z))                   -- var',
-  'EvalTerm c σ (.app s [.var 0]) (some s(s(z)))       -- ctor',
-  'EvalTerm c σ (.app pred [...]) (some s(z))          -- call: Eval c pred [s(s(z))] (some s(z))',
-  'EvalTerm c σ (.app run [...]) (some run(s(z)))      -- ctor',
+  "-- the k cell of the first rule's right side, run(pred(V)), under",
+  '--   σ = [N ↦ s(z), V ↦ s(s(z)), 2 ↦ the counter cell]',
+  'EvalTerm c σ (.var 1) (some s(s(z)))                  -- var: V',
+  'EvalTerm c σ (.app pred [.var 1]) (some s(z))         -- call: Eval c pred [s(s(z))] (some s(z))',
+  'EvalTerm c σ (.app run [.app pred [.var 1]]) (some run(s(z)))   -- ctor',
 ].join('\n'))
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
@@ -145,7 +145,7 @@ export const evaluation5: Lesson = {
       ],
       frames: [
         {
-          hl: { t: [at(evalTerm, 'inductive EvalTerm'), at(evalTerm, '| var {σ'), ...span(evalTerm, '| ctor {σ', 'EvalTerm c σ (.app f ts) ((allSome rs).map (.ctor f))')], w: span(workedRhs, 'EvalTerm c σ (.var 0)', 'EvalTerm c σ (.app s') },
+          hl: { t: [at(evalTerm, 'inductive EvalTerm'), at(evalTerm, '| var {σ'), ...span(evalTerm, '| ctor {σ', 'EvalTerm c σ (.app f ts) ((allSome rs).map (.ctor f))')], w: [at(workedRhs, 'EvalTerm c σ (.var 1)'), at(workedRhs, 'EvalTerm c σ (.app run')] },
           notes: [note('t', at(evalTerm, '| var {σ'), 'A variable has the value σ gives it.', 'σ.lookup i'), note('t', at(evalTerm, 'EvalTerm c σ (.app f ts) ((allSome rs).map (.ctor f))'), 'A constructor builds its term, undefined if an argument is.', 'allSome rs')],
         },
         {

@@ -34,8 +34,8 @@ const state = srt('State')
 const worked = checked('terms')
 const workedTerm = checked('rule0')
 const workedSubst = textSource('worked by hand', [
-  '-- run(s(s(z))) against run(s(N)): N is s(z)',
-  `[(0, .ctor ${s} [.ctor ${z} []])]`,
+  "-- run(s(s(z))) against the rule's run(s(N) #as V): N is s(z), V is s(s(z))",
+  `[(0, .ctor ${s} [.ctor ${z} []]), (1, .ctor ${s} [.ctor ${s} [.ctor ${z} []]])]`,
 ].join('\n'))
 
 // The prologue's starting configuration, as krust printed it at depth 0.
@@ -135,6 +135,7 @@ export const terms1: Lesson = {
         {
           hl: { t: [at(terms, '| app (f : Sym)')], w: [at(workedTerm, '.app Sym.«run»')] },
           notes: [note('t', at(terms, '| app (f : Sym)'), 'A symbol applied to arguments: a constructor or a function.', 'app'), note('w', at(workedTerm, '.app Sym.«run»'), 'The k cell of the first rule\'s left side: `run` applied to `s(N)`.', '.app Sym.«run»')],
+          say: '`peano.k` writes `run(s(N)) => run(pred(s(N)))`. The KORE names the repeated `s(N)` once, `#as V` (the prologue\'s `\\and`), and writes the right side as `run(pred(V))`. The Lean value is read from the KORE, so it has the alias: the same meaning, a different shape.',
         },
         {
           hl: { t: [at(terms, '| as (t : Term) (i : Nat)')], w: [at(workedTerm, '.as (')] },
@@ -156,8 +157,8 @@ export const terms1: Lesson = {
       frames: [
         {
           hl: { e: [at(subst, 'abbrev Subst')], w: [at(workedSubst, '[(0,')] },
-          notes: [note('e', at(subst, 'abbrev Subst'), 'Variable numbers paired with ground terms.', 'List (Nat × GroundTerm)'), note('w', at(workedSubst, '[(0,'), '`N`, variable 0, is `s(z)`.', '(0,')],
-          say: 'Matching `run(s(s(z)))` against `run(s(N))` gives `N` a value: a substitution.',
+          notes: [note('e', at(subst, 'abbrev Subst'), 'Variable numbers paired with ground terms.', 'List (Nat × GroundTerm)'), note('w', at(workedSubst, '[(0,'), '`N`, variable 0, is `s(z)`; `V`, variable 1, is `s(s(z))`.', '(0,')],
+          say: 'Matching `run(s(s(z)))` against the rule\'s `run(s(N) #as V)` gives `N` and `V` values: a substitution.',
         },
         { say: 'Lesson 4 says exactly when a pattern matches a ground term under a substitution. Before that, lesson 2 shows where the patterns come from: the definition itself, as a Lean value.' },
       ],

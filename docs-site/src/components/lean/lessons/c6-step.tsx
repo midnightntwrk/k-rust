@@ -18,9 +18,10 @@ const k = peanoK
 const workedRun = textSource('worked by hand', [
   "-- the prologue's first step, by rule <k> run(s(N)) => run(pred(s(N))) </k>",
   '-- (the cells are as in lesson 3; x and y are configurations)',
-  'σ   = [N ↦ s(z), …]          -- the left side denotes x: run(s(s(z))) in the k cell',
+  'σ   = [N ↦ s(z), V ↦ s(s(z)), 2 ↦ <generatedCounter>(0)]',
+  '                             -- the left side denotes x: run(s(s(z))) in the k cell',
   'req = none                   -- nothing to check',
-  'rhs ↦ run(s(z))              -- lesson 5: pred(s(s(z))) is s(z)',
+  'rhs ↦ run(s(z))              -- lesson 5: run(pred(V)), and pred(s(s(z))) is s(z)',
   'no rule of peano has a priority below 50   -- both are 50',
   'Step c x y',
 ].join('\n'))
@@ -58,7 +59,7 @@ export const step6: Lesson = {
           say: 'Everything so far comes together here: configurations (lesson 3), matching (lesson 4) and evaluation (lesson 5).',
         },
         {
-          hl: { s: [at(step, '(hσ :'), at(step, '(hmatch :')], w: [at(workedRun, 'σ   =')] },
+          hl: { s: [at(step, '(hσ :'), at(step, '(hmatch :')], w: [at(workedRun, 'σ   ='), at(workedRun, '-- the left side denotes x')] },
           notes: [note('s', at(step, '(hmatch :'), "Some rule's left side denotes `x` under a well-sorted σ.", 'PatVal c σ r.lhs x.val')],
         },
         {

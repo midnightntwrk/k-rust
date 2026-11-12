@@ -15,16 +15,13 @@ const kimpVar = coreFile('examples/kimp/Kimp/definition.kore#CALC.var')
 const colls = coreFile('f2-examples/colls-list.k')
 
 const workedRun = textSource('worked by hand', [
-  '-- run(s(N)) against run(s(s(z))), σ = [(0, s(z))]',
+  "-- the k cell of peano's first rule, run(s(N) #as V), against run(s(s(z)))",
   '-- (names for numbers, as in lesson 1)',
-  'PatVal c σ (.var 0) s(z)                      -- var: σ gives 0 the value s(z)',
-  'PatVal c σ (.app s [.var 0]) s(s(z))          -- ctor: s is a constructor',
-  'PatVal c σ (.app run [.app s [.var 0]]) run(s(s(z)))   -- ctor',
-].join('\n'))
-const workedAs = textSource('worked by hand', [
-  '-- s(N) #as V against s(s(z)), N variable 0, V variable 1',
-  'σ = [(0, s(z)), (1, s(s(z)))]',
-  'PatVal c σ (.as (.app s [.var 0]) 1) s(s(z))  -- as: and σ gives 1 the value s(s(z))',
+  'σ = [(0, s(z)), (1, s(s(z)))]                    -- N is s(z), V is s(s(z))',
+  'PatVal c σ (.var 0) s(z)                          -- var: σ gives 0 the value s(z)',
+  'PatVal c σ (.app s [.var 0]) s(s(z))              -- ctor: s is a constructor',
+  'PatVal c σ (.as (.app s [.var 0]) 1) s(s(z))      -- as: and σ gives 1 the same value',
+  'PatVal c σ (.app run [.as (.app s [.var 0]) 1]) run(s(s(z)))   -- ctor',
 ].join('\n'))
 const workedMap = textSource('worked by hand', [
   '-- the env cell holds {x ↦ 1, y ↦ 2}',
@@ -61,7 +58,7 @@ export const matching4: Lesson = {
           say: 'Matching is not a program here. `PatVal` says when a match holds, so a pattern and a value may have several substitutions, or none.',
         },
         {
-          hl: { p: [at(patVal, '| var {i : Nat}'), ...span(patVal, '| ctor {f : Sym}', '(h : c.isCtor f = true)')], w: span(workedRun, 'PatVal c σ (.var 0)', 'PatVal c σ (.app run') },
+          hl: { p: [at(patVal, '| var {i : Nat}'), ...span(patVal, '| ctor {f : Sym}', '(h : c.isCtor f = true)')], w: [at(workedRun, 'σ = ['), at(workedRun, 'PatVal c σ (.var 0)'), at(workedRun, 'PatVal c σ (.app s'), at(workedRun, 'PatVal c σ (.app run')] },
           notes: [
             note('p', at(patVal, '| var {i : Nat}'), 'A variable denotes the value σ gives it.', 'σ.lookup i = some v'),
             note('p', at(patVal, '(h : c.isCtor f = true)'), "A constructor denotes the constructor term of its arguments' values.", 'c.isCtor f = true'),
@@ -78,7 +75,7 @@ export const matching4: Lesson = {
       title: 'Injections and aliases',
       panes: [
         { id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedAs, lang: 'lean' },
+        { id: 'w', label: 'Worked by hand', source: workedRun, lang: 'lean' },
       ],
       frames: [
         {
@@ -86,7 +83,7 @@ export const matching4: Lesson = {
           notes: [note('p', at(patVal, 'PatVal c σ (.inj a b p) (injNormal a b w)'), "An injection denotes its pattern's value, injected. If that value is already an injection, the two become one, so the value is never an injection of an injection.", 'injNormal')],
         },
         {
-          hl: { p: span(patVal, '| as {p : Term}', 'PatVal c σ (.as p i) v'), w: span(workedAs, 'σ = [', 'PatVal c σ (.as') },
+          hl: { p: span(patVal, '| as {p : Term}', 'PatVal c σ (.as p i) v'), w: [at(workedRun, 'σ = ['), at(workedRun, 'PatVal c σ (.as')] },
           notes: [note('p', at(patVal, '| as {p : Term}'), 'An alias denotes what its pattern denotes, and σ gives its variable that same value.', 'σ.lookup i = some v')],
         },
       ],
