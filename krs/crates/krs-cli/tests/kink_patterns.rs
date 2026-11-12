@@ -599,7 +599,7 @@ const MEMORY_PATTERNS: &str = r"k::patterns! {
 
 /// The memory corpus: a program that never stores key 9, one that stores 5 there and one that
 /// stores 0, each reaching `pc` 2 through one state at `pc` 1.
-const MEMORY_FLOW: &str = "[spec]\nkrs = { definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n\n\
+const MEMORY_FLOW: &str = "[spec]\nkrs = { package = \"spec\", definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n\n\
                            [[program]]\nid = \"absent\"\nfile = \"cases/absent.prog\"\n\n\
                            [[program]]\nid = \"five\"\nfile = \"cases/five.prog\"\n\n\
                            [[program]]\nid = \"zero\"\nfile = \"cases/zero.prog\"\n\n\
