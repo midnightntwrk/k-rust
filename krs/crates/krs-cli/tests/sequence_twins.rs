@@ -460,3 +460,44 @@ fn a_second_rest_is_refused_before_the_names_the_result_reads() {
         assert_eq!(verdict, unread, "{name}");
     }
 }
+
+/// Round 2, D1: a computation's `[..]` (`KCell(..)`) matches every computation, as a variable
+/// matches every content, so a rule whose every cell pattern is one or the other, with no
+/// requires guard, is enabled in every configuration: `always-enabled-rule`, as its List twin.
+/// An item that constrains what the rule reads leaves it a step.
+#[test]
+fn an_item_less_sequence_subject_alone_is_always_enabled() {
+    const KC: &str = "k::configuration::";
+    let rule = |body: &str| readable(body, false);
+    let lines = verdicts(&[
+        ("aux", rule("go: { aux: [..] } => { aux: [Go(), ..] };")),
+        ("k", rule("go: { k: [..] } => { k: [Go(), ..] };")),
+        (
+            "k-and-aux",
+            rule("go: { k: [..], aux: [..] } => { k: [..], aux: [Go(), ..] };"),
+        ),
+        (
+            "cells-aux",
+            cells(
+                "",
+                &format!("aux: {KC}KCell(..)"),
+                &format!("aux: {KC}KCell(Cmd::Go(), ..)"),
+                false,
+            ),
+        ),
+        ("ll", rule("go: { ll: [..] } => { ll: [Go(), ..] };")),
+        (
+            "aux-guarded",
+            rule("go: { aux: [..], ll: [x, ..] } => { aux: [x, ..], ll: [..] };"),
+        ),
+    ]);
+    expect_test::expect![[r#"
+        aux: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
+        k: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
+        k-and-aux: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
+        cells-aux: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
+        ll: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard
+        aux-guarded: rule [go]: <aux> .K => X:KItem ... </aux> <ll> ListItem(X:KItem) Krs_RestLl:List => Krs_RestLl:List </ll>"#]].assert_eq(&lines.join("\n"));
+    assert_eq!(of(&lines, "aux"), of(&lines, "cells-aux"));
+    assert_eq!(of(&lines, "aux"), of(&lines, "k"));
+}

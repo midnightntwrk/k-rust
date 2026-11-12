@@ -387,6 +387,9 @@ pub enum DescriptorLoweringError {
         rule: Box<StableItemId>,
         /// Sole exact authored range of the rule's subject record.
         range: Option<Box<SourceRange>>,
+        /// Whether a computation the rule names is matched by no item before its kept tail
+        /// (`[..]`, `KCell(..)`), which matches every computation as a variable does.
+        whole_sequence: bool,
     },
     /// A `k::is!` or `k::project!` term is matched or projects into `K` (KF-013).
     InvalidSortTest {
@@ -1852,10 +1855,19 @@ impl fmt::Display for DescriptorLoweringError {
                     cell.owner.item_name()
                 ),
             },
-            Self::AlwaysEnabledRule { rule, .. } => write!(
+            Self::AlwaysEnabledRule {
+                rule,
+                whole_sequence,
+                ..
+            } => write!(
                 formatter,
-                "rule `{}` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard",
-                rule.item_name()
+                "rule `{}` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort{}, and it has no requires guard",
+                rule.item_name(),
+                if *whole_sequence {
+                    ", or a computation's `[..]` (`KCell(..)`), which no item constrains"
+                } else {
+                    ""
+                }
             ),
             Self::InvalidSpecModule { reason, .. }
             | Self::MissingPrecedenceChain { reason, .. }

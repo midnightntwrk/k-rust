@@ -795,6 +795,7 @@ pub(super) fn check_step_effect(
         return Err(DescriptorLoweringError::AlwaysEnabledRule {
             rule: Box::new(descriptor.id().clone()),
             range: step_range(descriptor, pattern_key)?,
+            whole_sequence: clauses.iter().any(matches_whole_sequence),
         });
     }
     Ok(())
@@ -815,16 +816,29 @@ fn step_range(
 }
 
 /// Whether `clause` matches its cell's every content: a fixed cell whose
-/// pattern is a variable of the cell's `declared` sort.
+/// pattern is a variable of the cell's `declared` sort, or a computation
+/// matched by no item before its kept tail (`KCell(..)`, the readable `[..]`
+/// head), which every sequence is.
 pub(super) fn matches_every_content(
     clause: &ConfigurationClause<SemanticId, SemanticTerm>,
     declared: Option<&SemanticSortRef>,
 ) -> bool {
+    matches_whole_sequence(clause)
+        || clause.as_fixed().is_some_and(|clause| {
+            matches!(
+                clause.before().kind(),
+                krs_ir_levels::SemanticTermKind::Variable { .. }
+            ) && declared.is_some_and(|sort| sort == clause.before().sort())
+        })
+}
+
+/// Whether `clause` matches a computation by no item before its kept tail, `KCell(..)`.
+fn matches_whole_sequence(clause: &ConfigurationClause<SemanticId, SemanticTerm>) -> bool {
     clause.as_fixed().is_some_and(|clause| {
         matches!(
             clause.before().kind(),
-            krs_ir_levels::SemanticTermKind::Variable { .. }
-        ) && declared.is_some_and(|sort| sort == clause.before().sort())
+            krs_ir_levels::SemanticTermKind::KSequence { items, .. } if items.is_empty()
+        ) && matches!(clause.frame(), CellContentFrame::KSequenceTail { .. })
     })
 }
 
