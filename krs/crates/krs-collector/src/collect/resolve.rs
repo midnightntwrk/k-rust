@@ -2137,6 +2137,9 @@ struct Resolver<'a> {
     head_selection: Option<HeadRuleSelection<'a>>,
     /// Whether the payload is a claim, which a cell group may not type.
     claim: bool,
+    /// Whether the payload is a claim of either form, `cells!` or readable, as a refusal names
+    /// the sentence.
+    claim_sentence: bool,
     /// The configuration scoped to the cell group the payload's sentence is typed by, absent for
     /// a sentence typed by the configuration: every cell the sentence names is inside the group.
     subject_target: Option<&'a HeadRuleTarget>,
@@ -2150,6 +2153,13 @@ struct Resolver<'a> {
     /// The applications whose path the host stage read as a set's singleton
     /// ([`krs_ir::names_set_element`]) and which resolve to something else.
     misread_elements: BTreeSet<krs_ir::ProvenanceKey>,
+}
+
+impl Resolver<'_> {
+    /// The kind of sentence being resolved, as a refusal names it.
+    const fn sentence(&self) -> &'static str {
+        if self.claim_sentence { "claim" } else { "rule" }
+    }
 }
 
 impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
@@ -2284,24 +2294,44 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
                 )
                 .with_reference_key(reference.key));
             }
+            // Two cells with one name: the record cannot say which it means.
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!(
-                    "readable rule extra cell name `{}` is ambiguous across {} fixed leaf cells",
+                    "the readable {} names the cell `{}`, a name {} cells of {} have, {}: a readable record names a cell by a name only it has, its field's or the K name its declaration gives it (`#[k::cell(name = \"..\")]`)",
+                    self.sentence(),
                     reference.name,
-                    matches.len()
+                    matches.len(),
+                    selection.target.owner(),
+                    names(
+                        matches
+                            .iter()
+                            .map(|cell| format!(
+                                "{}::{}",
+                                cell.identity.owner.item_name(),
+                                cell.identity.field
+                            ))
+                            .collect::<Vec<_>>()
+                            .iter()
+                            .map(String::as_str)
+                    ),
                 ),
             ));
         };
-        if selection
+        if let Some(computation) = selection
             .computation
-            .is_some_and(|computation| resolved.identity == computation.identity)
+            .filter(|computation| resolved.identity == computation.identity)
         {
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!(
-                    "readable rule extra may not mention computation cell `{}`",
-                    reference.name
+                    "the readable {} names the computation cell `{}` beside the brackets that rewrite the head of its computation: a record names each cell once, so write the cell's items and its rest in those brackets (`{}: [x, ..]`)",
+                    self.sentence(),
+                    reference.name,
+                    computation
+                        .names
+                        .first()
+                        .map_or(computation.k_name.as_str(), String::as_str),
                 ),
             ));
         }
@@ -3172,6 +3202,8 @@ pub(super) fn resolve_payload_reading(
         head_targets,
         head_selection: None,
         claim,
+        claim_sentence: claim
+            || matches!(payload, HostDescriptorPayload::HeadRule(rule) if rule.claim.is_some()),
         subject_target: if claim {
             None
         } else {
@@ -3782,6 +3814,7 @@ mod tests {
             head_targets: &[],
             head_selection: None,
             claim: false,
+            claim_sentence: false,
             subject_target: None,
             allow_builtin_application: true,
             discarded: BTreeSet::new(),
