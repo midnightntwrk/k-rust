@@ -3033,14 +3033,15 @@ fn emitted_sentence(target: &Path, manifest: &Path, label: &str) -> String {
         .join(" ")
 }
 
-/// EDOTS item 1: the record a result's entry writes for a group that is there, matched or
-/// overwritten, means by its `..` that the children it leaves unnamed are unchanged, so it
-/// writes only the children it names, each as its own cell: `frame: Frame { pc: x, .. }` is
-/// `<pc> _ => X </pc>`, `<gas>` as it was. Readable rules, claims and `cells!` rules agree, and
-/// the bare record and its fragment are one record. Two places have no lowering yet and refuse
-/// with what the `..` means there: beside a subject that matches the group whole, and where the
-/// result writes the group whole (a `?` group's `Some(..)`, an updated instance's group child).
-/// A group the result creates keeps its own stated limit
+/// EDOTS item 1 and WHOLEKEEP: the record a result's entry writes for a group that is there,
+/// matched or overwritten, means by its `..` that the children it leaves unnamed are unchanged.
+/// Over a subject record of the group's children, `_`, or no match, it writes only the children
+/// it names, each as its own cell: `frame: Frame { pc: x, .. }` is `<pc> _ => X </pc>`, `<gas>`
+/// as it was. Elsewhere it is the update of the subject's match of the same place, written whole:
+/// beside a binder or an alias of the group (`frame: f` is `f @ Frame { .. }`, the result
+/// `Frame { pc: x, ..f }`), inside a `?` group's `Some(..)`, and as an updated instance's group
+/// child. Readable rules, claims and `cells!` rules agree, and the bare record and its fragment
+/// are one record. A group the result creates keeps its own stated limit
 /// (`a_record_of_a_group_no_subject_matched_names_every_child`).
 #[test]
 #[expect(
@@ -3139,6 +3140,50 @@ fn a_result_entrys_record_keeps_the_children_its_rest_leaves_unnamed() {
                 "outer: k::fragment![crate::Outer { inner: crate::Inner { x: x, .. }, flag: 0 }]",
             ),
         ),
+        (
+            "binder",
+            kept_readable(false, "frame: f", "frame: Frame { pc: x, .. }"),
+        ),
+        (
+            "alias",
+            kept_readable(
+                false,
+                "frame: f @ Frame { pc: p, .. }",
+                "frame: Frame { pc: x, .. }",
+            ),
+        ),
+        (
+            "child-binder",
+            kept_readable(
+                false,
+                "outer: Outer { inner: i, .. }",
+                "outer: Outer { inner: Inner { x: x, .. }, flag: 0 }",
+            ),
+        ),
+        (
+            "optional-present",
+            kept_readable(
+                false,
+                "ogroup: Some(Gp { pa: p, .. })",
+                "ogroup: Some(Gp { pa: x, .. })",
+            ),
+        ),
+        (
+            "cells-optional-present",
+            kept_cells(
+                " p: Int,",
+                "ogroup: Some(k::fragment![crate::Gp { pa: p, .. }])",
+                "ogroup: Some(k::fragment![crate::Gp { pa: x, .. }])",
+            ),
+        ),
+        (
+            "instance-child",
+            kept_readable(
+                false,
+                "acct: { me @ Acct { id: i, .. }, .. }",
+                "acct: { Acct { aframe: Ag { aa: x, .. }, ..me }, .. }",
+            ),
+        ),
     ]
     .map(|(name, source)| {
         let manifest = library_package(temporary.path(), &format!("kept-{name}"), &source);
@@ -3198,86 +3243,341 @@ fn a_result_entrys_record_keeps_the_children_its_rest_leaves_unnamed() {
                 "cells-group-child",
                 "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> <x> _ => X:Int </x> <flag> _ => 0 </flag>",
             ),
-        ]
-    "#]].assert_debug_eq(&admitted);
-    let refused = [
-        (
-            "binder",
-            kept_readable(false, "frame: f", "frame: Frame { pc: x, .. }"),
-        ),
-        (
-            "alias",
-            kept_readable(
-                false,
-                "frame: f @ Frame { pc: p, .. }",
-                "frame: Frame { pc: x, .. }",
-            ),
-        ),
-        (
-            "child-binder",
-            kept_readable(
-                false,
-                "outer: Outer { inner: i, .. }",
-                "outer: Outer { inner: Inner { x: x, .. }, flag: 0 }",
-            ),
-        ),
-        (
-            "optional-present",
-            kept_readable(
-                false,
-                "ogroup: Some(Gp { pa: p, .. })",
-                "ogroup: Some(Gp { pa: x, .. })",
-            ),
-        ),
-        (
-            "cells-optional-present",
-            kept_cells(
-                " p: Int,",
-                "ogroup: Some(k::fragment![crate::Gp { pa: p, .. }])",
-                "ogroup: Some(k::fragment![crate::Gp { pa: x, .. }])",
-            ),
-        ),
-        (
-            "instance-child",
-            kept_readable(
-                false,
-                "acct: { me @ Acct { id: i, .. }, .. }",
-                "acct: { Acct { aframe: Ag { aa: x, .. }, ..me }, .. }",
-            ),
-        ),
-    ]
-    .map(|(name, source)| {
-        let manifest = library_package(temporary.path(), &format!("kept-refused-{name}"), &source);
-        (name, first_error(target.path(), &manifest))
-    });
-    expect_test::expect![[r#"
-        [
             (
                 "binder",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched @ 100:66",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> (<frame> <pc> _ </pc> <gas> FGas:Int </gas> </frame> => <frame> <pc> X:Int </pc> <gas> FGas:Int </gas> </frame>)",
             ),
             (
                 "alias",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `frame` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched @ 100:88",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> (<frame> <pc> P:Int </pc> <gas> FGas:Int </gas> </frame> => <frame> <pc> X:Int </pc> <gas> FGas:Int </gas> </frame>)",
             ),
             (
                 "child-binder",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `inner` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched @ 100:102",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> (<outer> <inner> <x> _ </x> <y> IY:Int </y> </inner> <flag> _ </flag> </outer> => <outer> <inner> <x> X:Int </x> <y> IY:Int </y> </inner> <flag> 0 </flag> </outer>)",
             ),
             (
                 "optional-present",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched @ 100:94",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> (<ogroup> <pa> P:Int </pa> <pb> OgroupPb:Int </pb> </ogroup> => <ogroup> <pa> X:Int </pa> <pb> OgroupPb:Int </pb> </ogroup>)",
             ),
             (
                 "cells-optional-present",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `ogroup` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched @ 102:66",
+                "rule [make]: <k> make ( X:Int ) ~> Tail:K => .K ~> Tail:K </k> (<ogroup> <pa> P:Int </pa> <pb> OgroupPb:Int </pb> </ogroup> => <ogroup> <pa> X:Int </pa> <pb> OgroupPb:Int </pb> </ogroup>)",
             ),
             (
                 "instance-child",
-                "error[krs::syntax::invalid-record-update]: the result's record of the group `aframe` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched @ 100:111",
+                "rule [make]: <k> make ( X:Int ) => .K ... </k> <acct> <id> I:Int </id> (<aframe> <aa> _ </aa> <ab> MeAframeAb:Int </ab> </aframe> => <aframe> <aa> X:Int </aa> <ab> MeAframeAb:Int </ab> </aframe>) ... </acct>",
             ),
         ]
-    "#]].assert_debug_eq(&refused);
+    "#]].assert_debug_eq(&admitted);
+}
+
+/// A machine for `a_result_s_dots_over_a_whole_match_keep_the_children_it_leaves_unnamed`: fixed
+/// groups `frame`, `outer` (with the group child `inner`) and `two` (two group children), and
+/// the `?` group `ogroup`, every child starting other than its default; `{RULES}` is the rules.
+const KEEPS: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence(cmd (B, A, C, R, S, G, T, H) > right seq (Seq))]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("b {x}")] B { x: Int },
+    #[k::syntax("a {x}")] A { x: Int },
+    #[k::syntax("c {x}")] C { x: Int },
+    #[k::syntax("r {x}")] R { x: Int },
+    #[k::syntax("s {x}")] S { x: Int },
+    #[k::syntax("g {x}")] G { x: Int },
+    #[k::syntax("t {x}")] T { x: Int },
+    #[k::syntax("h {x}")] H { x: Int },
+    #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub gas: Int,
+}
+
+#[k::cell]
+pub struct Inner {
+    #[k::cell]
+    pub x: Int,
+    #[k::cell]
+    pub y: Int,
+}
+
+#[k::cell]
+pub struct Outer {
+    #[k::cell(nested)]
+    pub inner: Inner,
+    #[k::cell]
+    pub flag: Int,
+}
+
+#[k::cell]
+pub struct Gp {
+    #[k::cell]
+    pub pa: Int,
+    #[k::cell]
+    pub pb: Int,
+}
+
+#[k::cell]
+pub struct Lg {
+    #[k::cell]
+    pub lv: Int,
+    #[k::cell]
+    pub lw: Int,
+}
+
+#[k::cell]
+pub struct Rg {
+    #[k::cell]
+    pub rv: Int,
+    #[k::cell]
+    pub rw: Int,
+}
+
+#[k::cell]
+pub struct Two {
+    #[k::cell(nested)]
+    pub left: Lg,
+    #[k::cell(nested)]
+    pub right: Rg,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell(nested)]
+    pub outer: Outer,
+    #[k::cell(multiplicity = "?", nested)]
+    pub ogroup: Option<Gp>,
+    #[k::cell(nested)]
+    pub two: Two,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            frame: Frame { pc: 1, gas: 7 },
+            outer: Outer { inner: Inner { x: 2, y: 9 }, flag: 3 },
+            ogroup: Some(Gp { pa: 4, pb: 8 }),
+            two: Two { left: Lg { lv: 5, lw: 6 }, right: Rg { rv: 10, rw: 11 } },
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use Cmd::*;
+
+    seq: Seq { first, second } => k::k![first, second];
+}
+
+{RULES}
+"#;
+
+/// WHOLEKEEP cases 1 and 2: a result's record whose `..` leaves children unnamed over a group
+/// the subject matches whole, by a binder (`frame: f`, `f @ Frame { .. }`) or an alias, or
+/// inside a `?` group's `Some(..)`, is the update of that match: `Frame { pc: x, ..f }`, the
+/// children it leaves unnamed as they were. The rule is the one its explicit update writes, the
+/// base named as the lowering names it where the author names none (a group child of `o` is
+/// `o_inner`, an unnamed `?` group's match `ogroup`), so the two packages' K is one; a group child
+/// of a whole match takes its base from that match's same child, two children of one group
+/// apart, and a binder that reads like a hidden binder's name (`f_gas`) stays apart from it.
+/// `cells!` rules give the same K. Runs over a machine whose children all start off their
+/// defaults keep each child no record names.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of places, each with its explicit twin, and the runs."
+)]
+fn a_result_s_dots_over_a_whole_match_keep_the_children_it_leaves_unnamed() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // Each rule: its label, its implicit spelling, and its explicit twin.
+    let rules = [
+        (
+            "b",
+            "{ k: [B(x), ..], frame: f } => { k: [..], frame: Frame { pc: x, .. } }",
+            "{ k: [B(x), ..], frame: f @ Frame { .. } } => { k: [..], frame: Frame { pc: x, ..f } }",
+        ),
+        (
+            "a",
+            "{ k: [A(x), ..], frame: f @ Frame { pc: p, .. } } => { k: [..], frame: Frame { pc: x, .. } }",
+            "{ k: [A(x), ..], frame: f @ Frame { pc: p, .. } } => { k: [..], frame: Frame { pc: x, ..f } }",
+        ),
+        (
+            "c",
+            "{ k: [C(x), ..], outer: Outer { inner: i, .. } } => { k: [..], outer: Outer { inner: Inner { x: x, .. }, flag: 0 } }",
+            "{ k: [C(x), ..], outer: Outer { inner: i @ Inner { .. }, .. } } => { k: [..], outer: Outer { inner: Inner { x: x, ..i }, flag: 0 } }",
+        ),
+        (
+            "r",
+            "{ k: [R(x), ..], outer: o } => { k: [..], outer: Outer { inner: Inner { x: x, .. }, .. } }",
+            "{ k: [R(x), ..], outer: o @ Outer { inner: o_inner @ Inner { .. }, .. } } => { k: [..], outer: Outer { inner: Inner { x: x, ..o_inner }, ..o } }",
+        ),
+        (
+            "s",
+            "{ k: [S(x), ..], ogroup: Some(Gp { pa: p, .. }) } => { k: [..], ogroup: Some(Gp { pa: x, .. }) }",
+            "{ k: [S(x), ..], ogroup: Some(ogroup @ Gp { pa: p, .. }) } => { k: [..], ogroup: Some(Gp { pa: x, ..ogroup }) }",
+        ),
+        (
+            "g",
+            "{ k: [G(x), ..], ogroup: Some(g) } => { k: [..], ogroup: Some(Gp { pa: x, .. }) }",
+            "{ k: [G(x), ..], ogroup: Some(g @ Gp { .. }) } => { k: [..], ogroup: Some(Gp { pa: x, ..g }) }",
+        ),
+        (
+            "t",
+            "{ k: [T(x), ..], two: t } => { k: [..], two: Two { left: Lg { lv: x, .. }, right: Rg { rv: x, .. } } }",
+            "{ k: [T(x), ..], two: t @ Two { left: t_left @ Lg { .. }, right: t_right @ Rg { .. } } } => { k: [..], two: Two { left: Lg { lv: x, ..t_left }, right: Rg { rv: x, ..t_right } } }",
+        ),
+        (
+            "h",
+            "{ k: [H(x), ..], frame: f, outer: Outer { flag: f_gas, .. } } => { k: [..], frame: Frame { pc: f_gas, .. }, outer: Outer { flag: x, .. } }",
+            "{ k: [H(x), ..], frame: f @ Frame { .. }, outer: Outer { flag: f_gas, .. } } => { k: [..], frame: Frame { pc: f_gas, ..f }, outer: Outer { flag: x, .. } }",
+        ),
+    ];
+    let package = |name: &str, rules: String| {
+        library_package(
+            temporary.path(),
+            name,
+            &KEEPS.replace(
+                "{RULES}",
+                &format!("k::rules! {{\n    for Machine;\n    use Cmd::*;\n\n{rules}}}\n"),
+            ),
+        )
+    };
+    let written = |twin: bool| {
+        rules
+            .iter()
+            .map(|(label, implicit, explicit)| {
+                format!("    {label}: {};\n", if twin { explicit } else { implicit })
+            })
+            .collect::<Vec<_>>()
+            .concat()
+    };
+    let implicit = package("keeps-implicit", written(false));
+    let explicit = package("keeps-explicit", written(true));
+    let [implicit_k, explicit_k] =
+        [&implicit, &explicit].map(|manifest| emitted_k(target.path(), manifest));
+    let one_line = |k: &str, label: &str| {
+        rule(k, label)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let emitted = rules
+        .iter()
+        .map(|(label, _, _)| {
+            let k = one_line(&implicit_k, label);
+            assert_eq!(k, one_line(&explicit_k, label), "{label}");
+            k
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "rule [b]: <k> b X:Int => .K ... </k> (<frame> <pc> _ </pc> <gas> FGas:Int </gas> </frame> => <frame> <pc> X:Int </pc> <gas> FGas:Int </gas> </frame>)",
+            "rule [a]: <k> a X:Int => .K ... </k> (<frame> <pc> P:Int </pc> <gas> FGas:Int </gas> </frame> => <frame> <pc> X:Int </pc> <gas> FGas:Int </gas> </frame>)",
+            "rule [c]: <k> c X:Int => .K ... </k> (<outer> <inner> <x> _ </x> <y> IY:Int </y> </inner> <flag> _ </flag> </outer> => <outer> <inner> <x> X:Int </x> <y> IY:Int </y> </inner> <flag> 0 </flag> </outer>)",
+            "rule [r]: <k> r X:Int => .K ... </k> (<outer> <inner> <x> _ </x> <y> OInnerY:Int </y> </inner> <flag> OFlag:Int </flag> </outer> => <outer> <inner> <x> X:Int </x> <y> OInnerY:Int </y> </inner> <flag> OFlag:Int </flag> </outer>)",
+            "rule [s]: <k> s X:Int => .K ... </k> (<ogroup> <pa> P:Int </pa> <pb> OgroupPb:Int </pb> </ogroup> => <ogroup> <pa> X:Int </pa> <pb> OgroupPb:Int </pb> </ogroup>)",
+            "rule [g]: <k> g X:Int => .K ... </k> (<ogroup> <pa> _ </pa> <pb> GPb:Int </pb> </ogroup> => <ogroup> <pa> X:Int </pa> <pb> GPb:Int </pb> </ogroup>)",
+            "rule [t]: <k> t X:Int => .K ... </k> (<two> <left> <lv> _ </lv> <lw> TLeftLw:Int </lw> </left> <right> <rv> _ </rv> <rw> TRightRw:Int </rw> </right> </two> => <two> <left> <lv> X:Int </lv> <lw> TLeftLw:Int </lw> </left> <right> <rv> X:Int </rv> <rw> TRightRw:Int </rw> </right> </two>)",
+            "rule [h]: <k> h X:Int => .K ... </k> (<frame> <pc> _ </pc> <gas> FGas1:Int </gas> </frame> => <frame> <pc> FGas:Int </pc> <gas> FGas1:Int </gas> </frame>) <flag> FGas:Int => X:Int </flag>",
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+
+    // The `cells!` rules: a binder of the group, a binder of a group child, a `?` group's present
+    // record, and a binder of a group with two group children.
+    let cells = [
+        ("cb", "f: Frame,", "frame: f", "frame: k::fragment![crate::Frame { pc: x, .. }]"),
+        (
+            "cc",
+            "i: Inner,",
+            "outer: k::fragment![crate::Outer { inner: i, .. }]",
+            "outer: k::fragment![crate::Outer { inner: crate::Inner { x: x, .. }, flag: 0 }]",
+        ),
+        (
+            "cs",
+            "p: Int,",
+            "ogroup: Some(k::fragment![crate::Gp { pa: p, .. }])",
+            "ogroup: Some(k::fragment![crate::Gp { pa: x, .. }])",
+        ),
+        (
+            "ct",
+            "t: Two,",
+            "two: t",
+            "two: k::fragment![crate::Two { left: crate::Lg { lv: x, .. }, right: crate::Rg { rv: x, .. } }]",
+        ),
+    ]
+    .iter()
+    .map(|(label, parameters, subject, result)| {
+        let command = label[1..].to_uppercase();
+        format!(
+            "#[k::rule(label = \"{label}\")]\npub fn {label}(\n    x: Int,\n    {parameters}\n    k::cells! {{ k: k::configuration::KCell(Cmd::{command} {{ x }}, tail @ ..), {subject}, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
+        )
+    })
+    .collect::<Vec<_>>()
+    .concat();
+    let cells_manifest = library_package(
+        temporary.path(),
+        "keeps-cells",
+        &KEEPS.replace("{RULES}", &cells),
+    );
+    let cells_k = emitted_k(target.path(), &cells_manifest);
+    let emitted = ["cb", "cc", "cs", "ct"].map(|label| one_line(&cells_k, label));
+    expect_test::expect![[r#"
+        [
+            "rule [cb]: <k> b X:Int ~> Tail:K => .K ~> Tail:K </k> (<frame> <pc> _ </pc> <gas> FGas:Int </gas> </frame> => <frame> <pc> X:Int </pc> <gas> FGas:Int </gas> </frame>)",
+            "rule [cc]: <k> c X:Int ~> Tail:K => .K ~> Tail:K </k> (<outer> <inner> <x> _ </x> <y> IY:Int </y> </inner> <flag> _ </flag> </outer> => <outer> <inner> <x> X:Int </x> <y> IY:Int </y> </inner> <flag> 0 </flag> </outer>)",
+            "rule [cs]: <k> s X:Int ~> Tail:K => .K ~> Tail:K </k> (<ogroup> <pa> P:Int </pa> <pb> OgroupPb:Int </pb> </ogroup> => <ogroup> <pa> X:Int </pa> <pb> OgroupPb:Int </pb> </ogroup>)",
+            "rule [ct]: <k> t X:Int ~> Tail:K => .K ~> Tail:K </k> (<two> <left> <lv> _ </lv> <lw> TLeftLw:Int </lw> </left> <right> <rv> _ </rv> <rw> TRightRw:Int </rw> </right> </two> => <two> <left> <lv> X:Int </lv> <lw> TLeftLw:Int </lw> </left> <right> <rv> X:Int </rv> <rw> TRightRw:Int </rw> </right> </two>)",
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+
+    // Each rule keeps every child its record leaves unnamed: `gas` 7, `y` 9, `pb` 8, `lw` 6 and
+    // `rw` 11, as the machine starts.
+    let program = implicit.with_file_name("program.txt");
+    fs::write(&program, "b 20 c 21 s 22 t 23").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &implicit,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<generatedTop> <k> .K </k> <frame> <pc> 20 </pc> <gas> 7 </gas> </frame> <outer> <inner> <x> 21 </x> <y> 9 </y> </inner> <flag> 0 </flag> </outer> <ogroup> <pa> 22 </pa> <pb> 8 </pb> </ogroup> <two> <left> <lv> 23 </lv> <lw> 6 </lw> </left> <right> <rv> 23 </rv> <rw> 11 </rw> </right> </two> </generatedTop>"]
+    .assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+    fs::write(
+        cells_manifest.with_file_name("program.txt"),
+        "b 20 c 21 s 22 t 23",
+    )
+    .unwrap();
+    let program = cells_manifest.with_file_name("program.txt");
+    let (success, cells_stdout, stderr) = krs(
+        target.path(),
+        &cells_manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{cells_stdout}\n{stderr}");
+    assert_eq!(cells_stdout, stdout);
 }
 
 /// EDOTS item 2: a readable record's own `..` stands for the cells it does not name, which a
@@ -5209,8 +5509,9 @@ impl Machine {{
 /// are the group with every child unconstrained, `Some(Gp { .. })`; a readable `Some(x)` the rule
 /// reads elsewhere is `Some(x @ Gp { .. })`, matched by its children's binders and rebuilt from
 /// them where read; a `cells!` rule writes it as the cell's alias where the result leaves the
-/// group as it was, and refuses it, a limit, where the result rewrites the group. Each rule is
-/// run with the group absent, where it is stuck, and present, where it steps.
+/// group as it was, and, as a readable rule does, by its children's binders where the result
+/// rewrites the group. Each rule is run with the group absent, where it is stuck, and present,
+/// where it steps.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -5237,7 +5538,7 @@ fn a_present_optional_group_is_stated_present() {
     let rebuilt = "<ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup>";
     // Each case: its name, whether it is a `cells!` rule, its entries, its K, and the cells the
     // run with the group present ends with.
-    let cases: [(&str, bool, &str, String, &str); 11] = [
+    let cases: [(&str, bool, &str, String, &str); 12] = [
         (
             "some-x",
             false,
@@ -5315,6 +5616,13 @@ fn a_present_optional_group_is_stated_present() {
             format!("( {unconstrained} #as X:OgroupCell ) <slot> _ => X:OgroupCell </slot>"),
             "<ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> <slot> <ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> </slot>",
         ),
+        (
+            "cells-moved-out",
+            true,
+            "ogroup: Some(x), slot: k::configuration::Cell(_) => , ogroup: None, slot: k::configuration::Cell(x)",
+            format!("({rebuilt} => .Bag) <slot> _ => {rebuilt} </slot>"),
+            ".OgroupCell <slot> <ogroup> <pa> 3 </pa> <pb> 4 </pb> </ogroup> </slot>",
+        ),
     ];
     let mut emitted = Vec::new();
     for (name, cells_rule, entries, cells_k, after) in &cases {
@@ -5363,6 +5671,7 @@ fn a_present_optional_group_is_stated_present() {
             "cells-delete: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> (<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => .Bag)",
             "cells-restated: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>",
             "cells-read-elsewhere: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> ( <ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> #as X:OgroupCell ) <slot> _ => X:OgroupCell </slot>",
+            "cells-moved-out: rule [go]: <k> go ~> Tail:K => .K ~> Tail:K </k> (<ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup> => .Bag) <slot> _ => <ogroup> <pa> XPa:Int </pa> <pb> XPb:Int </pb> </ogroup> </slot>",
         ]
     "#]]
     .assert_debug_eq(&emitted);
@@ -5379,18 +5688,6 @@ fn a_present_optional_group_is_stated_present() {
             "claim [go]: <k> go => .K ... </k> {rebuilt} <slot> _ => {rebuilt} </slot> [one-path]"
         )
     );
-
-    // A `cells!` rule cannot rebuild the group `x` matched where the result rewrites it.
-    let manifest = library_package(
-        temporary.path(),
-        "ogroup-cells-moved-out",
-        &cells(
-            false,
-            "ogroup: Some(x), slot: k::configuration::Cell(_) => , ogroup: None, slot: k::configuration::Cell(x)",
-        ),
-    );
-    expect_test::expect!["error[krs::analysis::collection-entry]: not supported yet: `x` binds the present group `ogroup`, which the result rewrites, and the rule reads `x` elsewhere: a `cells!` rule cannot rebuild the group `x` matched from its children; bind them instead, `Some(k::fragment![crate::Gp { pa: pa, pb: pb }])`, and write that group where `x` is read"]
-        .assert_eq(&check_errors(target.path(), &manifest));
 }
 
 /// `SINGLE_BODY` with `hold(x)`, an Int field, `keep(body)`, a field of sort `KSequence`,

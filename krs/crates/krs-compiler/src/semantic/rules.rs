@@ -1429,6 +1429,10 @@ fn head_item_sort<'a>(
 
 /// Infers the terms of a readable optional or collection state (KF-023) at
 /// its cell's sort, an instance child's at the child's sort.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One arm per state form, each inferring the terms it holds."
+)]
 fn infer_readable_state(
     builder: &mut StructuredTermBuilder<'_>,
     declarations: &DescriptorIndex<'_>,
@@ -1473,7 +1477,16 @@ fn infer_readable_state(
                 }
             }
         },
-        State::Term(term) | State::Group(term) => builder.infer(term, Some(&sort), subject)?,
+        // A result's group record whose `..` leaves a child unnamed is the record of the
+        // children it names, as at a fixed group's entry: the others are taken from the subject's
+        // match of the same place ([`super::cell_states::with_implicit_bases_in_head_rule`]).
+        State::Term(term) | State::Group(term) => match (!subject)
+            .then(|| super::group_records::kept_record(term, field, declarations))
+            .flatten()
+        {
+            Some(record) => infer_readable_record(builder, declarations, field, &record, false)?,
+            None => builder.infer(term, Some(&sort), subject)?,
+        },
         State::KSequence(sequence) => infer_readable_items(builder, &sort, sequence, subject)?,
         State::Record(record) => {
             infer_readable_record(builder, declarations, field, record, subject)?;

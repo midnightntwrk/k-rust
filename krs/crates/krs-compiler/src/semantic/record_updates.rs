@@ -1511,6 +1511,94 @@ pub(crate) fn structured_rule_long_form(
     Ok(rule)
 }
 
+/// The long form of a `cells!` rule's terms, as [`head_rule_long_form_in`] gives a readable
+/// rule's: every term names every field from the bases its updates take, an alias used only as
+/// a base or over a group record is no binding, and each hidden binder the long form names comes
+/// with the sort its field is declared at. A `cells!` rule writes no update of its own beside
+/// `..me`, an instance's, so the updates are those the lowering gives it
+/// ([`super::cell_states::with_implicit_bases`]).
+///
+/// # Errors
+///
+/// The scan's diagnostics, a lookup error for a cell declaration absent from `declarations`,
+/// and a hidden binder of a parametric record's field whose pattern fixes no instance.
+pub(super) fn configuration_rule_long_form(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<
+    (
+        krs_ir::DescriptorConfigurationRule,
+        Vec<(SemanticId, SemanticSortRef)>,
+    ),
+    DescriptorLoweringError,
+> {
+    fn cells<I>(cells: &krs_ir::ProtocolRuleCells<I, DescriptorTerm>) -> Vec<&DescriptorTerm> {
+        cells
+            .cells
+            .iter()
+            .flat_map(|cell| cell.value.terms())
+            .collect()
+    }
+    let conditions = [&rule.requires, &rule.ensures]
+        .into_iter()
+        .chain(rule.claim.as_ref().map(|claim| &claim.ensures))
+        .flatten()
+        .map(|condition| &condition.term);
+    let terms = cells(&rule.subject)
+        .into_iter()
+        .chain(rule.result.iter().flat_map(cells))
+        .chain(conditions)
+        .collect::<Vec<_>>();
+    let updates = RecordUpdates::scan(descriptor, &terms, catalog, declarations, false)?;
+    let long = |term: &DescriptorTerm| updates.long_form(term, catalog, declarations);
+    let mut rule = rule.clone();
+    for cell in rule
+        .subject
+        .cells
+        .iter_mut()
+        .chain(rule.result.iter_mut().flat_map(|result| &mut result.cells))
+    {
+        long_state(&mut cell.value, &long)?;
+    }
+    for condition in [&mut rule.requires, &mut rule.ensures]
+        .into_iter()
+        .chain(rule.claim.as_mut().map(|claim| &mut claim.ensures))
+        .flatten()
+    {
+        condition.term = long(&condition.term)?;
+    }
+    rule.bindings
+        .retain(|binding| !updates.is_dropped(&binding.name));
+    if let Some(claim) = &mut rule.claim {
+        claim
+            .universals
+            .retain(|binder| !updates.is_dropped(&binder.name));
+    }
+    let hidden = updates
+        .hidden_binder_sorts()
+        .into_iter()
+        .map(|(id, sort)| {
+            let Some(sort) = sort else {
+                let (field, key) = updates
+                    .hidden_binder_field(&id)
+                    .expect("a hidden binder fills a field of its base");
+                return Err(invalid(
+                    descriptor,
+                    key,
+                    format!(
+                        "the field `{}` of a parametric record takes the sort of its instance; write the field, or fix the instance with a turbofish",
+                        field.as_str()
+                    ),
+                ));
+            };
+            Ok((id, sort))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((rule, hidden))
+}
+
 fn long_state(
     state: &mut krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
     long: &impl Fn(&DescriptorTerm) -> Result<DescriptorTerm, DescriptorLoweringError>,

@@ -820,27 +820,27 @@ pub(super) fn with_stated_present_groups(
 }
 
 /// A `cells!` rule with each subject `Some(x)` and `Some(_)` of an optional group written as the
-/// pattern it states, as [`with_stated_present_groups`] writes a readable rule's; `None` where
-/// the rule has none.
+/// pattern it states, as [`with_stated_present_groups`] writes a readable rule's, and whether it
+/// holds an alias the record update long form rebuilds; `None` where the rule has none.
 ///
 /// `Some(_)` is `Some(G { .. })`, and so is `Some(x)` where nothing else reads `x`, a result that
 /// puts the group back unchanged (`Some(x) => Some(x)`) included, which leaves the cell as it
-/// was. Where the rule reads `x` elsewhere and leaves the cell as it was, `x` is the alias of the
-/// present group, `Some(x @ G { .. })`, K's `( <g> .. </g> #as X )`. A `cells!` rule has no
-/// record update long form to rebuild `x` from its children, and an alias of a cell does not
-/// stand inside that cell's rewrite, so a binder the rule reads elsewhere on a group the result
-/// rewrites is a limit.
+/// was. Where the rule reads `x` elsewhere, `x` is the alias of the present group, `Some(x @ G {
+/// .. })`: K's `( <g> .. </g> #as X )` where the result leaves the cell as it was. An alias of a
+/// cell does not stand inside that cell's rewrite, so where the result rewrites the group the
+/// alias is the one the long form rebuilds, as a readable rule's is: matched by its children's
+/// binders, and each use of `x` the group rebuilt from them (N7).
 ///
 /// # Errors
 ///
-/// A cell the declarations lack, and that limit (`krs::analysis::collection-entry`).
+/// A cell the declarations lack.
 pub(super) fn with_present_groups(
-    descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
     declarations: &DescriptorIndex<'_>,
-) -> Result<Option<krs_ir::DescriptorConfigurationRule>, DescriptorLoweringError> {
+) -> Result<Option<(krs_ir::DescriptorConfigurationRule, bool)>, DescriptorLoweringError> {
     let mut stated = rule.clone();
     let mut changed = false;
+    let mut rebuilt = false;
     for index in 0..rule.subject.cells.len() {
         let subject = &rule.subject.cells[index];
         let declared = require_cell_field(&subject.field.cell, declarations)?;
@@ -878,25 +878,10 @@ pub(super) fn with_present_groups(
                         claim.universals.retain(|binder| binder.name != *name);
                     }
                     present_group(group, key)
-                } else if result.is_some() && !restated {
-                    let children = declarations
-                        .cell(group)?
-                        .fields
-                        .iter()
-                        .map(|field| format!("{0}: {0}", field.rust_field))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    return Err(collection_error(
-                        descriptor,
-                        codes::analysis::COLLECTION_ENTRY,
-                        key,
-                        format!(
-                            "not supported yet: `{name}` binds the present group `{}`, which the result rewrites, and the rule reads `{name}` elsewhere: a `cells!` rule cannot rebuild the group `{name}` matched from its children; bind them instead, `Some(k::fragment![crate::{} {{ {children} }}])`, and write that group where `{name}` is read",
-                            declared.rust_field,
-                            group.item_name()
-                        ),
-                    ));
                 } else {
+                    // A group the result rewrites holds no alias of itself: the long form
+                    // rebuilds `x` from its children.
+                    rebuilt |= result.is_some() && !restated;
                     present_group_alias(group, key, name)
                 }
             }
@@ -907,7 +892,7 @@ pub(super) fn with_present_groups(
         };
         changed = true;
     }
-    Ok(changed.then_some(stated))
+    Ok(changed.then_some((stated, rebuilt)))
 }
 
 /// How many times the rule's terms read or bind the variable `name`.
@@ -930,6 +915,541 @@ fn variable_occurrences(rule: &krs_ir::DescriptorConfigurationRule, name: &str) 
     }
     // A rule that does not serialize reads its binder wherever it could.
     serde_json::to_value(rule).map_or(usize::MAX, |value| walk(&value, name))
+}
+
+/// A readable rule with each result group record whose `..` leaves children unnamed over a group
+/// the subject matches whole given the base that `..` keeps ([`ImplicitBases`]); `None` where the
+/// rule has none.
+///
+/// # Errors
+///
+/// A cell the declarations lack.
+pub(super) fn with_implicit_bases_in_head_rule(
+    rule: &krs_ir::DescriptorHeadRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorHeadRule>, DescriptorLoweringError> {
+    let mut rewritten = rule.clone();
+    let mut bases = ImplicitBases::new(declarations, &rewritten);
+    for extra in &mut rewritten.extras {
+        match extra {
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                before,
+                after: Some(after),
+                ..
+            } => {
+                let declared = require_cell_field(&cell.cell, declarations)?;
+                if matches!(declared.content, ProtocolCellContent::Nested { .. }) {
+                    bases.place(Some(before), after, false, &declared.rust_field)?;
+                }
+            }
+            krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                before,
+                after: Some(after),
+                ..
+            } => {
+                let declared = require_cell_field(&cell.cell, declarations)?;
+                bases.state(declared, Some(before), after)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(bases.changed.then_some(rewritten))
+}
+
+/// A `cells!` rule with each result group record whose `..` leaves children unnamed over a group
+/// the subject matches whole given the base that `..` keeps, as [`with_implicit_bases_in_head_rule`]
+/// gives a readable rule's; `None` where the rule has none.
+///
+/// # Errors
+///
+/// A cell the declarations lack.
+pub(super) fn with_implicit_bases(
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorConfigurationRule>, DescriptorLoweringError> {
+    if rule.result.is_none() {
+        return Ok(None);
+    }
+    let mut rewritten = rule.clone();
+    let mut bases = ImplicitBases::new(declarations, &rewritten);
+    let krs_ir::DescriptorConfigurationRule {
+        subject, result, ..
+    } = &mut rewritten;
+    for cell in result.iter_mut().flat_map(|result| &mut result.cells) {
+        let declared = require_cell_field(&cell.field.cell, declarations)?;
+        let matched = subject
+            .cells
+            .iter_mut()
+            .find(|matched| matched.field.cell == cell.field.cell)
+            .map(|matched| &mut matched.value);
+        bases.state(declared, matched, &mut cell.value)?;
+    }
+    Ok(bases.changed.then_some(rewritten))
+}
+
+/// The base a result's group record keeps where its `..` leaves children unnamed (one rule for
+/// every place: `..` in a result's record over a cell that is there means its unnamed children
+/// are unchanged).
+///
+/// The record is then `..b`, where `b` is the subject's match of the same place. Where that place
+/// is written as its own cells, the subject matching it by a record of its children, by `_`, or
+/// not at all, the record's children are written as their own cells and the others are left as
+/// they were, which needs no base. Elsewhere the place is written as one term naming every child:
+/// beside a subject that matches the group whole, by a binder or an alias; inside a `?` group's
+/// `Some(..)`; as an instance record's group child; and below a record so written. There the
+/// subject's match is named and the record updates it: a binder `f` is `f @ G { .. }`, an alias
+/// is its own name, and a record, `_` or a child an open subject record leaves out is the alias of
+/// a name of the sentence's own, which no other binder has. The record update long form then
+/// names every child from that base (N7). A place nothing matched, such as a created instance's
+/// child, has no base: its `..` is the template's.
+struct ImplicitBases<'a, 'b> {
+    declarations: &'a DescriptorIndex<'b>,
+    /// Every name the sentence holds, its binders' included, and each base name given so far.
+    taken: BTreeSet<String>,
+    changed: bool,
+}
+
+impl<'a, 'b> ImplicitBases<'a, 'b> {
+    fn new(declarations: &'a DescriptorIndex<'b>, rule: &impl serde::Serialize) -> Self {
+        fn names(value: &serde_json::Value, taken: &mut BTreeSet<String>) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    for (field, value) in object {
+                        if let (true, serde_json::Value::String(name)) =
+                            (matches!(field.as_str(), "name" | "label"), value)
+                        {
+                            taken.insert(name.clone());
+                        }
+                        names(value, taken);
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for value in values {
+                        names(value, taken);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut taken = BTreeSet::new();
+        if let Ok(value) = serde_json::to_value(rule) {
+            names(&value, &mut taken);
+        }
+        Self {
+            declarations,
+            taken,
+            changed: false,
+        }
+    }
+
+    /// A name no binder of the sentence has, from `hint` (its raw identifiers' `r#` dropped).
+    fn fresh(&mut self, hint: &str) -> String {
+        let hint = hint.replace("r#", "");
+        let mut name = hint.clone();
+        let mut ordinal = 2_usize;
+        while self.taken.contains(&name) {
+            name = format!("{hint}_{ordinal}");
+            ordinal += 1;
+        }
+        self.taken.insert(name.clone());
+        name
+    }
+
+    /// The bases of the result's state `result` of the cell `declared`, whose subject state is
+    /// `subject`: a fixed group's, a present `?` group's content, or the group children of the
+    /// result instances a collection's subject instances are.
+    fn state(
+        &mut self,
+        declared: &DescriptorCellField,
+        subject: Option<&mut DescriptorState>,
+        result: &mut DescriptorState,
+    ) -> Result<(), DescriptorLoweringError> {
+        let ProtocolCellContent::Nested { declaration } = &declared.content else {
+            return Ok(());
+        };
+        let hint = declared.rust_field.as_str();
+        match declared_multiplicity(declared, self.declarations) {
+            Multiplicity::One => self.group_state(subject, result, false, hint),
+            Multiplicity::Optional => match (subject, result) {
+                (
+                    Some(ProtocolRuleStateTerm::Present { value: subject }),
+                    ProtocolRuleStateTerm::Present { value: result },
+                ) => self.group_state(Some(subject), result, true, hint),
+                _ => Ok(()),
+            },
+            Multiplicity::Many(order) => match (subject, result) {
+                (
+                    Some(ProtocolRuleStateTerm::Instances(subject)),
+                    ProtocolRuleStateTerm::Instances(result),
+                ) => {
+                    let declarations = self.declarations;
+                    let children = &declarations.cell(&declaration.declaration)?.fields;
+                    let twins = result_subjects(order, children, subject, result);
+                    let mut subjects = subject
+                        .front
+                        .iter_mut()
+                        .chain(&mut subject.back)
+                        .collect::<Vec<_>>();
+                    for (back, items) in [(false, &mut result.front), (true, &mut result.back)] {
+                        for (position, instance) in items.iter_mut().enumerate() {
+                            let Some(&index) = twins.get(&(back, position)) else {
+                                continue;
+                            };
+                            self.instance(children, &mut *subjects[index], instance)?;
+                        }
+                    }
+                    Ok(())
+                }
+                _ => Ok(()),
+            },
+        }
+    }
+
+    /// The bases of the group children `result`, a result instance, writes, against those of
+    /// `subject`, the subject instance it is: an instance record writes each group child whole.
+    fn instance(
+        &mut self,
+        children: &[DescriptorCellField],
+        subject: &mut ProtocolRuleInstance<DescriptorTerm>,
+        result: &mut ProtocolRuleInstance<DescriptorTerm>,
+    ) -> Result<(), DescriptorLoweringError> {
+        let label = subject.label.clone();
+        for field in &mut result.fields {
+            let Some(child) = children
+                .iter()
+                .find(|child| child.rust_field == field.field)
+            else {
+                continue;
+            };
+            if !matches!(child.content, ProtocolCellContent::Nested { .. })
+                || declared_multiplicity(child, self.declarations) != Multiplicity::One
+                || !group_state_term(&field.value).is_some_and(|term| self.needs_base(&term))
+            {
+                continue;
+            }
+            let hint = label.as_ref().map_or_else(
+                || field.field.clone(),
+                |label| format!("{label}_{}", field.field),
+            );
+            // A child the subject instance leaves out, where it is open, is matched by `_`, which
+            // its base then names.
+            let position = match subject
+                .fields
+                .iter()
+                .position(|matched| matched.field == field.field)
+            {
+                Some(position) => position,
+                None if !matches!(subject.rest, ProtocolInstanceRest::Exact) => {
+                    subject.fields.push(krs_ir::ProtocolRuleInstanceField {
+                        key: subject.key.clone(),
+                        field: field.field.clone(),
+                        value: ProtocolRuleStateTerm::Group(DescriptorTerm::Wildcard {
+                            key: subject.key.clone(),
+                        }),
+                    });
+                    subject.fields.len() - 1
+                }
+                None => continue,
+            };
+            self.group_state(
+                Some(&mut subject.fields[position].value),
+                &mut field.value,
+                true,
+                &hint,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The bases of the result's group state `result` of a place whose subject state is
+    /// `subject`, written whole there if `whole`: each state as its group term, written back as
+    /// that term where a base was given. A record of entries at a place written as its own cells
+    /// is one entry per child, each child its own place, whether or not its children are terms.
+    fn group_state(
+        &mut self,
+        subject: Option<&mut DescriptorState>,
+        result: &mut DescriptorState,
+        whole: bool,
+        hint: &str,
+    ) -> Result<(), DescriptorLoweringError> {
+        let matched_whole = |state: &DescriptorState| {
+            matches!(
+                state,
+                ProtocolRuleStateTerm::Term(
+                    DescriptorTerm::Variable { .. } | DescriptorTerm::As { .. }
+                ) | ProtocolRuleStateTerm::Group(
+                    DescriptorTerm::Variable { .. } | DescriptorTerm::As { .. }
+                )
+            )
+        };
+        if !whole
+            && !subject.as_deref().is_some_and(matched_whole)
+            && let ProtocolRuleStateTerm::Record(record) = result
+        {
+            let mut matched = match subject {
+                Some(ProtocolRuleStateTerm::Record(matched)) => Some(&mut matched.fields),
+                _ => None,
+            };
+            for field in &mut record.fields {
+                let child = matched.as_mut().and_then(|fields| {
+                    fields
+                        .iter_mut()
+                        .find(|child| child.field == field.field)
+                        .map(|child| &mut child.value)
+                });
+                let hint = format!("{hint}_{}", field.field);
+                self.group_state(child, &mut field.value, false, &hint)?;
+            }
+            return Ok(());
+        }
+        let Some(mut result_term) = group_state_term(result) else {
+            return Ok(());
+        };
+        if !self.needs_base(&result_term) {
+            return Ok(());
+        }
+        let mut subject_term = subject.as_deref().and_then(group_state_term);
+        let unbased = subject_term.clone();
+        let changed = std::mem::replace(&mut self.changed, false);
+        self.place(subject_term.as_mut(), &mut result_term, whole, hint)?;
+        if self.changed {
+            *result = ProtocolRuleStateTerm::Group(result_term);
+            if subject_term != unbased
+                && let (Some(state), Some(term)) = (subject, subject_term)
+            {
+                *state = ProtocolRuleStateTerm::Group(term);
+            }
+        }
+        self.changed |= changed;
+        Ok(())
+    }
+
+    /// Whether `result`, a result's term of a group place, is a group record that leaves children
+    /// unnamed with `..` and takes them from no base, or holds such a record as a group child.
+    fn needs_base(&self, result: &DescriptorTerm) -> bool {
+        let DescriptorTerm::Cell {
+            declaration,
+            fields,
+            open,
+            update: None,
+            ..
+        } = result
+        else {
+            return false;
+        };
+        (*open
+            && self
+                .declarations
+                .cell(declaration)
+                .is_ok_and(|group| fields.len() < group.fields.len()))
+            || fields.iter().any(|field| self.needs_base(&field.value))
+    }
+
+    /// Gives `result`, the result's term of a group place, and the group records it holds, the
+    /// base their `..` keeps, where `subject` is the subject's term of the same place; `whole`
+    /// says that the place is written as one term ([`ImplicitBases`]).
+    fn place(
+        &mut self,
+        subject: Option<&mut DescriptorTerm>,
+        result: &mut DescriptorTerm,
+        whole: bool,
+        hint: &str,
+    ) -> Result<(), DescriptorLoweringError> {
+        if !self.needs_base(result) {
+            return Ok(());
+        }
+        let DescriptorTerm::Cell {
+            key,
+            declaration,
+            fields,
+            open,
+            update,
+            ..
+        } = result
+        else {
+            return Ok(());
+        };
+        let group = declaration.clone();
+        let whole = whole
+            || matches!(
+                subject,
+                Some(DescriptorTerm::Variable { .. } | DescriptorTerm::As { .. })
+            );
+        if !whole {
+            // Each child is its own cell's entry, against the subject record's same child.
+            let mut subject = subject;
+            for field in fields.iter_mut() {
+                let matched = match subject.as_deref_mut() {
+                    Some(DescriptorTerm::Cell {
+                        declaration,
+                        fields,
+                        ..
+                    }) if *declaration == group => fields
+                        .iter_mut()
+                        .find(|matched| matched.field == field.field)
+                        .map(|matched| &mut *matched.value),
+                    _ => None,
+                };
+                let hint = format!("{hint}_{}", field.field.as_str());
+                self.place(matched, &mut field.value, false, &hint)?;
+            }
+            return Ok(());
+        }
+        let Some(subject) = subject else {
+            return Ok(());
+        };
+        let leaves = *open
+            && self
+                .declarations
+                .cell(&group)
+                .is_ok_and(|declared| fields.len() < declared.fields.len());
+        let named = if leaves {
+            let Some(base) = self.base(subject, &group, hint) else {
+                return Ok(());
+            };
+            *update = Some(Box::new(DescriptorTerm::Variable {
+                key: key.clone(),
+                path_key: key.clone(),
+                name: base.clone(),
+            }));
+            *open = false;
+            self.changed = true;
+            Some(base)
+        } else {
+            None
+        };
+        // The record is written whole, so each group child it writes is too, against the subject
+        // record's same child, which an open subject record leaving it out matches by `_`; each
+        // child's base is named after the subject's own name where it has one.
+        let Some((alias, matched, matched_open, matched_key)) = record_fields(subject, &group)
+        else {
+            return Ok(());
+        };
+        let hint = named.or(alias).unwrap_or_else(|| hint.to_owned());
+        for field in fields.iter_mut() {
+            if !self.needs_base(&field.value) {
+                continue;
+            }
+            let position = match matched.iter().position(|one| one.field == field.field) {
+                Some(position) => position,
+                None if matched_open => {
+                    matched.push(krs_ir::DescriptorCellTermField {
+                        key: matched_key.clone(),
+                        field: field.field.clone(),
+                        value: Box::new(DescriptorTerm::Wildcard {
+                            key: matched_key.clone(),
+                        }),
+                    });
+                    matched.len() - 1
+                }
+                None => continue,
+            };
+            let hint = format!("{hint}_{}", field.field.as_str());
+            self.place(
+                Some(&mut matched[position].value),
+                &mut field.value,
+                true,
+                &hint,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Names `subject`, the subject's term of a place of the group `group`, as a base: a binder
+    /// is the alias of the group's record that names no child, an alias names its own pattern,
+    /// and a record or `_` becomes the alias of a fresh name from `hint`. `None` for a term that
+    /// is no match of the group.
+    fn base(
+        &mut self,
+        subject: &mut DescriptorTerm,
+        group: &StableItemId,
+        hint: &str,
+    ) -> Option<String> {
+        match subject {
+            DescriptorTerm::As { name, pattern, .. } if matches!(&**pattern, DescriptorTerm::Cell { declaration, .. } if declaration == group) => {
+                Some(name.clone())
+            }
+            DescriptorTerm::Variable { key, name, .. } => {
+                let name = name.clone();
+                *subject = present_group_alias(group, &key.clone(), &name);
+                Some(name)
+            }
+            DescriptorTerm::Wildcard { key } => {
+                let name = self.fresh(hint);
+                *subject = present_group_alias(group, &key.clone(), &name);
+                Some(name)
+            }
+            DescriptorTerm::Cell {
+                key, declaration, ..
+            } if declaration == group => {
+                let name = self.fresh(hint);
+                let key = key.clone();
+                let pattern =
+                    std::mem::replace(subject, DescriptorTerm::Wildcard { key: key.clone() });
+                *subject = DescriptorTerm::As {
+                    key: key.clone(),
+                    binding_key: key,
+                    name: name.clone(),
+                    pattern: Box::new(pattern),
+                };
+                Some(name)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The children a subject's record of a group matches, with the record's alias, whether it
+/// leaves other children unconstrained, and where it stands.
+type MatchedChildren<'t> = (
+    Option<String>,
+    &'t mut Vec<krs_ir::DescriptorCellTermField>,
+    bool,
+    ProvenanceKey,
+);
+
+/// The children `subject`, the subject's term of a place of `group` written whole, matches
+/// ([`MatchedChildren`]); a binder or `_` is made the group's record that names no child (aliased
+/// by the binder). `None` for a term that is no match of the group.
+fn record_fields<'t>(
+    subject: &'t mut DescriptorTerm,
+    group: &StableItemId,
+) -> Option<MatchedChildren<'t>> {
+    if let DescriptorTerm::Variable { key, name, .. } = subject {
+        let name = name.clone();
+        *subject = present_group_alias(group, &key.clone(), &name);
+    } else if let DescriptorTerm::Wildcard { key } = subject {
+        *subject = present_group(group, &key.clone());
+    }
+    let (alias, record) = match subject {
+        DescriptorTerm::As { name, pattern, .. } => (Some(name.clone()), &mut **pattern),
+        other => (None, other),
+    };
+    match record {
+        DescriptorTerm::Cell {
+            key,
+            declaration,
+            fields,
+            open,
+            ..
+        } if declaration == group => Some((alias, fields, *open, key.clone())),
+        _ => None,
+    }
+}
+
+/// The group term a state of a group place writes: its term, or its record's
+/// ([`ProtocolRuleRecord::group_term`]); `None` for a record whose child is no term, and for
+/// any other state.
+fn group_state_term(state: &DescriptorState) -> Option<DescriptorTerm> {
+    match state {
+        ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
+            Some(term.clone())
+        }
+        ProtocolRuleStateTerm::Record(record) => record.group_term(),
+        _ => None,
+    }
 }
 
 /// Lowers an optional (`?`) cell's entry (KF-023, R7): read, update, create
@@ -1180,6 +1700,39 @@ pub(super) fn instance_twins(
             })
         },
     )
+}
+
+/// The subject instance of each result instance of an instance list, by its `(back, position)`.
+pub(super) type ResultSubjects = BTreeMap<(bool, usize), usize>;
+
+/// The subject instance each result instance is, by its `(back, position)`, as an index into the
+/// subject's instances counted front then back: the one its label's update names (`..label`),
+/// else the one its collection identifies with it ([`instance_twins`]).
+pub(super) fn result_subjects(
+    order: Order,
+    children: &[krs_ir::DescriptorCellField],
+    before: &ProtocolRuleInstances<DescriptorTerm>,
+    after: &ProtocolRuleInstances<DescriptorTerm>,
+) -> ResultSubjects {
+    let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
+    let mut twin_of = BTreeMap::new();
+    for (back, items) in [(false, &after.front), (true, &after.back)] {
+        for (position, instance) in items.iter().enumerate() {
+            let ProtocolInstanceRest::Update { label } = &instance.rest else {
+                continue;
+            };
+            if let Some(index) = subjects
+                .iter()
+                .position(|subject| subject.label.as_ref() == Some(label))
+            {
+                twin_of.insert((back, position), index);
+            }
+        }
+    }
+    for (index, at) in super::cell_states::instance_twins(order, children, before, after) {
+        twin_of.insert(at, index);
+    }
+    twin_of
 }
 
 /// The child `name` an instance record writes, as written.

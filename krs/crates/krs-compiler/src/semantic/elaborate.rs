@@ -9,16 +9,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_ir::cell_kind::{Multiplicity, Order};
+use krs_ir::cell_kind::Multiplicity;
 use krs_ir::{
     CellWrapper, ConfigurationSentenceKind, Descriptor, DescriptorClaim, DescriptorClaimBinder,
     DescriptorConfigurationReference, DescriptorConfigurationRule, DescriptorHeadRule,
     DescriptorIndex, DescriptorKSequenceNotation, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorRuleCells, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
-    ProtocolCellContent, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProtocolInstanceRest,
-    ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleFrame, ProtocolRuleInstances,
-    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
-    ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, StableItemId,
+    ProtocolCellContent, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProtocolRuleBinding,
+    ProtocolRuleBindingKind, ProtocolRuleFrame, ProtocolRuleInstances, ProtocolRuleKSequence,
+    ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
+    ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, StableItemId,
 };
 use krs_ir_levels::SemanticSortRef;
 
@@ -235,8 +235,9 @@ const fn Unelaborated(form: &'static str) -> Unelaborated {
 
 /// The `cells!` rule `rule` means, its binders at the sorts `inferred` (inference's, before any
 /// state is lowered): the rule `krs expand` prints for it (`reference.rs` `render_rule`), taken
-/// in the long form of its record updates, whose hidden binders are declared at their fields'
-/// declared sorts. It comes as a copy of `descriptor` whose payload is that rule and whose
+/// in the long form of its record updates, those it writes and those a result record's `..`
+/// over a group the subject matches whole is ([`super::cell_states::with_implicit_bases_in_head_rule`]),
+/// whose hidden binders are declared at their fields' declared sorts. It comes as a copy of `descriptor` whose payload is that rule and whose
 /// provenance gives each node the elaboration adds a key of its own ([`NodeKeys`]).
 pub(super) fn elaborate(
     descriptor: &Descriptor,
@@ -247,6 +248,8 @@ pub(super) fn elaborate(
 ) -> Result<Result<Elaboration, Unelaborated>, DescriptorLoweringError> {
     let stated = super::cell_states::with_stated_present_groups(rule, declarations)?;
     let rule = stated.as_ref().unwrap_or(rule);
+    let based = super::cell_states::with_implicit_bases_in_head_rule(rule, declarations)?;
+    let rule = based.as_ref().unwrap_or(rule);
     let (mut rule, hidden) =
         super::record_updates::head_rule_long_form_in(descriptor, rule, catalog, declarations)?;
     let closing = Closing {
@@ -853,7 +856,7 @@ impl Elaborator<'_> {
                     return Err(Unelaborated("an instance list on no collection"));
                 };
                 let twin_of = after.map_or_else(BTreeMap::new, |after| {
-                    result_subjects(order, children, before, after)
+                    super::cell_states::result_subjects(order, children, before, after)
                 });
                 let (before, after) =
                     instances(before, after, (children, &twin_of), ordinal, names, keys)?;
@@ -1173,13 +1176,17 @@ fn first_in<'t>(term: &'t DescriptorTerm, name: &str) -> Option<&'t ProvenanceKe
 /// one instances frame the subject binds (`instances<ordinal> @ ..`) and the result keeps
 /// (`..instances<ordinal>`); an instance's open `k` is a sequence frame its pattern binds
 /// (`tail<n> @ ..`), which the result instance that is the same instance keeps, the subject
-/// instance `twin_of` gives it ([`result_subjects`]). Brackets on a list leaf child hold the
-/// list's elements, as on a list leaf cell; an open list's rest is bound and kept the same way.
+/// instance `twin_of` gives it ([`super::cell_states::result_subjects`]). Brackets on a list
+/// leaf child hold the list's elements, as on a list leaf cell; an open list's rest is bound and
+/// kept the same way.
 /// Every other part of an instance is written as the readable entry writes it.
 fn instances(
     before: &ProtocolRuleInstances<DescriptorTerm>,
     after: Option<&ProtocolRuleInstances<DescriptorTerm>>,
-    (children, twin_of): (&[krs_ir::DescriptorCellField], &ResultSubjects),
+    (children, twin_of): (
+        &[krs_ir::DescriptorCellField],
+        &super::cell_states::ResultSubjects,
+    ),
     ordinal: usize,
     names: &mut Names,
     keys: &mut NodeKeys<'_>,
@@ -1294,39 +1301,6 @@ fn instances(
         .map(|after| side(after, false, &mut tails))
         .transpose()?;
     Ok((before, after))
-}
-
-/// The subject instance of each result instance of an instance list, by its `(back, position)`.
-type ResultSubjects = BTreeMap<(bool, usize), usize>;
-
-/// The subject instance each result instance is, by its `(back, position)`, as an index into the
-/// subject's instances counted front then back: the one its label's update names (`..label`),
-/// else the one its collection identifies with it ([`super::cell_states::instance_twins`]).
-fn result_subjects(
-    order: Order,
-    children: &[krs_ir::DescriptorCellField],
-    before: &ProtocolRuleInstances<DescriptorTerm>,
-    after: &ProtocolRuleInstances<DescriptorTerm>,
-) -> ResultSubjects {
-    let subjects = before.front.iter().chain(&before.back).collect::<Vec<_>>();
-    let mut twin_of = BTreeMap::new();
-    for (back, items) in [(false, &after.front), (true, &after.back)] {
-        for (position, instance) in items.iter().enumerate() {
-            let ProtocolInstanceRest::Update { label } = &instance.rest else {
-                continue;
-            };
-            if let Some(index) = subjects
-                .iter()
-                .position(|subject| subject.label.as_ref() == Some(label))
-            {
-                twin_of.insert((back, position), index);
-            }
-        }
-    }
-    for (index, at) in super::cell_states::instance_twins(order, children, before, after) {
-        twin_of.insert(at, index);
-    }
-    twin_of
 }
 
 /// The tail of an open instance child `(subject, field)`: a pattern's `..` binds a fresh one, kept
@@ -1832,14 +1806,14 @@ impl Closing<'_> {
 /// one gets the next ordinal of the key's role past every key the descriptor holds (the parser
 /// numbers a role's occurrences from zero), with the origin of the node it stands at, so a
 /// diagnostic on it reports that node's range.
-struct NodeKeys<'a> {
+pub(super) struct NodeKeys<'a> {
     descriptor: &'a Descriptor,
     /// Each (kind of node, key) given so far.
     taken: BTreeSet<(&'static str, ProvenanceKey)>,
     /// The next free ordinal of each role a key has been made for.
     next: BTreeMap<ProvenanceRole, u32>,
     /// The origin of each key made.
-    origins: Vec<DescriptorNodeOrigin>,
+    pub(super) origins: Vec<DescriptorNodeOrigin>,
     /// The keys of the anonymous frames the readable author wrote no `..` for, which the
     /// `cells!` lowering marks inserted
     /// ([`super::configuration_rules::lower_configuration_rule_with_inserted_frames`]).
@@ -1847,7 +1821,7 @@ struct NodeKeys<'a> {
 }
 
 impl<'a> NodeKeys<'a> {
-    fn new(descriptor: &'a Descriptor) -> Self {
+    pub(super) fn new(descriptor: &'a Descriptor) -> Self {
         Self {
             descriptor,
             taken: BTreeSet::new(),
@@ -1860,6 +1834,26 @@ impl<'a> NodeKeys<'a> {
     /// Keys the nodes of `rule`'s terms, in the order written.
     fn rule(&mut self, rule: &mut DescriptorHeadRule) {
         each_term(rule, &mut |term, _| self.term(term));
+    }
+
+    /// Keys the nodes of a `cells!` rule's terms, in the order written: its subject's, its
+    /// result's, then its conditions'.
+    pub(super) fn configuration_rule(&mut self, rule: &mut krs_ir::DescriptorConfigurationRule) {
+        for cell in rule
+            .subject
+            .cells
+            .iter_mut()
+            .chain(rule.result.iter_mut().flat_map(|result| &mut result.cells))
+        {
+            state_terms(&mut cell.value, &mut |term| self.term(term));
+        }
+        for condition in [&mut rule.requires, &mut rule.ensures]
+            .into_iter()
+            .chain(rule.claim.as_mut().map(|claim| &mut claim.ensures))
+            .flatten()
+        {
+            self.term(&mut condition.term);
+        }
     }
 
     /// A variable term naming `name`, which the elaboration writes at the node `key` names.

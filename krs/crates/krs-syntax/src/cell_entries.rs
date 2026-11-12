@@ -147,17 +147,6 @@ pub enum Refusal {
     AbsenceTestWithoutCreation,
     /// A result rest that is not its subject's.
     RestMismatch,
-    /// A result's group record, the one its entry writes for a cell or a group child, whose `..`
-    /// leaves a child unnamed, so that the child keeps its content, over a subject that matches
-    /// the group whole, as a binder or an alias: the children the record names are written as
-    /// their own cells, which nothing writes beside a match of the whole group yet (a stated
-    /// limitation).
-    OpenRecordOverWholeMatch,
-    /// A result's group record whose `..` leaves a child unnamed, so that the child keeps its
-    /// content, where the result writes the group whole, as one term naming every child: an
-    /// optional group's present content and an instance record's group child (a stated
-    /// limitation).
-    OpenRecordInWholeTerm,
     /// A record with a bare `..` in a term a result's entry builds, a value of the cell's
     /// content rather than the record the entry writes for a cell: the term is built from
     /// nothing, so no fields are there to be left as they were or taken from a template, and
@@ -242,9 +231,7 @@ impl Refusal {
             Self::ContinuationInReadable => "continuation-in-readable",
             Self::AbsenceTestWithoutCreation => "absence-test-without-creation",
             Self::RestMismatch => "rest-mismatch",
-            Self::OpenRecordOverWholeMatch
-            | Self::OpenRecordInWholeTerm
-            | Self::OpenRecordInBuiltTerm => "open-record-outside-pattern",
+            Self::OpenRecordInBuiltTerm => "open-record-outside-pattern",
             Self::ComputationBackItem => "computation-back-item",
             Self::ConsListBackItem => "cons-list-back-item",
             Self::RecordUpdateBase => "record-update-base",
@@ -313,9 +300,7 @@ impl Refusal {
             Self::ContinuationInReadable => analysis::CONTINUATION_IN_READABLE,
             Self::MapReadInResult | Self::MapReadValueBinder => syntax::RUST_SYNTAX,
             Self::RestMismatch => syntax::INVALID_LIST_NOTATION,
-            Self::OpenRecordOverWholeMatch
-            | Self::OpenRecordInWholeTerm
-            | Self::OpenRecordInBuiltTerm => syntax::INVALID_RECORD_UPDATE,
+            Self::OpenRecordInBuiltTerm => syntax::INVALID_RECORD_UPDATE,
             Self::ComputationBackItem => collect::INVALID_CONFIGURATION,
             Self::RecordUpdateBase | Self::RecordRemainderInCellsTerm => {
                 analysis::INVALID_RECORD_UPDATE
@@ -328,7 +313,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 35] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -352,8 +337,6 @@ impl Refusal {
         Self::ContinuationInReadable,
         Self::AbsenceTestWithoutCreation,
         Self::RestMismatch,
-        Self::OpenRecordOverWholeMatch,
-        Self::OpenRecordInWholeTerm,
         Self::OpenRecordInBuiltTerm,
         Self::ComputationBackItem,
         Self::ConsListBackItem,
@@ -505,12 +488,6 @@ impl Refusal {
             ),
             Self::RestMismatch => format!(
                 "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader"
-            ),
-            Self::OpenRecordOverWholeMatch => format!(
-                "the result's record of the group `{cell}` leaves children unnamed with `..`, which there keep their content, so it writes only the children it names, each as its own cell; the subject matches the group whole, as a binder or an alias, and writing some of its children beside that match is not supported yet: match the group with a record of its children, or update the record the subject matched"
-            ),
-            Self::OpenRecordInWholeTerm => format!(
-                "the result's record of the group `{cell}` leaves children unnamed with `..`, which there keep their content; it stands where the result writes the group whole, as one term naming every child (the content of an optional group's presence, or a group child of an instance record), which has no form yet for children that keep their content: name every child, or update the record the subject matched"
             ),
             Self::OpenRecordInBuiltTerm => format!(
                 "{}; here it stands in a term the entry of the cell `{cell}` builds",
@@ -1119,13 +1096,6 @@ fn names_every_child(record: &EntryRecord, group: &GroupKind) -> Result<(), Refu
 /// Whether `record`, a record of `group`, names each of the group's children.
 fn names_every_field(record: &EntryRecord, group: &GroupKind) -> bool {
     record.fields.len() == group.children.len()
-}
-
-/// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed: the
-/// children it does not name are what they would otherwise be ([`pair_records`]). Where the
-/// record names every child the `..` leaves none, and the record is the exact one.
-fn leaves_open(record: &EntryRecord, group: &GroupKind) -> bool {
-    record.tail == RecordTail::Open && !names_every_field(record, group)
 }
 
 /// The spellings directly inside `spelling`.
@@ -1805,20 +1775,6 @@ fn open_record(spelling: &EntrySpelling) -> Option<Vec<usize>> {
         })
 }
 
-/// Whether `subject`, a subject's entry of a group cell, matches the group by its children, or
-/// whatever they hold: a record of `group` (the fragment it abbreviates included), or `_`.
-/// Beside a result record that keeps the children it does not name, the children it names are
-/// matched and written as their own cells, which a binder or an alias of the whole group is not.
-fn matched_by_children(subject: &EntrySpelling, group: &GroupKind) -> bool {
-    match subject {
-        EntrySpelling::Wild => true,
-        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
-            record.head == group.name
-        }
-        _ => false,
-    }
-}
-
 /// `spelling` below an alias.
 fn unaliased(spelling: &EntrySpelling) -> &EntrySpelling {
     match spelling {
@@ -2078,15 +2034,13 @@ fn instance_twins<'s>(
 }
 
 /// A result's content against its other side, at the entry's cell or at a child's: its rest,
-/// then each child of the group and instance records it writes, against the child's own.
-/// `whole` is whether the content stands where the result writes a group whole, as one term
+/// then each child of the group and instance records it writes, against the child's own
 /// ([`pair_records`]).
 fn pair_content(
     form: EntryForm,
     stack: &[Layer],
     spelling: &EntrySpelling,
     other: Other<'_>,
-    whole: bool,
     bound: &dyn Fn(&str) -> Option<Bound>,
     path: &mut Vec<usize>,
 ) -> Result<(), Refusal> {
@@ -2123,7 +2077,7 @@ fn pair_content(
             }
         }
     }
-    pair_records(form, stack, spelling, other, whole, bound, path)
+    pair_records(form, stack, spelling, other, bound, path)
 }
 
 /// Whether `stack`'s content is a list, a builtin `List` or a cons list.
@@ -2138,15 +2092,12 @@ fn lists(stack: &[Layer]) -> bool {
 /// against their own other sides.
 ///
 /// A group record's `..` that leaves a child unnamed means the child is what it would otherwise
-/// be. Over a group that is there, matched or overwritten, that is its content, which it keeps:
-/// the record writes only the children it names, which are then their own cells' entries
-/// (`frame: G { a: 1, .. }` is `<a> _ => 1 </a>`, the other children unchanged). Two such places
-/// have no lowering yet, and are refused at the record: a subject that matches the group whole,
-/// as a binder or an alias, whose children it does not name
-/// ([`Refusal::OpenRecordOverWholeMatch`]); and a group the result writes whole, as one term
-/// naming every child, which a `?` cell's present content and an instance record's group child
-/// are (`whole`, [`Refusal::OpenRecordInWholeTerm`]). Over a group the result creates, the
-/// children it leaves unnamed take the template's defaults: the lowering's stated limit.
+/// be. Over a group that is there, matched or overwritten, that is its content, which it keeps,
+/// wherever the record stands: the record is the update of the subject's match of the same place
+/// (`frame: G { a: 1, .. }` over `frame: g` is `G { a: 1, ..g }`), which the lowering writes, and
+/// which a record of the subject's children, `_`, or no match at all writes as the children it
+/// names, the others unchanged (`<a> _ => 1 </a>`). Over a group the result creates, the children
+/// it leaves unnamed take the template's defaults: the lowering's stated limit.
 ///
 /// In `cells!`, the reference notation, a record names every child: its one update, `..me`,
 /// rewrites in place the instance of a collection that its subject labels `me @`, the instance
@@ -2155,45 +2106,36 @@ fn lists(stack: &[Layer]) -> bool {
 /// another record, and are refused ([`Refusal::RecordRemainderInCellsTerm`]). The refusal comes
 /// after the record's children are paired, each against the instance the update would create: a
 /// child is an entry of its own cell, whose content is wrong whatever the record's base.
-#[expect(
-    clippy::too_many_lines,
-    reason = "One arm per record position: an optional cell's content, a group, a collection's instances."
-)]
 fn pair_records(
     form: EntryForm,
     stack: &[Layer],
     spelling: &EntrySpelling,
     other: Other<'_>,
-    whole: bool,
     bound: &dyn Fn(&str) -> Option<Bound>,
     path: &mut Vec<usize>,
 ) -> Result<(), Refusal> {
-    let fields = |group: &GroupKind,
-                  record: &EntryRecord,
-                  other: Other<'_>,
-                  whole: bool,
-                  path: &mut Vec<usize>| {
-        for (step, (name, value)) in record.fields.iter().enumerate() {
-            if let Some(kind) = group.child(name) {
-                path.push(step);
-                pair_content(
-                    form,
-                    &kind.layers,
-                    value,
-                    other.child(group, name),
-                    whole,
-                    bound,
-                    path,
-                )?;
-                path.pop();
+    let fields =
+        |group: &GroupKind, record: &EntryRecord, other: Other<'_>, path: &mut Vec<usize>| {
+            for (step, (name, value)) in record.fields.iter().enumerate() {
+                if let Some(kind) = group.child(name) {
+                    path.push(step);
+                    pair_content(
+                        form,
+                        &kind.layers,
+                        value,
+                        other.child(group, name),
+                        bound,
+                        path,
+                    )?;
+                    path.pop();
+                }
             }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
     match (stack, spelling) {
         ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
             path.push(0);
-            pair_records(form, below, content, other.present(), true, bound, path)?;
+            pair_records(form, below, content, other.present(), bound, path)?;
             path.pop();
             Ok(())
         }
@@ -2205,18 +2147,7 @@ fn pair_records(
             if aliased {
                 path.push(0);
             }
-            if leaves_open(record, group) {
-                match other {
-                    // The template's defaults: the created group's limit is its lowering's.
-                    Other::Created => {}
-                    _ if whole => return Err(Refusal::OpenRecordInWholeTerm),
-                    Other::Matched(subject) if !matched_by_children(subject, group) => {
-                        return Err(Refusal::OpenRecordOverWholeMatch);
-                    }
-                    Other::Matched(_) | Other::Unmatched => {}
-                }
-            }
-            fields(group, record, other, whole, path)?;
+            fields(group, record, other, path)?;
             if form == EntryForm::Cells && matches!(record.tail, RecordTail::Update(_)) {
                 return Err(Refusal::RecordRemainderInCellsTerm);
             }
@@ -2260,7 +2191,7 @@ fn pair_records(
                 if moves(*order, group, other, record) {
                     pair_moved(form, group, record, other, bound, path)?;
                 } else {
-                    fields(group, record, other, true, path)?;
+                    fields(group, record, other, path)?;
                 }
                 // An update whose other side is a created instance updates no subject instance.
                 if form == EntryForm::Cells
@@ -2359,7 +2290,7 @@ fn pair_moved(
                 labelled.child(group, name)
             };
             path.push(step);
-            pair_content(form, &kind.layers, value, side, true, bound, path)?;
+            pair_content(form, &kind.layers, value, side, bound, path)?;
             path.pop();
         }
     }
@@ -2579,11 +2510,9 @@ fn list_ends(
 /// none to keep for a created instance's or `?` cell's child. At each:
 ///
 /// - a group record whose `..` leaves a child unnamed, for a group that is there (matched or
-///   overwritten), keeps that child's content and writes the children it names; over a subject
-///   that matches the group whole it is [`Refusal::OpenRecordOverWholeMatch`], and where the
-///   result writes the group whole (a `?` cell's present content, an instance record's group
-///   child) [`Refusal::OpenRecordInWholeTerm`], two stated limitations; the group's fragment is
-///   the same record; a `..` after every child leaves none, so the record is the exact one;
+///   overwritten), keeps that child's content and writes the children it names, wherever the
+///   record stands; the group's fragment is the same record; a `..` after every child leaves
+///   none, so the record is the exact one;
 /// - over a matched cell, `None` removes the cell with all its content, so it pairs no rest;
 ///   and its rest is its subject's: a subject's `..` is kept by a result `..` only;
 /// - over an unmatched cell, the result is an overwrite, which means one configuration only
@@ -2598,7 +2527,6 @@ fn list_ends(
 /// # Errors
 ///
 /// [`Refusal::AbsenceTestWithoutCreation`], [`Refusal::RestMismatch`],
-/// [`Refusal::OpenRecordOverWholeMatch`], [`Refusal::OpenRecordInWholeTerm`],
 /// [`Refusal::UnmatchedOptionalResult`],
 /// [`Refusal::ContinuationInReadable`], [`Refusal::ListBothEnds`] or [`Refusal::ListBackKept`].
 pub fn pair(
@@ -2653,7 +2581,6 @@ pub fn pair_located(
                 stack,
                 spelling,
                 other.map_or(Other::Unmatched, Other::Matched),
-                false,
                 bound,
                 &mut path,
             )
@@ -3649,25 +3576,23 @@ mod tests {
     }
 
     /// A result's group record over a group that is there keeps the children its `..` leaves
-    /// unnamed, beside a subject that matches the group by its children or whatever they hold;
-    /// beside one that matches it whole, and where the result writes the group whole, it is a
-    /// stated limitation.
+    /// unnamed, whatever the subject matches the group by and wherever the record stands: beside
+    /// a binder or an alias of the group, inside a `?` cell's `Some(..)`, and as an instance
+    /// record's group child.
     #[test]
     fn a_result_group_record_keeps_the_children_its_rest_leaves_unnamed_over_a_matched_group() {
         let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
-        let whole_match = Err(Refusal::OpenRecordOverWholeMatch);
         let group = [frame()];
-        for subject in ["Frame { ret: y, .. }", "Frame { ret: y, aux: z }", "_"] {
+        for subject in [
+            "Frame { ret: y, .. }",
+            "Frame { ret: y, aux: z }",
+            "_",
+            "f",
+            "f @ Frame { ret: y, .. }",
+        ] {
             assert_eq!(
                 result(readable, &group, "Frame { ret: x, .. }", Some(subject)),
                 Ok(None),
-                "{subject}"
-            );
-        }
-        for subject in ["f", "f @ Frame { ret: y, .. }"] {
-            assert_eq!(
-                result(readable, &group, "Frame { ret: x, .. }", Some(subject)),
-                whole_match,
                 "{subject}"
             );
         }
@@ -3689,7 +3614,7 @@ mod tests {
                 "Some(Frame { ret: x, .. })",
                 Some("Some(Frame { ret: y, .. })")
             ),
-            Err(Refusal::OpenRecordInWholeTerm)
+            Ok(None)
         );
         // An instance record's group child, written whole with the instance it updates.
         let accounts = [
@@ -3714,7 +3639,7 @@ mod tests {
                 "{ Acct { aframe: Frame { ret: x, .. }, ..me }, .. }",
                 Some("{ me @ Acct { id: i, .. }, .. }")
             ),
-            Err(Refusal::OpenRecordInWholeTerm)
+            Ok(None)
         );
         // A created instance's record has its template's fields.
         let instances = [Layer::Instances(Order::Set), frame()];
@@ -3807,10 +3732,7 @@ mod tests {
             Ok(None)
         );
         assert_eq!(result(cells, &group, open, None), Ok(None));
-        assert_eq!(
-            result(cells, &group, open, Some("f")),
-            Err(Refusal::OpenRecordOverWholeMatch)
-        );
+        assert_eq!(result(cells, &group, open, Some("f")), Ok(None));
         assert_eq!(
             result(
                 cells,
@@ -3818,7 +3740,7 @@ mod tests {
                 "Some(k::fragment![crate::Frame { ret: x, .. }])",
                 Some("Some(k::fragment![crate::Frame { ret: y, .. }])")
             ),
-            Err(Refusal::OpenRecordInWholeTerm)
+            Ok(None)
         );
         assert_eq!(
             result(
@@ -4010,7 +3932,7 @@ mod tests {
             ),
             Ok(None)
         );
-        // Over the subject's binder of the group child, matched whole.
+        // Over the subject's binder of the group child, matched whole: `G { a: x, ..h }`.
         assert_eq!(
             result(
                 readable,
@@ -4018,7 +3940,7 @@ mod tests {
                 "W { g: G { a: x, .. }, n: 0 }",
                 Some("W { g: h, .. }")
             ),
-            Err(Refusal::OpenRecordOverWholeMatch)
+            Ok(None)
         );
         assert_eq!(
             result(readable, &w, "W { g: G { a: x, b: y }, n: 0 }", None),

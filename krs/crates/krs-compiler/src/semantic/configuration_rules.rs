@@ -836,8 +836,43 @@ pub(super) fn lower_configuration_rule_descriptor(
     let exact = matches!(rule.subject.remainder, ProtocolRuleFrame::Exact);
     let bracketed = super::group_records::with_computation_brackets(rule, declarations)?;
     let rule = bracketed.as_ref().unwrap_or(rule);
-    let stated = super::cell_states::with_present_groups(descriptor, rule, declarations)?;
-    let rule = stated.as_ref().unwrap_or(rule);
+    let stated = super::cell_states::with_present_groups(rule, declarations)?;
+    let (rule, rebuilt) = stated
+        .as_ref()
+        .map_or((rule, false), |(rule, rebuilt)| (rule, *rebuilt));
+    let based = super::cell_states::with_implicit_bases(rule, declarations)?;
+    let rule = based.as_ref().unwrap_or(rule);
+    // The record updates and present-group aliases those two give a `cells!` rule are taken in
+    // their long form, which a readable rule's elaboration already is; a rule given none keeps
+    // its terms as written, its aliases K's `#as`. The nodes the long form adds stand at the
+    // authored nodes they fill, so each is given a key of its own, as an elaboration's are, and
+    // the rule is lowered over a copy of its descriptor that locates them.
+    let long = (readable.is_none() && (rebuilt || based.is_some()))
+        .then(|| {
+            let (mut rule, hidden) = super::record_updates::configuration_rule_long_form(
+                descriptor,
+                rule,
+                catalog,
+                declarations,
+            )?;
+            let mut keys = super::elaborate::NodeKeys::new(descriptor);
+            keys.configuration_rule(&mut rule);
+            let keyed = descriptor
+                .with_generated_nodes(
+                    krs_ir::DescriptorPayload::ConfigurationRule(Box::new(rule.clone())),
+                    keys.origins,
+                )
+                .map_err(|error| {
+                    DescriptorLoweringError::unsupported_shape("long form", error.to_string())
+                })?;
+            Ok::<_, DescriptorLoweringError>((keyed, rule, hidden))
+        })
+        .transpose()?;
+    let (descriptor, rule, hidden) = long
+        .as_ref()
+        .map_or((descriptor, rule, &[][..]), |(descriptor, rule, hidden)| {
+            (descriptor, rule, hidden.as_slice())
+        });
     let grouped = super::group_records::with_group_records(descriptor, rule, declarations)?;
     let rule = grouped.as_ref().unwrap_or(rule);
     let overwritten = with_overwritten_cells(rule, declarations)?;
@@ -853,12 +888,16 @@ pub(super) fn lower_configuration_rule_descriptor(
         mut variables,
     } = configuration_rule_bindings(rule)?;
     // Each list cell's unnamed rest is one variable of the cell's sort, which the subject binds
-    // and a result keeps, declared once for the sentence.
-    for variable in rests {
+    // and a result keeps, declared once for the sentence; so is each hidden binder of the long
+    // form, at its field's declared sort.
+    let hidden = hidden
+        .iter()
+        .map(|(id, sort)| SemanticVariable::new(id.clone(), sort.clone()));
+    for variable in rests.iter().cloned().chain(hidden) {
         let name = variable.id().as_str();
         subject_sorts.insert(name.to_owned(), variable.sort().clone());
         result_sorts.insert(name.to_owned(), variable.sort().clone());
-        variables.push(variable.clone());
+        variables.push(variable);
     }
     let typing = configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let mut declared_binders = declared_existentials(
