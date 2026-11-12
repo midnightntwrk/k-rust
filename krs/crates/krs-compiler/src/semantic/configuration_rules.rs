@@ -820,17 +820,20 @@ fn with_named_child_rests(
     Ok((!variables.is_empty()).then_some((rule, variables)))
 }
 
-/// The refusal of an instance's or a group record's child whose brackets' named rest its twin
-/// cell refuses. A child is a cell: in a pattern, a computation child's rest is a remainder, as
-/// `KCell(x, rest @ ..)`'s is, which no typed parameter declares, and a list child's is a term of
-/// the list's sort, as `Cell([x, rest @ ..])`'s is, which one declares. The reader reads a
-/// pattern's rest by the declaration and a result's `..name` by what the subject binds
-/// (`krs_syntax` `remainder_sequence`), so a declared pattern rest on a computation child is list
-/// notation ending in that term, an undeclared one on a list child a sequence ending in a
-/// remainder, and a result's remainder on a list child a sequence that writes it back.
+/// The refusal of a cell's or a record child's content whose rest its twin cell refuses. A child
+/// is a cell: in a pattern, a computation child's rest is a remainder, as `KCell(x, rest @ ..)`'s
+/// is, which no typed parameter declares, and a list child's is a term of the list's sort, as
+/// `Cell([x, rest @ ..])`'s is, which one declares. The reader reads a pattern's rest by the
+/// declaration and a result's `..name` by what the subject binds (`krs_syntax`
+/// `remainder_sequence`), so a declared pattern rest on a computation child is list notation
+/// ending in that term, and an undeclared one on a list child a sequence ending in a remainder.
+/// In a result, a remainder is the rest of the content it was bound in, so it is written back
+/// only as the rest of a cell of the same kind: a computation's rest after a computation's
+/// items, a map's under a map's entries ([`remainder_into_another_kind`]), at a cell and at a
+/// record's child alike.
 #[expect(
     clippy::too_many_lines,
-    reason = "one walk over both sides' children, with each refusal's text beside its case"
+    reason = "one walk over both sides' cells and children, with each refusal's text beside its case"
 )]
 fn check_child_rests(
     descriptor: &Descriptor,
@@ -851,17 +854,92 @@ fn check_child_rests(
             reason,
         ))
     };
-    let map_frames = rule
+    let remainders = rule
         .bindings
         .iter()
-        .filter(|binding| matches!(binding.kind, ProtocolRuleBindingKind::MapFrame))
-        .map(|binding| binding.name.as_str())
-        .collect::<BTreeSet<_>>();
+        .filter_map(|binding| Some((binding.name.as_str(), RemainderKind::of(&binding.kind)?)))
+        .collect::<BTreeMap<_, _>>();
+    let into_another =
+        |place: RestPlace<'_>, name: &str, key: &ProvenanceKey| match remainders.get(name) {
+            Some(bound) if Some(*bound) != place.holder.kind() => Err(remainder_into_another_kind(
+                descriptor, key, name, *bound, place,
+            )),
+            _ => Ok(()),
+        };
+    // A result's content, by the kind of the cell that holds it.
+    let result = |cell: &str,
+                  child: bool,
+                  wrapper: &krs_ir::CellWrapper,
+                  sort: &SemanticSortRef,
+                  value: &ProtocolRuleStateTerm<DescriptorTerm>|
+     -> Result<(), DescriptorLoweringError> {
+        let mut value = value;
+        while let ProtocolRuleStateTerm::Present { value: inside } = value {
+            value = inside;
+        }
+        let place = |holder| RestPlace {
+            holder,
+            cell,
+            child,
+            whole: false,
+        };
+        match (wrapper, value) {
+            (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::KSequence(sequence)) => {
+                if let ProtocolRuleFrame::Reuse { key, binding } = &sequence.tail {
+                    into_another(place(Holder::Computation), binding, key)?;
+                }
+                Ok(())
+            }
+            (
+                krs_ir::CellWrapper::Cell,
+                ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
+                    body:
+                        ProtocolRuleMapBody::Items {
+                            remainder: ProtocolRuleFrame::Reuse { key, binding },
+                            ..
+                        },
+                    ..
+                }),
+            ) => into_another(place(Holder::Map), binding, key),
+            // A list child's brackets ending in a remainder, read as the sequence they spell; a
+            // leaf cell's content is never one (a computation's `KCell(..)` there is the entry's
+            // wrapper mistake, judged elsewhere).
+            (krs_ir::CellWrapper::Cell, ProtocolRuleStateTerm::KSequence(sequence)) if child => {
+                if let ProtocolRuleFrame::Reuse { key, binding } = &sequence.tail {
+                    into_another(place(Holder::List), binding, key)?;
+                }
+                Ok(())
+            }
+            (krs_ir::CellWrapper::Cell, ProtocolRuleStateTerm::Term(term)) => {
+                match written_rest(term) {
+                    Some((holder, key, name)) => into_another(place(holder), name, key),
+                    // A computation's rest written as a leaf's whole content.
+                    None => match term {
+                        DescriptorTerm::Variable { key, name, .. }
+                            if remainders.get(name.as_str())
+                                == Some(&RemainderKind::Computation) =>
+                        {
+                            into_another(
+                                RestPlace {
+                                    whole: true,
+                                    ..place(Holder::of_sort(sort))
+                                },
+                                name,
+                                key,
+                            )
+                        }
+                        _ => Ok(()),
+                    },
+                }
+            }
+            _ => Ok(()),
+        }
+    };
     let check = |field: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
                  children: &[krs_ir::DescriptorCellField],
                  pattern: bool|
      -> Result<(), DescriptorLoweringError> {
-        let Some(ProtocolCellContent::Leaf { wrapper, .. }) = children
+        let Some(ProtocolCellContent::Leaf { wrapper, sort, .. }) = children
             .iter()
             .find(|child| child.rust_field == field.field)
             .map(|child| &child.content)
@@ -869,9 +947,17 @@ fn check_child_rests(
             return Ok(());
         };
         let child = &field.field;
+        if !pattern {
+            return result(
+                child,
+                true,
+                wrapper,
+                &semantic_sort_ref(&sort.sort),
+                &field.value,
+            );
+        }
         match (wrapper, &field.value) {
-            // A result's `..t` of a declared term writes it, as `KCell(y, ..t)` does.
-            (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::Term(term)) if pattern => {
+            (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::Term(term)) => {
                 let mut term = term.clone();
                 if let DescriptorTerm::Variable { key, name, .. } = list_spine_end(&mut term)
                     && terms.contains(name.as_str())
@@ -893,23 +979,6 @@ fn check_child_rests(
                         ),
                         key,
                     ),
-                    // The reader reads a result's `..name` as a remainder only where the subject
-                    // binds `name` as one.
-                    ProtocolRuleFrame::Reuse { key, binding } => {
-                        let what = if map_frames.contains(binding.as_str()) {
-                            "the rest of a map"
-                        } else {
-                            "the rest of a computation"
-                        };
-                        Err(super::cell_states::collection_error(
-                            descriptor,
-                            krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
-                            key,
-                            format!(
-                                "`..{binding}` in the list child `{child}` writes `{binding}`, which the subject binds as {what} (`{binding} @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that"
-                            ),
-                        ))
-                    }
                     _ => Ok(()),
                 }
             }
@@ -928,13 +997,32 @@ fn check_child_rests(
             .map(|cell| (cell, false)),
     );
     for (cell, pattern) in sides {
+        // A cell no declaration has is the lowering's to refuse.
+        let Ok(declared) = require_cell_field(&cell.field.cell, declarations) else {
+            continue;
+        };
+        if let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content {
+            if !pattern {
+                let name = declared
+                    .rust_field
+                    .strip_prefix("r#")
+                    .unwrap_or(&declared.rust_field);
+                result(
+                    name,
+                    false,
+                    wrapper,
+                    &semantic_sort_ref(&sort.sort),
+                    &cell.value,
+                )?;
+            }
+            continue;
+        }
         let mut value = &cell.value;
         while let ProtocolRuleStateTerm::Present { value: inside } = value {
             value = inside;
         }
         match value {
             ProtocolRuleStateTerm::Instances(instances) => {
-                let declared = require_cell_field(&cell.field.cell, declarations)?;
                 let ProtocolCellContent::Nested { declaration } = &declared.content else {
                     continue;
                 };
@@ -958,6 +1046,170 @@ fn check_child_rests(
         }
     }
     Ok(())
+}
+
+/// What a remainder is the rest of: the content it was bound in (`rest @ ..`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemainderKind {
+    Computation,
+    Map,
+    Configuration,
+    Instances,
+}
+
+impl RemainderKind {
+    /// The kind of rest `binding` binds; `None` for a term binder.
+    const fn of(
+        binding: &ProtocolRuleBindingKind<krs_ir::DescriptorSortReference>,
+    ) -> Option<Self> {
+        match binding {
+            ProtocolRuleBindingKind::Term { .. } => None,
+            ProtocolRuleBindingKind::KSequenceFrame => Some(Self::Computation),
+            ProtocolRuleBindingKind::MapFrame => Some(Self::Map),
+            ProtocolRuleBindingKind::ConfigurationFrame => Some(Self::Configuration),
+            ProtocolRuleBindingKind::InstancesFrame => Some(Self::Instances),
+        }
+    }
+
+    const fn rest(self) -> &'static str {
+        match self {
+            Self::Computation => "the rest of a computation",
+            Self::Map => "the rest of a map",
+            Self::Configuration => {
+                "the rest of the configuration, the cells the subject leaves out"
+            }
+            Self::Instances => "the rest of a collection's instances",
+        }
+    }
+}
+
+/// The content a result writes a rest into.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Holder {
+    Computation,
+    Map,
+    List,
+    Set,
+    /// A leaf of another sort, which holds no rest of any kind.
+    Other,
+}
+
+impl Holder {
+    fn of_sort(sort: &SemanticSortRef) -> Self {
+        match sort {
+            SemanticSortRef::Builtin(krs_ir::BuiltinSort::List) => Self::List,
+            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Set) => Self::Set,
+            SemanticSortRef::Builtin(krs_ir::BuiltinSort::Map) => Self::Map,
+            _ => Self::Other,
+        }
+    }
+
+    /// The remainder kind whose rest this content holds. No remainder is the rest of a list, a
+    /// set, or a leaf of another sort: a list's and a set's rest is a term of its sort, which the
+    /// subject binds as a term.
+    const fn kind(self) -> Option<RemainderKind> {
+        match self {
+            Self::Computation => Some(RemainderKind::Computation),
+            Self::Map => Some(RemainderKind::Map),
+            Self::List | Self::Set | Self::Other => None,
+        }
+    }
+}
+
+/// Where a result writes a rest: the content's kind, the cell or child that holds it, and
+/// whether the rest is the whole content (`Cell(rest)`, `[..rest]`) rather than the end of the
+/// items written before it (`[x, ..rest]`).
+#[derive(Clone, Copy)]
+struct RestPlace<'a> {
+    holder: Holder,
+    cell: &'a str,
+    child: bool,
+    whole: bool,
+}
+
+/// The variable a result's collection notation writes as its rest, with the kind of the content
+/// it is the rest of: a list notation's spine end (`[x, ..rest]`), a set literal's base
+/// (`k::set![x, ..rest]`). `None` for a term that writes no such rest.
+fn written_rest(term: &DescriptorTerm) -> Option<(Holder, &ProvenanceKey, &str)> {
+    let DescriptorTerm::Application {
+        reference,
+        arguments: krs_ir::Arguments::Positional(arguments),
+        update: None,
+        ..
+    } = term
+    else {
+        return None;
+    };
+    let (holder, at) = match reference.application {
+        krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Cons) => {
+            (Holder::List, 1)
+        }
+        krs_ir::DescriptorApplicationRef::ListNotation(
+            krs_ir::ListNotation::Snoc | krs_ir::ListNotation::Join,
+        ) => (Holder::List, 0),
+        krs_ir::DescriptorApplicationRef::Set(krs_ir::SetOperation::Union) => (Holder::Set, 0),
+        _ => return None,
+    };
+    match arguments.get(at)?.as_ref() {
+        DescriptorTerm::Variable { key, name, .. } => Some((holder, key, name)),
+        inner => written_rest(inner).filter(|(inner, ..)| *inner == holder),
+    }
+}
+
+/// The refusal of a result that writes the remainder `name`, `bound` (the rest of a computation, a
+/// map, ..), as the rest of a content of another kind at `place`. A remainder is the rest of the
+/// content it was bound in, so it is written back only as the rest of a cell of the same kind: a
+/// list's or a set's rest is a term of its sort, which no remainder is.
+fn remainder_into_another_kind(
+    descriptor: &Descriptor,
+    key: &ProvenanceKey,
+    name: &str,
+    bound: RemainderKind,
+    place: RestPlace<'_>,
+) -> DescriptorLoweringError {
+    let (noun, rest, advice) = match place.holder {
+        Holder::List => (
+            "list",
+            "a list's rest is a list",
+            "write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that",
+        ),
+        Holder::Set => (
+            "set",
+            "a set's rest is a set",
+            "write the set's elements, or bind a set in the subject (`s`, declared at the set's sort) and write it (`k::set![x, ..s]`)",
+        ),
+        Holder::Map => (
+            "map",
+            "a map's rest is a map",
+            "write the map's entries, or name a map's rest in the subject (`k::map![k -> v, rest @ ..]`) and write that",
+        ),
+        Holder::Computation => (
+            "computation",
+            "a computation's rest is a computation",
+            "write the computation's items, or name a computation's rest in the subject (`KCell(x, rest @ ..)`) and write that",
+        ),
+        Holder::Other => (
+            "leaf",
+            "a leaf holds a term of its sort",
+            "write a term of the cell's sort",
+        ),
+    };
+    let what = if place.child { "child" } else { "cell" };
+    let cell = place.cell;
+    let written = if place.whole {
+        format!("the {noun} {what} `{cell}` is written `{name}`")
+    } else {
+        format!("`..{name}` in the {noun} {what} `{cell}` writes `{name}`")
+    };
+    super::cell_states::collection_error(
+        descriptor,
+        krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+        key,
+        format!(
+            "{written}, which the subject binds as {} (`{name} @ ..`), and {rest}: a remainder is written back only into a cell of its own kind; {advice}",
+            bound.rest()
+        ),
+    )
 }
 
 /// The name [`with_named_child_rests`] gives the rest the subject instance `matched` matches with

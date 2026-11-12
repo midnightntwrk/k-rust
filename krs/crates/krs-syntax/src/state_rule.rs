@@ -2131,6 +2131,21 @@ fn validate_remainder_reuse(
     {
         return Ok(());
     }
+    // A computation's or a map's `..x` of a remainder bound at another kind (a map's rest after
+    // a computation's items, a computation's under a map's entries) is the content's own
+    // refusal, which names both kinds once the cell that holds the content is known: a child's
+    // brackets are a computation's or a list's by its cell (the compiler's `check_child_rests`).
+    if let StateMacroRemainder::Reuse { binding, .. } = remainder
+        && matches!(
+            expected,
+            StateRuleBindingKind::KSequenceFrame | StateRuleBindingKind::MapFrame
+        )
+        && bindings.iter().any(|existing| {
+            existing.name == *binding && existing.kind != StateRuleBindingKind::Term
+        })
+    {
+        return Ok(());
+    }
     if let StateMacroRemainder::Reuse { binding, range } = remainder
         && !bindings.iter().any(|existing| {
             existing.name == *binding

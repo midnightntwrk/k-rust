@@ -1075,7 +1075,9 @@ fn whole_configuration_rule_requires_uses_the_shared_typed_term_catalog() {
 
 /// A result remainder that names no subject frame of its kind is refused by
 /// [`krs_syntax::StateRuleItem::reuse_refusal`], which pairs the result with the subject, not
-/// by parsing: the entry it stands in is judged against its cell's kind first.
+/// by parsing: the entry it stands in is judged against its cell's kind first. A computation's
+/// or a map's rest that names a remainder of another kind is the content's own refusal, which
+/// names both kinds once the cell holding it is known (the compiler's), so it passes here.
 #[test]
 fn a_result_remainder_of_another_frame_is_refused_after_parsing() {
     let reuse = SyntaxErrorKind::UnsupportedRuleBody {
@@ -1084,8 +1086,6 @@ fn a_result_remainder_of_another_frame_is_refused_after_parsing() {
     for source in [
         // An unbound frame.
         "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..missing) } }",
-        // The configuration's remainder as a computation's tail.
-        "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(x, ..state), ..state } }",
         // Instances written on a plain cell over no instances the subject binds (the class
         // matrix's `cells/result/pc/[k::fragment![..], ..instances0]`).
         "fn bad(x: Term<Id>, old: Term<Int>, cells! { k: KCell(x, tail @ ..), pc: Cell(old) }: Machine) -> Machine { cells! { k: KCell(..tail), pc: [k::fragment![crate::Job { payload: x, ..old }], ..instances0] } }",
@@ -1098,11 +1098,15 @@ fn a_result_remainder_of_another_frame_is_refused_after_parsing() {
             "{source}"
         );
     }
-    let rule = krs_syntax::StateRuleItem::parse_source(
+    for source in [
         "fn good(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(..tail), ..state } }",
-    )
-    .unwrap();
-    assert!(rule.reuse_refusal().is_none());
+        // The configuration's remainder as a computation's tail: refused by the compiler, which
+        // knows the cell.
+        "fn kind(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(x, ..state), ..state } }",
+    ] {
+        let rule = krs_syntax::StateRuleItem::parse_source(source).unwrap();
+        assert!(rule.reuse_refusal().is_none(), "{source}");
+    }
 }
 
 #[test]

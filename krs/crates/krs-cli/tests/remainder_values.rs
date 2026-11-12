@@ -660,8 +660,8 @@ pub fn moved(
     });
     expect_test::expect![[r#"
         [
-            "another-frame: error[krs::syntax::unsupported-rule-body]: unsupported rule body: a result remainder must reuse a subject frame of the same kind",
-            "claim-another-frame: error[krs::syntax::unsupported-rule-body]: unsupported rule body: a result remainder must reuse a subject frame of the same kind",
+            "another-frame: error[krs::syntax::invalid-list-notation]: `..state` in the computation cell `k` writes `state`, which the subject binds as the rest of the configuration, the cells the subject leaves out (`state @ ..`), and a computation's rest is a computation: a remainder is written back only into a cell of its own kind; write the computation's items, or name a computation's rest in the subject (`KCell(x, rest @ ..)`) and write that",
+            "claim-another-frame: error[krs::syntax::invalid-list-notation]: `..state` in the computation cell `k` writes `state`, which the subject binds as the rest of the configuration, the cells the subject leaves out (`state @ ..`), and a computation's rest is a computation: a remainder is written back only into a cell of its own kind; write the computation's items, or name a computation's rest in the subject (`KCell(x, rest @ ..)`) and write that",
         ]
     "#]]
     .assert_debug_eq(&errors);
