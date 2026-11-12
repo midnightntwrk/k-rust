@@ -2301,11 +2301,12 @@ fn subject_twin<'e>(
 }
 
 /// What a rest on one side of a cell is fixed by, in a spelling its kind and route admit: `..`
-/// on both sides keeps the rest. A computation's rest is never dropped: a readable rule keeps it
-/// always, and a `cells!` rule names it in the subject (`rest @ ..`) to write it elsewhere in the
-/// result (`..rest`). A list matched by brackets of its rest alone (`[..]`, where `[rest @ ..]` is
-/// refused) is matched whole, by `_` to drop it or by a binder to move it; any other subject names
-/// its rest (`rest @ ..`) to drop or move it.
+/// on both sides keeps the rest. A readable rule keeps a computation's rest always; a `cells!`
+/// rule names it in the subject (`rest @ ..`) and then puts it back (`..rest`), uses it in another
+/// cell, or reads it in a condition, which drops it from the cell (a named rest it neither puts
+/// back nor uses is refused). A list matched by brackets of its rest alone (`[..]`, where
+/// `[rest @ ..]` is refused) is matched whole, by `_` to drop it or by a binder to move it; any
+/// other subject names its rest (`rest @ ..`) to drop or move it.
 fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
     let keep = "write `..` on both sides to keep the rest";
     let item_less = matches!(
@@ -2315,10 +2316,10 @@ fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
     );
     match entry.layers {
         [Layer::Computation] if form.is_readable() => format!(
-            "{keep}: a computation's rest is never dropped, and a readable rule keeps it, while a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) can put it elsewhere (`KCell(y, ..rest)`)"
+            "{keep}: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another cell, or drop it where a condition reads it"
         ),
         [Layer::Computation] => format!(
-            "{keep}: a computation's rest is never dropped, and to move it the subject names it (`KCell(x, rest @ ..)`) and the result writes it elsewhere (`KCell(y, ..rest)`)"
+            "{keep}, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another cell, or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused"
         ),
         [Layer::Leaf(Notation::List | Notation::Cons)] if item_less => format!(
             "{keep}, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)"
