@@ -2497,13 +2497,18 @@ thread_local! {
         const { std::cell::RefCell::new(BTreeMap::new()) };
 }
 
-/// The names [`render_term`] prints generated variables by while it lives ([`PRINTED_NAMES`]).
-struct PrintedNames;
+/// The names [`render_term`] prints generated variables by while it lives ([`PRINTED_NAMES`]),
+/// holding the names they replace: a print inside a print leaves the outer one's names as they
+/// were once it ends.
+struct PrintedNames {
+    outer: BTreeMap<String, Ident>,
+}
 
 impl PrintedNames {
     fn set(names: BTreeMap<String, Ident>) -> Self {
-        PRINTED_NAMES.with(|printed| *printed.borrow_mut() = names);
-        Self
+        Self {
+            outer: PRINTED_NAMES.with(|printed| printed.replace(names)),
+        }
     }
 
     fn get(name: &str) -> Option<Ident> {
@@ -2513,7 +2518,8 @@ impl PrintedNames {
 
 impl Drop for PrintedNames {
     fn drop(&mut self) {
-        PRINTED_NAMES.with(|printed| printed.borrow_mut().clear());
+        let outer = std::mem::take(&mut self.outer);
+        PRINTED_NAMES.with(|printed| *printed.borrow_mut() = outer);
     }
 }
 
@@ -5731,6 +5737,31 @@ mod tests {
     };
     use quote::ToTokens;
     use std::collections::{BTreeMap, BTreeSet};
+
+    /// A print inside a print gives its own names while it lives and leaves the outer print's
+    /// names as they were once it ends; the outermost leaves none.
+    #[test]
+    fn a_nested_print_restores_the_outer_prints_names() {
+        use super::PrintedNames;
+        use proc_macro2::{Ident, Span};
+        let ident = |name: &str| Ident::new(name, Span::call_site());
+        let get = |name: &str| PrintedNames::get(name).map(|ident| ident.to_string());
+        {
+            let _outer = PrintedNames::set(BTreeMap::from([("w1".to_owned(), ident("outer"))]));
+            assert_eq!(get("w1").as_deref(), Some("outer"));
+            {
+                let _inner = PrintedNames::set(BTreeMap::from([
+                    ("w1".to_owned(), ident("inner")),
+                    ("w2".to_owned(), ident("second")),
+                ]));
+                assert_eq!(get("w1").as_deref(), Some("inner"));
+                assert_eq!(get("w2").as_deref(), Some("second"));
+            }
+            assert_eq!(get("w1").as_deref(), Some("outer"));
+            assert_eq!(get("w2"), None);
+        }
+        assert_eq!(get("w1"), None);
+    }
 
     #[test]
     fn facade_attributes_prevent_readable_item_macro_projection() {
