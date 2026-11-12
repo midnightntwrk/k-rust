@@ -6706,3 +6706,40 @@ fn an_overload_at_a_k_argument_takes_a_value_below_k() {
     assert!(success, "{stdout}\n{stderr}");
     expect_test::expect!["<generatedTop> <k> .K </k> <acc> 3 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
+
+/// SMALLVERDICTS item 3: a sentence's record that names a cell its configuration does not
+/// declare is `undeclared-cell` on both routes, in a subject and in a result, of a rule and of a
+/// claim: the readable record's entries name the configuration's cells, each by its name, as a
+/// `cells!` entry names a cell its owner declares. The readable text names the cell and stands at
+/// its name.
+#[test]
+fn a_record_naming_an_undeclared_cell_is_undeclared_on_both_routes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let readable_claim = format!(
+        "{PRESENCES}k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(one_path)]\n    go: {{ k: [Go(), ..], nosuch: n }} => {{ k: [..] }};\n}}\n"
+    );
+    let lines = [
+        ("readable-subject", readable_presence("nosuch: n", "")),
+        ("readable-result", readable_written("nosuch: 1")),
+        ("readable-claim", readable_claim),
+        (
+            "cells-subject",
+            cells_presence("nosuch: k::configuration::Cell(_)", false),
+        ),
+        (
+            "cells-result",
+            cells_written("nosuch: k::configuration::Cell(1)"),
+        ),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("undeclared-{name}"), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        readable-subject: error[krs::expand::undeclared-cell]: `Machine` declares no cell `nosuch`: a readable record's entries name the configuration's cells, each by its name @ 92:26
+        readable-result: error[krs::expand::undeclared-cell]: `Machine` declares no cell `nosuch`: a readable record's entries name the configuration's cells, each by its name @ 92:41
+        readable-claim: error[krs::expand::undeclared-cell]: `Machine` declares no cell `nosuch`: a readable record's entries name the configuration's cells, each by its name @ 93:26
+        cells-subject: error[krs::expand::undeclared-cell]: `Machine` declares no cell of this name @ 90:69
+        cells-result: error[krs::expand::undeclared-cell]: `Machine` declares no cell of this name @ 91:53"#]].assert_eq(&lines.join("\n"));
+}

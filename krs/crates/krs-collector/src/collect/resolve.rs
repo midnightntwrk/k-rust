@@ -2270,19 +2270,27 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             {
                 return Err(outside.with_reference_key(reference.key));
             }
-            let detail = match matches.len() {
-                0 => format!(
-                    "readable rule extra names no fixed leaf cell `{}`",
-                    reference.name
-                ),
-                count => format!(
-                    "readable rule extra cell name `{}` is ambiguous across {count} fixed leaf cells",
-                    reference.name
-                ),
-            };
+            // The target holds every cell of the configuration, at any depth (its scope's, where
+            // it is scoped to a group, the others being `outside`), so a name none of them has
+            // is a cell the configuration does not declare, as a `cells!` entry's is.
+            if matches.is_empty() {
+                return Err(CollectionError::new(
+                    CollectionErrorKind::UndeclaredCell,
+                    format!(
+                        "`{}` declares no cell `{}`: a readable record's entries name the configuration's cells, each by its name",
+                        selection.target.configuration.item_name(),
+                        reference.name
+                    ),
+                )
+                .with_reference_key(reference.key));
+            }
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
-                detail,
+                format!(
+                    "readable rule extra cell name `{}` is ambiguous across {} fixed leaf cells",
+                    reference.name,
+                    matches.len()
+                ),
             ));
         };
         if selection
@@ -3877,10 +3885,10 @@ mod tests {
         );
         let targets = [target];
         let error = payload_error(&payload(rule.clone()), &targets);
-        assert_eq!(error.kind(), CollectionErrorKind::InvalidConfiguration);
+        assert_eq!(error.kind(), CollectionErrorKind::UndeclaredCell);
         assert_eq!(
             error.detail(),
-            "readable rule extra names no fixed leaf cell `missing`"
+            "`State` declares no cell `missing`: a readable record's entries name the configuration's cells, each by its name"
         );
         rule.extras.clear();
         assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Result");

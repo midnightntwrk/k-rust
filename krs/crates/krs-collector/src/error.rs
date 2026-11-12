@@ -142,6 +142,9 @@ pub enum CollectionErrorKind {
     /// which the macro reads as a group record's `?` child presence: a constructor's field is a
     /// term, and no KRS term is an `Option`.
     NotADeclaration,
+    /// A readable sentence's record names a cell its configuration does not declare, at any
+    /// depth: the record's entries name the configuration's cells, each by its name.
+    UndeclaredCell,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -335,6 +338,7 @@ impl ToDiagnostic for CollectionError {
                 codes::analysis::INVALID_TERM
             }
             CollectionErrorKind::NotADeclaration => codes::expand::NOT_A_DECLARATION,
+            CollectionErrorKind::UndeclaredCell => codes::expand::UNDECLARED_CELL,
         };
         let diagnostic = Diagnostic::error(
             code,
