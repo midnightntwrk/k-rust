@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use krs_exec::{
-    CompiledStage, ConfigInputs, ConfigValue, Halt, RunOptions, Semantics, Value, View,
+    CompiledStage, ConfigInputs, ConfigValue, EndKast, Halt, RunOptions, Semantics, Value, View,
 };
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
@@ -273,4 +273,43 @@ fn assert_read_back(semantics: &Semantics, end: &krs_exec::Term, entries: usize)
 #[test]
 fn a_million_entry_log_runs_and_reads_back_on_an_8_mib_thread() {
     on_an_8_mib_thread(entries(1_000_000), runs_and_reads_back);
+}
+
+/// A run asked not to convert its end's KAST ([`EndKast::WhenRead`]) reports the end as its
+/// pattern alone, and what `krs run --output none` reads of it converts none: the head of the
+/// main cell, which its status line names, and the view of its cells. The log is 200,000
+/// entries, the end's KAST a second term of that length the run then never holds. A run not
+/// asked so converts it, and the KAST of the first is there once read.
+#[test]
+fn a_run_asked_for_no_kast_of_its_end_converts_none_until_it_is_read() {
+    on_an_8_mib_thread(entries(200_000), |semantics, log, entries| {
+        let state = configure(semantics, log);
+        let report = semantics
+            .run(
+                &state,
+                RunOptions {
+                    end_kast: EndKast::WhenRead,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(report.halt, Halt::Stuck);
+        assert_eq!(report.steps, 3);
+        assert!(!report.state.holds_kast());
+        let head = semantics
+            .unparse_computation_head(&report.state)
+            .expect("the definition has a main cell")
+            .expect("the main cell holds an item");
+        assert_eq!(head.text, "#tick");
+        assert_read_back(semantics, &report.state, entries);
+        assert!(
+            !report.state.holds_kast(),
+            "the status line's head and the end's view read its pattern"
+        );
+        let converted = semantics.run(&state, RunOptions::default()).unwrap();
+        drop(state);
+        assert!(converted.state.holds_kast());
+        report.state.kast().expect("the end has a KAST form");
+        assert!(report.state.holds_kast());
+    });
 }

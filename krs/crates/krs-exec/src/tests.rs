@@ -11,9 +11,10 @@ use k_rust::{
 };
 
 use super::{
-    ConfigVariable, ExecError, Halt, OnePath, PathError, RunOptions, SearchMode, SearchOptions,
-    StopIds, check_final_state, config_variables, cut_point_candidate, log_lines, one_path,
-    read_proposal, result_sort_hooks, run_request, search_backend, term, valueless,
+    ConfigVariable, EndKast, ExecError, Halt, OnePath, PathError, RunOptions, SearchMode,
+    SearchOptions, StopIds, check_final_state, config_variables, console, cut_point_candidate,
+    end_term, log_lines, one_path, read_proposal, result_sort_hooks, run_request, search_backend,
+    term, valueless,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -320,9 +321,66 @@ fn results_render_domain_values_with_the_definitions_sort_hooks() {
         .unwrap();
     let state = term(result.leaves[0].state.clone(), &hooks).unwrap();
     assert_eq!(
-        k_rust::kast::printer::Printer::new().print_term(state.kast()),
+        k_rust::kast::printer::Printer::new().print_term(state.kast().unwrap()),
         r#"done(#token("b\"\\x80\\xff\"","Bytes"),#token("\"a\"","String"))"#
     );
+}
+
+/// A run's end built without its KAST ([`EndKast::WhenRead`]) is its pattern alone: what a run
+/// that prints no state reads of it (the head of its main cell, its cells, its `stdout` buffer)
+/// reads the pattern and converts nothing. Its KAST, once read, is the term the run would have
+/// converted.
+#[test]
+fn an_end_built_without_its_kast_converts_it_only_when_it_is_read() {
+    let end = parse_pattern(
+        r#"Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3")), dotk{}())), Lbl'-LT-'log'-GT-'{}(\dv{SortBytes{}}("\x80\xff")))"#,
+    )
+    .unwrap();
+    let hooks = std::sync::Arc::new(std::collections::HashMap::from([(
+        "Bytes".to_owned(),
+        "BYTES.Bytes".to_owned(),
+    )]));
+    let converted = end_term(end.clone(), &hooks, EndKast::Converted).unwrap();
+    assert!(converted.holds_kast());
+    let unconverted = end_term(end, &hooks, EndKast::WhenRead).unwrap();
+    assert!(!unconverted.holds_kast());
+    assert_eq!(
+        unconverted
+            .computation_head_kore("k")
+            .map(|head| head.map(ToString::to_string)),
+        Some(Some(
+            r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("3"))"#.to_owned()
+        ))
+    );
+    assert_eq!(unconverted.leaf_cells().len(), 2);
+    assert_eq!(console::stdout_buffer(unconverted.kore()), None);
+    assert!(
+        !unconverted.holds_kast(),
+        "reading the pattern converts nothing"
+    );
+    // The KAST read is the one a run converts, the Bytes value rendered by its sort's hook.
+    let print =
+        |term: &super::Term| k_rust::kast::printer::Printer::new().print_term(term.kast().unwrap());
+    assert_eq!(print(&unconverted), print(&converted));
+    assert!(print(&unconverted).contains(r#"#token("b\"\\x80\\xff\"","Bytes")"#));
+    assert!(unconverted.holds_kast());
+}
+
+/// An end with no KAST form fails the run that converts it, and only the reading of its KAST
+/// where the run does not.
+#[test]
+fn an_end_with_no_kast_form_fails_where_its_kast_is_converted() {
+    let end = parse_pattern(r"\mu{}(@X:SortState{}, @X:SortState{})").unwrap();
+    let hooks = std::sync::Arc::new(std::collections::HashMap::new());
+    let Err(ExecError::Result(refused)) = end_term(end.clone(), &hooks, EndKast::Converted) else {
+        panic!("a fixpoint has no KAST form");
+    };
+    let unconverted = end_term(end, &hooks, EndKast::WhenRead).unwrap();
+    let Err(ExecError::Result(read)) = unconverted.kast() else {
+        panic!("a fixpoint has no KAST form");
+    };
+    assert_eq!(read, refused);
+    assert!(!unconverted.holds_kast());
 }
 
 #[test]
@@ -448,11 +506,13 @@ fn the_computation_head_prints_the_first_item_or_reports_an_empty_cell() {
     let head = configuration(KastTerm::Sequence(vec![KastTerm::apply("bar", vec![])]))
         .computation_head("k");
     assert!(
-        matches!(&head, Some(Some(text)) if text.starts_with("bar")),
+        matches!(&head, Ok(Some(Some(text))) if text.starts_with("bar")),
         "{head:?}"
     );
     assert_eq!(
-        configuration(KastTerm::Sequence(Vec::new())).computation_head("k"),
+        configuration(KastTerm::Sequence(Vec::new()))
+            .computation_head("k")
+            .unwrap(),
         Some(None)
     );
     assert_eq!(
@@ -460,7 +520,8 @@ fn the_computation_head_prints_the_first_item_or_reports_an_empty_cell() {
             parse_pattern("dotk{}()").unwrap(),
             KastTerm::apply("other", vec![])
         )
-        .computation_head("k"),
+        .computation_head("k")
+        .unwrap(),
         None
     );
 }

@@ -16,12 +16,12 @@ use std::path::{Path, PathBuf};
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     BackendOptions, Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue,
-    Coverage, CoverageOptions, Difference, DifferenceAt, EndError, Ends, ExecError, Expectation,
-    Halt, InputError, InputFiles, ObservationSpec, Observations, Observers, PrintStyle, Printed,
-    ProgramFile, ProgramInput, ProofReport, ProveOptions, RUN_REPORT_SCHEMA, ReadBack, Rendered,
-    RunOptions, RunReport, SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions, Semantics, Side,
-    SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion, Term, Verdict,
-    canonical_text, json_document, open_values,
+    Coverage, CoverageOptions, Difference, DifferenceAt, EndError, EndKast, Ends, ExecError,
+    Expectation, Halt, InputError, InputFiles, ObservationSpec, Observations, Observers,
+    PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport, ProveOptions, RUN_REPORT_SCHEMA,
+    ReadBack, Rendered, RunOptions, RunReport, SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions,
+    Semantics, Side, SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion,
+    Term, Verdict, canonical_text, json_document, open_values,
 };
 use krs_ir::measure::{Measurement, Timings};
 use krs_ir_levels::DefinitionIr;
@@ -1183,6 +1183,7 @@ fn run(
         stop: stop.clone(),
         condition_budget: Some(request.view_budget),
         observe,
+        end_kast: end_kast(request.output),
         ..RunOptions::default()
     };
     let report = match (
@@ -1261,7 +1262,7 @@ fn run(
     let head = if matches!(report.halt, Halt::Stopped | Halt::StopUndecided) {
         String::new()
     } else {
-        main_cell_head(semantics, &report.state, request.output, &mut stderr)
+        main_cell_head(semantics, &report.state, request.output, &mut stderr)?
     };
     let stops = stops_passed(semantics, &report, &stop);
     let _ = write!(
@@ -2299,9 +2300,9 @@ fn main_cell_head(
     state: &Term,
     output: TermOutput,
     stderr: &mut String,
-) -> String {
+) -> Result<String, Failure> {
     let Some(cell) = semantics.main_cell() else {
-        return String::new();
+        return Ok(String::new());
     };
     let head = match output {
         TermOutput::Pretty
@@ -2323,15 +2324,35 @@ fn main_cell_head(
                 })
             })
         }
-        TermOutput::Kast | TermOutput::Json | TermOutput::JsonLines => state.computation_head(cell),
+        TermOutput::Kast | TermOutput::Json | TermOutput::JsonLines => {
+            state.computation_head(cell)?
+        }
         TermOutput::Kore => state
             .computation_head_kore(cell)
             .map(|head| head.map(ToString::to_string)),
     };
-    match head {
+    Ok(match head {
         Some(Some(item)) => format!("; <{cell}> starts with `{item}`"),
         Some(None) => format!("; <{cell}> is empty"),
         None => String::new(),
+    })
+}
+
+/// Whether a run printed in `output` builds the KAST of its end: the outputs that print the end
+/// as KAST, or name the head of its main cell in KAST, read it; every other reads the end's
+/// pattern (the grammar's print and the head it names, the KORE text, the end document, the
+/// cells an expectation compares, the `stdout` buffer and the exit code) and leaves it
+/// unconverted, a term of the end's size and a normalized copy of its pattern the run then
+/// never holds.
+const fn end_kast(output: TermOutput) -> EndKast {
+    match output {
+        TermOutput::Kast | TermOutput::Json | TermOutput::JsonLines => EndKast::Converted,
+        TermOutput::Pretty
+        | TermOutput::Program
+        | TermOutput::Kore
+        | TermOutput::None
+        | TermOutput::End
+        | TermOutput::Observations => EndKast::WhenRead,
     }
 }
 
@@ -2568,6 +2589,26 @@ mod tests {
                 exit_status::UNANSWERED,
                 "{halt:?}"
             );
+        }
+    }
+
+    /// A run builds its end's KAST only where its output reads it: `none`, which prints one
+    /// status line, and the outputs printed from the end's pattern leave it unconverted.
+    #[test]
+    fn a_run_builds_its_ends_kast_only_for_an_output_that_reads_it() {
+        use super::{EndKast, TermOutput, end_kast};
+        for output in [TermOutput::Kast, TermOutput::Json, TermOutput::JsonLines] {
+            assert_eq!(end_kast(output), EndKast::Converted, "{output:?}");
+        }
+        for output in [
+            TermOutput::None,
+            TermOutput::Pretty,
+            TermOutput::Program,
+            TermOutput::Kore,
+            TermOutput::End,
+            TermOutput::Observations,
+        ] {
+            assert_eq!(end_kast(output), EndKast::WhenRead, "{output:?}");
         }
     }
 

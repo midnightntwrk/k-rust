@@ -9,13 +9,18 @@
 //!
 //! The crate documentation, "Report versions", states how the versions are numbered.
 
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
 use k_rust::{
     backend::{ChosenValueOutput, HaltReasonOutput},
-    kast::{Term as KastTerm, json as kast_json, printer::Printer},
+    kast::{Term as KastTerm, convert::Converter, json as kast_json, printer::Printer},
     kore::{ast::Pattern, walk},
     names::WellKnownSymbol,
 };
 use serde::{Deserialize, Serialize, Serializer};
+
+use crate::ExecError;
 
 /// The schema name a serialized run envelope carries (`krs run`; [report
 /// versions](crate#report-versions)).
@@ -65,19 +70,50 @@ pub const SEARCH_REPORT_SCHEMA: &str = "krs-exec/1";
 /// theirs.
 pub const PROVE_REPORT_SCHEMA: &str = "krs-exec/2";
 
-/// One configuration or term, kept as KORE and as user-facing KAST.
+/// One configuration or term: its KORE pattern, and its user-facing KAST.
+///
+/// The KAST is a second term of the pattern's size, converted through a normalized copy of the
+/// pattern, a third. A term built with its KAST holds it; a run's end built without it
+/// ([`crate::EndKast::WhenRead`]) converts it when it is first read ([`Self::kast`]), so a
+/// report nothing reads as KAST holds the pattern alone.
 ///
 /// It serializes as the KAST JSON envelope that `krun --output json` prints,
 /// so a gate normalizes the native and Java results with one policy.
 #[derive(Clone, Debug)]
 pub struct Term {
     kore: Pattern,
-    kast: KastTerm,
+    kast: Kast,
+}
+
+/// A term's KAST.
+#[derive(Clone, Debug)]
+enum Kast {
+    /// Converted when the term was built.
+    Held(KastTerm),
+    /// Converted when it is first read, with the definition's sort hooks.
+    WhenRead {
+        hooks: Arc<HashMap<String, String>>,
+        converted: OnceLock<KastTerm>,
+    },
 }
 
 impl Term {
     pub(crate) const fn new(kore: Pattern, kast: KastTerm) -> Self {
-        Self { kore, kast }
+        Self {
+            kore,
+            kast: Kast::Held(kast),
+        }
+    }
+
+    /// `kore` as a term whose KAST is converted with `hooks` when it is first read.
+    pub(crate) const fn unconverted(kore: Pattern, hooks: Arc<HashMap<String, String>>) -> Self {
+        Self {
+            kore,
+            kast: Kast::WhenRead {
+                hooks,
+                converted: OnceLock::new(),
+            },
+        }
     }
 
     /// The KORE pattern, as the backend returned it; a run or search result has its Floats in the
@@ -87,10 +123,34 @@ impl Term {
         &self.kore
     }
 
-    /// The KAST term converted from the KORE pattern.
+    /// The KAST term converted from the KORE pattern, converted now if the term was built
+    /// without it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Result`] when the pattern has no KAST form, which a term built with
+    /// its KAST never does.
+    pub fn kast(&self) -> Result<&KastTerm, ExecError> {
+        match &self.kast {
+            Kast::Held(kast) => Ok(kast),
+            Kast::WhenRead { hooks, converted } => {
+                if let Some(kast) = converted.get() {
+                    return Ok(kast);
+                }
+                let kast = convert(&self.kore, hooks)?;
+                Ok(converted.get_or_init(|| kast))
+            }
+        }
+    }
+
+    /// Whether the term holds its KAST: it was built with it, or it has been read
+    /// ([`Self::kast`]).
     #[must_use]
-    pub const fn kast(&self) -> &KastTerm {
-        &self.kast
+    pub fn holds_kast(&self) -> bool {
+        match &self.kast {
+            Kast::Held(_) => true,
+            Kast::WhenRead { converted, .. } => converted.get().is_some(),
+        }
     }
 
     /// The KORE pattern, given up.
@@ -101,29 +161,32 @@ impl Term {
     /// The first item of the computation cell `<cell>` (the definition's main cell,
     /// [`crate::Semantics::main_cell`]) as textual KAST: `Some(None)` when the cell is empty,
     /// `None` without such a cell.
-    #[must_use]
-    pub fn computation_head(&self, cell: &str) -> Option<Option<String>> {
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::kast`], which this reads.
+    pub fn computation_head(&self, cell: &str) -> Result<Option<Option<String>>, ExecError> {
         let label_name = format!("<{cell}>");
-        let mut stack = vec![&self.kast];
+        let mut stack = vec![self.kast()?];
         while let Some(term) = stack.pop() {
             match term {
                 KastTerm::Apply { label, arguments } if label.name == label_name => {
                     let [content] = arguments.as_slice() else {
-                        return None;
+                        return Ok(None);
                     };
-                    return Some(match content {
+                    return Ok(Some(match content {
                         KastTerm::Sequence(items) => {
                             items.first().map(|item| Printer::new().print_term(item))
                         }
                         item => Some(Printer::new().print_term(item)),
-                    });
+                    }));
                 }
                 KastTerm::Apply { arguments, .. } => stack.extend(arguments.iter().rev()),
                 KastTerm::Annotated { term, .. } => stack.push(term),
                 _ => {}
             }
         }
-        None
+        Ok(None)
     }
 
     /// The first item of the computation cell `<cell>` as a KORE pattern, the subterm
@@ -166,10 +229,22 @@ impl Term {
     ///
     /// # Errors
     ///
-    /// Returns an error when the term cannot be encoded.
-    pub fn kast_json(&self) -> Result<String, kast_json::Error> {
-        kast_json::to_string(&self.kast)
+    /// Returns [`ExecError::Result`] when the term has no KAST form ([`Self::kast`]) or cannot
+    /// be encoded.
+    pub fn kast_json(&self) -> Result<String, ExecError> {
+        kast_json::to_string(self.kast()?).map_err(|error| ExecError::Result(error.to_string()))
     }
+}
+
+/// The KAST of `kore`, a pattern of a definition whose sort hooks are `sort_hooks`: a domain
+/// value is a token whose text depends on its sort's hook.
+pub(crate) fn convert(
+    kore: &Pattern,
+    sort_hooks: &HashMap<String, String>,
+) -> Result<KastTerm, ExecError> {
+    Converter::new(sort_hooks)
+        .convert(kore)
+        .map_err(|error| ExecError::Result(error.to_string()))
 }
 
 /// The cell `pattern` is, if it is one: its symbol and content.

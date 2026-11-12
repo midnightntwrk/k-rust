@@ -71,12 +71,7 @@ use k_rust::{
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     k_rust_backend::definition::Admission,
-    kast::{
-        Sort as KastSort,
-        convert::{Converter, sort_hooks},
-        json as kast_json,
-        printer::Printer,
-    },
+    kast::{Sort as KastSort, convert::sort_hooks, printer::Printer},
     kore::{ast::Pattern, parser::parse_definition},
 };
 use krs_ir::{SourceFileId, measure::Timings};
@@ -173,6 +168,28 @@ pub struct RunOptions {
     /// [`RunReport::observations`]); `None` for none. Their functions are evaluated in
     /// [`Observers::observations`] ([`Semantics::run_with`]).
     pub observe: Option<ObservationSpec>,
+    /// Whether the report's end state is built with its KAST ([`RunReport::state`]).
+    pub end_kast: EndKast,
+}
+
+/// Whether a run's report builds the KAST of its end state ([`RunOptions::end_kast`]).
+///
+/// The end's KAST is a term of the end's size, converted through a normalized copy of its
+/// pattern: three terms of that size where the pattern is one. Nothing of a report reads it
+/// but its consumer: the status of the run, its `stdout` and exit code, the end's view, cells
+/// and prints through the grammar read the pattern. So a consumer that reads no KAST (and
+/// serializes no report, whose state serializes as its KAST) asks for none.
+///
+/// Either way the end's KAST is the same term when it is read ([`Term::kast`]): the choice is
+/// when it is converted, and whether a run whose end has no KAST form fails
+/// ([`ExecError::Result`]) or its reading of the KAST does.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EndKast {
+    /// The run converts it, and fails where the end has no KAST form.
+    #[default]
+    Converted,
+    /// The run does not convert it; [`Term::kast`] does, when it is first called.
+    WhenRead,
 }
 
 /// The definitions a run's observations are evaluated in ([`Semantics::run_with`]): each one
@@ -1250,8 +1267,9 @@ const PROGRAM_PRINTS: [(bool, ListSpelling); 3] = [
 pub struct Semantics {
     backend: Backend,
     /// The sort hooks of `backend`'s definition, by KAST sort name, with which its results are
-    /// converted to KAST (`result_sort_hooks`).
-    sort_hooks: HashMap<String, String>,
+    /// converted to KAST (`result_sort_hooks`); shared with the terms that convert theirs when
+    /// it is read ([`EndKast::WhenRead`]).
+    sort_hooks: Arc<HashMap<String, String>>,
     unparser: Arc<krs_unparse::Unparser>,
     configuration: Configuration,
     values: Arc<ValueIndex>,
@@ -1371,7 +1389,7 @@ impl Semantics {
         let mut backend = timings.try_span("exec.backend", |_| {
             backend_in_item_order(&definition_kore, &main_module, &sentence_provenance, solver)
         })?;
-        let sort_hooks = result_sort_hooks(&mut backend)?;
+        let sort_hooks = Arc::new(result_sort_hooks(&mut backend)?);
         // The rules first: their root package's crate name is the one the values read a
         // `crate::` path by, so that a stop and a function name the root package's items alike.
         let rules = rules::Rules::new(&backend, &main_module, definition, |id| {
@@ -2742,6 +2760,7 @@ impl Semantics {
             let untaken = RunOptions {
                 depth: Some(0),
                 trace: options.trace,
+                end_kast: options.end_kast,
                 ..RunOptions::default()
             };
             let mut report = self.run_from(
@@ -3089,7 +3108,7 @@ impl Semantics {
                 budget_spent: undecided.budget_spent,
             });
         let observations = probe.map(|probe| self.observed(probe, halt));
-        let reached = term(leaf.state, &self.sort_hooks)?;
+        let reached = self.end_term(leaf.state, options.end_kast)?;
         let stdout = if self.console.stdout {
             console::stdout_buffer(reached.kore())
         } else {
@@ -3100,7 +3119,7 @@ impl Semantics {
         } else {
             None
         };
-        let (state, resume) = self.reported(reached, proposal)?;
+        let (state, resume) = self.reported(reached, proposal, options.end_kast)?;
         Ok(RunReport {
             halt,
             steps: leaf.depth.saturating_add(u64::from(taken.is_some())),
@@ -3131,6 +3150,7 @@ impl Semantics {
         &self,
         reached: Term,
         proposal: Option<Proposal>,
+        end_kast: EndKast,
     ) -> Result<(Term, Option<State>), ExecError> {
         let resume = proposal.map(|proposal| State {
             pattern: proposal.successor,
@@ -3142,11 +3162,17 @@ impl Semantics {
         });
         Ok(match self.unparser.llvm_floats(reached.kore()) {
             Some(kore) => (
-                self.term(kore)?,
+                self.end_term(kore, end_kast)?,
                 resume.or_else(|| Some(State::new(reached.into_kore()))),
             ),
             None => (reached, resume),
         })
+    }
+
+    /// The end state `kore` of a run as the report's term: with its KAST, or to be converted
+    /// when it is first read ([`EndKast`]).
+    fn end_term(&self, kore: Pattern, end_kast: EndKast) -> Result<Term, ExecError> {
+        end_term(kore, &self.sort_hooks, end_kast)
     }
 
     /// The trace of a run from the state a stop before a rule left off at: the step by that rule
@@ -3667,9 +3693,8 @@ impl Semantics {
     /// Returns [`ExecError::Result`] when the term cannot be encoded.
     pub fn print(&self, term: &Term, style: PrintStyle) -> Result<Printed, ExecError> {
         let text = match style {
-            PrintStyle::Kast => Printer::new().print_term(term.kast()),
-            PrintStyle::Json => kast_json::to_string(term.kast())
-                .map_err(|error| ExecError::Result(error.to_string()))?,
+            PrintStyle::Kast => Printer::new().print_term(term.kast()?),
+            PrintStyle::Json => term.kast_json()?,
             PrintStyle::Kore => term.kore().to_string(),
             PrintStyle::Pretty => return Ok(self.unparse(term, false)),
         };
@@ -4453,10 +4478,21 @@ fn result_sort_hooks(backend: &mut Backend) -> Result<HashMap<String, String>, E
 
 /// A backend result's pattern as a term, converted to KAST with its definition's `sort_hooks`.
 fn term(kore: Pattern, sort_hooks: &HashMap<String, String>) -> Result<Term, ExecError> {
-    let kast = Converter::new(sort_hooks)
-        .convert(&kore)
-        .map_err(|error| ExecError::Result(error.to_string()))?;
+    let kast = report::convert(&kore, sort_hooks)?;
     Ok(Term::new(kore, kast))
+}
+
+/// A run's end state `kore` as a term: converted to KAST as [`term`] converts it, or holding
+/// `sort_hooks` to convert it with when its KAST is first read ([`EndKast`]).
+fn end_term(
+    kore: Pattern,
+    sort_hooks: &Arc<HashMap<String, String>>,
+    end_kast: EndKast,
+) -> Result<Term, ExecError> {
+    match end_kast {
+        EndKast::Converted => term(kore, sort_hooks),
+        EndKast::WhenRead => Ok(Term::unconverted(kore, Arc::clone(sort_hooks))),
+    }
 }
 
 /// The compiled definition's configuration variables (`declared`), each with the `#[k::init]`
