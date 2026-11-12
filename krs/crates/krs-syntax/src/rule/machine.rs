@@ -3210,6 +3210,8 @@ fn assemble_machine_clause(
     let mut subject_k = None;
     let mut extras = Vec::new();
     let mut extra_bindings = Vec::new();
+    // The names a refused value's elements bind ([`MachinePatternCell::Refused`]).
+    let mut refused_bindings = Vec::new();
     let mut state_bindings: Vec<Ident> = Vec::new();
     let mut map_values = Vec::new();
     let mut wildcards = MapValueWildcards::new(
@@ -3376,7 +3378,7 @@ fn assemble_machine_clause(
             // would name none.
             MachinePatternCell::Refused(error, binders) => {
                 unpaired((**error).clone().into())?;
-                extra_bindings.extend(binders.iter().cloned());
+                refused_bindings.extend(binders.iter().cloned());
                 let wildcard = Pat::Wild(syn::PatWild {
                     attrs: Vec::new(),
                     underscore_token: Token![_](cell.span()),
@@ -3577,6 +3579,17 @@ fn assemble_machine_clause(
             continue;
         }
         bindings.push(introduced);
+    }
+    // A refused value's names serve only the reading of the names the clause writes elsewhere:
+    // the value's refusal is the clause's verdict, so they raise nothing of their own (a name
+    // they share with a map value is no duplicate ahead of it).
+    for introduced in refused_bindings {
+        if !bindings
+            .iter()
+            .any(|binding| binding.unraw() == introduced.unraw())
+        {
+            bindings.push(introduced);
+        }
     }
     // A map read's key is a pattern position of the same record. A name in
     // it that the subject binds elsewhere looks its entry up; one that

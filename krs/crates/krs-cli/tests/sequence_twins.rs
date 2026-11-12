@@ -574,3 +574,55 @@ fn an_item_less_list_subject_prints_with_its_rest_named() {
     assert_eq!(unnamed(of(&lines, "readable")), of(&lines, "printed"));
     assert_eq!(of(&lines, "printed"), of(&lines, "cells-named"));
 }
+
+/// Round 2, Q4: a refused list value's names serve only the reading of the names the clause
+/// writes elsewhere, so a map value of the same name is no duplicate binding ahead of the
+/// value's own refusal: a list holds at most one rest, in either cell order, as when the names
+/// differ.
+#[test]
+fn a_refused_value_s_names_raise_nothing_ahead_of_its_refusal() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = PREAMBLE
+        .replace("List, Set, list, set}", "List, Map, Set, list, set}")
+        .replace(
+            "    #[k::cell]\n    pub out: List,\n",
+            "    #[k::cell]\n    pub out: List,\n    #[k::cell]\n    pub env: Map,\n",
+        )
+        .replace(
+            "out: list::empty(),",
+            "out: list::empty(),\n            env: k::map![],",
+        );
+    assert!(
+        preamble.contains("pub env: Map"),
+        "the preamble has a Map cell"
+    );
+    let lines = [
+        (
+            "shared",
+            "go: { k: [Go(), ..], ll: [.., v, ..], env: { 0 -> v, .. } } => { k: [..] };",
+        ),
+        (
+            "shared-map-first",
+            "go: { k: [Go(), ..], env: { 0 -> v, .. }, ll: [.., v, ..] } => { k: [..] };",
+        ),
+        (
+            "apart",
+            "go: { k: [Go(), ..], ll: [.., v, ..], env: { 0 -> w, .. } } => { k: [..] };",
+        ),
+    ]
+    .map(|(name, body)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("seq-q4-{name}"),
+            &format!("{preamble}{}", readable(body, false)),
+        );
+        format!("{name}: {}", verdict(target.path(), &manifest))
+    });
+    let apart = of(&lines, "apart").to_owned();
+    assert!(apart.contains("a list holds at most one rest"), "{apart}");
+    for line in &lines {
+        let (name, verdict) = line.split_once(": ").unwrap();
+        assert_eq!(verdict, apart, "{name}");
+    }
+}
