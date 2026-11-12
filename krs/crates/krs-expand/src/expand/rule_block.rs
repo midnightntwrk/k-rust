@@ -871,6 +871,14 @@ fn readable_state_wire(
             value: Box::new(readable_state_wire(inner, context)?),
         },
         StateTerm::Absent(_) => State::Absent,
+        // An instance child's result brackets that keep the subject's rest end their root spine
+        // in it, as a list cell's own brackets do ([`TermBuilder::expand_list_cell_wire`]).
+        StateTerm::Term(term) if term.keeps_root_rest() => {
+            let braced = context.braced;
+            State::Term(context.builder.in_instances(braced, |builder| {
+                builder.expand_list_cell_wire(KeyedTerm::of(term), true, term_side, context.slots)
+            })?)
+        }
         StateTerm::Term(term) | StateTerm::Group(term) => {
             let braced = context.braced;
             State::Term(context.builder.in_instances(braced, |builder| {

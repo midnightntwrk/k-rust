@@ -1565,14 +1565,18 @@ fn an_anonymous_rest_in_a_built_collection_is_the_literal_s_mistake() {
 }
 
 /// A `cells!` fragment's child is its cell's entry, which the descriptor carries as a term: a
-/// result's anonymous `..` in a child's list is the term reader's refusal, a result's map literal
+/// result's second rest in a child's list is the term reader's refusal, a result's map literal
 /// with an anonymous `..` the literal's, and a pattern child's map read is said as not supported
-/// yet. A fragment whose own record is no term keeps the whole entry's message.
+/// yet. A fragment whose own record is no term keeps the whole entry's message. A result child's
+/// one `..` keeps the rest its subject's matched, as at its cell, and is no fault.
 #[test]
 fn a_result_instance_child_the_term_reader_refuses_waits_for_its_record() {
+    let kept = "fn step(x: Term<Id>, cells! { k: KCell(x, ..), tjob: [..] }: Machine) -> Machine { cells! { tjob: [k::fragment![crate::T { tk: [x, ..], ..me }], ..] } }";
+    let rule = krs_syntax::StateRuleItem::parse_source(kept).unwrap();
+    assert!(rule.misplaced_tail().is_none(), "a kept rest is no fault");
     // The instance record is the outer construct: whether `..me` updates an instance the subject
-    // matched is judged first, so its child's list rest is read out and carried.
-    let result = "tjob: [k::fragment![crate::T { tk: [x, ..], ..me }], ..]";
+    // matched is judged first, so its child's list is read out and carried.
+    let result = "tjob: [k::fragment![crate::T { tk: [x, .., x, ..], ..me }], ..]";
     let source = format!(
         "fn step(x: Term<Id>, cells! {{ k: KCell(x, ..), tjob: [..] }}: Machine) -> Machine {{ cells! {{ {result} }} }}"
     );

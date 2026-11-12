@@ -533,7 +533,7 @@ struct ConfigurationRuleBindings {
 /// The end of the spine of list-notation levels that starts at `term`, the root of a list cell
 /// entry's brackets: what a cons level's tail and a snoc level's init hold, level by level. The
 /// root itself when it is no level.
-fn list_spine_end(term: &mut DescriptorTerm) -> &mut DescriptorTerm {
+pub(super) fn list_spine_end(term: &mut DescriptorTerm) -> &mut DescriptorTerm {
     let rest = match term {
         DescriptorTerm::Application {
             reference,
@@ -699,6 +699,179 @@ fn with_named_list_rests(
         }
     }
     Ok(Some((rule, variables)))
+}
+
+/// The rule with each kept rest of an instance's list child named, and the variables that name
+/// them. An instance child is a cell, so a result's brackets in it keep, with their `..`, the rest
+/// the subject's `..` matched in the same child of the subject instance the result instance is
+/// ([`super::cell_states::result_subjects`]), as a list cell's own brackets do
+/// ([`with_named_list_rests`]): the subject's `..`, the `_` that ends the spine of its brackets,
+/// and the result's kept rest are one variable of the child's sort, per subject instance. A
+/// result whose instance is no subject instance, or whose subject child ends in no `..`, kept
+/// no rest. `None` when no result child keeps one; the names avoid `taken`.
+fn with_named_child_rests(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+    taken: &[SemanticVariable],
+) -> Result<
+    Option<(krs_ir::DescriptorConfigurationRule, Vec<SemanticVariable>)>,
+    DescriptorLoweringError,
+> {
+    let keeps = |instances: &krs_ir::ProtocolRuleInstances<DescriptorTerm>| {
+        instances
+            .front
+            .iter()
+            .chain(&instances.back)
+            .flat_map(|instance| &instance.fields)
+            .any(|field| ends_in_kept_rest(&field.value))
+    };
+    let kept = |cell: &DescriptorRuleCell| matches!(&cell.value, ProtocolRuleStateTerm::Instances(after) if keeps(after));
+    if !rule
+        .result
+        .iter()
+        .flat_map(|result| &result.cells)
+        .any(kept)
+    {
+        return Ok(None);
+    }
+    let mut rule = rule.clone();
+    let mut used = rule
+        .bindings
+        .iter()
+        .map(|binding| binding.name.clone())
+        .chain(
+            taken
+                .iter()
+                .map(|variable| variable.id().as_str().to_owned()),
+        )
+        .collect::<BTreeSet<_>>();
+    let mut variables = Vec::new();
+    for cell in rule.result.iter_mut().flat_map(|result| &mut result.cells) {
+        let ProtocolRuleStateTerm::Instances(after) = &mut cell.value else {
+            continue;
+        };
+        if !keeps(after) {
+            continue;
+        }
+        let mut subject = rule.subject.cells.iter_mut().find_map(|subject| {
+            match (&mut subject.value, subject.field.cell == cell.field.cell) {
+                (ProtocolRuleStateTerm::Instances(before), true) => Some(before),
+                _ => None,
+            }
+        });
+        let declared = require_cell_field(&cell.field.cell, declarations)?;
+        let ProtocolCellContent::Nested { declaration } = &declared.content else {
+            continue;
+        };
+        let children = &declarations.cell(&declaration.declaration)?.fields;
+        let Multiplicity::Many(order) =
+            super::references::declared_kind(declared, declarations).multiplicity()
+        else {
+            continue;
+        };
+        let twin_of = subject.as_deref().map_or_else(BTreeMap::new, |before| {
+            super::cell_states::result_subjects(order, children, before, after)
+        });
+        let mut named = BTreeMap::<(usize, String), String>::new();
+        for (back, items) in [(false, &mut after.front), (true, &mut after.back)] {
+            for (position, instance) in items.iter_mut().enumerate() {
+                for field in &mut instance.fields {
+                    let ProtocolRuleStateTerm::Term(term) = &mut field.value else {
+                        continue;
+                    };
+                    let end = list_spine_end(term);
+                    let DescriptorTerm::KeptRest { key } = end else {
+                        continue;
+                    };
+                    let key = key.clone();
+                    let mismatch = || super::cell_states::kept_list_rest_mismatch(descriptor, &key);
+                    let index = *twin_of.get(&(back, position)).ok_or_else(mismatch)?;
+                    let before = subject.as_deref_mut().ok_or_else(mismatch)?;
+                    let count = before.front.len();
+                    let matched = if index < count {
+                        &mut before.front[index]
+                    } else {
+                        &mut before.back[index - count]
+                    };
+                    let name = if let Some(name) = named.get(&(index, field.field.clone())) {
+                        name.clone()
+                    } else {
+                        let name = named_subject_rest(
+                            matched,
+                            &field.field,
+                            children,
+                            &mut used,
+                            &mut variables,
+                        )?
+                        .ok_or_else(mismatch)?;
+                        named.insert((index, field.field.clone()), name.clone());
+                        name
+                    };
+                    *end = DescriptorTerm::Variable {
+                        key: key.clone(),
+                        path_key: key,
+                        name,
+                    };
+                }
+            }
+        }
+    }
+    Ok((!variables.is_empty()).then_some((rule, variables)))
+}
+
+/// The name [`with_named_child_rests`] gives the rest the subject instance `matched` matches with
+/// `..` in its child `field`, the `_` that ends its brackets' spine, which it replaces by the
+/// variable of that name, of the child's declared sort (`children`), recorded in `variables`; the
+/// name avoids `used`. `None` where the child ends in no `..`.
+fn named_subject_rest(
+    matched: &mut krs_ir::ProtocolRuleInstance<DescriptorTerm>,
+    field: &str,
+    children: &[krs_ir::DescriptorCellField],
+    used: &mut BTreeSet<String>,
+    variables: &mut Vec<SemanticVariable>,
+) -> Result<Option<String>, DescriptorLoweringError> {
+    let Some(ProtocolRuleStateTerm::Term(pattern)) = matched
+        .fields
+        .iter_mut()
+        .find(|matched| matched.field == field)
+        .map(|matched| &mut matched.value)
+    else {
+        return Ok(None);
+    };
+    let rest = list_spine_end(pattern);
+    let DescriptorTerm::Wildcard { key } = rest else {
+        return Ok(None);
+    };
+    let Some(sort) = children
+        .iter()
+        .find(|child| child.rust_field == field)
+        .and_then(|child| match &child.content {
+            ProtocolCellContent::Leaf { sort, .. } => Some(sort),
+            ProtocolCellContent::Nested { .. } => None,
+        })
+    else {
+        return Ok(None);
+    };
+    let child = field.strip_prefix("r#").unwrap_or(field);
+    let base = format!("{}rest_{child}", krs_ir::ir::RESERVED_MARKER);
+    let mut name = base.clone();
+    let mut ordinal = 2_usize;
+    while used.contains(&name) {
+        name = format!("{base}_{ordinal}");
+        ordinal += 1;
+    }
+    used.insert(name.clone());
+    variables.push(SemanticVariable::new(
+        SemanticId::new(name.clone())?,
+        semantic_sort_ref(&sort.sort),
+    ));
+    *rest = DescriptorTerm::Variable {
+        key: key.clone(),
+        path_key: key.clone(),
+        name: name.clone(),
+    };
+    Ok(Some(name))
 }
 
 fn configuration_rule_bindings(
@@ -887,6 +1060,10 @@ pub(super) fn lower_configuration_rule_descriptor(
     let (rule, rests) = named
         .as_ref()
         .map_or((rule, &[][..]), |(rule, rests)| (rule, rests.as_slice()));
+    let children = with_named_child_rests(descriptor, rule, declarations, rests)?;
+    let (rule, child_rests) = children
+        .as_ref()
+        .map_or((rule, &[][..]), |(rule, rests)| (rule, rests.as_slice()));
     let ConfigurationRuleBindings {
         mut subject_sorts,
         mut result_sorts,
@@ -900,7 +1077,7 @@ pub(super) fn lower_configuration_rule_descriptor(
     let hidden = hidden
         .iter()
         .map(|(id, sort)| SemanticVariable::new(id.clone(), sort.clone()));
-    for variable in rests.iter().cloned().chain(hidden) {
+    for variable in rests.iter().chain(child_rests).cloned().chain(hidden) {
         let name = variable.id().as_str();
         subject_sorts.insert(name.to_owned(), variable.sort().clone());
         result_sorts.insert(name.to_owned(), variable.sort().clone());

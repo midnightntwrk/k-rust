@@ -764,15 +764,24 @@ fn parse_readable_child(
         if reads_as_list_term(&chunks, context) {
             return Ok(StateTerm::Term(read(tokens)?));
         }
-        // A result's `..` before an item keeps the subject's rest in front of it. A second one is
-        // refused as list notation refuses it. One is no sequence an instance child writes, whose
-        // rest follows its items, so the child is the clause's fault
-        // ([`crate::cell_entries::Refusal::ResultItemsAfterRest`]): the kind answers first (a
-        // computation's back item, brackets on a Set), and the cell is only read. The child's state
-        // is then a placeholder no lowering reads as a list, the absence of a cell that is no `?`
-        // cell, which no instance child's lowering takes.
-        if result_rests(name, &chunks, faults)? {
+        // A result's second rest is refused as list notation refuses it, once the child's kind
+        // has answered (brackets on a Set): the child is the clause's fault, and the cell is only
+        // read. The child's state is then a placeholder no lowering reads as a list, the absence
+        // of a cell that is no `?` cell, which no instance child's lowering takes.
+        if result_rests(&chunks, faults)? {
             return Ok(StateTerm::Absent(TokenRange::for_tokens(&tokens)?));
+        }
+        // A result's `..` before an item keeps the subject's rest in front of it, as at a list
+        // cell's own brackets (`[.., a]`, `[a, .., b]`): the brackets are the list notation they
+        // write, whose root spine ends in that rest, which the child's kind reads (a list's
+        // elements; a computation, read from its front, refuses an item after its rest).
+        if context == StateMacroContext::Expression
+            && chunks
+                .split_last()
+                .is_some_and(|(_, before)| before.iter().any(is_dots))
+            && let Some(kept) = crate::state_macro::kept_rest_term(&tokens, context)?
+        {
+            return Ok(StateTerm::Term(kept));
         }
         let mut items = Vec::new();
         let mut tail = StateMacroRemainder::Exact;
@@ -802,45 +811,26 @@ fn parse_readable_child(
     Ok(StateTerm::Term(read(tokens)?))
 }
 
-/// The rests of a result instance child `name`'s bracketed items `chunks`: a second one is
-/// refused as list notation refuses it, and one before an item is the clause's fault, recorded in
-/// `faults` ([`parse_instances_with_fault`]) or refused where there is none. Whether a fault was
-/// recorded.
-fn result_rests(
-    name: &Ident,
-    chunks: &[TokenStream],
-    faults: ChildFaults<'_>,
-) -> Result<bool, ParseError> {
+/// The rests of a result instance child's bracketed items `chunks`: a second one is refused as
+/// list notation refuses it, the clause's fault, recorded in `faults`
+/// ([`parse_instances_with_fault`]) so that the child's kind answers first, or refused where there
+/// is none. Whether a fault was recorded.
+fn result_rests(chunks: &[TokenStream], faults: ChildFaults<'_>) -> Result<bool, ParseError> {
     let rests = chunks
         .iter()
         .filter(|chunk| is_dots(chunk))
         .collect::<Vec<_>>();
-    if let [_, second, ..] = rests.as_slice() {
-        return Err(crate::list_notation::two_rests(second.span()).into());
-    }
-    let early = chunks
-        .split_last()
-        .and_then(|(_, before)| before.iter().find(|chunk| is_dots(chunk)));
-    if let Some(early) = early {
-        let reason = crate::cell_entries::Refusal::ResultItemsAfterRest.reason(
-            crate::cell_entry::EntryForm::Readable,
-            &name.unraw().to_string(),
-            &crate::cell_entries::EntryKind::default(),
-            None,
-        );
-        let fault = crate::SyntaxError::new(
-            crate::SyntaxErrorKind::KeptRestUnlowered { reason },
-            early.span(),
-        );
-        match faults {
-            Some(faults) => {
-                faults.borrow_mut().get_or_insert(fault);
-                return Ok(true);
-            }
-            None => return Err(fault.into()),
+    let [_, second, ..] = rests.as_slice() else {
+        return Ok(false);
+    };
+    let fault = crate::list_notation::two_rests(second.span());
+    match faults {
+        Some(faults) => {
+            faults.borrow_mut().get_or_insert(fault);
+            Ok(true)
         }
+        None => Err(fault.into()),
     }
-    Ok(false)
 }
 
 /// Whether a readable instance child's bracketed items `chunks`, read in `context`, are the term
@@ -869,7 +859,7 @@ fn is_child_fault(error: &crate::SyntaxError) -> bool {
     matches!(
         error.kind(),
         crate::SyntaxErrorKind::KeptRestUnlowered { .. }
-    )
+    ) || crate::list_notation::is_two_rests(error)
 }
 
 /// Whether the item `chunk` is a result's `..term`: `..` followed by the term it puts back.

@@ -2554,8 +2554,8 @@ fn validate_rule_state<S: RuleValidationStage>(
     entry_root: bool,
 ) -> Result<(), StateTransportError> {
     match state {
-        // A cell entry's term may end its root brackets in the list's unnamed rest; an instance
-        // child's, and every term nested in it, may not.
+        // A cell entry's term may end its root brackets in the list's unnamed rest, and so may
+        // an instance child's, which is a cell; no term nested in either may.
         ProtocolRuleStateTerm::Term(term) => {
             let list_root = entry_root && walk.kept_rests;
             if !super::validation::kept_rests_placed(term, list_root) {
@@ -2788,7 +2788,7 @@ fn validate_rule_instances<S: RuleValidationStage>(
                 discovered,
                 walk,
                 keys,
-                false,
+                true,
             );
             walk.instance_cells -= 1;
             validated?;

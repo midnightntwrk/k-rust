@@ -2743,14 +2743,8 @@ fn parse_entry_value(
             let leaf = crate::parse::strip_trailing_comma(value_tokens);
             match named_rest_alone(&leaf, context) {
                 Some(rest) => StateTerm::Term(state_term_tokens(rest, context)?),
-                None => match kept_rest_marked(&leaf, context) {
-                    Some(marked) => StateTerm::Term(
-                        TermExpression::parse_tokens(marked)?
-                            .keeping_root_rest(KEPT_REST_MARKER)?
-                            .ok_or_else(|| {
-                                state_error("cells", "malformed list cell brackets", leaf.span())
-                            })?,
-                    ),
+                None => match kept_rest_term(&leaf, context)? {
+                    Some(kept) => StateTerm::Term(kept),
                     None => parse_state_term(leaf, context)?,
                 },
             }
@@ -2764,6 +2758,23 @@ fn parse_entry_value(
         }),
         value,
     ))
+}
+
+/// A result's brackets `leaf` whose one bare `..` keeps the rest its subject's `..` matched, read
+/// as the list notation they write with that rest at the end of their root spine
+/// ([`kept_rest_marked`], [`TermExpression::keeping_root_rest`]): a list cell's whole content, or
+/// an instance child's, which is a cell as well. `None` for any other leaf.
+pub(crate) fn kept_rest_term(
+    leaf: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<TermExpression>, SyntaxError> {
+    let Some(marked) = kept_rest_marked(leaf, context) else {
+        return Ok(None);
+    };
+    TermExpression::parse_tokens(marked)?
+        .keeping_root_rest(KEPT_REST_MARKER)?
+        .map(Some)
+        .ok_or_else(|| state_error("cells", "malformed list cell brackets", leaf.span()))
 }
 
 /// The reference a result's kept `..` is read through ([`kept_rest_marked`]); the term reads
@@ -3215,6 +3226,13 @@ fn parse_instance_child(
             }
             _ => {}
         }
+    }
+    // An instance child is a cell, so a result's brackets whose one bare `..` keeps the rest its
+    // subject's `..` matched mean what they mean as a list cell's whole content (`Cell([x, ..])`,
+    // `Cell([.., x])`): the list notation they write, ending its root spine in that rest. The
+    // child's kind reads them: a list's elements, or a computation's items.
+    if let Some(kept) = kept_rest_term(&tokens, context)? {
+        return Ok(StateTerm::Term(kept));
     }
     Ok(StateTerm::Term(if keys {
         state_key_tokens(tokens, context)?

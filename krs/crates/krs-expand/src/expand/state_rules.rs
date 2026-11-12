@@ -808,6 +808,26 @@ impl<'a> StateRuleBuilder<'a> {
         }
     }
 
+    /// The state of a record's or an instance's child, which is a cell: its result brackets that
+    /// keep the subject's rest end their root spine in it, as a list cell's own brackets do
+    /// ([`TermBuilder::expand_list_cell_wire`]).
+    fn expand_child_state(
+        &mut self,
+        state: &StateTerm,
+        slots: &mut WireSlots,
+    ) -> crate::Result<ProtocolRuleStateTerm<WireTerm>> {
+        match state {
+            StateTerm::Term(term) if term.keeps_root_rest() => {
+                let side = self.term_side();
+                Ok(ProtocolRuleStateTerm::Term(
+                    self.terms
+                        .expand_list_cell_wire(KeyedTerm::of(term), true, side, slots)?,
+                ))
+            }
+            state => self.expand_state(state, slots),
+        }
+    }
+
     fn expand_state(
         &mut self,
         state: &StateTerm,
@@ -842,7 +862,7 @@ impl<'a> StateRuleBuilder<'a> {
                     fields.push(krs_ir::ProtocolRuleInstanceField {
                         key: ledger.define(field.name_key())?,
                         field: field.name().to_string(),
-                        value: self.expand_state(field.value(), slots)?,
+                        value: self.expand_child_state(field.value(), slots)?,
                     });
                 }
                 Ok(ProtocolRuleStateTerm::Record(krs_ir::ProtocolRuleRecord {
@@ -917,7 +937,7 @@ impl<'a> StateRuleBuilder<'a> {
             fields.push(krs_ir::ProtocolRuleInstanceField {
                 key: ledger.define(field.name_key())?,
                 field: field.name().to_string(),
-                value: self.expand_state(field.value(), slots)?,
+                value: self.expand_child_state(field.value(), slots)?,
             });
         }
         Ok(krs_ir::ProtocolRuleInstance {

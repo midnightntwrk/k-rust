@@ -6,10 +6,13 @@
 //! are written in braces (a Map collection) or brackets (a List collection), in a rule, a claim
 //! and a `k::patterns!` step, and an instance rule matching a list child's back runs.
 //!
-//! A result that keeps such a child's unnamed rest, `[..]` or `[y, ..]` over a subject
-//! `[.., x]`, or over an aliased `l @ [x, ..]`, is a stated limit (`collection-entry`): the rest
-//! an instance child keeps is the one its subject's own brackets end with. A named rest is kept
-//! by its name, `[r @ .., x]` then `[x, ..r]`, as at the child's own cell.
+//! A result keeps the unnamed rest its subject's same child ends with wherever its brackets write
+//! it, as at the child's own cell (`[_, ..]` then `[.., a]` or `[a, .., b]`), in a readable and a
+//! `cells!` instance record. A result that keeps such a child's unnamed rest, `[..]` or `[y, ..]`
+//! over a subject `[.., x]`, or over an aliased `l @ [x, ..]`, is a stated limit
+//! (`collection-entry`): the rest an instance child keeps is the one its subject's own brackets
+//! end with. A named rest is kept by its name, `[r @ .., x]` then `[x, ..r]`, as at the child's
+//! own cell.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -185,7 +188,19 @@ fn verdict(target: &Path, root: &Path, name: &str, clause: &str, claim: bool) ->
     let sentences = format!(
         "k::{kind}! {{\n    for Machine;\n    use Cmd::*;\n\n    {attribute}{clause}\n}}\n"
     );
-    let manifest = package(root, name, &sentences);
+    sentence_verdict(target, root, name, &sentences, claim)
+}
+
+/// The verdict on the one sentence `go` of `sentences`, a rule or, with `claim`, a claim: the
+/// emitted sentence on one line, or the first error line.
+fn sentence_verdict(
+    target: &Path,
+    root: &Path,
+    name: &str,
+    sentences: &str,
+    claim: bool,
+) -> String {
+    let manifest = package(root, name, sentences);
     let output = manifest.with_file_name("emitted");
     let (success, _, stderr) = krs(
         target,
@@ -452,6 +467,164 @@ k::rules! {
     expect_test::expect!["<out> ListItem ( 2 ) </out> <ths> <th> <tid> 1 </tid> <tl> ListItem ( 4 ) ListItem ( 3 ) ListItem ( 2 ) </tl> <tk> .K </tk> <ts> .Set </ts> </th> </ths>"].assert_eq(&flat[start..end]);
 }
 
+/// A readable instance rule that writes its list child's items after the `..` keeps the rest the
+/// subject's same child matched before them, as at a list cell: `push` puts an element at the back
+/// of the list, so `last` reads the last one pushed.
+#[test]
+fn an_instance_list_child_s_back_is_written_in_a_run() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rules = r"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    open: { k: [Open(n), ..], th: { .. } } => { k: [..], th: { Th { tid: n, tl: [], tk: [], ts: set::empty() }, .. } };
+    push: { k: [Push(n), ..], th: { me @ Th { tl: [..], .. }, .. } } => { k: [..], th: { Th { tl: [.., n], ..me }, .. } };
+    last: { k: [Last(), ..], th: { Th { tl: [.., x], .. }, .. }, out: _ } => { k: [..], out: [x] };
+}
+";
+    let manifest = package(temporary.path(), "run-push-back", rules);
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "open 1 push 2 push 3 push 4 last\n").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = flat.find("<out>").unwrap();
+    let end = flat.find("</ths>").unwrap() + "</ths>".len();
+    expect_test::expect!["<out> ListItem ( 4 ) </out> <ths> <th> <tid> 1 </tid> <tl> ListItem ( 2 ) ListItem ( 3 ) ListItem ( 4 ) </tl> <tk> .K </tk> <ts> .Set </ts> </th> </ths>"].assert_eq(&flat[start..end]);
+}
+
+/// A `cells!` instance record's child keeps, with its result's `..`, the rest its subject's same
+/// child matched, wherever the result's brackets write it, as its twin cell does: a `List` child
+/// before, between and after its items (`[.., a]`, `[a, .., a]`, `[a, ..]`, `[..]`) and a
+/// computation child after its items (`[a, ..]`, `[..]`), in a Map collection's braces and a List
+/// collection's brackets. The K is the twin's but for the rest's name, which is the child's.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of every shape and collection against its twin, its expectation inline."
+)]
+fn a_cells_instance_child_keeps_its_rest_as_its_twin_does() {
+    const KC: &str = "k::configuration::";
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rule = |subject: &str, result: &str| {
+        format!(
+            "#[k::rule(label = \"go\")]\npub fn go(\n    a: Int,\n    k::cells! {{ k: {KC}KCell(Cmd::Push {{ n: a }}, ..), {subject}, state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {KC}KCell(..), {result}, ..state }}\n}}\n"
+        )
+    };
+    let shapes = [
+        ("back", "[.., a]"),
+        ("ends", "[a, .., a]"),
+        ("front", "[a, ..]"),
+        ("all", "[..]"),
+    ];
+    let mut rows = Vec::new();
+    for (shape, written) in shapes {
+        for (collection, child, subject, result) in [
+            (
+                "braces",
+                "tl",
+                "Ths::th: { me @ k::fragment![crate::Th { tl: [_, ..], .. }], i @ .. }",
+                format!("Ths::th: {{ k::fragment![crate::Th {{ tl: {written}, ..me }}], ..i }}"),
+            ),
+            (
+                "brackets",
+                "jl",
+                "Jobs::job: [me @ k::fragment![crate::Job { jl: [_, ..], .. }], i @ ..]",
+                format!("Jobs::job: [k::fragment![crate::Job {{ jl: {written}, ..me }}], ..i]"),
+            ),
+        ] {
+            rows.push((
+                format!("list-{shape}-{collection} ({child})"),
+                (child, "ll"),
+                rule(subject, &result),
+                rule(
+                    &format!("ll: {KC}Cell([_, ..])"),
+                    &format!("ll: {KC}Cell({written})"),
+                ),
+            ));
+        }
+    }
+    for (shape, items) in [("front", "a, .."), ("all", "..")] {
+        rows.push((
+            format!("computation-{shape}-braces (tk)"),
+            ("tk", "aux"),
+            rule(
+                "Ths::th: { me @ k::fragment![crate::Th { tk: [_, ..], .. }], i @ .. }",
+                &format!("Ths::th: {{ k::fragment![crate::Th {{ tk: [{items}], ..me }}], ..i }}"),
+            ),
+            rule(
+                &format!("aux: {KC}KCell(_, ..)"),
+                &format!("aux: {KC}KCell({items})"),
+            ),
+        ));
+    }
+    let table = rows
+        .iter()
+        .map(|(name, (child, cell), instance, twin)| {
+            let slug = name.split(' ').next().unwrap();
+            let instance = sentence_verdict(
+                target.path(),
+                temporary.path(),
+                &format!("cells-instance-{slug}"),
+                instance,
+                false,
+            );
+            let twin = sentence_verdict(
+                target.path(),
+                temporary.path(),
+                &format!("cells-twin-{slug}"),
+                twin,
+                false,
+            );
+            assert_eq!(
+                content(&instance, child),
+                content(&twin, cell),
+                "{name}: the child's content is its twin's"
+            );
+            format!("{name}\n  instance: {instance}\n  twin: {twin}")
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r"
+        list-back-braces (tl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) Krs_RestTl:List => Krs_RestTl:List ListItem(A:Int) </tl> ... </th>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => Krs_RestLl:List ListItem(A:Int) </ll>
+        list-back-brackets (jl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <jobs> <job> <jl> ListItem(_) Krs_RestJl:List => Krs_RestJl:List ListItem(A:Int) </jl> ... </job> ... </jobs>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => Krs_RestLl:List ListItem(A:Int) </ll>
+        list-ends-braces (tl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) Krs_RestTl:List => ListItem(A:Int) Krs_RestTl:List ListItem(A:Int) </tl> ... </th>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List ListItem(A:Int) </ll>
+        list-ends-brackets (jl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <jobs> <job> <jl> ListItem(_) Krs_RestJl:List => ListItem(A:Int) Krs_RestJl:List ListItem(A:Int) </jl> ... </job> ... </jobs>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List ListItem(A:Int) </ll>
+        list-front-braces (tl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) Krs_RestTl:List => ListItem(A:Int) Krs_RestTl:List </tl> ... </th>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List </ll>
+        list-front-brackets (jl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <jobs> <job> <jl> ListItem(_) Krs_RestJl:List => ListItem(A:Int) Krs_RestJl:List </jl> ... </job> ... </jobs>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List </ll>
+        list-all-braces (tl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) Krs_RestTl:List => Krs_RestTl:List </tl> ... </th>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => Krs_RestLl:List </ll>
+        list-all-brackets (jl)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <jobs> <job> <jl> ListItem(_) Krs_RestJl:List => Krs_RestJl:List </jl> ... </job> ... </jobs>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => Krs_RestLl:List </ll>
+        computation-front-braces (tk)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tk> _:KItem => A:Int ... </tk> ... </th>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <aux> _:KItem => A:Int ... </aux>
+        computation-all-braces (tk)
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tk> _:KItem => .K ... </tk> ... </th>
+          twin: rule [go]: <k> push A:Int => .K ... </k> <aux> _:KItem => .K ... </aux>"]].assert_eq(&table.join("\n"));
+}
+
 /// A result keeping with `..` the rest of an instance child whose subject matches items after
 /// that rest, or matches it below an alias, is the stated limit at the child, by a label or a
 /// Map key, in braces and brackets, in a rule and a claim; a named rest is kept by its name, as
@@ -681,10 +854,10 @@ fn every_kept_rest_spelling_of_an_instance_child_is_judged_as_its_twin_s() {
           instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) R:List => ListItem(A:Int) R:List R:List </tl> ... </th>
           twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) R:List => ListItem(A:Int) R:List R:List </ll>
         items-after-rest
-          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) Tail0:List => Tail0:List ListItem(A:Int) </tl> ... </th>
           twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => Krs_RestLl:List ListItem(A:Int) </ll>
         items-around-rest
-          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
+          instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) Tail0:List => ListItem(A:Int) Tail0:List ListItem(A:Int) </tl> ... </th>
           twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List ListItem(A:Int) </ll>
         two-rests
           instance: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
@@ -697,17 +870,18 @@ fn every_kept_rest_spelling_of_an_instance_child_is_judged_as_its_twin_s() {
           twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"]].assert_eq(&table.join("\n"));
 }
 
-/// A result child that writes items after its `..`, `Th { tl: [.., x], ..me }`, is never lowered
-/// as another list: whatever else the record holds (a `let` block), it is the stated limit on a
-/// List child once the kind has answered, the computation's back item on a computation child and
-/// brackets on a Set child, as its twin at a top cell gives where it refuses. Alternatives are
-/// judged by every alternative, whatever their order.
+/// A result child that writes items after its `..`, `Th { tl: [.., x], ..me }`, keeps the rest the
+/// subject's same child matched before them, as its twin at a top cell does: whatever else the
+/// record holds (a `let` block), a List child is the list its brackets write over that rest, and
+/// once the kind has answered a computation child is refused for its back item and a Set child
+/// for its brackets, as their twins are. Alternatives are judged by every alternative, whatever
+/// their order.
 #[test]
 #[expect(
     clippy::too_many_lines,
     reason = "One table of the review's spellings beside their twins, its expectation inline."
 )]
-fn a_result_s_items_after_an_instance_child_s_rest_are_never_lowered_as_another_list() {
+fn a_result_s_items_after_an_instance_child_s_rest_keep_the_subject_s_rest_before_them() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let go = "k: [Go(), ..]";
@@ -857,7 +1031,7 @@ fn a_result_s_items_after_an_instance_child_s_rest_are_never_lowered_as_another_
         .collect::<Vec<_>>();
     expect_test::expect![[r"
         list-let
-          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
+          instance: rule [go]: <k> go => .K ... </k> <th> <tl> ListItem(X:KItem) Tail0:List => Tail0:List ListItem(X:KItem) </tl> <ts> _ => ( #let S:Set = .Set #in S:Set ) </ts> ... </th>
           twin: rule [go]: <k> go => .K ... </k> <ll> ListItem(X:KItem) Krs_RestLl:List => Krs_RestLl:List ListItem(X:KItem) </ll>
         computation-let
           instance: error[krs::collect::invalid-configuration]: the entry of the computation cell `tk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
@@ -866,7 +1040,7 @@ fn a_result_s_items_after_an_instance_child_s_rest_are_never_lowered_as_another_
           instance: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
           twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
         brackets-let
-          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `jl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
+          instance: rule [go]: <k> go => .K ... </k> <jobs> <job> <jl> ListItem(X:KItem) Tail0:List => Tail0:List ListItem(X:KItem) </jl> <js> _ => ( #let S:Set = .Set #in S:Set ) </js> ... </job> ... </jobs>
         kept-let
           instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
         kept-let-subject
@@ -900,7 +1074,7 @@ fn a_result_s_items_after_an_instance_child_s_rest_are_never_lowered_as_another_
         ),
         true,
     );
-    expect_test::expect!["error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name"].assert_eq(&claim);
+    expect_test::expect!["claim [go]: <k> go => .K ... </k> <th> <tl> ListItem(X:KItem) Tail0:List => Tail0:List ListItem(X:KItem) </tl> <ts> _ => krsLocal_ba89d2f46ea827bca2379a16 ( ) </ts> ... </th>"].assert_eq(&claim);
 }
 
 /// A workspace of a specification package, [`SOURCE`] with no sentence, and a `k::patterns!`

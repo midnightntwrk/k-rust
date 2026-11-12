@@ -1180,6 +1180,10 @@ fn first_in<'t>(term: &'t DescriptorTerm, name: &str) -> Option<&'t ProvenanceKe
 /// leaf child hold the list's elements, as on a list leaf cell; an open list's rest is bound and
 /// kept the same way.
 /// Every other part of an instance is written as the readable entry writes it.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Both sides' instances, children and rests are elaborated in one pass over their tails."
+)]
 fn instances(
     before: &ProtocolRuleInstances<DescriptorTerm>,
     after: Option<&ProtocolRuleInstances<DescriptorTerm>>,
@@ -1212,6 +1216,9 @@ fn instances(
                 let mut instance = instance.clone();
                 for field in &mut instance.fields {
                     read_computation_child(field, children);
+                    if !pattern && kept_list_rest(field, children, subject, (names, tails), keys)? {
+                        continue;
+                    }
                     let ProtocolRuleStateTerm::KSequence(sequence) = &mut field.value else {
                         continue;
                     };
@@ -1301,6 +1308,34 @@ fn instances(
         .map(|after| side(after, false, &mut tails))
         .transpose()?;
     Ok((before, after))
+}
+
+/// Whether `field`, a result instance's child of the struct whose children are `children`, is a
+/// list child whose brackets keep the subject's rest before or between their items (`[.., a]`,
+/// `[a, .., b]`): their spine ends in that rest, which becomes the tail of the same child of the
+/// subject instance (`subject`) the result instance is ([`instance_tail`]).
+fn kept_list_rest(
+    field: &mut krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+    children: &[krs_ir::DescriptorCellField],
+    subject: Option<usize>,
+    (names, tails): (&mut Names, &mut BTreeMap<(usize, String), String>),
+    keys: &mut NodeKeys<'_>,
+) -> Elaborated<bool> {
+    let ProtocolRuleStateTerm::Term(term) = &mut field.value else {
+        return Ok(false);
+    };
+    let Some(sort) = list_leaf_sort(children, &field.field) else {
+        return Ok(false);
+    };
+    let end = super::configuration_rules::list_spine_end(term);
+    let DescriptorTerm::KeptRest { key } = end else {
+        return Ok(false);
+    };
+    let kind = ProtocolRuleBindingKind::Term { sort: sort.clone() };
+    let key = key.clone();
+    let tail = instance_tail(names, tails, false, (subject, field.field.as_str()), kind)?;
+    *end = keys.variable(&key, &tail);
+    Ok(true)
 }
 
 /// The tail of an open instance child `(subject, field)`: a pattern's `..` binds a fresh one, kept

@@ -1252,9 +1252,10 @@ fn a_kept_rest_needs_a_result_to_keep_it() {
     );
 }
 
-/// A collection instance's child is no entry's root: its list's rest is not the cell's.
+/// A collection instance's child is a cell: its root brackets may end in its list's unnamed rest,
+/// as a list cell entry's may, and an instance validates its field as such a root.
 #[test]
-fn a_kept_rest_is_not_an_instance_childs() {
+fn a_kept_rest_ends_an_instance_childs_root() {
     let left = ValidationSide::Left;
     let term = list_level(
         left,
@@ -1265,10 +1266,7 @@ fn a_kept_rest_is_not_an_instance_childs() {
     );
     let child = ProtocolRuleStateTerm::Term(term);
     // The child's own validation, as an instance's field validates it.
-    assert_eq!(
-        list_entry(&child, RuleSide::Left, false, true),
-        OUTSIDE_LIST_ROOT
-    );
+    assert_eq!(list_entry(&child, RuleSide::Left, true, true), Ok(()));
 }
 
 /// A K sequence's item and a condition hold no list cell's rest.

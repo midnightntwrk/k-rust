@@ -99,6 +99,14 @@ pub(crate) fn two_rests(span: Span) -> SyntaxError {
     list_error(TWO_RESTS, span)
 }
 
+/// Whether `error` is the refusal of a second rest in one bracket ([`TWO_RESTS`]).
+pub(crate) fn is_two_rests(error: &SyntaxError) -> bool {
+    matches!(
+        error.kind(),
+        SyntaxErrorKind::InvalidListNotation { reason } if reason == TWO_RESTS
+    )
+}
+
 /// The reason given for an anonymous `..` in a result's list notation, which names no list: a
 /// result's `..` keeps a rest only in a list cell's own brackets (a readable record's list cell,
 /// a `cells!` leaf's `Cell([x, ..])` or `Cell([..])`), where it is read before list notation is.

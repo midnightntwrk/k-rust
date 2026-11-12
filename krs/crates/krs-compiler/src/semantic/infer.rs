@@ -657,8 +657,12 @@ impl StructuredTermBuilder<'_> {
                         .or_insert_with(|| key.clone());
                 }
             }
-            // The configuration rule names each list cell's unnamed rest before its terms are
-            // inferred; the transport refuses one anywhere else.
+            // A readable instance child's result brackets end their spine in the rest the
+            // subject's same child matched, which the elaboration names after the binders' sorts
+            // are inferred: it is the rest of the list the spine's levels build, of the sort they
+            // expect, and constrains no binder. The configuration rule names each list cell's
+            // unnamed rest before its terms are inferred; the transport refuses one anywhere else.
+            DescriptorTerm::KeptRest { .. } if self.readable && expected_sort.is_some() => {}
             DescriptorTerm::KeptRest { .. } => {
                 return Err(self.invalid_term(KEPT_REST_UNNAMED));
             }

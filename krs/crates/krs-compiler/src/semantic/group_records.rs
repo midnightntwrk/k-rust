@@ -208,13 +208,23 @@ pub(super) fn computation_sequence(
 
 /// The K sequence that the list notation `term` spells: its levels' heads are the items, and the
 /// brackets end exactly (`[x]`, `[]`) or in an anonymous `..` (`[y, ..]`), which a pattern's list
-/// notation writes as `_` in the last level's tail. Each item keeps its own key, the sequence is
-/// located at the brackets' outer level, and its `..` at the `_` the macro wrote at it. `None`
-/// for any other term, a named rest or a level taken from the back included.
+/// notation writes as `_` in the last level's tail and a result's as the kept rest that ends its
+/// root spine (`[..]` alone is that rest). Each item keeps its own key, the sequence is located at
+/// the brackets' outer level, and its `..` at the `_` or rest the macro wrote at it. `None` for
+/// any other term, a named rest or a level taken from the back included.
 fn bracket_sequence(
     term: &DescriptorTerm,
 ) -> Option<krs_ir::ProtocolRuleKSequence<DescriptorTerm>> {
     use krs_ir::{DescriptorApplicationRef, ListNotation};
+    if let DescriptorTerm::KeptRest { key } = term {
+        return Some(krs_ir::ProtocolRuleKSequence {
+            payload_key: key.clone(),
+            dot_k_key: None,
+            notation: krs_ir::DescriptorKSequenceNotation::Comma,
+            items: Vec::new(),
+            tail: krs_ir::ProtocolRuleFrame::Anonymous { key: key.clone() },
+        });
+    }
     let DescriptorTerm::Application { reference, .. } = term else {
         return None;
     };
@@ -247,6 +257,9 @@ fn bracket_sequence(
                 _ => return None,
             },
             DescriptorTerm::Wildcard { key } if !items.is_empty() => {
+                break krs_ir::ProtocolRuleFrame::Anonymous { key: key.clone() };
+            }
+            DescriptorTerm::KeptRest { key } => {
                 break krs_ir::ProtocolRuleFrame::Anonymous { key: key.clone() };
             }
             _ => return None,

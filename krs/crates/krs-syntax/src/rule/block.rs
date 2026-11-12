@@ -1347,16 +1347,22 @@ fn allocate_alternative_state_keys(
     list.allocate_rest_key(keys, position)
 }
 
-/// Keys a readable term's nodes on `side` and, on the left, its wildcards.
+/// Keys a readable term's nodes on `side` and, on the left, its wildcards; on the right, the
+/// one wildcard of an instance child's brackets that keep the subject's rest, their `..`.
 fn allocate_readable_term_keys(
     keys: &mut KeyAllocator,
     term: &mut TermExpression,
     side: RuleTermSide,
 ) -> Result<(), SyntaxError> {
     allocate_rule_term_keys(keys, term, side)?;
-    if matches!(side, RuleTermSide::Left) {
+    let role = match side {
+        RuleTermSide::Left => Some(ProvenanceRole::RuleLeftWildcard),
+        RuleTermSide::Right if term.keeps_root_rest() => Some(ProvenanceRole::RuleRightWildcard),
+        RuleTermSide::Right => None,
+    };
+    if let Some(role) = role {
         let (_, tree, term_keys) = term.keying();
-        allocate_wildcard_keys(keys, tree, term_keys, ProvenanceRole::RuleLeftWildcard)?;
+        allocate_wildcard_keys(keys, tree, term_keys, role)?;
     }
     Ok(())
 }
