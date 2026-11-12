@@ -436,6 +436,81 @@ fn a_computation_remainder_moves_into_another_computation_cell() {
     ));
 }
 
+/// A cell the rule creates from `None` holds what its result lists, a computation's `..tail`
+/// included: `ok: Some(KCell(Bump(), ..tail))` over `ok: None` creates `ok` holding `bump`
+/// followed by the rest `k` moved, and a run of `park report` leaves `bump ~> report` there.
+#[test]
+fn a_created_computation_cell_holds_the_rest_it_names() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = PREAMBLE
+        .replace(
+            "    #[k::cell]\n    pub env: Map,\n}",
+            "    #[k::cell]\n    pub env: Map,\n    #[k::cell(multiplicity = \"?\")]\n    pub ok: Option<KSequence>,\n}",
+        )
+        .replace(
+            "frame: Frame { pc, gas }, env }",
+            "frame: Frame { pc, gas }, env, ok: k::absent!(k::k![]) }",
+        );
+    assert!(
+        preamble.contains("pub ok: Option<KSequence>") && preamble.contains("ok: k::absent!"),
+        "the preamble declares `ok`"
+    );
+    let source = r#"
+#[k::rule(label = "hand")]
+pub fn hand(
+    k::cells! { k: k::configuration::KCell(crate::Cmd::Park(), tail @ ..), ok: None, state @ .. }: crate::Machine,
+) -> crate::Machine {
+    k::cells! { k: k::configuration::KCell(), ok: Some(k::configuration::KCell(crate::Cmd::Bump(), ..tail)), ..state }
+}
+"#;
+    let manifest = package(temporary.path(), "created", &format!("{preamble}{source}"));
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let k = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
+    expect_test::expect![[r"
+        rule [hand]:
+            <k> park ~> Tail:K => .K </k>
+            (.Bag => <ok> bump ~> Tail:K </ok>)"]]
+    .assert_eq(rule(&k, "hand"));
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "park report").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[
+            program.to_str().unwrap(),
+            "-c",
+            "PC=0",
+            "-c",
+            "GAS=0",
+            "-c",
+            "ENV=.Map",
+        ],
+    );
+    assert!(success, "park report:\n{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cell = |name: &str| {
+        let start = flat.find(&format!("<{name}>")).unwrap();
+        let end = flat.find(&format!("</{name}>")).unwrap() + name.len() + 3;
+        flat[start..end].to_owned()
+    };
+    expect_test::expect!["<k> .K </k> <ok> bump ~> report ~> .K </ok>"].assert_eq(&format!(
+        "{} {}",
+        cell("k"),
+        cell("ok")
+    ));
+}
+
 /// `krs check`'s first error headline.
 fn first_error(target: &Path, manifest: &Path) -> String {
     let (success, _, stderr) = krs(target, manifest, "check", &[]);

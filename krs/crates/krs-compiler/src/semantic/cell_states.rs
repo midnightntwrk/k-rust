@@ -1779,6 +1779,14 @@ pub(super) fn lower_optional_clause(
             })
         })
         .transpose()?;
+    // A created computation's `..tail` writes that computation after its items, as over an exact
+    // subject.
+    let after_presence = match (before_inner, after_inner.flatten(), after_presence) {
+        (None, Some(result), Some(Presence::Present { term })) => Some(Presence::Present {
+            term: super::configuration_rules::created_computation(&descriptor, result, term)?,
+        }),
+        (_, _, after) => after,
+    };
     // A present computation's rests move as a fixed cell's do.
     let moved = match (before_inner, after_inner.flatten()) {
         (Some(subject), Some(result)) => moved_presence(
@@ -2716,12 +2724,48 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                     .find(|candidate| candidate.field == field.field)
             });
             let before = self.carried_child(subject, field, &sort)?;
-            let mut frame = state_frame(
-                descriptor,
-                &field.value,
-                result_field.map(|field| &field.value),
-            )?;
+            // A kept child's computation rests move as a fixed cell's do.
+            let moved = match result_field {
+                Some(result_field)
+                    if key.as_deref() != Some(field.field.as_str())
+                        && super::configuration_rules::moves_computation(
+                            &field.value,
+                            &result_field.value,
+                        ) =>
+                {
+                    let after = self.lowering.lower_result(
+                        &result_field.value,
+                        &sort,
+                        &result_field.key,
+                        &MapBase::of(Some(&before), Some(&field.value), Some(&result_field.value))?,
+                    )?;
+                    Some(super::configuration_rules::moved_computation(
+                        descriptor,
+                        &field.value,
+                        &result_field.value,
+                        &before,
+                        after,
+                    )?)
+                    .filter(|moved| moved.exact)
+                }
+                _ => None,
+            };
+            let mut frame = if moved.is_some() {
+                CellContentFrame::Exact
+            } else {
+                state_frame(
+                    descriptor,
+                    &field.value,
+                    result_field.map(|field| &field.value),
+                )?
+            };
             let (before, after) = match result_field {
+                Some(_) if let Some(moved) = moved => {
+                    if let Some(tail) = moved.moved {
+                        self.lowering.moved_computation_remainder(tail);
+                    }
+                    (moved.before, CellPost::Replace { term: moved.after })
+                }
                 // A single-body rule (KF-011) has no result: a `k::rewrite!` that is the child's
                 // whole content changes it, `<val> V => X </val>`, and a key is kept only by a
                 // rewrite whose sides are the same, as by a result.
@@ -2847,8 +2891,14 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             let term = if subject {
                 self.carried_child(instance, field, &sort)?
             } else {
-                self.lowering
-                    .lower_result(&field.value, &sort, &field.key, &MapBase::Unmatched)?
+                let term = self.lowering.lower_result(
+                    &field.value,
+                    &sort,
+                    &field.key,
+                    &MapBase::Unmatched,
+                )?;
+                // A created child's `..tail` writes that computation after its items.
+                super::configuration_rules::created_computation(descriptor, &field.value, term)?
             };
             let frame = if subject {
                 state_frame(descriptor, &field.value, None)?
@@ -3206,9 +3256,12 @@ fn carry_child(
 /// to keep.
 fn written_exactly(value: &DescriptorState) -> bool {
     match value {
-        ProtocolRuleStateTerm::KSequence(sequence) => {
-            matches!(sequence.tail, ProtocolRuleFrame::Exact)
-        }
+        // A `..tail` writes the computation `tail` after the items, which a new instance's
+        // child holds as written.
+        ProtocolRuleStateTerm::KSequence(sequence) => matches!(
+            sequence.tail,
+            ProtocolRuleFrame::Exact | ProtocolRuleFrame::Reuse { .. }
+        ),
         ProtocolRuleStateTerm::Map(map) => !matches!(
             &map.body,
             krs_ir::ProtocolRuleMapBody::Items {

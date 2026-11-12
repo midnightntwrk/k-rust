@@ -2433,8 +2433,10 @@ fn moved_computation_remainder<'a>(
 }
 
 /// The computation `..tail` a result writes after its items when `tail` is not the rest its
-/// own subject leaves, and the key of that `..tail`: the remainder another computation cell binds
-/// (`tail @ ..`), which this cell's new content ends in. The subject's own frame is then exact,
+/// own subject leaves, and the key of that `..tail`: any computation the subject binds, the
+/// remainder another computation cell binds (`tail @ ..`) or a term binder of sort `K` (a
+/// constructor's `K` field, an instance child's computation rest), which this cell's new
+/// content ends in. The subject's own frame is then exact,
 /// or a named rest of its own, which the result does not put back and so moves; an unnamed rest
 /// the result does not keep is the entry's rest mismatch, refused before lowering.
 fn spliced_computation<'a>(
@@ -2470,6 +2472,18 @@ pub(super) struct MovedComputation {
     pub(super) after: SemanticTerm,
     pub(super) moved: Option<SemanticId>,
     pub(super) exact: bool,
+}
+
+/// Whether the clause of the subject state `subject` and the result state `result` moves a
+/// computation's rest ([`MovedComputation::exact`]), judged from the states alone.
+pub(super) fn moves_computation(
+    subject: &ProtocolRuleStateTerm<DescriptorTerm>,
+    result: &ProtocolRuleStateTerm<DescriptorTerm>,
+) -> bool {
+    let subject_frame = rule_state_frame(subject);
+    let result_frame = result_state_frame(subject, result);
+    spliced_computation(subject_frame, result_frame).is_some()
+        || moved_computation_remainder(subject_frame, result_frame).is_some()
 }
 
 /// The [`MovedComputation`] of the clause whose subject state `subject` lowers to `before` and
@@ -2511,6 +2525,29 @@ pub(super) fn moved_computation(
         exact: spliced.is_some() || moved.is_some(),
         moved,
     })
+}
+
+/// The term `after` of the computation a result creates, `result` lowered: a created cell has no
+/// subject, so its result's `..tail` writes that computation after the items, as over an exact
+/// subject ([`spliced_computation`]).
+pub(super) fn created_computation(
+    descriptor: &Descriptor,
+    result: &ProtocolRuleStateTerm<DescriptorTerm>,
+    after: SemanticTerm,
+) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let Some((tail, key)) = spliced_computation(RuleStateFrame::Exact, rule_state_frame(result))
+    else {
+        return Ok(after);
+    };
+    with_trailing_item(
+        descriptor,
+        &after,
+        SemanticTerm::variable(
+            semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
+            SemanticSortRef::k_sequence(),
+            SemanticId::new(tail)?,
+        ),
+    )
 }
 
 /// Checks that a leaf cell's subject state `subject` and result state `result` agree in their
