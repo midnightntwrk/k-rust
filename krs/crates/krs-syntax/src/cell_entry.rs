@@ -685,25 +685,30 @@ fn denotes_term(expression: &syn::Expr) -> bool {
 /// the next `,`, `->` or its end, which it then advances past; `None`, advancing nothing, where
 /// it starts with no alternatives.
 fn pattern_alternatives(input: ParseStream<'_>) -> Option<Vec<TokenStream>> {
-    let ahead = input.fork();
-    let pattern = syn::Pat::parse_multi(&ahead).ok()?;
-    if !(ahead.is_empty() || ahead.peek(Token![,]) || ahead.peek(Token![->])) {
-        return None;
-    }
-    let syn::Pat::Or(alternatives) = pattern else {
-        return None;
+    let cases = |pattern: syn::Pat| match pattern {
+        syn::Pat::Or(alternatives) if alternatives.leading_vert.is_none() => Some(
+            alternatives
+                .cases
+                .iter()
+                .map(quote::ToTokens::to_token_stream)
+                .collect::<Vec<_>>(),
+        ),
+        _ => None,
     };
-    if alternatives.leading_vert.is_some() {
-        return None;
+    let ahead = input.fork();
+    if let Ok(pattern) = syn::Pat::parse_multi(&ahead)
+        && (ahead.is_empty() || ahead.peek(Token![,]) || ahead.peek(Token![->]))
+    {
+        let alternatives = cases(pattern)?;
+        input.advance_to(&ahead);
+        return Some(alternatives);
     }
-    input.advance_to(&ahead);
-    Some(
-        alternatives
-            .cases
-            .iter()
-            .map(quote::ToTokens::to_token_stream)
-            .collect(),
-    )
+    // Alternatives whose leaves only the expression grammar reads (`1 | n + 1`), as the readable
+    // reader reads them: a pattern down to those leaves, each the term it denotes.
+    let (tokens, count) = crate::recover::next_term(input);
+    let alternatives = cases(crate::recover::pattern(&tokens)?)?;
+    crate::recover::skip(input, count).ok()?;
+    Some(alternatives)
 }
 
 /// Whether `expression` holds a rest (`..`) outside a macro.

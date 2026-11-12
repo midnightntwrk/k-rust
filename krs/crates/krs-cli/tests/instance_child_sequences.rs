@@ -1092,3 +1092,31 @@ fn parentheses_around_an_entry_are_grouping_only() {
     assert_eq!(warnings[0], warnings[1]);
     expect_test::expect!["warning[krs::analysis::no-effect-entry]: the entry of the cell `ll` has no effect: it matches every content the cell can hold and binds nothing, and the sentence keeps the cell as it is, so it means the same without the entry; drop the entry, or bind or constrain the content it matches"].assert_eq(&warnings[1]);
 }
+
+/// Alternatives whose leaves only the expression grammar reads (`tid: 1 | n + 1`) are read by the
+/// entry table as the readable reader reads them, so a kept rest of a child beside them is judged
+/// at the child, never left to the lowering.
+#[test]
+fn computed_alternatives_beside_an_instance_child_are_read_by_the_table() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        (
+            "unbound",
+            "go: { k: [Go(), ..], th: { me @ Th { tid: 1 | n + 1, tl: [.., x], .. }, .. }, out: _ } => { k: [..], th: { Th { tl: [..], ..me }, .. }, out: [x] };",
+        ),
+        (
+            "bound",
+            "go: { k: [Push(n), ..], th: { me @ Th { tid: 1 | n + 1, tl: [.., x], .. }, .. }, out: _ } => { k: [..], th: { Th { tl: [..], ..me }, .. }, out: [x] };",
+        ),
+    ]
+    .map(|(name, clause)| {
+        format!(
+            "{name}: {}",
+            verdict(target.path(), temporary.path(), name, clause, false)
+        )
+    });
+    expect_test::expect![[r"
+        unbound: error[krs::syntax::invalid-pattern-or]: variable `n` is not bound in all alternatives
+        bound: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name"]].assert_eq(&rows.join("\n"));
+}

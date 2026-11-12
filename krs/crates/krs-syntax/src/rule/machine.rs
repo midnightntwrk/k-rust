@@ -765,9 +765,12 @@ fn parse_readable_child(
         // refused as list notation refuses it. One is no sequence an instance child writes, whose
         // rest follows its items, so the child is the clause's fault
         // ([`crate::cell_entries::Refusal::ResultItemsAfterRest`]): the kind answers first (a
-        // computation's back item, brackets on a Set), and the cell is only read, so no lowering
-        // reads the sequence kept in its place, whose rest stands after its items.
-        result_rests(name, &chunks, faults)?;
+        // computation's back item, brackets on a Set), and the cell is only read. The child's state
+        // is then a placeholder no lowering reads as a list, the absence of a cell that is no `?`
+        // cell, which no instance child's lowering takes.
+        if result_rests(name, &chunks, faults)? {
+            return Ok(StateTerm::Absent(TokenRange::for_tokens(&tokens)?));
+        }
         let mut items = Vec::new();
         let mut tail = StateMacroRemainder::Exact;
         for chunk in chunks {
@@ -798,12 +801,13 @@ fn parse_readable_child(
 
 /// The rests of a result instance child `name`'s bracketed items `chunks`: a second one is
 /// refused as list notation refuses it, and one before an item is the clause's fault, recorded in
-/// `faults` ([`parse_instances_with_fault`]) or refused where there is none.
+/// `faults` ([`parse_instances_with_fault`]) or refused where there is none. Whether a fault was
+/// recorded.
 fn result_rests(
     name: &Ident,
     chunks: &[TokenStream],
     faults: ChildFaults<'_>,
-) -> Result<(), ParseError> {
+) -> Result<bool, ParseError> {
     let rests = chunks
         .iter()
         .filter(|chunk| is_dots(chunk))
@@ -828,11 +832,12 @@ fn result_rests(
         match faults {
             Some(faults) => {
                 faults.borrow_mut().get_or_insert(fault);
+                return Ok(true);
             }
             None => return Err(fault.into()),
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Whether a readable instance child's bracketed items `chunks`, read in `context`, are the term

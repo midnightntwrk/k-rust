@@ -112,10 +112,20 @@ pub(super) fn elaborate_readable_rules(
                     inserted_frames,
                     ..
                 }) => Ok((descriptor, ReadableNotes { inserted_frames })),
-                Err(Unelaborated(form)) => Err(DescriptorLoweringError::unsupported_shape(
+                Err(Unelaborated::Form(form)) => Err(DescriptorLoweringError::unsupported_shape(
                     "readable rule",
                     format!("{form} has no `cells!` rule"),
                 )
+                .within(
+                    descriptor.id(),
+                    key_range(descriptor, &rule.pattern_key).as_ref(),
+                )),
+                Err(Unelaborated::Limit(reason)) => Err(DescriptorLoweringError::CellCollection {
+                    code: krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                    reason,
+                    range: None,
+                    item: None,
+                }
                 .within(
                     descriptor.id(),
                     key_range(descriptor, &rule.pattern_key).as_ref(),
@@ -189,20 +199,39 @@ pub(super) fn printed_readable_rules(
             Ok(elaboration) => {
                 printed.insert(descriptor.id().clone(), elaboration.descriptor);
             }
-            Err(Unelaborated(form)) => {
+            Err(Unelaborated::Form(form)) => {
                 return Err(DescriptorLoweringError::unsupported_shape(
                     "printed readable rule",
                     format!("{form} has no `cells!` rule"),
                 ));
+            }
+            Err(Unelaborated::Limit(reason)) => {
+                return Err(DescriptorLoweringError::CellCollection {
+                    code: krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                    reason,
+                    range: None,
+                    item: None,
+                });
             }
         }
     }
     Ok(printed)
 }
 
-/// A readable form [`elaborate`] has no `cells!` rule for yet.
+/// Why [`elaborate`] gives no `cells!` rule for a readable form.
 #[derive(Debug)]
-pub(super) struct Unelaborated(&'static str);
+pub(super) enum Unelaborated {
+    /// A readable form it has no `cells!` rule for yet: the readings' gap, an internal error.
+    Form(&'static str),
+    /// A stated limitation the author meets, with its text: `collection-entry` at the rule.
+    Limit(String),
+}
+
+/// [`Unelaborated::Form`], written as the form it names.
+#[expect(non_snake_case, reason = "Each gap is written as the form it names.")]
+const fn Unelaborated(form: &'static str) -> Unelaborated {
+    Unelaborated::Form(form)
+}
 
 /// The `cells!` rule `rule` means, its binders at the sorts `inferred` (inference's, before any
 /// state is lowered): the rule `krs expand` prints for it (`reference.rs` `render_rule`), taken
@@ -1333,12 +1362,14 @@ fn instance_tail(
         }
         return Ok(tail);
     }
+    // A tail is recorded only where the subject's same child is brackets ending in `..`; a rest
+    // it matches otherwise (inside a term, with items after it) is not kept yet.
     subject
         .and_then(|subject| tails.get(&(subject, field.to_owned())))
         .cloned()
-        .ok_or(Unelaborated(
-            "an open instance child no updated instance keeps",
-        ))
+        .ok_or_else(|| Unelaborated::Limit(format!(
+            "the result's unnamed rest `..` keeps the rest of the instance child `{field}`, which the subject's same child does not match with brackets that end in `..`: an instance child keeps only that rest, so keeping this one is not supported yet; name the rest in the subject and write it back by its name"
+        )))
 }
 
 /// The sort of the instance child `field` when it is a list leaf, whose brackets hold its
