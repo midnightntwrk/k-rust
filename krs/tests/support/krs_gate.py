@@ -404,6 +404,21 @@ class Session:
 
         return self.request("kore.read", text=text, keep=keep)
 
+    def apply(
+        self, state: str, function: str, sort: str, *, cell: str, keep: str, write: Path | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate the function labelled ``function``, with values of the K sort ``sort``, at a retained state.
+
+        ``keep`` retains the state with the computation cell ``cell`` holding the value as its one item.
+        ``write`` names a file that receives the state with that cell holding the application
+        itself as its one item, for another route to evaluate.
+        """
+
+        fields = {} if write is None else {"write": os.fspath(write)}
+        return self.request(
+            "function.apply", state=state, function=function, sort=sort, cell=cell, keep=keep, **fields,
+        )
+
     def digest(self, kore: Path, semantics: Path) -> str:
         """Digest a kompiled definition independently of source paths and generated names."""
 

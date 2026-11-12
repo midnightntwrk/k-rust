@@ -7,7 +7,7 @@ use k_rust::{
     },
     kast::{Sort as KastSort, identifier},
     kore::{
-        ast::{Definition, Pattern, Sentence, Symbol},
+        ast::{Definition, Pattern, Sentence, Sort, Symbol},
         walk,
     },
 };
@@ -26,6 +26,8 @@ pub struct PatternContext {
     concat: BTreeMap<String, (CollectionKind, Symbol)>,
     units: BTreeSet<String>,
     cell_sorts: BTreeMap<String, KastSort>,
+    /// The result sort of each symbol declared without sort variables and with one argument.
+    unary_results: BTreeMap<String, Sort>,
 }
 
 fn hook(attributes: &k_rust::kore::ast::Attributes) -> Option<&str> {
@@ -57,9 +59,15 @@ impl PatternContext {
                     symbol,
                     result_sort,
                     attributes,
+                    argument_sorts,
                     ..
                 } = sentence
                 {
+                    if symbol.sort_parameters.is_empty() && argument_sorts.len() == 1 {
+                        result
+                            .unary_results
+                            .insert(symbol.name.clone(), result_sort.clone());
+                    }
                     let kind = match hook(attributes) {
                         Some("LIST.concat" | "LIST.unit") => Some(CollectionKind::List),
                         Some("MAP.concat" | "MAP.unit") => Some(CollectionKind::Map),
@@ -127,6 +135,13 @@ impl PatternContext {
             }
         }
         Ok(self)
+    }
+
+    /// The result sort of the symbol `symbol`, where the definition declares it without sort
+    /// variables and with one argument.
+    #[must_use]
+    pub fn unary_result(&self, symbol: &str) -> Option<&Sort> {
+        self.unary_results.get(symbol)
     }
 
     /// Return the declared content sort of a cell.
@@ -404,11 +419,87 @@ pub fn cell<'a>(state: &'a Pattern, name: &str) -> Result<&'a Pattern, String> {
     }
 }
 
+/// `state` with the computation cell `name` holding one item, `item`, a term of sort `sort`.
+///
+/// A computation is a sequence of items of the sort `KItem`: `item` stands in it as it is where
+/// that is its sort, and under the injection of its sort into `KItem` otherwise.
+/// Every other node of `state` is kept.
+///
+/// # Errors
+///
+/// Returns an error unless `state` holds the cell once and the cell holds a computation: the
+/// empty one or an item before a computation.
+pub fn with_computation(
+    state: &Pattern,
+    name: &str,
+    item: Pattern,
+    sort: &Sort,
+) -> Result<Pattern, String> {
+    const ITEM_SORT: &str = "SortKItem";
+    let plain = |name: &str| Symbol {
+        name: name.to_owned(),
+        sort_parameters: Vec::new(),
+    };
+    let held = cell(state, name)?;
+    if !matches!(
+        held,
+        Pattern::Application { symbol, arguments }
+            if symbol.sort_parameters.is_empty()
+                && matches!((symbol.name.as_str(), arguments.len()), ("kseq", 2) | ("dotk", 0))
+    ) {
+        return Err(format!("<{name}> does not hold a computation"));
+    }
+    let item_sort = Sort::Application {
+        name: ITEM_SORT.to_owned(),
+        arguments: Vec::new(),
+    };
+    let item = if *sort == item_sort {
+        item
+    } else {
+        Pattern::Application {
+            symbol: Symbol {
+                name: "inj".to_owned(),
+                sort_parameters: vec![sort.clone(), item_sort],
+            },
+            arguments: vec![item],
+        }
+    };
+    let computation = Pattern::Application {
+        symbol: plain("kseq"),
+        arguments: vec![
+            item,
+            Pattern::Application {
+                symbol: plain("dotk"),
+                arguments: Vec::new(),
+            },
+        ],
+    };
+    let label = identifier::encode_label(&format!("<{name}>"));
+    let mut result = state.clone();
+    let mut pending = vec![&mut result];
+    while let Some(node) = pending.pop() {
+        if let Pattern::Application { symbol, arguments }
+        | Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } = node
+        {
+            if symbol.name == label {
+                arguments[0] = computation;
+                return Ok(result);
+            }
+            pending.extend(arguments.iter_mut());
+        }
+    }
+    Err(format!(
+        "<{name}> is not reached through applications alone"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PatternContext, cell};
+    use super::{PatternContext, cell, with_computation};
     use k_rust::kore::{
-        ast::{Associativity, Pattern, Symbol},
+        ast::{Associativity, Pattern, Sort, Symbol},
         parser::{parse_definition, parse_pattern},
     };
 
@@ -499,5 +590,37 @@ mod tests {
         let two =
             parse_pattern("pair{}(Lbl'-LT-'k'-GT-'{}(a{}()),Lbl'-LT-'k'-GT-'{}(b{}()))").unwrap();
         assert!(cell(&two, "k").is_err());
+    }
+
+    #[test]
+    fn a_computation_cell_is_replaced_by_one_item() {
+        let state = parse_pattern(
+            "top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(a{}(),dotk{}())),Lbl'-LT-'n'-GT-'{}(b{}()))",
+        )
+        .unwrap();
+        let sort = |name: &str| Sort::Application {
+            name: name.to_owned(),
+            arguments: Vec::new(),
+        };
+        let item = parse_pattern("f{}(b{}())").unwrap();
+        assert_eq!(
+            with_computation(&state, "k", item.clone(), &sort("SortBool")).unwrap(),
+            parse_pattern(
+                "top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortBool{},SortKItem{}}(f{}(b{}())),dotk{}())),Lbl'-LT-'n'-GT-'{}(b{}()))"
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            with_computation(&state, "k", item.clone(), &sort("SortKItem")).unwrap(),
+            parse_pattern(
+                "top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(f{}(b{}()),dotk{}())),Lbl'-LT-'n'-GT-'{}(b{}()))"
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            with_computation(&state, "n", item.clone(), &sort("SortBool")).unwrap_err(),
+            "<n> does not hold a computation"
+        );
+        assert!(with_computation(&state, "m", item, &sort("SortBool")).is_err());
     }
 }

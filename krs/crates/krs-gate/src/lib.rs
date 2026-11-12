@@ -43,6 +43,9 @@
 //! With `keep_each` (a name prefix) instead, every result state is retained as `<prefix><index>`, in the backend's order, and the result again contains `modality`, `states`, and `implementationChosenValues`.
 //! `kore.read` requires KORE pattern `text` and a `keep` name; it parses and retains the pattern, replacing a previous state of that name.
 //! It wraps [`k_rust::kore::parser::parse_pattern`]; its result contains the retained `state` name.
+//! `function.apply` requires `state` (a retained state), `function` (the K label of a function the definition declares with one argument, of the state's sort, and no sort variable), `sort` (the K sort of the function's values, which must be the declared one), `cell` (the name of the state's computation cell), and `keep` (a state name), and accepts `write` (a file path).
+//! It holds the state as the one end of a run of no step from it ([`k_rust::backend::Backend::execute_kore_held`]) and evaluates the function applied to it with [`k_rust::backend::Backend::apply_to_held`].
+//! It retains under `keep` the state with the cell holding one item, the application's value, and with `write` writes the KORE text of the state with the cell holding one item, the application itself; its result contains the retained `state` name and the `value` as KORE text.
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
 //! It wraps [`k_rust::kore::parser::parse_definition`], shared generated-variable alpha normalization in [`kore_compare`], and [`k_rust::kore::printer::Printer`] through [`kore_digest`].
 //! The digest also sorts each module's `subsort` axioms in place, which the K frontend emits in run-dependent order.

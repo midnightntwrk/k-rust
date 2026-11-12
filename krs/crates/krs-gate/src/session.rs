@@ -6,9 +6,14 @@ use crate::{
     pattern::{self, PatternContext},
 };
 use k_rust::{
-    backend::{Backend, ChosenValueOutput, ExecuteRequest, ProveRequest, SearchRequest},
+    backend::{
+        Backend, ChosenValueOutput, ExecuteRequest, InProcess, LeafState, ProbeRules, ProveRequest,
+        SearchRequest,
+    },
+    k_rust_backend::definition::Admission,
+    kast::identifier,
     kore::{
-        ast::Pattern,
+        ast::{Pattern, Sort, Symbol},
         parser::{parse_definition, parse_pattern},
     },
 };
@@ -300,6 +305,7 @@ impl Session {
                 | "exec.prove"
                 | "term.unparse"
                 | "kore.read"
+                | "function.apply"
                 | "kore.digest"
                 | "kore.attributes"
                 | "kore.instances"
@@ -352,6 +358,7 @@ impl Session {
             "exec.prove" => self.exec_prove(request),
             "term.unparse" => self.unparse(request),
             "kore.read" => self.read(request),
+            "function.apply" => self.apply(request),
             "kore.digest" => Self::digest(request),
             "kore.attributes" => Self::attributes(request),
             "kore.instances" => Self::instances(request),
@@ -601,6 +608,48 @@ impl Session {
         Ok(json!({"state": name}))
     }
 
+    /// Apply a function of a whole state to the retained state `state`.
+    ///
+    /// `function` is the K label of a function the definition declares with one argument, of
+    /// the state's sort, `sort` the K sort of its values, which must be the one the definition
+    /// declares, and `cell` names the state's computation cell.
+    /// The backend holds the state as the end of a run of no step from it, and evaluates the
+    /// application over the state it holds (`Backend::apply_to_held`).
+    /// `keep` retains the state with the cell holding one item, the application's value, so an
+    /// `expect` on the cell reads the value as surface text of the cell's sort.
+    /// `write`, when present, names a file that receives the KORE text of the state with the
+    /// cell holding one item, the application itself, followed by a newline: a run from that
+    /// pattern evaluates the same application of the same function to the same state.
+    /// Both patterns are built from the parsed state, whose other nodes they keep.
+    fn apply(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let function = required_string(request, "function")?;
+        let cell = required_string(request, "cell")?;
+        let keep = required_string(request, "keep")?.to_owned();
+        let write = request
+            .get("write")
+            .map(|_| required_string(request, "write"))
+            .transpose()?;
+        let sort = required_string(request, "sort")?;
+        let state = self.state(request)?.clone();
+        let patterns = self
+            .patterns
+            .as_ref()
+            .ok_or("definition metadata not loaded")?;
+        let backend = self
+            .semantics
+            .as_mut()
+            .ok_or("backend not loaded")?
+            .backend_mut();
+        let applied = apply_function(backend, patterns, &state, function, sort, cell)?;
+        if let Some(path) = write {
+            std::fs::write(path, format!("{}\n", applied.application))
+                .map_err(|error| format!("cannot write {path}: {error}"))?;
+        }
+        let text = applied.value.to_string();
+        self.states.insert(keep.clone(), applied.valued);
+        Ok(json!({"state": keep, "value": text}))
+    }
+
     fn search(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let keep = request
             .get("keep")
@@ -810,6 +859,76 @@ impl Session {
     }
 }
 
+/// A function applied to a state ([`apply_function`]).
+struct Applied {
+    /// The state with its computation cell holding one item, the application.
+    application: Pattern,
+    /// The application's value.
+    value: Pattern,
+    /// The state with its computation cell holding one item, the value.
+    valued: Pattern,
+}
+
+/// Apply `function`, the K label of a function of one argument with values of the K sort
+/// `stated`, to `state`, whose computation cell is `cell`.
+///
+/// The backend holds `state` as the one end of a run of no step from it, and evaluates the
+/// application over the state it holds.
+fn apply_function(
+    backend: &mut Backend,
+    patterns: &PatternContext,
+    state: &Pattern,
+    function: &str,
+    stated: &str,
+    cell: &str,
+) -> Result<Applied, Box<dyn Error>> {
+    let name = identifier::encode_label(function);
+    let sort = patterns.unary_result(&name).ok_or_else(|| {
+        format!("`{function}` is not declared with one argument and no sort variable")
+    })?;
+    if !matches!(
+        sort,
+        Sort::Application { name, arguments }
+            if arguments.is_empty() && *name == identifier::encode_sort_name(stated)
+    ) {
+        return Err(format!("`{function}` has values of sort {sort}, not `{stated}`").into());
+    }
+    let application = Pattern::Application {
+        symbol: Symbol {
+            name: name.clone(),
+            sort_parameters: Vec::new(),
+        },
+        arguments: vec![state.clone()],
+    };
+    let application = pattern::with_computation(state, cell, application, sort)?;
+    let mut none = ExecuteRequest::new(state.clone());
+    none.max_depth = Some(0);
+    let mut ends = backend
+        .execute_kore_held(none, ProbeRules::default(), InProcess::default())?
+        .leaves;
+    let held = match (ends.pop().map(|leaf| leaf.state), ends.is_empty()) {
+        (Some(LeafState::Held(held)), true) => held,
+        (Some(LeafState::Kore(_)), true) => {
+            return Err("the state has constraints, so the backend does not hold it".into());
+        }
+        (end, _) => {
+            return Err(format!(
+                "a run of no step from the state has {} ends, not one",
+                ends.len() + usize::from(end.is_some())
+            )
+            .into());
+        }
+    };
+    // The run above admitted the state's pattern, and the entry checks the application.
+    let value = backend.apply_to_held(None, &name, &held, Admission::Unverified)?;
+    let valued = pattern::with_computation(state, cell, value.clone(), sort)?;
+    Ok(Applied {
+        application,
+        value,
+        valued,
+    })
+}
+
 /// The KORE text of `pattern` with each binary32 and binary64 Float domain
 /// value as K's LLVM runtime prints it, so a native result compares by value
 /// with the literal an expectation spells (k-rust writes its own canonical
@@ -879,10 +998,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, execute, float_text, prove, search};
+    use super::{Session, apply_function, execute, float_text, prove, search};
+    use crate::pattern::PatternContext;
     use k_rust::{
         backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest, SearchRequest},
-        kore::{json as kore_json, parser::parse_pattern},
+        kore::{
+            json as kore_json,
+            parser::{parse_definition, parse_pattern},
+        },
     };
     use serde_json::{Value, json};
 
@@ -970,6 +1093,83 @@ mod tests {
         );
         assert_eq!(full["status"], "proven");
         assert_eq!(full, expected);
+    }
+
+    /// A function of a state is evaluated at the state, and both patterns built from it hold one
+    /// item in the computation cell: the application, and its value.
+    #[test]
+    fn a_function_is_applied_to_a_state() {
+        let definition = r#"[]
+            module MAIN
+                sort SortK{} []
+                sort SortKItem{} []
+                sort SortTop{} []
+                symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), functional{}()]
+                symbol dotk{}() : SortK{} [constructor{}(), functional{}()]
+                symbol Lblhalt{}() : SortKItem{} [constructor{}(), functional{}()]
+                symbol Lblstop{}() : SortKItem{} [constructor{}(), functional{}()]
+                symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortTop{} [constructor{}(), functional{}()]
+                symbol Lblreason{}(SortTop{}) : SortKItem{} [function{}()]
+                symbol Lblpair{}(SortTop{}, SortTop{}) : SortKItem{} [function{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(
+                        \in{SortTop{}, R}(
+                            X0:SortTop{}, Lbl'-LT-'k'-GT-'{}(kseq{}(Lblhalt{}(), K:SortK{}))
+                        ),
+                        \top{R}()
+                    )),
+                    \equals{SortKItem{}, R}(
+                        Lblreason{}(X0:SortTop{}), \and{SortKItem{}}(Lblstop{}(), \top{SortKItem{}}())
+                    )
+                ) [label{}("reason")]
+            endmodule []"#;
+        let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+        let patterns =
+            PatternContext::from_definition(&parse_definition(definition).unwrap()).unwrap();
+        let state = parse_pattern("Lbl'-LT-'k'-GT-'{}(kseq{}(Lblhalt{}(), dotk{}()))").unwrap();
+        let applied =
+            apply_function(&mut backend, &patterns, &state, "reason", "KItem", "k").unwrap();
+        assert_eq!(
+            applied.application,
+            parse_pattern(
+                "Lbl'-LT-'k'-GT-'{}(kseq{}(Lblreason{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblhalt{}(), dotk{}()))), dotk{}()))"
+            )
+            .unwrap()
+        );
+        assert_eq!(applied.value, parse_pattern("Lblstop{}()").unwrap());
+        assert_eq!(
+            applied.valued,
+            parse_pattern("Lbl'-LT-'k'-GT-'{}(kseq{}(Lblstop{}(), dotk{}()))").unwrap()
+        );
+        // A run from the written pattern ends with the value in the cell.
+        let run = backend
+            .execute_kore(ExecuteRequest::new(applied.application))
+            .unwrap();
+        assert_eq!(run.leaves.len(), 1);
+        assert_eq!(run.leaves[0].state, applied.valued);
+        for (function, sort, message) in [
+            (
+                "reason",
+                "K",
+                "`reason` has values of sort SortKItem{}, not `K`",
+            ),
+            (
+                "pair",
+                "KItem",
+                "`pair` is not declared with one argument and no sort variable",
+            ),
+            (
+                "halt",
+                "KItem",
+                "`halt` is not declared with one argument and no sort variable",
+            ),
+        ] {
+            let error = apply_function(&mut backend, &patterns, &state, function, sort, "k")
+                .err()
+                .unwrap();
+            assert_eq!(error.to_string(), message);
+        }
+        assert!(apply_function(&mut backend, &patterns, &state, "reason", "KItem", "n").is_err());
     }
 
     #[test]
@@ -1198,7 +1398,7 @@ mod tests {
                 .dispatch(&json!({"id": "1", "operation": "configure"}))
                 .is_err()
         );
-        for operation in ["search", "kore.read", "observe", "expect"] {
+        for operation in ["search", "kore.read", "function.apply", "observe", "expect"] {
             assert!(
                 session
                     .dispatch(&json!({"id": "1", "operation": operation}))

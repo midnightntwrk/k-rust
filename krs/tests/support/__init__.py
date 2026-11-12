@@ -11,7 +11,7 @@ Python orchestrates; K, KORE, KAST, and IR data are read through krs-gate.
 The modules are:
 
 - `support.krs_gate`: compile, definition.load, configure, execute, search,
-  kore.read, kore.digest, observe, expect, and prove through the native gate protocol;
+  kore.read, function.apply, kore.digest, observe, expect, and prove through the native gate protocol;
 - `support.behavior`: corpus-declared expectations, shared native and Java
   structural checks, and reported outcomes;
 - `support.process`: subprocess execution with captured output and process-group

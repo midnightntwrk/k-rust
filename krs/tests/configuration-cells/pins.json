@@ -93,8 +93,8 @@
     "krs-configuration-cells-shared-memory": "f4a02b3393a1059a4a70a024f18cac967ab4523c82f637347ae7573eb876a1f8",
     "krs-configuration-cells-group-boot-board": "b2d6b61d61b39889250375795bcf79bc61bb574ee4fc7e98a1bf4ea975563e10",
     "krs-configuration-cells-group-slot": "e54c4050c664b7b76a9feb3e0b3c0509c7a191158deff3abdc45967a4e74f3ee",
-    "krs-configuration-cells-end-small": "f3c7fa02a8c80649711800b9ddd7b752149e6c2a6a99bd8cdf4e0b3d9c6e8679",
-    "krs-configuration-cells-end-board": "870dbacfa5f6d449191dbdf663bd55a0751d2a317e1f3fa8f56646c8b08b5ee3"
+    "krs-configuration-cells-end-small": "1e4268dc69a6eab940b0a7d5e5a35d8d436f2aae21cda6ff85d4cc6cfc00ca01",
+    "krs-configuration-cells-end-board": "890246cb9c734b0d9d7561d3aaa67d70a630645376d8800ed0950a87d10f8c60"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
