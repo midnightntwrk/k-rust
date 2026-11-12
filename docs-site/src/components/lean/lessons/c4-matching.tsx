@@ -17,6 +17,7 @@ const colls = coreFile('f2-examples/colls-list.k')
 const workedRun = checked('match')
 const workedMap = checked('kimp')
 const workedList = checked('colls')
+const kimpWhole = checked('kimpWhole')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 const envFirst = at(kimpVar, "Lbl'-LT-'env'-GT-'")
@@ -89,10 +90,24 @@ export const matching4: Lesson = {
           hl: { w: span(workedMap, '-- split at x', 'mapPat_y') },
           notes: [note('w', at(workedMap, '(0, ident "y")'), 'A map has no first entry: both ways to split it match.', 'ident "y"')],
         },
+      ],
+    },
+    {
+      id: 'm3b',
+      title: 'The whole left side',
+      panes: [
+        { id: 'k', label: 'Kimp/definition.kore', source: kimpVar, lang: 'kore' },
+        { id: 'w', label: checkedLabel(kimpWhole), source: kimpWhole, lang: 'lean' },
+      ],
+      frames: [
         {
-          hl: { k: [at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})')], w: span(workedMap, 'example : c.rules[19]', 'rule19_lhs') },
+          hl: { k: [at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})')], w: span(kimpWhole, '-- CALC.var', 'lhs_x') },
           notes: [note('k', at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})'), 'The same `X`, in the k cell.', 'VarX')],
-          say: 'The k cell holds `x`, and the left side puts the same `X` there, so you can see that only the split at `x` fits the whole left side.',
+          say: 'With `x` in the k cell, the whole left side matches with `X` = `x`…',
+        },
+        {
+          hl: { w: span(kimpWhole, '-- with X ↦ y', 'lhs_not_y') },
+          notes: [note('w', at(kimpWhole, 'lhs_not_y σ h0'), '…and no substitution with `X` = `y` makes it match.', 'lhs_not_y')],
         },
       ],
     },

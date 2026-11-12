@@ -20,10 +20,10 @@ type Page =
   | { path: '/k-rust'; render: 'static' }
   | { path: '/lean/a-definition-and-its-steps'; render: 'static' }
   | { path: '/lean/evaluation'; render: 'static' }
+  | { path: '/lean/hypothesis'; render: 'static' }
   | { path: '/lean'; render: 'static' }
   | { path: '/lean/matching-logic'; render: 'static' }
   | { path: '/lean/matching'; render: 'static' }
-  | { path: '/lean/obligations'; render: 'static' }
   | { path: '/lean/signature'; render: 'static' }
   | { path: '/lean/sound-and-complete'; render: 'static' }
   | { path: '/lean/state-of-the-core'; render: 'static' }
@@ -31,6 +31,7 @@ type Page =
   | { path: '/lean/terms'; render: 'static' }
   | { path: '/lean/theory'; render: 'static' }
   | { path: '/lean/values'; render: 'static' }
+  | { path: '/lean/well-formedness'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }

@@ -3,19 +3,19 @@
 // Core lesson 10: the statements. `Sound`: the theory with the step's closure has a model, and
 // every step is entailed. `Complete`: every successor the theory forces is one a step function
 // listing `Step`'s successors lists. The theorems `sound` and `complete`, and what a reader trusts
-// once lessons 1 to 10 are understood. Every Lean pane is kcore-spec's text at the manifest's commit.
+// once lessons 1 to 11 are understood. Every Lean pane is kcore-spec's text at the manifest's commit.
 
 import { checked, checkedLabel, coreCommit, coreFile, lineOf, slice, type Source, span } from '../data'
 import { type Lesson, note } from '../lesson'
 import { Board } from '../viz'
 
 const soundLean = coreFile('KcoreSpec/Sound.lean')
-const sound = slice(soundLean, '/-- **Soundness**: the theory', '∀ x y : Config d.sem, Step d.sem x y →')
-const complete = slice(soundLean, '/-- **Completeness**, for a step function', "(Γ d.sem ∪ Γstep d.sem) ⊧ (den d.sem x.val ⇒ KoreAML.allNext")
-const theorems = slice(soundLean, '/-- **Soundness of a well-formed definition**', 'fun href x => step_complete')
+const sound = slice(soundLean, '/-- **Soundness** of a semantics `c`', '∀ x y : Config c, Step c x y →')
+const complete = slice(soundLean, '/-- **Completeness** of a semantics `c`', '(Γ c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext')
+const theorems = slice(soundLean, '/-- **Soundness of a semantics** that `coreOK`', 'fun href x => step_complete (hypModel_of_fnHyp')
 const stmts = coreFile('KcoreSpec/Statements.lean')
 const stepIsDef = slice(stmts, '/-- The step relation\'s successors, as a step function', '∀ (x : Config c) (y : GroundTerm), y ∈ ref x.val ↔')
-const peanoSound = slice(coreFile('examples/peano/Peano/Sound.lean'), 'theorem sound : Sound defn', 'theorem sound : Sound defn')
+const peanoSound = slice(coreFile('examples/peano/Peano/Sound.lean'), 'theorem coreOK_defn', 'KCore.complete_hyp defn.sem ref coreOK_defn hf')
 
 const workedSound = checked('sound')
 const workedComplete = checked('complete')
@@ -25,7 +25,7 @@ const trusted = [
     title: 'Trusted',
     items: [
       { key: 'kernel', text: <>Lean's kernel and its three standard axioms</> },
-      { key: 'defs', text: <>the definitions of lessons 1 to 10: reading this course is reviewing them</> },
+      { key: 'defs', text: <>the definitions of lessons 1 to 11: reading this course is reviewing them</> },
       { key: 'hooks', text: <>the Bool and Int operations, as defined in Lean</> },
       { key: 'reader', text: <>the reader of a KORE file, for a definition read without the tie</> },
       { key: 'kompile', text: <>kompile's translation from K to KORE</> },
@@ -58,17 +58,17 @@ export const statements10: Lesson = {
       ],
       frames: [
         {
-          hl: { s: [at(sound, 'def Sound (d : Definition)')] },
-          notes: [note('s', at(sound, 'def Sound (d : Definition)'), 'Stated of a `Definition`, but it reads only `d.sem`, the semantics of lessons 2 to 6.', 'd : Definition')],
+          hl: { s: [at(sound, 'def SoundC (c : Semantics)')] },
+          notes: [note('s', at(sound, 'def SoundC (c : Semantics)'), 'Of a semantics, the value of lessons 2 to 6. Older text writes `Sound d`, which is `SoundC d.sem`.', 'c : Semantics')],
           say: 'Two questions were left open in the prologue: what a step is, and why a proof about the definition is a proof about what it means. Lessons 1 to 9 built both sides. These two statements connect them.',
         },
         {
           hl: { s: [at(sound, '(∃ (M : Type)')] },
-          notes: [note('s', at(sound, '(∃ (M : Type)'), 'The theory, with the step\'s closure, has a model, so it is consistent.', 'I ⊧ᴵP (Γ d.sem ∪ Γstep d.sem)')],
+          notes: [note('s', at(sound, '(∃ (M : Type)'), 'The theory, with the step\'s closure, has a model, so it is consistent.', 'I ⊧ᴵP (Γ c ∪ Γstep c)')],
         },
         {
-          hl: { s: [at(sound, '∀ x y : Config d.sem, Step d.sem x y →')], w: span(workedSound, '-- runSSZ', 'sound_runSSZ') },
-          notes: [note('s', at(sound, '∀ x y : Config d.sem, Step d.sem x y →'), 'Every step is a theorem of Γ: in every model, `x` has `y` as a successor.', 'Step d.sem x y')],
+          hl: { s: [at(sound, '∀ x y : Config c, Step c x y →')], w: span(workedSound, '-- runSSZ', 'sound_runSSZ') },
+          notes: [note('s', at(sound, '∀ x y : Config c, Step c x y →'), 'Every step is a theorem of Γ: in every model, `x` has `y` as a successor.', 'Step c x y')],
         },
       ],
     },
@@ -85,8 +85,8 @@ export const statements10: Lesson = {
           notes: [note('r', at(stepIsDef, '∀ (x : Config c) (y : GroundTerm), y ∈ ref x.val ↔'), 'A step function `ref` (a `StepFn`: from a ground term to a list of them) lists exactly the successors `Step` gives.', 'y ∈ ref x.val ↔')],
         },
         {
-          hl: { c: [at(complete, 'def Complete'), at(complete, 'StepIs d.sem ref →'), at(complete, "(Γ d.sem ∪ Γstep d.sem) ⊧")] },
-          notes: [note('c', at(complete, "(Γ d.sem ∪ Γstep d.sem) ⊧"), 'With the step\'s closure, every successor of `x` is one `ref` lists: the theory forces no step `Step` lacks.', 'KoreAML.allNext')],
+          hl: { c: [at(complete, 'def CompleteC'), at(complete, 'StepIs c ref →'), at(complete, '(Γ c ∪ Γstep c) ⊧')] },
+          notes: [note('c', at(complete, '(Γ c ∪ Γstep c) ⊧'), 'With the step\'s closure, every successor of `x` is one `ref` lists: the theory forces no step `Step` lacks.', 'KoreAML.allNext')],
         },
       ],
     },
@@ -118,19 +118,20 @@ export const statements10: Lesson = {
       ],
       frames: [
         {
-          hl: { t: [at(theorems, 'theorem sound (d : Definition)'), at(theorems, 'theorem complete (d : Definition)')] },
-          notes: [note('t', at(theorems, 'theorem sound (d : Definition)'), 'Proved, for every definition: the kernel checks the proof.', 'Sound d')],
+          hl: { t: [at(theorems, 'theorem sound_hyp (c : Semantics)'), ...span(theorems, 'theorem complete_hyp (c : Semantics)', 'CompleteC c ref :=')] },
+          notes: [note('t', at(theorems, 'theorem sound_hyp (c : Semantics)'), 'Proved, for every semantics: the kernel checks the proof.', 'SoundC c')],
         },
         {
-          hl: { t: [at(theorems, 'theorem sound (d : Definition)')] },
+          hl: { t: [at(theorems, 'theorem sound_hyp (c : Semantics)')] },
           notes: [
-            note('t', at(theorems, 'theorem sound (d : Definition)'), 'Not settled: well-formedness. It reads more than the semantics the theorems speak about, and its conditions move with the reader of kompile\'s KORE.', 'hwf : wf d = true'),
-            note('t', at(theorems, 'theorem sound (d : Definition)'), 'The obligations of lesson 7.', 'hob : Obligations d'),
+            note('t', at(theorems, 'theorem sound_hyp (c : Semantics)'), 'A check Lean decides: lesson 11.', 'h : c.coreOK = true'),
+            note('t', at(theorems, 'theorem sound_hyp (c : Semantics)'), 'What its functions must do: lesson 7.', 'hf : FnHyp c'),
           ],
+          say: 'Two hypotheses, and nothing else.',
         },
         {
-          hl: { p: [at(peanoSound, 'theorem sound : Sound defn')] },
-          notes: [note('p', at(peanoSound, 'theorem sound : Sound defn'), 'For peano, with no hypothesis left.', 'Sound defn')],
+          hl: { p: [at(peanoSound, 'theorem coreOK_defn'), at(peanoSound, 'theorem sound_hyp')] },
+          notes: [note('p', at(peanoSound, 'theorem coreOK_defn'), 'Every package states that its semantics passes the check…', 'coreOK_defn'), note('p', at(peanoSound, 'theorem sound_hyp'), '…and the two theorems for it, with `FnHyp` left as their premise.', 'FnHyp defn.sem')],
         },
       ],
     },
@@ -139,7 +140,7 @@ export const statements10: Lesson = {
       title: 'What you trust',
       visual: (n) => <Board columns={trusted} cols={2} big lit={[[], ['Trusted'], ['Checked by the kernel']][n]} />,
       frames: [
-        { say: 'Once you have read lessons 1 to 10, here is what you trust and what you do not need to.' },
+        { say: 'Once you have read lessons 1 to 11, here is what you trust and what you do not need to.' },
         { say: 'Trusted: the kernel, the definitions you just reviewed, the builtin operations, the reader where the tie is off, and kompile.' },
         { say: 'Checked against those definitions by the kernel: everything else. The open questions are on the [State of the core](/lean/state-of-the-core) page.' },
       ],

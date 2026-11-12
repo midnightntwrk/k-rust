@@ -7,14 +7,15 @@ import { values3 } from './c3-values'
 import { matching4 } from './c4-matching'
 import { evaluation5 } from './c5-evaluation'
 import { step6 } from './c6-step'
-import { obligations7 } from './c7-obligations'
+import { hypothesis7 } from './c7-hypothesis'
 import { matchingLogic8 } from './c8-matching-logic'
 import { theory9 } from './c9-theory'
 import { statements10 } from './c10-statements'
+import { wf11 } from './c11-wf'
 import { lesson1 } from './l1-definition'
 import { overview } from './overview'
 
-export const course: readonly Lesson[] = [overview, lesson1, terms1, signature2, values3, matching4, evaluation5, step6, obligations7, matchingLogic8, theory9, statements10]
+export const course: readonly Lesson[] = [overview, lesson1, terms1, signature2, values3, matching4, evaluation5, step6, hypothesis7, matchingLogic8, theory9, statements10, wf11]
 
 // A note names a line and perhaps a token by value. Only a lesson's first frame is rendered when the
 // site is built, so they are checked here: a stale annotation fails the build, not one frame of a page.

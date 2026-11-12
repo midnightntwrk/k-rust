@@ -1,83 +1,87 @@
 {
  "panes": {
+  "colls": {
+   "at": "15fd1538",
+   "text": "-- the stack cell holds [1, 2]\n-- pop: ListItem(X) L in the stack cell, X variable 1, L variable 2\nexample : c.rules[1]?.map Rule.lhs = some\n  (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj Srt.«Op» KCore.Srt.kitem (.app Sym.«pop» []), .var 0]],\n    .app Sym.«<stack>» [.app KCore.listConcat [.app KCore.listElem [.inj KCore.Srt.int KCore.Srt.kitem (.var 1)], .var 2]],\n    .app Sym.«<sum>» [.var 3], .var 4]) := pop_lhs\nexample : PatVal c [(1, ival 1), (2, list [iv 2])]\n    (.app KCore.listConcat [.app KCore.listElem [.inj KCore.Srt.int KCore.Srt.kitem (.var 1)], .var 2])\n    (list [iv 1, iv 2]) := pop_matches\n\n-- drop: L ListItem(_) in the stack cell, L variable 1, _ variable 2\nexample : c.rules[2]?.map Rule.lhs = some\n  (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj Srt.«Op» KCore.Srt.kitem (.app Sym.«drop» []), .var 0]],\n    .app Sym.«<stack>» [.app KCore.listConcat [.var 1, .app KCore.listElem [.var 2]]],\n    .var 3, .var 4]) := drop_lhs\nexample : PatVal c [(1, list [iv 1]), (2, iv 2)]\n    (.app KCore.listConcat [.var 1, .app KCore.listElem [.var 2]])\n    (list [iv 1, iv 2]) := drop_matches"
+  },
   "fprioEval": {
-   "at": "703af652",
+   "at": "15fd1538",
    "text": "example : Eval c Sym.«pr» [int 0] (some (int 1)) := pr_0\nexample : Eval c Sym.«pr» [int 3] (some (int 2)) := pr_3\nexample : Eval c Sym.«pr» [int 9] (some (int 3)) := pr_9\n\nexample : Eval c Sym.«ow» [int (-3)] (some (int 3)) := ow_m3\nexample : Eval c Sym.«ow» [int (-200)] none := ow_m200"
   },
   "t4": {
-   "at": "703af652",
+   "at": "15fd1538",
    "text": "-- t4 in the k cell: its rule applies, but res(ow(-200)) has no value, so no step leaves it\nexample (hf : c.sortOf (cfg (cmd Sym.«t4»)) = some topCellSort) : ∀ y, ¬ Step c ⟨_, hf⟩ y :=\n  t4_ends hf"
   },
-  "colls": {
-   "at": "884fddff",
-   "text": "-- the stack cell holds [1, 2]\n-- pop: ListItem(X) L in the stack cell, X variable 1, L variable 2\nexample : c.rules[1]?.map Rule.lhs = some\n  (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj Srt.«Op» KCore.Srt.kitem (.app Sym.«pop» []), .var 0]],\n    .app Sym.«<stack>» [.app KCore.listConcat [.app KCore.listElem [.inj KCore.Srt.int KCore.Srt.kitem (.var 1)], .var 2]],\n    .app Sym.«<sum>» [.var 3], .var 4]) := pop_lhs\nexample : PatVal c [(1, ival 1), (2, list [iv 2])]\n    (.app KCore.listConcat [.app KCore.listElem [.inj KCore.Srt.int KCore.Srt.kitem (.var 1)], .var 2])\n    (list [iv 1, iv 2]) := pop_matches\n\n-- drop: L ListItem(_) in the stack cell, L variable 1, _ variable 2\nexample : c.rules[2]?.map Rule.lhs = some\n  (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj Srt.«Op» KCore.Srt.kitem (.app Sym.«drop» []), .var 0]],\n    .app Sym.«<stack>» [.app KCore.listConcat [.var 1, .app KCore.listElem [.var 2]]],\n    .var 3, .var 4]) := drop_lhs\nexample : PatVal c [(1, list [iv 1]), (2, iv 2)]\n    (.app KCore.listConcat [.var 1, .app KCore.listElem [.var 2]])\n    (list [iv 1, iv 2]) := drop_matches"
-  },
   "kimp": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- the env cell holds {x ↦ 1, y ↦ 2}; its pattern is X |-> V M (X 0, V 2, M 3)\nexample : env = .map KCore.Srt.map [(key \"x\", iv 1), (key \"y\", iv 2)] := rfl\nexample : mapPat = .app KCore.mapConcat\n    [.app KCore.mapElem [.inj KCore.Srt.ident KCore.Srt.kitem (.var 0), .var 2], .var 3] := rfl\n\n-- CALC.var's left side: X in the k cell, X |-> V M in the env cell\nexample : c.rules[19]?.map Rule.lhs = some\n    (.app KCore.topLabel [.app Sym.«<k>» [.app KCore.kseq [.inj KCore.Srt.ident KCore.Srt.kitem (.var 0), .var 1]],\n      .as (.app Sym.«<env>» [mapPat]) 4, .var 5]) := rule19_lhs\n\n-- split at x: {x ↦ 1} joined with {y ↦ 2}\nexample : PatVal c [(0, ident \"x\"), (2, iv 1), (3, .map KCore.Srt.map [(key \"y\", iv 2)])] mapPat env :=\n  mapPat_x\n-- split at y: {y ↦ 2} joined with {x ↦ 1}\nexample : PatVal c [(0, ident \"y\"), (2, iv 2), (3, .map KCore.Srt.map [(key \"x\", iv 1)])] mapPat env :=\n  mapPat_y"
   },
+  "kimpWhole": {
+   "at": "15fd1538",
+   "text": "-- the configuration: x in the k cell, {x ↦ 1, y ↦ 2} in the env cell, the counter at 0\nexample : cfgX = .ctor KCore.topLabel [.ctor Sym.«<k>» [.ctor KCore.kseq [key \"x\", .ctor KCore.dotk []]],\n    .ctor Sym.«<env>» [env], .ctor KCore.counterLabel [.dv KCore.Srt.int (.int 0)]] := rfl\n\n-- CALC.var's whole left side (lhs) matches it, with X ↦ x\nexample : c.rules[19]?.map Rule.lhs = some lhs := rule19_lhs_eq\nexample : PatVal c σx lhs cfgX := lhs_x\n\n-- with X ↦ y, no substitution makes it match\nexample (σ : Subst) (h0 : σ.lookup 0 = some (ident \"y\")) : ¬ PatVal c σ lhs cfgX := lhs_not_y σ h0"
+  },
   "terms": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- run(s(s(z))), and the names of lesson 1 as numbers\nexample : run (s (s z)) = .ctor 325 [.ctor 324 [.ctor 324 [.ctor 323 []]]] := rfl\n\n-- the same, in the k cell: injected from State into KItem\nexample : (.inj Srt.«State» KCore.Srt.kitem (run (s (s z))) : GroundTerm)\n    = .inj 31 1 (.ctor 325 [.ctor 324 [.ctor 324 [.ctor 323 []]]]) := rfl\n\n-- the counter's 0, a literal of sort Int\nexample : (.dv KCore.Srt.int (.int 0) : GroundTerm) = .dv 3 (.int 0) := rfl"
   },
   "rule0": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- peano's first rule, rule <k> run(s(N)) => run(pred(s(N))) </k>: its left side.\n-- N is variable 0, V (s(N) #as V) variable 1, the counter cell variable 2.\nexample : c.rules[0]?.map (·.lhs) = some\n    (.app topLabel [\n      .app Sym.«<k>» [.app kseq [\n        .inj Srt.«State» KCore.Srt.kitem (.app Sym.«run» [.as (.app Sym.«s» [.var 0]) 1]),\n        .app dotk []]],\n      .var 2]) := rfl"
   },
   "ctors": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- peano's own constructors\nexample : c.ctors.contains ⟨Sym.«z», [], Srt.«Nat»⟩ = true := by decide +kernel\nexample : c.ctors.contains ⟨Sym.«s», [Srt.«Nat»], Srt.«Nat»⟩ = true := by decide +kernel\nexample : c.ctors.contains ⟨Sym.«run», [Srt.«Nat»], Srt.«State»⟩ = true := by decide +kernel\nexample : c.ctors.contains ⟨Sym.«done», [Srt.«Val»], Srt.«State»⟩ = true := by decide +kernel\n\n-- its subsort: Nat below Val\nexample : c.userSubsorts.contains (Srt.«Nat», Srt.«Val») = true := by decide +kernel"
   },
   "pred": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- pred, from peano.k\nexample : c.fns = [\n    { label := Sym.«pred», args := [Srt.«Nat»], result := Srt.«Nat»,\n      clauses := [\n        -- rule pred(s(N)) => N\n        { vars := [Srt.«Nat»], pats := [.app Sym.«s» [.var 0]], req := none,\n          rhs := .var 0, prio := 50 },\n        -- rule pred(_) => z [owise]\n        { vars := [Srt.«Nat»], pats := [.var 0], req := none,\n          rhs := .app Sym.«z» [], prio := 200 } ] }] := rfl"
   },
   "sortCtor": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "example : c.sortOf z = some Srt.«Nat» := by decide +kernel\nexample : c.sortOf (s z) = some Srt.«Nat» := by decide +kernel\nexample : c.sortOf (s (s z)) = some Srt.«Nat» := by decide +kernel\nexample : c.sortOf (run (s (s z))) = some Srt.«State» := by decide +kernel"
   },
   "sortInj": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- natVal n is inj{Nat,Val}(n)\nexample : c.sortOf (done z) = none := by decide +kernel\nexample : c.sortOf (natVal z) = some Srt.«Val» := by decide +kernel\nexample : c.sortOf (done (natVal z)) = some Srt.«State» := by decide +kernel\n\n-- no injection of an injection\nexample : c.sortOf (.inj Srt.«Val» KCore.Srt.kitem (natVal z)) = none := by decide +kernel"
   },
   "sortConfig": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- cfg puts a state in the k cell, with the counter at 0 (ctr0)\n-- the prologue's starting configuration\nexample : c.sortOf (cfg (run (s (s z))) ctr0) = some topCellSort := by decide +kernel\n\n-- the prologue's done(s(z)), in the same cells\nexample : c.sortOf (cfg (done (natVal (s z))) ctr0) = some topCellSort := sorted_doneSZ"
   },
   "predEval": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- pred(s(z)) is z, by the clause pred(s(N)) => N\nexample : Eval c Sym.«pred» [s z] (some z) := pred_succ z (by decide +kernel)\n\n-- pred(z) is z, by pred(_) => z [owise]\nexample : Eval c Sym.«pred» [z] (some z) :=\n  pred_owise z (by decide +kernel) (fun M h => by injection h with h1; exact absurd h1 (by decide))"
   },
   "steps": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "example : Step c runSSZ runSZ := step_runSSZ    -- run(s(s(z))) to run(s(z))\nexample : Step c runSZ runZ := step_runSZ       -- run(s(z)) to run(z)\nexample : Step c runZ doneZ := step_runZ        -- run(z) to done(z)\nexample (y : Config c) : ¬ Step c doneZ y := stuck_doneZ y"
   },
   "subst": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- the first step's substitution: N ↦ s(z), V ↦ s(s(z)), the counter cell ↦ 0\nexample : σ₁ = [(0, .ctor 324 [.ctor 323 []]), (1, .ctor 324 [.ctor 324 [.ctor 323 []]]),\n    (2, ctr0)] := rfl"
   },
   "match": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- σ₁: N ↦ s(z), V ↦ s(s(z)), the counter cell ↦ 0\nexample : σ₁ = [(0, s z), (1, s (s z)), (2, ctr0)] := rfl\n\n-- the first rule's left side denotes the configuration holding run(s(s(z)))\nexample : PatVal c σ₁\n    (.app topLabel [.app Sym.«<k>» [.app kseq [.inj Srt.«State» KCore.Srt.kitem\n      (.app Sym.«run» [.as (.app Sym.«s» [.var 0]) 1]), .app dotk []]], .var 2])\n    (cfg (run (s (s z))) ctr0) := match_runSSZ"
   },
   "rhs": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- σ₁: N ↦ s(z), V ↦ s(s(z)), the counter cell ↦ 0\n-- the first rule's right side, run(pred(V)) in the k cell, has the value with run(s(z))\nexample : EvalTerm c σ₁\n    (.app topLabel [.app Sym.«<k>» [.app kseq [.inj Srt.«State» KCore.Srt.kitem\n      (.app Sym.«run» [.app Sym.«pred» [.var 1]]), .app dotk []]], .var 2])\n    (some (cfg (run (s z)) ctr0)) := eval_rhs_runSSZ"
   },
   "step1": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- x is runSSZ, y is runSZ; σ₁ is N ↦ s(z), V ↦ s(s(z)), the counter cell ↦ 0\n-- hσ: σ₁ gives each of the rule's variables a value of its sort\nexample : c.WellSorted [Srt.«Nat», Srt.«Nat», KCore.Srt.counter] σ₁ := σ₁_wellSorted\n-- hmatch: the left side denotes x (lesson 4)\nexample : PatVal c σ₁ (.app topLabel [.app Sym.«<k>» [.app kseq [.inj Srt.«State» KCore.Srt.kitem\n      (.app Sym.«run» [.as (.app Sym.«s» [.var 0]) 1]), .app dotk []]], .var 2]) runSSZ.val := match_runSSZ\n-- hreq: the rule has no requires\nexample : c.rules[0]?.map (·.req) = some none := rfl\n-- heval: the right side has the value y (lesson 5)\nexample : EvalTerm c σ₁ (.app topLabel [.app Sym.«<k>» [.app kseq [.inj Srt.«State» KCore.Srt.kitem\n      (.app Sym.«run» [.app Sym.«pred» [.var 1]]), .app dotk []]], .var 2]) (some runSZ.val) := eval_rhs_runSSZ\n-- hprio: every rule of peano has priority 50, so none has a smaller one\nexample : ∀ r ∈ c.rules, r.prio = 50 := fun _ h => Reach.prio_all h\n-- so\nexample : Step c runSSZ runSZ := step_runSSZ"
   },
   "sound": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- runSSZ holds run(s(s(z))), runSZ run(s(z)), in the cells of lesson 3\nexample : Faithful.Γ c ⊧ (den c runSSZ.val ⇒ KoreAML.sNext (den c runSZ.val)) := sound_runSSZ"
   },
   "complete": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- doneZ holds done(z), z injected into Val; it has no successor\nexample : (Faithful.Γ c ∪ Faithful.Γstep c) ⊧ (den c doneZ.val ⇒ KoreAML.allNext ⊥) :=\n  complete_doneZ'\n\n-- runSSZ's only successor is runSZ\nexample : (Faithful.Γ c ∪ Faithful.Γstep c) ⊧\n    (den c runSSZ.val ⇒ KoreAML.allNext (den c runSZ.val)) := complete_runSSZ'"
   },
   "prio": {
-   "at": "884fddff",
+   "at": "15fd1538",
    "text": "-- go(d) steps to out(d), by go(X:D) => out(X), priority 40\nexample : Step c goDcfg outDcfg := step_goD\n\n-- go(X:B) => other(X), priority 50, matches go(d) too (X ↦ d, as a B)…\nexample : PatVal c [(0, .inj Srt.«D» Srt.«B» (.ctor Sym.«d» [])), (1, .ctor dotk []), (2, ctr0)]\n    (.app KCore.topLabel [(.app Prio.Sym.«<k>» [(.app KCore.kseq [(.app Prio.Sym.«go» [(.var 0)]), (.var 1)])]), (.var 2)])\n    (pcfg goD) := rule1_matches_goD\n-- …but the rule of priority 40 applies, so it gives no step\nexample : ¬ Step c goDcfg otherDcfg := not_step_goD_otherD\n\n-- go(b) steps to other(b), by the rule of priority 50: b is not a D\nexample : Step c goBcfg otherBcfg := step_goB"
   }
  }

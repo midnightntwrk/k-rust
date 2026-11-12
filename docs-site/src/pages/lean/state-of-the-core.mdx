@@ -1,17 +1,20 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec cb071587 (2026-11-12): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec 15fd1538 (2026-11-12): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
 
-As of kcore-spec `cb071587`, 2026-11-12.
+As of kcore-spec `15fd1538`, 2026-11-12.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
 ## Changed since you last read
 
 Newest first.
 
+- Cell collections (cells with multiplicity `*`, like KEVM's accounts) are being read: the text declares each cell a subsort of its collection, which the kernel does not read, because the text's own axiom for it is false of the empty map; no rule in KEVM uses it.
+- The short-circuit obligations (decision 1) are used by neither theorem; the decision now only affects separate corollaries about definedness.
+- The two theorems now take only the semantics, its decidable check and four statements about its functions; what you must read to know what they say went from about 4,700 to about 3,100 lines of Lean. Lessons 7, 10 and 11 changed for this.
 - The reader now refuses a function with an `[owise]` equation beside another equation of priority 200 or more, whether or not the tie is used (decision 2 asks whether to keep refusing).
 - A frozen peano statement was corrected. `pred(N) = z for every N that is not s(_)` had no premise that N is a Nat. With `[owise]` as an ordinary clause of priority 200 ([lesson 5](/lean/evaluation)), `pred` has no value at a term that is not a Nat, so the statement is false; it was refuted in the kernel. It now carries the premise that N is a Nat. If you would rather keep the old statement and change the kernel, say so.
 
@@ -36,9 +39,11 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 - **used by a proof**: one existing proof about the definition is rebuilt on the package.
 
 imp is read from kompile 7.1.337's own KORE (1,104 sentences, none refused, none unaccounted for).
-Two caveats: the package is not tied to the text, so the reader is trusted for it (decision 3); and the reading still contains one builtin constructor the text never declares, which is being removed.
+One caveat: the package is not tied to the text, so the reader is trusted for it (decision 3).
 The peano and fprio examples are also read from kompile's own KORE now.
 The other 15 examples are read from k-rust's KORE.
+
+KEVM, measured 2026-11-12 on both k-rust's and kompile's KORE: about 6,900 sentences read; well-formedness fails in four places only (sorts without a value, functions applied without equations, 12 rules, a cell below its collection sort); about 370 facts would be left to the author. Work on the four is running.
 
 ## The core, layer by layer
 
@@ -53,16 +58,16 @@ Everything else (every proof, the generator, the executable evaluator) is checke
 | 4 | Matching | when a pattern matches a value under a substitution, including map, set and list patterns | settled |
 | 5 | Evaluation | function evaluation as a relation: a clause applies where every clause of a smaller priority fails; the order of clauses means nothing | settled, except the builtin operations on Bool and Int (hook domains) and whether Bool operations are strict (decision 1 below) |
 | 6 | Step | one step: a rule whose left side matches, whose condition is true, whose right side has a value, and no rule of a smaller priority applies | settled |
-| 7 | Obligations | the five kinds of fact a definition may leave to its author; with none, the theorems hold unconditionally | settled, except the obligations of short-circuiting (they follow decision 1) and which functions the termination obligation names |
+| 7 | What functions must do | four statements about evaluation the theorems assume: every function has a result, every `[total]` one a value, clauses of one priority agree, matches of one clause agree | settled |
 | 8 | Matching logic | patterns, models and entailment, as much as the statements use | settled |
 | 9 | The theory Γ | the theory a definition denotes, built from the Lean value: sorts, constructors, collections, function equations, rule axioms | settled, except the axioms of the builtin domains |
-| 10 | Sound and Complete | every step is entailed by the theory, which has a model; every successor the theory forces is a step | settled |
-| 11 | Well-formedness | the hypothesis of both theorems | not settled: it reads more than the semantics the theorems speak about, and its conditions move with the reader of kompile's KORE |
+| 10 | Sound and Complete | every step is entailed by the theory, which has a model; every successor the theory forces is a step; the two theorems, with their two hypotheses | settled |
+| 11 | Well-formedness | the check on the semantics both theorems assume: well-formed declarations, functions and rules, and the conditions the theory needs to have a model | settled, except two checks inside it that may be removed and four naming conditions with no example yet |
 
 ## What you trust
 
 1. Lean's kernel and its three standard axioms.
-2. The definitions the theorems are stated with: the step relation, evaluation, matching, the theory Γ and its step closure, well-formedness, the obligations, and entailment in matching logic. Reading the course is reviewing them.
+2. The definitions the theorems are stated with: the step relation, evaluation, matching, the theory Γ and its step closure, the check on the semantics (`coreOK`), the four statements about functions (`FnHyp`), and entailment in matching logic. Reading the course is reviewing them.
 3. The builtin domains: the Bool and Int operations as defined in Lean. Bytes, String and the others are parameters with no interpretation.
 4. The reader of a KORE file, for a definition read without the tie: that the Lean definition it produces is the one the text describes. With the tie, the kernel checks that printing the definition back gives the text, up to the order of its sentences.
 5. kompile's translation from K to KORE. Nothing here speaks about the K source.
@@ -73,7 +78,7 @@ Not trusted: the generator, the deciders, the executable evaluator and k-rust. T
 
 Each is a question you can answer by replying.
 
-1. **Strict Bool operations.** Today `A andBool B` has a value only when both `A` and `B` have one, and a definition that relies on short-circuiting carries an obligation per place it does. imp-sec's six such obligations are false, and parts of KEVM carry more, so those definitions would have to be rewritten with `ite` or guarded clauses. Keep the strict reading? (Recommended: yes.)
+1. **Strict Bool operations.** Today `A andBool B` has a value only when both `A` and `B` have one, and a definition that relies on short-circuiting carries an obligation per place it does. imp-sec's six such obligations are false, and parts of KEVM carry more, so those definitions would have to be rewritten with `ite` or guarded clauses. It no longer touches soundness or completeness. Keep the strict reading? (Recommended: yes.)
 2. **A priority of 200 or above beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority 200 or above is refused today. The KORE text puts the `[owise]` equation after every other equation, while the kernel reads `[owise]` as priority 200, and the two differ wherever both equations apply. Keep refusing, or read a priority of 200 or above as "after `[owise]`" and state where that differs from the KORE text?
 3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
 4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.
