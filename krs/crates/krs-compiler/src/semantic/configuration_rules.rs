@@ -875,6 +875,8 @@ pub(super) fn lower_configuration_rule_descriptor(
         });
     let grouped = super::group_records::with_group_records(descriptor, rule, declarations)?;
     let rule = grouped.as_ref().unwrap_or(rule);
+    let retyped = super::cell_states::with_map_rests_as_terms(rule);
+    let rule = retyped.as_ref().unwrap_or(rule);
     let overwritten = with_overwritten_cells(rule, declarations)?;
     let rule = overwritten.as_ref().unwrap_or(rule);
     let named = with_named_list_rests(descriptor, rule, declarations)?;

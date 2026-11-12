@@ -895,8 +895,45 @@ pub(super) fn with_present_groups(
     Ok(changed.then_some((stated, rebuilt)))
 }
 
-/// How many times the rule's terms read or bind the variable `name`.
-fn variable_occurrences(rule: &krs_ir::DescriptorConfigurationRule, name: &str) -> usize {
+/// `rule` with each map rest binding a term holds declared as the term of the builtin `Map` sort
+/// it is; `None` where none is.
+///
+/// A map pattern's named rest, `k::map![k -> v, r @ ..]`, binds the rest of the map, a value of
+/// the `Map` sort, which a map cell's entry binds as its frame. Where the map is a group's child
+/// and the group is written as one term ([`map_term`]), the rest is a variable of the subject's
+/// term: the same value, bound by the term. A frame no subject term names keeps its kind (a result
+/// reads a frame's value as it is).
+pub(super) fn with_map_rests_as_terms(
+    rule: &krs_ir::DescriptorConfigurationRule,
+) -> Option<krs_ir::DescriptorConfigurationRule> {
+    let held = rule
+        .bindings
+        .iter()
+        .filter(|binding| {
+            matches!(binding.kind, krs_ir::ProtocolRuleBindingKind::MapFrame)
+                && variable_occurrences(&rule.subject, &binding.name) > 0
+        })
+        .map(|binding| binding.name.clone())
+        .collect::<BTreeSet<_>>();
+    if held.is_empty() {
+        return None;
+    }
+    let mut retyped = rule.clone();
+    for binding in &mut retyped.bindings {
+        if held.contains(&binding.name) {
+            binding.kind = krs_ir::ProtocolRuleBindingKind::Term {
+                sort: krs_ir::DescriptorSortReference {
+                    key: rule.pattern_key.clone(),
+                    sort: krs_ir::DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Map),
+                },
+            };
+        }
+    }
+    Some(retyped)
+}
+
+/// How many times the terms of `rule`, a rule or a part of one, read or bind the variable `name`.
+fn variable_occurrences(rule: &impl serde::Serialize, name: &str) -> usize {
     fn walk(value: &serde_json::Value, name: &str) -> usize {
         match value {
             serde_json::Value::Object(object) => {
@@ -1126,7 +1163,8 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             };
             if !matches!(child.content, ProtocolCellContent::Nested { .. })
                 || declared_multiplicity(child, self.declarations) != Multiplicity::One
-                || !group_state_term(&field.value).is_some_and(|term| self.needs_base(&term))
+                || !group_state_term(&field.value, false, self.declarations)
+                    .is_some_and(|term| self.needs_base(&term))
             {
                 continue;
             }
@@ -1205,13 +1243,16 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             }
             return Ok(());
         }
-        let Some(mut result_term) = group_state_term(result) else {
+        let Some(mut result_term) = group_state_term(result, false, self.declarations) else {
             return Ok(());
         };
         if !self.needs_base(&result_term) {
             return Ok(());
         }
-        let mut subject_term = subject.as_deref().and_then(group_state_term);
+        let declarations = self.declarations;
+        let mut subject_term = subject
+            .as_deref()
+            .and_then(|state| group_state_term(state, true, declarations));
         let unbased = subject_term.clone();
         let changed = std::mem::replace(&mut self.changed, false);
         self.place(subject_term.as_mut(), &mut result_term, whole, hint)?;
@@ -1440,21 +1481,31 @@ fn record_fields<'t>(
     }
 }
 
-/// The group term a state of a group place writes: its term, or its record's
-/// ([`ProtocolRuleRecord::group_term`]), each map child written as the map term it is
-/// ([`map_term`]); `None` for a record whose child is no term, and for any other state.
-pub(super) fn group_state_term(state: &DescriptorState) -> Option<DescriptorTerm> {
+/// The group term a state of a group place writes, on the subject's side if `subject`: its term,
+/// or its record's ([`ProtocolRuleRecord::group_term`]), each child of the builtin `Map` sort
+/// written as the map term its entries are ([`map_term`]); `None` for a record a child of which
+/// is no term ([`no_term_child`]), and for any other state.
+pub(super) fn group_state_term(
+    state: &DescriptorState,
+    subject: bool,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<DescriptorTerm> {
     match state {
         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
             Some(term.clone())
         }
         ProtocolRuleStateTerm::Record(record) => {
             let mut record = record.clone();
+            let children = record_declared_children(&record, declarations);
             for field in &mut record.fields {
-                if let Some(term) = map_term(&field.value) {
+                let map_child = children
+                    .iter()
+                    .find(|child| child.rust_field == field.field)
+                    .is_some_and(is_map_leaf);
+                if let (true, Some(term)) = (map_child, map_term(&field.value, subject)) {
                     field.value = ProtocolRuleStateTerm::Term(term);
                 } else if let ProtocolRuleStateTerm::Record(_) = &field.value
-                    && let Some(term) = group_state_term(&field.value)
+                    && let Some(term) = group_state_term(&field.value, subject, declarations)
                 {
                     field.value = ProtocolRuleStateTerm::Group(term);
                 }
@@ -1465,12 +1516,85 @@ pub(super) fn group_state_term(state: &DescriptorState) -> Option<DescriptorTerm
     }
 }
 
-/// The term a map child's entry is, where one is: a pattern's entries with its rest, `..` or
-/// `rest @ ..`, are a map pattern (`0 |-> V _`); a result's exact entries are the map they build
-/// over the empty one (`map::update(map::empty(), k, v)`), as a readable record writes them.
-/// `None` for a result's entries written over a rest, which a term would hold as a map
+/// The declared children of the group a record's head names; none for a head that names no
+/// group of `declarations`.
+fn record_declared_children(
+    record: &krs_ir::ProtocolRuleRecord<DescriptorTerm>,
+    declarations: &DescriptorIndex<'_>,
+) -> Vec<DescriptorCellField> {
+    match &record.head {
+        DescriptorTerm::Cell { declaration, .. } => declarations
+            .cell(declaration)
+            .map(|group| group.fields.clone())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether `child` is a leaf of the builtin `Map` sort, typed or not: the one child whose `map!`
+/// entry [`map_term`] reads. A map entry on a child of another sort is the cell's kind's mistake,
+/// which the entry's own lowering refuses ("map occurs in a non-Map rule cell").
+fn is_map_leaf(child: &DescriptorCellField) -> bool {
+    matches!(
+        &child.content,
+        ProtocolCellContent::Leaf { sort, .. } if semantic_sort_ref(&sort.sort) == SemanticSortRef::map()
+    )
+}
+
+/// Why a child of a record is no term of the group ([`no_term_child`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum NoTerm {
+    /// A result's map written over a rest with entries before it, which a term would hold as a
+    /// map concatenation.
+    MapOverRest,
+    /// A computation written as its items.
+    Computation,
+    /// A map entry on a child whose sort is not the builtin `Map`.
+    NotMapSort,
+    /// Any other entry no term spells.
+    Other,
+}
+
+/// The first child of `record`, a record of a group on the subject's side if `subject`, at any
+/// depth, whose entry no term spells, the one [`group_state_term`] fails on, with why.
+pub(super) fn no_term_child<'r>(
+    record: &'r krs_ir::ProtocolRuleRecord<DescriptorTerm>,
+    subject: bool,
+    declarations: &DescriptorIndex<'_>,
+) -> Option<(&'r str, NoTerm)> {
+    let children = record_declared_children(record, declarations);
+    record.fields.iter().find_map(|field| {
+        let map_child = children
+            .iter()
+            .find(|child| child.rust_field == field.field)
+            .is_some_and(is_map_leaf);
+        match &field.value {
+            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Group(_) => None,
+            ProtocolRuleStateTerm::Record(child) => no_term_child(child, subject, declarations),
+            ProtocolRuleStateTerm::Map(_) if !map_child => {
+                Some((field.field.as_str(), NoTerm::NotMapSort))
+            }
+            state @ ProtocolRuleStateTerm::Map(_) => map_term(state, subject)
+                .is_none()
+                .then_some((field.field.as_str(), NoTerm::MapOverRest)),
+            ProtocolRuleStateTerm::KSequence(_) => {
+                Some((field.field.as_str(), NoTerm::Computation))
+            }
+            _ => Some((field.field.as_str(), NoTerm::Other)),
+        }
+    })
+}
+
+/// The term a map child's entry is, on the subject's side if `subject`, where one is.
+///
+/// In a pattern the entries are the map pattern they match: `k::map![0 -> v]` is `0 |-> V`
+/// exactly, `k::map![0 -> v, ..]` and `k::map![0 -> v, r @ ..]` the same over the rest `_` or `r`,
+/// and with no entries the rest itself, `_` or `r`; `k::map![]` is the empty map. In a result the
+/// entries are the map they build over the empty one (`map::update(map::empty(), k, v)`), as a
+/// readable record writes them, and a kept rest with no entries before it, `k::map![..r]`, is
+/// `r`. `None` for a result's entries written over a rest, which a term would hold as a map
 /// concatenation, and for any other state.
-pub(super) fn map_term(state: &DescriptorState) -> Option<DescriptorTerm> {
+pub(super) fn map_term(state: &DescriptorState, subject: bool) -> Option<DescriptorTerm> {
     let ProtocolRuleStateTerm::Map(map) = state else {
         return None;
     };
@@ -1497,43 +1621,46 @@ pub(super) fn map_term(state: &DescriptorState) -> Option<DescriptorTerm> {
             Vec::new(),
         )
     };
-    match &map.body {
-        krs_ir::ProtocolRuleMapBody::Empty { .. } => Some(empty()),
-        krs_ir::ProtocolRuleMapBody::Items {
-            items,
-            remainder: ProtocolRuleFrame::Exact,
-        } => Some(items.iter().fold(empty(), |built, item| {
+    let variable = |key: &ProvenanceKey, name: &str| DescriptorTerm::Variable {
+        key: key.clone(),
+        path_key: key.clone(),
+        name: name.to_owned(),
+    };
+    let krs_ir::ProtocolRuleMapBody::Items { items, remainder } = &map.body else {
+        return matches!(map.body, krs_ir::ProtocolRuleMapBody::Empty { .. }).then(empty);
+    };
+    let rest = match (remainder, subject) {
+        (ProtocolRuleFrame::Exact, _) => None,
+        (ProtocolRuleFrame::Anonymous { key }, true) => {
+            Some(DescriptorTerm::Wildcard { key: key.clone() })
+        }
+        (ProtocolRuleFrame::Bind { key, binding }, true)
+        | (ProtocolRuleFrame::Reuse { key, binding }, false) => Some(variable(key, binding)),
+        _ => return None,
+    };
+    match (items.is_empty(), rest, subject) {
+        (true, None, _) => Some(empty()),
+        (true, Some(rest), _) => Some(rest),
+        (false, None, false) => Some(items.iter().fold(empty(), |built, item| {
             application(
                 &item.key_key,
                 krs_ir::TermMapOperation::Update,
                 vec![built, item.key.clone(), item.value.clone()],
             )
         })),
-        krs_ir::ProtocolRuleMapBody::Items { items, remainder } if !items.is_empty() => {
-            let rest = match remainder {
-                ProtocolRuleFrame::Anonymous { key } => {
-                    DescriptorTerm::Wildcard { key: key.clone() }
-                }
-                ProtocolRuleFrame::Bind { key, binding } => DescriptorTerm::Variable {
-                    key: key.clone(),
-                    path_key: key.clone(),
-                    name: binding.clone(),
-                },
-                ProtocolRuleFrame::Reuse { .. } | ProtocolRuleFrame::Exact => return None,
-            };
-            Some(DescriptorTerm::MapEntries {
-                key: map.payload_key.clone(),
-                entries: items
-                    .iter()
-                    .map(|item| krs_ir::DescriptorMapTermEntry {
-                        key: Box::new(item.key.clone()),
-                        value: Box::new(item.value.clone()),
-                    })
-                    .collect(),
-                rest: Some(Box::new(rest)),
-            })
-        }
-        _ => None,
+        // A result's entries over a kept rest would be a map concatenation.
+        (false, Some(_), false) => None,
+        (false, rest, true) => Some(DescriptorTerm::MapEntries {
+            key: map.payload_key.clone(),
+            entries: items
+                .iter()
+                .map(|item| krs_ir::DescriptorMapTermEntry {
+                    key: Box::new(item.key.clone()),
+                    value: Box::new(item.value.clone()),
+                })
+                .collect(),
+            rest: rest.map(Box::new),
+        }),
     }
 }
 

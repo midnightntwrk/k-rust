@@ -17,6 +17,7 @@ use krs_ir::{
 };
 
 use super::error::DescriptorLoweringError;
+use super::origin::key_range;
 use super::references::{declared_multiplicity, require_cell_field};
 
 type DescriptorRuleCell = krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, DescriptorTerm>;
@@ -376,7 +377,15 @@ pub(super) fn with_group_records(
                         | State::Group(DescriptorTerm::Wildcard { .. })
                 ))
         });
-        for (cell, other) in [(&subject_cell, &result_cell), (&result_cell, &subject_cell)] {
+        // Beside a term of the whole group on the other side, a record is that group's term too:
+        // where each child is a term once its map entries are read as the map terms they are
+        // ([`super::cell_states::group_state_term`]), it is written so, and the group is one term
+        // on both sides.
+        let mut termed = false;
+        for (cell, other, on_subject) in [
+            (&subject_cell, &result_cell, true),
+            (&result_cell, &subject_cell, false),
+        ] {
             if let (Some(cell), Some(other)) = (cell, other)
                 && matches!(cell.value, State::Record(_))
                 && !matches!(other.value, State::Record(_))
@@ -384,15 +393,31 @@ pub(super) fn with_group_records(
                 let State::Record(record) = &cell.value else {
                     unreachable!("matched as a record above")
                 };
-                let child = no_term_child(record).unwrap_or("?");
+                if !kept
+                    && let Some(term) =
+                        super::cell_states::group_state_term(&cell.value, on_subject, declarations)
+                {
+                    let index = if on_subject { subject } else { result }
+                        .expect("the cell was found at an index");
+                    cell_mut(&mut rule, index, on_subject).value = State::Group(term);
+                    termed = true;
+                    break;
+                }
+                let (child, entry) = no_term_entry(
+                    descriptor,
+                    record,
+                    on_subject,
+                    declarations,
+                    &cell.field.key,
+                )?;
                 let reason = if kept {
                     format!(
-                        "not supported yet: the result's record of `{0}` leaves children unnamed, which keep what the subject's match of the whole group holds, so it is an update of that match, a term of the whole group; but it writes its child `{child}` as an entry no term spells ({NO_TERM_ENTRIES}), which a group term cannot hold (the Semantic IR has no map concatenation); match the group with a record of its children, so that each child is its own cell",
+                        "not supported yet: the result's record of `{0}` leaves children unnamed, which keep what the subject's match of the whole group holds, so it is an update of that match, a term of the whole group; but it writes its child `{child}` as {entry}; match the group with a record of its children, so that each child is its own cell",
                         identity.field
                     )
                 } else {
                     format!(
-                        "not supported yet: the record of `{0}` writes its child `{child}` as an entry no term spells ({NO_TERM_ENTRIES}), so its children are matched and written as their own cells, and the other side writes the group whole, as one term, which the Semantic IR cannot build from those children (it has no map concatenation); write a record of the group's children on both sides",
+                        "not supported yet: the record of `{0}` writes its child `{child}` as {entry}, so its children are matched and written as their own cells, and the other side writes the group whole, as one term, which the Semantic IR cannot build from those children; write a record of the group's children on both sides",
                         identity.field
                     )
                 };
@@ -403,6 +428,9 @@ pub(super) fn with_group_records(
                     reason,
                 ));
             }
+        }
+        if termed {
+            continue;
         }
         let mut subject_children = match &subject_cell {
             Some(cell) => children(descriptor, cell, &group, declarations)?,
@@ -464,11 +492,13 @@ fn present_group_terms(
     rule: &mut krs_ir::DescriptorConfigurationRule,
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
-    for cell in rule
+    let result_cells = rule.result.iter_mut().flat_map(|result| &mut result.cells);
+    for (cell, on_subject) in rule
         .subject
         .cells
         .iter_mut()
-        .chain(rule.result.iter_mut().flat_map(|result| &mut result.cells))
+        .map(|cell| (cell, true))
+        .chain(result_cells.map(|cell| (cell, false)))
     {
         let State::Present { value } = &cell.value else {
             continue;
@@ -485,17 +515,24 @@ fn present_group_terms(
         let State::Present { value } = &mut cell.value else {
             continue;
         };
-        // A map child's exact entries are the map term they build ([`super::cell_states::map_term`]).
-        let Some(term) = super::cell_states::group_state_term(&State::Record(record.clone()))
+        // A map child's entries are the map term they are ([`super::cell_states::map_term`]).
+        let state = State::Record(record.clone());
+        let Some(term) = super::cell_states::group_state_term(&state, on_subject, declarations)
         else {
+            let (child, entry) = no_term_entry(
+                descriptor,
+                &record,
+                on_subject,
+                declarations,
+                &cell.field.key,
+            )?;
             return Err(super::cell_states::collection_error(
                 descriptor,
                 krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
                 &cell.field.key,
                 format!(
-                    "not supported yet: the present group `{}` is written whole, as one term naming every child, and its record writes the child `{}` as an entry no term spells ({NO_TERM_ENTRIES}), which a group term cannot hold (the Semantic IR has no map concatenation); write that child's entry as a term, or name its entries exactly",
-                    declared.rust_field,
-                    no_term_child(&record).unwrap_or("?")
+                    "not supported yet: the present group `{}` is written whole, as one term naming every child, and its record writes the child `{child}` as {entry}",
+                    declared.rust_field
                 ),
             ));
         };
@@ -504,17 +541,41 @@ fn present_group_terms(
     Ok(())
 }
 
-/// The entries a record's child can be that no term of its content spells, where a record
-/// admits the child (a `?` child's presence is refused before, [`children`]).
-const NO_TERM_ENTRIES: &str = "a map or a computation written over a rest";
-
-/// The first child of `record`, at any depth, whose entry no term spells ([`record_term`]).
-fn no_term_child(record: &Record) -> Option<&str> {
-    record.fields.iter().find_map(|field| match &field.value {
-        State::Term(_) | State::Group(_) => None,
-        State::Record(child) => no_term_child(child),
-        _ => Some(field.field.as_str()),
-    })
+/// The child of `record`, on the subject's side if `on_subject`, that no term of the whole group
+/// can hold, and what its entry is, as a stated limit's text says it
+/// ([`super::cell_states::no_term_child`]).
+///
+/// # Errors
+///
+/// A map entry on a child whose sort is not the builtin `Map`: the author's mistake, which no
+/// lowering admits, refused as a term of another sort than its place's, at the entry `key`.
+fn no_term_entry(
+    descriptor: &Descriptor,
+    record: &Record,
+    on_subject: bool,
+    declarations: &DescriptorIndex<'_>,
+    key: &krs_ir::ProvenanceKey,
+) -> Result<(String, &'static str), DescriptorLoweringError> {
+    use super::cell_states::NoTerm;
+    let (child, why) = super::cell_states::no_term_child(record, on_subject, declarations)
+        .unwrap_or(("?", NoTerm::Other));
+    let entry = match why {
+        NoTerm::MapOverRest => {
+            "entries over a map rest it keeps, which a term would hold as a map concatenation, and the Semantic IR has no map concatenation"
+        }
+        NoTerm::Computation => "a computation's items, which no term of the group holds yet",
+        NoTerm::NotMapSort => {
+            return Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!(
+                    "the child `{child}` is written as a map's entries, but its sort is not the builtin `Map`: map notation denotes the entries of a cell whose sort is `Map`"
+                ),
+            )
+            .within(descriptor.id(), key_range(descriptor, key).as_ref()));
+        }
+        NoTerm::Other => "an entry no term of the group holds yet",
+    };
+    Ok((child.to_owned(), entry))
 }
 
 fn cell_mut(

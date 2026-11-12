@@ -3592,12 +3592,17 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence(cmd (M1, M2, O1, A1, Mk) > right seq (Seq))]
+#[k::precedence(cmd (M1, M2, M3, M4, O1, O2, O3, O4, A1, Mk) > right seq (Seq))]
 #[rustfmt::skip]
 pub enum Cmd {
     #[k::syntax("m1 {x}")] M1 { x: Int },
     #[k::syntax("m2 {x}")] M2 { x: Int },
+    #[k::syntax("m3 {x}")] M3 { x: Int },
+    #[k::syntax("m4 {x}")] M4 { x: Int },
     #[k::syntax("o1 {x}")] O1 { x: Int },
+    #[k::syntax("o2 {x}")] O2 { x: Int },
+    #[k::syntax("o3 {x}")] O3 { x: Int },
+    #[k::syntax("o4 {x}")] O4 { x: Int },
     #[k::syntax("a1 {x}")] A1 { x: Int },
     #[k::syntax("mk")] Mk(),
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
@@ -3617,6 +3622,16 @@ pub struct Mg {
     pub mm: Map<Int, Int>,
     #[k::cell]
     pub mv: Int,
+}
+
+#[k::cell]
+pub struct M2g {
+    #[k::cell]
+    pub ma: Map<Int, Int>,
+    #[k::cell]
+    pub mb: Map<Int, Int>,
+    #[k::cell]
+    pub mc: Int,
 }
 
 #[k::cell]
@@ -3653,6 +3668,8 @@ pub struct Machine {
     pub bank: Bank,
     #[k::cell]
     pub slot: k::KItem,
+    #[k::cell(multiplicity = "?", nested)]
+    pub o2g: Option<M2g>,
 }
 
 impl Machine {
@@ -3660,6 +3677,7 @@ impl Machine {
     pub fn init(pgm: Stmt) -> Self {
         Self {
             k: k::k![pgm],
+            o2g: k::absent!(M2g { ma: k::map![], mb: k::map![], mc: 0 }),
             mg: Mg { mm: k::map![1 -> 2], mv: 5 },
             og: Some(Og { om: k::map![1 -> 2], ov: 6 }),
             bank: Bank { acct: Acct { id: 0, aframe: Ag { am: k::map![], aa: 0 } } },
@@ -3708,6 +3726,8 @@ fn a_result_record_s_map_child_is_the_map_it_builds() {
     m1: { k: [M1(x), ..], mg: m } => { k: [..], mg: Mg { mm: k::map![0 -> x], .. } };
     m2: { k: [M2(x), ..], mg: m, slot: _ } => { k: [..], mg: Mg { mm: k::map![0 -> x], .. }, slot: m };
     o1: { k: [O1(x), ..], og: Some(Og { .. }) } => { k: [..], og: Some(Og { om: k::map![0 -> x], .. }) };
+    m3: { k: [M3(x), ..], mg: m } => { k: [..], mg: Mg { mm: k::map![0 -> x], mv: 1 } };
+    m4: { k: [M4(x), ..], mg: Mg { mm: { 0 -> v, .. }, mv: w }, slot: n } => { k: [..], mg: n };
 }
 ";
     let cells = r#"
@@ -3724,6 +3744,31 @@ fn m2(x: Int, m: Mg, k::cells! { k: k::configuration::KCell(Cmd::M2 { x }, tail 
 #[k::rule(label = "o1")]
 fn o1(x: Int, k::cells! { k: k::configuration::KCell(Cmd::O1 { x }, tail @ ..), og: Some(k::fragment![crate::Og { .. }]), state @ .. }: Machine) -> Machine {
     k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![0 -> x], .. }]), ..state }
+}
+
+#[k::rule(label = "m3")]
+fn m3(x: Int, m: Mg, k::cells! { k: k::configuration::KCell(Cmd::M3 { x }, tail @ ..), mg: m, state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), mg: k::fragment![crate::Mg { mm: k::map![0 -> x], mv: 1 }], ..state }
+}
+
+#[k::rule(label = "m4")]
+fn m4(x: Int, v: Int, w: Int, n: Mg, k::cells! { k: k::configuration::KCell(Cmd::M4 { x }, tail @ ..), mg: k::fragment![crate::Mg { mm: k::map![0 -> v, ..], mv: w }], slot: k::configuration::Cell(n), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), mg: n, ..state }
+}
+
+#[k::rule(label = "o2")]
+fn o2(x: Int, v: Int, k::cells! { k: k::configuration::KCell(Cmd::O2 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![0 -> v], .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: None, ..state }
+}
+
+#[k::rule(label = "o3")]
+fn o3(x: Int, k::cells! { k: k::configuration::KCell(Cmd::O3 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![..], .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: None, ..state }
+}
+
+#[k::rule(label = "o4")]
+fn o4(x: Int, k::cells! { k: k::configuration::KCell(Cmd::O4 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![r @ ..], .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![..r], ov: x }]), ..state }
 }
 
 #[k::rule(label = "a1")]
@@ -3762,19 +3807,25 @@ fn a1(
         let end = rule.find("</k>").map_or(0, |end| end + "</k>".len());
         rule[end..].trim().to_owned()
     };
-    for label in ["m1", "m2", "o1"] {
+    for label in ["m1", "m2", "o1", "m3", "m4"] {
         assert_eq!(
             without_k(&readable_k, label),
             without_k(&cells_k, label),
             "{label}"
         );
     }
-    let emitted = ["m1", "m2", "o1", "a1"].map(|label| without_k(&cells_k, label));
+    let emitted = ["m1", "m2", "o1", "m3", "m4", "o2", "o3", "o4", "a1"]
+        .map(|label| without_k(&cells_k, label));
     expect_test::expect![[r#"
         [
             "(<mg> <mm> _ </mm> <mv> MMv:Int </mv> </mg> => <mg> <mm> .Map [ 0 <- X:Int ] </mm> <mv> MMv:Int </mv> </mg>)",
             "(<mg> <mm> MMm:Map </mm> <mv> MMv:Int </mv> </mg> => <mg> <mm> .Map [ 0 <- X:Int ] </mm> <mv> MMv:Int </mv> </mg>) <slot> _ => <mg> <mm> MMm:Map </mm> <mv> MMv:Int </mv> </mg> </slot>",
             "(<og> <om> _ </om> <ov> OgOv:Int </ov> </og> => <og> <om> .Map [ 0 <- X:Int ] </om> <ov> OgOv:Int </ov> </og>)",
+            "(M:MgCell => <mg> <mm> .Map [ 0 <- X:Int ] </mm> <mv> 1 </mv> </mg>)",
+            "(<mg> <mm> 0 |-> V:Int _ </mm> <mv> W:Int </mv> </mg> => N:MgCell) <slot> N:MgCell </slot>",
+            "(<og> <om> 0 |-> V:Int </om> <ov> _ </ov> </og> => .Bag)",
+            "(<og> <om> _ </om> <ov> _ </ov> </og> => .Bag)",
+            "(<og> <om> R:Map </om> <ov> _ </ov> </og> => <og> <om> R:Map </om> <ov> X:Int </ov> </og>)",
             "<acct> (<aframe> <am> ( 0 |-> V:Int _ #as MeAframeAm:Map ) </am> <aa> _ </aa> </aframe> => <aframe> <am> MeAframeAm:Map </am> <aa> X:Int </aa> </aframe>) ... </acct>",
         ]
     "#]]
@@ -3798,21 +3849,57 @@ fn a1(
             assert!(end.contains("<am> 0 |-> 3 </am> <aa> 9 </aa>"), "{end}");
         }
     }
-    // A map written over a rest is no term, and a present group is written as one term.
-    let rest = library_package(
-        temporary.path(),
-        "map-children-rest",
-        &MAP_CHILDREN.replace(
-            "{RULES}",
-            r#"
-#[k::rule(label = "o2")]
-fn o2(x: Int, v: Int, k::cells! { k: k::configuration::KCell(Cmd::O1 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![0 -> v, r @ ..], .. }]), state @ .. }: Machine) -> Machine {
-    k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![0 -> x, ..r], .. }]), ..state }
-}
-"#,
+    // A result's entries over a kept rest are no term, and a present group is written as one
+    // term: the stated limit names that child, after an exact map child that is a term; a map
+    // on a child of another sort is the author's mistake.
+    let refused = [
+        (
+            "rest",
+            "og: Some(k::fragment![crate::Og { om: k::map![0 -> v, r @ ..], .. }])",
+            "og: Some(k::fragment![crate::Og { om: k::map![0 -> x, ..r], .. }])",
         ),
-    );
-    expect_test::expect!["error[krs::analysis::collection-entry]: not supported yet: the present group `og` is written whole, as one term naming every child, and its record writes the child `om` as an entry no term spells (a map or a computation written over a rest), which a group term cannot hold (the Semantic IR has no map concatenation); write that child's entry as a term, or name its entries exactly"].assert_eq(&check_errors(target.path(), &rest));
+        (
+            "second-child",
+            "o2g: Some(k::fragment![crate::M2g { ma: k::map![0 -> v], mb: k::map![1 -> v, r @ ..], mc: v }])",
+            "o2g: Some(k::fragment![crate::M2g { ma: k::map![0 -> x], mb: k::map![1 -> x, ..r], mc: v }])",
+        ),
+        (
+            "sort",
+            "og: Some(k::fragment![crate::Og { .. }])",
+            "og: Some(k::fragment![crate::Og { ov: k::map![0 -> x], .. }])",
+        ),
+    ]
+    .map(|(name, subject, result)| {
+        let parameters = if subject.contains(" v") { " v: Int," } else { "" };
+        let manifest = library_package(
+            temporary.path(),
+            &format!("map-children-{name}"),
+            &MAP_CHILDREN.replace(
+                "{RULES}",
+                &format!(
+                    "#[k::rule(label = \"o9\")]\nfn o9(x: Int,{parameters} k::cells! {{ k: k::configuration::KCell(Cmd::O1 {{ x }}, tail @ ..), {subject}, state @ .. }}: Machine) -> Machine {{\n    k::cells! {{ k: k::configuration::KCell(..tail), {result}, ..state }}\n}}\n"
+                ),
+            ),
+        );
+        (name, check_errors(target.path(), &manifest))
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "rest",
+                "error[krs::analysis::collection-entry]: not supported yet: the present group `og` is written whole, as one term naming every child, and its record writes the child `om` as entries over a map rest it keeps, which a term would hold as a map concatenation, and the Semantic IR has no map concatenation",
+            ),
+            (
+                "second-child",
+                "error[krs::analysis::collection-entry]: not supported yet: the present group `o2g` is written whole, as one term naming every child, and its record writes the child `mb` as entries over a map rest it keeps, which a term would hold as a map concatenation, and the Semantic IR has no map concatenation",
+            ),
+            (
+                "sort",
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::o9 (rule): the child `ov` is written as a map's entries, but its sort is not the builtin `Map`: map notation denotes the entries of a cell whose sort is `Map`",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&refused);
 }
 
 /// EDOTS item 2: a readable record's own `..` stands for the cells it does not name, which a
