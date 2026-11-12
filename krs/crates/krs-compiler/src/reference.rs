@@ -2238,6 +2238,7 @@ fn render_rule(
     descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
     let mut parameters = Vec::new();
+    let mut parameter_types = BTreeMap::new();
     for binding in &printed.bindings {
         let krs_ir::ProtocolRuleBindingKind::Term { sort } = &binding.kind else {
             continue;
@@ -2245,6 +2246,7 @@ fn render_rule(
         let name = rust_ident(&binding.name)?;
         let ty = render_binding_type(&sort.sort, package)?;
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
+        parameter_types.insert(name.unraw().to_string(), ty);
     }
 
     // The `cells!` rule is typed by what the elaborated rule is about (R4-B), and names each
@@ -2417,20 +2419,21 @@ fn render_rule(
                 .collect(),
         ],
     )?;
-    let left_cells = left_cells
-        .into_iter()
-        .map(|cell| rename_identifiers(cell, &wildcards))
-        .collect::<Vec<_>>();
-    let right_cells = right_cells
-        .into_iter()
-        .map(|cell| rename_identifiers(cell, &wildcards))
-        .collect::<Vec<_>>();
+    // Each sorted wildcard is printed by its name where it is printed: the cells are printed again
+    // with those names, so no printed token is renamed.
+    if !wildcards.is_empty() {
+        let _named = PrintedNames::set(wildcards.clone());
+        rendering.list_rests.clear();
+        (left_cells, right_cells) = render_rule_cells(printed, &mut rendering)?;
+    }
     let parameters = parameters
         .into_iter()
-        .map(|(name, parameter)| {
-            let parameter = rename_identifiers(parameter, &wildcards);
-            let name = wildcards.get(&name).map_or(name, ToString::to_string);
-            (name, parameter)
+        .map(|(name, parameter)| match wildcards.get(&name) {
+            Some(fresh) => {
+                let ty = &parameter_types[&name];
+                (fresh.to_string(), quote!(#fresh: #ty))
+            }
+            None => (name, parameter),
         })
         .collect::<Vec<_>>();
     // A `cells!` rule declares its typed binders in their first-occurrence
@@ -2485,6 +2488,33 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+thread_local! {
+    /// The names the rule being printed gives its generated variables, by their reserved ids
+    /// ([`render_rule`]'s sorted wildcards), which [`render_term`] prints a variable by.
+    static PRINTED_NAMES: std::cell::RefCell<BTreeMap<String, Ident>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The names [`render_term`] prints generated variables by while it lives ([`PRINTED_NAMES`]).
+struct PrintedNames;
+
+impl PrintedNames {
+    fn set(names: BTreeMap<String, Ident>) -> Self {
+        PRINTED_NAMES.with(|printed| *printed.borrow_mut() = names);
+        Self
+    }
+
+    fn get(name: &str) -> Option<Ident> {
+        PRINTED_NAMES.with(|printed| printed.borrow().get(name).cloned())
+    }
+}
+
+impl Drop for PrintedNames {
+    fn drop(&mut self) {
+        PRINTED_NAMES.with(|printed| printed.borrow_mut().clear());
+    }
 }
 
 /// The parameter type of a binder an elaborated rule declares at `sort`.
@@ -3472,7 +3502,10 @@ fn render_term(
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match term {
         DescriptorTerm::Variable { name, .. } => {
-            let name = rust_ident(name)?;
+            let name = match PrintedNames::get(name) {
+                Some(printed) => printed,
+                None => rust_ident(name)?,
+            };
             Ok(quote!(#name))
         }
         DescriptorTerm::Application {

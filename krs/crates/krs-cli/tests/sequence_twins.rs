@@ -871,3 +871,44 @@ fn a_named_rest_renames_no_item() {
     assert!(print.contains("Cmd::__krs_list_rest_0()"), "{print}");
     assert_eq!(readable_k.replace("Krs_RestLl", "Rest"), printed_k);
 }
+
+/// Round 5, the printer: a sorted wildcard (a map read's value `_` narrowed to `Int`, printed as the
+/// binder `_int`) is printed by its name where it
+/// is printed, so nothing printed is renamed, not even a constructor spelled like the wildcard's
+/// reserved id (`__krs_wildcard_0`, which krs admits).
+#[test]
+fn a_sorted_wildcard_renames_no_item() {
+    let preamble = PREAMBLE
+        .replace("List, Set, list, set}", "List, Map, Set, list, set}")
+        .replace(
+            "    #[k::cell]\n    pub out: List,\n",
+            "    #[k::cell]\n    pub out: List,\n    #[k::cell]\n    pub env: Map,\n",
+        )
+        .replace(
+            "out: list::empty(),",
+            "out: list::empty(),\n            env: k::map![],",
+        )
+        .replace(
+            "#[k::syntax(\"go\")] Go(),",
+            "#[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"odd\")] __krs_wildcard_0(),",
+        );
+    assert!(preamble.contains("pub env: Map") && preamble.contains("__krs_wildcard_0()"));
+    let (readable_k, print, printed_k) = printed_twin(
+        "wildcard",
+        &format!(
+            "{preamble}{}",
+            readable(
+                "go: { k: [__krs_wildcard_0(), ..], env: { 0 -> _, .. } } => { k: [..] } where _: Int;",
+                false,
+            )
+        ),
+    );
+    expect_test::expect![[r"
+        rule [go]: <k> odd => .K ... </k> <env> 0 |-> _:Int ... </env>
+        pub fn go( _int: k::Term<k::builtin::Int>, k::cells! { k : k::configuration::KCell(crate ::Cmd::__krs_wildcard_0(), ..), env : k::configuration::Cell(map![0 -> _int, ..]), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ..state } }
+        rule [go]: <k> odd => .K ... </k> <env> 0 |-> _Int:Int ... </env>"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
+    assert!(print.contains("Cmd::__krs_wildcard_0()"), "{print}");
+    assert!(print.contains("_int: k::Term<k::builtin::Int>"), "{print}");
+    // The wildcard's binder reads back as a K variable used once, `_Int`, the readable `_`.
+    assert_eq!(readable_k.replace("_:Int", "_Int:Int"), printed_k);
+}
