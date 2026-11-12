@@ -1328,7 +1328,7 @@ impl InstanceList {
 pub struct CellsEntry {
     name: Ident,
     owner: Option<Path>,
-    wrapper: Option<Path>,
+    wrapper: Option<ReadWrapper>,
     value: StateTerm,
     name_key: Option<ProvenanceKey>,
     wrapper_key: Option<ProvenanceKey>,
@@ -1351,12 +1351,22 @@ impl CellsEntry {
         self.owner.as_ref()
     }
 
-    /// Returns the authored `Cell`/`KCell` wrapper path, absent exactly for a
-    /// whole nested-cell entry ([`StateTerm::Group`]), `None`, and a
-    /// collection entry; for `Some(Cell(..))` it is the inner wrapper.
+    /// Returns the `Cell`/`KCell` wrapper path, absent exactly for a whole
+    /// nested-cell entry ([`StateTerm::Group`]), `None`, and a collection
+    /// entry; for `Some(Cell(..))` it is the inner wrapper. It is the authored
+    /// path, or a `Cell` the entry is read under while the refusal of a
+    /// content written without its wrapper waits ([`Self::implied_wrapper`]).
     #[must_use]
-    pub const fn wrapper(&self) -> Option<&Path> {
-        self.wrapper.as_ref()
+    pub fn wrapper(&self) -> Option<&Path> {
+        self.wrapper.as_ref().map(|wrapper| &wrapper.path)
+    }
+
+    /// Whether the wrapper is no authored path but the `Cell` a content written without its
+    /// wrapper is read under while its refusal waits for the judgement of the entry
+    /// ([`PartFaults`]): no reference names it.
+    #[must_use]
+    pub fn implied_wrapper(&self) -> bool {
+        self.wrapper.as_ref().is_some_and(|wrapper| wrapper.implied)
     }
 
     /// Returns the compiler-parsed leaf contents.
@@ -1538,7 +1548,7 @@ impl CellsExpression {
                 RuleRole::CellsField,
                 TokenRange::for_tokens(&entry.name)?,
             )?;
-            if let Some(wrapper) = &entry.wrapper {
+            if let Some(wrapper) = entry.wrapper() {
                 let range = TokenRange::for_tokens(wrapper)?;
                 let role = position.role(RuleRole::CellsWrapper);
                 entry.wrapper_key = Some(match position {
@@ -2315,7 +2325,7 @@ fn parse_carried_entry_value(
     looks_up: bool,
     cell: &Ident,
     carried: &mut Option<SyntaxError>,
-) -> Result<(Option<Path>, StateTerm), SyntaxError> {
+) -> Result<(Option<ReadWrapper>, StateTerm), SyntaxError> {
     let faults = PartFaults::new(context);
     let fork = input.fork();
     let mut value = TokenStream::new();
@@ -2640,6 +2650,17 @@ pub(crate) fn record_child_presence(child: &str, present: bool) -> SyntaxErrorKi
     }
 }
 
+/// The wrapper a `cells!` entry's value is read in.
+#[derive(Clone, Debug)]
+struct ReadWrapper {
+    /// The authored `Cell`/`KCell` path, or the implied one's.
+    path: Path,
+    /// Whether the wrapper is implied: a content written without its wrapper is read under
+    /// `Cell`, at the content, while its refusal waits for the judgement of the entry
+    /// ([`parse_group_entry`]).
+    implied: bool,
+}
+
 /// Parses one `cells!` entry value: `None`, `Some(..)` around a leaf or
 /// group entry, an instance list, a wrapped leaf, or a group entry.
 fn parse_entry_value(
@@ -2648,7 +2669,7 @@ fn parse_entry_value(
     looks_up: bool,
     cell: &Ident,
     faults: &PartFaults,
-) -> Result<(Option<Path>, StateTerm), SyntaxError> {
+) -> Result<(Option<ReadWrapper>, StateTerm), SyntaxError> {
     if let Some(range) = parse_option_none(input)? {
         return Ok((None, StateTerm::Absent(range)));
     }
@@ -2691,7 +2712,12 @@ fn parse_entry_value(
         ));
     }
     if !starts_wrapped_entry(input) {
-        return Ok((None, parse_group_entry(input, context, cell)?));
+        let (value, implied) = parse_group_entry(input, context, cell, faults)?;
+        let wrapper = implied.map(|span| ReadWrapper {
+            path: Path::from(Ident::new("Cell", span)),
+            implied: true,
+        });
+        return Ok((wrapper, value));
     }
     let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
     let Some(last) = plain_path_last(&wrapper) else {
@@ -2729,11 +2755,15 @@ fn parse_entry_value(
                 },
             }
         }
-        _ => {
-            return Err(state_error("cells", UNWRAPPED_ENTRY, wrapper.span()));
-        }
+        _ => unreachable!("an entry's wrapper is `Cell` or `KCell` ([`starts_wrapped_entry`])"),
     };
-    Ok((Some(wrapper), value))
+    Ok((
+        Some(ReadWrapper {
+            path: wrapper,
+            implied: false,
+        }),
+        value,
+    ))
 }
 
 /// The reference a result's kept `..` is read through ([`kept_rest_marked`]); the term reads
@@ -3224,18 +3254,27 @@ pub(crate) fn qualified_macro_payload(tokens: &TokenStream) -> Option<(String, T
     qualified.then(|| (name.to_string(), group.stream()))
 }
 
-/// Whether the next entry value is a wrapper application `Path(..)`, as
-/// every leaf entry is; a whole nested-cell entry is not (KF-016).
+/// Whether the next entry value is a wrapper application `Cell(..)` or `KCell(..)`, as every
+/// leaf entry is (or a path application that is no plain path, which is refused as a wrapper);
+/// a whole nested-cell entry is not (KF-016), nor is an application of any other plain path
+/// (`int::add(a, 1)`, `Cmd::Go()`), which is a term written without a wrapper.
 fn starts_wrapped_entry(input: ParseStream<'_>) -> bool {
     let fork = input.fork();
-    fork.parse::<Path>().is_ok() && fork.peek(syn::token::Paren)
+    let Ok(path) = fork.parse::<Path>() else {
+        return false;
+    };
+    fork.peek(syn::token::Paren)
+        && plain_path_last(&path)
+            .is_none_or(|last| matches!(last.ident.to_string().as_str(), "Cell" | "KCell"))
 }
 
 /// The reason given for an entry written as a term without a wrapper (`acc: 0`, `frame: 0`,
 /// `acc: int::add(a, 1)`, whose path is no wrapper). The reader does not know which cells are
 /// leaves, so the reason is true of either: an entry without a wrapper is a nested cell's, and a
-/// leaf's content stands inside its wrapper. A binder is a nested cell's spelling, so `acc: a` is
-/// read as one, and the collector, which knows the cell, refuses it on a leaf (`cell-wrapper`).
+/// leaf's content stands inside its wrapper. It is the entry's whole fault, so it waits for the
+/// judgement of the entry against its cell ([`PartFaults`]): on a leaf or the computation the
+/// collector answers that the entry lacks its cell's wrapper (`cell-wrapper`), as it answers a
+/// binder there (`acc: a`), and on a nested cell, which no wrapper marks, it raises this reason.
 const UNWRAPPED_ENTRY: &str = "an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)`";
 
 /// The reason given for a whole entry `k::rewrite!(a => b)` whose sides are contents, not entries
@@ -3246,11 +3285,21 @@ const REWRITTEN_ENTRY: &str = "a `k::rewrite!` changes a content where it stands
 
 /// Parses a whole nested-cell entry value: a group binder, `_` (patterns
 /// only), or a complete `k::fragment!` term (KF-016).
+///
+/// Any other term, and a `k::rewrite!` of contents, is a content written without its cell's
+/// wrapper ([`UNWRAPPED_ENTRY`], [`REWRITTEN_ENTRY`]). Which mistake that is depends on the cell
+/// the entry names, which the reader does not know: on a leaf or the computation it is the
+/// entry's missing wrapper, on a nested cell a spelling no group entry has. So where its faults
+/// wait ([`PartFaults`]) the entry is read as the term it writes, which keeps every name it
+/// binds, and its refusal is carried to the judgement of the entry against its cell. Returns the
+/// entry's state, and for such a content the span its implied `Cell` wrapper stands at, its first
+/// token's.
 fn parse_group_entry(
     input: ParseStream<'_>,
     context: StateMacroContext,
     cell: &Ident,
-) -> Result<StateTerm, SyntaxError> {
+    faults: &PartFaults,
+) -> Result<(StateTerm, Option<Span>), SyntaxError> {
     let mut tokens = TokenStream::new();
     while !input.is_empty() && !input.peek(Token![,]) && !starts_remainder(input) {
         tokens.extend([input.parse::<TokenTree>().map_err(SyntaxError::from)?]);
@@ -3260,17 +3309,32 @@ fn parse_group_entry(
         return Err(invalid(input.span()));
     }
     let span = tokens.span();
+    // The implied wrapper stands at the content's first token, a range that every reading of
+    // the source gives alike.
+    let first = tokens
+        .clone()
+        .into_iter()
+        .next()
+        .map_or(span, |tree| tree.span());
     if context == StateMacroContext::Expression
         && let Some(refusal) = pattern_only_entry(&tokens, cell)
     {
         return Err(refusal);
     }
-    if let Some(refusal) = rewritten_entry(&tokens) {
-        return Err(refusal);
+    match rewritten_entry(&tokens) {
+        Some(EntryRewrite::Content(refusal)) => {
+            let Ok(term) = state_term_tokens(tokens, context) else {
+                return Err(refusal);
+            };
+            faults.carry(refusal, true)?;
+            return Ok((StateTerm::Term(term), Some(first)));
+        }
+        Some(EntryRewrite::Marks(refusal)) => return Err(refusal),
+        None => {}
     }
     let fragment = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment");
     if let Some(record) = fragment_record(&tokens, context)? {
-        return Ok(StateTerm::Record(Box::new(record)));
+        return Ok((StateTerm::Record(Box::new(record)), None));
     }
     let term = state_term_tokens(tokens, context).map_err(|error| match error.kind() {
         // A fragment's child at a configuration position is its cell's entry (ruling R4); a
@@ -3288,13 +3352,26 @@ fn parse_group_entry(
         _ => invalid(span),
     })?;
     match term.tree() {
-        TermTree::Reference(path) if path.get_ident().is_some() => Ok(StateTerm::Group(term)),
-        TermTree::Wildcard(_) if context == StateMacroContext::Pattern => {
-            Ok(StateTerm::Group(term))
+        TermTree::Reference(path) if path.get_ident().is_some() => {
+            Ok((StateTerm::Group(term), None))
         }
-        TermTree::Cell(_) => Ok(StateTerm::Group(term)),
-        _ => Err(invalid(span)),
+        TermTree::Wildcard(_) if context == StateMacroContext::Pattern => {
+            Ok((StateTerm::Group(term), None))
+        }
+        TermTree::Cell(_) => Ok((StateTerm::Group(term), None)),
+        _ => {
+            faults.carry(invalid(span), true)?;
+            Ok((StateTerm::Term(term), Some(first)))
+        }
     }
+}
+
+/// A `k::rewrite!` written as a cell's whole entry ([`rewritten_entry`]).
+enum EntryRewrite {
+    /// Its sides are contents, written without their cell's wrapper ([`REWRITTEN_ENTRY`]).
+    Content(SyntaxError),
+    /// A side writes an entry's mark, a `?` cell's presence or a wrapper.
+    Marks(SyntaxError),
 }
 
 /// The refusal of a `k::rewrite!` written as a cell's whole entry, `cell: k::rewrite!(a => b)`,
@@ -3305,8 +3382,9 @@ fn parse_group_entry(
 /// wrapper are no content: they say that the cell is present and which cell holds the content,
 /// so they stand outside the rewrite, around the content it changes (`Some(Cell(k::rewrite!(o =>
 /// x)))`). Sides of any other spelling rewrite a content written outside its wrapper
-/// ([`REWRITTEN_ENTRY`]). `None` for an entry that is no `k::rewrite!`.
-fn rewritten_entry(tokens: &TokenStream) -> Option<SyntaxError> {
+/// ([`REWRITTEN_ENTRY`], [`EntryRewrite::Content`]). `None` for an entry that is no
+/// `k::rewrite!`.
+fn rewritten_entry(tokens: &TokenStream) -> Option<EntryRewrite> {
     let ("rewrite", payload) = qualified_macro_payload(tokens)
         .as_ref()
         .map(|(name, payload)| (name.as_str(), payload.clone()))?
@@ -3358,7 +3436,12 @@ fn rewritten_entry(tokens: &TokenStream) -> Option<SyntaxError> {
             }
         },
     };
-    Some(state_error("cells", reason, tokens.span()))
+    let refusal = state_error("cells", reason, tokens.span());
+    Some(if reason == REWRITTEN_ENTRY {
+        EntryRewrite::Content(refusal)
+    } else {
+        EntryRewrite::Marks(refusal)
+    })
 }
 
 /// The group record a whole nested-cell entry `k::fragment![Group { .. }]` is when one of its
@@ -3975,7 +4058,7 @@ mod keyed {
             nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
             for entry in &self.entries {
                 nodes.push_tokens(entry.name_key.as_ref(), &entry.name)?;
-                if let Some(wrapper) = &entry.wrapper {
+                if let Some(wrapper) = entry.wrapper() {
                     nodes.push_tokens(entry.wrapper_key.as_ref(), wrapper)?;
                 }
             }

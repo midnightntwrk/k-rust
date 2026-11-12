@@ -4967,11 +4967,13 @@ fn a_single_body_rule_that_marks_no_change_changes_no_cell() {
         wildcard: error[krs::analysis::rule-changes-no-cell]: rule `make` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing @ 78:5"]].assert_eq(&lines.join("\n"));
 }
 
-/// CELLS4 item 2: the `cells!` reader does not know which cells are leaves, so its refusal of an
-/// entry written as a term without a wrapper is true of either: such an entry is a nested cell's
-/// (a binder, `_` or a fragment), and a leaf's content stands inside its wrapper. A whole entry
-/// `k::rewrite!(a => b)` rewrites a content outside its wrapper, which stands inside it,
-/// `Cell(k::rewrite!(a => b))`. Each way out is accepted.
+/// CELLS4 item 2, SMALLVERDICTS item 1: an entry written as a term without a wrapper, or as a
+/// whole `k::rewrite!(a => b)` of contents, is a content outside its wrapper. On a leaf or the
+/// computation that is the entry's missing wrapper, one meaning whatever term it writes, so a
+/// literal, a call, a rewrite and a binder all get `cell-wrapper`, which names the cell and its
+/// wrapper: the reader, which does not know the cell, carries its refusal to the judgement of the
+/// entry. On a nested cell, which no wrapper marks, the reader's reason is raised: such an entry
+/// is a binder, `_` or a fragment. Each way out is accepted.
 #[test]
 fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
     let target = shared_fixture_target();
@@ -4993,7 +4995,18 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
                 false,
                 "",
                 &format!("acc: {cell}(a), .."),
-                "acc: int::add(a, 1), ..",
+                "acc: k::builtin::int::add(a, 1), ..",
+            ),
+        ),
+        (
+            "leaf-binder",
+            whole_cells(false, "", "acc: a, ..", &format!("acc: {cell}(x), ..")),
+        ),
+        (
+            "computation-term",
+            whole_cells(false, "", &format!("acc: {cell}(a), .."), "..").replace(
+                "k: k::configuration::KCell(..tail)",
+                "k: Cmd::Make { x: a }",
             ),
         ),
         (
@@ -5006,7 +5019,7 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
                 true,
                 "",
                 &format!("acc: {cell}(a), .."),
-                "frame: int::add(a, 1), ..",
+                "frame: k::builtin::int::add(a, 1), ..",
             ),
         ),
         (
@@ -5025,14 +5038,16 @@ fn an_entry_without_its_wrapper_is_refused_for_what_it_writes() {
         let manifest = library_package(temporary.path(), &format!("unwrapped-{name}"), &source);
         format!("{name}: {}", first_error(target.path(), &manifest))
     });
-    expect_test::expect![[r"
-        leaf-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 54:78
-        result-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:58
-        leaf-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:58
+    expect_test::expect![[r#"
+        leaf-literal: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 54:78
+        result-literal: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 56:58
+        leaf-call: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 56:58
+        leaf-binder: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 54:78
+        computation-term: error[krs::analysis::cell-wrapper]: the cell `k` holds a computation, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::KCell(..)` @ 56:20
         group-literal: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
         group-call: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: an entry without a wrapper is a nested cell's: a binder, `_` in a pattern, or `k::fragment![..]`; a leaf cell's content is written inside its wrapper, `Cell(..)`, and the computation's inside `KCell(..)` @ 56:60
-        leaf-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:90
-        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"]].assert_eq(&refused.join("\n"));
+        leaf-rewrite: error[krs::analysis::cell-wrapper]: the cell `acc` holds a leaf of sort `Int`, and the entry's wrapper is not that content's: `KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one; write its entry as `k::configuration::Cell(..)` @ 80:90
+        group-rewrite: error[krs::syntax::invalid-state-macro]: invalid `cells!` payload: a `k::rewrite!` changes a content where it stands, and a leaf cell's content stands inside its wrapper: `Cell(k::rewrite!(a => b))`, and the computation's `KCell(k::rewrite!(a => b), ..)`; a nested cell's entry is a binder, `_`, or `k::fragment![..]`, inside which a child's content is rewritten @ 80:92"#]].assert_eq(&refused.join("\n"));
     let accepted = [
         (
             "leaf-literal",

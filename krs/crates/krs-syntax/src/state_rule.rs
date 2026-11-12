@@ -2311,7 +2311,7 @@ fn append_cells_candidates(
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) {
     for entry in cells.entries() {
-        if let Some(wrapper) = entry.wrapper() {
+        if let Some(wrapper) = entry.wrapper().filter(|_| !entry.implied_wrapper()) {
             output.push(ReferenceCandidate {
                 key: entry.wrapper_key().expect(KEYED).clone(),
                 path: wrapper.clone(),
