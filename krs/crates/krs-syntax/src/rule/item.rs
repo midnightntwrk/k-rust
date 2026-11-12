@@ -1360,12 +1360,24 @@ fn parse_function_context(
                 last.span(),
             ));
         }
-        return FunctionContext::parse(last).map(Some);
+        return function_context(item, last).map(Some);
     }
     if allow_context && follows_subject {
-        return FunctionContext::parse(last).map(Some);
+        return function_context(item, last).map(Some);
     }
     Ok(None)
+}
+
+/// The function context `last` of the equation `item`, read with the equation's typed parameters
+/// as its declared binders: an instance's or a group record's child's named rest that none
+/// declares is a remainder, as in a rule's subject
+/// ([`crate::state_macro::with_declared_binders`]).
+fn function_context(item: &ItemFn, last: &FnArg) -> Result<FunctionContext, SyntaxError> {
+    let binders = crate::state_macro::SentenceBinders {
+        declared: crate::state_rule::declared_names(item),
+        remainders: std::collections::BTreeSet::new(),
+    };
+    crate::state_macro::with_declared_binders(binders, || FunctionContext::parse(last))
 }
 
 /// Parses the typed binder parameters before the subject (KF-009, X5), and

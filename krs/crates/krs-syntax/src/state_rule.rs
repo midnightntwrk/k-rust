@@ -1661,7 +1661,7 @@ fn validate_signature(item: &ItemFn) -> Result<(), SyntaxError> {
 /// The names the typed parameters of `item` bind, its declared term binders, every parameter but
 /// the last (the `cells!` subject); the parameters are validated where they are read
 /// ([`parse_typed_bindings`]).
-fn declared_names(item: &ItemFn) -> std::collections::BTreeSet<String> {
+pub(crate) fn declared_names(item: &ItemFn) -> std::collections::BTreeSet<String> {
     item.sig
         .inputs
         .iter()
