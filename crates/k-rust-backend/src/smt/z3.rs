@@ -129,10 +129,11 @@ struct Checked {
 }
 
 /// Check `solver`, observing the resource units and the time the check takes when `observe` is
-/// set or the build measures its work. The observation reads the context's statistics before and
+/// set or the work counters count. The observation reads the context's statistics before and
 /// after the check: it copies counters out and adds nothing the search reads.
 fn measured_check(solver: &Solver, observe: bool) -> Checked {
-    let observe = observe || cfg!(feature = "measure");
+    let count = measure::enabled();
+    let observe = observe || count;
     let before = observe.then(|| rlimit_count(solver));
     let started = observe.then(Instant::now);
     let result = {
@@ -141,8 +142,7 @@ fn measured_check(solver: &Solver, observe: bool) -> Checked {
     };
     let wall = started.map(|started| started.elapsed());
     let rlimit_used = before.map(|before| rlimit_count(solver).saturating_sub(before));
-    #[cfg(feature = "measure")]
-    if let Some(used) = rlimit_used {
+    if count && let Some(used) = rlimit_used {
         measure::add(Counter::SmtRlimitCount, used);
     }
     Checked {

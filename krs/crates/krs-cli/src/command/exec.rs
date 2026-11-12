@@ -295,6 +295,9 @@ pub(super) fn execute(
     let reused_flag = &mut reused;
     let mut spec_reused = None;
     let spec_reused_flag = &mut spec_reused;
+    let count_work = counts_work(command, measurement.counters.is_enabled());
+    let mut work = Vec::new();
+    let work_taken = &mut work;
     let result = std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("krs-exec".into())
@@ -349,7 +352,10 @@ pub(super) fn execute(
                     })
                     .transpose()
                     .map_err(Failure::Exec)?;
-                dispatch(
+                // Counted from here, on the thread that runs: the load above is not the run's
+                // work, and a restored stage loads less than one compiled anew.
+                let started = count_work.then(krs_exec::work::Work::start);
+                let outcome = dispatch(
                     &mut semantics,
                     observer.as_mut(),
                     Observers {
@@ -358,7 +364,9 @@ pub(super) fn execute(
                     },
                     command,
                     case,
-                )
+                );
+                *work_taken = started.map(|started| started.taken()).unwrap_or_default();
+                outcome
             })
             .map_err(|error| {
                 CommandError::InvalidRequest(format!("could not start the run worker: {error}"))
@@ -376,12 +384,26 @@ pub(super) fn execute(
             })
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
+    for (name, value) in work {
+        measurement.counters.set(name, value);
+    }
     if let Some(reused) = spec_reused {
         measurement
             .counters
             .set("spec_stage.reused", u64::from(reused));
     }
     result.map_err(|failure| failure.into_command_error(prepared))
+}
+
+/// Whether `command` reports the backend's work counters (`krs_exec::work`), which it then turns
+/// on: a `run` or a `search` whose counters are `asked` for (`--counters`). `prove` proves its
+/// claims in worker processes, whose counters this process does not hold.
+fn counts_work(command: &Command, asked: bool) -> bool {
+    let counts = asked && matches!(command, Command::Run(_) | Command::Search(_));
+    if counts {
+        krs_exec::work::count();
+    }
+    counts
 }
 
 /// The definition-level judgement of `krs parse`, `run`, `search`, and `prove`, for `krs check`:

@@ -4,11 +4,16 @@
 //! `k-rust-kore` is the one crate all of them depend on. The module has no dependency on the KORE
 //! types and adds none to the crate.
 //!
-//! The counters exist in every build so that call sites need no `cfg`. Without the `measure`
-//! Cargo feature, [`add`] and [`bump`] are empty inline functions and [`snapshot`] returns zeros;
-//! nothing is read from the environment and no output changes. With the feature, the counters are
-//! thread-local: `cargo test` runs tests on several threads and a test must not see another test's
-//! increments. Executable workers explicitly merge their final snapshots into process totals.
+//! The counters exist in every build so that call sites need no `cfg`. They are thread-local:
+//! `cargo test` runs tests on several threads and a test must not see another test's increments.
+//! Executable workers explicitly merge their final snapshots into process totals.
+//!
+//! With the `measure` Cargo feature every [`add`] and [`bump`] counts. Without it they count only
+//! after an executable asked for it with [`count_at_run_time`] (`krs --counters`); until then each
+//! is one load of a flag and a branch not taken, [`snapshot`] returns zeros, nothing is read from
+//! the environment and no output changes. [`enabled`] says whether the counters count, for a call
+//! site whose count needs work of its own (a walk of the terms it sizes). The allocation counters
+//! need the `measure` build's allocator, and the span deltas of [`algorithm_span`] its feature.
 //!
 //! Tests take a [`snapshot`] before and after the code under test and assert on
 //! [`Snapshot::delta`], so no test depends on the counters being zero when it starts. [`reset`]
@@ -1035,7 +1040,50 @@ pub fn bump(counter: Counter) {
     add(counter, 1);
 }
 
-pub use imp::{add, merge_current_thread, process_snapshot, reset, snapshot};
+pub use imp::{merge_current_thread, process_snapshot, reset, snapshot};
+
+/// Whether a build without the `measure` feature counts: off until [`count_at_run_time`].
+#[cfg(not(feature = "measure"))]
+static COUNT_AT_RUN_TIME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether [`add`] and [`bump`] count: always in a `measure` build, and otherwise once
+/// [`count_at_run_time`] turned the counters on.
+#[cfg(feature = "measure")]
+#[inline(always)]
+pub const fn enabled() -> bool {
+    true
+}
+
+/// Whether [`add`] and [`bump`] count: always in a `measure` build, and otherwise once
+/// [`count_at_run_time`] turned the counters on.
+#[cfg(not(feature = "measure"))]
+#[inline(always)]
+pub fn enabled() -> bool {
+    COUNT_AT_RUN_TIME.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Turn the counters of a build without the `measure` feature on or off for the whole process,
+/// from now on; a `measure` build always counts, and this changes nothing there.
+///
+/// Counting reads and writes thread-local cells and nothing a computation reads, so turning it on
+/// changes no result. An executable turns it on before the work it reports and reads
+/// [`snapshot`] on the thread that did the work (or [`process_snapshot`] after its workers
+/// merged).
+pub fn count_at_run_time(on: bool) {
+    #[cfg(not(feature = "measure"))]
+    COUNT_AT_RUN_TIME.store(on, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(feature = "measure")]
+    let _ = on;
+}
+
+/// Add `n` to a counter of the current thread, wrapping on overflow, where the counters count
+/// ([`enabled`]).
+#[inline(always)]
+pub fn add(counter: Counter, n: u64) {
+    if enabled() {
+        imp::add(counter, n);
+    }
+}
 
 /// The executable-wide allocator used by binaries that report allocation counters.
 /// Each binary installs it with `#[global_allocator]`; the counters remain process-local.
@@ -1129,7 +1177,11 @@ impl Drop for MergeOnDrop {
 /// as `provenance.links_steps` and `provenance.anchor_path_steps` count every walk outside it,
 /// and a guard reading them is blind to whatever runs inside.
 pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
-    imp::without_counting(work)
+    if enabled() {
+        imp::without_counting(work)
+    } else {
+        work()
+    }
 }
 
 /// How one kompile stage shared the sentences it received, summed over every run of the stage
@@ -1237,7 +1289,6 @@ pub fn stage_sentences() -> Vec<(&'static str, StageSentences)> {
         .clone()
 }
 
-#[cfg(feature = "measure")]
 mod imp {
     use std::cell::Cell;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1253,8 +1304,11 @@ mod imp {
         static SUPPRESS: Cell<bool> = const { Cell::new(false) };
     }
 
-    /// Add `n` to a counter of the current thread, wrapping on overflow.
-    #[inline]
+    /// Add `n` to a counter of the current thread, wrapping on overflow. Inlined at each call
+    /// site in a `measure` build, which always counts; out of line otherwise, where a call site
+    /// holds only the test of the flag until counting is turned on.
+    #[cfg_attr(feature = "measure", inline)]
+    #[cfg_attr(not(feature = "measure"), cold, inline(never))]
     pub fn add(counter: Counter, n: u64) {
         SUPPRESS.with(|suppress| {
             if suppress.get() {
@@ -1287,6 +1341,7 @@ mod imp {
     }
 
     /// Whether the current thread runs under `without_counting`.
+    #[cfg(feature = "measure")]
     pub fn suppressed() -> bool {
         SUPPRESS.with(Cell::get)
     }
@@ -1327,37 +1382,6 @@ mod imp {
             *value = value.wrapping_add(total.load(Ordering::Relaxed));
         }
         result
-    }
-}
-
-#[cfg(not(feature = "measure"))]
-mod imp {
-    use super::{Counter, Snapshot};
-
-    /// Counting is compiled out without the `measure` feature.
-    #[inline(always)]
-    pub fn add(_counter: Counter, _n: u64) {}
-
-    pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
-        work()
-    }
-
-    /// Counting is compiled out without the `measure` feature.
-    #[inline(always)]
-    pub fn reset() {}
-
-    /// Counting is compiled out without the `measure` feature; every counter reads as zero.
-    #[inline(always)]
-    pub fn snapshot() -> Snapshot {
-        Snapshot::default()
-    }
-
-    #[inline(always)]
-    pub fn merge_current_thread() {}
-
-    #[inline(always)]
-    pub fn process_snapshot() -> Snapshot {
-        Snapshot::default()
     }
 }
 
@@ -1463,12 +1487,32 @@ mod tests {
         assert_eq!(snapshot(), Snapshot::default());
     }
 
+    /// A build without the feature counts nothing until it is asked to, and then counts on the
+    /// thread that works. The switch is process-wide, so this is the one test that turns it.
     #[cfg(not(feature = "measure"))]
     #[test]
-    fn add_bump_snapshot_and_reset_round_trip_on_the_current_thread() {
+    fn a_build_without_the_feature_counts_once_asked_to() {
         add(Counter::RewriteSteps, 5);
         bump(Counter::TermConstructed);
+        assert!(!enabled());
         assert_eq!(snapshot(), Snapshot::default());
+
+        count_at_run_time(true);
+        assert!(enabled());
+        let before = snapshot();
+        add(Counter::RewriteSteps, 5);
+        bump(Counter::RewriteSteps);
+        without_counting(|| bump(Counter::RewriteSteps));
+        let delta = snapshot().delta(&before);
+        assert_eq!(delta.get(Counter::RewriteSteps), 6);
+        assert_eq!(delta.get(Counter::SmtQueries), 0);
+        let other_thread = std::thread::spawn(|| snapshot().get(Counter::RewriteSteps));
+        assert_eq!(other_thread.join().unwrap(), 0);
+
+        count_at_run_time(false);
+        let before = snapshot();
+        bump(Counter::RewriteSteps);
+        assert_eq!(snapshot(), before);
         reset();
         assert_eq!(snapshot(), Snapshot::default());
     }

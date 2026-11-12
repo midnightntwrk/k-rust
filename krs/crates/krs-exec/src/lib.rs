@@ -57,6 +57,7 @@ mod valueless;
 mod values;
 mod view;
 pub mod views;
+pub mod work;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;

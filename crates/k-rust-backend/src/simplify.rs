@@ -2059,9 +2059,9 @@ fn distinct_conjuncts(predicates: &[Predicate]) -> Vec<&Predicate> {
 
 /// Counts what one call of the conjunction fixpoint takes as input: the predicate nodes of its
 /// conjuncts and the number of known predicates it copies into its own assumptions. Counting the
-/// nodes walks the conjuncts, so it is done only in a build that measures.
+/// nodes walks the conjuncts, so it is done only where the work counters count.
 fn count_conjunction_inputs(conjuncts: &[&Predicate], known: usize) {
-    if cfg!(feature = "measure") {
+    if measure::enabled() {
         let nodes = conjuncts
             .iter()
             .map(|conjunct| predicate_nodes_within(conjunct, usize::MAX).unwrap_or(usize::MAX))

@@ -886,6 +886,84 @@ fn the_compiled_stage_is_reused_from_the_stage_cache_and_never_changes_a_result(
     assert!(!stderr(&cold).contains("krs::exec::stage-cache"));
 }
 
+/// `krs run --counters` reports the backend's work counters for the run: the keys the engine
+/// work is read from are present, zeros included, the rules applied are the steps the run
+/// reports, and the counts are those of the run alone, the same from a stage compiled anew and
+/// from a restored one.
+#[test]
+fn run_counters_report_the_backends_work_for_the_run() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), &tour_minimal());
+    let cache = temporary.path().join("stage-cache");
+    let counters = temporary.path().join("counters.json");
+    let arguments = ["--output", "json"];
+    let backend = |document: &Value| {
+        document["counters"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| {
+                ["rewrite.", "matching.", "simplify.", "smt.", "term."]
+                    .iter()
+                    .any(|family| name.starts_with(family))
+            })
+            .map(|(name, value)| (name.clone(), value.as_u64().unwrap()))
+            .collect::<Vec<_>>()
+    };
+
+    let (cold, document) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "run",
+        &arguments,
+    );
+    assert_eq!(document["schema"], "krs-counters/1");
+    let measured = &document["counters"];
+    assert_eq!(measured["stage.reused"], 0);
+    for key in [
+        "rewrite.steps",
+        "rewrite.rule_attempts",
+        "rewrite.rules_applied",
+        "simplify.equation_attempts",
+        "matching.pairs",
+        "smt.queries",
+        "smt.solver_runs",
+        "smt.rlimit_count",
+    ] {
+        assert!(
+            measured[key].is_u64(),
+            "missing counter {key}: {measured:#}"
+        );
+    }
+    let steps = json(&cold)["run"]["steps"].as_u64().unwrap();
+    assert_eq!(steps, 1);
+    // The run applied one rule per step; the states the execution loop visited are more, the
+    // end state among them.
+    assert_eq!(measured["rewrite.rules_applied"], steps, "{measured:#}");
+    assert!(measured["rewrite.steps"].as_u64().unwrap() > steps);
+    assert!(measured["rewrite.rule_attempts"].as_u64().unwrap() >= steps);
+    assert!(measured["matching.pairs"].as_u64().unwrap() > 0);
+    assert_eq!(measured["smt.queries"], 0);
+    // The frontend's families are not the run's work.
+    assert!(measured.get("kompile.resolve_calls").is_none());
+    assert!(measured.get("allocation.count").is_none());
+
+    let (warm, restored) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "run",
+        &arguments,
+    );
+    assert_eq!(restored["counters"]["stage.reused"], 1);
+    assert_eq!(backend(&restored), backend(&document));
+    assert_eq!(warm.stdout, cold.stdout);
+}
+
 /// The claims fixture plus an author spec module with one claim that holds.
 const SPEC_MODULE: &str = r#"
 #[krs::spec_module(name = "ORG-KRS-CLI-EXEC-AGAIN", imports = [crate])]

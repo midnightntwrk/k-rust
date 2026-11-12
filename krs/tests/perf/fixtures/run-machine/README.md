@@ -93,6 +93,34 @@ Where the fixture differs from the measured workload:
 - A step takes about 27 µs on this host, where the measured workload took 40 µs: the fixture's functions are fewer and their equation lists shorter, outside the decoder.
 - Memory grows by 0.72 KiB per step, as the measured workload's did (0.70).
 
+## Work counters
+
+`krs run --counters FILE` reports the backend's work counters for the run.
+They are counts of work, so they do not depend on the host; they change when the engine or this definition changes.
+At 400,000 steps, with the `krs` of the commit that added the counters to `krs run`:
+
+| Counter | Count | Per step |
+|:--|--:|--:|
+| `rewrite.rules_applied` | 400,000 | 1 |
+| `rewrite.rule_attempts` | 474,393 | 1.19 |
+| `rewrite.match_failures` | 64,938 | 0.16 |
+| `simplify.equation_attempts` | 12,525,589 | 31.3 |
+| `simplify.builtin_evaluations` | 3,338,970 | 8.35 |
+| `simplify.invocations` | 2,642,073 | 6.61 |
+| `simplify.rounds` | 5,664,833 | 14.2 |
+| `matching.problems` | 12,999,982 | 32.5 |
+| `matching.pairs` | 37,333,335 | 93.3 |
+| `term.constructed` | 18,690,025 | 46.7 |
+| `smt.queries`, `smt.solver_runs` | 0 | 0 |
+
+The run applies 0.80 equations per step and tries 31.3: 39 attempts for each application.
+
+```sh
+krs run /tmp/program.bin --depth 400000 --output none --counters /tmp/counters.json \
+  --manifest-path krs/tests/perf/fixtures/run-machine/Cargo.toml \
+  --package krs-perf-run-machine --definition main --dependency krs-perf-run-cpu:cpu
+```
+
 ## Recording the baseline
 
 The baseline is a `kbench` run on the baseline machine, kept in a history directory that outlives the checkout's `target/`:

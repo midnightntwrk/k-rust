@@ -30,6 +30,9 @@ mod lines;
 /// See the module docs of [`backend`].
 pub use k_rust_backend;
 pub use k_rust_kore::kore;
+/// The work counters of the compiler and the backend, for a host that reports them
+/// (`measure::count_at_run_time`, `measure::snapshot`).
+pub use k_rust_kore::measure;
 pub use k_rust_kore::names;
 #[cfg(feature = "cli")]
 pub mod native;

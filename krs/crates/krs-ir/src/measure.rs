@@ -140,8 +140,11 @@
 //! | `native.omitted_claims`, `native.bytes.<artifact>` | `build` KORE bytes |
 //! | `result.reused` | 1 when a saved result was restored, otherwise 0 |
 //! | `stage.reused` | `parse`, `run`, `search`, `prove`: 1 when the compiled stage was restored from the stage cache, otherwise 0 |
+//! | `rewrite.*`, `execution.*`, `matching.*`, `unification.*`, `simplify.*`, `smt.*`, `search.*`, `term.*`, `coverage.*` | `run`, `search`: the work counters of the k-rust backend, by k-rust's names, for the run itself (the definition's load is not counted), zeros included: `rewrite.rules_applied` is the steps the run took and `rewrite.steps` the states the execution loop visited (more: the end state is visited and takes no step), `rewrite.rule_attempts` the rule applications it tried, `simplify.equation_attempts` the function equations it tried, `matching.pairs` the pattern and subject pairs the matcher processed, `smt.queries` the solver queries |
 //!
 //! A counter is present only when its stage ran.
+//! The backend's counters count only while `--counters` is given: a run without it pays one
+//! branch per counting site.
 //!
 //! # Collector sidecar
 //!
