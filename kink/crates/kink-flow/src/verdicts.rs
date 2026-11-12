@@ -14,7 +14,7 @@
 //! [coverage]
 //! # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 //! # ...
-//! version = 28
+//! version = 29
 //! profile = "z3"
 //! z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 //! z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -276,7 +276,15 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// (`definition = "PACKAGE:FACET"`, FLOW-NAMES-PACKAGE): every section is a function of that
 /// definition, and a command whose flow is for another is refused ([`crate::lock`]). Every
 /// section differs in its `version` line only, and the record of a K flow in nothing else.
-pub const VERDICTS_VERSION: u64 = 28;
+/// 29 since an implementation may be of a second protocol and compare traces
+/// (IMPLEMENTATION-TRACES): the header of a `[compare]` section names the protocols of its
+/// implementations (`protocols = [..]`, where it named the one, `protocol`), a trace view's row
+/// may have the verdict `agree-up-to` with its `horizon` (canonical JSON, as `difference` is),
+/// which `--locked` compares, and the section's comments say what a verdict is, a test. A
+/// `[run]`, `[coverage]` or `[query]` section differs in its `version` line only; a `[compare]`
+/// section of implementations of the first protocol differs in its header only (its `version`
+/// line, its `protocols` line and its comments), every row being the bytes it was.
+pub const VERDICTS_VERSION: u64 = 29;
 
 /// The comment a record opens with, before its `schema`: what the file is, which section each
 /// command keeps, and that a command touches only its own, so that a reader of `kink.lock` needs
@@ -303,10 +311,14 @@ pub const COVERAGE_PREAMBLE: &[&str] = &[
     "`coverage --locked` checks that it is current.",
 ];
 
-/// The comment after `[compare]` ([`RUN_PREAMBLE`]'s, for `compare`).
+/// The comment after `[compare]` ([`RUN_PREAMBLE`]'s, for `compare`), and what a verdict of the
+/// section is: a test.
 pub const COMPARE_PREAMBLE: &[&str] = &[
     "The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run",
     "without --locked rewrites this section, and `compare --locked` checks that it is current.",
+    "Each verdict is a test of one build of an implementation on this corpus's programs, up to",
+    "the horizon it names: it says nothing of other programs or of a longer run, and it relates",
+    "no two definitions.",
 ];
 
 /// The comment after `[query]` ([`RUN_PREAMBLE`]'s, for `query`).
@@ -326,12 +338,16 @@ pub const QUERY_LEGEND: &[&str] = &[
 ];
 
 /// The comment before a compare section's first `[[compare.verdict]]`: what a row is, what each
-/// verdict says, and what the digests name.
+/// verdict says, what a trace view's verdict rests on, and what the digests name.
 pub const COMPARE_LEGEND: &[&str] = &[
     "Each [[compare.verdict]] is one view of one implementation on one program, and its verdict:",
-    "equal (its end agrees with the definition's under the view), different (`difference`, the",
-    "first difference), could-not-apply (it declined the program; `reason`, its own words) or",
-    "not-compared (`reason` says why). `request_sha256` names the request it was given, and",
+    "equal (its end agrees with the definition's under the view; for a trace view, both sides",
+    "close every channel after the same elements), agree-up-to (a trace view: no difference up",
+    "to `horizon`, which names per channel the elements that agree and the side that states no",
+    "more), different (`difference`, the first difference), could-not-apply (it declined the",
+    "program; `reason`, its own words) or not-compared (`reason` says why). A trace view is a",
+    "test at equal indices: that the implementation's element k is its state at the definition's",
+    "point k is the implementation's claim. `request_sha256` names the request it was given, and",
     "`identity_sha256` its build (its `identity` file); a run that gave no answer keeps its rows.",
 ];
 
@@ -501,11 +517,27 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
     {
         line(&mut text, "krs_annotation", &annotation.to_string());
     }
-    // The protocol every request of the section was written in and every answer read by.
-    if kind == "compare"
-        && let Some(protocol) = document["protocol"].as_str()
-    {
-        line(&mut text, "protocol", &string(protocol));
+    // The protocols the section's requests were written in and their answers read by: the
+    // document's `protocols`, or its one `protocol`.
+    if kind == "compare" {
+        let protocols = match document["protocols"].as_array() {
+            Some(protocols) => protocols.iter().filter_map(Value::as_str).collect(),
+            None => document["protocol"]
+                .as_str()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        };
+        if !protocols.is_empty() {
+            let protocols = protocols
+                .iter()
+                .map(|protocol| string(protocol))
+                .collect::<Vec<_>>();
+            line(
+                &mut text,
+                "protocols",
+                &format!("[{}]", protocols.join(", ")),
+            );
+        }
     }
     // A compare document refused before any run says so under `[compare.refusal]`.
     let tables: &[&str] = match kind {
@@ -844,8 +876,9 @@ fn mutations(text: &mut String, document: &Value, killed_by: bool) {
 
 /// A compare section's rows (`[[compare.verdict]]`), in the order [`crate::compare::verdict_rows`]
 /// gives them: each row's `implementation`, `program`, `view`, `required` and `verdict`, then its
-/// `reason`, `difference`, `request_sha256` and `identity_sha256` where it has them. The rows are
-/// `document`'s `verdicts` where a lock set them ([`crate::compare::keep`]), else its live rows.
+/// `reason`, `difference`, `horizon`, `request_sha256` and `identity_sha256` where it has them.
+/// The rows are `document`'s `verdicts` where a lock set them ([`crate::compare::keep`]), else its
+/// live rows.
 fn compare(text: &mut String, document: &Value) {
     let rows = match document["verdicts"].as_array() {
         Some(rows) => rows.clone(),
@@ -873,8 +906,10 @@ fn compare(text: &mut String, document: &Value) {
         if let Some(reason) = row["reason"].as_str() {
             line(text, "reason", &string(reason));
         }
-        if let Some(difference) = row["difference"].as_str() {
-            line(text, "difference", &literal(difference));
+        for key in ["difference", "horizon"] {
+            if let Some(value) = row[key].as_str() {
+                line(text, key, &literal(value));
+            }
         }
         for key in ["request_sha256", "identity_sha256"] {
             if let Some(digest) = row[key].as_str() {

@@ -7258,7 +7258,7 @@ fn story_lock(package: &str, killers: [&str; 3]) -> String {
          schema = \"kink-flow-verdicts\"\ndefinition = \"{package}:main\"\n\n[run]\n\
          # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run \
          tries\n# each `killer` first, a run without --locked rewrites this section, and `run \
-         --locked` checks\n# that it is current.\nversion = 28\nprofile = \"z3\"\nz3_version = \
+         --locked` checks\n# that it is current.\nversion = 29\nprofile = \"z3\"\nz3_version = \
          \"{}\"\n",
         build.version
     );

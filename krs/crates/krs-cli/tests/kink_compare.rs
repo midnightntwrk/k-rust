@@ -620,7 +620,7 @@ fn the_verdicts_are_the_corpus_records_compare_section() {
         .unwrap_or_else(|| panic!("the other sections are kept byte for byte:\n{written}"));
     assert!(section.starts_with("[compare]\n"), "{section}");
     assert!(
-        section.contains("protocol = \"kink-implementation/1\"\n"),
+        section.contains("protocols = [\"kink-implementation/1\"]\n"),
         "{section}"
     );
     let rows = section

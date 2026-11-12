@@ -2045,7 +2045,7 @@ mod tests {
             json!([{"program": "B", "run": "search"}])
         );
         let document = obliged(stopped);
-        let text = "schema = \"kink-flow-verdicts\"\n\n[query]\nversion = 28\n\
+        let text = "schema = \"kink-flow-verdicts\"\n\n[query]\nversion = 29\n\
                     profile = \"no-z3\"\n\n[[query.pattern]]\nid = \"p\"\nstatus = \"hit\"\n\
                     witness = \"B\"\n";
         let dir = std::env::temp_dir().join(format!("kink-flow-query-keep-{}", std::process::id()));

@@ -1836,7 +1836,7 @@ definition = "story-plus:main"   # a KRS flow's record; a K flow's has no such l
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 28
+version = 29
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1859,7 +1859,7 @@ status = "survived"
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...
-version = 28
+version = 29
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -1901,11 +1901,11 @@ killer = "irq"
 [compare]
 # The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run
 # ...
-version = 28
+version = 29
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-protocol = "kink-implementation/1"
+protocols = ["kink-implementation/1"]
 
 [compare.spec]
 outcome = "admitted"
@@ -1934,7 +1934,7 @@ identity_sha256 = "5d1e…"
 [query]
 # The obligations of kink's `query` command (`krs kink query`, `kink-flow query`): the next
 # ...
-version = 28
+version = 29
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
@@ -2014,7 +2014,7 @@ Otherwise it is left as it was (`not-written`, with `reason` `tier-1`, `depth`, 
 A front end that derives no flips (kink-flow's own) has a complete run without them: its section lists the families' open obligations and `[coverage.flips] run = false`.
 `--locked` asks whether a run with the manifest's own settings writes the committed section, so it is a usage error beside `--tier 1` or `--depth`, which run other settings.
 
-**The `[compare]` section.** Its header names, besides the version, the profile and the Z3 build (the definition's ends are a function of the solver as every baseline is), the `protocol` every request was written in and every answer read by; it is the same for every row by construction, and a row's request digest names it too, since the request carries it.
+**The `[compare]` section.** Its header names, besides the version, the profile and the Z3 build (the definition's ends are a function of the solver as every baseline is), the `protocols` its implementations' requests were written in and their answers read by (`protocols = [..]`, each once); a row's request digest names its implementation's too, since the request carries it.
 It has one `[[compare.verdict]]` per (implementation, program, view) that has a verdict, keyed by its `implementation`, `program` and `view` (no `id`, since none of the three alone names the row), implementation by implementation in the manifest's order, each implementation's programs in the corpus's order and each program's views in the declaration's, so that a diff of one implementation's change is contiguous.
 Each row holds `required`, the `verdict`, its `reason` (a `not-compared` verdict's reason, a `could-not-apply` verdict's own, the implementation's words), a `different` verdict's first `difference` (the document's, as canonical JSON in a literal string: a text that is a function of the difference), `request_sha256` and, where the implementation declares `identity`, `identity_sha256`: the request and the build the verdict was measured on, so a request or a build that moves shows in the diff beside any verdict that moved with it.
 A failed run of an implementation has no verdict and so no row ("Comparing implementations").
@@ -2099,7 +2099,7 @@ definition = "story-plus:main"   # the definition a KRS flow names; no line for 
 [coverage]                    # or [run]: the command's section
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # ...                         (the comment naming the command, and what it does with its section as a lock)
-version = 28
+version = 29
 profile = "z3"                # or "no-z3", which has no z3_ lines
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"   # Z3's own version string
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"   # its library file
@@ -2266,6 +2266,7 @@ Version 23 (KINK-FINDING-NAMES) renders coverage document version 20: an `[argum
 Version 24 (FB48-NAMES, FB48-ONE-LOCK) is the corpus record's: the rendering is the record's header (a comment saying what the file is, and `schema`) and the command's section, `[run]` or `[coverage]`, which states its own `version`, `profile`, Z3 build and `krs_annotation` and holds the command's tables (`[run.spec]`, `[[run.mutation]]`, `[coverage.rules]`, `[[coverage.flip]]`, ...), where version 23 wrote one command's rendering at the top of its file with `document`; each section opens with a comment naming the command whose verdicts it holds and what that command does with it as a lock, and a comment before its rows and families says what each entry and status word is; a coverage section gives each argued item once, in its family's `argued`, with its standing (`{ id, standing }`; an argued flip's `standing` on its row), where version 23 listed the ids there and repeated them as the keys of `[arguments]`; it gives each flip the condition it negates or the bit it toggles and the rules it edits, and it no longer writes `[settings] tiers`, which `[coverage.flips] run` states.
 Version 25 (FB47-VERDICTS) gives the record a third section, `[compare]` ("The corpus record"), and the record's comment names it: a `[run]` or `[coverage]` section differs from version 24's in its `version` line only, and the record in its comment.
 Version 28 (FLOW-NAMES-PACKAGE) states, in the header of the record of a flow that names its definition, that definition (`definition = "PACKAGE:FACET"`; "The corpus record"), and the rendering of such a flow's document has the same header: every section differs from version 27's in its `version` line only, and the record of a K flow in nothing else.
+Version 29 (IMPLEMENTATION-TRACES) lets an implementation be of a second protocol and compare traces: the header of a `[compare]` section names the protocols of its implementations (`protocols = [..]`, where it named the one, `protocol`), a trace view's row may have the verdict `agree-up-to` with its `horizon`, canonical JSON in a literal string as `difference` is, which `--locked` compares, and the section's comments say what a verdict is, a test of one build on the corpus's programs up to the horizon it names. A `[run]`, `[coverage]` or `[query]` section differs from version 28's in its `version` line only, and a `[compare]` section of implementations of the first protocol in its header only (its `version` line, its `protocols` line and its comments): every row is the bytes it was.
 Under `--locked` a section of another version, or a lock before version 24, is refused, naming the command that rewrites it ("The corpus record"), so a lock recorded at an earlier version is rewritten by one run of each command without `--locked`, whose diff shows the new layout beside any moved verdict.
 
 ## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`

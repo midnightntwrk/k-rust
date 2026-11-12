@@ -209,8 +209,8 @@ impl LockKind {
 
     /// What the rendering writes of a row of `document` that a lock compares: `{status, killer,
     /// reason}` (a horizon is rendered, and compared only as the rendering's text); for a
-    /// compare row `{verdict, reason, difference}` (its digests are compared as the rendering's
-    /// text); for a query row `{status, witness}`.
+    /// compare row `{verdict, reason, difference}`, with `horizon` where the row has one (its
+    /// digests are compared as the rendering's text); for a query row `{status, witness}`.
     fn now(self, row: &Value) -> Value {
         match self {
             Self::Run => json!({
@@ -226,11 +226,17 @@ impl LockKind {
                     "reason": rendered["reason"],
                 })
             }
-            Self::Compare => json!({
-                "verdict": row["verdict"],
-                "reason": row["reason"],
-                "difference": row["difference"],
-            }),
+            Self::Compare => {
+                let mut now = json!({
+                    "verdict": row["verdict"],
+                    "reason": row["reason"],
+                    "difference": row["difference"],
+                });
+                if let Some(horizon) = row["horizon"].as_str() {
+                    now["horizon"] = json!(horizon);
+                }
+                now
+            }
             Self::Query => json!({"status": row["status"], "witness": row["witness"]}),
         }
     }
@@ -362,6 +368,9 @@ pub struct LockRow {
     /// A compare row's first difference, as the section writes it; read only to report what
     /// changed.
     pub difference: Option<String>,
+    /// A compare row's horizon (an `agree-up-to` verdict's), as the section writes it; read only
+    /// to report what changed. None in every other row.
+    pub horizon: Option<String>,
 }
 
 impl LockRow {
@@ -373,8 +382,12 @@ impl LockRow {
             }
             LockKind::Query => json!({"status": self.status, "witness": self.witness}),
             LockKind::Compare => {
-                json!({"verdict": self.status, "reason": self.reason,
-                       "difference": self.difference})
+                let mut recorded = json!({"verdict": self.status, "reason": self.reason,
+                       "difference": self.difference});
+                if let Some(horizon) = &self.horizon {
+                    recorded["horizon"] = json!(horizon);
+                }
+                recorded
             }
         }
     }
@@ -588,6 +601,7 @@ impl Lock {
                 }),
                 reason: string("reason"),
                 difference: string("difference"),
+                horizon: string("horizon").filter(|_| kind == LockKind::Compare),
             });
         }
         // A coverage section's open and argued obligations: each family table's `open` and
@@ -1638,10 +1652,10 @@ pub fn stale_lines(document: &Value) -> Vec<String> {
     lines
 }
 
-/// What a line says of a compare row whose `{verdict, reason, difference}` moved from `recorded`
-/// to `now` (either null for a row only the other side has): `added, equal`, `removed, was
-/// different`, `equal -> different`, `not-compared (omitted) -> equal`, or, where only the first
-/// difference moved, both of its forms.
+/// What a line says of a compare row whose `{verdict, reason, difference, horizon}` moved from
+/// `recorded` to `now` (either null for a row only the other side has): `added, equal`, `removed,
+/// was different`, `equal -> different`, `not-compared (omitted) -> equal`, or, where only the
+/// first difference or only the horizon moved, both of its forms.
 fn compare_change(recorded: &Value, now: &Value) -> String {
     let verdict = |side: &Value| {
         let word = side["verdict"].as_str().unwrap_or("none");
@@ -1658,11 +1672,16 @@ fn compare_change(recorded: &Value, now: &Value) -> String {
         }
         _ => {
             let side = |value: &Value| value.as_str().unwrap_or("none").to_owned();
+            let (what, key) = if recorded["difference"] == now["difference"] {
+                ("horizon", "horizon")
+            } else {
+                ("first difference", "difference")
+            };
             format!(
-                "{}: its first difference moved: recorded {}, now {}",
+                "{}: its {what} moved: recorded {}, now {}",
                 verdict(now),
-                side(&recorded["difference"]),
-                side(&now["difference"])
+                side(&recorded[key]),
+                side(&now[key])
             )
         }
     }
@@ -1848,9 +1867,9 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "[compare]\n{preamble}version = 28\nprofile = \"no-z3\"\n\
-             protocol = \"kink-implementation/1\"\n\n[compare.spec]\noutcome = \"admitted\"\n\n\
-             {legend}{rows}"
+            "[compare]\n{preamble}version = 29\nprofile = \"no-z3\"\n\
+             protocols = [\"kink-implementation/1\"]\n\n[compare.spec]\noutcome = \
+             \"admitted\"\n\n{legend}{rows}"
         )
     }
 
@@ -1888,8 +1907,8 @@ mod tests {
                  \"path\":\"acc\"}"
             )
         );
-        assert_eq!(lock.header["protocol"], "kink-implementation/1");
-        assert_eq!(lock.header["version"], 28);
+        assert_eq!(lock.header["protocols"], "[\"kink-implementation/1\"]");
+        assert_eq!(lock.header["version"], 29);
         // A row with no implementation, program or view does not decode.
         let broken = text.replacen("view = \"whole\"\n", "", 1);
         assert!(
@@ -1984,6 +2003,236 @@ mod tests {
                 "kink.lock: cpu p2 parity: removed, was different"
             ]
         );
+    }
+
+    /// The compare section of `cpu` answering both programs as a build of version 28 wrote it
+    /// (taken from that build's rendering): before a section named its protocols, and before a
+    /// verdict could hold a horizon.
+    const COMPARE_SECTION_28: &str = r#"[compare]
+# The verdicts of kink's `compare` command (`krs kink compare`, `kink-flow compare`): a run
+# without --locked rewrites this section, and `compare --locked` checks that it is current.
+version = 28
+profile = "no-z3"
+protocol = "kink-implementation/1"
+
+[compare.spec]
+outcome = "admitted"
+
+# Each [[compare.verdict]] is one view of one implementation on one program, and its verdict:
+# equal (its end agrees with the definition's under the view), different (`difference`, the
+# first difference), could-not-apply (it declined the program; `reason`, its own words) or
+# not-compared (`reason` says why). `request_sha256` names the request it was given, and
+# `identity_sha256` its build (its `identity` file); a run that gave no answer keeps its rows.
+[[compare.verdict]]
+implementation = "cpu"
+program = "p1"
+view = "whole"
+required = true
+verdict = "equal"
+request_sha256 = "r-p1"
+identity_sha256 = "aa"
+
+[[compare.verdict]]
+implementation = "cpu"
+program = "p1"
+view = "parity"
+required = false
+verdict = "different"
+difference = '{"definition":1,"format":"krs-difference/3","implementation":3,"path":"acc"}'
+request_sha256 = "r-p1"
+identity_sha256 = "aa"
+
+[[compare.verdict]]
+implementation = "cpu"
+program = "p2"
+view = "whole"
+required = true
+verdict = "equal"
+request_sha256 = "r-p2"
+identity_sha256 = "aa"
+
+[[compare.verdict]]
+implementation = "cpu"
+program = "p2"
+view = "parity"
+required = false
+verdict = "different"
+difference = '{"definition":1,"format":"krs-difference/3","implementation":3,"path":"acc"}'
+request_sha256 = "r-p2"
+identity_sha256 = "aa"
+"#;
+
+    /// A section of implementations of the first protocol differs from the one version 28
+    /// wrote in its header only: the `version` line, the line that names the protocol, now
+    /// `protocols`, and the comments, which say what a verdict is. Every row is the bytes it was.
+    #[test]
+    fn a_first_protocol_compare_section_differs_from_version_28_in_its_header_only() {
+        let document = compare_document(vec![answered("p1", "acc"), answered("p2", "acc")]);
+        let section = lock_section(&document).unwrap();
+        let parts = |text: &str| {
+            let (header, rows) = text
+                .split_once("\n[[compare.verdict]]\n")
+                .expect("the section has rows");
+            let stated = header
+                .lines()
+                .filter(|line| !line.starts_with('#'))
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            (stated, rows.to_owned())
+        };
+        let (before, rows_before) = parts(COMPARE_SECTION_28);
+        let (now, rows_now) = parts(&section);
+        assert_eq!(rows_now, rows_before);
+        let moved = before
+            .iter()
+            .zip(&now)
+            .filter(|(before, now)| before != now)
+            .collect::<Vec<_>>();
+        assert_eq!(before.len(), now.len());
+        assert_eq!(
+            moved,
+            [
+                (&"version = 28".to_owned(), &"version = 29".to_owned()),
+                (
+                    &"protocol = \"kink-implementation/1\"".to_owned(),
+                    &"protocols = [\"kink-implementation/1\"]".to_owned()
+                ),
+            ]
+        );
+        // The comments say that a verdict is a test, and of what.
+        for said in [
+            "# Each verdict is a test of one build of an implementation on this corpus's programs",
+            "it relates\n# no two definitions.",
+            "point k is the implementation's claim",
+        ] {
+            assert!(section.contains(said), "{said}\n{section}");
+        }
+        // A record version 28 wrote is of another version: `--locked` refuses it, naming the
+        // command that rewrites it.
+        let old = format!("{}\n{COMPARE_SECTION_28}", record_header(None));
+        let lock = decoded(&old, LockKind::Compare);
+        assert!(lock.rows.iter().all(|row| row.horizon.is_none()));
+        assert!(
+            lock.refuse_other_version("kink-flow compare FLOW.toml --lock kink.lock")
+                .unwrap_err()
+                .starts_with("kink.lock: its [compare] section is recorded at version 28"),
+        );
+    }
+
+    /// The row of `cpu` on `program` whose one view, the trace view `ticks`, agrees with the
+    /// definition through `elements` elements, the definition's horizon.
+    fn traced(program: &str, elements: u64) -> Value {
+        compare_row(
+            program,
+            vec![view(
+                "ticks",
+                true,
+                "agree-up-to",
+                json!({"correspondence": "implementation-claim",
+                       "horizon": {"ticks": {"elements": elements, "limited_by": "definition",
+                                             "definition": "bound", "implementation": null}}}),
+            )],
+            Value::Null,
+            Value::Null,
+        )
+    }
+
+    /// A compare document of `cpu`, an implementation of the second protocol.
+    fn traced_document(rows: Vec<Value>) -> Value {
+        let mut document = compare_document(rows);
+        let members = document.as_object_mut().unwrap();
+        members.remove("protocol");
+        members.insert("protocols".into(), json!(["kink-implementation/2"]));
+        members.insert("evidence".into(), json!("testing"));
+        document
+    }
+
+    /// A trace view's row holds its horizon, as canonical JSON in a literal string, and the
+    /// header names the section's protocols. The section decodes to it and `--locked` finds it
+    /// unchanged; a horizon that moved, the verdict being the same, makes the section stale.
+    #[test]
+    fn a_moved_horizon_makes_the_compare_section_stale() {
+        let recorded = traced_document(vec![traced("p1", 6), answered("p2", "acc")]);
+        let text = lock_text(&recorded).unwrap();
+        let horizon = |elements: u64| {
+            format!(
+                "{{\"ticks\":{{\"definition\":\"bound\",\"elements\":{elements},\
+                 \"implementation\":null,\"limited_by\":\"definition\"}}}}"
+            )
+        };
+        assert!(
+            text.contains(&format!(
+                "[[compare.verdict]]\nimplementation = \"cpu\"\nprogram = \"p1\"\nview = \
+                 \"ticks\"\nrequired = true\nverdict = \"agree-up-to\"\nhorizon = \
+                 '{}'\nrequest_sha256 = \"r-p1\"\nidentity_sha256 = \"aa\"\n",
+                horizon(6)
+            )),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nprotocols = [\"kink-implementation/2\"]\n"),
+            "{text}"
+        );
+        let lock = decoded(&text, LockKind::Compare);
+        assert_eq!(lock.rows[0].status.as_deref(), Some("agree-up-to"));
+        assert_eq!(lock.rows[0].horizon, Some(horizon(6)));
+        assert!(lock.rows[1..].iter().all(|row| row.horizon.is_none()));
+        let store = Store::new("/nonexistent");
+        let (value, _) = lock.settle(&store, &recorded, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+
+        let moved = traced_document(vec![traced("p1", 5), answered("p2", "acc")]);
+        let (value, _) = lock.settle(&store, &moved, LOCKED);
+        assert_eq!(value["status"], "stale", "{value:#}");
+        assert_eq!(
+            value["changes"],
+            json!([{"implementation": "cpu", "program": "p1", "view": "ticks",
+                    "recorded": {"verdict": "agree-up-to", "reason": null, "difference": null,
+                                 "horizon": horizon(6)},
+                    "now": {"verdict": "agree-up-to", "reason": null, "difference": null,
+                            "horizon": horizon(5)}}])
+        );
+        let mut with_lock = moved.clone();
+        with_lock["lock"] = value;
+        assert_eq!(crate::cli::lock_status(&with_lock), crate::cli::EXIT_NO);
+        assert_eq!(
+            stale_lines(&with_lock),
+            [format!(
+                "kink.lock: cpu p1 ticks: agree-up-to: its horizon moved: recorded {}, now {}",
+                horizon(6),
+                horizon(5)
+            )]
+        );
+        // A verdict that moved from a horizon to both sides' closure is a moved verdict.
+        let mut closed = traced("p1", 6);
+        closed["views"][0] = view(
+            "ticks",
+            true,
+            "equal",
+            json!({"correspondence": "implementation-claim", "horizon": null}),
+        );
+        let closed = traced_document(vec![closed, answered("p2", "acc")]);
+        let (value, _) = lock.settle(&store, &closed, LOCKED);
+        let mut with_lock = closed.clone();
+        with_lock["lock"] = value;
+        assert_eq!(
+            stale_lines(&with_lock),
+            ["kink.lock: cpu p1 ticks: agree-up-to -> equal"]
+        );
+        // A run of the implementation that gave no answer keeps the recorded row, its horizon
+        // included: the section is undecided, not stale.
+        let failed = traced_document(vec![
+            compare_row(
+                "p1",
+                vec![],
+                json!({"kind": "exit", "detail": "status 3"}),
+                Value::Null,
+            ),
+            answered("p2", "acc"),
+        ]);
+        let (value, _) = lock.settle(&store, &failed, LOCKED);
+        assert_eq!(value["status"], "undecided", "{value:#}");
+        assert_eq!(value["changes"], json!([]), "{value:#}");
     }
 
     /// A row of a run that gave no answer (the implementation failed, the clock cancelled it, or
@@ -2162,7 +2411,7 @@ mod tests {
         assert!(!header.contains("version"), "{header}");
         assert!(
             run.contains(
-                "\nversion = 28\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
+                "\nversion = 29\nprofile = \"no-z3\"\n\n[run.spec]\noutcome = \"admitted\"\n"
             ),
             "{run}"
         );
@@ -2180,7 +2429,7 @@ mod tests {
             lock.killers(),
             BTreeMap::from([("a".to_owned(), "t1".to_owned())])
         );
-        assert_eq!(lock.header["version"], 28);
+        assert_eq!(lock.header["version"], 29);
         // The other command finds no section of its own: it records nothing, and is no error.
         let coverage = decoded(&run, LockKind::Coverage);
         assert_eq!(
@@ -2679,7 +2928,7 @@ mod tests {
         assert_eq!(
             lock.refuse_other_version(command).unwrap_err(),
             "kink.lock: it is recorded at version 23 of the verdicts rendering, and this build \
-             writes version 28, so --locked cannot find it current; run `krs kink coverage \
+             writes version 29, so --locked cannot find it current; run `krs kink coverage \
              --package p --definition main` without --locked once to rewrite it, and review its \
              diff"
         );
@@ -2695,12 +2944,12 @@ mod tests {
             decoded(&current, kind).refuse_other_version(command),
             Ok(())
         );
-        let other_version = current.replace("\nversion = 28\n", "\nversion = 29\n");
+        let other_version = current.replace("\nversion = 29\n", "\nversion = 30\n");
         assert!(
             decoded(&other_version, kind)
                 .refuse_other_version(command)
                 .unwrap_err()
-                .starts_with("kink.lock: its [coverage] section is recorded at version 29"),
+                .starts_with("kink.lock: its [coverage] section is recorded at version 30"),
         );
         assert_eq!(Lock::default().refuse_other_version(command), Ok(()));
         let refused = Lock::decode(Path::new(LOCK_FILE), old.to_owned(), LockKind::Run);

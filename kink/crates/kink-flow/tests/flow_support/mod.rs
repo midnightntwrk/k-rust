@@ -178,7 +178,7 @@ pub fn heading(document: &str) -> String {
          # [coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). As a\n\
          # lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and\n\
          # rewrites only its own section, and keeps the others as they are.\n\
-         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 28\n"
+         schema = \"kink-flow-verdicts\"\n\n[{document}]\n{comment}version = 29\n"
     )
 }
 

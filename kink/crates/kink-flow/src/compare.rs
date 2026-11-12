@@ -111,8 +111,14 @@ use std::{
 /// The schema of the `compare` document.
 pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// The version of the `compare` document: 1, the first; 2 since it has `lock` (`--lock FILE`), a
-/// row's `cached` and `clock_stopped`, and a program's `not_cached`.
-pub const COMPARE_VERSION: u64 = 2;
+/// row's `cached` and `clock_stopped`, and a program's `not_cached`; 3 since an implementation
+/// may be of a second protocol and declare trace views: the document of a flow with one names
+/// `protocols` in place of `protocol` and its `evidence`, a trace view's row has `horizon` and
+/// `correspondence` and may have the verdict `agree-up-to`, which its summary then counts, a
+/// view may be `not-compared` for `no-end`, `several-paths` or `observed-nothing`, an answer's
+/// `end` may be `horizon`, and a lock's changed and kept rows name a `horizon`. The document of
+/// a flow of the first protocol's implementations differs from version 2's in `version` only.
+pub const COMPARE_VERSION: u64 = 3;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";

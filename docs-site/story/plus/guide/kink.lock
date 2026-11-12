@@ -9,7 +9,7 @@ definition = "story-plus:main"
 # The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
 # each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
 # that it is current.
-version = 28
+version = 29
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"

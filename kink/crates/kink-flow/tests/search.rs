@@ -243,7 +243,7 @@ fn killer_of(manifest: &Path, document: &Value, id: &str) -> Option<String> {
 fn set_killer(manifest: &Path, id: &str, program: &str) {
     let path = killers_file(manifest);
     let mut lock: toml::Table = fs::read_to_string(&path)
-        .unwrap_or_else(|_| "schema = \"kink-flow-verdicts\"\n\n[run]\nversion = 28\n".to_owned())
+        .unwrap_or_else(|_| "schema = \"kink-flow-verdicts\"\n\n[run]\nversion = 29\n".to_owned())
         .parse()
         .unwrap();
     // The record's `[run]` section, whose own line the serializer writes since it has `version`.
