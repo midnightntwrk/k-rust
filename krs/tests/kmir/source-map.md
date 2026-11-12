@@ -226,6 +226,40 @@ Missing type entries, incompatible terminal pointees, projected cast operands, a
 - `exec-smir/pointers/pointer-cast-zst.state`: concrete evidence for `nullOpAlignOf` in a zero-sized pointer-cast execution path.
 - `run-smir-random/complex-types/test.smir.json`: serialized Stable MIR evidence for repeated `nullOpUbChecks` control flow plus union types, construction, and field access.
 
+## Differences from the source definition
+
+KRS checks that every equation of a `total` function has a value under its conditions, and the port was changed where that check refused a function.
+This section records each place where that change makes the port say something the source sentence it follows does not say; the source checkout is unchanged.
+`#truncateUnsigned` is not listed: its declaration alone changed (`total, assumed = "reason"`), with its equations as they were.
+The correction of the end-relative constant index is recorded in the operational slice above.
+
+The source reads its type table through `lookupTy` (`rt/value.md`), which gives `typeInfoVoidType` for a type the table lacks and has no value where the entry is no `TypeInfo`.
+The port reads the table directly, which has no value for a type the table lacks either, so each equation that reads it now tests that the table holds the type's information, and another equation covers the rest.
+
+Cases the port now states, which before had no value in the port:
+
+| Port function | Source sentence | The case | The port's value, and why |
+|---|---|---|---|
+| `getTyOf(types, ty, projections)` | `getTyOf` (`rt/types.md`) | a dereference or an index of a type the table holds no `TypeInfo` for | `TyUnknown`. Nothing is known of the pointee or the element of a type with no information. The source gives the same for a type the table lacks (`pointeeTy` and `elemTy` of `typeInfoVoidType`) and has no value for an entry of another sort. |
+| `#sizeOf(types, info)` | `#sizeOf` (`rt/types.md`) | an array with a length whose element type the table holds no `TypeInfo` for | 0. An element with no information has no layout, and the port gives a type with no layout the size 0. The source gives the same for an element the table lacks (the size of `typeInfoVoidType` is 0) and has no value for an entry of another sort. |
+| `#sizeOf(types, info)` | `#sizeOf` (`rt/types.md`) | a pointer or a reference whose pointee the table holds no `TypeInfo` for | One `usize`. A pointer holds an address whatever it points to, and a length beside it only where its pointee is known to be unsized. The source gives the same for a pointee the table lacks (`#metadataSize` of `typeInfoVoidType` is `noMetadataSize`) and has no value for an entry of another sort. |
+| `#alignOf(types, info)` | `#alignOf` (`rt/types.md`) | an array whose element type the table holds no `TypeInfo` for | 0, the alignment the port gives a type with no layout. The source gives the same for an element the table lacks and has no value for an entry of another sort. |
+
+A function the port declares `partial` and the source declares `total`:
+
+| Port function | Source sentence | Where it has no value | Why `partial` is the declaration |
+|---|---|---|---|
+| `#lookupMaybeTy(types, ty)` | `#lookupMaybeTy` (`rt/types.md`) | a known type the table lacks, or one whose entry is no `TypeInfo` | Its equation for a known type is the table's entry, and the table has none there. The source gives `typeInfoVoidType` for a type the table lacks, through `lookupTy`. The port's rules apply it to the type of the operand of a pointer cast, a transmute or a discriminant read, which the table of a program holds. |
+
+A function the port declares `total` and leaves without a named value where the source names one:
+
+| Port function | Source sentence | The case | What the port says |
+|---|---|---|---|
+| `#mapRefOffset(values, offset)` | `#mapOffset` (`rt/data.md`) | a list that holds an item that is no `Value` | Nothing: it is `total` with `underspecified`, so it has some value there and no equation names it. The source returns the list unchanged, in an `owise` rule it marks "should not happen". The fields of an aggregate and the elements of a range are values, so no rule reaches it. Before, the port declared the function `partial`, which `#adjustRef`, a `total` function that applies it, contradicted. |
+
+This difference existed before that change and is not part of it; it is listed so that the tables above are not read as complete.
+`#truncateUnsigned` and `#truncateSigned` return the value unchanged at a width that is not positive, where the source's `truncate` gives 0.
+
 ## Unsupported shapes recorded before implementation
 
 Protocol-16 ordinary fixed-cell rewrites already scale to the selected state, and the IMP milestone already qualifies finite-map matching and persistent update.
@@ -331,6 +365,6 @@ The structured behavior SHA-256 is `f68b6914437124dda39a17d4aaee7ef7659d95eba286
 The concrete all-path claim spans four builtin-list block lookups, ordered statements, constant and copied operands, integer addition, `Goto`, true `SwitchInt`, local `_0`, and top-level return.
 It remains pinned for `python3 tests/kmir/verify.py --java-reference` and is not run during routine development.
 
-The definition contains 220 equations, 164 machine rules, and one claim across 1,166 descriptors.
+The definition contains 221 equations, 164 machine rules, and one claim across 1,167 descriptors.
 The direct K-Rust `definition.kore` SHA-256 is `1a5eee3c178ee2dbaefe638703bdc59572e96519ce36f410b1bde23b81af2302`.
 Six focused definition and hover probes pass with zero rust-analyzer diagnostics.

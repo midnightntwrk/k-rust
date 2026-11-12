@@ -108,6 +108,35 @@ the pinned `jumpi.false` rule.
 - `schedule.md`: the selected Shanghai gas constants;
 - `summaries/push-summary.k`, `pop-summary.k`, `dup-summary.k`, `swap-summary.k`, the selected arithmetic and comparison summaries, `calldataload-summary.k`, `calldatacopy-summary.k`, `codecopy-summary.k`, `returndatacopy-summary.k`, `log-summary.k`, `pc-summary.k`, `gas-summary.k`, `blockhash-summary.k`, `jumpdest-summary.k`, `stop-summary.k`, and `invalid-summary.k`: direct multi-cell transition oracles.
 
+## Differences from the source definition
+
+KRS checks that every equation of a `total` function has a value under its conditions, and the port was changed where that check refused a function.
+This section records each place where that change makes the port say something the source sentence it follows does not say; the source checkout is unchanged.
+A function whose declaration alone changed (`total, assumed = "reason"`, with its equations as they were) is not listed: `#kevmChop`, `#kevmSignedShiftRight`, `#kevmByte`, `#kevmSignExtend`, `#kevmSignExtendByte`, `#kevmEcrecOutput`, `#kevmEcrecRecoverable`, `#kevmBn128PointBytes`, `#kevmEcPairingPrecompileOutput`, and `#kevmPrepareStaticCall`.
+
+Cases the port now states, which before had no value in the port:
+
+| Port function | Source sentence | The case | The port's value, and why |
+|---|---|---|---|
+| `#kevmReturnBytes(memory, start, width)` | `#range` (`evm-types.md`) | `width <= 0` | No bytes. A range of no width or of a negative width holds no byte; the port's other equation pads to `width` bytes first, and padding to a negative length has no value. The source's first `#range` rule also gives `.Bytes` at a negative width, and both give no bytes at width 0. |
+| `#kevmModExpOutputExponent(.., modulus_length)` | `#modexp1` to `#modexp4` (`evm.md`) | `modulus_length <= 0` | No bytes. MODEXP's output is `modulus_length` bytes, and there is no output of a negative length. The source gives `.Bytes` at length 0 by `#modexp1`, and at a negative length by its own rules: the modulus it reads from a range of negative width is 0, the power is then 0, and `#padToWidth` leaves the bytes of 0 unpadded. |
+| `#kevmModExpPower(base, exponent, modulus)` | `powmod` (`evm-types.md`) | `modulus > 0` and `exponent < 0` | 0. The power of an integer to a negative exponent is an integer only for the bases 1 and -1, so the function, which is `total`, needs a value where there is none to compute; MODEXP reads its exponent from bytes, so no such argument is reached. The source's `powmod` applies `^%Int` there. **This differs from the source for the bases 1 and -1**, where `^%Int` has the value `(base ^ exponent) mod modulus` and the port gives 0. |
+| `#kevmStorageValue(storage, index)` | `#lookup` (`evm-types.md`) | the entry at `index` is not an `Int` | 0. A slot that holds no word reads as an absent slot does. The source says the same in `#lookup.notInt`. |
+| `#kevmStorageWarm(accessed, account, index)` | `#inStorage`, `#inStorageAux1` (`evm.md`) | the entry of `account` is not a `Set` | `false`. An entry that is no set lists no slot. The source says the same in the `owise` rule of `#inStorageAux1`. |
+| `#kevmMarkStorageAccess(accessed, account, index)` | `#accessStorage` (`evm.md`) | the entry of `account` is not a `Set` | The entry becomes the one slot `index`. `#kevmStorageWarm` reads such an entry as listing no slot, so marking a slot in it lists that slot alone. The source has no value there: it projects `TS[ACCT] orDefault .Set` to `Set`. |
+
+Functions the port declares `partial`:
+
+| Port function | Nearest source sentence | Where it has no value | Why `partial` is the declaration |
+|---|---|---|---|
+| `#kevmPrepareCopyMemory(memory, used, start, width)` | no function of its own; the source grows memory inside `_[_:=_]` (`evm-types.md`), which is `total` and gives `.Bytes` at a negative start | `width > 0` and `#kevmMemoryUsageUpdate(used, start, width) < 0`, which needs `used < 0` and `start + width + 31 <= -32` | The port pads the memory to 32 bytes a word of the updated usage, and padding to a negative length has no value. A memory usage and a region a copy opcode names are never negative, so no rule reaches it. |
+| `#kevmPrepareLog(topics, stack, gas, used, static_mode)` | no function of its own; the source's test is `#stackUnderflow` with `#stackNeeded(LOG(N)) => N +Int 2` (`evm.md`) | `topics < 0` and a stack of fewer than two words | The stack test passes there and the cost then reads stack words the stack lacks. `LOG`'s topic count is 0 to 4. |
+
+These differences existed before that change and are not part of it; they are listed so that the tables above are not read as complete.
+`#kevmReturnBytes` at a negative `start` and a positive `width` gives `width` bytes, each byte outside the memory read as 0, where the source's `#range` gives `.Bytes`.
+`#kevmStorageValue` returns the stored `Int` as it is, where `#lookup` reduces it modulo 2^256; the port stores only words.
+`#kevmModExpPower` gives 0 for a negative modulus, where `powmod` applies `^%Int`; MODEXP reads its modulus from bytes.
+
 ## Selected KRS extension
 
 Descriptor protocol 17 and Definition IR schema 10 introduced the pinned `Bytes` sort, `BYTES.length`, `BYTES.get`, and claim-only byte tokens.
