@@ -3184,40 +3184,49 @@ fn parse_instance_record(
     )
 }
 
+/// What the reader knows of the names of the sentence it reads ([`with_declared_binders`]): the
+/// term binders its typed parameters declare, and, for a result, the remainders its subject binds.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SentenceBinders {
+    /// The names the typed parameters declare, the sentence's term binders.
+    pub(crate) declared: std::collections::BTreeSet<String>,
+    /// The names the subject binds as remainders (`rest @ ..` of a computation, a map, ..).
+    pub(crate) remainders: std::collections::BTreeSet<String>,
+}
+
 thread_local! {
-    /// The names the typed parameters of the rule being read declare, its term binders
-    /// ([`with_declared_binders`]); `None` outside a rule's signature.
-    static DECLARED_BINDERS: std::cell::RefCell<Option<std::collections::BTreeSet<String>>> =
+    /// The binders of the sentence being read ([`with_declared_binders`]); `None` outside a
+    /// sentence whose signature the reader sees.
+    static SENTENCE_BINDERS: std::cell::RefCell<Option<SentenceBinders>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// Runs `read` with `declared` as the term binders the rule being read declares, by which an
+/// Runs `read` with `binders` as what the reader knows of the sentence's names, by which an
 /// instance child's named rest reads as a term or as a remainder ([`remainder_sequence`]).
-pub(crate) fn with_declared_binders<T>(
-    declared: std::collections::BTreeSet<String>,
-    read: impl FnOnce() -> T,
-) -> T {
-    /// Restores the outer declarations when dropped, so a read that unwinds (a proc-macro server
+pub(crate) fn with_declared_binders<T>(binders: SentenceBinders, read: impl FnOnce() -> T) -> T {
+    /// Restores the outer binders when dropped, so a read that unwinds (a proc-macro server
     /// reuses its threads) leaves no later read with these.
-    struct Restore(Option<std::collections::BTreeSet<String>>);
+    struct Restore(Option<SentenceBinders>);
     impl Drop for Restore {
         fn drop(&mut self) {
             let outer = self.0.take();
-            DECLARED_BINDERS.with(|declared| *declared.borrow_mut() = outer);
+            SENTENCE_BINDERS.with(|binders| *binders.borrow_mut() = outer);
         }
     }
-    let _restore = Restore(DECLARED_BINDERS.with(|outer| outer.replace(Some(declared))));
+    let _restore = Restore(SENTENCE_BINDERS.with(|outer| outer.replace(Some(binders))));
     read()
 }
 
-/// The sequence an instance child's brackets are when their last item is a rest the rule's
-/// signature does not declare, `[x, rest @ ..]` in a pattern and `[y, ..rest]` in a result: a
-/// remainder, as a computation cell's `KCell(x, rest @ ..)` binds and `KCell(y, ..rest)` puts
-/// back, which no typed parameter declares. The child is a cell, so its kind reads the sequence:
-/// a computation's items before its rest, as at the computation cell; a list, whose rest is a
-/// term of the list's sort that the signature declares (`Cell([x, rest @ ..])` with `rest: List`),
-/// refuses it. A rest the signature declares is that term binder, and the brackets are the list
-/// notation they write. `None` outside a rule's signature and for any other value.
+/// The sequence an instance child's brackets are when their last item is a remainder: in a
+/// pattern a rest `[x, rest @ ..]` the signature does not declare, which binds a remainder as a
+/// computation cell's `KCell(x, rest @ ..)` does (a declared one is a term binder of its declared
+/// sort, as a list cell's `Cell([x, rest @ ..])` is); in a result `[y, ..rest]` where the subject
+/// binds `rest` as a remainder, which the result writes back as `KCell(y, ..rest)` does. A result's
+/// `..name` of anything else, a declared term, a constant or a name bound nowhere, is the list
+/// notation that writes that term, as at the twin cell. The child is a cell, so its kind reads the
+/// sequence: a computation's items before its rest, as at the computation cell; a list, whose rest
+/// is a term of the list's sort, refuses it. `None` outside a sentence whose signature the reader
+/// sees and for any other value.
 fn remainder_sequence(
     tokens: &TokenStream,
     context: StateMacroContext,
@@ -3268,13 +3277,17 @@ fn remainder_sequence(
             .windows(2)
             .any(|pair| matches!(pair, [TokenTree::Punct(first), TokenTree::Punct(second)] if dots(first, second)))
     });
-    let declared = DECLARED_BINDERS.with(|declared| {
-        declared
+    let name = syn::ext::IdentExt::unraw(rest).to_string();
+    let remainder = SENTENCE_BINDERS.with(|binders| {
+        binders
             .borrow()
             .as_ref()
-            .map(|declared| declared.contains(&syn::ext::IdentExt::unraw(rest).to_string()))
+            .is_some_and(|binders| match context {
+                StateMacroContext::Pattern => !binders.declared.contains(&name),
+                StateMacroContext::Expression => binders.remainders.contains(&name),
+            })
     });
-    if other_rest || declared != Some(false) {
+    if other_rest || !remainder {
         return Ok(None);
     }
     parse_k_sequence(

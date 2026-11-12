@@ -455,9 +455,16 @@ impl StateContextAliasItem {
         let pattern_macro = pattern_macro.clone();
         validate_cells_path(&pattern_macro.mac.path, pattern_macro.span())?;
         // Its entries are judged against their cells' kinds before an item after a
-        // computation's rest is asked ([`CellsExpression::misplaced_tail`]), as a rule's are.
-        let pattern =
-            crate::state_macro::parse_cells_pattern_judged_later(pattern_macro.mac.tokens.clone())?;
+        // computation's rest is asked ([`CellsExpression::misplaced_tail`]), as a rule's are; an
+        // instance child's named rest none of its typed parameters declares is a remainder, as in
+        // a rule's subject.
+        let binders = crate::state_macro::SentenceBinders {
+            declared: declared_names(&item),
+            remainders: std::collections::BTreeSet::new(),
+        };
+        let pattern = crate::state_macro::with_declared_binders(binders, || {
+            crate::state_macro::parse_cells_pattern_judged_later(pattern_macro.mac.tokens.clone())
+        })?;
         let configuration_type = parse_configuration_type(&argument.ty)?;
         let mut bindings = Vec::new();
         collect_cells_bindings(&pattern, &mut bindings)?;
@@ -728,9 +735,13 @@ impl StateRuleItem {
         // The typed parameters declare the rule's term binders; an instance child's named rest
         // that none declares is a remainder ([`crate::state_macro::with_declared_binders`]).
         let declared = declared_names(&item);
+        let binders = crate::state_macro::SentenceBinders {
+            declared,
+            remainders: std::collections::BTreeSet::new(),
+        };
         // A sentence's entries are judged against their cells' kinds before an item after a
         // computation's rest is asked ([`Self::misplaced_tail`]), a claim's as a rule's.
-        let subject = crate::state_macro::with_declared_binders(declared.clone(), || {
+        let subject = crate::state_macro::with_declared_binders(binders.clone(), || {
             if form == StateRuleForm::Claim {
                 crate::state_macro::parse_cells_claim_pattern(subject_macro.mac.tokens.clone())
             } else {
@@ -759,7 +770,23 @@ impl StateRuleItem {
                 let result_macro = parse_result_macro(&item)?;
                 validate_cells_path(&result_macro.path, result_macro.span())?;
                 let delimiters = result_macro.delimiter.span();
-                let result = crate::state_macro::with_declared_binders(declared, || {
+                // A result's `..name` in a child's brackets is a remainder where the subject binds
+                // `name` as one.
+                let mut bound = Vec::new();
+                let remainders = collect_cells_bindings(&subject, &mut bound)
+                    .map(|()| {
+                        bound
+                            .iter()
+                            .filter(|binding| binding.kind != StateRuleBindingKind::Term)
+                            .map(|binding| syn::ext::IdentExt::unraw(&binding.name).to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let binders = crate::state_macro::SentenceBinders {
+                    remainders,
+                    ..binders.clone()
+                };
+                let result = crate::state_macro::with_declared_binders(binders, || {
                     crate::state_macro::parse_cells_expression_judged_later(
                         result_macro.tokens.clone(),
                         Some(crate::TokenRange::new(

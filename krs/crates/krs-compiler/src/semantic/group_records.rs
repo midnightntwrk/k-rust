@@ -210,8 +210,9 @@ pub(super) fn computation_sequence(
 /// brackets end exactly (`[x]`, `[]`) or in an anonymous `..` (`[y, ..]`), which a pattern's list
 /// notation writes as `_` in the last level's tail and a result's as the kept rest that ends its
 /// root spine (`[..]` alone is that rest). Each item keeps its own key, the sequence is located at
-/// the brackets' outer level, and its `..` at the `_` or rest the macro wrote at it. `None` for
-/// any other term, a named rest or a level taken from the back included.
+/// the brackets' outer level, and its `..` at the `_` or rest the macro wrote at it; brackets that
+/// end in a term `..t` write it after their items. `None` for any other term, a level taken from
+/// the back included.
 fn bracket_sequence(
     term: &DescriptorTerm,
 ) -> Option<krs_ir::ProtocolRuleKSequence<DescriptorTerm>> {
@@ -261,6 +262,15 @@ fn bracket_sequence(
             }
             DescriptorTerm::KeptRest { key } => {
                 break krs_ir::ProtocolRuleFrame::Anonymous { key: key.clone() };
+            }
+            // A result's `..t` of a term `t` (a declared binder of sort `K`) writes that
+            // computation after the items, as `KCell(y, ..t)` does; a pattern's declared rest is
+            // refused before ([`super::configuration_rules`] `check_child_rests`).
+            DescriptorTerm::Variable { key, name, .. } if !items.is_empty() => {
+                break krs_ir::ProtocolRuleFrame::Reuse {
+                    key: key.clone(),
+                    binding: name.clone(),
+                };
             }
             _ => return None,
         }

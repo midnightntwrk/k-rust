@@ -820,14 +820,18 @@ fn with_named_child_rests(
     Ok((!variables.is_empty()).then_some((rule, variables)))
 }
 
-/// The refusal of an instance's or a group record's child whose brackets' named rest the
-/// signature declares where its twin cell's must not be, or leaves undeclared where its twin's
-/// must be declared. A child is a cell: a computation child's rest is a remainder, as
-/// `KCell(x, rest @ ..)`'s is, which no typed parameter declares; a list child's is a term of the
-/// list's sort, as `Cell([x, rest @ ..])`'s is, which one declares. The reader reads the brackets
-/// by the declaration (`krs_syntax` `remainder_sequence`), so a declared rest on a computation
-/// child is list notation ending in that term, and an undeclared one on a list child a sequence
-/// ending in a remainder.
+/// The refusal of an instance's or a group record's child whose brackets' named rest its twin
+/// cell refuses. A child is a cell: in a pattern, a computation child's rest is a remainder, as
+/// `KCell(x, rest @ ..)`'s is, which no typed parameter declares, and a list child's is a term of
+/// the list's sort, as `Cell([x, rest @ ..])`'s is, which one declares. The reader reads a
+/// pattern's rest by the declaration and a result's `..name` by what the subject binds
+/// (`krs_syntax` `remainder_sequence`), so a declared pattern rest on a computation child is list
+/// notation ending in that term, an undeclared one on a list child a sequence ending in a
+/// remainder, and a result's remainder on a list child a sequence that writes it back.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one walk over both sides' children, with each refusal's text beside its case"
+)]
 fn check_child_rests(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
@@ -847,8 +851,15 @@ fn check_child_rests(
             reason,
         ))
     };
+    let map_frames = rule
+        .bindings
+        .iter()
+        .filter(|binding| matches!(binding.kind, ProtocolRuleBindingKind::MapFrame))
+        .map(|binding| binding.name.as_str())
+        .collect::<BTreeSet<_>>();
     let check = |field: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
-                 children: &[krs_ir::DescriptorCellField]|
+                 children: &[krs_ir::DescriptorCellField],
+                 pattern: bool|
      -> Result<(), DescriptorLoweringError> {
         let Some(ProtocolCellContent::Leaf { wrapper, .. }) = children
             .iter()
@@ -859,7 +870,8 @@ fn check_child_rests(
         };
         let child = &field.field;
         match (wrapper, &field.value) {
-            (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::Term(term)) => {
+            // A result's `..t` of a declared term writes it, as `KCell(y, ..t)` does.
+            (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::Term(term)) if pattern => {
                 let mut term = term.clone();
                 if let DescriptorTerm::Variable { key, name, .. } = list_spine_end(&mut term)
                     && terms.contains(name.as_str())
@@ -875,13 +887,29 @@ fn check_child_rests(
             }
             (krs_ir::CellWrapper::Cell, ProtocolRuleStateTerm::KSequence(sequence)) => {
                 match &sequence.tail {
-                    ProtocolRuleFrame::Bind { key, binding }
-                    | ProtocolRuleFrame::Reuse { key, binding } => refused(
+                    ProtocolRuleFrame::Bind { key, binding } => refused(
                         format!(
                             "the rest `{binding}` of the list child `{child}` is a list, a term of the child's sort, as a list cell's `Cell([x, {binding} @ ..])` rest is, and a rule's typed parameters declare every term it binds: declare `{binding}` among them at the child's sort"
                         ),
                         key,
                     ),
+                    // The reader reads a result's `..name` as a remainder only where the subject
+                    // binds `name` as one.
+                    ProtocolRuleFrame::Reuse { key, binding } => {
+                        let what = if map_frames.contains(binding.as_str()) {
+                            "the rest of a map"
+                        } else {
+                            "the rest of a computation"
+                        };
+                        Err(super::cell_states::collection_error(
+                            descriptor,
+                            krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+                            key,
+                            format!(
+                                "`..{binding}` in the list child `{child}` writes `{binding}`, which the subject binds as {what} (`{binding} @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that"
+                            ),
+                        ))
+                    }
                     _ => Ok(()),
                 }
             }
@@ -893,12 +921,13 @@ fn check_child_rests(
             .cell(group)
             .map(|declaration| declaration.fields.as_slice())
     };
-    for cell in rule
-        .subject
-        .cells
-        .iter()
-        .chain(rule.result.iter().flat_map(|result| &result.cells))
-    {
+    let sides = rule.subject.cells.iter().map(|cell| (cell, true)).chain(
+        rule.result
+            .iter()
+            .flat_map(|result| &result.cells)
+            .map(|cell| (cell, false)),
+    );
+    for (cell, pattern) in sides {
         let mut value = &cell.value;
         while let ProtocolRuleStateTerm::Present { value: inside } = value {
             value = inside;
@@ -912,7 +941,7 @@ fn check_child_rests(
                 let children = children_of(&declaration.declaration)?;
                 for instance in instances.front.iter().chain(&instances.back) {
                     for field in &instance.fields {
-                        check(field, children)?;
+                        check(field, children, pattern)?;
                     }
                 }
             }
@@ -922,7 +951,7 @@ fn check_child_rests(
                 };
                 let children = children_of(declaration)?;
                 for field in &record.fields {
-                    check(field, children)?;
+                    check(field, children, pattern)?;
                 }
             }
             _ => {}

@@ -135,11 +135,16 @@ fn krs_path() -> String {
 
 /// Writes a one-package workspace whose library is [`SOURCE`] with `sentences`.
 fn package(root: &Path, name: &str, sentences: &str) -> PathBuf {
+    package_with(root, name, SOURCE, sentences)
+}
+
+/// Writes a one-package workspace whose library is `source` with `sentences`.
+fn package_with(root: &Path, name: &str, source: &str, sentences: &str) -> PathBuf {
     let directory = root.join(name);
     fs::create_dir_all(directory.join("src")).unwrap();
     fs::write(
         directory.join("src/lib.rs"),
-        SOURCE.replace("{SENTENCES}", sentences),
+        source.replace("{SENTENCES}", sentences),
     )
     .unwrap();
     fs::write(
@@ -181,11 +186,16 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 /// The verdict on the sentence `go` of `sentences`: the emitted rule on one line, or the first
 /// error line.
 fn verdict(target: &Path, root: &Path, name: &str, sentences: &str) -> String {
-    let manifest = package(root, name, sentences);
+    emitted(target, &package(root, name, sentences))
+}
+
+/// The verdict on the sentence `go` of the package at `manifest`: the emitted rule on one line, or
+/// the first error line.
+fn emitted(target: &Path, manifest: &Path) -> String {
     let output = manifest.with_file_name("emitted");
     let (success, _, stderr) = krs(
         target,
-        &manifest,
+        manifest,
         "emit-k",
         &["--output", output.to_str().unwrap()],
     );
@@ -369,11 +379,191 @@ fn a_computation_child_s_named_rest_is_its_twin_s_remainder() {
         list-undeclared-twin: error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded)"]].assert_eq(&table(&rows));
 }
 
+/// [`SOURCE`] with a cons list `Ws` and its constant `EMPTY`, a `List` constant `ELS`, a computation
+/// constructor `Saved`, an instance child `tw: Ws`, a top cell `ww: Ws`, and a list child `hl` of the
+/// fixed group `gg`.
+fn named_rest_source() -> String {
+    let source = SOURCE
+        .replace("use k::KResult;", "use k::{KItem, KResult};")
+        .replace(
+            "    Stmt;\n    Value: Stmt + KResult;",
+            "    Stmt;\n    Ws: KItem;\n    Value: Stmt + KResult;",
+        )
+        .replace("(Go, Hold, Open, Park)", "(Go, Hold, Open, Park, Saved)")
+        .replace(
+            "    #[k::syntax(\"park\")] Park(),\n",
+            "    #[k::syntax(\"park\")] Park(),\n    #[k::syntax(\"saved({body})\")] Saved { body: KSequence },\n",
+        )
+        .replace(
+            "#[k::cell]\npub struct Tg {",
+            "#[k::constructors(sort = Ws, result = KResult)]\n#[k::cons_list]\n#[k::precedence((WsNil, WsCons))]\npub enum Wst {\n    #[k::syntax(\".Ws\")]\n    WsNil(),\n    #[k::syntax(\"{head} : {tail}\")]\n    WsCons { head: Int, tail: Ws },\n}\n\n#[k::constant]\nconst EMPTY: Ws = Wst::WsNil();\n\n#[k::constant]\nconst ELS: List = list::item(5);\n\n#[k::cell]\npub struct Tg {",
+        )
+        .replace(
+            "    #[k::cell]\n    pub tm: Map,\n",
+            "    #[k::cell]\n    pub tm: Map,\n    #[k::cell]\n    pub tw: Ws,\n",
+        )
+        .replace("tm: k::map![], tg:", "tm: k::map![], tw: Wst::WsNil(), tg:")
+        .replace(
+            "    #[k::cell]\n    pub hk: KSequence,\n}",
+            "    #[k::cell]\n    pub hk: KSequence,\n    #[k::cell]\n    pub hl: List,\n}",
+        )
+        .replace("hk: k::k![] }", "hk: k::k![], hl: list::empty() }")
+        .replace(
+            "    #[k::cell]\n    pub out: List,\n",
+            "    #[k::cell]\n    pub out: List,\n    #[k::cell]\n    pub ww: Ws,\n",
+        )
+        .replace("out: list::empty(),", "out: list::empty(),\n            ww: Wst::WsNil(),");
+    assert!(
+        [
+            "const EMPTY",
+            "pub tw: Ws",
+            "pub hl: List",
+            "pub ww: Ws",
+            "Saved { body"
+        ]
+        .iter()
+        .all(|part| source.contains(part)),
+        "the source has the constants, `tw`, `hl`, `ww` and `Saved`"
+    );
+    source
+}
+
+/// A result's `..name` in a child's brackets is what `name` is, as at the twin cell: a constant is
+/// the list it denotes (`constant-list`, `constant-cons`, a fixed fragment's list child
+/// `constant-fragment`, each beside its twin), a declared term of sort `K` the computation written
+/// after the items (`term`), a remainder the subject binds the remainder written back, which a
+/// list child does not hold (`remainder-in-list`), and a name bound nowhere an unbound name
+/// (`unbound`).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of the spellings beside their twins, its expectation inline."
+)]
+fn a_result_s_named_rest_is_what_the_name_is() {
+    let source = named_rest_source();
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let th = |child: &str| {
+        format!("Ths::th: {{ me @ k::fragment![crate::Th {{ {child}, .. }}], i @ .. }}")
+    };
+    let thr =
+        |child: &str| format!("Ths::th: {{ k::fragment![crate::Th {{ {child}, ..me }}], ..i }}");
+    let put = format!("k: {KC}KCell(Cmd::Open {{ n: x }}, ..)");
+    let kept = format!("k: {KC}KCell(..)");
+    let x = "x: Int,\n    ";
+    let rows = [
+        (
+            "constant-list",
+            cells(
+                x,
+                &format!("{put}, {}", th("tl: _")),
+                &format!("{kept}, {}", thr("tl: [x, ..ELS]")),
+            ),
+        ),
+        (
+            "constant-list-twin",
+            cells(
+                x,
+                &format!("{put}, ll: {KC}Cell(_)"),
+                &format!("{kept}, ll: {KC}Cell([x, ..ELS])"),
+            ),
+        ),
+        (
+            "constant-cons",
+            cells(
+                x,
+                &format!("{put}, {}", th("tw: _")),
+                &format!("{kept}, {}", thr("tw: [x, ..EMPTY]")),
+            ),
+        ),
+        (
+            "constant-cons-twin",
+            cells(
+                x,
+                &format!("{put}, ww: {KC}Cell(_)"),
+                &format!("{kept}, ww: {KC}Cell([x, ..EMPTY])"),
+            ),
+        ),
+        (
+            "constant-fragment",
+            cells(
+                x,
+                &format!("{put}, gg: k::fragment![crate::Gg {{ .. }}]"),
+                &format!("{kept}, gg: k::fragment![crate::Gg {{ hl: [x, ..ELS], .. }}]"),
+            ),
+        ),
+        (
+            "constant-fragment-twin",
+            cells(
+                x,
+                &format!("{put}, Gg::hl: {KC}Cell(_)"),
+                &format!("{kept}, Gg::hl: {KC}Cell([x, ..ELS])"),
+            ),
+        ),
+        (
+            "term",
+            cells(
+                "t: KSequence,\n    ",
+                &format!(
+                    "k: {KC}KCell(Cmd::Saved {{ body: t }}, ..), {}",
+                    th("tk: []")
+                ),
+                &format!("{kept}, {}", thr("tk: [Cmd::Hold(), ..t]")),
+            ),
+        ),
+        (
+            "term-twin",
+            cells(
+                "t: KSequence,\n    ",
+                &format!("k: {KC}KCell(Cmd::Saved {{ body: t }}, ..), aux: {KC}KCell()"),
+                &format!("{kept}, aux: {KC}KCell(Cmd::Hold(), ..t)"),
+            ),
+        ),
+        (
+            "remainder-in-list",
+            cells(
+                "",
+                &format!("k: {KC}KCell(Cmd::Go(), rest @ ..), {}", th("tl: []")),
+                &format!("k: {KC}KCell(), {}", thr("tl: [1, ..rest]")),
+            ),
+        ),
+        (
+            "unbound",
+            cells(
+                "",
+                &format!("k: {KC}KCell(Cmd::Go(), ..), {}", th("tk: []")),
+                &format!("{kept}, {}", thr("tk: [Cmd::Hold(), ..zz]")),
+            ),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, sentences)| {
+            let manifest = package_with(temporary.path(), name, &source, sentences);
+            format!("{name}: {}", emitted(target.path(), &manifest))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r"
+        constant-list: rule [go]: <k> open X:Int => .K ... </k> <th> <tl> _ => ListItem(X:Int) ListItem(5) </tl> ... </th>
+        constant-list-twin: rule [go]: <k> open X:Int => .K ... </k> <ll> _ => ListItem(X:Int) ListItem(5) </ll>
+        constant-cons: rule [go]: <k> open X:Int => .K ... </k> <th> <tw> _ => X:Int : . Ws </tw> ... </th>
+        constant-cons-twin: rule [go]: <k> open X:Int => .K ... </k> <ww> _ => X:Int : . Ws </ww>
+        constant-fragment: rule [go]: <k> open X:Int => .K ... </k> <hl> _ => ListItem(X:Int) ListItem(5) </hl>
+        constant-fragment-twin: rule [go]: <k> open X:Int => .K ... </k> <hl> _ => ListItem(X:Int) ListItem(5) </hl>
+        term: rule [go]: <k> saved ( T:K ) => .K ... </k> <th> <tk> .K => hold ~> T:K </tk> ... </th>
+        term-twin: rule [go]: <k> saved ( T:K ) => .K ... </k> <aux> .K => hold ~> T:K </aux>
+        remainder-in-list: error[krs::syntax::invalid-list-notation]: `..rest` in the list child `tl` writes `rest`, which the subject binds as the rest of a computation (`rest @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
+        unbound: error[krs::expand::unbound-name]: `zz` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one"]].assert_eq(&table);
+}
+
 /// A map read or a map's entries in a group record's child, inside a `?` group's `Some(..)` or an
 /// instance record, is the map its `cells!` twin's `k::map![..]` writes, read (`read-og`,
 /// `read-inst`), kept by the record's `..` (`kept-og`, `kept-inst`) and written (`write-og`,
 /// `write-inst`), each beside its twin. A map read in a result names no map, as at a record's top
-/// level (`read-in-result`), and a named rest binds a map no readable rule can use (`named`).
+/// level (`read-in-result`). A named rest there is the rest of the map, a map term, as in its
+/// `cells!` twin, which declares it (`named`, `named-twin`); in a group record at a readable
+/// record's top level, read as its children's own cells, it is a stated limit (`named-top`).
 #[test]
 #[expect(
     clippy::too_many_lines,
