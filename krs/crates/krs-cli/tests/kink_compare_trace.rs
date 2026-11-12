@@ -945,3 +945,150 @@ fn a_horizon_is_recorded_and_a_moved_one_is_stale() {
     );
     assert_eq!(fs::read_to_string(&record).unwrap(), written);
 }
+
+/// The entries of the definition trace cache of `corpus`: each file's name, bytes and time of
+/// last write. An entry is published by a rename, so one a command wrote again has another time.
+fn definition_traces(
+    package: &Package,
+    corpus: &str,
+) -> Vec<(String, Vec<u8>, std::time::SystemTime)> {
+    let directory = package
+        .directory
+        .path()
+        .join(corpus)
+        .join(".kink-flow/definition-traces");
+    let mut entries = fs::read_dir(&directory)
+        .map(|entries| {
+            entries
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (
+                        entry.file_name().into_string().unwrap(),
+                        fs::read(entry.path()).unwrap(),
+                        entry.metadata().unwrap().modified().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.sort();
+    entries
+}
+
+/// The definition's values of a program's channels are kept in the cache directory: a second
+/// `compare` reads them and writes none (so it made no value run), and its document, status and
+/// record are those of a command that computes them; a damaged entry is computed again and
+/// written again; another `[stop]`, `[observe]` or channel set reads no entry of the first.
+#[test]
+fn the_definitions_values_are_read_from_the_cache() {
+    let package = Package::new();
+    let corpus = "corpora/values";
+    let named = |mode: &str, channel: &str| {
+        traced(
+            "named",
+            &[mode, channel, "-", "named.log"],
+            channel,
+            "identity = { file = \"fake2.sh\" }\n",
+        )
+    };
+    let cases = [("a", 2), ("s", -1)];
+    package.corpus(corpus, &named("agree", "ticks"), &cases);
+    let record = package.directory.path().join(corpus).join("kink.lock");
+    let traces = package
+        .directory
+        .path()
+        .join(corpus)
+        .join(".kink-flow/definition-traces");
+
+    // Cold: one value run per program, each stored.
+    let cold = package.compare(corpus, &[]);
+    assert_status(&cold, 0);
+    let cold = json_of(&cold);
+    assert_eq!(cold["lock"]["status"], "created", "{cold:#}");
+    let written = fs::read_to_string(&record).unwrap();
+    let stored = definition_traces(&package, corpus);
+    assert_eq!(stored.len(), 2, "{stored:?}");
+
+    // Warm: no entry is written again, and the verdicts are the cold run's.
+    let warm = package.compare(corpus, &["--locked"]);
+    assert_status(&warm, 0);
+    assert_eq!(definition_traces(&package, corpus), stored);
+    let warm_document = json_of(&warm);
+    for (case, _) in cases {
+        assert_eq!(
+            row(&cold, "named", case)["views"],
+            row(&warm_document, "named", case)["views"],
+            "{case}"
+        );
+    }
+
+    // The same command with the values computed (no entry) and with one entry damaged: the
+    // output byte for byte, the record, and the entries as they were first written.
+    let name_and_bytes = |entries: &[(String, Vec<u8>, std::time::SystemTime)]| {
+        entries
+            .iter()
+            .map(|(name, bytes, _)| (name.clone(), bytes.clone()))
+            .collect::<Vec<_>>()
+    };
+    fs::remove_dir_all(&traces).unwrap();
+    let computed = package.compare(corpus, &["--locked"]);
+    assert_status(&computed, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&computed.stdout),
+        String::from_utf8_lossy(&warm.stdout)
+    );
+    assert_eq!(computed.stderr, warm.stderr);
+    let computed = definition_traces(&package, corpus);
+    assert_eq!(name_and_bytes(&computed), name_and_bytes(&stored));
+    let damaged = traces.join(&stored[0].0);
+    fs::write(&damaged, &stored[0].1[..stored[0].1.len() / 2]).unwrap();
+    let repaired = package.compare(corpus, &["--locked"]);
+    assert_status(&repaired, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&repaired.stdout),
+        String::from_utf8_lossy(&warm.stdout)
+    );
+    let now = definition_traces(&package, corpus);
+    assert_eq!(name_and_bytes(&now), name_and_bytes(&stored));
+    // Only the damaged entry was written again.
+    let rewritten = computed
+        .iter()
+        .zip(&now)
+        .filter(|(before, after)| before.2 != after.2)
+        .map(|(before, _)| before.0.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(rewritten, [stored[0].0.clone()]);
+    assert_eq!(fs::read_to_string(&record).unwrap(), written);
+    // The implementation ran once per program, on the cold command only.
+    assert_eq!(requests(&package, corpus, "named.log").len(), 2);
+
+    // Another `[stop]`, another `[observe]` (a channel no view names) and another channel set:
+    // each is another key for each program, so each command computes and stores two entries
+    // more, and none of the entries before it is written again.
+    let flow = format!("{corpus}/FLOW.toml");
+    let edit = |from: &str, to: &str| {
+        let text = package.read(&flow);
+        assert!(text.contains(from), "{text}");
+        package.write(&flow, &text.replace(from, to));
+    };
+    let mut held = now;
+    let mut assert_missed = |what: &str| {
+        assert_status(&package.compare(corpus, &[]), 0);
+        let entries = definition_traces(&package, corpus);
+        assert_eq!(entries.len(), held.len() + 2, "{what}: {entries:?}");
+        for entry in &held {
+            assert!(entries.contains(entry), "{what}: {} was written", entry.0);
+        }
+        held = entries;
+    };
+    edit("count = 3", "count = 2");
+    assert_missed("[stop]");
+    edit(
+        "stutter = \"collapse\"\ncells = [\"n\"]",
+        "stutter = \"count\"\ncells = [\"n\"]",
+    );
+    assert_missed("[observe]");
+    // The first declaration again, with a view of another channel.
+    package.corpus(corpus, &named("agree", "maps"), &cases);
+    assert_missed("channels");
+}

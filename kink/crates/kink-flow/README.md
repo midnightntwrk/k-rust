@@ -3045,7 +3045,17 @@ stderr names each such run (`kink.lock: rust-cpu cases/irq/case.toml: the clock 
 
 An implementation that declares `identity` has its answers cached in the result cache (`--cache DIR`, `implementation-answers/`): the stdout of a run that exited 0 with an answer the protocol reads is stored under the protocol, the digest of the `identity` file, the `command` and the request's digest, and a later run with the same four reads it instead of starting the implementation (`cached: true`).
 A request of version 2 holds the channels asked, with their components and points, and each channel's `positions`, so a changed `[observe]` or a moved horizon is another request, which no cached answer answers.
-The definition's side of a trace view is not cached: each `compare` runs the baseline of each program with a trace view once more, to read the values of the elements its record holds digests of, and requires that run's record to be the recorded one.
+The definition's side of a trace view is the values of the elements its record holds digests of, which a value run reads: one more run of the program's baseline, whose record must be the recorded one.
+A completed value run is cached too (`definition-traces/`), under the program's result key and the names of the channels asked, in the order asked.
+The result key names the definition, the program, the budget, `[stop]` and `[observe]` ("Programs and the result cache"), so a change of any of them, or another set of channels, is another key, which no stored entry answers.
+An entry names the digest of the observation record its run reproduced and carries a digest of itself.
+It is read only for that record, and only where it holds the channels asked, each with the end the record gives it, one element per element of the record, and a value exactly where the record holds a digest.
+Any other entry is a miss: the value run is made, and its values replace the entry.
+A value run that gave no values (it was refused, the clock stopped it, or its record is not the recorded one) is never stored.
+Neither is one of a program whose baseline result is not cached, nor any where the result cache is off.
+An entry holds each element as the front end's document of it (under `krs kink`, the JSON value), with its depth and its point.
+kink's own contents are KORE terms, which have no text form an entry and its reader agree on: a value run that holds one is not stored, so a corpus without a front end's functions makes that value run on every `compare`.
+No document, verdict, lock row or exit status depends on whether the values were read or computed, and no key of the document says which.
 A cached answer trusts that the same binary, given the same request, gives the same answer.
 The cache holds answers, not verdicts: each run reads the answer again by the protocol and compares it again with the definition's ends under the views as they are then, since a request with `given = "inputs"` does not name the definition, so a definition, a `[result]` or a view that changed is never answered from the cache, and `--locked` checks the verdicts the current definition gives.
 A failure or a cancelled run is never cached: it is no answer, and a host on which the implementation answers must not be told otherwise.

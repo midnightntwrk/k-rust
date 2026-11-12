@@ -468,7 +468,7 @@ fn record_sha256(domain: &str, key: &Value, value: &Value) -> Sha256Digest {
 
 /// The stored value under exactly `key` at `path`: `None` when the file is missing or
 /// unreadable, is not a memo record, names another key, or does not carry its own digest.
-fn read(path: &Path, domain: &str, key: &Value) -> Option<Value> {
+pub(crate) fn read(path: &Path, domain: &str, key: &Value) -> Option<Value> {
     let record = parse_json(&fs::read_to_string(path).ok()?).ok()?;
     let value = record.get("value")?;
     (record["schema"] == MEMO_SCHEMA
@@ -480,7 +480,7 @@ fn read(path: &Path, domain: &str, key: &Value) -> Option<Value> {
 
 /// Write `value` under `key` at `path`. A memo that cannot be written is only a later
 /// recomputation, so a failure is not reported.
-fn write(store: &Store, path: &Path, domain: &str, key: &Value, value: &Value) {
+pub(crate) fn write(store: &Store, path: &Path, domain: &str, key: &Value, value: &Value) {
     let _ = store.write_json(
         path,
         &json!({

@@ -43,6 +43,10 @@
 //! channels (`BaselineRunner::observed_values`, one more run of the baseline, shown to be the
 //! recorded one), so a program whose baseline its bounds cut (`comparable-prefix`) is compared
 //! by its trace views, and its end views are `not-compared` (`no-end`).
+//! Those values are a function of the baseline's request and the channels asked, so a completed
+//! value run's are kept in the cache directory (`definition-traces/`, [`TraceKey`]) under the
+//! program's result key and the channels, and read by a later command only for the same
+//! observation record; no document says which of the two a command did.
 //!
 //! A trace view compares elements at equal indices, which is the front end's
 //! ([`Vocabulary::judge_trace`]); the verdict is kink-flow's ([`judged_row`]): `equal` only where
@@ -90,10 +94,13 @@ use crate::manifest::{
 };
 use crate::results::{
     BaselineRunner, ProgramRow, ResultClass, cache_directory, current_record,
-    record_final_configuration, runner_refusal, update_results,
+    record_final_configuration, result_key, result_store, runner_refusal, update_results,
 };
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
-use kink_campaign::{ChannelValues, ValuesEnd, ValuesRefusal};
+use kink_campaign::{
+    ChannelEnd, ChannelValues, Closure, Element, Opened, Opening, StopSide, ValueElement,
+    ValuesEnd, ValuesRefusal,
+};
 use kink_corpus::Store;
 use kink_corpus::admission::{AdmissionRecord, AdmissionRefusal};
 use kink_native::execution::SolverProfile;
@@ -104,7 +111,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
 
@@ -137,6 +144,12 @@ pub const EVIDENCE: &str = "testing";
 pub const IMPLEMENTATION_ANSWER_VERSION: &str = "kink-flow/implementation-answer/v1";
 /// The directory of the result cache that holds the cached answers.
 const ANSWERS_DIRECTORY: &str = "implementation-answers";
+/// The directory of the definition trace cache in the cache directory: the values of the
+/// channels of a program's baseline run ([`TraceKey`]).
+const DEFINITION_TRACES_DIRECTORY: &str = "definition-traces";
+/// The format and meaning of a definition trace entry (its key's `version` and its digest's
+/// domain).
+const DEFINITION_TRACE_VERSION: &str = "kink-flow/definition-trace/v1";
 /// The most bytes of an implementation's stderr a failure quotes, its end.
 const STDERR_QUOTED: usize = 2000;
 
@@ -1795,7 +1808,10 @@ const SEVERAL_PATHS: &str = "the definition's run of the program has several pat
      paths is a question of inclusion, which compare does not decide";
 
 /// The values of the channels `channels` of `program`'s baseline run
-/// (`BaselineRunner::observed_values`), whose observation record is `observed`.
+/// (`BaselineRunner::observed_values`), whose observation record is `observed`: the entry the
+/// definition trace cache holds under `key` for that record ([`TraceKey`]), else a value run,
+/// whose values are then stored under it.
+#[allow(clippy::too_many_arguments)]
 fn value_run(
     runner: &BaselineRunner<'_>,
     inputs: &mut crate::admit::InputSession<'_>,
@@ -1803,24 +1819,49 @@ fn value_run(
     row: &ProgramRow,
     observed: Option<&Observed>,
     channels: &[String],
+    key: Option<&TraceKey>,
+    store: &Store,
 ) -> Result<Vec<ChannelValues>, ValuesRefusal> {
     let Some(Observed::Record(record)) = observed else {
         return Err(ValuesRefusal::Capture(
             "the baseline's observation record was not read".to_owned(),
         ));
     };
-    let test = match (&row.test, &row.inputs) {
-        (Some(test), _) => test.clone(),
-        (None, Some(case)) => inputs
-            .test_case(program, case)
-            .map_err(|refusal| ValuesRefusal::Capture(refusal.detail))?,
-        (None, None) => {
-            return Err(ValuesRefusal::Capture(
-                "the program's inputs cannot be read".to_owned(),
-            ));
-        }
-    };
-    runner.observed_values(test, record, channels)
+    cached_values(key, store, record, || {
+        let test = match (&row.test, &row.inputs) {
+            (Some(test), _) => test.clone(),
+            (None, Some(case)) => inputs
+                .test_case(program, case)
+                .map_err(|refusal| ValuesRefusal::Capture(refusal.detail))?,
+            (None, None) => {
+                return Err(ValuesRefusal::Capture(
+                    "the program's inputs cannot be read".to_owned(),
+                ));
+            }
+        };
+        runner.observed_values(test, record, channels)
+    })
+}
+
+/// The values of the channels of a baseline run whose observation record is `recorded`: the
+/// entry stored under `key` for that record, else what `run`, the value run, gives, which is
+/// then stored under `key`. Only values are stored: a value run that gave none (it was refused,
+/// stopped, or is not the recorded run) leaves no entry, and is made again by the next command.
+/// Without a key every call runs.
+fn cached_values(
+    key: Option<&TraceKey>,
+    store: &Store,
+    recorded: &Value,
+    run: impl FnOnce() -> Result<Vec<ChannelValues>, ValuesRefusal>,
+) -> Result<Vec<ChannelValues>, ValuesRefusal> {
+    if let Some(values) = key.and_then(|key| key.read(recorded)) {
+        return Ok(values);
+    }
+    let values = run()?;
+    if let Some(key) = key {
+        key.write(store, recorded, &values);
+    }
+    Ok(values)
 }
 
 /// What stops the trace views of an answer from being compared.
@@ -1958,6 +1999,9 @@ fn compared_selected(
     let update = update_results(&spec, manifest, &mut inputs, &runner, &cache, false, None);
     let not_compared = spec.result.not_compared.clone();
     let answers = Store::new(&cache);
+    // kink's build where a baseline's result is a function of its key: the definition trace
+    // cache is on exactly where the result cache is.
+    let build = result_store(manifest.budget.backend_options()).ok();
     // Every channel some selected implementation's trace view names, in `[observe]`'s order: a
     // program's one value run reads them all.
     let observed_channels = manifest
@@ -2177,6 +2221,15 @@ fn compared_selected(
                         (Some(reason), ..) => Ok(Some(TraceSide::Not(reason))),
                         (None, Some(asked), Some(observations)) => {
                             let definition = values.get_or_insert_with(|| {
+                                let key = trace_key(
+                                    manifest,
+                                    build,
+                                    update.execution,
+                                    program,
+                                    row,
+                                    &cache,
+                                    &observed_channels,
+                                );
                                 value_run(
                                     &runner,
                                     &mut inputs,
@@ -2184,6 +2237,8 @@ fn compared_selected(
                                     row,
                                     observed.as_ref(),
                                     &observed_channels,
+                                    key.as_ref(),
+                                    &answers,
                                 )
                             });
                             match definition {
@@ -2424,6 +2479,264 @@ impl AnswerKey {
         }
         let _ = store.write_json(&path, &record);
     }
+}
+
+/// Where the definition trace cache keeps the values of a program's channels, and what they are
+/// the values of: the program's result key (kink's build and identity, the execution digest,
+/// the program, the budget, the program's stop, the syntax selection and the `[observe]`
+/// declaration: what its baseline run is a function of) and the names of the channels asked, in
+/// the order asked. A value run is that baseline run with a probe that also keeps the values of
+/// those channels' elements, so its values are a function of the two.
+struct TraceKey {
+    key: Value,
+    path: PathBuf,
+}
+
+impl TraceKey {
+    /// The key of the channels `channels` of the run `result` (a result key) names, in the
+    /// cache directory `cache`. The key decides what an entry may be used for; the path only
+    /// finds it.
+    fn new(cache: &Path, result: &Value, channels: &[String]) -> Self {
+        let key = json!({
+            "version": DEFINITION_TRACE_VERSION,
+            "result": result,
+            "channels": channels,
+        });
+        let path = cache
+            .join(DEFINITION_TRACES_DIRECTORY)
+            .join(format!("{}.json", digest(canonical_json(&key).as_bytes())));
+        Self { key, path }
+    }
+
+    /// The values stored under this key for the run whose observation record is `recorded`;
+    /// `None` where there is no entry, where the entry does not read (it is no record of this
+    /// key, or does not carry its own digest: `crate::memo`'s record), and where it is not of
+    /// `recorded` ([`stored_values`]). Such an entry is answered by a value run, whose values
+    /// replace it.
+    fn read(&self, recorded: &Value) -> Option<Vec<ChannelValues>> {
+        let entry = crate::memo::read(&self.path, DEFINITION_TRACE_VERSION, &self.key)?;
+        let channels = self.key["channels"].as_array()?;
+        stored_values(&entry, recorded, channels)
+    }
+
+    /// Store `values`, the values of a value run whose record is `recorded`, under this key,
+    /// where every element has a text form ([`values_entry`]); a write that fails is left
+    /// unreported, since it only costs the next command a value run.
+    fn write(&self, store: &Store, recorded: &Value, values: &[ChannelValues]) {
+        if let Some(entry) = values_entry(recorded, values) {
+            crate::memo::write(
+                store,
+                &self.path,
+                DEFINITION_TRACE_VERSION,
+                &self.key,
+                &entry,
+            );
+        }
+    }
+}
+
+/// The key of the definition trace cache for the channels `channels` of `program`'s baseline
+/// run, whose row is `row`: `None` where the result cache is off (`build` is none,
+/// `results::result_store`), where the program has no digest, and where its result is not kept
+/// (its row's `not_cached`: the result is then not a function of its key, so neither is a value
+/// run of it). The values are then read by a value run on every command.
+fn trace_key(
+    manifest: &FlowManifest,
+    build: Option<kink_patch::Sha256Digest>,
+    execution: crate::digest::ExecutionDigest,
+    program: &Program,
+    row: &ProgramRow,
+    cache: &Path,
+    channels: &[String],
+) -> Option<TraceKey> {
+    let kept = |name| row.row.get(name).is_none_or(Value::is_null);
+    if !(kept("not_cached") && kept("cache_error")) {
+        return None;
+    }
+    let result = result_key(
+        execution,
+        row.digest?,
+        manifest.budget,
+        Some(build?),
+        manifest.program_stop(program),
+        manifest
+            .syntax
+            .as_ref()
+            .map(crate::manifest::SyntaxSelection::key_value),
+        manifest.observe_value(),
+    );
+    Some(TraceKey::new(cache, &result, channels))
+}
+
+/// The digest of an observation record, as a definition trace entry names the run it is of.
+fn recorded_digest(recorded: &Value) -> String {
+    digest(canonical_json(recorded).as_bytes())
+}
+
+/// The entry of the definition trace cache for `values`, the values of a value run whose
+/// observation record is `recorded`: `{recorded_sha256, channels: [{name, elements, closed,
+/// open}]}`, `recorded_sha256` the digest of `recorded`, `closed` and `open` the channel's end as
+/// the record writes it (kink-campaign `BaselineRecord::value`), and each element `{depth,
+/// point, value}`: `point` `{rule, side}` or null, and `value` the front end's document of the
+/// element, absent for an undecided element.
+///
+/// `None` where some element is of kink's own contents (`Element::Content`): KORE patterns,
+/// which have no text form this record and its reader agree on, so such a run is not stored.
+fn values_entry(recorded: &Value, values: &[ChannelValues]) -> Option<Value> {
+    let channels = values
+        .iter()
+        .map(|channel| {
+            let elements = channel
+                .elements
+                .iter()
+                .map(|element| {
+                    let mut out = Map::new();
+                    out.insert("depth".into(), json!(element.depth));
+                    out.insert(
+                        "point".into(),
+                        element.point.as_ref().map_or(
+                            Value::Null,
+                            |(rule, side)| json!({"rule": &**rule, "side": side_name(*side)}),
+                        ),
+                    );
+                    match &element.element {
+                        Element::Evaluated(value) => {
+                            out.insert("value".into(), value.clone());
+                        }
+                        Element::Undecided => {}
+                        // A closure is no element of a value run; a content has no text form.
+                        Element::Content(_)
+                        | Element::End
+                        | Element::Undefined
+                        | Element::Cycle => {
+                            return None;
+                        }
+                    }
+                    Some(Value::Object(out))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let (closed, open) = match &channel.end {
+                ChannelEnd::Closed(closure) => (json!(closure.name()), Value::Null),
+                ChannelEnd::Open(Opened { opening, reason }) => (
+                    Value::Null,
+                    json!({
+                        "index": elements.len(),
+                        "opening": opening.name(),
+                        "reason": reason,
+                    }),
+                ),
+            };
+            Some(json!({
+                "name": channel.name,
+                "elements": elements,
+                "closed": closed,
+                "open": open,
+            }))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(json!({"recorded_sha256": recorded_digest(recorded), "channels": channels}))
+}
+
+/// The record name of a point's side.
+const fn side_name(side: StopSide) -> &'static str {
+    match side {
+        StopSide::Before => "before",
+        StopSide::After => "after",
+    }
+}
+
+/// The values `entry` ([`values_entry`]) holds of the channels named `names`, in their order,
+/// where it is an entry of the run whose observation record is `recorded`: it names that
+/// record's digest, and holds exactly the channels asked, each with the end the record gives it
+/// (`closed` and `open`, as the record writes them), one element per element of the record, and
+/// a value exactly where the record holds a digest. `None` otherwise: the entry is of another
+/// run or is not what this build writes, and nothing of it is used.
+fn stored_values(entry: &Value, recorded: &Value, names: &[Value]) -> Option<Vec<ChannelValues>> {
+    if entry["recorded_sha256"].as_str()? != recorded_digest(recorded) {
+        return None;
+    }
+    let stored = entry["channels"].as_array()?;
+    if stored.len() != names.len() {
+        return None;
+    }
+    stored
+        .iter()
+        .zip(names)
+        .map(|(channel, name)| {
+            let name = name.as_str()?;
+            let record = recorded["channels"]
+                .as_array()?
+                .iter()
+                .find(|record| record["name"] == name)?;
+            if channel["name"] != name
+                || channel["closed"] != record["closed"]
+                || channel["open"] != record["open"]
+            {
+                return None;
+            }
+            let end = match (channel["closed"].as_str(), &channel["open"]) {
+                (Some(closed), Value::Null) => ChannelEnd::Closed(
+                    [Closure::End, Closure::Undefined, Closure::Cycle]
+                        .into_iter()
+                        .find(|closure| closure.name() == closed)?,
+                ),
+                (None, open) => ChannelEnd::Open(Opened {
+                    opening: [
+                        Opening::Bound,
+                        Opening::UndecidedElement,
+                        Opening::Branch,
+                        Opening::UndecidedPath,
+                        Opening::NotAppended,
+                        Opening::Cycle,
+                    ]
+                    .into_iter()
+                    .find(|opening| open["opening"] == opening.name())?,
+                    reason: open["reason"].as_str()?.to_owned(),
+                }),
+                _ => return None,
+            };
+            let digests = record["elements"].as_array()?;
+            let elements = channel["elements"].as_array()?;
+            if elements.len() != digests.len() {
+                return None;
+            }
+            let elements = elements
+                .iter()
+                .zip(digests)
+                .map(|(element, digest)| {
+                    let members = element.as_object()?;
+                    let value = members.get("value");
+                    // A value is the value of the element whose digest the record holds.
+                    if value.is_some() == digest.is_null() {
+                        return None;
+                    }
+                    let point = match members.get("point")? {
+                        Value::Null => None,
+                        point => Some((
+                            Arc::from(point["rule"].as_str()?),
+                            match point["side"].as_str()? {
+                                "before" => StopSide::Before,
+                                "after" => StopSide::After,
+                                _ => return None,
+                            },
+                        )),
+                    };
+                    Some(ValueElement {
+                        element: value.map_or(Element::Undecided, |value| {
+                            Element::Evaluated(value.clone())
+                        }),
+                        depth: members.get("depth")?.as_u64()?,
+                        point,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(ChannelValues {
+                name: name.to_owned(),
+                elements,
+                end,
+            })
+        })
+        .collect()
 }
 
 /// The verdict rows a compare document's `[compare]` section holds, as it writes them: one per
@@ -3082,8 +3395,6 @@ mod tests {
     }
 
     // ---- `kink-implementation/2`: trace views ----
-
-    use kink_campaign::{ChannelEnd, Closure, Element, Opened, Opening, ValueElement};
 
     const OBSERVE: &str = "[[observe.point]]\nname = \"ticks\"\nbefore = [\"CALC.tick\"]\nstutter \
                            = \"count\"\ncells = [\"n\"]\n\n[[observe.log]]\nname = \
@@ -4212,6 +4523,293 @@ mod tests {
                    "detail": "implementation `fake`: this front end compares no trace yet"})
         );
         assert_eq!(compare_status(&document), EXIT_UNASKED);
+    }
+
+    // ---- The definition trace cache ----
+
+    /// The observation record of a run with two channels: `ticks`, two elements, the second
+    /// undecided, closed by its end; `writes`, one element, open at a bound.
+    fn recorded() -> Value {
+        json!({
+            "channels": [
+                {"name": "ticks", "elements": ["0011223344556677", null], "closed": "end", "open": null},
+                {
+                    "name": "writes",
+                    "elements": ["8899aabbccddeeff"],
+                    "closed": null,
+                    "open": {"index": 1, "opening": "bound", "reason": "the path was cut by a bound"},
+                },
+            ],
+            "prefix": true,
+            "crashed": false,
+        })
+    }
+
+    /// The values of [`recorded`]'s channels named `names`, as a front end documents them.
+    fn recorded_values(names: &[&str]) -> Vec<ChannelValues> {
+        names
+            .iter()
+            .map(|name| match *name {
+                "ticks" => ChannelValues {
+                    name: "ticks".to_owned(),
+                    elements: vec![
+                        ValueElement {
+                            element: Element::Evaluated(json!({"n": 2, "nothing": null})),
+                            depth: 0,
+                            point: Some((Arc::from("CALC.tick"), StopSide::Before)),
+                        },
+                        ValueElement {
+                            element: Element::Undecided,
+                            depth: 3,
+                            point: Some((Arc::from("CALC.spin"), StopSide::After)),
+                        },
+                    ],
+                    end: CLOSED,
+                },
+                _ => ChannelValues {
+                    name: "writes".to_owned(),
+                    elements: vec![ValueElement {
+                        // A document that is JSON null is a value, not an undecided element.
+                        element: Element::Evaluated(Value::Null),
+                        depth: 4,
+                        point: None,
+                    }],
+                    end: open(Opening::Bound),
+                },
+            })
+            .collect()
+    }
+
+    /// The result key of a program under the execution digest of `definition`, with `stop` and
+    /// `observe`.
+    fn result_of(definition: &str, stop: Option<Value>, observe: Option<Value>) -> Value {
+        result_key(
+            crate::digest::ExecutionDigest {
+                kind: "test",
+                digest: sha256(definition.as_bytes()),
+            },
+            sha256(b"program"),
+            crate::manifest::Budget::default(),
+            Some(sha256(b"build")),
+            stop,
+            None,
+            observe,
+        )
+    }
+
+    /// A cache directory of its own for the test `name`, empty.
+    fn trace_cache(name: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("kink-flow-traces-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        directory
+    }
+
+    /// A runner of value runs that counts the runs it makes: `values` of [`cached_values`]
+    /// under `key` for the record `recorded`, each run giving `given`.
+    struct Counting {
+        store: Store,
+        runs: std::cell::Cell<u32>,
+    }
+
+    impl Counting {
+        fn new(cache: &Path) -> Self {
+            Self {
+                store: Store::new(cache),
+                runs: std::cell::Cell::new(0),
+            }
+        }
+
+        fn values(
+            &self,
+            key: Option<&TraceKey>,
+            recorded: &Value,
+            given: &Result<Vec<ChannelValues>, ValuesRefusal>,
+        ) -> Result<Vec<ChannelValues>, ValuesRefusal> {
+            cached_values(key, &self.store, recorded, || {
+                self.runs.set(self.runs.get() + 1);
+                given.clone()
+            })
+        }
+    }
+
+    #[test]
+    fn a_second_read_of_a_definition_trace_makes_no_value_run() {
+        let cache = trace_cache("warm");
+        let runner = Counting::new(&cache);
+        let (stop, observe) = (json!({"count": 3}), json!({"points": ["ticks"]}));
+        let both = ["ticks".to_owned(), "writes".to_owned()];
+        let key = TraceKey::new(
+            &cache,
+            &result_of("definition", Some(stop.clone()), Some(observe.clone())),
+            &both,
+        );
+        let given = Ok(recorded_values(&["ticks", "writes"]));
+        let cold = runner.values(Some(&key), &recorded(), &given);
+        assert_eq!(runner.runs.get(), 1);
+        // Warm: no run, and the values are the run's, element for element: a value, an
+        // undecided element, a null document, each point, each end.
+        let warm = runner.values(Some(&key), &recorded(), &given);
+        assert_eq!(runner.runs.get(), 1);
+        assert_eq!(warm, cold);
+        assert_eq!(warm, given);
+        assert!(key.path.starts_with(cache.join("definition-traces")));
+        let stored = std::fs::read(&key.path).unwrap();
+
+        // Another definition, `[observe]`, `[stop]` or channel set is another key: each misses
+        // and runs, and none replaces the entry.
+        let ticks = ["ticks".to_owned()];
+        let others = [
+            (
+                result_of("edited", Some(stop.clone()), Some(observe.clone())),
+                &both[..],
+            ),
+            (
+                result_of(
+                    "definition",
+                    Some(stop.clone()),
+                    Some(json!({"points": ["ticks", "more"]})),
+                ),
+                &both[..],
+            ),
+            (
+                result_of(
+                    "definition",
+                    Some(json!({"count": 4})),
+                    Some(observe.clone()),
+                ),
+                &both[..],
+            ),
+            (
+                result_of("definition", None, Some(observe.clone())),
+                &both[..],
+            ),
+            (
+                result_of("definition", Some(stop.clone()), Some(observe.clone())),
+                &ticks[..],
+            ),
+        ];
+        for (at, (result, channels)) in others.iter().enumerate() {
+            let other = TraceKey::new(&cache, result, channels);
+            assert_ne!(other.path, key.path, "{at}");
+            let names = channels.iter().map(String::as_str).collect::<Vec<_>>();
+            let given = Ok(recorded_values(&names));
+            let before = runner.runs.get();
+            assert_eq!(runner.values(Some(&other), &recorded(), &given), given);
+            assert_eq!(runner.runs.get(), before + 1, "{at}");
+            // The entry of another key at this key's path is never read for it.
+            std::fs::copy(&key.path, &other.path).unwrap();
+            assert_eq!(runner.values(Some(&other), &recorded(), &given), given);
+            assert_eq!(runner.runs.get(), before + 2, "{at}");
+            assert_eq!(runner.values(Some(&other), &recorded(), &given), given);
+            assert_eq!(runner.runs.get(), before + 2, "{at}");
+        }
+        assert_eq!(std::fs::read(&key.path).unwrap(), stored);
+
+        // The same key for another record (another run): a miss, whose values replace the entry.
+        let mut moved = recorded();
+        moved["channels"][0]["elements"][0] = json!("ffffffffffffffff");
+        let before = runner.runs.get();
+        assert_eq!(runner.values(Some(&key), &moved, &given), given);
+        assert_eq!(runner.runs.get(), before + 1);
+        assert_ne!(std::fs::read(&key.path).unwrap(), stored);
+        assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+        assert_eq!(runner.runs.get(), before + 2);
+        assert_eq!(std::fs::read(&key.path).unwrap(), stored);
+
+        // Without a key every read runs.
+        assert_eq!(runner.values(None, &recorded(), &given), given);
+        assert_eq!(runner.runs.get(), before + 3);
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn a_damaged_definition_trace_misses_and_is_rewritten() {
+        let cache = trace_cache("damaged");
+        let runner = Counting::new(&cache);
+        let both = ["ticks".to_owned(), "writes".to_owned()];
+        let key = TraceKey::new(&cache, &result_of("definition", None, None), &both);
+        let given = Ok(recorded_values(&["ticks", "writes"]));
+        runner.values(Some(&key), &recorded(), &given).unwrap();
+        let stored = std::fs::read_to_string(&key.path).unwrap();
+        let mut runs = 1;
+        // Cut short; a value changed under the record's own digest; no JSON at all.
+        let changed = stored.replace("\"n\":2", "\"n\":7");
+        assert_ne!(changed, stored);
+        for damaged in [&stored[..stored.len() / 2], &changed, ""] {
+            std::fs::write(&key.path, damaged).unwrap();
+            assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+            runs += 1;
+            assert_eq!(runner.runs.get(), runs);
+            assert_eq!(std::fs::read_to_string(&key.path).unwrap(), stored);
+            assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+            assert_eq!(runner.runs.get(), runs);
+        }
+
+        // An entry that carries its own digest and is not of the record: each part of it that
+        // the record decides (the end, the number of elements, which of them have a value, the
+        // channels) makes it a miss.
+        let entry = values_entry(&recorded(), given.as_ref().unwrap()).unwrap();
+        let names = key.key["channels"].as_array().unwrap().clone();
+        assert_eq!(
+            stored_values(&entry, &recorded(), &names).as_ref(),
+            given.as_ref().ok()
+        );
+        let edits: [fn(&mut Value); 8] = [
+            |entry| entry["recorded_sha256"] = json!("0"),
+            |entry| entry["channels"][0]["closed"] = json!("undefined"),
+            |entry| entry["channels"][1]["open"]["opening"] = json!("branch"),
+            |entry| {
+                entry["channels"][0]["elements"]
+                    .as_array_mut()
+                    .unwrap()
+                    .pop();
+            },
+            |entry| entry["channels"][0]["elements"][1]["value"] = json!(1),
+            |entry| {
+                entry["channels"][0]["elements"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("value");
+            },
+            |entry| entry["channels"][0]["elements"][0]["point"]["side"] = json!("beside"),
+            |entry| entry["channels"].as_array_mut().unwrap().swap(0, 1),
+        ];
+        for (at, edit) in edits.iter().enumerate() {
+            let mut edited = entry.clone();
+            edit(&mut edited);
+            assert_eq!(stored_values(&edited, &recorded(), &names), None, "{at}");
+        }
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn only_a_completed_value_run_with_a_text_form_is_stored() {
+        let cache = trace_cache("unstored");
+        let runner = Counting::new(&cache);
+        let ticks = ["ticks".to_owned()];
+        let key = TraceKey::new(&cache, &result_of("definition", None, None), &ticks);
+        // A value run that gave no values: a refusal, or a run that is not the recorded one.
+        for refusal in [
+            ValuesRefusal::Capture("the value run's record is not the recorded one".to_owned()),
+            ValuesRefusal::SeveralPaths,
+        ] {
+            let given = Err(refusal);
+            assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+            assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+            assert!(!key.path.exists());
+        }
+        assert_eq!(runner.runs.get(), 4);
+        // kink's own contents: KORE patterns, which the entry has no text form of.
+        let mut contents = recorded_values(&["ticks"]);
+        contents[0].elements[0].element = Element::Content(Vec::new());
+        let given = Ok(contents);
+        assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+        assert_eq!(runner.values(Some(&key), &recorded(), &given), given);
+        assert_eq!(runner.runs.get(), 6);
+        assert!(!key.path.exists());
+        assert!(!cache.join(DEFINITION_TRACES_DIRECTORY).exists());
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     fn sh(script: &str, limit: Duration) -> Result<Ran, Failure> {
