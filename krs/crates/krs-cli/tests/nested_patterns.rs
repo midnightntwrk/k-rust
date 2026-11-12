@@ -6171,6 +6171,18 @@ fn a_dot_k_right_side_stands_where_k_is_admissible() {
     expect_test::expect!["<generatedTop> <k> keep(.K) ~> .K </k> <acc> 1 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
 
+/// ITEMSORTS: the TERMDOTK fixture with a cell whose values are declared `KSequence` and a
+/// function over a `KSequence` argument, `Run(make(x))` being `x`.
+fn item_sorts_fixture() -> String {
+    dot_k_fixture()
+        .replace(
+            "    #[k::cell]\n    pub env: Map,\n",
+            "    #[k::cell]\n    pub env: Map,\n    #[k::cell]\n    pub kmap: Map<Int, KSequence>,\n",
+        )
+        .replace("            env: k::map![],\n", "            env: k::map![],\n            kmap: k::map![],\n")
+        + "#[k::function(total, internal)]\npub fn Run(b: k::Term<KSequence>) -> k::Term<Int>;\n\n#[k::equation]\nfn run(x: Int, k::term![Run(Cmd::Make { x })]: k::Term<Int>) -> k::Term<Int> {\n    x\n}\n\n#[k::equation(owise)]\nfn run_other(b: KSequence, k::term![Run(b)]: k::Term<Int>) -> k::Term<Int> {\n    0\n}\n\n"
+}
+
 /// `krs check`'s first error, or the emitted sentences (rules, claims, equations) that hold
 /// `needle`, one line each.
 fn sentences_or_error(target: &Path, manifest: &Path, needle: &str) -> String {
@@ -6288,4 +6300,127 @@ fn an_item_removal_names_the_one_item_it_removes() {
     );
     assert!(success, "{stdout}\n{stderr}");
     expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+}
+
+/// ITEMSORTS item 2: a `KItem` is a `K`, the sequence of that one item, so a term of a sort
+/// below `K` is a value of a place of sort `K` and stands there as that sequence: K's
+/// `keep ( make ( X:Int ) )`, the item at sort `K`. A constructor field, a function's argument,
+/// in a rule, a claim, a function's body, an equation's left side and a `requires`, on the
+/// `cells!`, term and readable routes; a declared or inferred binder of the item's sort fills
+/// the place too, and a readable binder that also occurs at a `Stmt` place is a `Stmt`. They
+/// were refused "application result sort Stmt is not admissible at sort K" (or the binder's
+/// "needs `K`"). A `Bool` place is no `K` place and keeps its refusal. A matched sequence still
+/// takes a `K` item alone or beside other `K` items only. A typed collection whose values are
+/// declared `K` holds none: K's map holds items, and every value there, a `K` binder's as a
+/// `Stmt`'s, is refused by the native stage (a finding, not this ticket's).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of places, routes and sentence kinds, and the run."
+)]
+fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let fixture = item_sorts_fixture();
+    let kk = "k::configuration::KCell";
+    let cc = "k::configuration::Cell";
+    let cells = |parameters: &str, attributes: &str, entries: &str| {
+        format!(
+            "{fixture}#[k::rule(label = \"probe\")]\n{attributes}pub fn probe(\n    {parameters}\n    k::cells! {{ {entries}, .. }}: Machine,\n) {{}}\n"
+        )
+    };
+    let with_result = |opening: &str, subject: &str| {
+        format!(
+            "{fixture}#[k::{opening}label = \"probe\")]\npub fn probe(\n    x: Int,\n    k::cells! {{ k: {kk}(Cmd::Make {{ x }}, tail @ ..), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {kk}({subject}, ..tail), ..state }}\n}}\n"
+        )
+    };
+    let term = |parameters: &str, subject: &str| {
+        format!(
+            "{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    {parameters}\n    k::term![{subject}]: k::Term<Stmt>,\n) {{}}\n"
+        )
+    };
+    let readable = |sort: &str, attributes: &str, clause: &str| {
+        format!(
+            "{fixture}k::rules! {{\n    for {sort};\n    use Cmd::*;\n    {attributes}probe: {clause};\n}}\n"
+        )
+    };
+    let rows = [
+        ("cells/field-subject", cells("x: Int,", "", &format!("k: {kk}(Cmd::Keep {{ body: Cmd::Make {{ x }} }}, ..), acc: {cc}(k::rewrite!(_ => x))")), "probe"),
+        ("cells/field-rewrite", cells("b: KSequence,", "", &format!("k: {kk}(Cmd::Keep {{ body: k::rewrite!(b => Cmd::Make {{ x: 1 }}) }}, ..)")), "probe"),
+        ("cells/item-rewrite", cells("x: Int,", "", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => Cmd::Keep {{ body: Cmd::Make {{ x }} }}), ..)")), "probe"),
+        ("cells/declared-binder", cells("s: Stmt,", "", &format!("k: {kk}(k::rewrite!(Cmd::Wrap {{ s }} => Cmd::Keep {{ body: s }}), ..)")), "probe"),
+        ("cells/int-binder", cells("x: Int,", "", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => Cmd::Keep {{ body: x }}), ..)")), "probe"),
+        ("cells/parametric", cells("b: KSequence,", "", &format!("k: {kk}(k::rewrite!(Cmd::Keep {{ body: b }} => Cmd::Wrap {{ s: Duo {{ a: Cmd::Make {{ x: 1 }}, b }} }}), ..)")), "probe"),
+        ("cells/result", with_result("rule(", "Cmd::Keep { body: Cmd::Make { x } }"), "probe"),
+        ("cells/claim", with_result("claim(all_paths, ", "Cmd::Keep { body: Cmd::Make { x } }"), "probe"),
+        ("term/subject", term("x: Int,", "Cmd::Keep { body: k::rewrite!(Cmd::Make { x } => Cmd::Make { x: 1 }) }"), "probe"),
+        ("term/right", term("b: KSequence,", "Cmd::Keep { body: k::rewrite!(b => Cmd::Make { x: 1 }) }"), "probe"),
+        ("readable/for-stmt", readable("Stmt", "", "Make { x } => Keep { body: Make { x } }"), "probe"),
+        ("readable/result", readable("Machine", "", "{ k: [Make { x }, ..] } => { k: [Keep { body: Make { x } }, ..] }"), "probe"),
+        ("readable/subject", readable("Machine", "", "{ k: [Keep { body: Make { x } }, ..], acc: _ } => { k: [..], acc: x }"), "probe"),
+        ("readable/inferred-binder", readable("Machine", "", "{ k: [Wrap { s }, ..] } => { k: [Keep { body: s }, ..] }"), "probe"),
+        ("readable/claim", format!("{fixture}k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(all_paths)]\n    probe: {{ k: [Make {{ x }}, ..] }} => {{ k: [Keep {{ body: Make {{ x }} }}, ..] }};\n}}\n"), "probe"),
+        ("argument/cells", cells("x: Int,\n    a: Int,", "", &format!("k: {kk}(Cmd::Make {{ x }}, ..), acc: {cc}(k::rewrite!(a => Run(Cmd::Make {{ x }})))")), "probe"),
+        ("argument/readable", readable("Machine", "", "{ k: [Make { x }, ..], acc: _ } => { k: [..], acc: Run(Make { x }) }"), "probe"),
+        ("argument/equation-subject", fixture.clone(), "run ( make"),
+        ("function-body/field", format!("{fixture}#[k::function(total, internal)]\npub fn Wrapped(s: k::Term<Stmt>) -> k::Term<Stmt> {{\n    k::term![Cmd::Keep {{ body: s }}]\n}}\n"), "wrapped"),
+        ("function-body/argument", format!("{fixture}#[k::function(total, internal)]\npub fn Twice(x: k::Term<Int>) -> k::Term<Int> {{\n    k::term![Run(Cmd::Make {{ x }})]\n}}\n"), "twice"),
+        ("requires/cells", cells("x: Int,\n    a: Int,", "#[k::requires(int::eq(Run(Cmd::Make { x }), 0))]\n", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => ()), ..), acc: {cc}(k::rewrite!(a => x))")), "probe"),
+        ("requires/readable", readable("Machine", "#[k::requires(int::eq(Run(Make { x }), 0))]\n    ", "{ k: [Make { x }, ..] } => { k: [..] }"), "probe"),
+        ("requires/a-bool-place", cells("x: Int,\n    a: Int,", "#[k::requires(Cmd::Make { x })]\n", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => ()), ..), acc: {cc}(k::rewrite!(a => x))")), "probe"),
+        ("sequence/k-item-beside-an-item", cells("x: Int,\n    b: KSequence,", "", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(b => Cmd::Make {{ x: 1 }})), acc: {cc}(k::rewrite!(_ => x))")), "probe"),
+        ("map-value/stmt", cells("", "", &format!("kmap: {cc}(map![1 -> k::rewrite!(_ => Cmd::Make {{ x: 2 }}), ..])")), "probe"),
+        ("map-value/k-binder", readable("Machine", "", "{ k: [Keep { body: b }, ..], kmap: m } => { k: [..], kmap: map::update(m, 1, b) }"), "probe"),
+    ]
+    .map(|(name, source, needle)| {
+        let source = source.replace("use k::builtin::{Int, KSequence, List, Map, list, map};", "use k::builtin::{Int, KSequence, List, Map, int, list, map};");
+        let manifest = library_package(temporary.path(), &format!("item-at-k-{}", name.replace('/', "-")), &source);
+        format!("{name}: {}", sentences_or_error(target.path(), &manifest, needle))
+    });
+    expect_test::expect![[r"
+        cells/field-subject: passed: rule [probe]: <k> keep ( make ( X:Int ) ) ... </k> <acc> _ => X:Int </acc>
+        cells/field-rewrite: passed: rule [probe]: <k> keep ( (B:K => make ( 1 )) ) ... </k>
+        cells/item-rewrite: passed: rule [probe]: <k> (make ( X:Int ) => keep ( make ( X:Int ) )) ... </k>
+        cells/declared-binder: passed: rule [probe]: <k> (wrap ( S:Stmt ) => keep ( S:Stmt )) ... </k>
+        cells/int-binder: passed: rule [probe]: <k> (make ( X:Int ) => keep ( X:Int )) ... </k>
+        cells/parametric: passed: rule [probe]: <k> (keep ( B:K ) => wrap ( duo ( make ( 1 ) , B:K ) )) ... </k>
+        cells/result: passed: rule [probe]: <k> make ( X:Int ) ~> Tail:K => keep ( make ( X:Int ) ) ~> Tail:K </k>
+        cells/claim: passed: claim [probe]: <k> make ( X:Int ) ~> Tail:K => keep ( make ( X:Int ) ) ~> Tail:K </k>
+        term/subject: passed: rule keep ( (make ( X:Int ) => make ( 1 )) ) [label(probe)]
+        term/right: passed: rule keep ( (B:K => make ( 1 )) ) [label(probe)]
+        readable/for-stmt: passed: rule [probe]: <k> make ( X:Int ) => keep ( make ( X:Int ) ) ... </k>
+        readable/result: passed: rule [probe]: <k> make ( X:Int ) => keep ( make ( X:Int ) ) ... </k>
+        readable/subject: passed: rule [probe]: <k> keep ( make ( X:Int ) ) => .K ... </k> <acc> _ => X:Int </acc>
+        readable/inferred-binder: passed: rule [probe]: <k> wrap ( S:Stmt ) => keep ( S:Stmt ) ... </k>
+        readable/claim: passed: claim [probe]: <k> make ( X:Int ) => keep ( make ( X:Int ) ) ... </k>
+        argument/cells: passed: rule [probe]: <k> make ( X:Int ) ... </k> <acc> A:Int => run ( make ( X:Int ) ) </acc>
+        argument/readable: passed: rule [probe]: <k> make ( X:Int ) => .K ... </k> <acc> _ => run ( make ( X:Int ) ) </acc>
+        argument/equation-subject: passed: rule run ( make ( X:Int ) ) => X:Int [label(org_krs_nested--run)]
+        function-body/field: passed: rule wrapped ( S:Stmt ) => keep ( S:Stmt ) [label(org_krs_nested--wrapped)]
+        function-body/argument: passed: rule twice ( X:Int ) => run ( make ( X:Int ) ) [label(org_krs_nested--twice)]
+        requires/cells: passed: rule [probe]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc> requires run ( make ( X:Int ) ) ==Int 0
+        requires/readable: passed: rule [probe]: <k> make ( X:Int ) => .K ... </k> requires run ( make ( X:Int ) ) ==Int 0
+        requires/a-bool-place: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): application result sort ORG-KRS-NESTED::Stmt (sort) is not admissible at sort Bool @ 106:15
+        sequence/k-item-beside-an-item: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a K sequence item of sort `K` is a sequence of any length, which stands beside items of other sorts only in a rule result, where it splices into the sequence @ 109:44
+        map-value/stmt: error[krs::native::compile]: native frontend stage add sort injections failed: src/lib.rs: (origin: concretize-cells) term _Krs_Wildcard0 has sort K, which is not a subsort of the sort KItem its position requires @ unlocated
+        map-value/k-binder: error[krs::native::compile]: native frontend stage add sort injections failed: src/lib.rs: (origin: concretize-cells) term B has sort K, which is not a subsort of the sort KItem its position requires @ unlocated"]].assert_eq(&rows.join("\n"));
+    // `wrap` keeps the item in a `K` field and evaluates `Run` over it (an equation whose left
+    // side holds the item at `K`); `open` matches the field's one-item sequence.
+    let manifest = library_package(
+        temporary.path(),
+        "item-at-k-run",
+        &format!(
+            "{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    wrap: {{ k: [Make {{ x }}, ..], acc: _ }} => {{ k: [Keep {{ body: Make {{ x }} }}, ..], acc: Run(Make {{ x }}) }};\n}}\n\n#[k::rule(label = \"open\")]\npub fn open(\n    k::cells! {{ k: {kk}(k::rewrite!(Cmd::Keep {{ body: Cmd::Make {{ x: 1 }} }} => ()), ..), acc: {cc}(k::rewrite!(1 => 2)), .. }}: Machine,\n) {{}}\n"
+        ),
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "make(1)").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <kmap> .Map </kmap> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }

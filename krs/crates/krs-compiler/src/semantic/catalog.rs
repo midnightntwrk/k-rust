@@ -89,7 +89,10 @@ pub(super) fn build_semantic_sort_parents(
     // sort, so a whole-group binder (`FrameCell`, KF-016) and a term of any
     // sort may stand wherever a `KItem` is expected. Without these edges a
     // binder's meet with a `KItem` occurrence is narrower than in the emitted
-    // K, and the rule applies to fewer terms than the author wrote.
+    // K, and the rule applies to fewer terms than the author wrote. A `KItem`
+    // is a `K`, the sequence of that one item, so a term of any sort is also a
+    // value of a place of sort `K`; lowering writes it there as that sequence
+    // ([`super::infer::StructuredTermBuilder::at_place`]).
     let k_item = descriptors
         .iter()
         .map(|descriptor| descriptor.id())
@@ -127,6 +130,10 @@ pub(super) fn build_semantic_sort_parents(
             }
             parents.entry(sort).or_default().insert(k_item.clone());
         }
+        parents
+            .entry(k_item)
+            .or_default()
+            .insert(SemanticSortRef::k_sequence());
     }
     parents
 }
@@ -260,7 +267,9 @@ pub(super) struct DeclarationCatalog<'a> {
 ///
 /// In a rule result (`splice`), an item of sort `K` (`io::write`, `io::putc`, `io::log`)
 /// splices into the sequence as K's `~>` does: the sequence's items then have sort `K`, and
-/// every other item injects into `KItem`. A pattern keeps the single common sort.
+/// every other item injects into `KItem`. A pattern keeps the single common sort, and an item of
+/// sort `K` there stands alone or beside other `K` items only: every item is a `K`, but a `K`
+/// item is a sequence of any length, and beside an item of another sort no one length is its.
 /// Every sort but `K` is a `KItem`, so items of unrelated sorts, such as an
 /// `Int` value followed by a frame, have the common sort `KItem`; only when
 /// they have no one most-specific common sort at all (a definition without
@@ -280,6 +289,17 @@ pub(super) fn common_sequence_item_sort(
     if splice && k_item {
         return Ok(SemanticSortRef::k_sequence());
     }
+    if k_item
+        && items
+            .iter()
+            .any(|item| *item.sort() != SemanticSortRef::k_sequence())
+    {
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            "a K sequence item of sort `K` is a sequence of any length, which stands beside \
+                 items of other sorts only in a rule result, where it splices into the sequence",
+        ));
+    }
     let mut common = semantic_sort_closure(items[0].sort(), parents);
     for item in &items[1..] {
         let candidates = semantic_sort_closure(item.sort(), parents);
@@ -295,14 +315,7 @@ pub(super) fn common_sequence_item_sort(
         .cloned()
         .collect::<Vec<_>>();
     let [item_sort] = most_specific.as_slice() else {
-        if !k_item {
-            return Ok(SemanticSortRef::k_sequence());
-        }
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            "K sequence items do not have one most-specific common sort; a `K` item splices \
-                 into a sequence only in a rule result",
-        ));
+        return Ok(SemanticSortRef::k_sequence());
     };
     Ok(item_sort.clone())
 }

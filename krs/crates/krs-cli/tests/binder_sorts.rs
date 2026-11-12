@@ -615,13 +615,13 @@ fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
                         "use WrapSyntax::*;\n    probe: { k: [Wrap { body: b }, b, Skip(), ..] } => { k: [..] };"
                     ),
                 ),
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): K sequence items do not have one most-specific common sort; a `K` item splices into a sequence only in a rule result".to_owned(),
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): a K sequence item of sort `K` is a sequence of any length, which stands beside items of other sorts only in a rule result, where it splices into the sequence".to_owned(),
                 "k",
             ),
             (
                 "cells-sequence",
                 "#[k::constructors(sort = Stmt, result = KResult)]\n#[k::precedence((Wrap))]\npub enum WrapSyntax {\n    #[k::syntax(\"wrap ( {body} )\")]\n    Wrap { body: KSequence },\n}\n\n#[k::rule(label = \"probe\")]\npub fn probe(\n    b: Term<KSequence>,\n    k::cells! { k: k::configuration::KCell(WrapSyntax::Wrap(b), b, StmtSyntax::Skip(), tail @ ..), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n".to_owned(),
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): K sequence items do not have one most-specific common sort; a `K` item splices into a sequence only in a rule result".to_owned(),
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): a K sequence item of sort `K` is a sequence of any length, which stands beside items of other sorts only in a rule result, where it splices into the sequence".to_owned(),
                 "WrapSyntax::Wrap(b), b, StmtSyntax::Skip(), tail @ ..",
             ),
         ],

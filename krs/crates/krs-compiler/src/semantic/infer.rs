@@ -1030,7 +1030,8 @@ impl StructuredTermBuilder<'_> {
                         )
                     })?,
                 };
-                (sort, to)
+                // At the join `K`, a side of a sort below it is its one-item sequence.
+                (sort.clone(), Self::at_place(to, Some(&sort)))
             }
             // A whole K-sequence item keeps the removed item's sort. Anywhere else the rewrite
             // has its place's sort, or, where the place states none (a parametric field whose
@@ -1062,6 +1063,7 @@ impl StructuredTermBuilder<'_> {
                 ),
             ),
         };
+        let from = Self::at_place(from, Some(&sort));
         Ok(SemanticTerm::rewrite(
             semantic_origin(self.descriptor, key.clone(), "rule-local-rewrite")?,
             sort,
@@ -1803,6 +1805,10 @@ impl StructuredTermBuilder<'_> {
                 ),
             ));
         };
+        // At the join `K`, an alternative of a sort below it is its one-item sequence.
+        let lowered = lowered.try_map(|alternative| {
+            Ok::<_, DescriptorLoweringError>(Self::at_place(alternative, Some(sort)))
+        })?;
         Ok(SemanticTerm::pattern_or(
             semantic_origin(self.descriptor, key.clone(), "term-pattern-or")?,
             sort.clone(),
@@ -2717,11 +2723,36 @@ impl StructuredTermBuilder<'_> {
         }
     }
 
+    /// Lowers `term` as a value of its place, of sort `expected_sort` ([`Self::at_place`]).
+    fn lower_term(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let lowered = self.lower_construct(term, expected_sort, subject)?;
+        Ok(Self::at_place(lowered, expected_sort))
+    }
+
+    /// `term` as a value of a place of sort `expected`. A `KItem` is a `K`, the sequence of that
+    /// one item, so a term of a sort below `K` that inference admits at a place of sort `K` (a
+    /// field, an argument, a typed element) is that sequence there: `keep(make(X))` holds the
+    /// one-item computation `make(X)`. Every other term is its own value.
+    fn at_place(term: SemanticTerm, expected: Option<&SemanticSortRef>) -> SemanticTerm {
+        let k = SemanticSortRef::k_sequence();
+        if expected != Some(&k) || *term.sort() == k {
+            return term;
+        }
+        let origin = super::origin::rendered_copy(term.origin(), "~k-item");
+        let item_sort = term.sort().clone();
+        SemanticTerm::k_sequence(origin, item_sort, vec![term])
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Exhaustive lowering over the closed descriptor term sum."
     )]
-    fn lower_term(
+    fn lower_construct(
         &mut self,
         term: &DescriptorTerm,
         expected_sort: Option<&SemanticSortRef>,
@@ -4546,6 +4577,16 @@ impl StructuredTermBuilder<'_> {
         // no bound from the item, and a wildcard has no sort of its own to bound the instance,
         // so both keep the strict cast.
         let instance_fixed = head && !(self.head_place == HeadPlace::SequenceItem && at_k_item);
+        // An argument at a position of a parameter its instance solves at `K` is a value of `K`
+        // there ([`Self::at_place`]).
+        let lowered = lowered
+            .into_iter()
+            .zip(&signature.fields)
+            .map(|(argument, (_, sort))| {
+                let sort = Self::instantiate(signature, sort, &solved_instance);
+                Self::at_place(argument, Some(&sort))
+            })
+            .collect();
         Ok(SemanticTerm::parametric_application(
             semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,
             result_sort,

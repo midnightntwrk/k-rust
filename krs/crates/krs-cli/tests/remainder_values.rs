@@ -319,8 +319,9 @@ fn first_error(target: &Path, manifest: &Path) -> String {
 }
 
 /// A bound remainder the rule neither puts back nor uses, of the
-/// computation or of a map, the configuration remainder as a term, and one
-/// item or a sequence literal at a `K` field are refused.
+/// computation or of a map, the configuration remainder as a term, and a
+/// sequence literal at a `K` field are refused. One item at a `K` field is
+/// that field's one-item sequence (ITEMSORTS): a `KItem` is a `K`.
 #[test]
 fn remainders_the_rule_cannot_write_are_refused() {
     let target = shared_fixture_target();
@@ -370,16 +371,6 @@ pub fn whole(
 "#,
         ),
         (
-            "one-item",
-            r"
-k::rules! {
-    for Machine;
-    use Cmd::*;
-    one: { k: [Keep(), ..], stack: s } => { k: [..], stack: [WrapK { body: Bump() }, ..s] };
-}
-",
-        ),
-        (
             "sequence-literal",
             r"
 k::rules! {
@@ -399,11 +390,33 @@ k::rules! {
             "dropped: error[krs::syntax::invalid-list-notation]: the subject names the rest of the computation `..tail`, and the result neither puts it back with `..tail` nor uses it, so the rule would drop it: put it back with `..tail`, or use it in a condition",
             "dropped-map: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
             "state-term: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a result can write",
-            "one-item: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-REMAINDER-VALUES::one (rule): application result sort ORG-KRS-REMAINDER-VALUES::Stmt (sort) is not admissible at sort K",
             "sequence-literal: error[krs::syntax::unsupported-term-expression]: unsupported term expression: macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands",
         ]
     "#]]
     .assert_debug_eq(&errors);
+    let manifest = package(
+        temporary.path(),
+        "one-item",
+        &format!(
+            "{PREAMBLE}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    one: {{ k: [Keep(), ..], stack: s }} => {{ k: [..], stack: [WrapK {{ body: Bump() }}, ..s] }};\n}}\n"
+        ),
+    );
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let k = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
+    expect_test::expect![[r"
+        rule [one]:
+            <k> keep => .K ... </k>
+            <stack> S:List => ListItem(wrapk ( bump )) S:List </stack>"]]
+    .assert_eq(rule(&k, "one"));
 }
 
 /// A result remainder that reuses a subject frame of another kind, here the configuration's

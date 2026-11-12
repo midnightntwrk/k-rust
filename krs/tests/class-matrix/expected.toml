@@ -945,13 +945,6 @@ match = 'init/env/{0,Frame \{ ret: 0 \},Job \{ payload: 0 \},list::empty(),pgm}'
 class = "content-sort"
 at = "spelling"
 
-# A computation item is a `Stmt`, which is not below `KSequence`: a leaf of that sort holds no
-# item alone.
-[[refuse]]
-match = 'init/k-leaf/Cmd::Go()'
-class = "content-sort"
-at = "spelling"
-
 [[refuse]]
 match = 'init/frame/{0,Job \{ payload: 0 \},k::builtin::map::empty(),k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, pgm\, 1)\, 0\, 2),list::empty(),pgm}'
 class = "content-sort"
@@ -1221,10 +1214,11 @@ match = 'init/k/{[0],[],k::k![0],k::k![]}'
 class = "unused-configuration-variable"
 at = "item"
 
-# COHERE R2-3: a leaf of sort `KSequence` starts holding the sequence `k::k![..]` lists, admitted;
+# COHERE R2-3: a leaf of sort `KSequence` starts holding the sequence `k::k![..]` lists, admitted,
+# and ITEMSORTS: one item alone, a `KItem`, is a `K`, the sequence of that item, admitted too;
 # the base's `SAVED` input, which only the default `saved: saved` reads, is then read by no cell.
 [[refuse]]
-match = 'init/k-leaf/{k::k![Cmd::Go()],k::k![]}'
+match = 'init/k-leaf/{k::k![Cmd::Go()],k::k![],Cmd::Go()}'
 class = "unused-configuration-variable"
 at = "item"
 
