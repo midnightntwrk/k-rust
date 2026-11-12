@@ -32,13 +32,7 @@ const [z, s, run] = [sym('z'), sym('s'), sym('run')]
 const state = srt('State')
 
 const worked = checked('terms')
-const workedTerm = textSource('worked by hand', [
-  '-- run(s(N)), with N as variable 0',
-  `.app ${run} [.app ${s} [.var 0]]`,
-  '',
-  '-- s(N) #as V, with V as variable 1',
-  `.as (.app ${s} [.var 0]) 1`,
-].join('\n'))
+const workedTerm = checked('rule0')
 const workedSubst = textSource('worked by hand', [
   '-- run(s(s(z))) against run(s(N)): N is s(z)',
   `[(0, .ctor ${s} [.ctor ${z} []])]`,
@@ -130,7 +124,7 @@ export const terms1: Lesson = {
       title: 'Terms with variables',
       panes: [
         { id: 't', label: 'KcoreSpec/Core.lean', source: terms, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedTerm, lang: 'lean' },
+        { id: 'w', label: checkedLabel, source: workedTerm, lang: 'lean' },
       ],
       frames: [
         {
@@ -139,12 +133,12 @@ export const terms1: Lesson = {
           say: "A rule's sides are not ground: they have variables. `Term` is a tree that may have them.",
         },
         {
-          hl: { t: [at(terms, '| app (f : Sym)')], w: [at(workedTerm, '.app')] },
-          notes: [note('t', at(terms, '| app (f : Sym)'), 'A symbol applied to arguments: a constructor or a function.', 'app'), note('w', at(workedTerm, '.app'), 'The k cell of the first rule\'s left side.', '.app')],
+          hl: { t: [at(terms, '| app (f : Sym)')], w: [at(workedTerm, '.app Sym.«run»')] },
+          notes: [note('t', at(terms, '| app (f : Sym)'), 'A symbol applied to arguments: a constructor or a function.', 'app'), note('w', at(workedTerm, '.app Sym.«run»'), 'The k cell of the first rule\'s left side: `run` applied to `s(N)`.', '.app Sym.«run»')],
         },
         {
-          hl: { t: [at(terms, '| as (t : Term) (i : Nat)')], w: [at(workedTerm, '.as')] },
-          notes: [note('t', at(terms, '| as (t : Term) (i : Nat)'), 'An alias: the term, and a variable naming what it matched.', 'as'), note('w', at(workedTerm, '.as'), "The prologue's KORE wrote this as `\\and` of `s(N)` and a fresh variable.", '.as')],
+          hl: { t: [at(terms, '| as (t : Term) (i : Nat)')], w: [at(workedTerm, '.as (')] },
+          notes: [note('t', at(terms, '| as (t : Term) (i : Nat)'), 'An alias: the term, and a variable naming what it matched.', 'as'), note('w', at(workedTerm, '.as ('), "The prologue's KORE wrote this as `\\and` of `s(N)` and a fresh variable.", '.as')],
         },
         {
           hl: { t: [at(terms, '| inj (a b : Srt) (t : Term)'), at(terms, '| dv (s : Srt) (lit : Lit)')] },
@@ -185,7 +179,7 @@ export const terms1: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`.`,
-    `The pane headed “${checkedLabel}” states its facts in Lean; Lean's kernel checked them against peano's package.`,
+    `The panes headed “${checkedLabel}” state their facts in Lean; Lean's kernel checked them against peano's package.`,
     "The panes headed “Worked by hand” are derived from those definitions and from peano's numbers in `Names.lean`. Lean did not compute them.",
   ],
 }
