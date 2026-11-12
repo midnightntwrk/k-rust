@@ -393,13 +393,23 @@ pub(super) fn with_group_records(
                 let State::Record(record) = &cell.value else {
                     unreachable!("matched as a record above")
                 };
+                let mut held = Vec::new();
                 if !kept
-                    && let Some(term) =
-                        super::cell_states::group_state_term(&cell.value, on_subject, declarations)
+                    && let Some(term) = super::cell_states::group_state_term(
+                        &cell.value,
+                        on_subject,
+                        declarations,
+                        &mut held,
+                    )
                 {
                     let index = if on_subject { subject } else { result }
                         .expect("the cell was found at an index");
                     cell_mut(&mut rule, index, on_subject).value = State::Group(term);
+                    super::cell_states::declare_map_rests(
+                        &mut rule.bindings,
+                        &held,
+                        &rule.pattern_key,
+                    );
                     termed = true;
                     break;
                 }
@@ -492,6 +502,7 @@ fn present_group_terms(
     rule: &mut krs_ir::DescriptorConfigurationRule,
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
+    let mut held = Vec::new();
     let result_cells = rule.result.iter_mut().flat_map(|result| &mut result.cells);
     for (cell, on_subject) in rule
         .subject
@@ -517,7 +528,8 @@ fn present_group_terms(
         };
         // A map child's entries are the map term they are ([`super::cell_states::map_term`]).
         let state = State::Record(record.clone());
-        let Some(term) = super::cell_states::group_state_term(&state, on_subject, declarations)
+        let Some(term) =
+            super::cell_states::group_state_term(&state, on_subject, declarations, &mut held)
         else {
             let (child, entry) = no_term_entry(
                 descriptor,
@@ -538,6 +550,7 @@ fn present_group_terms(
         };
         **value = State::Group(term);
     }
+    super::cell_states::declare_map_rests(&mut rule.bindings, &held, &rule.pattern_key);
     Ok(())
 }
 
@@ -560,8 +573,14 @@ fn no_term_entry(
     let (child, why) = super::cell_states::no_term_child(record, on_subject, declarations)
         .unwrap_or(("?", NoTerm::Other));
     let entry = match why {
-        NoTerm::MapOverRest => {
-            "entries over a map rest it keeps, which a term would hold as a map concatenation, and the Semantic IR has no map concatenation"
+        NoTerm::UnnamedRest => {
+            return Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!(
+                    "the result writes the child `{child}` as a map over an anonymous `..`, which names no map in a result: a result's map is written over a map it names, `k::map![k -> v, ..r]` with `r` the subject's `r @ ..`, or the child is left out of the record to keep it"
+                ),
+            )
+            .within(descriptor.id(), key_range(descriptor, key).as_ref()));
         }
         NoTerm::Computation => "a computation's items, which no term of the group holds yet",
         NoTerm::NotMapSort => {

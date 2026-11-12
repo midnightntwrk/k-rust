@@ -3592,7 +3592,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence(cmd (M1, M2, M3, M4, O1, O2, O3, O4, A1, Mk) > right seq (Seq))]
+#[k::precedence(cmd (M1, M2, M3, M4, O1, O2, O3, O4, O5, O6, O7, A1, Mk) > right seq (Seq))]
 #[rustfmt::skip]
 pub enum Cmd {
     #[k::syntax("m1 {x}")] M1 { x: Int },
@@ -3603,6 +3603,9 @@ pub enum Cmd {
     #[k::syntax("o2 {x}")] O2 { x: Int },
     #[k::syntax("o3 {x}")] O3 { x: Int },
     #[k::syntax("o4 {x}")] O4 { x: Int },
+    #[k::syntax("o5 {x}")] O5 { x: Int },
+    #[k::syntax("o6 {x}")] O6 { x: Int },
+    #[k::syntax("o7 {x}")] O7 { x: Int },
     #[k::syntax("a1 {x}")] A1 { x: Int },
     #[k::syntax("mk")] Mk(),
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
@@ -3771,6 +3774,21 @@ fn o4(x: Int, k::cells! { k: k::configuration::KCell(Cmd::O4 { x }, tail @ ..), 
     k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![..r], ov: x }]), ..state }
 }
 
+#[k::rule(label = "o5")]
+fn o5(x: Int, v: Int, k::cells! { k: k::configuration::KCell(Cmd::O5 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![0 -> v, r @ ..], .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![0 -> x, ..r], .. }]), ..state }
+}
+
+#[k::rule(label = "o6")]
+fn o6(x: Int, v: Int, k::cells! { k: k::configuration::KCell(Cmd::O6 { x }, tail @ ..), og: Some(k::fragment![crate::Og { om: k::map![1 -> v, r @ ..], .. }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), og: Some(k::fragment![crate::Og { om: k::map![1 -> v, 0 -> x, ..r], .. }]), ..state }
+}
+
+#[k::rule(label = "o7")]
+fn o7(x: Int, v: Int, w: Int, c: Int, k::cells! { k: k::configuration::KCell(Cmd::O7 { x }, tail @ ..), o2g: Some(k::fragment![crate::M2g { ma: k::map![0 -> v], mb: k::map![1 -> w, r @ ..], mc: c }]), state @ .. }: Machine) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), o2g: Some(k::fragment![crate::M2g { ma: k::map![0 -> x], mb: k::map![1 -> x, ..r], mc: c }]), ..state }
+}
+
 #[k::rule(label = "a1")]
 fn a1(
     x: Int,
@@ -3814,8 +3832,10 @@ fn a1(
             "{label}"
         );
     }
-    let emitted = ["m1", "m2", "o1", "m3", "m4", "o2", "o3", "o4", "a1"]
-        .map(|label| without_k(&cells_k, label));
+    let emitted = [
+        "m1", "m2", "o1", "m3", "m4", "o2", "o3", "o4", "o5", "o6", "o7", "a1",
+    ]
+    .map(|label| without_k(&cells_k, label));
     expect_test::expect![[r#"
         [
             "(<mg> <mm> _ </mm> <mv> MMv:Int </mv> </mg> => <mg> <mm> .Map [ 0 <- X:Int ] </mm> <mv> MMv:Int </mv> </mg>)",
@@ -3826,6 +3846,9 @@ fn a1(
             "(<og> <om> 0 |-> V:Int </om> <ov> _ </ov> </og> => .Bag)",
             "(<og> <om> _ </om> <ov> _ </ov> </og> => .Bag)",
             "(<og> <om> R:Map </om> <ov> _ </ov> </og> => <og> <om> R:Map </om> <ov> X:Int </ov> </og>)",
+            "(<og> <om> 0 |-> V:Int R:Map </om> <ov> OgOv:Int </ov> </og> => <og> <om> R:Map [ 0 <- X:Int ] </om> <ov> OgOv:Int </ov> </og>)",
+            "(<og> <om> 1 |-> V:Int R:Map </om> <ov> OgOv:Int </ov> </og> => <og> <om> R:Map [ 1 <- V:Int ] [ 0 <- X:Int ] </om> <ov> OgOv:Int </ov> </og>)",
+            "(<o2g> <ma> 0 |-> V:Int </ma> <mb> 1 |-> W:Int R:Map </mb> <mc> C:Int </mc> </o2g> => <o2g> <ma> .Map [ 0 <- X:Int ] </ma> <mb> R:Map [ 1 <- X:Int ] </mb> <mc> C:Int </mc> </o2g>)",
             "<acct> (<aframe> <am> ( 0 |-> V:Int _ #as MeAframeAm:Map ) </am> <aa> _ </aa> </aframe> => <aframe> <am> MeAframeAm:Map </am> <aa> X:Int </aa> </aframe>) ... </acct>",
         ]
     "#]]
@@ -3849,19 +3872,25 @@ fn a1(
             assert!(end.contains("<am> 0 |-> 3 </am> <aa> 9 </aa>"), "{end}");
         }
     }
-    // A result's entries over a kept rest are no term, and a present group is written as one
-    // term: the stated limit names that child, after an exact map child that is a term; a map
-    // on a child of another sort is the author's mistake.
+    // A result's entries over the rest the subject names are written over it: `o6 3` writes key 0
+    // over the rest beside the matched key 1, and `o5 9` writes key 0 again over the rest it leaves,
+    // which keeps key 1, and the group's other child.
+    let file = cells.with_file_name("program.txt");
+    fs::write(&file, "o6 3 o5 9").unwrap();
+    let (success, stdout, stderr) = krs(target.path(), &cells, "run", &[file.to_str().unwrap()]);
+    assert!(success, "{stdout}\n{stderr}");
+    let end = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        end.contains("<og> <om> 0 |-> 9 1 |-> 2 </om> <ov> 6 </ov> </og>"),
+        "{end}"
+    );
+    // A result's map over an anonymous `..` names no map, as on the child's own cell; a map on a
+    // child of another sort is the author's mistake.
     let refused = [
         (
-            "rest",
-            "og: Some(k::fragment![crate::Og { om: k::map![0 -> v, r @ ..], .. }])",
-            "og: Some(k::fragment![crate::Og { om: k::map![0 -> x, ..r], .. }])",
-        ),
-        (
-            "second-child",
-            "o2g: Some(k::fragment![crate::M2g { ma: k::map![0 -> v], mb: k::map![1 -> v, r @ ..], mc: v }])",
-            "o2g: Some(k::fragment![crate::M2g { ma: k::map![0 -> x], mb: k::map![1 -> x, ..r], mc: v }])",
+            "unnamed-rest",
+            "og: Some(k::fragment![crate::Og { om: k::map![0 -> v, ..], .. }])",
+            "og: Some(k::fragment![crate::Og { om: k::map![..], ov: 1 }])",
         ),
         (
             "sort",
@@ -3886,12 +3915,8 @@ fn a1(
     expect_test::expect![[r#"
         [
             (
-                "rest",
-                "error[krs::analysis::collection-entry]: not supported yet: the present group `og` is written whole, as one term naming every child, and its record writes the child `om` as entries over a map rest it keeps, which a term would hold as a map concatenation, and the Semantic IR has no map concatenation",
-            ),
-            (
-                "second-child",
-                "error[krs::analysis::collection-entry]: not supported yet: the present group `o2g` is written whole, as one term naming every child, and its record writes the child `mb` as entries over a map rest it keeps, which a term would hold as a map concatenation, and the Semantic IR has no map concatenation",
+                "unnamed-rest",
+                "error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `map![k -> v, ..]`, and a readable record with `{ k -> v, .. }`",
             ),
             (
                 "sort",

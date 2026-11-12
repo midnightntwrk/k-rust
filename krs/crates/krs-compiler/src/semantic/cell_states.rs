@@ -895,45 +895,8 @@ pub(super) fn with_present_groups(
     Ok(changed.then_some((stated, rebuilt)))
 }
 
-/// `rule` with each map rest binding a term holds declared as the term of the builtin `Map` sort
-/// it is; `None` where none is.
-///
-/// A map pattern's named rest, `k::map![k -> v, r @ ..]`, binds the rest of the map, a value of
-/// the `Map` sort, which a map cell's entry binds as its frame. Where the map is a group's child
-/// and the group is written as one term ([`map_term`]), the rest is a variable of the subject's
-/// term: the same value, bound by the term. A frame no subject term names keeps its kind (a result
-/// reads a frame's value as it is).
-pub(super) fn with_map_rests_as_terms(
-    rule: &krs_ir::DescriptorConfigurationRule,
-) -> Option<krs_ir::DescriptorConfigurationRule> {
-    let held = rule
-        .bindings
-        .iter()
-        .filter(|binding| {
-            matches!(binding.kind, krs_ir::ProtocolRuleBindingKind::MapFrame)
-                && variable_occurrences(&rule.subject, &binding.name) > 0
-        })
-        .map(|binding| binding.name.clone())
-        .collect::<BTreeSet<_>>();
-    if held.is_empty() {
-        return None;
-    }
-    let mut retyped = rule.clone();
-    for binding in &mut retyped.bindings {
-        if held.contains(&binding.name) {
-            binding.kind = krs_ir::ProtocolRuleBindingKind::Term {
-                sort: krs_ir::DescriptorSortReference {
-                    key: rule.pattern_key.clone(),
-                    sort: krs_ir::DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Map),
-                },
-            };
-        }
-    }
-    Some(retyped)
-}
-
-/// How many times the terms of `rule`, a rule or a part of one, read or bind the variable `name`.
-fn variable_occurrences(rule: &impl serde::Serialize, name: &str) -> usize {
+/// How many times the rule's terms read or bind the variable `name`.
+fn variable_occurrences(rule: &krs_ir::DescriptorConfigurationRule, name: &str) -> usize {
     fn walk(value: &serde_json::Value, name: &str) -> usize {
         match value {
             serde_json::Value::Object(object) => {
@@ -992,6 +955,8 @@ pub(super) fn with_implicit_bases_in_head_rule(
             _ => {}
         }
     }
+    // A head rule lists no binders: each variable, a map rest a group term holds included, is
+    // typed where it occurs.
     Ok(bases.changed.then_some(rewritten))
 }
 
@@ -1023,6 +988,7 @@ pub(super) fn with_implicit_bases(
             .map(|matched| &mut matched.value);
         bases.state(declared, matched, &mut cell.value)?;
     }
+    declare_map_rests(&mut rewritten.bindings, &bases.held, &rule.pattern_key);
     Ok(bases.changed.then_some(rewritten))
 }
 
@@ -1046,6 +1012,9 @@ struct ImplicitBases<'a, 'b> {
     /// Every name the sentence holds, its binders' included, and each base name given so far.
     taken: BTreeSet<String>,
     changed: bool,
+    /// The named map rests of the subject's group terms written so far, each a variable of its
+    /// term, which the sentence declares as a term ([`declare_map_rests`]).
+    held: Vec<String>,
 }
 
 impl<'a, 'b> ImplicitBases<'a, 'b> {
@@ -1079,6 +1048,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             declarations,
             taken,
             changed: false,
+            held: Vec::new(),
         }
     }
 
@@ -1163,7 +1133,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             };
             if !matches!(child.content, ProtocolCellContent::Nested { .. })
                 || declared_multiplicity(child, self.declarations) != Multiplicity::One
-                || !group_state_term(&field.value, false, self.declarations)
+                || !group_state_term(&field.value, false, self.declarations, &mut Vec::new())
                     .is_some_and(|term| self.needs_base(&term))
             {
                 continue;
@@ -1243,16 +1213,19 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
             }
             return Ok(());
         }
-        let Some(mut result_term) = group_state_term(result, false, self.declarations) else {
+        let Some(mut result_term) =
+            group_state_term(result, false, self.declarations, &mut Vec::new())
+        else {
             return Ok(());
         };
         if !self.needs_base(&result_term) {
             return Ok(());
         }
         let declarations = self.declarations;
+        let mut held = Vec::new();
         let mut subject_term = subject
             .as_deref()
-            .and_then(|state| group_state_term(state, true, declarations));
+            .and_then(|state| group_state_term(state, true, declarations, &mut held));
         let unbased = subject_term.clone();
         let changed = std::mem::replace(&mut self.changed, false);
         self.place(subject_term.as_mut(), &mut result_term, whole, hint)?;
@@ -1262,6 +1235,7 @@ impl<'a, 'b> ImplicitBases<'a, 'b> {
                 && let (Some(state), Some(term)) = (subject, subject_term)
             {
                 *state = ProtocolRuleStateTerm::Group(term);
+                self.held.append(&mut held);
             }
         }
         self.changed |= changed;
@@ -1484,11 +1458,14 @@ fn record_fields<'t>(
 /// The group term a state of a group place writes, on the subject's side if `subject`: its term,
 /// or its record's ([`ProtocolRuleRecord::group_term`]), each child of the builtin `Map` sort
 /// written as the map term its entries are ([`map_term`]); `None` for a record a child of which
-/// is no term ([`no_term_child`]), and for any other state.
+/// is no term ([`no_term_child`]), and for any other state. `held` gains each named map rest the
+/// term holds as a variable ([`map_term`]), which a caller writing the term declares
+/// ([`declare_map_rests`]).
 pub(super) fn group_state_term(
     state: &DescriptorState,
     subject: bool,
     declarations: &DescriptorIndex<'_>,
+    held: &mut Vec<String>,
 ) -> Option<DescriptorTerm> {
     match state {
         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
@@ -1502,10 +1479,10 @@ pub(super) fn group_state_term(
                     .iter()
                     .find(|child| child.rust_field == field.field)
                     .is_some_and(is_map_leaf);
-                if let (true, Some(term)) = (map_child, map_term(&field.value, subject)) {
+                if let (true, Some(term)) = (map_child, map_term(&field.value, subject, held)) {
                     field.value = ProtocolRuleStateTerm::Term(term);
                 } else if let ProtocolRuleStateTerm::Record(_) = &field.value
-                    && let Some(term) = group_state_term(&field.value, subject, declarations)
+                    && let Some(term) = group_state_term(&field.value, subject, declarations, held)
                 {
                     field.value = ProtocolRuleStateTerm::Group(term);
                 }
@@ -1544,9 +1521,8 @@ fn is_map_leaf(child: &DescriptorCellField) -> bool {
 /// Why a child of a record is no term of the group ([`no_term_child`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum NoTerm {
-    /// A result's map written over a rest with entries before it, which a term would hold as a
-    /// map concatenation.
-    MapOverRest,
+    /// A result's map written over an anonymous `..`, which names no map there.
+    UnnamedRest,
     /// A computation written as its items.
     Computation,
     /// A map entry on a child whose sort is not the builtin `Map`.
@@ -1574,9 +1550,21 @@ pub(super) fn no_term_child<'r>(
             ProtocolRuleStateTerm::Map(_) if !map_child => {
                 Some((field.field.as_str(), NoTerm::NotMapSort))
             }
-            state @ ProtocolRuleStateTerm::Map(_) => map_term(state, subject)
+            ProtocolRuleStateTerm::Map(map)
+                if !subject
+                    && matches!(
+                        &map.body,
+                        krs_ir::ProtocolRuleMapBody::Items {
+                            remainder: ProtocolRuleFrame::Anonymous { .. },
+                            ..
+                        }
+                    ) =>
+            {
+                Some((field.field.as_str(), NoTerm::UnnamedRest))
+            }
+            state @ ProtocolRuleStateTerm::Map(_) => map_term(state, subject, &mut Vec::new())
                 .is_none()
-                .then_some((field.field.as_str(), NoTerm::MapOverRest)),
+                .then_some((field.field.as_str(), NoTerm::Other)),
             ProtocolRuleStateTerm::KSequence(_) => {
                 Some((field.field.as_str(), NoTerm::Computation))
             }
@@ -1589,12 +1577,21 @@ pub(super) fn no_term_child<'r>(
 ///
 /// In a pattern the entries are the map pattern they match: `k::map![0 -> v]` is `0 |-> V`
 /// exactly, `k::map![0 -> v, ..]` and `k::map![0 -> v, r @ ..]` the same over the rest `_` or `r`,
-/// and with no entries the rest itself, `_` or `r`; `k::map![]` is the empty map. In a result the
-/// entries are the map they build over the empty one (`map::update(map::empty(), k, v)`), as a
-/// readable record writes them, and a kept rest with no entries before it, `k::map![..r]`, is
-/// `r`. `None` for a result's entries written over a rest, which a term would hold as a map
-/// concatenation, and for any other state.
-pub(super) fn map_term(state: &DescriptorState, subject: bool) -> Option<DescriptorTerm> {
+/// and with no entries the rest itself, `_` or `r`; `k::map![]` is the empty map. A named rest is
+/// then a variable of the term, the value of the `Map` sort the rest is, which `held` gains.
+///
+/// In a result the entries are the built map ([`super::built_maps`]): each entry written over the
+/// map before it, starting from the map it is written over, `k::map![0 -> x, ..r]` being
+/// `map::update(r, 0, x)` and `k::map![0 -> x]` the same over the empty map; with no entries the
+/// map is that base, `k::map![..r]` being `r`.
+///
+/// `None` for a result's anonymous `..`, which names no map, for a pattern's `..r`, and for any
+/// other state.
+pub(super) fn map_term(
+    state: &DescriptorState,
+    subject: bool,
+    held: &mut Vec<String>,
+) -> Option<DescriptorTerm> {
     let ProtocolRuleStateTerm::Map(map) = state else {
         return None;
     };
@@ -1634,22 +1631,26 @@ pub(super) fn map_term(state: &DescriptorState, subject: bool) -> Option<Descrip
         (ProtocolRuleFrame::Anonymous { key }, true) => {
             Some(DescriptorTerm::Wildcard { key: key.clone() })
         }
-        (ProtocolRuleFrame::Bind { key, binding }, true)
-        | (ProtocolRuleFrame::Reuse { key, binding }, false) => Some(variable(key, binding)),
+        (ProtocolRuleFrame::Bind { key, binding }, true) => {
+            held.push(binding.clone());
+            Some(variable(key, binding))
+        }
+        (ProtocolRuleFrame::Reuse { key, binding }, false) => Some(variable(key, binding)),
         _ => return None,
     };
     match (items.is_empty(), rest, subject) {
         (true, None, _) => Some(empty()),
         (true, Some(rest), _) => Some(rest),
-        (false, None, false) => Some(items.iter().fold(empty(), |built, item| {
-            application(
-                &item.key_key,
-                krs_ir::TermMapOperation::Update,
-                vec![built, item.key.clone(), item.value.clone()],
-            )
-        })),
-        // A result's entries over a kept rest would be a map concatenation.
-        (false, Some(_), false) => None,
+        (false, rest, false) => Some(items.iter().fold(
+            rest.unwrap_or_else(empty),
+            |built, item| {
+                application(
+                    &item.key_key,
+                    krs_ir::TermMapOperation::Update,
+                    vec![built, item.key.clone(), item.value.clone()],
+                )
+            },
+        )),
         (false, rest, true) => Some(DescriptorTerm::MapEntries {
             key: map.payload_key.clone(),
             entries: items
@@ -1661,6 +1662,27 @@ pub(super) fn map_term(state: &DescriptorState, subject: bool) -> Option<Descrip
                 .collect(),
             rest: rest.map(Box::new),
         }),
+    }
+}
+
+/// Declares each of `held`, the named map rests a subject's group term holds as variables
+/// ([`map_term`]), as the term of the builtin `Map` sort it is: the rest of a map, which a map
+/// cell's entry binds as its frame, is there a variable of the group's term.
+pub(super) fn declare_map_rests(
+    bindings: &mut [krs_ir::DescriptorRuleBinding],
+    held: &[String],
+    key: &ProvenanceKey,
+) {
+    for binding in bindings
+        .iter_mut()
+        .filter(|binding| held.contains(&binding.name))
+    {
+        binding.kind = krs_ir::ProtocolRuleBindingKind::Term {
+            sort: krs_ir::DescriptorSortReference {
+                key: key.clone(),
+                sort: krs_ir::DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Map),
+            },
+        };
     }
 }
 
