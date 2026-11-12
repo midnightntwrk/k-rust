@@ -961,7 +961,7 @@ k::equations! {
     size_of_dynamic_array:    (_, ArrayType { size: MirMaybeTyConst::NoTyConst(), .. })
                               => 0;
     /// An element type the table lacks has no size to multiply: the array then has
-    /// `size_of_other`'s size, as a type with no layout does. So has a pointee below.
+    /// `size_of_other`'s size, as a type with no layout does.
     #[k::requires(map::in_keys(element, types) && k::is!(TypeInfo, map::get(types, element)))]
     size_of_static_array:     (
                                   types,
@@ -987,6 +987,14 @@ k::equations! {
                                   types,
                                   PrimitiveType(UnsignedInteger(MirUintTy::Usize())),
                               ) * PointerWords(map::get(types, pointee));
+    /// A pointer holds an address whatever it points to, and a length beside it only where
+    /// its pointee is known to be unsized: one whose pointee the table lacks is one word.
+    #[k::equation(priority = 55)]
+    size_of_pointer_thin:     (types, PointerType(_) | ReferenceType(_))
+                              => SizeOfTypeInfo(
+                                  types,
+                                  PrimitiveType(UnsignedInteger(MirUintTy::Usize())),
+                              );
     #[k::equation(priority = 60)]
     size_of_other:            (_, _)                                    => 0;
 }
