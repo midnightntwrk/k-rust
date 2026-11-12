@@ -269,10 +269,10 @@ impl StructuredTermBuilder<'_> {
             ));
         };
         let Some(list) = self.cons_list_of(expected) else {
-            // Brackets at a computation are its items only where the reader reads them so: at a
-            // computation cell or child, ending in no rest or an anonymous one.
+            // Brackets at a computation are its items only where the reader reads them so: as a
+            // computation cell's or child's entry. A term of sort `K` elsewhere is a binder.
             let computation = if *expected == SemanticSortRef::k_sequence() {
-                "; brackets are a computation's items only at a computation cell or child, with no rest or an anonymous `..` at their end: a named rest (`rest @ ..`, `..rest`) at a child of an instance or a group, and a `?` computation's items in a readable record, are not supported yet"
+                "; brackets are a computation's items only as the entry of a computation cell or child (`KCell(x, ..)`, `cc: [x, ..]`), and a term of sort `K` elsewhere, a constructor's field or a function's argument, is a binder of that sort, such as a computation cell's `rest @ ..`; an instance or group child's brackets with a named rest (`rest @ ..`, `..rest`), and a `?` computation's items in a readable record, are not supported yet"
             } else {
                 ""
             };
