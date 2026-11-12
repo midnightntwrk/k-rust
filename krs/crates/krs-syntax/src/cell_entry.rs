@@ -191,6 +191,9 @@ pub struct EntryReading<'a> {
     /// Whether the entries are a result's, which build their terms: there `|` is the bitwise
     /// operator, and only a pattern's `|` joins alternatives.
     builds: bool,
+    /// Whether the value being read is an argument of an application, inside a term the entry
+    /// builds rather than at the entry's own level (its marks, brackets and records).
+    in_term: bool,
 }
 
 impl<'a> EntryReading<'a> {
@@ -202,6 +205,7 @@ impl<'a> EntryReading<'a> {
             form,
             variables,
             builds: false,
+            in_term: false,
         }
     }
 
@@ -381,9 +385,13 @@ impl<'a> EntryReading<'a> {
                 Ok(EntrySpelling::KCell(self.seq(content)?))
             }
             _ => {
+                let argument = Self {
+                    in_term: true,
+                    ..self
+                };
                 let mut arguments = Vec::new();
                 while !content.is_empty() {
-                    arguments.push(self.inner(content)?);
+                    arguments.push(argument.inner(content)?);
                     if content.is_empty() {
                         break;
                     }
@@ -472,7 +480,8 @@ impl<'a> EntryReading<'a> {
     /// a term. Where a pattern may stand (every other form), a value the reading starts as an
     /// entry and cannot finish breaks that entry's shape rule (`Some(x, y)`, a second rest), which
     /// is no term, and `|` at a pattern's level joins alternatives and `..` is a rest: a value
-    /// holding one stays unread.
+    /// holding one stays unread. A result builds its terms, so there only a rest at the value's
+    /// own level stays unread ([`is_rest`]), not one in a term the value builds.
     fn term(self, input: ParseStream<'_>, head: bool) -> syn::Result<EntrySpelling> {
         self.term_in(input, head, false)
     }
@@ -514,10 +523,12 @@ impl<'a> EntryReading<'a> {
             return Ok(EntrySpelling::Alternatives(alternatives));
         }
         let expression = input.parse::<syn::Expr>()?;
-        // A result builds its terms, so its `|` is the bitwise operator and only a rest is no
-        // term there.
+        // A result builds its terms, so its `|` is the bitwise operator and only a rest at the
+        // value's own level is no term there: the value itself, or an item of its brackets, which
+        // are read one by one. A splice inside a nested term (`[x, ..r]` in
+        // `list::size([x, ..r]) + 1`, or a call's argument) is part of that term.
         let unread = if self.builds {
-            holds_rest(&expression)
+            !self.in_term && is_rest(&expression)
         } else {
             !denotes_term(&expression) && (!marked || holds_rest(&expression))
         };
@@ -746,13 +757,28 @@ fn holds_rest(expression: &syn::Expr) -> bool {
     rest.0
 }
 
+/// Whether `expression` is a rest itself, below parentheses: a range (`..`, `..x`), with nothing
+/// built around it. A range anywhere deeper stands inside a term the expression builds (an
+/// operator's operand, a call's or a method's argument), which is that term's to read.
+fn is_rest(mut expression: &syn::Expr) -> bool {
+    loop {
+        match expression {
+            syn::Expr::Paren(inner) => expression = &inner.expr,
+            syn::Expr::Group(inner) => expression = &inner.expr,
+            syn::Expr::Range(_) => return true,
+            _ => return false,
+        }
+    }
+}
+
 /// One field of a `cells!` payload as a `cells!` [`EntryReading`] reads it.
 #[derive(Clone, Debug)]
 pub struct CellsField {
     /// The key path, `pc` or `crate::Queue::job`.
     pub key: Path,
-    /// The value's spelling; `None` where the value is no entry the reading knows (a term
-    /// with an operator, a `k::rewrite!`), which no admission judges.
+    /// The value's spelling; `None` where the value is no entry the reading knows (one that
+    /// breaks a shape rule, a result's rest at the value's own level), which no admission
+    /// judges.
     pub spelling: Option<EntrySpelling>,
     /// The range of the value's tokens.
     pub value: Option<crate::TokenRange>,
@@ -1406,6 +1432,65 @@ mod cells_fields_tests {
             panic!("brackets");
         };
         assert_eq!(seq.items, [term()]);
+    }
+
+    /// In a result, a splice inside a nested term is that term's, whether the term stands beside
+    /// an operator at the value's level, in an item of the value's brackets, or as an
+    /// application's argument; only a rest at the value's own level (the value, or an item of its
+    /// brackets), nothing built around it, is no term.
+    #[test]
+    fn a_results_rest_is_no_term_only_at_the_values_own_level() {
+        let term = || EntrySpelling::Call(Vec::new());
+        let one = |item| {
+            EntrySpelling::Brackets(super::EntrySeq {
+                items: vec![item],
+                rest: None,
+                more_rests: 0,
+            })
+        };
+        for form in [super::EntryForm::Readable, super::EntryForm::Cells] {
+            let cells = form == super::EntryForm::Cells;
+            let built = |text: &str| {
+                let text = if cells {
+                    format!("k::configuration::Cell({text})")
+                } else {
+                    text.to_owned()
+                };
+                super::EntryReading::new(form, &[])
+                    .building()
+                    .value(text.parse().expect("lexes"))
+                    .ok()
+            };
+            let content = |spelling: EntrySpelling| {
+                Some(if cells {
+                    EntrySpelling::Cell(Box::new(spelling))
+                } else {
+                    spelling
+                })
+            };
+            assert_eq!(
+                built("list::size([x, ..r]) + 1"),
+                content(term()),
+                "{form:?}"
+            );
+            assert_eq!(
+                built("[list::size([x, ..r]) + 1]"),
+                content(one(term())),
+                "{form:?}"
+            );
+            assert_eq!(built("[x, ..r] + 1"), content(term()), "{form:?}");
+            assert_eq!(
+                built("list::concat(..r, l)"),
+                content(EntrySpelling::Call(vec![
+                    term(),
+                    EntrySpelling::Binder("l".to_owned())
+                ])),
+                "{form:?}"
+            );
+            for own in ["..r", "(..r)", "..r + 1", "x..y", "[(..r), x]"] {
+                assert_eq!(built(own), None, "{form:?}: {own}");
+            }
+        }
     }
 
     #[test]

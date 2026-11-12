@@ -2707,7 +2707,8 @@ pub fn admit_form_located(
 
 /// One entry of a [`Sentence`]: its side, its cell (`C`, which pairs it with the other side's
 /// entry of the same cell), its cell's kind, and its spelling where the reader reads one (an
-/// entry it does not read, a term with an operator, is judged by no step here).
+/// entry it does not read, one that breaks a shape rule or a result's rest at the value's own
+/// level, is judged by no step here).
 #[derive(Clone, Debug)]
 pub struct SentenceEntry<'s, C> {
     /// The side it stands on.

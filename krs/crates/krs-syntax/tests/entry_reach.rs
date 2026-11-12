@@ -4,7 +4,9 @@
 //! records whose every field the entry reading spells: a field it reads as no spelling would
 //! skip the table's judgement of that cell, its kind and its pairing, so the lowering would be
 //! the table's only check. A block the reader refuses, or whose text is a template with holes,
-//! is not counted.
+//! is not counted. Blocks written here beside them hold the values the sources may not: a result
+//! value whose top is an operator over a term holding a splice (`list::size([x, ..r]) + 1`),
+//! whose splice is that term's, not a rest of the entry.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -70,6 +72,34 @@ fn blocks(text: &str) -> Vec<(bool, &str)> {
     found
 }
 
+/// Readable blocks whose result values hold a splice inside a term beside an operator at the
+/// value's level, as the value, an item of its brackets, a record child's value, or a call's
+/// argument.
+const NESTED_SPLICES: [(bool, &str); 2] = [
+    (
+        false,
+        "for Machine; use Cmd::*;
+        nested_value: { k: [Go(), ..], ll: [x, r @ ..], n: _, out: _ } => {
+            k: [..], n: list::size([x, ..r]) + 1, out: [list::size([x, ..r]) + 1, x],
+        };
+        nested_child: { k: [Go(), ..], ll: [x, r @ ..], th: { me @ Th { tl: [y, s @ ..], .. }, .. } } => {
+            k: [list::size([x, ..r]) * 2, ..],
+            th: { Th { tid: list::size([y, ..s]) + 1, tl: [y, ..s], ..me }, .. },
+        };
+        nested_argument: { k: [Go(), ..], ll: [x, r @ ..], out: _ } => {
+            k: [..], out: list::concat([x, ..r], [list::size([x, ..r]) - 1]),
+        };",
+    ),
+    (
+        true,
+        "for Machine; use Cmd::*;
+        #[k::claim(all_paths)]
+        nested_claim: { k: [Go(), ..], ll: [x, r @ ..], n: _, out: _ } => {
+            k: [..], n: list::size([x, ..r]) + 1, out: [list::size([x, ..r]) + 1],
+        };",
+    ),
+];
+
 /// Whether the reader admits `clause` whole: it carries no refusal until its entries are judged.
 fn admitted(clause: &RuleClause) -> bool {
     clause.pairing_refusal().is_none()
@@ -87,11 +117,31 @@ fn the_entry_table_spells_every_entry_the_readable_reader_admits() {
     files.sort();
     let mut read = 0usize;
     let mut unread = Vec::new();
-    for file in &files {
-        let Ok(text) = fs::read_to_string(file) else {
-            continue;
-        };
-        for (claims, payload) in blocks(&text) {
+    let mut texts = files
+        .iter()
+        .filter_map(|file| {
+            let text = fs::read_to_string(file).ok()?;
+            let name = file.strip_prefix(&crates).unwrap_or(file).display();
+            Some((
+                name.to_string(),
+                blocks(&text)
+                    .into_iter()
+                    .map(|(claims, payload)| (claims, payload.to_owned()))
+                    .collect::<Vec<_>>(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    texts.push((
+        "entry_reach.rs NESTED_SPLICES".to_owned(),
+        NESTED_SPLICES
+            .iter()
+            .map(|(claims, payload)| (*claims, (*payload).to_owned()))
+            .collect(),
+    ));
+    let mut nested = 0usize;
+    for (name, payloads) in &texts {
+        for (claims, payload) in payloads {
+            let (claims, payload) = (*claims, payload.as_str());
             let (clauses, form) = if claims {
                 match ClaimBlock::parse_source(payload) {
                     Ok(block) => (block.clauses().to_vec(), EntryForm::Claim),
@@ -115,18 +165,17 @@ fn the_entry_table_spells_every_entry_the_readable_reader_admits() {
                         Some(fields) => {
                             for field in fields {
                                 read += 1;
+                                nested += usize::from(name.ends_with("NESTED_SPLICES"));
                                 if field.spelling.is_none() {
                                     unread.push(format!(
-                                        "{}: {}",
-                                        file.strip_prefix(&crates).unwrap_or(file).display(),
+                                        "{name}: {}",
                                         quote::ToTokens::to_token_stream(&field.key)
                                     ));
                                 }
                             }
                         }
                         None => unread.push(format!(
-                            "{}: a record the reading does not split into fields",
-                            file.strip_prefix(&crates).unwrap_or(file).display()
+                            "{name}: a record the reading does not split into fields"
                         )),
                     }
                 }
@@ -134,6 +183,8 @@ fn the_entry_table_spells_every_entry_the_readable_reader_admits() {
         }
     }
     assert!(read > 1000, "the sources hold the readable entries: {read}");
+    // Every clause written here is admitted whole, so each of its fields is counted.
+    assert_eq!(nested, 24, "the nested splices' clauses are admitted whole");
     assert!(
         unread.is_empty(),
         "entries the readable reader admits and the table reads as no spelling:\n{}",
