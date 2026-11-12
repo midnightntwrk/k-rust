@@ -3191,7 +3191,13 @@ impl BackendDefinition {
                     };
                     insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
                 }
-                InternalizedRule::Term(kind, rule) => {
+                InternalizedRule::Term(kind, mut rule) => {
+                    // The two theories the term scan selects from (`simplify::scan`): their
+                    // equations are keyed by what their left-hand sides' arguments state.
+                    if matches!(kind, RuleKind::Function | RuleKind::Simplification) {
+                        rule.computed_attributes.left_side_key =
+                            crate::matching::LeftSideKey::of(&result, &rule.lhs);
+                    }
                     result.declares_claims |=
                         matches!(kind, RuleKind::Function | RuleKind::Simplification)
                             && matches!(

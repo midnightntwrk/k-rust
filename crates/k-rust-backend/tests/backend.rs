@@ -31,6 +31,8 @@ mod framed_collection_owise;
 mod hook_result_sorts;
 #[path = "backend/issue_4114_overload.rs"]
 mod issue_4114_overload;
+#[path = "backend/left_side_key.rs"]
+mod left_side_key;
 #[path = "backend/list_shared_subject_variables.rs"]
 mod list_shared_subject_variables;
 #[path = "backend/literal_rows.rs"]

@@ -25,7 +25,7 @@
 /// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
 /// meaning of the counters the dump holds) and moves when that set changes; a change of the
 /// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
-pub const COUNTER_SCHEMA_VERSION: u64 = 27;
+pub const COUNTER_SCHEMA_VERSION: u64 = 28;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -543,6 +543,10 @@ pub enum Counter {
     SimplifyNodesSkippedEvaluated,
     /// Function-equation trials.
     SimplifyEquationAttempts,
+    /// Function and simplification equations a term scan did not try because the key of the
+    /// left-hand side refuted the term: offered by the term's root, excluded by the roots of
+    /// its arguments.
+    SimplifyEquationsRefutedByKey,
     /// Hooked builtin evaluations that produced a result.
     SimplifyBuiltinEvaluations,
     /// Term nodes a simplifier entry's report retraction searched for the subjects of its
@@ -690,7 +694,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 129;
+    pub const COUNT: usize = 130;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -763,6 +767,7 @@ impl Counter {
         Counter::SimplifyInvocations,
         Counter::SimplifyNodesSkippedEvaluated,
         Counter::SimplifyEquationAttempts,
+        Counter::SimplifyEquationsRefutedByKey,
         Counter::SimplifyBuiltinEvaluations,
         Counter::SimplifyRetractionNodes,
         Counter::SimplifyAssumptionNodes,
@@ -899,6 +904,7 @@ impl Counter {
             Counter::SimplifyInvocations => "simplify.invocations",
             Counter::SimplifyNodesSkippedEvaluated => "simplify.nodes_skipped_evaluated",
             Counter::SimplifyEquationAttempts => "simplify.equation_attempts",
+            Counter::SimplifyEquationsRefutedByKey => "simplify.equations_refuted_by_key",
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
             Counter::SimplifyRetractionNodes => "simplify.retraction_nodes",
             Counter::SimplifyAssumptionNodes => "simplify.assumption_nodes",

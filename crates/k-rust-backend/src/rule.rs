@@ -469,6 +469,12 @@ pub struct ComputedRuleAttributes {
     /// left-hand side matches a subject does not depend on any literal's element, so a proof
     /// route decides a failed match before it stops the attempt. Set with `open_literals`.
     pub open_literal_in_lhs: bool,
+    /// For a function or simplification equation, what the arguments of its left-hand side
+    /// state about the roots of a matching subject's arguments
+    /// (`matching::LeftSideKey`): the term scan does not attempt the equation on a subject the
+    /// key refutes. Set when the definition is loaded; empty for every other rule, and for an
+    /// equation built outside a load, which is then attempted on every subject it is offered.
+    pub left_side_key: crate::matching::LeftSideKey,
     /// The variables the left-hand side names as a conjunct of an `And` (term aliases), once a
     /// step has read them (`rewrite::apply`): a function of `lhs` alone.
     pub lhs_alias_variables: LhsAliasCell,
@@ -4697,6 +4703,8 @@ where
             association_open: computed.association_open,
             open_literals: Arc::clone(&computed.open_literals),
             open_literal_in_lhs: computed.open_literal_in_lhs,
+            // The key reads the left-hand side's symbols and sorts, none of its variables.
+            left_side_key: computed.left_side_key.clone(),
             lhs_alias_variables: LhsAliasCell::default(),
         },
         existentials: rename_set(&rule.existentials),

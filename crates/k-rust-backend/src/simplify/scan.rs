@@ -10,6 +10,8 @@
 
 use std::{cell::Cell, marker::PhantomData, sync::Arc};
 
+use k_rust_kore::measure::{self, Counter};
+
 use crate::{
     coverage::{Selection, every},
     definition::BackendDefinition,
@@ -125,6 +127,12 @@ pub(super) enum TheoryScan<K> {
 /// returned when every attempt of every offered group ended `NotApplicable`, which for a term
 /// theory carries a [`MatchFailed`].
 ///
+/// An equation whose left-hand side's key refutes `term` (`matching::LeftSideKey`) is not handed
+/// to `attempt`: the roots of the term's arguments decide that the left-hand side does not match
+/// it, so the equation ends `NotApplicable` with the key's [`MatchFailed`], the outcome a
+/// matching of the two would give (`Counter::SimplifyEquationsRefutedByKey`). An equation
+/// holding an open literal is read as before, whatever its key.
+///
 /// ```toml algorithm-site
 /// id = "backend.simplify.term"
 /// role = "part"
@@ -187,6 +195,16 @@ pub(super) fn scan_term_theory<K: TermTheory>(
                 return Ok(EquationAttempt::Indeterminate(
                     ConditionIndeterminacy::ImplicationIndeterminate,
                 ));
+            }
+            // The roots of the term's arguments decide that the left-hand side does not match
+            // it (`LeftSideKey`): the outcome a matching of the two would give, without one.
+            if let Some(failed) = rule
+                .computed_attributes
+                .left_side_key
+                .refutes(definition, term)
+            {
+                measure::bump(Counter::SimplifyEquationsRefutedByKey);
+                return Ok(EquationAttempt::NotApplicable(failed));
             }
             applied_instance.set(0);
             Ok(match attempt(rule, set_aside, &applied_instance)? {

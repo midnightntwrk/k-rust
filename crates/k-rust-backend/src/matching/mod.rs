@@ -58,8 +58,10 @@
 
 mod collections;
 mod contents;
+mod left_side_key;
 
 pub use contents::ContentsClash;
+pub use left_side_key::LeftSideKey;
 
 pub use collections::MAX_LIST_PLACEMENTS;
 pub(crate) use collections::{
@@ -164,8 +166,10 @@ impl MatchResult {
 /// subject is an instance of the pattern.
 ///
 /// It is minted only from a failed match, by [`MatchResult::refutation`] or by the collection
-/// matcher when the deferred collection pairs of a match have no solution. A caller outside
-/// this module can name the type but not build a value:
+/// matcher when the deferred collection pairs of a match have no solution, and by the key of an
+/// equation's left-hand side where the roots of the subject's arguments decide the same
+/// ([`LeftSideKey::refutes`]). A caller outside this module can name the type but not build a
+/// value:
 ///
 /// ```compile_fail
 /// use k_rust_backend::matching::{MatchFailed, MatchResult};

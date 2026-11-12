@@ -3,7 +3,7 @@
 //! name = "innermost equational simplification to a budgeted fixed point"
 //! sites = ["simplify_with_optional_execution", "simplify_term_entry", "simplify", "simplify_with_solver", "simplify_ground_subterms", "simplify_with_budget", "simplify_children", "simplify_root", "failed_unspecified_frame", "hook_argument_definedness", "apply_theory", "apply_theory_noting_cuts", "literal_candidate", "apply_literal_equation_instance", "classify_equation_instance", "apply_prepared_equation_instance"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node; n = items of a collection; u = items of a collection the summaries admit"
-//! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
+//! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyEquationsRefutedByKey", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated", "SimplifyRetractionNodes"]
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
 //!
@@ -107,7 +107,8 @@
 //! |term| x candidates per node), rounds that are not determined ground function-theory steps
 //! <= `max_iterations` per lineage (`RootStep`);
 //! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,
-//! `Counter::SimplifyEquationAttempts`, `Counter::SimplifyBuiltinEvaluations`,
+//! `Counter::SimplifyEquationAttempts`, `Counter::SimplifyEquationsRefutedByKey`,
+//! `Counter::SimplifyBuiltinEvaluations`,
 //! `Counter::SimplifyNodesSkippedEvaluated`, `Counter::SimplifyRetractionNodes`.
 //! Conjunct-set predicate normalisation with conjunct indexes keyed by a predicate's top two
 //! levels (`ShallowKey`; `KnownConjuncts` borrows the known predicates, `LevelConjuncts` keys the

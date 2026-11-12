@@ -97,23 +97,25 @@ Where the fixture differs from the measured workload:
 
 `krs run --counters FILE` reports the backend's work counters for the run.
 They are counts of work, so they do not depend on the host; they change when the engine or this definition changes.
-At 400,000 steps, with the `krs` of the commit that added the counters to `krs run`:
+At 400,000 steps, with the `krs` of the commit that keyed equations by the arguments of their left-hand sides:
 
 | Counter | Count | Per step |
 |:--|--:|--:|
 | `rewrite.rules_applied` | 400,000 | 1 |
 | `rewrite.rule_attempts` | 474,393 | 1.19 |
 | `rewrite.match_failures` | 64,938 | 0.16 |
-| `simplify.equation_attempts` | 12,525,589 | 31.3 |
+| `simplify.equation_attempts` | 1,071,639 | 2.68 |
+| `simplify.equations_refuted_by_key` | 11,453,950 | 28.6 |
 | `simplify.builtin_evaluations` | 3,338,970 | 8.35 |
 | `simplify.invocations` | 2,642,073 | 6.61 |
 | `simplify.rounds` | 5,664,833 | 14.2 |
-| `matching.problems` | 12,999,982 | 32.5 |
-| `matching.pairs` | 37,333,335 | 93.3 |
+| `matching.problems` | 1,546,032 | 3.87 |
+| `matching.pairs` | 14,171,375 | 35.4 |
 | `term.constructed` | 18,690,025 | 46.7 |
 | `smt.queries`, `smt.solver_runs` | 0 | 0 |
 
-The run applies 0.80 equations per step and tries 31.3: 39 attempts for each application.
+The run applies 0.80 equations per step and tries 2.68.
+The term scan is offered 28.6 more per step by the root of the term and does not try them, because the roots of the term's arguments decide that their left-hand sides do not match: the inverse of each sort projection, `kseq(inj{S, KItem}(project:S(I)), .K) = I`, is filed under `kseq` with the 50 others, and an item of another sort or a sequence with a rest is an instance of none of them.
 
 ```sh
 krs run /tmp/program.bin --depth 400000 --output none --counters /tmp/counters.json \
