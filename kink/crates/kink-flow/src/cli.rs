@@ -818,8 +818,12 @@ impl Verb {
             Self::Compare => {
                 "Whether each [[implementation]] of the manifest ends as the definition does on \
                  every program, under each of its views: equal, different (with the first \
-                 difference), could-not-apply or not-compared; only a required view decides the \
-                 exit status."
+                 difference), could-not-apply or not-compared; and, under a trace view \
+                 (kink-implementation/2), whether its record of the [observe] channels agrees \
+                 with the definition's at equal indices: equal where both sides close, else \
+                 agree-up-to the horizon it names. Only a required view decides the exit status. \
+                 A verdict is a test of one build on these programs up to that horizon; it \
+                 relates no two definitions."
             }
             Self::Prune => {
                 "Which programs of the corpus are redundant: each obligation the corpus \

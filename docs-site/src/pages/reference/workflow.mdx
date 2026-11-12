@@ -1193,7 +1193,25 @@ A command that cannot be started, exits with another status than 0, prints no an
 Only a `required` view decides the exit status, and every other view is reported: 0 for `equal` and `could-not-apply`, 1 for `different`, 3 for no answer (`not-compared` because the definition has several ends the view tells apart, a view's evaluation did not end, or the case's baseline is `timeout`, `unknown` or `comparable-prefix`, and an implementation's `timeout`), and 2 for every other `not-compared` and failure.
 `compare` keeps the `[compare]` section (`--lock FILE` names another record), one row per (implementation, case, view), and rewrites it after a run of every implementation (not under `--only`); under `--locked` a verdict that moved is a finding (exit 1), and a run that gave no answer decides no verdict and leaves its rows as recorded, never a difference: a run the clock cancelled is not decided on this host (exit 3), and another failure of an implementation with a required view exits 2, as it does without `--locked`.
 An implementation that declares `identity` has its answers cached in `.kink-flow/`, under the digest of that file, its `command`, the protocol and the request: the same binary, given the same request, gives the same answer; the cache holds answers, not verdicts, so a changed definition or view is compared again, and a failure is never cached.
-kink-flow's README ("Comparing implementations") states the protocol and the document in full.
+An implementation that declares `protocol = "kink-implementation/2"` may also have *trace views*, each `{ name, channels, required }`, `channels` naming channels of the corpus's `[observe]` (below).
+A trace view compares what a run does on the way, not where it ends: the elements the definition's baseline run records on those channels against the elements the implementation states for them, at equal indices.
+The request then has `observe`: each channel with its kind, its components by name with the type each value is a document at (a log: its element's type), its stuttering mode, whether it is filtered, its rules as the manifest names them, and `positions`, the number of indices from 0 to state: the definition's elements where its run was cut, and one more where its channel is closed.
+The answer adds `observations`, a `krs-observations/1` document as [`krs run --output observations`](#run-search-and-prove) prints one, with every `rule` and `side` null and each element's `depth` the implementation's own count, and may end `horizon`: it stated the positions asked and has not ended.
+Each stated value is read at its component's type and compared as its [canonical document](#the-canonical-document-of-a-value), so equal values are equal elements whichever spelling the implementation wrote; a `collapse` channel is collapsed after that, so an implementation may state it at a finer granularity that only repeats contents.
+A record that is none of the declaration (a value of another type, a named rule, a channel missing) is a failure of the run, `malformed`, and no verdict.
+
+A trace view's verdict is `equal` only where both sides close every channel after the same elements.
+Where nothing differs and the definition's run was cut, it is `agree-up-to`, with `horizon` naming per channel the elements that agree and the side that states no more: exit 0 where the horizon is the definition's, 3 where the answer stated fewer positions than asked.
+`different` names the channel, the index and the place inside the value, the definition's element with its rule, its side and its steps, and the implementation's with its own count; one side ending where the other goes on is a difference too.
+A view no element of which was compared, an element that is not decided, and a baseline with several paths are `not-compared` (3), and an end view of a case whose baseline the bounds cut is `not-compared` (`no-end`), 0 where a required trace view of the same implementation carries the case.
+The `[compare]` rows record each horizon, and under `--locked` a horizon that moved is a finding.
+
+This is testing: a verdict is a test of one build of the implementation on the corpus's cases, up to the horizon it names.
+That the implementation's element `k` is its state at the definition's point `k` is the implementation's claim, which kink does not check, and every trace row and text line says so.
+Nothing here relates two K definitions, and a wrapper around `krs run` declared as an `[[implementation]]` is not a supported way to compare two definitions.
+Choose point classes whose rules are boundaries in both systems; where they differ only in how often a content repeats, use `stutter = "collapse"`; and where the behaviour is a sequence of events (bus writes, output), observe it as a log channel, which does not depend on where either system is sampled.
+
+kink-flow's README ("Comparing implementations") states both protocols and the document in full.
 
 So a corpus commits `definition.k` and `kink.lock`, and a CI runs `krs kink emit --check`, `krs kink run --locked` and `krs kink coverage --locked`, and `krs kink compare --locked` where `FLOW.toml` declares an `[[implementation]]`.
 

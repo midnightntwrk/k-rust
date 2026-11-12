@@ -489,7 +489,7 @@ What else is a finding, or no answer, follows from what each command asks:
 | `run` | each selected mutation's verdict, and whether it is the verdict the mutation expects | an `unmet` expectation (`expect`, "`MUTATIONS.toml`"), with or without `--locked`; under `--locked`, a lock the run would change (a stored record that differs from the live value, as a `--verify` mismatch is); a verdict alone is no finding: `killed`, `survived`, `equivalent` and `unkillable` are answers | a mutation that is `timeout` or `unknown`; an `inconclusive` expectation |
 | `report` | what the last `run` answered | as that run | as that run |
 | `query` | whether each asked program reaches a state matching each pattern, and whether each pattern's obligation is discharged ("Checking a pattern") | a refuted claim (`no` for a program the pattern claims); an `unmet` expectation (`expect = "no"` on a hit); under `--locked`, a `[query]` section the query would change (an `open` or `undecided` obligation is no finding) | an `unknown` answer; an `inconclusive` expectation; under `--locked`, a section whose only differences rest on runs the clock stopped |
-| `compare` | whether each implementation ends as the definition does on every program, under each required view ("Comparing implementations") | a `different` verdict of a required view | a required view `not-compared` with no answer (`several-ends`, `undecided`, a baseline `timeout` or `unknown`); a `timeout` of an implementation with a required view |
+| `compare` | whether each implementation ends as the definition does on every program, under each required view, and whether its record of the `[observe]` channels agrees with the definition's up to the definition's horizon, under each required trace view ("Comparing implementations") | a `different` verdict of a required view | a required view `not-compared` with no answer (`several-ends`, `several-paths`, `observed-nothing`, `undecided`, a baseline `timeout` or `unknown`); a required trace view `agree-up-to` a horizon the implementation's answer set; a `timeout` of an implementation with a required view |
 | `prune` | which programs are redundant, from what the corpus discharges ("Redundant programs") | none: the report refutes nothing | none: an unknown cell makes the report conservative, and the report it states holds |
 | `fuzz` | which hole values of the template are a witness of the job | a witness of a kill job whose mutation expects to survive (it refutes the expectation); otherwise none: a witness and `equivalent` are answers | a search that ended without a witness kink accepts (table under "The document") |
 
@@ -1905,7 +1905,7 @@ version = 29
 profile = "z3"
 z3_version = "5.3.3.0 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e 430d19e"
 z3_library_sha256 = "7ca2ea1f27e40c86269d6ff7f0e82293708253cb05dbec094c90b08c4ec04d31"
-protocols = ["kink-implementation/1"]
+protocols = ["kink-implementation/1", "kink-implementation/2"]
 
 [compare.spec]
 outcome = "admitted"
@@ -1929,6 +1929,16 @@ required = false
 verdict = "different"
 difference = '{"at":"cell","cell":"bus","format":"krs-difference/3",…}'
 request_sha256 = "039fbda42c342c04bea68bb18bca5a85541bbac54f92c7310939a7c9d4430314"
+identity_sha256 = "5d1e…"
+
+[[compare.verdict]]
+implementation = "rust-cpu-traced"
+program = "cases/loop/case.toml"
+view = "boundary"
+required = true
+verdict = "agree-up-to"
+horizon = '{"boundary":{"definition":"bound","elements":4096,"implementation":"the requested positions","limited_by":"definition"}}'
+request_sha256 = "77c1…"
 identity_sha256 = "5d1e…"
 
 [query]
@@ -2866,6 +2876,7 @@ Another implementation of the system (an emulator, a hardware model, a port) is 
 ```toml
 [[implementation]]
 name = "rust-cpu"                       # unique among the implementations
+protocol = "kink-implementation/2"      # optional; default "kink-implementation/1"
 command = ["bin/cpu", "--kink"]         # argv: a first word with a `/` is relative to FLOW.toml's directory, else looked up on PATH
 given = "start"                         # "start": the definition's start besides the inputs; "inputs": the inputs alone
 omits = ["k", "ei_pending"]             # optional: the cells the implementation does not state
@@ -2874,31 +2885,33 @@ time_ms = 30000                         # optional; default budget.time_ms
 views = [
   { name = "writes", views = { bus = "WritesView" }, observer = "pkg:views", required = true },
   { name = "accesses", views = { bus = "AccessesView" }, observer = "pkg:views" },
+  { name = "boundary", channels = ["boundary"], required = true },   # a trace view, under the second protocol
 ]
 ```
 
 | Key | Meaning |
 | --- | --- |
 | `name` | The implementation's name, which rows, `--only` and the documents use; nonempty and unique. |
+| `protocol` | `kink-implementation/1` (the default) or `kink-implementation/2` (below, "Traces"). Another name refuses the command (stage `implementation`, reason `declaration`). |
 | `command` | A nonempty array of nonempty strings: the executable and its arguments. It runs in the manifest's directory. |
 | `given` | `start` or `inputs` (below, "The protocol"). Required. |
 | `omits` | The cells the implementation does not state, by the front end's cell names (krs: Rust field paths). Every other observable cell must be in each answer, or the answer is malformed, naming the cell. A view that compares an omitted cell is `not-compared` (`omitted`). Default: none. |
 | `identity` | `{ file }`, relative to the manifest's directory: the document names its SHA-256 (`implementations[].identity.sha256`), the build its answers are cached under and its lock rows name ("The record and the cache" below). Absent: the implementation runs on every command. A file that cannot be read refuses the command (stage `implementation`, reason `identity`). |
 | `time_ms` | The wall clock that cancels one run of the implementation; positive. It decides no verdict (below). Default `budget.time_ms`. |
-| `views` | A nonempty array of views, each `{name, required, compare, views, observer}`: `name` unique among the implementation's views; `required` a boolean, default false (a view that is reported only); `compare` the cells it compares (default: every observable cell the implementation states); `views` a function by cell, applied to both sides' values before they are compared; `observer` the definition the functions are evaluated in (default: the definition). `compare`, `views` and `observer` are the front end's, resolved as an expectation's are ("Expectations"); a view that does not resolve refuses the command (stage `implementation`, reason `declaration`). `views = [{ name = "end", required = true }]` compares every cell the implementation states. |
+| `views` | A nonempty array of views, each `{name, required, compare, views, observer}`: `name` unique among the implementation's views; `required` a boolean, default false (a view that is reported only); `compare` the cells it compares (default: every observable cell the implementation states); `views` a function by cell, applied to both sides' values before they are compared; `observer` the definition the functions are evaluated in (default: the definition). `compare`, `views` and `observer` are the front end's, resolved as an expectation's are ("Expectations"); a view that does not resolve refuses the command (stage `implementation`, reason `declaration`). `views = [{ name = "end", required = true }]` compares every cell the implementation states. A view with `channels`, a nonempty array of channel names of the flow's `[observe]` without repeats, is a trace view (below, "Traces"): it has `name`, `required` and `channels` only, and compares no cell. A trace view under the first protocol, in a flow with no `[observe]`, with no channel, or naming a channel `[observe]` does not declare refuses the command (stage `implementation`, reason `declaration`), and so does one over a channel some component of which has no value with a document, naming the channel and the component: no implementation can state an element of it. |
 
 No run of the definition reads an implementation, so `[[implementation]]` is in no digest or cache key of the definition's runs, and every other command ignores it.
 
 ### The protocol
 
-The protocol is `kink-implementation/1`, a stable contract between kink and an implementation.
+The protocol is `kink-implementation/1`, a stable contract between kink and an implementation, or `kink-implementation/2`, which is the first with traces added ("Traces" below); each implementation declares its own.
 kink runs the implementation's `command` once per program (in the manifest's directory), writes one JSON request on its stdin and closes it, and reads one JSON answer from its stdout.
 
 The request is an object:
 
 | Key | Meaning |
 | --- | --- |
-| `protocol` | `"kink-implementation/1"`. |
+| `protocol` | The implementation's protocol, `"kink-implementation/1"` or `"kink-implementation/2"`. |
 | `program` | The program's id, as every document names it. |
 | `inputs` | The program's inputs as typed values, by input name: under krs, each typed input decoded at its parameter's declared type and written as its canonical document by the parameter's Rust name, and a program file bound to the main parameter as its value (a `Bytes` document, or `{"$text": ..}` for a text program), so the request is a function of the values, never of the files that hold them. |
 | `stop` | `{count}`, the program's stop count (its `stop_count`, else `[stop] count`), when the corpus has a `[stop]`: the implementation stops where the corpus's stop is, by its own meaning of it. |
@@ -2914,14 +2927,74 @@ The answer is an object of `end`, and `cells` or `reason`, and no other key:
 
 An implementation never names a rule label or states the computation (the `k` cell): those are the definition's internals, which no other implementation knows.
 kink names the definition's own end by the same words: an end some path of the program's baseline run reached at its last stop event is `stopped`, one every path reached on its own is `final`; without `[stop]` every end is `final`.
-The request and the answer are extensible by new keys under a new protocol version (traces at `[observe]` points, inclusion for nondeterministic definitions, hardware logs); version 1's answer refuses every other key, so an implementation that writes one is told so rather than silently half-read.
+The request and the answer are extensible by new keys under a new protocol version (version 2 adds traces at `[observe]` points; inclusion for nondeterministic definitions and hardware logs are not written); version 1's answer refuses every other key, so an implementation that writes one is told so rather than silently half-read.
+A request of version 1 and the reading of its answer are the same bytes and the same rules in a flow that also declares implementations of version 2.
 
 One process runs per program: a failure is then a fact of one program, the protocol needs no framing, and the cost is one process start per program (milliseconds, against the definition's own run of the program).
 The programs run one after another, in corpus order, each implementation in manifest order.
 
 A run that does not give an answer is a failure of the implementation, not a verdict: its row has `failure`, `{kind, detail, exit_code, stderr}` (the last 2000 bytes of its stderr), and no view verdicts.
-`kind` is `spawn` (the command cannot be started), `exit` (it exited with a status other than 0, or a signal ended it; an answer it printed is not read), `malformed` (its stdout is not one JSON answer, or `cells` names a cell the definition does not declare, holds a value of another type, or leaves out a cell `omits` does not name) or `timeout`.
+`kind` is `spawn` (the command cannot be started), `exit` (it exited with a status other than 0, or a signal ended it; an answer it printed is not read), `malformed` (its stdout is not one JSON answer, or `cells` names a cell the definition does not declare, holds a value of another type, or leaves out a cell `omits` does not name, or its `observations` is no record of the channels asked) or `timeout`.
 The clock only cancels: a run that has not closed its stdout and stderr when `time_ms` has passed is killed, and is `timeout`, no answer on this host (once it has closed them, its answer is complete, and kink waits for it to exit); the clock never decides a verdict, which only an answer does.
+
+### Traces: `kink-implementation/2`
+
+An end view compares where a run ends.
+A trace view compares what a run does on the way: the elements of the flow's `[observe]` channels ("What a run observes"), which the definition's baseline run of each program records, against the elements the implementation states for the same channels.
+So a program that never ends, or that the corpus's bounds cut, is compared up to where the definition's run was cut.
+
+What a trace verdict is:
+
+- It is a test of one build of the implementation, on the corpus's programs, up to the horizon the verdict names.
+  It says nothing of another program, of a longer run, or of another build.
+- kink compares the two sides' elements at equal indices.
+  That the implementation's element `k` is its state at the definition's point `k` is the implementation's claim, which kink does not check; every trace row says so (`correspondence: "implementation-claim"`).
+- Nothing here relates two K definitions, and no verdict of this command is a proof.
+  A wrapper around `krs run` (or another K tool) declared as an `[[implementation]]` is not a supported way to compare two definitions: the correspondence of their points would be the wrapper's claim, and the verdict would still be a test of some programs up to a horizon.
+
+The request is version 1's, with `protocol` `"kink-implementation/2"` and, where the implementation declares a trace view and the program's baseline has one path, `observe`:
+
+| Key | Meaning |
+| --- | --- |
+| `observe.channels` | One object per channel the implementation's trace views name, without repeats, in `[observe]`'s order (the point classes, then the logs). |
+| `name` | The channel's name. |
+| `kind` | `point` or `log`. |
+| `components` | A point class: `[{name, type}]`, the keys of an element's value in the class's order (krs: a cell's Rust field path, or a component's name), each with the type its value is a document at. |
+| `element` | A log: `{type}`, the type an element is a document at. |
+| `stutter` | A point class: `count` or `collapse`. |
+| `filtered` | A point class: whether it has a filter (`when`). Stating only the points where the filter holds is then part of the implementation's claim. |
+| `points` | A point class: `{before, after}`, its rule names as the manifest holds them, each list sorted. They say where the definition reads the channel, and are in the request so that a changed declaration is another request; an answer never names a rule. |
+| `at` | A log: the point classes it is read at. |
+| `positions` | How many indices from 0 the answer is asked to state: the number of elements the definition's channel holds where it is open after them (its run was cut), and one more where it is closed (the closure is a position, so an implementation that goes on can show its element there). Under `collapse` it counts collapsed elements. |
+
+The horizon is the definition's: `[budget] max_depth` and `baseline_max_work` cut its run and `[stop]` ends it, and `positions` tells the implementation the result in elements, never in steps.
+The implementation stops once every channel has its positions, or when it ends.
+
+The answer is an object of `end`, `cells`, `reason` and `observations`, and no other key:
+
+| `end` | Meaning | Also |
+| --- | --- | --- |
+| `stopped`, `final` | as in version 1 | `cells`, required where the implementation declares an end view and read where stated; `observations`, where the request has `observe` |
+| `horizon` | it stated the positions asked and has not ended; only to a request with `observe` | `observations`, and no `cells`: it has no end |
+| `could-not-apply` | as in version 1 | `reason`, and neither `cells` nor `observations` |
+
+`observations` is there exactly when the request has `observe` and the answer is not `could-not-apply`.
+It is a `krs-observations/1` document, the format `krs run --output observations` prints, read exactly: `{schema, channels: [{name, kind, elements, closed, open}]}`, the channels being exactly those asked, once each.
+
+- Each element is `{index, depth, rule, side, value}`: `index` its position, `depth` the implementation's own count (cycles, instructions; it is shown in a difference and never compared), `rule` and `side` present and null (they name points of the definition), and `value` the element's value.
+  An element the implementation cannot state has `undecided`, a string saying why, in place of `value`; under `collapse` the channel is known only up to such an element.
+- A point's `value` is an object of exactly the class's components by name; a log's is its element.
+- A channel ends `closed: "end"` (the run ended; `"undefined"` where its last step is undefined) with `open: null`, or `closed: null` with `open: {index, reason}`, `index` the number of elements stated: nothing is stated from there on.
+
+Under krs, a value is a document of the typed encoding at its component's type, in any of the value's spellings: kink decodes each stated value at that type and writes its canonical document before it compares, so two elements are equal exactly when their values are (a map written as an object or as pairs, an integer as a number or as `{"$int": ..}`).
+A value of another type, a component missing or unknown, a non-null `rule` or `side`, or a channel of another kind makes the answer `malformed`, named by its place (`channels[0].elements[3].value.pc`).
+A `collapse` channel is collapsed after that, as the definition's is: an element equal to the last one kept is dropped, so an implementation may state such a channel at a finer granularity than the definition's, provided it only repeats contents.
+
+**Choosing the points.**
+A trace view tests something only where the two systems have a common notion of "the same moment".
+Name point classes whose rules are boundaries in both systems (an instruction boundary, a frame end), not rules of the definition's own bookkeeping: where the definition takes two steps for what the implementation does in one, a `count` class over both rules has an element the implementation has no state for, and the first-difference report shows the offset at once.
+Where the two differ only in how often a content repeats, use `stutter = "collapse"`.
+Where the interesting behaviour is a sequence of events (bus writes, output), observe it as a log channel: its elements are the appended items, which do not depend on where either system is sampled.
 
 ### Verdicts
 
@@ -2929,38 +3002,50 @@ Each (implementation, program, view) has one verdict:
 
 | Verdict | Meaning |
 | --- | --- |
-| `equal` | Every end of the definition agrees with the answer: the same word, and the same values of the compared cells (through the view's functions); `omitted` lists the cells left out because the implementation omits them. |
-| `different` | They differ, first at `difference`: the word (`{format: "kink-end/1", at: "end", definition, implementation}`), else the front end's first difference of the compared cells (krs: `krs-difference/3`, its sides `definition` and `implementation`). |
+| `equal` | Every end of the definition agrees with the answer: the same word, and the same values of the compared cells (through the view's functions); `omitted` lists the cells left out because the implementation omits them. A trace view: on every channel of the view both sides close after the same elements, by the same closure. A channel both sides close with no element is compared at that closure, and agrees. |
+| `agree-up-to` | A trace view only: nothing differs, and on some channel a side states nothing past the elements that agree. `horizon` names each such channel, `{elements, limited_by, definition, implementation}`: the number of elements that agree; `limited_by` `definition` where the definition's channel is open there (`definition`: why, `bound`, `cycle` or another opening of its record) or `implementation` where the definition states a further position and the answer does not; `implementation`: the answer's own `open.reason`, or null. It is never spelled `equal`. |
+| `different` | They differ, first at `difference`: the word (`{format: "kink-end/1", at: "end", definition, implementation}`; an end view answered `horizon` on a program the definition ends differs so), else the front end's first difference of the compared cells (krs: `krs-difference/3`, its sides `definition` and `implementation`). A trace view: `{format: "kink-trace/1", channel, kind, index, path, definition, implementation, correspondence}`, the first index at which both sides hold a decided element or a closure and the two differ, where several channels differ the one the definition's run reached first. `kind` is `value` (two elements; `path` the place inside the value, `acc`, `regs.a`) or `closure` (one side ends where the other goes on). `definition` is `{element, rule, side, steps}`, the point the definition read it at (krs: the rule as a `krs run` report names it; `rule` and `side` null for a log item read at no point) and the steps its run took to it, or `{closed, rule: null, side: null, steps: null}` where its channel closes there; `implementation` is `{element, count}`, `count` its own `depth`, or `{closed, count: null}`. |
 | `could-not-apply` | The implementation's own answer; `detail` is its reason. |
-| `not-compared` | The view is not compared; `reason` says why: `definition` (the program's baseline is not `comparable`: it has no end), `omitted` (the view compares a cell the implementation omits), `left-out` (a cell the corpus's ends leave out, `[result]` or an unobservable cell), `several-ends` (the definition's run has several ends that the view tells apart, or ends both at the stop and on its own: one answer against several ends is inclusion, which this command does not decide), `undecided` (a view's evaluation stopped before it ended, or the clock stopped the depth-0 run that gives the start: no answer on this host), `unreadable` (the definition's start, an end or an input has no document). |
+| `not-compared` | The view is not compared; `reason` says why: `definition` (the program's baseline is not `comparable`: it has no end; for an implementation of version 2 only a baseline that is `timeout`, `unknown` or an error), `no-end` (an end view of an implementation of version 2 on a program whose baseline the bounds cut, `comparable-prefix`), `several-paths` (a trace view of a program whose baseline has several paths: its record holds no one sequence of elements), `observed-nothing` (a trace view no channel of which was compared at any index: a comparison of nothing is no agreement), `omitted` (the view compares a cell the implementation omits), `left-out` (a cell the corpus's ends leave out, `[result]` or an unobservable cell), `several-ends` (the definition's run has several ends that the view tells apart, or ends both at the stop and on its own: one answer against several ends is inclusion, which this command does not decide), `undecided` (a view's evaluation stopped before it ended, or the clock stopped the depth-0 run that gives the start: no answer on this host; for a trace view, an element before any difference is not decided on one side, an `undecided` element of the answer or an element of the definition that is undecided or has a part with no document), `unreadable` (the definition's start, an end or an input has no document). |
 
 ### Exit status
 
 Only a required view decides the status; every other verdict is reported.
-Each (implementation, program) row joins its required views' statuses: `equal` and `could-not-apply` 0 (an answer: the implementation states that it does not apply the program), `different` 1, `not-compared` 3 for `several-ends`, `undecided` and a `definition` that is `timeout`, `unknown` or `comparable-prefix`, else 2; and, for an implementation with a required view, its failure: 3 for `timeout`, else 2.
+Each (implementation, program) row joins its required views' statuses: `equal` and `could-not-apply` 0 (an answer: the implementation states that it does not apply the program), `different` 1, `not-compared` 3 for `several-ends`, `several-paths`, `observed-nothing`, `undecided` and a `definition` that is `timeout`, `unknown` or `comparable-prefix`, else 2; and, for an implementation with a required view, its failure: 3 for `timeout`, else 2.
+`agree-up-to` is 0 where every horizon is the definition's (`limited_by: "definition"`): the answer agrees with everything the definition states.
+It is 3 where some horizon is the implementation's: the definition states a position the answer does not, so an answer of fewer positions than asked never passes a required view.
+A `no-end` end view is 0 where the same implementation declares a required trace view, which then carries the program, and 3 otherwise.
 The command exits with the join of its rows and of its lock ("Exit status"; `stale` 1, `undecided` 3, a lock that does not decode or cannot be written 2), 2 for a refusal: a front end with no cell vocabulary (`unsupported-front-end`: kink-flow's own, which reads K terms; run `krs kink compare`), a manifest with no `[[implementation]]` (`no-implementation`), an `--only` name it does not declare (`unknown-implementation`), a declaration the definition refutes (`declaration`), an unreadable `identity` file (`identity`), and a refused specification.
 
 ### The document
 
-`schema` `kink-flow-compare`, `version` 1, `protocol`, the builds (`k_rust_revision`, `profile`, `kink_build`, `z3`), `spec`, `refusal` (`{stage, reason, detail}` or null), `implementations` (each declaration as written, its `identity` with `sha256`), `programs` (each program's baseline `{id, class, cause, cached, cache_error}`), `stop` and `result.not_compared` (the cells the ends leave out), `rows` and `summary`.
+`schema` `kink-flow-compare`, `version` 3, `protocol`, the builds (`k_rust_revision`, `profile`, `kink_build`, `z3`), `spec`, `refusal` (`{stage, reason, detail}` or null), `implementations` (each declaration as written, its `identity` with `sha256`), `programs` (each program's baseline `{id, class, cause, cached, cache_error}`), `stop` and `result.not_compared` (the cells the ends leave out), `rows` and `summary`.
 Each row is one (implementation, program): `{implementation, program, required, request_sha256, answer: {end, reason}, cached, failure, wall_ms, clock_stopped, views}`, `request_sha256` the SHA-256 of the request's canonical JSON, `cached` whether the answer was read from the cache (its `wall_ms` is then null), `clock_stopped` the run the clock stopped that the row rests on (`baseline`, `start`, `implementation`, or null), and each entry of `views` `{view, required, verdict, difference, reason, detail, omitted, status}`.
 Each program's baseline is `{id, class, cause, cached, not_cached, cache_error}`.
 `summary` counts the verdicts (`verdicts`, and `required`, of the required views) and the `failures`.
 `lock`, with `--lock`, is the lock's state as `run`'s and `coverage`'s is ("The corpus record"), with `failed`.
 `--output text` prints one line per verdict (`IMPLEMENTATION PROGRAM VIEW (required|reported): VERDICT`, with where a difference is or why a view is not compared) and per failure, then the counts; `--output verdicts` prints the record's header and the `[compare]` section the run would write.
 Version 2 adds `lock`, a row's `cached` and `clock_stopped`, and a program's `not_cached`.
+Version 3 adds the second protocol.
+Where a selected implementation declares it, the document has `protocols`, the protocols of the selected implementations, in place of `protocol`, and `evidence: "testing"`, and both members of `summary` count `agree-up-to`; a document of implementations of the first protocol alone has none of the three and is version 2's but for its `version`.
+A trace view's entry also has `horizon` (null but for `agree-up-to`) and `correspondence`; an end view's entry has neither key.
+An `agree-up-to` entry's `status` is its own, 0 or 3 ("Exit status").
+A text line of a trace view ends with `(testing: that element k is the definition's point k is NAME's claim)`.
+A value run that does not reproduce the recorded baseline refuses the command (stage `compare`, reason `trace-capture`).
 
 ### The record and the cache
 
-With `--lock FILE` the verdicts are the corpus record's `[compare]` section ("The corpus record"): one `[[compare.verdict]]` per (implementation, program, view), with `required`, the verdict, its reason, a different view's first difference, `request_sha256` and the implementation's `identity_sha256`, under a header that names the `protocol`.
+With `--lock FILE` the verdicts are the corpus record's `[compare]` section ("The corpus record"): one `[[compare.verdict]]` per (implementation, program, view), with `required`, the verdict, its reason, a different view's first difference, an `agree-up-to` view's `horizon`, `request_sha256` and the implementation's `identity_sha256`, under a header that names the `protocols` of its implementations.
 The record is read before anything runs, and the command follows the rule of `run` and `coverage`: a run of every implementation without `--locked` rewrites the section (`created`, `written` or `unchanged`), keeping the other sections byte for byte; `--only` and a refusal leave it unwritten.
 A verdict is a function of the definition, the corpus, the request and the implementation's answer, so the section states what the current inputs give, and a moved verdict shows in review.
 
-Under `--locked` the command writes nothing and compares the section it would write with the file's: a row whose verdict, reason or first difference differs, a reported view's included, is a lock difference (`lock.status` `stale`, exit 1, one line per change on stderr: `kink.lock: rust-cpu cases/irq/case.toml accesses: different: its first difference moved: recorded ..., now ...`, `kink.lock: rust-cpu cases/irq/case.toml writes: equal -> different`), and so is a row only one side has (`added, equal`, `removed, was different`), a moved digest, or another order or text, which the first difference names.
+Under `--locked` the command writes nothing and compares the section it would write with the file's: a row whose verdict, reason, first difference or horizon differs (`kink.lock: rust-cpu cases/loop/case.toml boundary: agree-up-to: its horizon moved: recorded ..., now ...`), a reported view's included, is a lock difference (`lock.status` `stale`, exit 1, one line per change on stderr: `kink.lock: rust-cpu cases/irq/case.toml accesses: different: its first difference moved: recorded ..., now ...`, `kink.lock: rust-cpu cases/irq/case.toml writes: equal -> different`), and so is a row only one side has (`added, equal`, `removed, was different`), a moved digest, or another order or text, which the first difference names.
 A run of an implementation that gave no answer, because it failed (`spawn`, `exit`, `malformed`) or the clock cancelled it (`timeout`), decides no verdict, and neither does a definition run the clock stopped: the rows of that (implementation, program) keep their recorded values, so the run is never a lock difference and never rewrites a row, and under `--locked` a section that differs in nothing else is `undecided`, exit 3, not decided on this host, as the clock's rule is for `run` ("What decides a verdict").
 stderr names each such run (`kink.lock: rust-cpu cases/irq/case.toml: the clock (time_ms) cancelled the implementation's run: its rows are not decided on this host`).
 
 An implementation that declares `identity` has its answers cached in the result cache (`--cache DIR`, `implementation-answers/`): the stdout of a run that exited 0 with an answer the protocol reads is stored under the protocol, the digest of the `identity` file, the `command` and the request's digest, and a later run with the same four reads it instead of starting the implementation (`cached: true`).
+A request of version 2 holds the channels asked, with their components and points, and each channel's `positions`, so a changed `[observe]` or a moved horizon is another request, which no cached answer answers.
+The definition's side of a trace view is not cached: each `compare` runs the baseline of each program with a trace view once more, to read the values of the elements its record holds digests of, and requires that run's record to be the recorded one.
 A cached answer trusts that the same binary, given the same request, gives the same answer.
 The cache holds answers, not verdicts: each run reads the answer again by the protocol and compares it again with the definition's ends under the views as they are then, since a request with `given = "inputs"` does not name the definition, so a definition, a `[result]` or a view that changed is never answered from the cache, and `--locked` checks the verdicts the current definition gives.
 A failure or a cancelled run is never cached: it is no answer, and a host on which the implementation answers must not be told otherwise.
