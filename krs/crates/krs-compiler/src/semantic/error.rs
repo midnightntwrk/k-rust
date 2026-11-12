@@ -1011,6 +1011,16 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// A matched computation with an item after a part of sort `K`, a sequence of any length
+    /// that ends a computation as its rest does: the computation is read from its front.
+    ComputationBackItem {
+        /// Stable reason naming the parts.
+        reason: String,
+        /// The exact authored range of the item after the part.
+        range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A configuration variable no cell's initial content reads.
     UnusedConfigurationVariable {
         /// Stable reason naming the variable.
@@ -1496,6 +1506,11 @@ macro_rules! by_subject_slots {
                 item: $open_item,
                 ..
             }
+            | DescriptorLoweringError::ComputationBackItem {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
             | DescriptorLoweringError::InvalidGeneratedIdentity {
                 range: $open_range,
                 item: $open_item,
@@ -1936,7 +1951,8 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::UnusedConfigurationVariable { reason, .. }
             | Self::UnsupportedInputDefault { reason, .. }
             | Self::MainCell { reason, .. }
-            | Self::ComputationCell { reason, .. } => formatter.write_str(reason),
+            | Self::ComputationCell { reason, .. }
+            | Self::ComputationBackItem { reason, .. } => formatter.write_str(reason),
             Self::ImplicitPresence { cells, .. } => formatter.write_str(
                 &cells
                     .iter()
@@ -2067,6 +2083,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::CellWrapper { .. } => codes::analysis::CELL_WRAPPER,
             Self::MainCell { .. } => codes::analysis::MAIN_CELL,
             Self::ComputationCell { .. } => codes::analysis::COMPUTATION_CELL,
+            Self::ComputationBackItem { .. } => codes::collect::INVALID_CONFIGURATION,
             Self::UnusedConfigurationVariable { .. } => {
                 codes::analysis::UNUSED_CONFIGURATION_VARIABLE
             }

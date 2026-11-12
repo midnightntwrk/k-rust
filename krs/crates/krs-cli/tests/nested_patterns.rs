@@ -6379,7 +6379,6 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
         ("requires/cells", cells("x: Int,\n    a: Int,", "#[k::requires(int::eq(Run(Cmd::Make { x }), 0))]\n", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => ()), ..), acc: {cc}(k::rewrite!(a => x))")), "probe"),
         ("requires/readable", readable("Machine", "#[k::requires(int::eq(Run(Make { x }), 0))]\n    ", "{ k: [Make { x }, ..] } => { k: [..] }"), "probe"),
         ("requires/a-bool-place", cells("x: Int,\n    a: Int,", "#[k::requires(Cmd::Make { x })]\n", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => ()), ..), acc: {cc}(k::rewrite!(a => x))")), "probe"),
-        ("sequence/k-item-beside-an-item", cells("x: Int,\n    b: KSequence,", "", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(b => Cmd::Make {{ x: 1 }})), acc: {cc}(k::rewrite!(_ => x))")), "probe"),
         ("map-value/stmt", cells("", "", &format!("kmap: {cc}(map![1 -> k::rewrite!(_ => Cmd::Make {{ x: 2 }}), ..])")), "probe"),
         ("map-value/k-binder", readable("Machine", "", "{ k: [Keep { body: b }, ..], kmap: m } => { k: [..], kmap: map::update(m, 1, b) }"), "probe"),
     ]
@@ -6412,7 +6411,6 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
         requires/cells: passed: rule [probe]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc> requires run ( make ( X:Int ) ) ==Int 0
         requires/readable: passed: rule [probe]: <k> make ( X:Int ) => .K ... </k> requires run ( make ( X:Int ) ) ==Int 0
         requires/a-bool-place: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): application result sort ORG-KRS-NESTED::Stmt (sort) is not admissible at sort Bool @ 106:15
-        sequence/k-item-beside-an-item: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a K sequence item of sort `K` is a sequence of any length, which stands beside items of other sorts only in a rule result, where it splices into the sequence @ 109:44
         map-value/stmt: error[krs::native::compile]: native frontend stage add sort injections failed: src/lib.rs: (origin: concretize-cells) term _Krs_Wildcard0 has sort K, which is not a subsort of the sort KItem its position requires @ unlocated
         map-value/k-binder: error[krs::native::compile]: native frontend stage add sort injections failed: src/lib.rs: (origin: concretize-cells) term B has sort K, which is not a subsort of the sort KItem its position requires @ unlocated"]].assert_eq(&rows.join("\n"));
     // `wrap` keeps the item in a `K` field and evaluates `Run` over it (an equation whose left
@@ -6434,4 +6432,51 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
     );
     assert!(success, "{stdout}\n{stderr}");
     expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <kmap> .Map </kmap> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+}
+
+/// ITEMSORTS round 2, Q4: in a matched computation a part of sort `K` matches a sequence of any
+/// length. As the last part after the items (`KCell(Cmd::Make { x }, b)`) it matches the rest of
+/// the computation, one split, as `b @ ..` does; a rewrite whose left side is one item is one
+/// item, beside items too. Followed by an item it is a back match, which the computation, read
+/// from its front, gets as an item after its rest does (`krs::collect::invalid-configuration`),
+/// on the `cells!` and readable routes. After the items with another part of any length after it
+/// the computation would split more than one way. Parts of sort `K` with no item before them
+/// (`KCell(b, c, ..)`) are left as they read, recorded here (K-SEQ-SPLITS).
+#[test]
+fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let fixture = item_sorts_fixture();
+    let kk = "k::configuration::KCell";
+    let cc = "k::configuration::Cell";
+    let cells = |parameters: &str, entries: &str| {
+        format!(
+            "{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    {parameters}\n    k::cells! {{ {entries}, acc: {cc}(k::rewrite!(_ => 1)), .. }}: Machine,\n) {{}}\n"
+        )
+    };
+    let rows = [
+        ("last", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, b)"))),
+        ("last-rewritten", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(b => Cmd::Make {{ x: 1 }}))"))),
+        ("one-item-rewrite", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(Cmd::Keep {{ body: b }} => b), ..)"))),
+        ("back-item", cells("b: KSequence,\n    x: Int,", &format!("k: {kk}(b, Cmd::Make {{ x }}, ..)"))),
+        ("back-item/readable", format!("{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    probe: {{ k: [Keep {{ body: b }}, b, Make {{ x }}, ..] }} => {{ k: [..] }};\n}}\n")),
+        ("rest-after", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, b, ..)"))),
+        ("two-after", cells("x: Int,\n    b: KSequence,\n    c: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, b, c)"))),
+        ("unruled/two-parts", cells("b: KSequence,\n    c: KSequence,", &format!("k: {kk}(b, c, ..)"))),
+        ("unruled/one-part", cells("b: KSequence,", &format!("k: {kk}(b, ..)"))),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("k-part-{}", name.replace('/', "-")), &source);
+        format!("{name}: {}", sentences_or_error(target.path(), &manifest, "probe"))
+    });
+    expect_test::expect![[r"
+        last: passed: rule [probe]: <k> make ( X:Int ) ~> B:K </k> <acc> _ => 1 </acc>
+        last-rewritten: passed: rule [probe]: <k> make ( X:Int ) ~> (B:K => make ( 1 )) </k> <acc> _ => 1 </acc>
+        one-item-rewrite: passed: rule [probe]: <k> make ( X:Int ) ~> (keep ( B:K ) => B:K) ... </k> <acc> _ => 1 </acc>
+        back-item: error[krs::collect::invalid-configuration]: the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is @ 109:47
+        back-item/readable: error[krs::collect::invalid-configuration]: the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is @ 108:39
+        rest-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way @ 109:64
+        two-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way @ 110:64
+        unruled/two-parts: passed: rule [probe]: <k> B:K ~> C:K ... </k> <acc> _ => 1 </acc>
+        unruled/one-part: passed: rule [probe]: <k> B:K ... </k> <acc> _ => 1 </acc>"]].assert_eq(&rows.join("\n"));
 }

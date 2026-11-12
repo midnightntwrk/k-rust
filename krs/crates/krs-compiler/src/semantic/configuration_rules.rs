@@ -436,11 +436,10 @@ impl<'a> StateRuleTerms<'a> {
                         lowered
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let item_sort =
-                    common_sequence_item_sort(descriptor, &items, self.sort_parents, !subject)
-                        .map_err(|error| {
-                            error.within(descriptor.id(), key_range(descriptor, key).as_ref())
-                        })?;
+                if subject {
+                    matched_parts(descriptor, sequence, &items)?;
+                }
+                let item_sort = common_sequence_item_sort(&items, self.sort_parents);
                 Ok(SemanticTerm::k_sequence(
                     semantic_origin(descriptor, key.clone(), "rule-k-sequence")?,
                     item_sort,
@@ -2865,6 +2864,70 @@ fn semantic_term_slices_equivalent(left: &[SemanticTerm], right: &[SemanticTerm]
             .iter()
             .zip(right)
             .all(|(left, right)| semantic_terms_equivalent(left, right))
+}
+
+/// Whether a lowered item of a matched computation matches exactly one item: a term of a sort
+/// below `K`, the one-item sequence a `KItem` stands as at `K`
+/// ([`super::infer::StructuredTermBuilder::at_place`]), or a rewrite whose left side does. A
+/// part of sort `K` otherwise matches a sequence of any length.
+fn matches_one_item(term: &SemanticTerm) -> bool {
+    use krs_ir_levels::SemanticTermKind as Kind;
+    match term.kind() {
+        Kind::Rewrite { from, .. } => matches_one_item(from),
+        Kind::KSequence { items, .. } => {
+            matches!(items.as_slice(), [item] if matches_one_item(item))
+        }
+        _ => *term.sort() != SemanticSortRef::k_sequence(),
+    }
+}
+
+/// Judges where the parts of a matched computation `sequence`, lowered as `items`, stand. A
+/// part of sort `K` matches a sequence of any length:
+/// - followed by an item, it is a back match, which a computation read from its front never
+///   is, as an item after its rest is not ([`DescriptorLoweringError::ComputationBackItem`]);
+/// - after the items, as the computation's last part (`KCell(Cmd::Make { x }, b)`), it matches
+///   the rest of the computation, one split, as `b @ ..` does;
+/// - after the items and followed by another part of any length (a rest `..`, another `K`
+///   part), the computation splits between them in more than one way.
+///
+/// Parts of sort `K` with no item before them (`KCell(b, c, ..)`) are left as they read.
+fn matched_parts(
+    descriptor: &Descriptor,
+    sequence: &krs_ir::ProtocolRuleKSequence<DescriptorTerm>,
+    items: &[SemanticTerm],
+) -> Result<(), DescriptorLoweringError> {
+    let Some(first) = items.iter().position(|item| !matches_one_item(item)) else {
+        return Ok(());
+    };
+    if let Some(after) = (first + 1..items.len()).find(|&index| matches_one_item(&items[index])) {
+        return Err(DescriptorLoweringError::ComputationBackItem {
+            reason: "the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is".to_owned(),
+            range: key_range(descriptor, &sequence.items[after].key).map(Box::new),
+            item: Some(Box::new(descriptor.id().clone())),
+        });
+    }
+    if first == 0 {
+        return Ok(());
+    }
+    let frame = match &sequence.tail {
+        krs_ir::ProtocolRuleFrame::Exact => None,
+        krs_ir::ProtocolRuleFrame::Anonymous { key }
+        | krs_ir::ProtocolRuleFrame::Bind { key, .. }
+        | krs_ir::ProtocolRuleFrame::Reuse { key, .. } => Some(key),
+    };
+    if let Some(next) = sequence
+        .items
+        .get(first + 1)
+        .map(|item| &item.key)
+        .or(frame)
+    {
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            "a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way",
+        )
+        .within(descriptor.id(), key_range(descriptor, next).as_ref()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

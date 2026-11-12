@@ -265,40 +265,25 @@ pub(super) struct DeclarationCatalog<'a> {
 
 /// The item sort of a `[..]` sequence: its items' one most-specific common sort.
 ///
-/// In a rule result (`splice`), an item of sort `K` (`io::write`, `io::putc`, `io::log`)
-/// splices into the sequence as K's `~>` does: the sequence's items then have sort `K`, and
-/// every other item injects into `KItem`. A pattern keeps the single common sort, and an item of
-/// sort `K` there stands alone or beside other `K` items only: every item is a `K`, but a `K`
-/// item is a sequence of any length, and beside an item of another sort no one length is its.
+/// An item of sort `K` (`io::write`, `io::putc`, `io::log` in a rule result, a binder of sort
+/// `K` in a pattern) is a sequence that K's `~>` splices into the sequence: the sequence's items
+/// then have sort `K`, and every other item injects into `KItem`. Where a matched computation
+/// may hold such a part is judged where the pattern's parts are known
+/// (`StateRuleTerms::matched_parts`).
 /// Every sort but `K` is a `KItem`, so items of unrelated sorts, such as an
 /// `Int` value followed by a frame, have the common sort `KItem`; only when
 /// they have no one most-specific common sort at all (a definition without
 /// `KItem`) do the sequence's items have sort `K` there too.
 pub(super) fn common_sequence_item_sort(
-    descriptor: &Descriptor,
     items: &[SemanticTerm],
     parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    splice: bool,
-) -> Result<SemanticSortRef, DescriptorLoweringError> {
-    if items.is_empty() {
-        return Ok(SemanticSortRef::k_sequence());
-    }
-    let k_item = items
-        .iter()
-        .any(|item| *item.sort() == SemanticSortRef::k_sequence());
-    if splice && k_item {
-        return Ok(SemanticSortRef::k_sequence());
-    }
-    if k_item
-        && items
+) -> SemanticSortRef {
+    if items.is_empty()
+        || items
             .iter()
-            .any(|item| *item.sort() != SemanticSortRef::k_sequence())
+            .any(|item| *item.sort() == SemanticSortRef::k_sequence())
     {
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            "a K sequence item of sort `K` is a sequence of any length, which stands beside \
-                 items of other sorts only in a rule result, where it splices into the sequence",
-        ));
+        return SemanticSortRef::k_sequence();
     }
     let mut common = semantic_sort_closure(items[0].sort(), parents);
     for item in &items[1..] {
@@ -314,10 +299,10 @@ pub(super) fn common_sequence_item_sort(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let [item_sort] = most_specific.as_slice() else {
-        return Ok(SemanticSortRef::k_sequence());
-    };
-    Ok(item_sort.clone())
+    match most_specific.as_slice() {
+        [item_sort] => item_sort.clone(),
+        _ => SemanticSortRef::k_sequence(),
+    }
 }
 
 pub(super) fn semantic_sort_closure(

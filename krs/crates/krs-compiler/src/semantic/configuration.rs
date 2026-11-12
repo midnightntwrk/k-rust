@@ -1338,8 +1338,8 @@ fn lower_initializer_state(
             .into_iter()
             .map(|item| lower_term(item, None))
             .collect::<Result<Vec<_>, _>>()?;
-        let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)
-            .map_err(|error| error.within(descriptor.id(), key_range(descriptor, key).as_ref()))?;
+        // An initializer builds its sequence, so a part of sort `K` splices into it.
+        let item_sort = common_sequence_item_sort(&items, sort_parents);
         Ok(SemanticTerm::k_sequence(
             semantic_origin(descriptor, key.clone(), "initializer-k-sequence")?,
             item_sort,
