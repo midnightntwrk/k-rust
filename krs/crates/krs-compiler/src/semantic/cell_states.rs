@@ -457,18 +457,25 @@ pub(super) fn kept_rest_mismatch(
 }
 
 /// A result's `..` in a list cell's brackets over a subject that left no unnamed rest of the
-/// cell for it to keep (P6): the subject's entry names the whole list, names its rest, or does
-/// not match the cell. The entry table answers it as `rest-mismatch` at the author's entry; this
-/// answers it for a sentence the table does not judge.
+/// cell for it to keep (P6): the subject's entry names the whole list, names its rest (`named`),
+/// or does not match the cell. The entry table answers it as `rest-mismatch` at the author's
+/// entry; this answers it for a sentence the table does not judge.
 pub(super) fn kept_list_rest_mismatch(
     descriptor: &Descriptor,
     key: &ProvenanceKey,
+    named: Option<&str>,
 ) -> DescriptorLoweringError {
+    let reason = match named {
+        None => "the result keeps the rest of the list with `..`, and the subject matched no unnamed rest of it: a result's `..` keeps the rest its subject's `..` matched; write `..` in the subject's brackets too, or name the rest (`rest @ ..`, `..rest`)".to_owned(),
+        Some(rest) => format!(
+            "the subject names the rest of the list `..{rest}`, and the result's `..` keeps no named rest, so the rule would drop it: put it back with `..{rest}`, or keep it unnamed with `..` in the subject"
+        ),
+    };
     collection_error(
         descriptor,
         krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
         key,
-        "the result keeps the rest of the list with `..`, and the subject matched no unnamed rest of it: a result's `..` keeps the rest its subject's `..` matched; write `..` in the subject's brackets too, or name the rest (`rest @ ..`, `..rest`)".to_owned(),
+        reason,
     )
 }
 

@@ -663,10 +663,15 @@ fn with_named_list_rests(
         };
         Ok(())
     };
+    // The rest each subject list cell names (`[x, rest @ ..]`), which a result's `..` cannot keep.
+    let mut named_rests = BTreeMap::new();
     for cell in &mut rule.subject.cells {
         let field = cell.field.clone();
         if let Some(root) = entry_root(&mut cell.value) {
             let end = list_spine_end(root);
+            if let DescriptorTerm::Variable { name, .. } = end {
+                named_rests.insert(field.cell.clone(), name.clone());
+            }
             if matches!(end, DescriptorTerm::KeptRest { .. }) {
                 matched.insert(field.cell.clone());
                 name(&field, end, &mut variables)?;
@@ -681,7 +686,11 @@ fn with_named_list_rests(
         let end = list_spine_end(root);
         match end {
             DescriptorTerm::KeptRest { key } if !matched.contains(&field.cell) => {
-                return Err(super::cell_states::kept_list_rest_mismatch(descriptor, key));
+                return Err(super::cell_states::kept_list_rest_mismatch(
+                    descriptor,
+                    key,
+                    named_rests.get(&field.cell).map(String::as_str),
+                ));
             }
             DescriptorTerm::Application {
                 reference,
@@ -709,6 +718,10 @@ fn with_named_list_rests(
 /// and the result's kept rest are one variable of the child's sort, per subject instance. A
 /// result whose instance is no subject instance, or whose subject child ends in no `..`, kept
 /// no rest. `None` when no result child keeps one; the names avoid `taken`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one walk pairing each result child's kept rest with its subject child's, the refusal beside its case"
+)]
 fn with_named_child_rests(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
@@ -785,15 +798,31 @@ fn with_named_child_rests(
                         continue;
                     };
                     let key = key.clone();
-                    let mismatch = || super::cell_states::kept_list_rest_mismatch(descriptor, &key);
-                    let index = *twin_of.get(&(back, position)).ok_or_else(mismatch)?;
-                    let before = subject.as_deref_mut().ok_or_else(mismatch)?;
+                    let mismatch = |named: Option<&str>| {
+                        super::cell_states::kept_list_rest_mismatch(descriptor, &key, named)
+                    };
+                    let index = *twin_of
+                        .get(&(back, position))
+                        .ok_or_else(|| mismatch(None))?;
+                    let before = subject.as_deref_mut().ok_or_else(|| mismatch(None))?;
                     let count = before.front.len();
                     let matched = if index < count {
                         &mut before.front[index]
                     } else {
                         &mut before.back[index - count]
                     };
+                    // The rest the subject instance's child names, which the `..` cannot keep.
+                    let named_rest = matched
+                        .fields
+                        .iter_mut()
+                        .find(|matched| matched.field == field.field)
+                        .and_then(|matched| match &mut matched.value {
+                            ProtocolRuleStateTerm::Term(pattern) => match list_spine_end(pattern) {
+                                DescriptorTerm::Variable { name, .. } => Some(name.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        });
                     let name = if let Some(name) = named.get(&(index, field.field.clone())) {
                         name.clone()
                     } else {
@@ -804,7 +833,7 @@ fn with_named_child_rests(
                             &mut used,
                             &mut variables,
                         )?
-                        .ok_or_else(mismatch)?;
+                        .ok_or_else(|| mismatch(named_rest.as_deref()))?;
                         named.insert((index, field.field.clone()), name.clone());
                         name
                     };
