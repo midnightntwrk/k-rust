@@ -1154,6 +1154,7 @@ fn parse_machine_map_pattern(
     let mut entries: Vec<(TermExpression, Ident)> = Vec::new();
     let mut spellings: Vec<String> = Vec::new();
     loop {
+        reject_named_map_rest(&map)?;
         let tokens = tokens_before_arrow(&map)?;
         let text = tokens.to_string();
         let key = TermExpression::parse_key_pattern_tokens(tokens.clone())?;
@@ -1198,6 +1199,21 @@ fn parse_machine_map_pattern(
             .into());
     }
     Ok((entries, TokenRange::for_tokens(&dots)?))
+}
+
+/// Refuses a named rest `rest @ ..` where a machine-rule map read's next item stands. No readable
+/// result writes a map over a rest, and no readable condition reads one, so the named rest could
+/// only be dropped, as a record child's map read's named rest is (`check_moved_remainders`).
+fn reject_named_map_rest(map: ParseStream<'_>) -> Result<(), ParseError> {
+    let fork = map.fork();
+    if fork.parse::<Ident>().is_ok() && fork.parse::<Token![@]>().is_ok() && fork.peek(Token![..]) {
+        return Err(map
+            .error(
+                "a readable map read keeps the rest of the map with `..` and names no rest: no readable result writes a map over a named rest and no readable condition reads one, so `rest @ ..` could only drop it; a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule's subject names the rest (`map![k -> v, rest @ ..]`)",
+            )
+            .into());
+    }
+    Ok(())
 }
 
 /// The tokens of a map item's key, up to its `->`, which `input` is left
