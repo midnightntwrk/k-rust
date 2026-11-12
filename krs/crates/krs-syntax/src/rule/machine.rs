@@ -187,7 +187,12 @@ fn parse_readable_pattern_state(
         if !contains_top_level_arrow(&group) {
             let group: proc_macro2::Group = input.parse()?;
             return Ok(Some(StateTerm::Instances(
-                parse_readable_instances_reading(&group, StateMacroContext::Pattern, looks_up)?,
+                parse_readable_instances_reading(
+                    &group,
+                    StateMacroContext::Pattern,
+                    looks_up,
+                    None,
+                )?,
             )));
         }
     }
@@ -200,7 +205,9 @@ fn parse_readable_pattern_state(
 /// same reading), or `None` for any other value. A map read or a map literal holds `->`, and a
 /// term block (`{ let p = t; r }`) is no list of items, so each stays what it is; so does braces
 /// the instance reader does not read.
-fn braced_instances(content: ParseStream<'_>) -> Result<Option<InstanceList>, ParseError> {
+fn braced_instances(
+    content: ParseStream<'_>,
+) -> Result<Option<Result<InstanceList, crate::SyntaxError>>, ParseError> {
     if !content.peek(syn::token::Brace) {
         return Ok(None);
     }
@@ -215,11 +222,12 @@ fn braced_instances(content: ParseStream<'_>) -> Result<Option<InstanceList>, Pa
     ) {
         return Ok(None);
     }
-    let Ok(instances) = parse_readable_instances(&group, StateMacroContext::Expression) else {
+    let Ok((instances, fault)) = parse_instances_with_fault(&group, StateMacroContext::Expression)
+    else {
         return Ok(None);
     };
     content.parse::<proc_macro2::Group>()?;
-    Ok(Some(instances))
+    Ok(Some(fault.map_or(Ok(instances), Err)))
 }
 
 /// A result value that is a map read `{ k -> v, .. }` as the entry reader reads one, and no term
@@ -407,7 +415,28 @@ fn parse_readable_instances(
     group: &proc_macro2::Group,
     context: StateMacroContext,
 ) -> Result<InstanceList, ParseError> {
-    parse_readable_instances_reading(group, context, false)
+    match parse_instances_with_fault(group, context)? {
+        (_, Some(fault)) => Err(fault.into()),
+        (instances, None) => Ok(instances),
+    }
+}
+
+/// The faults of instance children that wait for the judgement of the clause holding them
+/// ([`parse_instances_with_fault`]): the first one, kept.
+type ChildFaults<'a> = Option<&'a std::cell::RefCell<Option<crate::SyntaxError>>>;
+
+/// [`parse_readable_instances`], with the first fault of a child it reads that waits for the
+/// clause's judgement: a result child's items after its `..`
+/// ([`crate::cell_entries::Refusal::ResultItemsAfterRest`]). Where there is one, the instances
+/// hold a child state that does not mean what the child writes, so a caller carries the fault as
+/// the cell's refusal, the cell only read, and never lowers them.
+fn parse_instances_with_fault(
+    group: &proc_macro2::Group,
+    context: StateMacroContext,
+) -> Result<(InstanceList, Option<crate::SyntaxError>), ParseError> {
+    let faults = std::cell::RefCell::new(None);
+    let instances = parse_readable_instances_reading(group, context, false, Some(&faults))?;
+    Ok((instances, faults.into_inner()))
 }
 
 /// [`parse_readable_instances`]; with `looks_up`, a rule's subject, a braced
@@ -422,6 +451,7 @@ fn parse_readable_instances_reading(
     group: &proc_macro2::Group,
     context: StateMacroContext,
     looks_up: bool,
+    faults: ChildFaults<'_>,
 ) -> Result<InstanceList, ParseError> {
     let delimiter = if group.delimiter() == proc_macro2::Delimiter::Bracket {
         InstanceListDelimiter::Bracket
@@ -448,6 +478,7 @@ fn parse_readable_instances_reading(
                 item,
                 context,
                 looks_up && delimiter == InstanceListDelimiter::Brace,
+                faults,
             )?,
         };
         if rest.is_some() {
@@ -531,6 +562,7 @@ fn parse_readable_instance(
     tokens: TokenStream,
     context: StateMacroContext,
     braced: bool,
+    faults: ChildFaults<'_>,
 ) -> Result<InstanceItem, ParseError> {
     let range = TokenRange::for_tokens(&tokens)?;
     let mut trees = tokens.into_iter().collect::<Vec<_>>();
@@ -635,7 +667,7 @@ fn parse_readable_instance(
         // a record at a cell's position is ([`RecordPresences`]).
         let read = RecordPresences::of(&value, context)
             .map_or_else(|| value.clone(), |presences| presences.read);
-        let state = parse_readable_child(name, read, context, braced)?;
+        let state = parse_readable_child(name, read, context, braced, faults)?;
         fields.push(InstanceField::new(name.clone(), state));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest)?)
@@ -653,13 +685,14 @@ fn parse_readable_child(
     tokens: TokenStream,
     context: StateMacroContext,
     braced: bool,
+    faults: ChildFaults<'_>,
 ) -> Result<StateTerm, ParseError> {
     match crate::state_macro::PresenceTokens::of(&tokens)? {
         Some(crate::state_macro::PresenceTokens::Absent(range)) => {
             return Ok(StateTerm::Absent(range));
         }
         Some(crate::state_macro::PresenceTokens::Present(inside)) => {
-            let value = parse_readable_child(name, inside, context, braced)?;
+            let value = parse_readable_child(name, inside, context, braced, faults)?;
             if matches!(value, StateTerm::Present(_) | StateTerm::Absent(_)) {
                 return Err(readable_error(
                     tokens.span(),
@@ -729,17 +762,12 @@ fn parse_readable_child(
             return Ok(StateTerm::Term(read(tokens)?));
         }
         // A result's `..` before an item keeps the subject's rest in front of it. A second one is
-        // refused as list notation refuses it; one is read as the child's sequence with its
-        // rest, whose place the child's kind judges first (a computation's back item, brackets
-        // on a Set), and the entry table refuses on a list child as not lowered yet
-        // ([`crate::cell_entries::Refusal::KeptRestUnlowered`]).
-        let rests = chunks
-            .iter()
-            .filter(|chunk| is_dots(chunk))
-            .collect::<Vec<_>>();
-        if let [_, second, ..] = rests.as_slice() {
-            return Err(crate::list_notation::two_rests(second.span()).into());
-        }
+        // refused as list notation refuses it. One is no sequence an instance child writes, whose
+        // rest follows its items, so the child is the clause's fault
+        // ([`crate::cell_entries::Refusal::ResultItemsAfterRest`]): the kind answers first (a
+        // computation's back item, brackets on a Set), and the cell is only read, so no lowering
+        // reads the sequence kept in its place, whose rest stands after its items.
+        result_rests(name, &chunks, faults)?;
         let mut items = Vec::new();
         let mut tail = StateMacroRemainder::Exact;
         for chunk in chunks {
@@ -768,6 +796,45 @@ fn parse_readable_child(
     Ok(StateTerm::Term(read(tokens)?))
 }
 
+/// The rests of a result instance child `name`'s bracketed items `chunks`: a second one is
+/// refused as list notation refuses it, and one before an item is the clause's fault, recorded in
+/// `faults` ([`parse_instances_with_fault`]) or refused where there is none.
+fn result_rests(
+    name: &Ident,
+    chunks: &[TokenStream],
+    faults: ChildFaults<'_>,
+) -> Result<(), ParseError> {
+    let rests = chunks
+        .iter()
+        .filter(|chunk| is_dots(chunk))
+        .collect::<Vec<_>>();
+    if let [_, second, ..] = rests.as_slice() {
+        return Err(crate::list_notation::two_rests(second.span()).into());
+    }
+    let early = chunks
+        .split_last()
+        .and_then(|(_, before)| before.iter().find(|chunk| is_dots(chunk)));
+    if let Some(early) = early {
+        let reason = crate::cell_entries::Refusal::ResultItemsAfterRest.reason(
+            crate::cell_entry::EntryForm::Readable,
+            &name.unraw().to_string(),
+            &crate::cell_entries::EntryKind::default(),
+            None,
+        );
+        let fault = crate::SyntaxError::new(
+            crate::SyntaxErrorKind::KeptRestUnlowered { reason },
+            early.span(),
+        );
+        match faults {
+            Some(faults) => {
+                faults.borrow_mut().get_or_insert(fault);
+            }
+            None => return Err(fault.into()),
+        }
+    }
+    Ok(())
+}
+
 /// Whether a readable instance child's bracketed items `chunks`, read in `context`, are the term
 /// their list notation denotes rather than a computation's items, whose anonymous rest ends them:
 /// a pattern's rest before its last item (a back or a second rest) or a named rest anywhere, and
@@ -786,6 +853,15 @@ fn reads_as_list_term(chunks: &[TokenStream], context: StateMacroContext) -> boo
             Ok(Some(StateMacroRemainder::Bind { .. }))
         )
     })
+}
+
+/// Whether `error` is a child's fault the clause carries until its entries are judged
+/// ([`parse_instances_with_fault`]).
+fn is_child_fault(error: &crate::SyntaxError) -> bool {
+    matches!(
+        error.kind(),
+        crate::SyntaxErrorKind::KeptRestUnlowered { .. }
+    )
 }
 
 /// Whether the item `chunk` is a result's `..term`: `..` followed by the term it puts back.
@@ -1294,10 +1370,14 @@ fn parse_machine_result_record(
         } else if family == Some(StateFamily::Instances)
             && (content.peek(syn::token::Bracket) || content.peek(syn::token::Brace))
         {
-            MachineResultCell::State(Box::new(parse_readable_result_state(
-                &content,
-                StateFamily::Instances,
-            )?))
+            match parse_readable_result_state(&content, StateFamily::Instances) {
+                Ok(state) => MachineResultCell::State(Box::new(state)),
+                // A child the clause judges whole first: the cell is only read.
+                Err(ParseError::Structured(fault)) if is_child_fault(&fault) => {
+                    MachineResultCell::Refused(Box::new(fault))
+                }
+                Err(error) => return Err(error),
+            }
         } else if content.peek(syn::token::Bracket) {
             MachineResultCell::Bracket(bracket_presences(
                 content.parse()?,
@@ -1305,7 +1385,13 @@ fn parse_machine_result_record(
                 faults,
             )?)
         } else if let Some(instances) = braced_instances(&content)? {
-            MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
+            match instances {
+                Ok(instances) => {
+                    MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
+                }
+                // A child the clause judges whole first: the cell is only read.
+                Err(fault) => MachineResultCell::Refused(Box::new(fault)),
+            }
         } else if let Some(error) = record_child_entry(&content) {
             skip_value(&content)?;
             MachineResultCell::Refused(Box::new(error))
@@ -2048,12 +2134,17 @@ impl BracketReadings {
                 Some(_) => false,
             };
         let instances = |records: bool| {
+            // A result child's fault leaves the cell only read, whatever reading it takes, so a
+            // value holding one reads as the instances it is.
             let reads = |group: &proc_macro2::Group, context: StateMacroContext| {
-                if records {
-                    parse_readable_records(group, context).is_some()
-                } else {
-                    parse_readable_instances(group, context).is_ok()
-                }
+                parse_instances_with_fault(group, context).is_ok_and(|(instances, _)| {
+                    !records
+                        || instances
+                            .front()
+                            .iter()
+                            .chain(instances.back())
+                            .all(|item| item.owner().is_some())
+                })
             };
             reads(group, StateMacroContext::Pattern)
                 && match result {
@@ -2467,10 +2558,16 @@ fn read_brackets(
                 Err(error) => return Err(error),
             },
             MachineResultCell::Bracket(group) if is_list(cell) => {
-                MachineResultCell::State(Box::new(StateTerm::Instances(parse_readable_instances(
-                    group,
-                    StateMacroContext::Expression,
-                )?)))
+                match parse_instances_with_fault(group, StateMacroContext::Expression)? {
+                    (instances, None) => {
+                        MachineResultCell::State(Box::new(StateTerm::Instances(instances)))
+                    }
+                    // A child the clause judges whole first: the cell is only read.
+                    (_, Some(fault)) if defer_pairing => {
+                        MachineResultCell::Refused(Box::new(fault))
+                    }
+                    (_, Some(fault)) => return Err(fault.into()),
+                }
             }
             // A cell its subject matches with one term is written with
             // one term, which brackets spell in list notation.

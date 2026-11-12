@@ -194,12 +194,22 @@ pub enum Refusal {
     /// limitation of the readable record's top-level route; inside an instance record the value
     /// is matched, P5).
     MapReadValueBinder,
-    /// A result whose `..` keeps a list's rest that its subject matches inside a term (below an
-    /// alias, in parentheses or among alternatives: `l @ [x, ..]`), or, in an instance child, with
-    /// items after it (`[.., x]`), or that writes an instance child's items after its `..`
-    /// (`[.., a]`): the lowering keeps a rest only where the subject's own brackets end with it,
-    /// and an instance child's only after its items (a stated limitation).
-    KeptRestUnlowered,
+    /// A result whose `..` keeps a list's rest that its subject matches inside a term, below an
+    /// alias or in parentheses (`l @ [x, ..]`, `([x, ..])`): a rest is kept only where the
+    /// subject's own brackets hold it (a stated limitation).
+    KeptRestInTerm,
+    /// A result whose `..` keeps a list's rest that its subject matches among alternatives
+    /// (`[x, ..] | [x]`): a rest is kept only where one pattern's own brackets hold it (a stated
+    /// limitation).
+    KeptRestAmongAlternatives,
+    /// A result whose `..` keeps the rest of an instance child that its subject matches with items
+    /// after it (`[.., x]`, `[x, .., y]`): an instance child's rest is kept only after its
+    /// subject's items (a stated limitation).
+    KeptRestBeforeItems,
+    /// A result that writes an instance child's items after its `..` (`[.., a]`), which would keep
+    /// the subject's rest before them: an instance child's rest is kept only after its items (a
+    /// stated limitation).
+    ResultItemsAfterRest,
 }
 
 impl Refusal {
@@ -242,7 +252,10 @@ impl Refusal {
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
-            Self::KeptRestUnlowered => "kept-rest-unlowered",
+            Self::KeptRestInTerm
+            | Self::KeptRestAmongAlternatives
+            | Self::KeptRestBeforeItems
+            | Self::ResultItemsAfterRest => "kept-rest-unlowered",
         }
     }
 }
@@ -290,7 +303,10 @@ impl Refusal {
             | Self::SeveralRestsInstances
             | Self::CollectionWithoutInstances
             | Self::BelowCollectionAncestor
-            | Self::KeptRestUnlowered => analysis::COLLECTION_ENTRY,
+            | Self::KeptRestInTerm
+            | Self::KeptRestAmongAlternatives
+            | Self::KeptRestBeforeItems
+            | Self::ResultItemsAfterRest => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
             Self::CellWrapper => analysis::CELL_WRAPPER,
             Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
@@ -312,7 +328,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 37] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -346,7 +362,10 @@ impl Refusal {
         Self::MapReadInResult,
         Self::MapCollectionKey,
         Self::MapReadValueBinder,
-        Self::KeptRestUnlowered,
+        Self::KeptRestInTerm,
+        Self::KeptRestAmongAlternatives,
+        Self::KeptRestBeforeItems,
+        Self::ResultItemsAfterRest,
     ];
 
     /// Why the entry of the cell `cell`, of the kind `kind` (a leaf of the sort `sort`, where
@@ -525,8 +544,17 @@ impl Refusal {
             Self::MapReadValueBinder => format!(
                 "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level the value names what the entry maps to (a stated limitation; inside an instance record the value is matched)"
             ),
-            Self::KeptRestUnlowered => format!(
-                "the result's unnamed rest `..` keeps a rest of `{cell}` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item"
+            Self::KeptRestInTerm => format!(
+                "the result's unnamed rest `..` keeps the rest of `{cell}` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name"
+            ),
+            Self::KeptRestAmongAlternatives => format!(
+                "the result's unnamed rest `..` keeps the rest of `{cell}` that its subject matches among alternatives: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, in one pattern, not among alternatives; match the cell with one pattern, or name every item the result writes"
+            ),
+            Self::KeptRestBeforeItems => format!(
+                "the result's unnamed rest `..` keeps the rest of the instance child `{cell}`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name"
+            ),
+            Self::ResultItemsAfterRest => format!(
+                "the result writes items after the unnamed rest `..` of the instance child `{cell}`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name"
             ),
         }
     }
@@ -1130,7 +1158,9 @@ impl Admission<'_> {
             // `..name`; the subject drops a rest by naming it `_rest @ ..` and not putting it
             // back. An initializer is a result with no subject: nothing in it is a pattern.
             // A nameless alias is parentheses, which name nothing and group a term anywhere.
-            EntrySpelling::Alias(name, _) if !pattern && !name.is_empty() => {
+            EntrySpelling::Alias(name, _)
+                if !pattern && !name.is_empty() && name != crate::cell_entry::ALTERNATIVES =>
+            {
                 return Err(Refusal::AliasOutsidePattern);
             }
             _ if !pattern && named_rest => {
@@ -1193,6 +1223,15 @@ impl Admission<'_> {
         spelling: &EntrySpelling,
         head: bool,
     ) -> Result<(), Refusal> {
+        // Each alternative is an entry of the same cell, judged by its kind whatever its order.
+        if let Some(alternatives) = crate::cell_entry::alternatives(spelling) {
+            return self.within(0, |admission| {
+                for (step, alternative) in alternatives.iter().enumerate() {
+                    admission.within(step, |admission| admission.kind(stack, alternative, head))?;
+                }
+                Ok(())
+            });
+        }
         if let EntrySpelling::Alias(_, pattern) = spelling {
             return self.within(0, |admission| admission.kind(stack, pattern, head));
         }
@@ -1259,7 +1298,7 @@ impl Admission<'_> {
                     && !seq.back().is_empty()
                 {
                     self.path.push(seq.items.len() - seq.back().len());
-                    return Err(Refusal::KeptRestUnlowered);
+                    return Err(Refusal::ResultItemsAfterRest);
                 }
                 self.items(seq)
             }
@@ -1566,7 +1605,9 @@ fn keeps_anonymous_rest(spelling: &EntrySpelling) -> bool {
 /// it is written in one: an alias, parentheses or alternatives, a term around the entry.
 fn below_aliases(mut spelling: &EntrySpelling) -> (&EntrySpelling, bool) {
     let mut aliased = false;
-    while let EntrySpelling::Alias(_, inner) = spelling {
+    while let EntrySpelling::Alias(_, inner) = spelling
+        && crate::cell_entry::alternatives(spelling).is_none()
+    {
         spelling = inner;
         aliased = true;
     }
@@ -1575,6 +1616,21 @@ fn below_aliases(mut spelling: &EntrySpelling) -> (&EntrySpelling, bool) {
 
 fn root(spelling: &EntrySpelling) -> Root<'_> {
     let (spelling, _) = below_aliases(spelling);
+    // Alternatives match a rest where any one of them does, whatever their order: the anonymous
+    // one first, as a result's `..` would keep it.
+    if let Some(alternatives) = crate::cell_entry::alternatives(spelling) {
+        return alternatives
+            .iter()
+            .map(root)
+            .find(|root| *root == Root::Rest(&EntryRest::Anonymous))
+            .or_else(|| {
+                alternatives
+                    .iter()
+                    .map(root)
+                    .find(|root| *root != Root::Other)
+            })
+            .unwrap_or(Root::Other);
+    }
     match spelling {
         EntrySpelling::Present(one) | EntrySpelling::Cell(one) => root(one),
         _ => sequence(spelling)
@@ -1972,8 +2028,14 @@ fn pair_content(
             if anonymous(root(spelling)) != anonymous(root(subject)) {
                 return Err(Refusal::RestMismatch);
             }
-            if anonymous(root(spelling)) && lists(stack) && below_aliases(subject).1 {
-                return Err(Refusal::KeptRestUnlowered);
+            if anonymous(root(spelling)) {
+                let (subject, aliased) = below_aliases(subject);
+                if crate::cell_entry::alternatives(subject).is_some() {
+                    return Err(Refusal::KeptRestAmongAlternatives);
+                }
+                if aliased && lists(stack) {
+                    return Err(Refusal::KeptRestInTerm);
+                }
             }
         }
         Other::Created => {
@@ -2139,13 +2201,13 @@ fn pair_records(
     }
 }
 
-/// [`Refusal::KeptRestUnlowered`] at the first child of `record`, a result instance record of
-/// `group` whose other side is `other`, whose `..` keeps a rest the lowering does not keep yet:
-/// the anonymous rest of the subject's same child where the subject matches items after it (its
-/// back, or a second rest) or matches it inside a term (an alias, parentheses, alternatives). The
-/// subject child is then the term its
-/// brackets denote, whose unnamed rest no instance child's sequence keeps yet; a named rest is
-/// kept by its name, as a term.
+/// The refusal at the first child of `record`, a result instance record of `group` whose other
+/// side is `other`, whose `..` keeps a rest the lowering does not keep yet: the anonymous rest of
+/// the subject's same child where the subject matches it inside a term
+/// ([`Refusal::KeptRestInTerm`]) or with items after it, its back or a second rest
+/// ([`Refusal::KeptRestBeforeItems`]). The subject child is then the term its brackets denote,
+/// whose unnamed rest no instance child's sequence keeps yet; a named rest is kept by its name,
+/// as a term.
 fn kept_child_rest(
     group: &GroupKind,
     record: &EntryRecord,
@@ -2160,16 +2222,22 @@ fn kept_child_rest(
             continue;
         }
         let (unaliased, aliased) = below_aliases(subject);
-        let matched_inside = sequence(unaliased).is_some_and(|seq| {
+        let Some(seq) = sequence(unaliased).filter(|seq| {
             seq.rest
                 .as_ref()
                 .is_some_and(|(rest, _)| *rest == EntryRest::Anonymous)
-                && (aliased || !seq.back().is_empty() || seq.more_rests > 0)
-        });
-        if matched_inside {
-            path.push(step);
-            return Err(Refusal::KeptRestUnlowered);
-        }
+        }) else {
+            continue;
+        };
+        let refusal = if aliased {
+            Refusal::KeptRestInTerm
+        } else if !seq.back().is_empty() || seq.more_rests > 0 {
+            Refusal::KeptRestBeforeItems
+        } else {
+            continue;
+        };
+        path.push(step);
+        return Err(refusal);
     }
     Ok(())
 }
@@ -2790,6 +2858,12 @@ impl<C: PartialEq> Sentence<'_, C> {
                 }
                 continue;
             };
+            // A subject entry with no spelling is one the reading does not read: one its own
+            // parser also refuses, whose refusal the sentence carries (a value no reader reads
+            // the same way). Every entry a readable reader admits has a spelling, which the
+            // reach check over the test sources pins (`krs-syntax` `tests/entry_reach.rs`); the
+            // lowering never relies on this pairing alone (a result child's items after its `..`
+            // are the clause's fault, not a sequence it lowers).
             if other.is_some_and(|other| other.spelling.is_none()) {
                 continue;
             }
@@ -2864,7 +2938,7 @@ mod tests {
         }
         assert_eq!(
             Refusal::ALL.len(),
-            Refusal::KeptRestUnlowered as usize + 1,
+            Refusal::ResultItemsAfterRest as usize + 1,
             "the last refusal ends the list"
         );
         let group = GroupKind {

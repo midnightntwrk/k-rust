@@ -162,9 +162,10 @@ pub enum EntrySpelling {
     MapRead(EntryMap),
     /// A record.
     Record(EntryRecord),
-    /// `name @ pattern`; with no name, a pattern inside a term that names nothing, which
-    /// matches its rest there: parentheses around it, or the first of alternatives holding a
-    /// rest.
+    /// `name @ pattern`; with no name, parentheses around a pattern, a term that names nothing
+    /// and matches the pattern's rest inside it; named [`ALTERNATIVES`], pattern alternatives,
+    /// `p | q`, each an entry of the same cell, in order, as the arguments of the
+    /// [`EntrySpelling::Call`] it holds ([`alternatives`]).
     Alias(String, Box<Self>),
     /// `Cell(..)`.
     Cell(Box<Self>),
@@ -280,6 +281,11 @@ impl<'a> EntryReading<'a> {
                 EntrySpelling::Brackets(seq)
             });
         }
+        // A block, `{ let s = set::empty(); s }`, is the term it evaluates to, no list of items.
+        if input.peek(syn::token::Brace) && is_block(input) {
+            input.parse::<syn::Block>()?;
+            return Ok(EntrySpelling::Call(Vec::new()));
+        }
         if input.peek(syn::token::Brace) {
             let content;
             braced!(content in input);
@@ -299,13 +305,15 @@ impl<'a> EntryReading<'a> {
                 quote::ToTokens::to_token_stream(&literal)
             )));
         }
-        let path = input.call(Path::parse_mod_style)?;
+        // An expression's path: a turbofish names its generic arguments (`Wrap::<Val>(..)`),
+        // and a `<` after a name is an operator, not arguments.
+        let path = input.parse::<syn::ExprPath>()?.path;
         let last = path
             .segments
             .last()
             .map(|segment| segment.ident.unraw().to_string())
             .unwrap_or_default();
-        if input.peek(Token![!]) {
+        if input.peek(Token![!]) && !input.peek(Token![!=]) {
             input.parse::<Token![!]>()?;
             return self.macro_call(&last, input);
         }
@@ -476,18 +484,21 @@ impl<'a> EntryReading<'a> {
             }
             _ => {}
         }
-        let expression = input.parse::<syn::Expr>()?;
-        // Alternatives whose patterns hold a rest (`[x, ..] | [x]`) match that rest inside a
-        // term: they are read as their first alternative's entry inside a term that names
-        // nothing ([`EntrySpelling::Alias`] with no name), so the rest is never taken for the
-        // cell's own brackets' rest; the other alternatives are the term's.
+        // Pattern alternatives, `[x, ..] | [x]`, `Go() | Last()`: each is an entry of the cell,
+        // read in order, so every one is judged by the cell's kind and none by its place.
         if self.form != EntryForm::Initializer
-            && holds_rest(&expression)
-            && let Some(first) = first_alternative(&expression)
+            && let Some(alternatives) = pattern_alternatives(input)
         {
-            let first = self.value(quote::ToTokens::to_token_stream(first))?;
-            return Ok(EntrySpelling::Alias(String::new(), Box::new(first)));
+            let alternatives = alternatives
+                .into_iter()
+                .map(|alternative| self.value(alternative))
+                .collect::<syn::Result<Vec<_>>>()?;
+            return Ok(EntrySpelling::Alias(
+                ALTERNATIVES.to_owned(),
+                Box::new(EntrySpelling::Call(alternatives)),
+            ));
         }
+        let expression = input.parse::<syn::Expr>()?;
         if self.form != EntryForm::Initializer
             && !denotes_term(&expression)
             && (!marked || holds_rest(&expression))
@@ -590,7 +601,8 @@ impl<'a> EntryReading<'a> {
             let map = self.map(content)?;
             let mut keys = Vec::new();
             for (key, _) in &map.entries {
-                if keys.contains(&key) {
+                // `_` names no key: two of them are two entries, of any keys.
+                if *key != EntrySpelling::Wild && keys.contains(&key) {
                     return Err(content.error("a map read names each key once"));
                 }
                 keys.push(key);
@@ -640,6 +652,20 @@ impl<'a> EntryReading<'a> {
     }
 }
 
+/// Whether `input` starts with braces holding a block's statements: a `let`, or a `;` at their top
+/// level, which no list of items, record or map holds.
+fn is_block(input: ParseStream<'_>) -> bool {
+    use proc_macro2::TokenTree;
+    let Ok(group) = input.fork().parse::<proc_macro2::Group>() else {
+        return false;
+    };
+    let trees = group.stream().into_iter().collect::<Vec<_>>();
+    matches!(trees.first(), Some(TokenTree::Ident(first)) if first == "let")
+        || trees
+            .iter()
+            .any(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ';'))
+}
+
 /// Whether `input` starts as an entry the reading knows: `_`, a name or a path, brackets,
 /// braces, or a literal.
 fn starts_entry(input: ParseStream<'_>) -> bool {
@@ -658,16 +684,46 @@ fn denotes_term(expression: &syn::Expr) -> bool {
     !holds_rest(expression) && !crate::recover::holds_alternatives(expression)
 }
 
-/// The first of the alternatives `expression` joins at its top level (`a | b | c` is `a`), or
-/// `None` where it joins none.
-fn first_alternative(expression: &syn::Expr) -> Option<&syn::Expr> {
-    let syn::Expr::Binary(binary) = expression else {
-        return None;
-    };
-    if !matches!(binary.op, syn::BinOp::BitOr(_)) {
+/// The name of the alias that holds pattern alternatives ([`EntrySpelling::Alias`]), which no
+/// Rust identifier spells.
+pub const ALTERNATIVES: &str = "|";
+
+/// The alternatives `spelling` joins, each an entry of the same cell, where it is pattern
+/// alternatives ([`ALTERNATIVES`]).
+#[must_use]
+pub fn alternatives(spelling: &EntrySpelling) -> Option<&[EntrySpelling]> {
+    match spelling {
+        EntrySpelling::Alias(name, inner) if name == ALTERNATIVES => match &**inner {
+            EntrySpelling::Call(alternatives) => Some(alternatives),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The tokens of each alternative of a pattern `p | q | ..` that `input` starts with, read to
+/// the next `,`, `->` or its end, which it then advances past; `None`, advancing nothing, where
+/// it starts with no alternatives.
+fn pattern_alternatives(input: ParseStream<'_>) -> Option<Vec<TokenStream>> {
+    let ahead = input.fork();
+    let pattern = syn::Pat::parse_multi(&ahead).ok()?;
+    if !(ahead.is_empty() || ahead.peek(Token![,]) || ahead.peek(Token![->])) {
         return None;
     }
-    Some(first_alternative(&binary.left).unwrap_or(&binary.left))
+    let syn::Pat::Or(alternatives) = pattern else {
+        return None;
+    };
+    if alternatives.leading_vert.is_some() {
+        return None;
+    }
+    input.advance_to(&ahead);
+    Some(
+        alternatives
+            .cases
+            .iter()
+            .map(quote::ToTokens::to_token_stream)
+            .collect(),
+    )
 }
 
 /// Whether `expression` holds a rest (`..`) outside a macro.
@@ -990,17 +1046,25 @@ fn child_tokens<'s>(
         Some((stream(part), Some(items.get(step)?)))
     };
     match spelling {
+        // Alternatives: their call holds each alternative's tokens, between the top-level `|`s.
+        EntrySpelling::Alias(name, inner) if step == 0 && name == ALTERNATIVES => {
+            Some((tokens.clone(), Some(&**inner)))
+        }
+        EntrySpelling::Call(arguments)
+            if trees
+                .iter()
+                .any(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == '|')) =>
+        {
+            let part = trees
+                .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == '|'))
+                .nth(step)?;
+            Some((stream(part), Some(arguments.get(step)?)))
+        }
         EntrySpelling::Alias(name, inner) if step == 0 && name.is_empty() => {
-            let inside = match trees.as_slice() {
-                [TokenTree::Group(group)] if group.delimiter() == Delimiter::Parenthesis => {
-                    group.stream().into_iter().collect::<Vec<_>>()
-                }
-                _ => trees
-                    .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == '|'))
-                    .next()?
-                    .to_vec(),
+            let [TokenTree::Group(group)] = trees.as_slice() else {
+                return None;
             };
-            Some((stream(&inside), Some(&**inner)))
+            Some((group.stream(), Some(&**inner)))
         }
         EntrySpelling::Alias(_, inner) if step == 0 => {
             Some((stream(trees.get(2..)?), Some(&**inner)))
@@ -1218,6 +1282,10 @@ mod cells_fields_tests {
     /// the entry around it is judged alike (RDRA item 2, AUDIT-R P7). Where a pattern may stand,
     /// alternatives and a rest are no term and stay unread.
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One reading per spelling, over every form, its expectation inline."
+    )]
     fn an_operator_value_is_a_term_on_every_form() {
         let term = || EntrySpelling::Call(Vec::new());
         for form in [
@@ -1264,16 +1332,39 @@ mod cells_fields_tests {
                 ],
                 "{form:?}"
             );
-            if form != super::EntryForm::Initializer {
-                assert_eq!(read("x | 1"), None, "{form:?}");
+            // Pattern alternatives are each an entry of the cell, in order, so every one is the
+            // kind's to judge; an initializer builds, so they are its term.
+            let literal = |text: &str| EntrySpelling::Literal(text.to_owned());
+            let alternatives = |each: Vec<EntrySpelling>| {
+                EntrySpelling::Alias(
+                    super::ALTERNATIVES.to_owned(),
+                    Box::new(EntrySpelling::Call(each)),
+                )
+            };
+            if form == super::EntryForm::Initializer {
+                assert_eq!(
+                    read("Some(1 | 2)"),
+                    Some(EntrySpelling::Present(Box::new(term()))),
+                    "{form:?}"
+                );
+            } else {
+                assert_eq!(
+                    read("x | 1"),
+                    Some(alternatives(vec![
+                        EntrySpelling::Binder("x".to_owned()),
+                        literal("1"),
+                    ])),
+                    "{form:?}"
+                );
+                assert_eq!(
+                    read("Some(1 | 2)"),
+                    Some(EntrySpelling::Present(Box::new(alternatives(vec![
+                        literal("1"),
+                        literal("2")
+                    ])))),
+                    "{form:?}"
+                );
             }
-            // Alternatives a mark holds are the one term pattern they make, so the mark is the
-            // entry's to judge.
-            assert_eq!(
-                read("Some(1 | 2)"),
-                Some(EntrySpelling::Present(Box::new(term()))),
-                "{form:?}"
-            );
         }
         let cells = |text: &str| {
             super::EntryReading::new(super::EntryForm::Cells, &[])
@@ -1288,7 +1379,13 @@ mod cells_fields_tests {
         assert_eq!(
             cells("Some(k::configuration::Cell(s | s))"),
             Some(EntrySpelling::Present(Box::new(EntrySpelling::Cell(
-                Box::new(term())
+                Box::new(EntrySpelling::Alias(
+                    super::ALTERNATIVES.to_owned(),
+                    Box::new(EntrySpelling::Call(vec![
+                        EntrySpelling::Binder("s".to_owned()),
+                        EntrySpelling::Binder("s".to_owned()),
+                    ]))
+                ))
             ))))
         );
         let Some(EntrySpelling::Brackets(seq)) =

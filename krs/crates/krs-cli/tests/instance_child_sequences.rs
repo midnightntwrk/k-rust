@@ -544,13 +544,13 @@ fn a_kept_rest_of_an_instance_child_matched_at_its_back_is_a_stated_limit() {
         )
     });
     expect_test::expect![[r"
-        label-all: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-        label-front: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-        brackets: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `jl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-        map-key: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-        alias-back: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-        alias-front: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-        claim: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `jl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+        label-all: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
+        label-front: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
+        brackets: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `jl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
+        map-key: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
+        alias-back: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+        alias-front: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+        claim: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `jl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
         named: rule [go]: <k> go => .K ... </k> <th> <tl> R:List ListItem(X:KItem) => ListItem(X:KItem) R:List </tl> ... </th> <out> _ => ListItem(X:KItem) </out>
         named-twin: rule [go]: <k> go => .K ... </k> <ll> R:List ListItem(X:KItem) => ListItem(X:KItem) R:List </ll> <out> _ => ListItem(X:KItem) </out>
         named-brackets: rule [go]: <k> go => .K ... </k> <out> _ => ListItem(X:KItem) </out> <jobs> <job> <jl> ListItem(X:KItem) R:List ListItem(Y:KItem) => ListItem(Y:KItem) R:List ListItem(X:KItem) </jl> ... </job> ... </jobs>
@@ -651,25 +651,25 @@ fn every_kept_rest_spelling_of_an_instance_child_is_judged_as_its_twin_s() {
         .collect::<Vec<_>>();
     expect_test::expect![[r"
         paren-back
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `ll` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `ll` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
         paren-front
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `ll` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `ll` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
         paren-exact
           instance: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
           twin: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
         double-alias
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `ll` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `ll` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
         alias
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
-          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `ll` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+          twin: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `ll` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
         alternatives
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches among alternatives: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, in one pattern, not among alternatives; match the cell with one pattern, or name every item the result writes
           twin: error[krs::syntax::rust-syntax]: expected `,` between machine-rule cells
         item-alternatives
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
           twin: rule [go]: <k> ( go #Or last ) => .K ... </k> <ll> Krs_RestLl:List ListItem(X:KItem) => Krs_RestLl:List </ll> <out> _ => ListItem(X:KItem) </out>
         rest-unkept
           instance: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
@@ -678,10 +678,10 @@ fn every_kept_rest_spelling_of_an_instance_child_is_judged_as_its_twin_s() {
           instance: rule [go]: <k> push A:Int => .K ... </k> <th> <tl> ListItem(_) R:List => ListItem(A:Int) R:List R:List </tl> ... </th>
           twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) R:List => ListItem(A:Int) R:List R:List </ll>
         items-after-rest
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
           twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => Krs_RestLl:List ListItem(A:Int) </ll>
         items-around-rest
-          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps a rest of `tl` that the lowering does not keep yet: the subject matches it inside a term (below an alias, in parentheses or among alternatives), or, in an instance child, with items after it, or the result writes items after it there; a rest is kept only where the subject's own brackets end with it, and an instance child's only after its items, so name the rest in the subject and write it back by its name, or name every item
+          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
           twin: rule [go]: <k> push A:Int => .K ... </k> <ll> ListItem(_) Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List ListItem(A:Int) </ll>
         two-rests
           instance: error[krs::syntax::invalid-list-notation]: a list holds at most one rest `..`: the elements before it are the list's front and those after it its back, so with a second rest the elements between the two would have no fixed place; join two lists with `list::concat(xs, ys)`
@@ -692,6 +692,212 @@ fn every_kept_rest_spelling_of_an_instance_child_is_judged_as_its_twin_s() {
         set-items-after-rest
           instance: error[krs::analysis::invalid-list-notation]: the cell `js` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
           twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"]].assert_eq(&table.join("\n"));
+}
+
+/// A result child that writes items after its `..`, `Th { tl: [.., x], ..me }`, is never lowered
+/// as another list: whatever else the record holds (a `let` block), it is the stated limit on a
+/// List child once the kind has answered, the computation's back item on a computation child and
+/// brackets on a Set child, as its twin at a top cell gives where it refuses. Alternatives are
+/// judged by every alternative, whatever their order.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of the review's spellings beside their twins, its expectation inline."
+)]
+fn a_result_s_items_after_an_instance_child_s_rest_are_never_lowered_as_another_list() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let go = "k: [Go(), ..]";
+    let block = "ts: { let s = set::empty(); s }, ";
+    let rows = [
+        (
+            "list-let",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x, ..], .. }}, .. }} }} => {{ k: [..], th: {{ Th {{ tl: [.., x], {block}..me }}, .. }} }};"
+            ),
+            Some(format!(
+                "go: {{ {go}, ll: [x, ..] }} => {{ k: [..], ll: [.., x] }};"
+            )),
+        ),
+        (
+            "computation-let",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tk: [x, ..], .. }}, .. }} }} => {{ k: [..], th: {{ Th {{ tk: [.., x], {block}..me }}, .. }} }};"
+            ),
+            Some("go: { aux: [x, ..] } => { aux: [.., x] };".to_owned()),
+        ),
+        (
+            "set",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x, ..], .. }}, .. }} }} => {{ k: [..], th: {{ Th {{ ts: [.., x], ..me }}, .. }} }};"
+            ),
+            Some(format!(
+                "go: {{ {go}, ll: [x, ..] }} => {{ k: [..], ss: [.., x] }};"
+            )),
+        ),
+        (
+            "brackets-let",
+            format!(
+                "go: {{ {go}, job: [me @ Job {{ jl: [x, ..], .. }}, ..] }} => {{ k: [..], job: [Job {{ jl: [.., x], js: {{ let s = set::empty(); s }}, ..me }}, ..] }};"
+            ),
+            None,
+        ),
+        (
+            "kept-let",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [.., x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [..], {block}..me }}, .. }}, out: [x] }};"
+            ),
+            None,
+        ),
+        (
+            "kept-let-subject",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [.., x], ts: {{ let s = set::empty(); s }}, .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [..], ..me }}, .. }}, out: [x] }};"
+            ),
+            None,
+        ),
+        (
+            "alternatives-dropped",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x] | [x, ..], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [x], ..me }}, .. }}, out: [x] }};"
+            ),
+            None,
+        ),
+        (
+            "alternatives-dropped-swapped",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x, ..] | [x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [x], ..me }}, .. }}, out: [x] }};"
+            ),
+            None,
+        ),
+        (
+            "alternatives-kept",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x] | [x, ..], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [..], ..me }}, .. }}, out: [x] }};"
+            ),
+            None,
+        ),
+        (
+            "alternatives-kept-swapped",
+            format!(
+                "go: {{ {go}, th: {{ me @ Th {{ tl: [x, ..] | [x], .. }}, .. }}, out: _ }} => {{ k: [..], th: {{ Th {{ tl: [..], ..me }}, .. }}, out: [x] }};"
+            ),
+            None,
+        ),
+        (
+            "computation-alternatives",
+            format!(
+                "go: {{ {go}, th: {{ Th {{ tk: [Go()] | [.., Go()], .. }}, .. }} }} => {{ k: [..] }};"
+            ),
+            None,
+        ),
+        (
+            "computation-alternatives-swapped",
+            format!(
+                "go: {{ {go}, th: {{ Th {{ tk: [.., Go()] | [Go()], .. }}, .. }} }} => {{ k: [..] }};"
+            ),
+            None,
+        ),
+        (
+            "set-alternatives",
+            format!(
+                "go: {{ {go}, th: {{ Th {{ ts: [x] | [.., x], .. }}, .. }} }} => {{ k: [..] }};"
+            ),
+            None,
+        ),
+        (
+            "set-alternatives-swapped",
+            format!(
+                "go: {{ {go}, th: {{ Th {{ ts: [.., x] | [x], .. }}, .. }} }} => {{ k: [..] }};"
+            ),
+            None,
+        ),
+        (
+            "alias-twin",
+            format!(
+                "go: {{ {go}, ll: l @ [x, ..], out: _ }} => {{ k: [..], ll: [..], out: [x] }};"
+            ),
+            Some(format!(
+                "go: {{ {go}, ll: [.., x], out: _ }} => {{ k: [..], ll: [..], out: [x] }};"
+            )),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, instance, twin)| {
+            let mut row = format!(
+                "{name}\n  instance: {}",
+                verdict(
+                    target.path(),
+                    temporary.path(),
+                    &format!("instance-{name}"),
+                    instance,
+                    false,
+                )
+            );
+            if let Some(twin) = twin {
+                write!(
+                    row,
+                    "\n  twin: {}",
+                    verdict(
+                        target.path(),
+                        temporary.path(),
+                        &format!("twin-{name}"),
+                        twin,
+                        false,
+                    )
+                )
+                .unwrap();
+            }
+            row
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r"
+        list-let
+          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
+          twin: rule [go]: <k> go => .K ... </k> <ll> ListItem(X:KItem) Krs_RestLl:List => Krs_RestLl:List ListItem(X:KItem) </ll>
+        computation-let
+          instance: error[krs::collect::invalid-configuration]: the entry of the computation cell `tk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+          twin: error[krs::collect::invalid-configuration]: the entry of the computation cell `aux` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+        set
+          instance: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+          twin: error[krs::analysis::invalid-list-notation]: the cell `ss` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+        brackets-let
+          instance: error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `jl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name
+        kept-let
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
+        kept-let-subject
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of the instance child `tl`, which its subject matches with items after it: keeping it is not supported yet, since an instance child keeps a rest only after its subject's items; name the rest in the subject and write it back by its name
+        alternatives-dropped
+          instance: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
+        alternatives-dropped-swapped
+          instance: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
+        alternatives-kept
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches among alternatives: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, in one pattern, not among alternatives; match the cell with one pattern, or name every item the result writes
+        alternatives-kept-swapped
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `tl` that its subject matches among alternatives: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, in one pattern, not among alternatives; match the cell with one pattern, or name every item the result writes
+        computation-alternatives
+          instance: error[krs::collect::invalid-configuration]: the entry of the computation cell `tk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+        computation-alternatives-swapped
+          instance: error[krs::collect::invalid-configuration]: the entry of the computation cell `tk` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it
+        set-alternatives
+          instance: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+        set-alternatives-swapped
+          instance: error[krs::analysis::invalid-list-notation]: the cell `ts` holds a `Set` leaf, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)
+        alias-twin
+          instance: error[krs::analysis::collection-entry]: the result's unnamed rest `..` keeps the rest of `ll` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name
+          twin: rule [go]: <k> go => .K ... </k> <ll> Krs_RestLl:List ListItem(X:KItem) => Krs_RestLl:List </ll> <out> _ => ListItem(X:KItem) </out>"]].assert_eq(&table.join("\n"));
+    // A claim's result is read as a rule's.
+    let claim = verdict(
+        target.path(),
+        temporary.path(),
+        "claim-list-let",
+        &format!(
+            "go: {{ {go}, th: {{ me @ Th {{ tl: [x, ..], .. }}, .. }} }} => {{ k: [..], th: {{ Th {{ tl: [.., x], {block}..me }}, .. }} }};"
+        ),
+        true,
+    );
+    expect_test::expect!["error[krs::analysis::collection-entry]: the result writes items after the unnamed rest `..` of the instance child `tl`, which would keep the subject's rest before them: not supported yet, since an instance child keeps a rest only after its items; name the rest in the subject and write it back by its name"].assert_eq(&claim);
 }
 
 /// A workspace of a specification package, [`SOURCE`] with no sentence, and a `k::patterns!`

@@ -384,7 +384,7 @@ advice = "terms/sort-rule/subject-root/k::bytes!(b\"ab\")"
 
 [class.kept-rest-unlowered]
 code = "krs::analysis::collection-entry"
-doc = "a result whose `..` keeps a list's rest that its subject matches inside a term, below an alias, in parentheses or among alternatives (`ll: l @ [x, ..]`, `([x, ..])`, then `[..]`), or, in an instance child, with items after it (`tl: [.., x]`, `[x, .., y]`, then `Th { tl: [y, ..], ..me }`), or a result that writes an instance child's items after its `..` (`Th { tl: [.., a], ..me }`): the lowering keeps a rest only where the subject's own brackets end with it, and an instance child's only after its items; not supported yet, said at the cell or child (a named rest, `[r @ .., x]` then `[y, ..r]`, is kept by its name)"
+doc = "a result whose `..` keeps a rest the lowering does not keep yet, each case its own text: a list's rest the subject matches inside a term, below an alias or in parentheses (`ll: l @ [x, ..]`, `([x, ..])`, then `[..]`), or among alternatives (`tl: [x] | [x, ..]`); an instance child's rest the subject matches with items after it (`tl: [.., x]`, `[x, .., y]`, then `Th { tl: [y, ..], ..me }`); and a result that writes an instance child's items after its `..` (`Th { tl: [.., a], ..me }`), carried as the clause's fault once the kind has answered: a rest is kept only where the subject's own brackets hold it, not inside a term, and an instance child's only after its items; not supported yet, said at the cell or child (a named rest, `[r @ .., x]` then `[y, ..r]`, is kept by its name)"
 advice = "none"
 
 [class.key-value-shape]
