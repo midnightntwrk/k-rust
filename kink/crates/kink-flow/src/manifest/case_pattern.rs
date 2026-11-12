@@ -58,8 +58,9 @@ enum Token {
 }
 
 impl CasePattern {
-    /// Parse `text`. The error is the reason the pattern is refused.
-    pub(super) fn parse(text: &str) -> Result<Self, String> {
+    /// Parse `text`, a pattern matched under the tree messages name `tree`. The error is the
+    /// reason the pattern is refused.
+    pub(super) fn parse(text: &str, tree: &str) -> Result<Self, String> {
         if text.is_empty() {
             return Err("must not be empty".into());
         }
@@ -74,7 +75,7 @@ impl CasePattern {
         }
         if text.starts_with('/') {
             return Err(format!(
-                "pattern {text:?} is absolute: a pattern is relative to the manifest's directory"
+                "pattern {text:?} is absolute: a pattern is relative to {tree}"
             ));
         }
         let mut components = Vec::new();
@@ -88,7 +89,7 @@ impl CasePattern {
                 "." | ".." => {
                     return Err(format!(
                         "pattern {text:?} has a `{component}` component: a pattern names the \
-                         directories it walks, down from the manifest's directory"
+                         directories it walks, down from {tree}"
                     ));
                 }
                 "**" => Part::AnyDirectories,
@@ -335,7 +336,10 @@ mod tests {
     use super::*;
 
     fn matches(pattern: &str, name: &str) -> bool {
-        let Part::Glob(tokens) = &CasePattern::parse(pattern).unwrap().components[0] else {
+        let Part::Glob(tokens) = &CasePattern::parse(pattern, "the manifest\'s directory")
+            .unwrap()
+            .components[0]
+        else {
             panic!("not a glob")
         };
         glob(tokens, &name.chars().collect::<Vec<_>>())
@@ -361,7 +365,10 @@ mod tests {
     #[test]
     fn globs_with_many_runs_are_decided_quickly() {
         let name = "a".repeat(200).chars().collect::<Vec<_>>();
-        let Part::Glob(tokens) = &CasePattern::parse("*a*a*a*a*a*a*a*b").unwrap().components[0]
+        let Part::Glob(tokens) =
+            &CasePattern::parse("*a*a*a*a*a*a*a*b", "the manifest\'s directory")
+                .unwrap()
+                .components[0]
         else {
             panic!("not a glob")
         };
@@ -374,21 +381,29 @@ mod tests {
     #[test]
     fn a_suffix_holds_when_every_match_ends_with_it() {
         assert!(
-            CasePattern::parse("cases/*/case.toml")
+            CasePattern::parse("cases/*/case.toml", "the manifest\'s directory")
                 .unwrap()
                 .ends_with(".toml")
         );
         assert!(
-            CasePattern::parse("cases/*.toml")
+            CasePattern::parse("cases/*.toml", "the manifest\'s directory")
                 .unwrap()
                 .ends_with(".toml")
         );
-        assert!(!CasePattern::parse("cases/*").unwrap().ends_with(".toml"));
         assert!(
-            !CasePattern::parse("cases/*.to?l")
+            !CasePattern::parse("cases/*", "the manifest\'s directory")
                 .unwrap()
                 .ends_with(".toml")
         );
-        assert!(!CasePattern::parse("cases/**").unwrap().ends_with(".toml"));
+        assert!(
+            !CasePattern::parse("cases/*.to?l", "the manifest\'s directory")
+                .unwrap()
+                .ends_with(".toml")
+        );
+        assert!(
+            !CasePattern::parse("cases/**", "the manifest\'s directory")
+                .unwrap()
+                .ends_with(".toml")
+        );
     }
 }

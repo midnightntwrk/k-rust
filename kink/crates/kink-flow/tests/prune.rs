@@ -544,6 +544,46 @@ fn the_report_names_its_lists_and_whether_they_are_the_corpus_own() {
     assert!(!text.contains("note: the patterns family"), "{text}");
 }
 
+/// A flow that names its corpus root reads cases other flows may read, so its report says that
+/// it holds for this flow alone, in the document (`scope`) and in one line of the text; its
+/// decisions are those of the same flow with the cases in its own directory, whose document has
+/// no `scope` and whose text has no such line.
+#[test]
+fn a_flow_that_names_its_corpus_root_says_its_report_holds_for_this_flow_alone() {
+    let own = corpus("scope-own");
+    let (own_document, status) = prune(&own, every_file(&own), &[]);
+    assert_eq!(status, EXIT_YES, "{own_document:#}");
+    assert!(own_document.get("scope").is_none(), "{own_document:#}");
+    let own_text = kink_flow::prune::text_rendering(&own_document).unwrap();
+    assert!(!own_text.contains("this flow alone"), "{own_text}");
+
+    let manifest = MANIFEST.replacen(
+        "\n[[program]]",
+        "\n[corpus]\nroot = \".\"\n\n[[program]]",
+        1,
+    );
+    assert_ne!(manifest, MANIFEST);
+    let dir = corpus_of("scope-root", &manifest, PATTERNS);
+    let (document, status) = prune(&dir, every_file(&dir), &[]);
+    assert_eq!(status, EXIT_YES, "{document:#}");
+    let detail = "the cases are read from the corpus root `.`, which other flows may name: the \
+                  report holds for this flow alone, and a case redundant here may be the only \
+                  discharger of another flow's obligation";
+    assert_eq!(
+        document["scope"],
+        json!({"flow_only": true, "corpus_root": ".", "detail": detail})
+    );
+    assert_eq!(decisions(&document), decisions(&own_document));
+    let text = kink_flow::prune::text_rendering(&document).unwrap();
+    let lines = text.lines().collect::<Vec<_>>();
+    assert_eq!(lines[1], format!("note: {detail}"), "{text}");
+    assert_eq!(
+        text.replace(&format!("note: {detail}\n"), ""),
+        own_text.replace("scope-own", "scope-root"),
+        "{text}"
+    );
+}
+
 /// The command line: the verb's operands, its text rendering and its exit statuses (0 for a
 /// computed report, 2 for an input that does not decode or a missing operand; never 1).
 #[test]

@@ -52,7 +52,7 @@
 
 use crate::evidence::Renderer;
 pub use crate::exclusion::ExclusionScope;
-use crate::manifest::{Decoder, FlowManifest, Program};
+use crate::manifest::{CaseRoot, Decoder, FlowManifest, Program};
 use crate::observed::{ResultProjection, result_projection};
 use k_rust::{
     backend::Backend, k_rust_backend::definition::BackendDefinition, kast::Term, kore::ast::Pattern,
@@ -152,7 +152,9 @@ pub enum ProgramBinding {
     },
 }
 
-/// Where a decoder reads the files a typed input names.
+/// Where a decoder reads the files a typed input names. "The manifest's directory" below is the
+/// flow's case root: the root `[corpus]` names where the manifest has one
+/// ([`crate::manifest::CaseRoot`]), which messages then name instead.
 pub trait InputFiles {
     /// The bytes of `path`, relative to the directory of the file `from` (a name this method
     /// returned before), or to the manifest's directory when `from` is `None`, with the file's
@@ -164,11 +166,13 @@ pub trait InputFiles {
     fn read(&mut self, from: Option<&str>, path: &str) -> Result<(String, Vec<u8>), String>;
 }
 
-/// The files of a manifest's directory, read by the rule a program file is read by
+/// The files of a flow's case root, read by the rule a program file is read by
 /// ([`read_program`]): the path is resolved by the operating system, links and `..` included,
-/// and the file it resolves to must lie inside the canonical manifest directory `root`.
+/// and the file it resolves to must lie inside the canonical case root `root` (the root
+/// `[corpus]` names, else the manifest's directory, which the rest of this module's
+/// documentation calls it).
 pub(crate) struct ManifestFiles<'a> {
-    pub(crate) root: &'a Path,
+    pub(crate) root: &'a CaseRoot,
     /// The case document the inputs were written in (`Program::case`, its path as matched),
     /// whose directory as written a path named by no other file is relative to, as `krs run
     /// --case` reads it, or the file a named case is written in where the document includes it
@@ -177,11 +181,29 @@ pub(crate) struct ManifestFiles<'a> {
     pub(crate) document: Option<&'a str>,
 }
 
+impl CaseRoot {
+    /// The reader of the files a case names, whose paths named by no other file are relative to
+    /// the directory of `document` as written ([`ManifestFiles::document`]); the tree is
+    /// canonical ([`Self::canonical`]).
+    pub(crate) fn files<'a>(&'a self, document: Option<&'a str>) -> ManifestFiles<'a> {
+        ManifestFiles {
+            root: self,
+            document,
+        }
+    }
+
+    /// The reader of the files `program`'s case names: relative to the file it is written in.
+    pub(crate) fn case_files<'a>(&'a self, program: &'a Program) -> ManifestFiles<'a> {
+        self.files(program.case_file.as_deref().or(program.case.as_deref()))
+    }
+}
+
 impl InputFiles for ManifestFiles<'_> {
     fn read(&mut self, from: Option<&str>, path: &str) -> Result<(String, Vec<u8>), String> {
         if Path::new(path).has_root() || Path::new(path).is_absolute() {
             return Err(format!(
-                "{path} is absolute: name a file by its path relative to the manifest's directory"
+                "{path} is absolute: name a file by its path relative to {}",
+                self.root.name
             ));
         }
         let base = from
@@ -190,10 +212,10 @@ impl InputFiles for ManifestFiles<'_> {
             .unwrap_or_else(|| Path::new(""));
         let written = base.join(path);
         let shown = written.to_string_lossy().replace('\\', "/");
-        let resolved = fs::canonicalize(self.root.join(&written))
+        let resolved = fs::canonicalize(self.root.directory.join(&written))
             .map_err(|e| format!("cannot read {shown}: {e}"))?;
-        let Ok(name) = resolved.strip_prefix(self.root) else {
-            return Err(format!("{shown} escapes the manifest's directory"));
+        let Ok(name) = resolved.strip_prefix(&self.root.directory) else {
+            return Err(format!("{shown} escapes {}", self.root.name));
         };
         let name = name.to_string_lossy().replace('\\', "/");
         let bytes = fs::read(&resolved).map_err(|e| format!("cannot read {name}: {e}"))?;
@@ -452,7 +474,7 @@ pub fn admit_spec_with(
         Ok((spec, backend)) => {
             let inputs = ProgramInputs {
                 admission: spec.admission,
-                root: spec_root(manifest),
+                root: case_root(manifest),
                 backend,
                 grammar: OnceCell::new(),
                 decoder: manifest.input_decoder.clone(),
@@ -474,7 +496,9 @@ pub fn admit_spec_with(
 pub struct ProgramInputs {
     /// The admission these inputs came from; only its [`AdmittedSpec`] opens a session.
     admission: AdmissionId,
-    root: Result<PathBuf, AdmissionRefusal>,
+    /// The canonical case root, which programs, case documents and their files are read
+    /// inside.
+    root: Result<CaseRoot, AdmissionRefusal>,
     backend: Backend,
     /// The input grammar of the specification of `admission`, the only one sessions accept,
     /// so it outlives every session.
@@ -542,7 +566,7 @@ impl ProgramInputs {
 /// refused without a renderer of ends (`inputs`/`typed-expectation`), and where the renderer
 /// refuses it (`inputs`/`expectation-value`; `crate::expect`).
 fn read_inputs(
-    root: &Result<PathBuf, AdmissionRefusal>,
+    root: &Result<CaseRoot, AdmissionRefusal>,
     decoder: &Decoder,
     renderer: &Renderer,
     program: &Program,
@@ -556,7 +580,7 @@ fn read_inputs(
 
 /// [`read_inputs`] without the expectation.
 fn read_typed_inputs(
-    root: &Result<PathBuf, AdmissionRefusal>,
+    root: &Result<CaseRoot, AdmissionRefusal>,
     decoder: &Decoder,
     program: &Program,
 ) -> Result<CaseInputs, AdmissionRefusal> {
@@ -661,10 +685,7 @@ fn read_typed_inputs(
                 .into(),
         });
     };
-    let mut files = ManifestFiles {
-        root: &root,
-        document: program.case_file.as_deref().or(program.case.as_deref()),
-    };
+    let mut files = root.case_files(program);
     // By K name, with the input name each came from.
     let mut typed = BTreeMap::<String, (String, Term)>::new();
     for (name, document) in &program.inputs {
@@ -757,7 +778,7 @@ fn decoder_defaults(
 /// (k-rust `ConfigurationAssembler`).
 pub struct InputSession<'a> {
     spec: &'a AdmittedSpec,
-    root: &'a Result<PathBuf, AdmissionRefusal>,
+    root: &'a Result<CaseRoot, AdmissionRefusal>,
     backend: &'a mut Backend,
     grammar: &'a OnceCell<Result<InputGrammar, InputError>>,
     decoder: &'a Decoder,
@@ -841,7 +862,9 @@ impl<'a> InputSession<'a> {
     ) -> Option<serde_json::Value> {
         crate::expect::expectation_value(
             self.renderer,
-            self.root.as_deref().ok(),
+            self.root
+                .as_ref()
+                .map_err(|refusal| refusal.detail.as_str()),
             program,
             baseline,
             &self.spec.result.not_compared,
@@ -1128,6 +1151,14 @@ fn load_refusal(detail: impl ToString) -> AdmissionRefusal {
 fn spec_root(manifest: &FlowManifest) -> Result<PathBuf, AdmissionRefusal> {
     fs::canonicalize(&manifest.directory)
         .map_err(|_| load_refusal("the manifest's directory is unavailable"))
+}
+
+/// The manifest's case root with its links resolved, which every read of a case is contained
+/// in.
+pub(crate) fn case_root(manifest: &FlowManifest) -> Result<CaseRoot, AdmissionRefusal> {
+    let root = manifest.case_root();
+    root.canonical()
+        .map_err(|_| load_refusal(format!("{} is unavailable", root.name)))
 }
 
 /// The below-floor case check (stage `refused-case`) for one source path, matched both
@@ -1480,16 +1511,14 @@ fn baseline_data(
     }
 }
 
-/// The bytes of a program file inside the canonical manifest directory `root`, read as
-/// kink-corpus reads corpus input files (`load` stage, `load-error` reason; the detail names the
-/// file as the manifest does, never by an absolute path).
-fn read_program(root: &Path, name: &str) -> Result<Vec<u8>, AdmissionRefusal> {
-    let path = fs::canonicalize(root.join(name))
+/// The bytes of a program file inside the canonical case root `root`, read as kink-corpus
+/// reads corpus input files (`load` stage, `load-error` reason; the detail names the file as the
+/// manifest does and the tree as [`CaseRoot::name`] does, never by an absolute path).
+fn read_program(root: &CaseRoot, name: &str) -> Result<Vec<u8>, AdmissionRefusal> {
+    let path = fs::canonicalize(root.directory.join(name))
         .map_err(|e| load_refusal(format!("cannot read {name}: {e}")))?;
-    if !path.starts_with(root) {
-        return Err(load_refusal(format!(
-            "{name} escapes the manifest's directory"
-        )));
+    if !path.starts_with(&root.directory) {
+        return Err(load_refusal(format!("{name} escapes {}", root.name)));
     }
     fs::read(&path).map_err(|e| load_refusal(format!("cannot read {name}: {e}")))
 }

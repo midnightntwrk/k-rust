@@ -49,6 +49,17 @@
 //! front end states ([`PruneOptions::corpus_lists`]), and null where none does: kink-flow's own
 //! command line takes the mutation list as an operand and has no notion of a corpus's own list.
 //!
+//! # The scope
+//!
+//! The report is of one flow: its obligations are those of the flow's definition. A flow that
+//! names its corpus root (`[corpus] root`) reads cases that other flows may read too, each with
+//! the obligations of its own definition, and a case is removable from the root only when it is
+//! redundant in every flow that reads it, which is not the intersection of the flows' lists
+//! ("Redundant alone, removable together" holds across flows as within one). So the document of
+//! such a flow says that its answer holds for this flow alone (`scope`: `{flow_only: true,
+//! corpus_root, detail}`, and a `note:` line of the text rendering); the document of a flow whose
+//! cases are in its own directory has no `scope`.
+//!
 //! # What is never prunable
 //!
 //! - A case a claim names: a pattern's `programs`. Removing it makes the pattern list refuse
@@ -710,6 +721,9 @@ impl Inputs<'_> {
             Err((family, detail)) => return refused(family, Some(self.coverage), &detail),
         };
         document["spec"] = self.coverage["spec"].clone();
+        if let Some(corpus) = &self.manifest.corpus {
+            document["scope"] = scope(corpus);
+        }
         let [outcome_cache, baseline_runs, pattern_cache] = ask.caches();
         document["accounting"] = json!({
             "mutations": run.map(|_| json!({
@@ -989,6 +1003,21 @@ fn claims(list: &PatternList) -> Vec<(String, String)> {
                 .map(|program| (entry.id.clone(), program.clone()))
         })
         .collect()
+}
+
+/// The `scope` of the prune document of a flow that names its corpus root (module documentation,
+/// "The scope"): `{flow_only, corpus_root, detail}`.
+fn scope(corpus: &crate::manifest::CorpusSection) -> Value {
+    json!({
+        "flow_only": true,
+        "corpus_root": corpus.root,
+        "detail": format!(
+            "the cases are read from the corpus root `{}`, which other flows may name: the report \
+             holds for this flow alone, and a case redundant here may be the only discharger of \
+             another flow's obligation",
+            corpus.root
+        ),
+    })
 }
 
 /// The header every prune document has.
@@ -1840,6 +1869,9 @@ pub fn text_rendering(document: &Value) -> Result<String, String> {
         removable["order"].as_str().unwrap_or("?"),
         list(&removable["cases"]),
     ));
+    if let Some(detail) = document["scope"]["detail"].as_str() {
+        text.push_str(&format!("note: {detail}\n"));
+    }
     for family in document["families"].as_array().into_iter().flatten() {
         if family["list"]["corpus_own"] == false {
             text.push_str(&format!(

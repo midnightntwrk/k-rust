@@ -51,7 +51,7 @@
 //! cache. Without `identity` nothing says which build answered, and the implementation always
 //! runs.
 
-use crate::admit::{InputFiles, ManifestFiles, admit_spec};
+use crate::admit::{InputFiles, admit_spec, case_root};
 use crate::cli::{EXIT_NO, EXIT_UNANSWERED, EXIT_UNASKED, EXIT_YES, exit_join};
 use crate::clock::Kept;
 use crate::lock::{Lock, LockKind, Settle, compare_row_id};
@@ -953,6 +953,12 @@ fn compared(
             "the manifest's directory is unavailable".to_owned(),
         );
     };
+    // An implementation's command and identity are a function of one build, beside the flow;
+    // the cases its requests state are read from the case root.
+    let cases = match case_root(manifest) {
+        Ok(cases) => cases,
+        Err(refusal) => return refused(manifest, "manifest-directory", refusal.detail),
+    };
     let mut declared = Vec::new();
     for implementation in &selected {
         if let Err(detail) = vocabulary.check(implementation) {
@@ -1042,7 +1048,7 @@ fn compared(
                 request_parts(
                     vocabulary,
                     &mut inputs,
-                    &root,
+                    &cases,
                     program,
                     row,
                     selected.iter().any(|i| i.given == Given::Start),
@@ -1174,15 +1180,12 @@ type RequestParts = Result<(Value, Option<Result<Value, NotCompared>>), String>;
 fn request_parts(
     vocabulary: &dyn Vocabulary,
     inputs: &mut crate::admit::InputSession<'_>,
-    root: &Path,
+    cases: &crate::manifest::CaseRoot,
     program: &Program,
     row: &ProgramRow,
     start: bool,
 ) -> RequestParts {
-    let mut files = ManifestFiles {
-        root,
-        document: program.case_file.as_deref().or(program.case.as_deref()),
-    };
+    let mut files = cases.case_files(program);
     let typed = vocabulary
         .inputs(program, &mut files)
         .map_err(|detail| format!("the program's inputs have no document: {detail}"))?;

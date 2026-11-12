@@ -16,7 +16,7 @@
 //! and no other command reads them. No part of `[[patterns]]` enters a digest or a key: a pattern
 //! decides no result, outcome or verdict.
 
-use super::{Matches, join, known_keys, pattern_matches, string, table};
+use super::{CaseRoot, Matches, join, known_keys, pattern_matches, string, table};
 use crate::ManifestError;
 use std::{collections::BTreeMap, path::Path};
 use toml::Value;
@@ -60,6 +60,8 @@ pub(super) fn entries(
             "expected [[patterns]] tables",
         ));
     };
+    // A pattern list is a statement over one definition's runs, so it is beside the flow.
+    let directory = &CaseRoot::manifest_directory(directory);
     let mut decoded = Vec::with_capacity(entries.len());
     // The entry that first matched each file, and that first named each package, for an
     // overlap's error.

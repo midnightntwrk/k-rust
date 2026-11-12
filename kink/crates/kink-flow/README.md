@@ -49,6 +49,9 @@ include_dirs = ["."]          # optional
 md_selector = "k"             # optional
 assume_joined = ["root:CALC.add-one,CALC.add-two#752d82d62beba044ce8ec11b8e06014e"]   # optional; findings named as premises
 
+[corpus]                      # optional; the cases are in this file's directory when absent
+root = "../corpus"            # the corpus root, relative to this file's directory ("The corpus root")
+
 [budget]                      # optional
 time_ms = 10000
 max_depth = 100000
@@ -94,7 +97,7 @@ Every other table is the same for both kinds of corpus.
 kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command>` in the package``, stage `manifest`); the krs front end refuses a K corpus (`spec.entry: a K corpus`, naming `kink-flow`), and refuses a KRS corpus of another package or facet than the command selected before it builds or writes anything (stage `definition`, reason `another-definition`, naming both).
 A `krs kink` command given `--corpus DIR` takes the package and the facet from the flow, so it needs no `--package` and no `--definition`.
 
-Every path is relative to the manifest's directory and must stay inside it.
+Every path is relative to the manifest's directory and must stay inside it, except the paths of the cases in a flow that names a corpus root, which are relative to that root and must stay inside it ("The corpus root").
 Unknown keys, values of the wrong type, duplicate or empty program ids,
 a program with both `file` and `text`, a `start_sort` on a program with neither, and a pattern that is invalid or matches nothing are errors that name the key or the program id.
 
@@ -122,6 +125,48 @@ Whichever way a program binds, its digest holds the SHA-256 of its bytes (`progr
 `fuzz` reads a template's own `file` or `text` as admission reads a program's, so a template binds what the same text as a `[[program]]` binds.
 It refuses a template of a program with typed inputs, one whose program (its own, or the `[[program]]` it names) the front end binds otherwise than as `$PGM` text, and one that leaves a variable to its declared default: it varies and replays `$PGM` text and `variables` only.
 
+### The corpus root
+
+```toml
+[corpus]
+root = "../../corpus/cpu"     # relative to this file's directory; it may climb above it
+```
+
+A flow may read its cases from a corpus root it names, so that the flows of several definitions read one tree of cases.
+A case is a value for each input of a machine, which every definition that takes those inputs reads alike.
+Every other file of a flow is a function of one definition: the emitted K, a mutation (a patch of that K), a pattern list (a statement over its runs), a template, the corpus record, the cache, and an implementation's command and identity file (one build of one system).
+So the cases live under a root that belongs to no definition, and a definition's files stay beside its flow.
+
+What is relative to the root, and must stay inside it:
+
+- a `[[program]]`'s `file`, and its `files` and `cases` patterns ("Programs from a pattern");
+- a case document, the files it includes and the files its inputs and its expectation name;
+- a file the `inputs` of a listed `[[program]]` name.
+
+A program id that is a path (a pattern's match) is the path relative to the root.
+Two flows that name one root therefore give each case the same id, in every document and in each flow's record.
+The containment rule has the root as its boundary: a path may not climb above the root, and a file that a link leads out of the root is refused, the message naming the root as the manifest writes it (``programs/out.calc escapes the corpus root `../corpus` ``), never by an absolute path.
+The flow's own directory is outside the root unless the root contains it, so a case cannot name a file of one definition.
+The rule keeps what it kept for a manifest's directory: an id is relative to a tree that is checked in, and a flow reads two named trees and nothing else of the host.
+
+What stays relative to the manifest's directory, whatever `[corpus]` says: `[spec] entry` and `include_dirs` (under `krs kink`, `definition.k`), `[[patterns]] files`, an `[[implementation]]`'s `command` and `identity.file`, and the files a command line or a front end's layout names beside the flow (the mutation lists, `PATTERNS.toml`, `TEMPLATES.toml` and a template's own `file`, the corpus record `kink.lock` and the cache `.kink-flow/`).
+Every file a command writes is among these, so no command writes under a root that does not contain the manifest's directory.
+
+`root` is a relative path of names, `.` and `..`; an absolute path is refused, and so is a path that names no directory (`corpus.root`).
+The root may be the manifest's directory itself (`"."`), contain it (`"../.."`, flows kept under the corpus) or be a sibling of it.
+Without `[corpus]` the root is the manifest's directory: the layout every corpus had before the key existed, with the same documents and records.
+
+No digest and no cache key holds the root or the manifest's directory, as written or resolved: a program's digest is of its bytes and its decoded inputs, the specification's of its files by their names relative to the manifest's directory, and a request to an implementation names the program by its id.
+A flow moved to another depth, naming the same root by another path, reads the cache it had.
+
+What the layout does not give:
+
+- No comparison between the definitions. Each flow runs the cases on its own definition and records its own verdicts; nothing checks that two definitions end a case alike. An `[[implementation]]` compares a definition with one other system ("Comparing implementations").
+- No shared verdicts. Each flow has its own record and cache; a case added under the root is run by every flow that reads it on that flow's next command, and each flow's `--locked` gate judges it for that flow's definition.
+- No shared expectation scope. A case's `expect` is checked by every flow that reads the case, so an expectation true of one definition only is unmet in the others.
+- No corpus-wide `prune`. A flow's report is of that flow's obligations; a case redundant in one flow may be the only discharger of an obligation of another ("Redundant programs").
+- No check that two flows are of one interface. A definition that cannot read a case's inputs refuses that case (`inputs`), naming it.
+
 ### Programs from a pattern
 
 A `[[program]]` entry may name a pattern of case files instead of one program, so that a corpus of many cases needs no generated manifest:
@@ -136,7 +181,7 @@ variables = { IN = "3" }
 cases = "cases/*/case.toml"   # each match is a case document: one case, or named cases
 ```
 
-Each match is a program whose id is its path relative to the manifest's directory, as matched (`programs/sum.imp`, `cases/boot/case.toml`), and each named case of a matched case document is a program whose id is that path, `#` and the case's name (`cases/boot/case.toml#reset`).
+Each match is a program whose id is its path relative to the manifest's directory (the corpus root, where the flow names one: "The corpus root"), as matched (`programs/sum.imp`, `cases/boot/case.toml`), and each named case of a matched case document is a program whose id is that path, `#` and the case's name (`cases/boot/case.toml#reset`).
 Adding a matching file adds a program and removing it removes it, without editing the manifest; the id depends only on where the case is, never on the host, the corpus's absolute path or the pattern that matched it, and every document reports it as a listed program's id.
 The entry is replaced in place by its matches, sorted by path, each document's named cases in document order, so the program order, and every document, never depends on the order the file system lists a directory in.
 A pattern entry takes no `id`; an id that a listed program or another entry's match also gives is an error (`duplicate program id`, naming both entries).
@@ -2532,6 +2577,11 @@ Exit status ("Exit status"): 0 when every asked (pattern, program) got its answe
 `prune` reports which programs of the corpus are redundant.
 It writes no lock and edits no file; it reads and fills the caches as `coverage`, `run` and `query` do, and stores no run report, so `report` and `fuzz --kill` keep reading the last `run`'s.
 `--output text` prints a summary for a reader.
+
+The report is of one flow.
+A flow that names its corpus root (`[corpus] root`, "The corpus root") reads cases that other flows may read, each against the obligations of its own definition, and a case is removable from the root only when the cases kept discharge every flow's obligations.
+The document of such a flow says so: `scope`, `{flow_only: true, corpus_root, detail}`, with the root as the manifest writes it, and `--output text` prints the detail as a `note:` line after its first line: the report holds for this flow alone, and a case redundant here may be the only discharger of another flow's obligation.
+The document of a flow whose cases are in its own directory has no `scope`.
 
 ### The obligations
 

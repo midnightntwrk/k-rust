@@ -29,14 +29,14 @@
 //! document runs nothing, so it checks an expectation against the program's current result
 //! record, and is inconclusive for a program without one.
 
-use crate::admit::{InputFiles, ManifestFiles};
+use crate::admit::InputFiles;
 use crate::evidence::{EndRenderer, Renderer};
-use crate::manifest::{Program, StopSection};
+use crate::manifest::{CaseRoot, Program, StopSection};
 use crate::results::{ProgramResult, ResultClass, record_final_configuration};
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
 use kink_corpus::admission::AdmissionRefusal;
 use serde_json::{Value, json};
-use std::{collections::BTreeSet, path::Path};
+use std::collections::BTreeSet;
 use toml::Table;
 
 /// What a front end's renderer is given to check an expectation against a baseline's ends
@@ -151,10 +151,10 @@ impl<'a> Baseline<'a> {
 
 /// The admission of `program`'s expectation, when it has one: refused without a renderer
 /// (`typed-expectation`), or where the renderer refuses it (`expectation-value`). `root` is the
-/// canonical manifest directory.
+/// canonical case root.
 pub(crate) fn admit_expectation(
     renderer: &Renderer,
-    root: &Path,
+    root: &CaseRoot,
     program: &Program,
 ) -> Result<(), AdmissionRefusal> {
     let Some(expect) = &program.expect else {
@@ -170,7 +170,7 @@ pub(crate) fn admit_expectation(
         });
     };
     renderer
-        .read_expectation(expect, &mut case_files(root, program))
+        .read_expectation(expect, &mut root.case_files(program))
         .map_err(|message| AdmissionRefusal {
             stage: "inputs".into(),
             reason: "expectation-value".into(),
@@ -180,11 +180,11 @@ pub(crate) fn admit_expectation(
 
 /// The `expectation` member of `program`'s row (module documentation), when it has `expect`:
 /// checked against `baseline`, the program's baseline result, or why it has none. `root` is the
-/// canonical manifest directory, `not_compared` the cells the second slot leaves out and `stop`
-/// the manifest's `[stop]`.
+/// canonical case root, or why it is unavailable, `not_compared` the cells the second slot
+/// leaves out and `stop` the manifest's `[stop]`.
 pub(crate) fn expectation_value(
     renderer: &Renderer,
-    root: Option<&Path>,
+    root: Result<&CaseRoot, &str>,
     program: &Program,
     baseline: Result<Baseline<'_>, &str>,
     not_compared: &[String],
@@ -210,7 +210,7 @@ pub(crate) fn expectation_value(
 /// [`expectation_value`]'s check of `expect` against `baseline`, or why there is none.
 fn check(
     renderer: &Renderer,
-    root: Option<&Path>,
+    root: Result<&CaseRoot, &str>,
     program: &Program,
     expect: &Table,
     baseline: &Baseline<'_>,
@@ -247,22 +247,14 @@ fn check(
     let renderer: &dyn EndRenderer = renderer
         .get()
         .ok_or("no front end reads expectations, so admission refuses the case")?;
-    let root = root.ok_or("the manifest's directory is unavailable")?;
+    let root = root?;
     renderer
         .check_expectation(ExpectationCheck {
             expect,
-            files: &mut case_files(root, program),
+            files: &mut root.case_files(program),
             ends: &ends,
             not_compared,
             stop,
         })
         .map_err(|e| format!("the expectation cannot be checked: {e}"))
-}
-
-/// The reader of the files `program`'s case names: relative to the file it is written in.
-fn case_files<'a>(root: &'a Path, program: &'a Program) -> ManifestFiles<'a> {
-    ManifestFiles {
-        root,
-        document: program.case_file.as_deref().or(program.case.as_deref()),
-    }
 }

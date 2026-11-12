@@ -7,8 +7,8 @@
 //! `.toml` or `.json` file whose document is a list (an array, or a table whose one key is
 //! `case`, as TOML writes a list), whose cases stand at the include's place; `case` may itself be
 //! an include. A path an included file names, an include's or one in a case's values, is
-//! relative to that file; every file is read inside the manifest's directory by the rule a
-//! program file is read by, and a file that includes itself, directly or through others, is
+//! relative to that file; every file is read inside the flow's case root (the root `[corpus]`
+//! names, else the manifest's directory: [`CaseRoot`]) by the rule a program file is read by, and a file that includes itself, directly or through others, is
 //! refused naming the cycle. A name is a nonempty string no other case of the document has, the
 //! included files' cases included, so that the document's path and the name identify the case
 //! (`<path>#<name>`).
@@ -18,7 +18,7 @@
 //! the entry's `stop_count`, `[budget]`), and a second statement of where a run ends would make
 //! the ends kink compares those of another observation than the one the case document states.
 
-use super::{ManifestError, join, program_key};
+use super::{CaseRoot, ManifestError, join, program_key};
 use crate::admit::{InputFiles, ManifestFiles};
 use std::{collections::BTreeMap, fs, path::Path};
 use toml::{Table, Value};
@@ -59,17 +59,15 @@ pub(super) struct DocumentCase {
     pub(super) file: Option<String>,
 }
 
-/// The cases of the case document `id` (a path relative to the canonical manifest directory
-/// `root`), which must resolve, links included, to a file inside `root`, in document order.
-pub(super) fn case_document(root: &Path, id: &str) -> Result<Vec<DocumentCase>, ManifestError> {
+/// The cases of the case document `id` (a path relative to the canonical case root `root`),
+/// which must resolve, links included, to a file inside `root`, in document order.
+pub(super) fn case_document(root: &CaseRoot, id: &str) -> Result<Vec<DocumentCase>, ManifestError> {
     let key = program_key(id);
     let refused = |message: String| ManifestError::new(&key, message);
-    let resolved = fs::canonicalize(root.join(id))
+    let resolved = fs::canonicalize(root.directory.join(id))
         .map_err(|e| refused(format!("cannot read the case document: {e}")))?;
-    let Ok(name) = resolved.strip_prefix(root) else {
-        return Err(refused(
-            "the case document escapes the manifest's directory".to_owned(),
-        ));
+    let Ok(name) = resolved.strip_prefix(&root.directory) else {
+        return Err(refused(format!("the case document escapes {}", root.name)));
     };
     let name = name.to_string_lossy().replace('\\', "/");
     let text = fs::read_to_string(&resolved)
@@ -93,10 +91,7 @@ pub(super) fn case_document(root: &Path, id: &str) -> Result<Vec<DocumentCase>, 
         ));
     }
     let mut reader = CaseList {
-        files: ManifestFiles {
-            root,
-            document: Some(id),
-        },
+        files: root.files(Some(id)),
         reading: vec![name],
         cases: Vec::new(),
         names: BTreeMap::new(),

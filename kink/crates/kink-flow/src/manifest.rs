@@ -21,6 +21,14 @@
 //! inside the manifest's directory by the program-file rule, so the decoded programs are the
 //! whole corpus for both front ends.
 //!
+//! `[corpus] root` names the tree the cases are read from ([`CorpusSection`], [`CaseRoot`]), a
+//! path relative to the manifest's directory that may climb above it: a `[[program]]`'s `file`
+//! and patterns, the case documents and the files they name are then relative to that root and
+//! stay inside it, and a matched program's id is its path relative to the root, so the flows of
+//! several definitions that name one root give each case one id. Every other path stays relative
+//! to the manifest's directory, which is also the root without `[corpus]`; what the rest of this
+//! documentation says of the manifest's directory holds, for the cases, of the root.
+//!
 //! `[[patterns]]` declares where the corpus's patterns are written, as `[[program]]` declares its
 //! programs ([`PatternsEntry`]): kink pattern lists a glob matches (`files`), with the matching
 //! rules of a `cases` pattern, or a KRS patterns package (`krs`). Only `query` and `fuzz
@@ -91,8 +99,12 @@ pub const DEFAULT_MD_SELECTOR: &str = "k";
 /// A decoded corpus manifest. Every path is relative to [`FlowManifest::directory`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowManifest {
-    /// The directory holding the manifest; the root that every path stays inside.
+    /// The directory holding the manifest; the root that every path stays inside, but the paths
+    /// of the cases where `[corpus]` names their root ([`Self::case_root`]).
     pub directory: PathBuf,
+    /// `[corpus]`: the root the flow reads its cases from, when the manifest names one
+    /// ([`CorpusSection`]); `None`: the cases are in the manifest's directory.
+    pub corpus: Option<CorpusSection>,
     pub spec: SpecSection,
     /// The definition a KRS flow names, `PACKAGE:FACET` ([`KrsSpec::name`]), which the corpus
     /// record's header states ([`crate::lock`]); `None` for a K flow, whose `[spec]` is the
@@ -669,6 +681,103 @@ pub struct Program {
     pub stop_count: Option<std::num::NonZeroU64>,
 }
 
+/// How messages name the manifest's directory, the tree a flow without `[corpus]` reads its cases
+/// from.
+const MANIFEST_DIRECTORY: &str = "the manifest's directory";
+
+/// `[corpus]`: the root the flow reads its cases from.
+///
+/// A case's inputs are values of a machine's inputs, which several definitions of one interface
+/// take alike, while every other file of a flow (the emitted K, the mutations, the pattern lists,
+/// the templates, the corpus record, the cache, an implementation's command) is a function of one
+/// definition. So the cases may live under a root that belongs to no definition, which each
+/// definition's flow names, and a definition's files stay beside its flow. Program ids are paths
+/// relative to the root, so two flows that name one root give each case one id.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CorpusSection {
+    /// `root`: the corpus root as written, a path relative to the manifest's directory, which
+    /// may climb above it. No digest or key holds it: where the cases are is not what they are.
+    pub root: String,
+}
+
+/// The tree a flow's cases are read from: `[[program]]` files and globs, case documents and the
+/// files they name are relative to it and stay inside it, links resolved (the containment rule,
+/// with this tree as its boundary). It is the root `[corpus]` names, else the manifest's
+/// directory.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaseRoot {
+    /// The tree's directory.
+    pub directory: PathBuf,
+    /// How a message names the tree: `the manifest's directory`, or ``the corpus root `REL` ``
+    /// with the root as `[corpus]` writes it, never an absolute path.
+    pub name: String,
+}
+
+impl CaseRoot {
+    /// The case root of a manifest in `directory` whose `[corpus]` is `corpus`.
+    fn of(directory: &Path, corpus: Option<&CorpusSection>) -> Self {
+        match corpus {
+            None => Self::manifest_directory(directory),
+            Some(corpus) => Self {
+                directory: directory.join(&corpus.root),
+                name: format!("the corpus root `{}`", corpus.root),
+            },
+        }
+    }
+
+    /// The manifest's directory `directory` as a tree, which every file of the flow but its
+    /// cases is read from.
+    fn manifest_directory(directory: &Path) -> Self {
+        Self {
+            directory: directory.to_path_buf(),
+            name: MANIFEST_DIRECTORY.to_owned(),
+        }
+    }
+
+    /// The tree with its directory's links resolved, which a read's containment is checked
+    /// against.
+    pub(crate) fn canonical(&self) -> std::io::Result<Self> {
+        Ok(Self {
+            directory: fs::canonicalize(&self.directory)?,
+            name: self.name.clone(),
+        })
+    }
+}
+
+/// `[corpus]` of a manifest in `directory`: `root`, a relative path of normal, `.` and `..`
+/// components that names a directory.
+fn corpus(value: &Value, directory: &Path) -> Result<CorpusSection, ManifestError> {
+    let section = table(value, "corpus")?;
+    known_keys(section, "corpus", &["root"])?;
+    let key = "corpus.root";
+    let root = required_string(section, "corpus", "root")?;
+    if Path::new(&root).components().any(|component| {
+        !matches!(
+            component,
+            Component::Normal(_) | Component::CurDir | Component::ParentDir
+        )
+    }) {
+        return Err(ManifestError::new(
+            key,
+            format!(
+                "the corpus root {root:?} is absolute: name it by its path relative to the \
+                 manifest's directory, which may climb above it (`../corpus`), so that the flow \
+                 reads the same cases wherever it is checked out"
+            ),
+        ));
+    }
+    if !directory.join(&root).is_dir() {
+        return Err(ManifestError::new(
+            key,
+            format!(
+                "the corpus root {root:?} is no directory; it is relative to the manifest's \
+                 directory"
+            ),
+        ));
+    }
+    Ok(CorpusSection { root })
+}
+
 /// A manifest that cannot be read or decoded. `key` names the offending key (for example
 /// `spec.entry`) or program (`program "add"`); it is empty for a TOML syntax error.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -703,8 +812,11 @@ impl std::error::Error for ManifestError {}
 /// relative to [`Self::directory`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct ManifestFile {
-    /// The directory holding the manifest; the root that every path stays inside.
+    /// The directory holding the manifest; the root that every path stays inside, but the paths
+    /// of the cases where `[corpus]` names their root.
     pub directory: PathBuf,
+    /// `[corpus]`, as [`FlowManifest::corpus`].
+    pub corpus: Option<CorpusSection>,
     pub spec: SpecDecl,
     pub budget: Budget,
     pub programs: Vec<Program>,
@@ -783,6 +895,7 @@ impl ManifestFile {
             "",
             &[
                 "spec",
+                "corpus",
                 "budget",
                 "result",
                 "stop",
@@ -794,6 +907,11 @@ impl ManifestFile {
             ],
         )?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
+        let corpus = top
+            .get("corpus")
+            .map(|value| corpus(value, directory))
+            .transpose()?;
+        let cases = CaseRoot::of(directory, corpus.as_ref());
         let budget = match top.get("budget") {
             None => Budget::default(),
             Some(value) => budget(value)?,
@@ -826,7 +944,7 @@ impl ManifestFile {
         // The entry each id came from (`program[0]`, `program[2].files`), for a duplicate's error.
         let mut origins = BTreeMap::<String, String>::new();
         for (index, entry) in entries.iter().enumerate() {
-            for (program, origin) in program_entry(index, entry, directory)? {
+            for (program, origin) in program_entry(index, entry, &cases)? {
                 if let Some(first) = origins.get(&program.id) {
                     return Err(ManifestError::new(
                         program_key(&program.id),
@@ -847,6 +965,7 @@ impl ManifestFile {
         }
         Ok(Self {
             directory: directory.to_path_buf(),
+            corpus,
             spec,
             budget,
             programs,
@@ -894,6 +1013,7 @@ impl ManifestFile {
         };
         Ok(FlowManifest {
             directory: self.directory,
+            corpus: self.corpus,
             spec,
             definition,
             budget: self.budget,
@@ -944,6 +1064,13 @@ impl FlowManifest {
     /// ([`ManifestFile::decode`], then [`ManifestFile::bind`] with no specification).
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         ManifestFile::decode(text, directory)?.bind(None)
+    }
+
+    /// The tree the flow's cases are read from and stay inside: the root `[corpus]` names, else
+    /// the manifest's directory.
+    #[must_use]
+    pub fn case_root(&self) -> CaseRoot {
+        CaseRoot::of(&self.directory, self.corpus.as_ref())
     }
 
     /// The campaign stop of every program's run (kink-campaign `Stop`): `[stop]`'s rules and
@@ -1210,6 +1337,11 @@ fn required_string(table: &Table, prefix: &str, name: &str) -> Result<String, Ma
 /// above the root. Links are resolved later, when the file is read, by the same
 /// containment check the resolver makes.
 fn relative_path(value: &Value, key: &str) -> Result<String, ManifestError> {
+    relative_path_in(value, key, MANIFEST_DIRECTORY)
+}
+
+/// [`relative_path`] of a path that stays inside the tree messages name `tree`.
+fn relative_path_in(value: &Value, key: &str, tree: &str) -> Result<String, ManifestError> {
     let text = string(value, key)?;
     let mut depth = 0usize;
     for component in Path::new(&text).components() {
@@ -1220,7 +1352,7 @@ fn relative_path(value: &Value, key: &str) -> Result<String, ManifestError> {
             _ => {
                 return Err(ManifestError::new(
                     key,
-                    format!("path {text:?} leaves the manifest's directory"),
+                    format!("path {text:?} leaves {tree}"),
                 ));
             }
         }
@@ -2016,22 +2148,22 @@ fn stop_count(entry: &Table, key: &str) -> Result<Option<std::num::NonZeroU64>, 
 }
 
 /// One `[[program]]` entry: a listed program, or the matches of its `files` or `cases` pattern
-/// under `directory` in the order of their ids, each with the entry it came from.
+/// under the case root `cases` in the order of their ids, each with the entry it came from.
 fn program_entry(
     index: usize,
     value: &Value,
-    directory: &Path,
+    cases: &CaseRoot,
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     let position = format!("program[{index}]");
     let entry = table(value, &position)?;
     match (entry.get("files"), entry.get("cases")) {
-        (None, None) => Ok(vec![(program(&position, entry)?, position)]),
+        (None, None) => Ok(vec![(program(&position, entry, cases)?, position)]),
         (Some(_), Some(_)) => Err(ManifestError::new(
             position,
             "has both files and cases; give one",
         )),
-        (Some(pattern), None) => files_entry(&position, entry, pattern, directory),
-        (None, Some(pattern)) => cases_entry(&position, entry, pattern, directory),
+        (Some(pattern), None) => files_entry(&position, entry, pattern, cases),
+        (None, Some(pattern)) => cases_entry(&position, entry, pattern, cases),
     }
 }
 
@@ -2067,15 +2199,16 @@ impl Matches {
     }
 }
 
-/// The matches of the pattern `value` (the key `key`) under `directory`; none is an error.
+/// The matches of the pattern `value` (the key `key`) under the tree `tree`; none is an error.
 fn pattern_matches(
     value: &Value,
     key: &str,
-    directory: &Path,
+    tree: &CaseRoot,
     kind: Matches,
 ) -> Result<Vec<String>, ManifestError> {
     let text = string(value, key)?;
-    let pattern = CasePattern::parse(&text).map_err(|message| ManifestError::new(key, message))?;
+    let pattern = CasePattern::parse(&text, &tree.name)
+        .map_err(|message| ManifestError::new(key, message))?;
     // One program text is `file`; a `cases` entry is the one way to name a case document, and a
     // `[[patterns]] files` entry the one way to name a pattern list, so either may name exactly
     // one.
@@ -2101,7 +2234,7 @@ fn pattern_matches(
         ));
     }
     let matches = pattern
-        .matches(directory)
+        .matches(&tree.directory)
         .map_err(|message| ManifestError::new(key, message))?;
     if matches.is_empty() {
         let empty = match kind {
@@ -2111,8 +2244,9 @@ fn pattern_matches(
         return Err(ManifestError::new(
             key,
             format!(
-                "pattern {text:?} matches no file in the manifest's directory; a pattern that \
-                 matches nothing is an error, not {empty}"
+                "pattern {text:?} matches no file in {}; a pattern that matches nothing is an \
+                 error, not {empty}",
+                tree.name
             ),
         ));
     }
@@ -2125,7 +2259,7 @@ fn files_entry(
     position: &str,
     entry: &Table,
     pattern: &Value,
-    directory: &Path,
+    cases: &CaseRoot,
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     no_id(entry, position)?;
     if let Some(key) = ["file", "text"]
@@ -2147,7 +2281,7 @@ fn files_entry(
     let stop_count = stop_count(entry, position)?;
     let variables = variables(entry, position)?;
     let inputs = inputs(entry, position)?;
-    Ok(pattern_matches(pattern, &key, directory, Matches::Texts)?
+    Ok(pattern_matches(pattern, &key, cases, Matches::Texts)?
         .into_iter()
         .map(|id| {
             let program = Program {
@@ -2173,7 +2307,7 @@ fn cases_entry(
     position: &str,
     entry: &Table,
     pattern: &Value,
-    directory: &Path,
+    cases: &CaseRoot,
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     no_id(entry, position)?;
     // The count of stop events is how the corpus observes a program, not part of the case, so
@@ -2190,13 +2324,10 @@ fn cases_entry(
     }
     let stop_count = stop_count(entry, position)?;
     let key = join(position, "cases");
-    let matches = pattern_matches(pattern, &key, directory, Matches::CaseDocuments)?;
-    let root = fs::canonicalize(directory).map_err(|e| {
-        ManifestError::new(
-            &key,
-            format!("cannot resolve the manifest's directory: {e}"),
-        )
-    })?;
+    let matches = pattern_matches(pattern, &key, cases, Matches::CaseDocuments)?;
+    let root = cases
+        .canonical()
+        .map_err(|e| ManifestError::new(&key, format!("cannot resolve {}: {e}", cases.name)))?;
     let mut programs = Vec::new();
     for document in matches {
         for case in case_document::case_document(&root, &document)? {
@@ -2222,7 +2353,7 @@ fn cases_entry(
 }
 
 /// A listed program: `id` and its own keys.
-fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
+fn program(position: &str, entry: &Table, cases: &CaseRoot) -> Result<Program, ManifestError> {
     let id = required_string(entry, position, "id")?;
     let key = program_key(&id);
     known_keys(
@@ -2241,9 +2372,10 @@ fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
     // Neither `file` nor `text`: a case of a definition without `$PGM`, whose variables are all
     // bound by name; admission refuses it on a definition that declares `$PGM`.
     let source = match (entry.get("file"), entry.get("text")) {
-        (Some(file), None) => Some(ProgramSource::File(relative_path(
+        (Some(file), None) => Some(ProgramSource::File(relative_path_in(
             file,
             &join(&key, "file"),
+            &cases.name,
         )?)),
         (None, Some(Value::String(text))) => Some(ProgramSource::Text(text.clone())),
         (None, Some(_)) => {

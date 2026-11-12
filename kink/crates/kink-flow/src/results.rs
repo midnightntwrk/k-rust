@@ -2559,7 +2559,8 @@ fn program_row(
         ));
         let expectation = crate::expect::expectation_value(
             &manifest.end_renderer,
-            None,
+            // Unread: a refused case has no baseline to check its expectation against.
+            Err("the case is refused"),
             program,
             Err("the case is refused, so it has no baseline run"),
             &[],

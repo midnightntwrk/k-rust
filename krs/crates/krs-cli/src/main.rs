@@ -270,7 +270,10 @@ The corpus is <package>/kink (or --corpus DIR):
                     --definition, and one that selects another package or facet is refused
                     before it builds or writes; each case is a [[program]] entry, and kink's
                     documents list the cases under `programs`; a case's paths stay inside
-                    the corpus directory; [result] cells names cells by Rust path
+                    the corpus directory, or, where [corpus] root = \"REL\" names the root
+                    the cases are under (one tree of cases that the flows of several
+                    definitions read, each case with one id in all of them), are relative
+                    to that root and stay inside it; [result] cells names cells by Rust path
                     (cpu.regs), as krs compare does; each [[implementation]] is another
                     implementation of the system, which compare runs on every case and
                     compares with the definition under its views; [[patterns]] declares

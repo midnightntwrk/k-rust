@@ -1069,6 +1069,38 @@ A `--lock FILE` whose header names another definition is refused the same way (`
 A flow without `package` is refused at stage `manifest` (`spec.krs.package: missing`), saying what to add.
 A K corpus (`[spec] entry = ..`) is refused, naming `kink-flow`, which runs it.
 
+Several definitions of one interface (a specification and a refined or optimized one) can read one tree of cases.
+A case is a value for each input, which every definition that takes those inputs reads alike, while every other file of a flow is a function of one definition.
+So a flow may name the root its cases are under, and keep its own files beside it:
+
+```toml
+# cpu/provable/kink/FLOW.toml
+[spec]
+krs = { package = "cpu-provable", definition = "main" }
+
+[corpus]
+root = "../../../corpus/cpu"   # relative to this file's directory; it may climb above it
+
+[[program]]
+cases = "cases/*/case.toml"    # matched under the root
+```
+
+Under the root, and required to stay inside it: a `[[program]]`'s `file`, its `files` and `cases` patterns, each case document, the files it includes and the files its inputs and its expectation name.
+A case's id is its path relative to the root (`cases/boot/case.toml`), so every flow that names the root gives the case the same id, in its documents and in its `kink.lock`.
+A path that climbs above the root, or a file a link leads out of it, is refused, naming the root as the flow writes it (``cases/t5.nat escapes the corpus root `../../../corpus/cpu` ``); the flow's own directory is outside the root.
+Beside the flow, as without `[corpus]`: `definition.k`, `mutations/` (else `MUTATIONS.toml`), `PATTERNS.toml` and the lists `[[patterns]] files` matches, `TEMPLATES.toml` and a template's own `file`, an `[[implementation]]`'s `command` and `identity.file`, `kink.lock` and `.kink-flow/`.
+Every file a command writes is one of these, so nothing is written under a root that does not contain the flow's directory.
+No digest or cache key holds the root's path or the flow's.
+`fuzz` reads a template that names a `[[program]]` from that program's file under the root, `query` and `prune` name each case by its id under the root, and `compare` states each case's inputs to an implementation from the files under the root.
+Without `[corpus]` the root is the flow's directory, the layout above, with the same documents and the same `kink.lock`.
+
+What the layout does not give:
+
+- It does not compare the definitions: each flow runs the cases on its own definition and keeps its own verdicts, and nothing checks that two definitions end a case alike.
+- `prune` answers for one flow: a case redundant in this flow may be the only one that discharges an obligation of another flow, so the document of a flow that names a root carries `scope` (`{flow_only: true, corpus_root, detail}`) and `--output text` a `note:` line saying that the report holds for this flow alone.
+- A case's `expect` is checked by every flow that reads the case, so an expectation true of one definition only is unmet in the others.
+- A case added under the root is run by every flow that reads it, on that flow's next command, and each flow's `--locked` commands judge it for that flow's definition.
+
 Every verb but `emit` and `report` builds the package in process, as `emit-k` does, and kink judges `kink/definition.k`, which must hold exactly that emission: a command finds it `unchanged`, or writes it and says `written` in the document's `definition` object.
 The `definition` object is `{name, path, status}`: `name` is the definition the flow is for (`my-semantics:main`), which the verdicts rendering's header states as `kink.lock`'s does.
 Writing it cannot change what a mutation means: a mutation is resolved against the current K on every command and refused when the text it replaces changed.
