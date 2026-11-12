@@ -2748,7 +2748,7 @@ impl StructuredTermBuilder<'_> {
     /// one item, so a term of a sort below `K` that inference admits at a place of sort `K` (a
     /// field, an argument, a typed element) is that sequence there: `keep(make(X))` holds the
     /// one-item computation `make(X)`. Every other term is its own value.
-    fn at_place(term: SemanticTerm, expected: Option<&SemanticSortRef>) -> SemanticTerm {
+    pub(super) fn at_place(term: SemanticTerm, expected: Option<&SemanticSortRef>) -> SemanticTerm {
         let k = SemanticSortRef::k_sequence();
         if expected != Some(&k) || *term.sort() == k {
             return term;

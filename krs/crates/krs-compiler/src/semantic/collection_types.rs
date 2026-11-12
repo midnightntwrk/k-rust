@@ -153,6 +153,17 @@ impl SortType {
         descriptor: &Descriptor,
         key: &ProvenanceKey,
     ) -> Result<(), DescriptorLoweringError> {
+        self.check_arity_in(owner, descriptor, key, self)
+    }
+
+    /// [`Self::check_arity`] of `self`, an argument of `declared` or `declared` itself.
+    fn check_arity_in(
+        &self,
+        owner: &str,
+        descriptor: &Descriptor,
+        key: &ProvenanceKey,
+        declared: &Self,
+    ) -> Result<(), DescriptorLoweringError> {
         let expected = match self.kind() {
             Some(BuiltinSort::Map) => 2,
             Some(_) => 1,
@@ -177,8 +188,34 @@ impl SortType {
                 range: authored_range(descriptor, key),
             });
         }
+        // K's maps, lists and sets hold items: a `K`, a computation of any length, is no
+        // `KItem`, so a collection of `K`s holds no value but the empty one.
+        if self.kind().is_some()
+            && let Some(element) = self
+                .arguments
+                .iter()
+                .find(|argument| argument.sort == SemanticSortRef::k_sequence())
+        {
+            let what = match (self.kind(), self.arguments.len()) {
+                (Some(BuiltinSort::Map), 2) if element == &self.arguments[0] => "keys",
+                (Some(BuiltinSort::Map), _) => "values",
+                _ => "elements",
+            };
+            let whose = if self == declared {
+                format!("whose {what} are of sort `K` (`KSequence`)")
+            } else {
+                format!("whose `{self}` holds {what} of sort `K` (`KSequence`)")
+            };
+            return Err(DescriptorLoweringError::CollectionElementSort {
+                item: Box::new(descriptor.id().clone()),
+                reason: format!(
+                    "{owner} is declared `{declared}`, {whose}: K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it"
+                ),
+                range: authored_range(descriptor, key),
+            });
+        }
         for argument in &self.arguments {
-            argument.check_arity(owner, descriptor, key)?;
+            argument.check_arity_in(owner, descriptor, key, declared)?;
         }
         Ok(())
     }

@@ -6171,15 +6171,18 @@ fn a_dot_k_right_side_stands_where_k_is_admissible() {
     expect_test::expect!["<generatedTop> <k> keep(.K) ~> .K </k> <acc> 1 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
 
-/// ITEMSORTS: the TERMDOTK fixture with a cell whose values are declared `KSequence` and a
-/// function over a `KSequence` argument, `Run(make(x))` being `x`.
+/// ITEMSORTS: the TERMDOTK fixture with a cell of typed integers and a function over a
+/// `KSequence` argument, `Run(make(x))` being `x`.
 fn item_sorts_fixture() -> String {
     dot_k_fixture()
         .replace(
             "    #[k::cell]\n    pub env: Map,\n",
-            "    #[k::cell]\n    pub env: Map,\n    #[k::cell]\n    pub kmap: Map<Int, KSequence>,\n",
+            "    #[k::cell]\n    pub env: Map,\n    #[k::cell]\n    pub ints: Map<Int, Int>,\n",
         )
-        .replace("            env: k::map![],\n", "            env: k::map![],\n            kmap: k::map![],\n")
+        .replace(
+            "            env: k::map![],\n",
+            "            env: k::map![],\n            ints: k::map![],\n",
+        )
         + "#[k::function(total, internal)]\npub fn Run(b: k::Term<KSequence>) -> k::Term<Int>;\n\n#[k::equation]\nfn run(x: Int, k::term![Run(Cmd::Make { x })]: k::Term<Int>) -> k::Term<Int> {\n    x\n}\n\n#[k::equation(owise)]\nfn run_other(b: KSequence, k::term![Run(b)]: k::Term<Int>) -> k::Term<Int> {\n    0\n}\n\n"
 }
 
@@ -6320,10 +6323,10 @@ fn an_item_removal_names_the_one_item_it_removes() {
 /// `cells!`, term and readable routes; a declared or inferred binder of the item's sort fills
 /// the place too, and a readable binder that also occurs at a `Stmt` place is a `Stmt`. They
 /// were refused "application result sort Stmt is not admissible at sort K" (or the binder's
-/// "needs `K`"). A `Bool` place is no `K` place and keeps its refusal. A matched sequence still
-/// takes a `K` item alone or beside other `K` items only. A typed collection whose values are
-/// declared `K` holds none: K's map holds items, and every value there, a `K` binder's as a
-/// `Stmt`'s, is refused by the native stage (a finding, not this ticket's).
+/// "needs `K`"). A `Bool` place is no `K` place and keeps its refusal. An `ml::equals` whose
+/// operands join at `K` holds the other operand as its one-item sequence (round 2, Q6.2: it was
+/// an internal error). A guarded key that reads a typed map at a `K` field keeps the same guards
+/// as at an `Int` field (round 2, Q2: probed, no guard dropped).
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -6379,8 +6382,9 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
         ("requires/cells", cells("x: Int,\n    a: Int,", "#[k::requires(int::eq(Run(Cmd::Make { x }), 0))]\n", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => ()), ..), acc: {cc}(k::rewrite!(a => x))")), "probe"),
         ("requires/readable", readable("Machine", "#[k::requires(int::eq(Run(Make { x }), 0))]\n    ", "{ k: [Make { x }, ..] } => { k: [..] }"), "probe"),
         ("requires/a-bool-place", cells("x: Int,\n    a: Int,", "#[k::requires(Cmd::Make { x })]\n", &format!("k: {kk}(k::rewrite!(Cmd::Make {{ x }} => ()), ..), acc: {cc}(k::rewrite!(a => x))")), "probe"),
-        ("map-value/stmt", cells("", "", &format!("kmap: {cc}(map![1 -> k::rewrite!(_ => Cmd::Make {{ x: 2 }}), ..])")), "probe"),
-        ("map-value/k-binder", readable("Machine", "", "{ k: [Keep { body: b }, ..], kmap: m } => { k: [..], kmap: map::update(m, 1, b) }"), "probe"),
+        ("ml-equals/claim", format!("{fixture}#[k::claim(all_paths, label = \"probe\")]\n#[k::requires(k::ml::equals(b, Cmd::Make {{ x: 1 }}))]\npub fn probe(\n    b: KSequence,\n    k::cells! {{ k: {kk}(Cmd::Keep {{ body: b }}, tail @ ..), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {kk}(..tail), ..state }}\n}}\n"), "probe"),
+        ("guarded-key/at-k", readable("Machine", "", "{ k: [Make { x }, ..], ints: i, env: { Keep { body: map::get(i, 1) } -> _, .. } } => { k: [..], acc: x }"), "probe"),
+        ("guarded-key/at-int", readable("Machine", "", "{ k: [Make { x }, ..], ints: i, env: { Hold { x: map::get(i, 1) } -> _, .. } } => { k: [..], acc: x }"), "probe"),
     ]
     .map(|(name, source, needle)| {
         let source = source.replace("use k::builtin::{Int, KSequence, List, Map, list, map};", "use k::builtin::{Int, KSequence, List, Map, int, list, map};");
@@ -6411,8 +6415,9 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
         requires/cells: passed: rule [probe]: <k> (make ( X:Int ) => .K) ... </k> <acc> A:Int => X:Int </acc> requires run ( make ( X:Int ) ) ==Int 0
         requires/readable: passed: rule [probe]: <k> make ( X:Int ) => .K ... </k> requires run ( make ( X:Int ) ) ==Int 0
         requires/a-bool-place: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): application result sort ORG-KRS-NESTED::Stmt (sort) is not admissible at sort Bool @ 106:15
-        map-value/stmt: error[krs::native::compile]: native frontend stage add sort injections failed: src/lib.rs: (origin: concretize-cells) term _Krs_Wildcard0 has sort K, which is not a subsort of the sort KItem its position requires @ unlocated
-        map-value/k-binder: error[krs::native::compile]: native frontend stage add sort injections failed: src/lib.rs: (origin: concretize-cells) term B has sort K, which is not a subsort of the sort KItem its position requires @ unlocated"]].assert_eq(&rows.join("\n"));
+        ml-equals/claim: passed: claim [probe]: <k> keep ( B:K ) ~> Tail:K => .K ~> Tail:K </k> requires { B:K #Equals make ( 1 ) }
+        guarded-key/at-k: passed: rule [probe]: <k> make ( X:Int ) => .K ... </k> <env> keep ( Krs_Instance0:K ) |-> _ ... </env> <ints> I:Map </ints> <acc> _ => X:Int </acc> requires 1 in_keys(I:Map) andThenBool (Krs_Instance0:K ==K (I:Map [ 1 ]))
+        guarded-key/at-int: passed: rule [probe]: <k> make ( X:Int ) => .K ... </k> <env> hold ( Krs_Instance0:Int ) |-> _ ... </env> <ints> I:Map </ints> <acc> _ => X:Int </acc> requires 1 in_keys(I:Map) andThenBool (Krs_Instance0:Int ==K (I:Map [ 1 ]))"]].assert_eq(&rows.join("\n"));
     // `wrap` keeps the item in a `K` field and evaluates `Run` over it (an equation whose left
     // side holds the item at `K`); `open` matches the field's one-item sequence.
     let manifest = library_package(
@@ -6431,7 +6436,7 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
         &[program.to_str().unwrap()],
     );
     assert!(success, "{stdout}\n{stderr}");
-    expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <kmap> .Map </kmap> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+    expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <ints> .Map </ints> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
 
 /// ITEMSORTS round 2, Q4: in a matched computation a part of sort `K` matches a sequence of any
@@ -6479,4 +6484,91 @@ fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() 
         two-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way @ 110:64
         unruled/two-parts: passed: rule [probe]: <k> B:K ~> C:K ... </k> <acc> _ => 1 </acc>
         unruled/one-part: passed: rule [probe]: <k> B:K ... </k> <acc> _ => 1 </acc>"]].assert_eq(&rows.join("\n"));
+}
+
+/// ITEMSORTS round 2, Q5: K's maps, lists and sets hold items, and a `KSequence` is a
+/// computation of any length, so a typed collection whose key, value or element type is
+/// `KSequence` holds no value but the empty one: it is refused at its declaration, in a cell, a
+/// field, a function's parameter and its result, at the type. Its values reached the native
+/// stage, unlocated, before.
+#[test]
+fn a_collection_of_k_sequences_is_refused_at_its_declaration() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let fixture = item_sorts_fixture();
+    let cell = |ty: &str, init: &str| {
+        fixture
+            .replace(
+                "    pub ints: Map<Int, Int>,\n",
+                &format!("    pub ints: {ty},\n"),
+            )
+            .replace(
+                "            ints: k::map![],\n",
+                &format!("            ints: {init},\n"),
+            )
+    };
+    let rows = [
+        ("cell/map-value", cell("Map<Int, KSequence>", "k::map![]")),
+        ("cell/map-key", cell("Map<KSequence, Int>", "k::map![]")),
+        ("cell/list", cell("List<KSequence>", "list::empty()")),
+        ("cell/nested", cell("Map<Int, List<KSequence>>", "k::map![]")),
+        ("field", fixture.replace("    #[k::syntax(\"wrap({s})\")]\n", "    #[k::syntax(\"stash({m})\")]\n    Stash { m: Map<Int, KSequence> },\n    #[k::syntax(\"wrap({s})\")]\n")),
+        ("parameter", format!("{fixture}#[k::function(total, internal)]\npub fn Count(m: k::Term<k::builtin::Set<KSequence>>) -> k::Term<Int> {{\n    0\n}}\n")),
+        ("result", format!("{fixture}#[k::function(total, internal)]\npub fn Saved(b: k::Term<KSequence>) -> k::Term<List<KSequence>> {{\n    list::empty()\n}}\n")),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("k-collection-{}", name.replace('/', "-")), &source);
+        format!("{name}: {}", first_error(target.path(), &manifest))
+    });
+    expect_test::expect![[r"
+        cell/map-value: error[krs::analysis::collection-element-sort]: the cell `ints` is declared `Map<Int, K>`, whose values are of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 58:15
+        cell/map-key: error[krs::analysis::collection-element-sort]: the cell `ints` is declared `Map<K, Int>`, whose keys are of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 58:15
+        cell/list: error[krs::analysis::collection-element-sort]: the cell `ints` is declared `List<K>`, whose elements are of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 58:15
+        cell/nested: error[krs::analysis::collection-element-sort]: the cell `ints` is declared `Map<Int, List<K>>`, whose `List<K>` holds elements of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 58:15
+        field: error[krs::analysis::collection-element-sort]: the field `m` of `Stash` is declared `Map<Int, K>`, whose values are of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 20:20
+        parameter: error[krs::analysis::collection-element-sort]: the parameter `m` of `Count` is declared `Set<K>`, whose elements are of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 106:41
+        result: error[krs::analysis::collection-element-sort]: the result of `Saved` is declared `List<K>`, whose elements are of sort `K` (`KSequence`): K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it @ 106:53"]].assert_eq(&rows.join("\n"));
+}
+
+/// ITEMSORTS round 2: an overload member `keeps(Stmt)` of the target `keep(K)` specialises it,
+/// since a `Stmt` is a `KItem` and a `KItem` is a `K`; it was refused "`Stmt` is not a subsort
+/// of `K`". Its production carries the target's key, and a rule over it runs.
+#[test]
+fn an_overload_at_a_k_argument_takes_a_value_below_k() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let fixture = dot_k_fixture().replace(
+        "    #[k::syntax(\"wrap({s})\")]\n",
+        "    #[k::syntax(\"keeps({body})\", overload = Cmd::Keep)]\n    KeepS { body: Stmt },\n    #[k::syntax(\"wrap({s})\")]\n",
+    );
+    let manifest = library_package(
+        temporary.path(),
+        "k-overload",
+        &format!(
+            "{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    wraps: {{ k: [Make {{ x }}, ..] }} => {{ k: [KeepS {{ body: Make {{ x }} }}, ..] }};\n    opens: {{ k: [KeepS {{ body: Make {{ x: 1 }} }}, ..], acc: _ }} => {{ k: [..], acc: 3 }};\n}}\n"
+        ),
+    );
+    let k = emitted_k(target.path(), &manifest);
+    let lines = k
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains("keeps") || line.contains("\"keep\""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        syntax Stmt ::= "keep" "(" K ")" [symbol(cmdKeep), overload(cmdKeep), format(%1%2%3%4)]
+        syntax Stmt ::= "keeps" "(" Stmt ")" [symbol(cmdKeepS), overload(cmdKeep), format(%1%2%3%4)]
+        <k> keeps ( make ( 1 ) ) => .K ... </k>
+        <k> make ( X:Int ) => keeps ( make ( X:Int ) ) ... </k>"#]]
+    .assert_eq(&lines);
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "make(1)").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<generatedTop> <k> .K </k> <acc> 3 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }

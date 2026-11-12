@@ -395,6 +395,10 @@ impl StructuredTermBuilder<'_> {
                         ),
                     )
                 })?;
+                // At the operand sort `K`, an operand of a sort below it is its one-item
+                // sequence ([`StructuredTermBuilder::at_place`]).
+                let left = Self::at_place(left, Some(&operand_sort));
+                let right = Self::at_place(right, Some(&operand_sort));
                 IrMlKind::Equals {
                     operand_sort,
                     left: Box::new(left),
