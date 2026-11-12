@@ -77,7 +77,26 @@ fn configuration_claim(
         .iter()
         .map(|binder| binder.name().clone())
         .collect::<Vec<_>>();
-    let all_idents = universal_idents
+    // The result and the conditions see every variable the start state binds, as a rule's do:
+    // its term binders and its computation and map remainders (`Tail:K`, `Rest:Map`), which a
+    // result writes as terms. The configuration and instance remainders bind none.
+    let remainder_idents = rule
+        .bindings()
+        .iter()
+        .filter(|binding| {
+            matches!(
+                binding.kind(),
+                StateRuleBindingKind::KSequenceFrame | StateRuleBindingKind::MapFrame
+            )
+        })
+        .map(|binding| binding.name().clone())
+        .collect::<Vec<_>>();
+    let requires_idents = universal_idents
+        .iter()
+        .chain(&remainder_idents)
+        .cloned()
+        .collect::<Vec<_>>();
+    let all_idents = requires_idents
         .iter()
         .chain(&existential_idents)
         .cloned()
@@ -181,7 +200,7 @@ fn configuration_claim(
         &ledger,
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
-        &universal_idents,
+        &requires_idents,
         Form::CellsClaim,
     );
     let requires = if let Some(condition) = rule.requires() {
