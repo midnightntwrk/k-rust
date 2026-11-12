@@ -2868,12 +2868,14 @@ fn semantic_term_slices_equivalent(left: &[SemanticTerm], right: &[SemanticTerm]
 
 /// Whether a lowered item of a matched computation matches exactly one item: a term of a sort
 /// below `K`, the one-item sequence a `KItem` stands as at `K`
-/// ([`super::infer::StructuredTermBuilder::at_place`]), or a rewrite whose left side does. A
-/// part of sort `K` otherwise matches a sequence of any length.
+/// ([`super::infer::StructuredTermBuilder::at_place`]), a rewrite whose left side does, or an
+/// alias whose pattern does (`b @ Cmd::Make { x }`). Any other part of sort `K` is a part of
+/// unknown length.
 fn matches_one_item(term: &SemanticTerm) -> bool {
     use krs_ir_levels::SemanticTermKind as Kind;
     match term.kind() {
         Kind::Rewrite { from, .. } => matches_one_item(from),
+        Kind::As { pattern, .. } => matches_one_item(pattern),
         Kind::KSequence { items, .. } => {
             matches!(items.as_slice(), [item] if matches_one_item(item))
         }
@@ -2881,53 +2883,69 @@ fn matches_one_item(term: &SemanticTerm) -> bool {
     }
 }
 
-/// Judges where the parts of a matched computation `sequence`, lowered as `items`, stand. A
-/// part of sort `K` matches a sequence of any length:
-/// - followed by an item, it is a back match, which a computation read from its front never
-///   is, as an item after its rest is not ([`DescriptorLoweringError::ComputationBackItem`]);
-/// - after the items, as the computation's last part (`KCell(Cmd::Make { x }, b)`), it matches
-///   the rest of the computation, one split, as `b @ ..` does;
-/// - after the items and followed by another part of any length (a rest `..`, another `K`
-///   part), the computation splits between them in more than one way.
-///
-/// Parts of sort `K` with no item before them (`KCell(b, c, ..)`) are left as they read.
+/// Judges where the parts of a matched computation `sequence`, lowered as `items`, stand,
+/// beside its parts of unknown length: each part of sort `K` that is not one item, and a rest.
+/// - An alias of sort `K` naming one item is one item, which no route writes yet.
+/// - With no part of sort `K` there is nothing to judge.
+/// - A closed computation with one such part: as its last part, after the items, it matches
+///   the rest of the computation (`KCell(Cmd::Make { x }, b)` is `make(X) ~> B:K`, as `b @ ..`
+///   is); followed by items, the pattern matches those items at the computation's back, which
+///   a computation read from its front never is, as an item after its rest is not
+///   ([`DescriptorLoweringError::ComputationBackItem`]).
+/// - Otherwise the pattern has a part of sort `K` beside another part of unknown length (a
+///   rest, another `K` part). Patterns whose every part has unknown length (`KCell(b, ..)`,
+///   `KCell(b, c, ..)`) are admitted as they read; one that also holds an item is not supported
+///   yet. Both are held as they were until those patterns are ruled on together.
 fn matched_parts(
     descriptor: &Descriptor,
     sequence: &krs_ir::ProtocolRuleKSequence<DescriptorTerm>,
     items: &[SemanticTerm],
 ) -> Result<(), DescriptorLoweringError> {
-    let Some(first) = items.iter().position(|item| !matches_one_item(item)) else {
-        return Ok(());
-    };
-    if let Some(after) = (first + 1..items.len()).find(|&index| matches_one_item(&items[index])) {
-        return Err(DescriptorLoweringError::ComputationBackItem {
-            reason: "the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is".to_owned(),
-            range: key_range(descriptor, &sequence.items[after].key).map(Box::new),
-            item: Some(Box::new(descriptor.id().clone())),
-        });
-    }
-    if first == 0 {
-        return Ok(());
-    }
-    let frame = match &sequence.tail {
-        krs_ir::ProtocolRuleFrame::Exact => None,
-        krs_ir::ProtocolRuleFrame::Anonymous { key }
-        | krs_ir::ProtocolRuleFrame::Bind { key, .. }
-        | krs_ir::ProtocolRuleFrame::Reuse { key, .. } => Some(key),
-    };
-    if let Some(next) = sequence
-        .items
-        .get(first + 1)
-        .map(|item| &item.key)
-        .or(frame)
-    {
+    // An alias declared `K` that names one item matches one item, but no route writes a `K`
+    // alias as an item of a computation yet; at the item's sort it is one.
+    if let Some(index) = items.iter().position(|item| {
+        matches!(item.kind(), krs_ir_levels::SemanticTermKind::As { .. })
+            && *item.sort() == SemanticSortRef::k_sequence()
+            && matches_one_item(item)
+    }) {
         return Err(DescriptorLoweringError::invalid_term(
             descriptor.id(),
-            "a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way",
+            "an alias of sort `K` that names one item of a matched computation is not supported yet; declare the alias at the item's sort (`k::KItem`, or a sort below it)",
         )
-        .within(descriptor.id(), key_range(descriptor, next).as_ref()));
+        .within(
+            descriptor.id(),
+            key_range(descriptor, &sequence.items[index].key).as_ref(),
+        ));
     }
-    Ok(())
+    let parts = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| !matches_one_item(item))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let closed = matches!(sequence.tail, krs_ir::ProtocolRuleFrame::Exact);
+    match parts.as_slice() {
+        [] => Ok(()),
+        [part] if closed => {
+            if *part + 1 == items.len() {
+                return Ok(());
+            }
+            Err(DescriptorLoweringError::ComputationBackItem {
+                reason: "the closed computation pattern has an item after a part of sort `K`, and it matches the items after that part at the computation's back: a computation is read from its front, where its next step is".to_owned(),
+                range: key_range(descriptor, &sequence.items[*part + 1].key).map(Box::new),
+                item: Some(Box::new(descriptor.id().clone())),
+            })
+        }
+        _ if parts.len() == items.len() => Ok(()),
+        _ => Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            "a computation pattern with a `K` part beside another part of unknown length is not supported yet",
+        )
+        .within(
+            descriptor.id(),
+            key_range(descriptor, &sequence.payload_key).as_ref(),
+        )),
+    }
 }
 
 #[cfg(test)]

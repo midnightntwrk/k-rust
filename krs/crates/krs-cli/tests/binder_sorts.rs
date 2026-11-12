@@ -581,7 +581,7 @@ fn a_held_statement_runs_natively() {
 /// What the completed lattice still rejects: an operator whose operands no
 /// occurrence sorts as a builtin domain (the `KItem` occurrence no longer
 /// narrows `x` to `Int`), two rules that both apply to a held statement,
-/// and an item after a `K` part in a pattern, a back match.
+/// and a `K` part beside an item and a rest in a pattern, not supported yet.
 #[test]
 fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
     let target = shared_fixture_target();
@@ -615,14 +615,14 @@ fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
                         "use WrapSyntax::*;\n    probe: { k: [Wrap { body: b }, b, Skip(), ..] } => { k: [..] };"
                     ),
                 ),
-                "error[krs::collect::invalid-configuration]: the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is".to_owned(),
-                "Skip",
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet".to_owned(),
+                "k",
             ),
             (
                 "cells-sequence",
                 "#[k::constructors(sort = Stmt, result = KResult)]\n#[k::precedence((Wrap))]\npub enum WrapSyntax {\n    #[k::syntax(\"wrap ( {body} )\")]\n    Wrap { body: KSequence },\n}\n\n#[k::rule(label = \"probe\")]\npub fn probe(\n    b: Term<KSequence>,\n    k::cells! { k: k::configuration::KCell(WrapSyntax::Wrap(b), b, StmtSyntax::Skip(), tail @ ..), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n".to_owned(),
-                "error[krs::collect::invalid-configuration]: the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is".to_owned(),
-                "StmtSyntax::Skip()",
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet".to_owned(),
+                "WrapSyntax::Wrap(b), b, StmtSyntax::Skip(), tail @ ..",
             ),
         ],
     );

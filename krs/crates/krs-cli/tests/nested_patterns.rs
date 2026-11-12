@@ -6439,14 +6439,18 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
     expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <ints> .Map </ints> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
 
-/// ITEMSORTS round 2, Q4: in a matched computation a part of sort `K` matches a sequence of any
-/// length. As the last part after the items (`KCell(Cmd::Make { x }, b)`) it matches the rest of
-/// the computation, one split, as `b @ ..` does; a rewrite whose left side is one item is one
-/// item, beside items too. Followed by an item it is a back match, which the computation, read
-/// from its front, gets as an item after its rest does (`krs::collect::invalid-configuration`),
-/// on the `cells!` and readable routes. After the items with another part of any length after it
-/// the computation would split more than one way. Parts of sort `K` with no item before them
-/// (`KCell(b, c, ..)`) are left as they read, recorded here (K-SEQ-SPLITS).
+/// ITEMSORTS round 2 and 3, Q4: in a matched computation a part of sort `K` that is not one
+/// item has unknown length, and so has a rest. A rewrite or an alias that matches one item is one
+/// item, beside items too. In a closed computation one such part after the items matches the
+/// rest of the computation (`KCell(Cmd::Make { x }, b)`), one split, as `b @ ..` does; followed
+/// by items it matches them at the computation's back, which the computation, read from its
+/// front, gets as an item after its rest does (`krs::collect::invalid-configuration`). Every
+/// other pattern with a `K` part beside another part of unknown length keeps its verdict until
+/// those are ruled on together (K-SEQ-SPLITS): admitted when every part has unknown length
+/// (`KCell(b, ..)`, `KCell(b, c, ..)`, `KCell(b, c)`), not supported yet when it also holds an
+/// item, a `b` whose length another occurrence fixes among them, on the `cells!` and readable
+/// routes. An alias declared `K` that names one item is one item, which no route writes as an
+/// item yet: it is refused, located, rather than reaching the native stage.
 #[test]
 fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() {
     let target = shared_fixture_target();
@@ -6463,12 +6467,17 @@ fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() 
         ("last", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, b)"))),
         ("last-rewritten", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(b => Cmd::Make {{ x: 1 }}))"))),
         ("one-item-rewrite", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(Cmd::Keep {{ body: b }} => b), ..)"))),
-        ("back-item", cells("b: KSequence,\n    x: Int,", &format!("k: {kk}(b, Cmd::Make {{ x }}, ..)"))),
-        ("back-item/readable", format!("{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    probe: {{ k: [Keep {{ body: b }}, b, Make {{ x }}, ..] }} => {{ k: [..] }};\n}}\n")),
+        ("one-item-alias", format!("{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    b: KSequence,\n    x: Int,\n    k::cells! {{ k: {kk}(Cmd::Hold {{ x: 1 }}, b @ Cmd::Make {{ x }}, rest @ ..), .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {kk}(Cmd::Keep {{ body: b }}, ..rest), .. }}\n}}\n")),
+        ("one-item-alias/at-item-sort", format!("{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    b: k::KItem,\n    x: Int,\n    k::cells! {{ k: {kk}(Cmd::Hold {{ x: 1 }}, b @ Cmd::Make {{ x }}, rest @ ..), .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {kk}(Cmd::Keep {{ body: b }}, ..rest), .. }}\n}}\n")),
+        ("back-item", cells("b: KSequence,\n    x: Int,", &format!("k: {kk}(b, Cmd::Make {{ x }})"))),
+        ("item-after/open", cells("b: KSequence,\n    x: Int,", &format!("k: {kk}(b, Cmd::Make {{ x }}, ..)"))),
+        ("item-after/readable", format!("{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    probe: {{ k: [Keep {{ body: b }}, b, Make {{ x }}, ..] }} => {{ k: [..] }};\n}}\n")),
         ("rest-after", cells("x: Int,\n    b: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, b, ..)"))),
+        ("rest-after/fixed-length", cells("b: KSequence,", &format!("k: {kk}(Cmd::Keep {{ body: b }}, b, ..)"))),
         ("two-after", cells("x: Int,\n    b: KSequence,\n    c: KSequence,", &format!("k: {kk}(Cmd::Make {{ x }}, b, c)"))),
-        ("unruled/two-parts", cells("b: KSequence,\n    c: KSequence,", &format!("k: {kk}(b, c, ..)"))),
-        ("unruled/one-part", cells("b: KSequence,", &format!("k: {kk}(b, ..)"))),
+        ("unknown-only/two-parts", cells("b: KSequence,\n    c: KSequence,", &format!("k: {kk}(b, c, ..)"))),
+        ("unknown-only/one-part", cells("b: KSequence,", &format!("k: {kk}(b, ..)"))),
+        ("unknown-only/closed", cells("b: KSequence,\n    c: KSequence,", &format!("k: {kk}(b, c)"))),
     ]
     .map(|(name, source)| {
         let manifest = library_package(temporary.path(), &format!("k-part-{}", name.replace('/', "-")), &source);
@@ -6478,12 +6487,17 @@ fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() 
         last: passed: rule [probe]: <k> make ( X:Int ) ~> B:K </k> <acc> _ => 1 </acc>
         last-rewritten: passed: rule [probe]: <k> make ( X:Int ) ~> (B:K => make ( 1 )) </k> <acc> _ => 1 </acc>
         one-item-rewrite: passed: rule [probe]: <k> make ( X:Int ) ~> (keep ( B:K ) => B:K) ... </k> <acc> _ => 1 </acc>
-        back-item: error[krs::collect::invalid-configuration]: the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is @ 109:47
-        back-item/readable: error[krs::collect::invalid-configuration]: the matched computation has an item after a part of sort `K`, which matches a sequence of any length and so ends the computation as its rest does: a computation is read from its front, where its next step is @ 108:39
-        rest-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way @ 109:64
-        two-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a part of sort `K` after the items of a matched computation matches the rest of the computation only as its last part; here another part of any length follows it, so the computation would split between them in more than one way @ 110:64
-        unruled/two-parts: passed: rule [probe]: <k> B:K ~> C:K ... </k> <acc> _ => 1 </acc>
-        unruled/one-part: passed: rule [probe]: <k> B:K ... </k> <acc> _ => 1 </acc>"]].assert_eq(&rows.join("\n"));
+        one-item-alias: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): an alias of sort `K` that names one item of a matched computation is not supported yet; declare the alias at the item's sort (`k::KItem`, or a sort below it) @ 109:64
+        one-item-alias/at-item-sort: passed: rule [probe]: <k> hold ( 1 ) ~> ( make ( X:Int ) #as B:KItem ) ~> Rest:K => keep ( B:KItem ) ~> Rest:K </k>
+        back-item: error[krs::collect::invalid-configuration]: the closed computation pattern has an item after a part of sort `K`, and it matches the items after that part at the computation's back: a computation is read from its front, where its next step is @ 109:47
+        item-after/open: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet @ 109:44
+        item-after/readable: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet @ 108:14
+        rest-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet @ 109:44
+        rest-after/fixed-length: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet @ 108:44
+        two-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet @ 110:44
+        unknown-only/two-parts: passed: rule [probe]: <k> B:K ~> C:K ... </k> <acc> _ => 1 </acc>
+        unknown-only/one-part: passed: rule [probe]: <k> B:K ... </k> <acc> _ => 1 </acc>
+        unknown-only/closed: passed: rule [probe]: <k> B:K ~> C:K </k> <acc> _ => 1 </acc>"]].assert_eq(&rows.join("\n"));
 }
 
 /// ITEMSORTS round 2, Q5: K's maps, lists and sets hold items, and a `KSequence` is a
