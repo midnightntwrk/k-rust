@@ -1,17 +1,20 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec c5815203 (2026-11-12): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec c5815203 (status of 2026-11-13): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
 
-As of kcore-spec `c5815203`, 2026-11-12.
+As of kcore-spec `c5815203`, status of 2026-11-13.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
 ## Changed since you last read
 
 Newest first.
 
+- KEVM: kompile's own text is now read as written, with nothing refused, and so is k-rust's. For both, the kernel checks the check on the semantics (`coreOK`) and states both theorems. They hold under the four statements about functions (`FnHyp`), which are not yet proved for KEVM: about 370 facts are left (see the goal).
+- The three name conditions that ran out of memory in the kernel are now decided on numeric codes of the names, proved to imply the conditions in the core. The core did not change.
+- Decision 5 was corrected. The first proposal was wrong: the text's equation says `f(p) = r` and `C` is true, so where `C` fails the text gives `f` no value, and dropping the `ensures` would give it one.
 - The check on the semantics dropped four conditions the theorems never used, among them "every sort has a value". What you must read to know what the theorems say is now about 3,000 lines of Lean. [Lesson 11](/lean/well-formedness) changed for this.
 - The three naming conditions that had no example now have one each: a definition that meets every other condition and whose theory has no model.
 - KEVM: every sentence of both texts is read or accounted for, except one equation with `ensures` in kompile's text (decision 5). k-rust's text passes the whole well-formedness check. Both meet the check on the semantics when it is computed outside the kernel; inside the kernel, three name conditions run out of the 12 GB memory cap, and work on that is running.
@@ -24,20 +27,20 @@ Newest first.
 
 ## The goal
 
-As of 2026-11-12.
+As of 2026-11-13.
 
 Every K definition we care about, read from kompile's own KORE, gets a Lean package that states soundness and completeness under well-formedness and a list of obligations, and a proof built on top of that package checks.
 
 | Definition | read | well-formed | obligations | sound and complete | used by a proof |
 | --- | --- | --- | --- | --- | --- |
 | imp | ✓ | ✓ | ✓ (none named) | ✓ | — |
-| KEVM | k-rust's text ✓; kompile's, all but one sentence | computed yes, not yet kernel-checked | listed, open | — | — |
+| KEVM | ✓ | ✓ | listed, open | — (stated, under `FnHyp`, not yet proved) | — |
 | wasm | — | — | — | — | — |
 | mir | — | — | — | — | — |
 | K in K | — | — | — | — | — |
 
 - **read**: every sentence of kompile's own KORE for the definition is read, ignored as having no meaning for the semantics, or refused with a reason.
-- **well-formed**: the definition passes the well-formedness check, or the failing conditions are listed.
+- **well-formed**: the kernel checks that the definition passes the check on the semantics (`coreOK`), or the failing conditions are listed.
 - **obligations**: the facts the definition leaves to its author are listed, and each is proved or named as open.
 - **sound and complete**: the generated package states both theorems for the definition.
 - **used by a proof**: one existing proof about the definition is rebuilt on the package.
@@ -47,7 +50,8 @@ One caveat: the package is not tied to the text, so the reader is trusted for it
 The peano and fprio examples are also read from kompile's own KORE now.
 The other 15 examples are read from k-rust's KORE.
 
-KEVM, measured 2026-11-12: about 400 facts are left to the author. For k-rust's text: 90 functions whose termination no declaration order shows, 37 whose termination certificate is open, 95 `[total]` functions not confirmed to have a value, 46 functions whose clauses of one priority are not confirmed to agree, 41 clauses whose matches are not confirmed to agree, and 69 short-circuit occurrences (decision 1).
+KEVM, measured 2026-11-13: kompile's own text and k-rust's are both read, with nothing refused. For each, the kernel checks `coreOK` and states both theorems under `FnHyp`, using only the standard axioms (about 5 minutes, 6.8 GB at peak). The larger well-formedness check fails only "every sort has a value", which the theorems do not ask. What is open is `FnHyp`: about 370 facts are left to the author. For kompile's text: 139 functions whose termination no declaration order shows, 36 whose termination certificate is open, 115 `[total]` functions not confirmed to have a value, 45 functions whose clauses of one priority are not confirmed to agree, and 30 clauses whose matches are not confirmed to agree. Work on them is running.
+The KEVM package is not a committed example, since its input is 8 MB; `examples/kevm.sh` builds it.
 
 ## The core, layer by layer
 
@@ -86,4 +90,4 @@ Each is a question you can answer by replying.
 2. **A priority of 200 or above beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority 200 or above is refused today. The KORE text puts the `[owise]` equation after every other equation, while the kernel reads `[owise]` as priority 200, and the two differ wherever both equations apply. Keep refusing, or read a priority of 200 or above as "after `[owise]`" and state where that differs from the KORE text?
 3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
 4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.
-5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed: read the equation without it and list the claim as stated by the text but not part of the reading; such a definition cannot be tied to its text. Agree?
+5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed (and implemented): `ensures C` on a function equation is read as an extra `requires` condition, when all of the function's equations have one priority; otherwise the function is refused. Under that restriction the two readings agree wherever the text is consistent. Such a definition cannot be tied to its text. KEVM's one case meets the restriction. Agree?
