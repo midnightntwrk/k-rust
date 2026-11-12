@@ -730,6 +730,79 @@ pub fn spelling_at<'s>(spelling: &'s EntrySpelling, at: &[usize]) -> Option<&'s 
     })
 }
 
+/// The subject's other side of the spelling at `at` ([`Located::at`]) inside `result`, the
+/// result entry of a cell of the layers `stack` whose subject entry is `subject`, paired as the
+/// pairing step pairs them ([`pair_records`]): a `Some(..)` against the subject's `Some(..)`, a
+/// group record's child against the subject record's same child, an instance record against the
+/// subject instance it is by its collection's identity ([`instance_twins`]), else the instance
+/// its update labels. `None` where `at` leads to a spelling with no subject side: a child the
+/// subject's record does not name, a created instance, a path inside a child's own content.
+#[must_use]
+pub fn paired_subject<'s>(
+    stack: &[Layer],
+    subject: &'s EntrySpelling,
+    result: &EntrySpelling,
+    at: &[usize],
+) -> Option<&'s EntrySpelling> {
+    let Some((&step, below)) = at.split_first() else {
+        return Some(subject);
+    };
+    match (stack, result) {
+        (_, EntrySpelling::Alias(_, inner)) if step == 0 => {
+            paired_subject(stack, unaliased(subject), inner, below)
+        }
+        ([Layer::Optional, rest @ ..], EntrySpelling::Present(content)) if step == 0 => {
+            let Other::Matched(subject) = Other::Matched(subject).present() else {
+                return None;
+            };
+            paired_subject(rest, subject, content, below)
+        }
+        ([Layer::Group(group), ..], _) => {
+            let (name, value) = record_of(result, group)?.fields.get(step)?;
+            let kind = group.child(name)?;
+            let Other::Matched(subject) = Other::Matched(subject).child(group, name) else {
+                return None;
+            };
+            paired_subject(&kind.layers, subject, value, below)
+        }
+        ([Layer::Instances(order), Layer::Group(group), ..], _) => {
+            let item = sequence(result)?.items.get(step)?;
+            let record = record_of(item, group)?;
+            let twin = instance_twins(*order, group, subject, result)
+                .into_iter()
+                .find(|(_, at)| *at == step)
+                .map(|(twin, _)| unaliased(twin))
+                .or_else(|| match &record.tail {
+                    RecordTail::Update(label) => sequence(unaliased(subject))?
+                        .items
+                        .iter()
+                        .find_map(|instance| match instance {
+                            EntrySpelling::Alias(name, instance) if name == label => {
+                                Some(&**instance)
+                            }
+                            _ => None,
+                        }),
+                    _ => None,
+                })?;
+            let below = match (item, below.split_first()) {
+                (EntrySpelling::Alias(..), Some((0, below))) => below,
+                (EntrySpelling::Alias(..), _) => return None,
+                _ => below,
+            };
+            let Some((&field, below)) = below.split_first() else {
+                return Some(twin);
+            };
+            let (name, value) = record.fields.get(field)?;
+            let kind = group.child(name)?;
+            let Other::Matched(subject) = Other::Matched(twin).child(group, name) else {
+                return None;
+            };
+            paired_subject(&kind.layers, subject, value, below)
+        }
+        _ => None,
+    }
+}
+
 /// The innermost cell whose entry holds the spelling at `at` ([`Located::at`]) inside the entry
 /// `spelling` of a cell of the layers `stack`; `None` where that is the entry's own cell. The
 /// children of the group and instance records the entry writes are entries of their own cells

@@ -2300,50 +2300,6 @@ fn subject_twin<'e>(
         .and_then(|twin| twin.field.spelling.as_ref())
 }
 
-/// The subject's spelling of the record child `name` inside the subject entry `twin`, where the
-/// subject spells exactly one child of that name (the twin of a result record's child); `None`
-/// where it spells none or several, whose twin the spelling alone does not say.
-fn child_twin<'s>(twin: &'s EntrySpelling, name: &str) -> Option<&'s EntrySpelling> {
-    fn children<'s>(spelling: &'s EntrySpelling, name: &str, found: &mut Vec<&'s EntrySpelling>) {
-        match spelling {
-            EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
-                for (field, value) in &record.fields {
-                    if unraw(field) == name {
-                        found.push(value);
-                    }
-                    children(value, name, found);
-                }
-            }
-            EntrySpelling::Alias(_, inner)
-            | EntrySpelling::Present(inner)
-            | EntrySpelling::Absent(inner)
-            | EntrySpelling::Cell(inner) => children(inner, name, found),
-            EntrySpelling::Brackets(seq)
-            | EntrySpelling::Braces(seq)
-            | EntrySpelling::InstanceList(seq)
-            | EntrySpelling::InstanceSet(seq)
-            | EntrySpelling::KCell(seq)
-            | EntrySpelling::KMacro(seq) => {
-                for item in &seq.items {
-                    children(item, name, found);
-                }
-            }
-            EntrySpelling::Call(items) => {
-                for item in items {
-                    children(item, name, found);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut found = Vec::new();
-    children(twin, name, &mut found);
-    match found.as_slice() {
-        [one] => Some(one),
-        _ => None,
-    }
-}
-
 /// What a rest on one side of a cell is fixed by, in a spelling its kind and route admit: `..`
 /// on both sides keeps the rest. A readable rule keeps a computation's rest always; a `cells!`
 /// rule names it in the subject (`rest @ ..`) and then puts it back (`..rest`), uses it in another
@@ -2351,7 +2307,7 @@ fn child_twin<'s>(twin: &'s EntrySpelling, name: &str) -> Option<&'s EntrySpelli
 /// back nor uses is refused). A list matched by brackets of its rest alone (`[..]`, where
 /// `[rest @ ..]` is refused) is matched whole, by `_` to drop it or by a binder to move it; any
 /// other subject names its rest (`rest @ ..`) to drop or move it. A record child's subject twin is
-/// the subject's one child of its name ([`child_twin`]).
+/// its other side as the pairing pairs it ([`cell_entries::paired_subject`]).
 fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
     let keep = "write `..` on both sides to keep the rest";
     let item_less = matches!(
@@ -2415,7 +2371,14 @@ fn refused(
                 spelling: spelling.and_then(|spelling| {
                     cell_entries::spelling_at(spelling, &located.at[..nested.depth])
                 }),
-                twin: twin.and_then(|twin| child_twin(twin, unraw(nested.name))),
+                twin: twin.zip(spelling).and_then(|(twin, spelling)| {
+                    cell_entries::paired_subject(
+                        &entry.kind.own.layers,
+                        twin,
+                        spelling,
+                        &located.at[..nested.depth],
+                    )
+                }),
             },
             kind,
             None,
