@@ -3328,12 +3328,22 @@ fn parse_instance_child(
     if let Some((name, payload)) = qualified_macro_payload(&tokens) {
         let invocation = || TokenRange::for_tokens(&tokens).map(Some);
         match name.as_str() {
+            // A child is a cell, so its `k::k![..]` is the child's whole content, as a
+            // computation cell's `KCell(..)` is: a result's anonymous `..` keeps the rest its
+            // subject's `..` matched, as the child's brackets' does (`[x, ..]`). A group record's
+            // child keeps none, whichever it is spelled in (the brackets' stated limitation).
             "k" => {
-                return Ok(StateTerm::KSequence(parse_k_sequence(
-                    payload,
-                    context,
-                    invocation()?,
-                )?));
+                let sequence = parse_cell_k_sequence(payload, context, invocation()?)?;
+                if let StateMacroRemainder::Anonymous(range) = sequence.tail()
+                    && context == StateMacroContext::Expression
+                    && !kept
+                {
+                    return Err(crate::list_notation::list_error(
+                        crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+                        range.first(),
+                    ));
+                }
+                return Ok(StateTerm::KSequence(sequence));
             }
             "map" => {
                 return Ok(StateTerm::Map(
@@ -3592,9 +3602,10 @@ fn rewritten_entry(tokens: &TokenStream) -> Option<EntryRewrite> {
 }
 
 /// The group record a whole nested-cell entry `k::fragment![Group { .. }]` is when one of its
-/// children is written as that child cell's map entry, `child: k::map![..]` (ruling R4), or as
-/// brackets ending in a remainder the signature does not declare ([`remainder_sequence`]): such a
-/// child is the child's entry, which no term of a pattern spells, so the record's children are
+/// children is written as that child cell's map entry, `child: k::map![..]` (ruling R4), as a
+/// computation's `k::k![..]`, or as brackets ending in a remainder the signature does not declare
+/// ([`remainder_sequence`]): such a child is the child's entry, which no term of a pattern spells,
+/// so the record's children are
 /// read as an instance's are, each that child cell's entry. `None` for a
 /// fragment whose children are all terms, which is read as the group's term, and for an update
 /// `Group { .., ..base }`, which builds a term from its base.
@@ -3638,9 +3649,10 @@ fn fragment_record(
                 if colon.as_char() == ':' =>
             {
                 let value = value.iter().cloned().collect::<TokenStream>();
-                // A computation child's brackets ending in a remainder are that child's entry too
-                // ([`remainder_sequence`]), which no term of the group spells.
-                maps |= qualified_macro_payload(&value).is_some_and(|(name, _)| name == "map")
+                // A computation child's `k::k![..]` and its brackets ending in a remainder are that
+                // child's entry too ([`remainder_sequence`]), which no term of the group spells.
+                maps |= qualified_macro_payload(&value)
+                    .is_some_and(|(name, _)| name == "map" || name == "k")
                     || remainder_sequence(&value, context).is_ok_and(|sequence| sequence.is_some());
             }
             _ => {}

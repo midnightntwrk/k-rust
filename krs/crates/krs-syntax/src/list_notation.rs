@@ -29,7 +29,7 @@ use syn::{
 
 use crate::{SyntaxError, SyntaxErrorKind};
 
-fn list_error(reason: impl Into<String>, span: Span) -> SyntaxError {
+pub(crate) fn list_error(reason: impl Into<String>, span: Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::InvalidListNotation {
             reason: reason.into(),
