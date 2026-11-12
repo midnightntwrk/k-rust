@@ -153,7 +153,19 @@ impl SortType {
         descriptor: &Descriptor,
         key: &ProvenanceKey,
     ) -> Result<(), DescriptorLoweringError> {
-        self.check_arity_in(owner, descriptor, key, self)
+        self.check_arity_in(owner, descriptor, key, self, None)
+    }
+
+    /// [`Self::check_arity`], locating a `KSequence` element at `element_key`, the argument
+    /// that names it, where the declaration has one.
+    fn check_arity_at(
+        &self,
+        owner: &str,
+        descriptor: &Descriptor,
+        key: &ProvenanceKey,
+        element_key: Option<&ProvenanceKey>,
+    ) -> Result<(), DescriptorLoweringError> {
+        self.check_arity_in(owner, descriptor, key, self, element_key)
     }
 
     /// [`Self::check_arity`] of `self`, an argument of `declared` or `declared` itself.
@@ -163,6 +175,7 @@ impl SortType {
         descriptor: &Descriptor,
         key: &ProvenanceKey,
         declared: &Self,
+        element_key: Option<&ProvenanceKey>,
     ) -> Result<(), DescriptorLoweringError> {
         let expected = match self.kind() {
             Some(BuiltinSort::Map) => 2,
@@ -211,11 +224,11 @@ impl SortType {
                 reason: format!(
                     "{owner} is declared `{declared}`, {whose}: K's maps, lists and sets hold items (`KItem`s), and a `K`, a computation of any length, is no item, so only the empty collection has that type; declare them `k::KItem`, one item, or a sort below it"
                 ),
-                range: authored_range(descriptor, key),
+                range: authored_range(descriptor, element_key.unwrap_or(key)),
             });
         }
         for argument in &self.arguments {
-            argument.check_arity_in(owner, descriptor, key, declared)?;
+            argument.check_arity_in(owner, descriptor, key, declared, element_key)?;
         }
         Ok(())
     }
@@ -2371,23 +2384,41 @@ pub(super) fn check_production_types(
             "field"
         };
         if let Some(first) = constructor.arguments.first() {
-            SortType::of_production(&constructor.sort, &constructor.arguments).check_arity(
+            SortType::of_production(&constructor.sort, &constructor.arguments).check_arity_at(
                 &format!("the result of `{production}`"),
                 descriptor,
                 &first.sort.key,
+                k_sequence_argument(&constructor.arguments),
             )?;
         }
         for field in &constructor.fields {
             if let Some(first) = field.arguments.first() {
-                SortType::of_production(&field.sort.sort, &field.arguments).check_arity(
+                SortType::of_production(&field.sort.sort, &field.arguments).check_arity_at(
                     &format!("the {noun} `{}` of `{production}`", field.name),
                     descriptor,
                     &first.sort.key,
+                    k_sequence_argument(&field.arguments),
                 )?;
             }
         }
     }
     Ok(())
+}
+
+/// The key of the `KSequence` element type [`SortType::check_arity`] refuses in a production
+/// type's element types: one of these, or else one of theirs, in the same order.
+fn k_sequence_argument(
+    arguments: &[krs_ir::ConstructorSortArgumentDescriptor],
+) -> Option<&ProvenanceKey> {
+    arguments
+        .iter()
+        .find(|argument| semantic_sort_ref(&argument.sort.sort) == SemanticSortRef::k_sequence())
+        .map(|argument| &argument.sort.key)
+        .or_else(|| {
+            arguments
+                .iter()
+                .find_map(|argument| k_sequence_argument(&argument.arguments))
+        })
 }
 
 /// The part of a collection an operand stands for.
