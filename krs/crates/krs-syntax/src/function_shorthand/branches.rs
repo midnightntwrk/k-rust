@@ -2,7 +2,7 @@
 //! or a `match` defines one equation per branch.
 //!
 //! ```ignore
-//! #[k::function(total, internal)]
+//! #[k::function(partial, internal)]
 //! pub fn StorageValue(storage: k::Term<Map>, index: k::Term<Int>) -> k::Term<Int> {
 //!     if map::in_keys(index, storage) { map::get(storage, index) } else { 0 }
 //! }

@@ -708,14 +708,24 @@ pub fn MarkStorageAccess(
     accessed: k::Term<Map<Int, Set<Int>>>,
     account: k::Term<Int>,
     index: k::Term<Int>,
-) -> k::Term<Map<Int, Set<Int>>> {
-    if map::in_keys(account, accessed) {
-        map::update(accessed, account, set::union(map::get(accessed, account), set::item(index)))
-    } else {
-        map::update(accessed, account, set::item(index))
-    }
+) -> k::Term<Map<Int, Set<Int>>>;
+
+k::equations! {
+    for MarkStorageAccess;
+    #[k::requires(map::in_keys(account, accessed) && k::is!(Set, map::get(accessed, account)))]
+    mark_storage_access_listed:   (accessed, account, index)
+                                  => map::update(
+                                      accessed,
+                                      account,
+                                      set::union(map::get(accessed, account), set::item(index)),
+                                  );
+    #[k::equation(owise)]
+    mark_storage_access_unlisted: (accessed, account, index)
+                                  => map::update(accessed, account, set::item(index));
 }
 ```
+
+The condition states the read's two tests, its key and its sort, because the function is `total` ([values of total functions](#values-of-total-functions)): the types say what the check of a sentence accepts, and no invariant yet says that a map of that type holds only such sets.
 
 A rule then writes `accessed_storage: MarkStorageAccess { accessed, account, index }` into a `Map<Int, Set<Int>>` cell with nothing left unchecked, and an equation that stored a `Stmt` there would be rejected at the stored term.
 `krs expand` writes the types into the long form, `#[k::function(sort = Map<Int, Set<Int>>, ..)]`, and its equations as `k::Term<Map>`.
@@ -1030,7 +1040,7 @@ The return type is the sort, so a `sort` key is rejected; every parameter is a p
 A body that is an `if` chain or a `match` defines one equation per branch:
 
 ```rust
-#[k::function(total, internal)]
+#[k::function(partial, internal)]
 pub fn StorageValue(storage: k::Term<Map>, index: k::Term<Int>) -> k::Term<Int> {
     if map::in_keys(index, storage) { map::get(storage, index) } else { 0 }
 }
@@ -1059,6 +1069,7 @@ pub fn Describe(value: k::Term<Val>) -> k::Term<Int> {
 
 A branch is a case of the function's definition, and K states cases as equations, so each branch is an equation whose `requires` is the condition under which Rust reaches the branch.
 `StorageValue` is `storage_value_1`, under `map::in_keys(index, storage)`, and `storage_value_2`, under `map::in_keys(index, storage).not::<Bool>()`.
+It is `partial`: the read is an `Int` only where the item stored is one, which the first branch's condition does not say.
 
 - Branch `i` of `if c1 { .. } else if c2 { .. } else { .. }` is guarded by the negation of each earlier condition, then its own, conjoined with `&&` in source order: the third branch above is guarded by `c1.not::<Bool>() && c2.not::<Bool>()`. Each condition is evaluated only where the earlier ones are false, as in Rust, and the branches are disjoint by construction. An `if` without `else` is an error: it has no value in Rust, and a function that leaves the other arguments without a value is `partial`, guarded by `#[k::requires(..)]`. `if let` is an error too; match on the value instead.
 - The scrutinee of a `match` is a parameter, a tuple of parameters and other terms, or another term, such as `Sign(left)`. An arm's pattern for a parameter becomes that argument's pattern in the equation's head, with the whole pattern grammar of an equation (constructors, literals, `_`, `|`, `@`, record rest `..`), and its names are bound in the guard and the result. An arm's pattern for any other term is tested in the guard: a literal as an equality (`Sign(left).eq::<Int>(1)`; `true` is the term itself and `false` its negation), alternatives of literals as a disjunction of equalities, and any other pattern as `k::matches!(term, pattern)`, K's `:=K`. Such a pattern binds no names, because the binders of `:=K` are local to the test. A tuple arm lists one pattern per component, and `..` stands for the components it leaves out.
