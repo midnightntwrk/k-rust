@@ -108,21 +108,43 @@ pub(crate) fn is_two_rests(error: &SyntaxError) -> bool {
 }
 
 /// The reason given for an anonymous `..` in a result's list notation, which names no list: a
-/// result's `..` keeps a rest only in a list cell's own brackets (a readable record's list cell,
-/// a `cells!` leaf's `Cell([x, ..])` or `Cell([..])`), where it is read before list notation is.
-///
-/// A `?` group's computation child is read inside the group's one term, which holds no
-/// computation's items yet, so its `..` reaches this reading too: the text states that limit
-/// rather than advise a named rest, which is refused there as well.
-pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a list cell's own brackets, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result; a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest: the present group is read as one term, which holds no computation's items";
+/// result's `..` keeps a rest only in a cell's own brackets, a list cell's (a readable record's
+/// list cell, a `cells!` leaf's `Cell([x, ..])` or `Cell([..])`) or an instance's child's, where
+/// it is read before list notation is. Elsewhere it is a term's list notation, where the rest is
+/// named. A result's group record and `Some(..)` say their own ([`GROUP_CHILD_ANONYMOUS_REST`],
+/// [`PRESENT_ANONYMOUS_REST`]).
+pub(crate) const ANONYMOUS_REST: &str = "an anonymous `..` keeps the rest only in a cell's own brackets, a list cell's or an instance's child's, where the pattern's `..` matched it; elsewhere a list's rest is named: `rest @ ..` in the pattern and `..rest` in the result";
 
-/// Whether `error` is the refusal of an anonymous `..` in a result's list notation
-/// ([`ANONYMOUS_REST`]).
+/// [`ANONYMOUS_REST`] in a result's group record (`H { hl: [x, ..], hb: 0 }`, a `cells!`
+/// `k::fragment![..]`, a present `?` group's record): the record is read as one term of the
+/// group, which writes each child's whole content, so no child keeps a rest there yet. A list
+/// child names its rest; a fixed group's computation child is written as its own cell, where its
+/// `..` keeps the rest; a `?` group's computation child is not lowered at all yet (F5).
+pub(crate) const GROUP_CHILD_ANONYMOUS_REST: &str = "an anonymous `..` in a result group record's child keeps no rest yet (a stated limitation): the record is read as one term of the group, which writes each child's whole content; a list child's rest is named instead, `rest @ ..` in the pattern and `..rest` in the result, and a fixed group's computation child keeps its rest written as its own cell (`c: [x, ..]` in a readable record, `G::c: KCell(x, ..)` in `cells!`); a `?` group's computation child (`Some(G { c: [x, ..], .. })`) is not supported yet in a rule, with or without a rest";
+
+/// [`ANONYMOUS_REST`] inside a result's `Some(..)` (`Some([x, ..])`): the present cell's content
+/// keeps no rest there yet, but over the subject's `Some([..])`, which keeps the present cell.
+pub(crate) const PRESENT_ANONYMOUS_REST: &str = "an anonymous `..` inside a result's `Some(..)` keeps no rest yet (a stated limitation), except as `Some([..])` over the subject's `Some([..])`, which keeps the present cell; elsewhere the rest is named: `rest @ ..` in the pattern and `..rest` in the result";
+
+/// Whether `error` is the refusal of an anonymous `..` in a result's list notation, in any of the
+/// places that say it ([`ANONYMOUS_REST`]).
 pub(crate) fn is_anonymous_rest(error: &SyntaxError) -> bool {
     matches!(
         error.kind(),
-        SyntaxErrorKind::InvalidListNotation { reason } if reason == ANONYMOUS_REST
+        SyntaxErrorKind::InvalidListNotation { reason }
+            if [ANONYMOUS_REST, GROUP_CHILD_ANONYMOUS_REST, PRESENT_ANONYMOUS_REST]
+                .contains(&reason.as_str())
     )
+}
+
+/// `error` as the place `reason` says it, where `error` is the refusal of an anonymous `..` in a
+/// result's list notation ([`ANONYMOUS_REST`]); any other error as it is.
+pub(crate) fn anonymous_rest_in(error: SyntaxError, reason: &'static str) -> SyntaxError {
+    if is_anonymous_rest(&error) {
+        list_error(reason, error.span())
+    } else {
+        error
+    }
 }
 
 /// `__list::cons`, `__list::snoc`, or `__list::empty`, its module at `first`

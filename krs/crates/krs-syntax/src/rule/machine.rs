@@ -1725,8 +1725,26 @@ fn read_result_presence(content: ParseStream<'_>) -> Result<MachineResultCell, P
             Ok(MachineResultCell::State(Box::new(state)))
         }
         Err(ParseError::Structured(error)) if crate::list_notation::is_anonymous_rest(&error) => {
+            // `Some(..)` around a present group's record writes the record as the group's term;
+            // around a leaf's brackets, the present cell's content.
+            let record = {
+                let fork = content.fork();
+                fork.parse::<Ident>().is_ok()
+                    && fork
+                        .parse::<proc_macro2::Group>()
+                        .is_ok_and(|inside| !inside.stream().into_iter().next().is_some_and(
+                            |first| matches!(first, TokenTree::Group(group) if group.delimiter() == proc_macro2::Delimiter::Bracket),
+                        ))
+            };
+            let reason = if record {
+                crate::list_notation::GROUP_CHILD_ANONYMOUS_REST
+            } else {
+                crate::list_notation::PRESENT_ANONYMOUS_REST
+            };
             skip_value(content)?;
-            Ok(MachineResultCell::Refused(Box::new(error)))
+            Ok(MachineResultCell::Refused(Box::new(
+                crate::list_notation::anonymous_rest_in(error, reason),
+            )))
         }
         Err(error) => Err(error),
     }
@@ -3656,6 +3674,15 @@ fn assemble_machine_clause(
                 let after = match TermExpression::from_expression((**result).clone()) {
                     Ok(after) => Some(Box::new(after)),
                     Err(error) if crate::list_notation::is_anonymous_rest(&error) => {
+                        // A group record written as the cell's term says its own.
+                        let error = if matches!(**result, Expr::Struct(_)) {
+                            crate::list_notation::anonymous_rest_in(
+                                error,
+                                crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+                            )
+                        } else {
+                            error
+                        };
                         unpaired(error.into())?;
                         None
                     }

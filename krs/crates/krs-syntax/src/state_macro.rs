@@ -3068,7 +3068,7 @@ fn parse_instance_item(
             owner.span(),
         ));
     }
-    let (fields, rest) = parse_instance_record(&body, context, keys, faults)?;
+    let (fields, rest) = parse_instance_record(&body, context, (keys, true), faults)?;
     let mut tokens = TokenStream::new();
     let mut cursor = start;
     while cursor != input.cursor() {
@@ -3092,11 +3092,13 @@ fn parse_instance_item(
 
 /// Parses the braced body of an instance record: `child: value` entries, or
 /// the shorthand `child` for `child: child`, and a final rest. A child whose value the term
-/// reader refuses is left out where `faults` carries it.
+/// reader refuses is left out where `faults` carries it. `keys` reads the children as keys, and
+/// `kept` lets a result child's `..` keep the rest its subject's matched: an instance's child
+/// keeps it, and a group record's, which a group's term may hold, does not yet.
 fn parse_instance_record(
     body: &proc_macro2::Group,
     context: StateMacroContext,
-    keys: bool,
+    (keys, kept): (bool, bool),
     faults: &PartFaults,
 ) -> Result<(Vec<InstanceField>, InstanceRest), SyntaxError> {
     structured_with(
@@ -3165,7 +3167,7 @@ fn parse_instance_record(
                 // without it, as a record at a cell's position is ([`RecordPresences`]).
                 let read = RecordPresences::of(&tokens, context)
                     .map_or_else(|| tokens.clone(), |presences| presences.read);
-                match parse_instance_child(read, context, keys) {
+                match parse_instance_child(read, context, (keys, kept)) {
                     Ok(value) => fields.push(InstanceField::new(name, value)),
                     // The term reader read no names of the child: in a pattern its fault is the
                     // record's at once.
@@ -3292,13 +3294,13 @@ fn remainder_sequence(
 fn parse_instance_child(
     tokens: TokenStream,
     context: StateMacroContext,
-    keys: bool,
+    (keys, kept): (bool, bool),
 ) -> Result<StateTerm, SyntaxError> {
     match PresenceTokens::of(&tokens)? {
         Some(PresenceTokens::Absent(range)) => return Ok(StateTerm::Absent(range)),
         Some(PresenceTokens::Present(inside)) => {
             let span = TokenRange::for_tokens(&tokens)?.first();
-            let value = parse_instance_child(inside, context, keys)?;
+            let value = parse_instance_child(inside, context, (keys, kept))?;
             if matches!(value, StateTerm::Present(_) | StateTerm::Absent(_)) {
                 return Err(state_error(
                     "cells",
@@ -3335,7 +3337,7 @@ fn parse_instance_child(
     // subject's `..` matched mean what they mean as a list cell's whole content (`Cell([x, ..])`,
     // `Cell([.., x])`): the list notation they write, ending its root spine in that rest. The
     // child's kind reads them: a list's elements, or a computation's items.
-    if let Some(kept) = kept_rest_term(&tokens, context)? {
+    if kept && let Some(kept) = kept_rest_term(&tokens, context)? {
         return Ok(StateTerm::Term(kept));
     }
     Ok(StateTerm::Term(if keys {
@@ -3455,7 +3457,12 @@ fn parse_group_entry(
         None => {}
     }
     let fragment = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment");
-    if let Some(record) = fragment_record(&tokens, context)? {
+    if let Some(record) = fragment_record(&tokens, context).map_err(|error| {
+        crate::list_notation::anonymous_rest_in(
+            error,
+            crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+        )
+    })? {
         return Ok((StateTerm::Record(Box::new(record)), None));
     }
     let term = state_term_tokens(tokens, context).map_err(|error| match error.kind() {
@@ -3465,7 +3472,12 @@ fn parse_group_entry(
         // result's `k::map![k -> v, ..]` is built, so its anonymous `..` names no map the entries
         // are written over, the literal's own refusal whichever reading it has. A map child is
         // read as the child's entry first ([`fragment_record`]).
-        SyntaxErrorKind::InvalidListNotation { .. } if fragment => error,
+        SyntaxErrorKind::InvalidListNotation { .. } if fragment => {
+            crate::list_notation::anonymous_rest_in(
+                error,
+                crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+            )
+        }
         SyntaxErrorKind::InvalidExpressionNotation { .. }
             if fragment && context == StateMacroContext::Expression =>
         {
@@ -3624,7 +3636,7 @@ fn fragment_record(
     if !maps || !crate::path::is_plain_path(&owner) {
         return Ok(None);
     }
-    let (fields, rest) = parse_instance_record(body, context, false, &PartFaults::none())?;
+    let (fields, rest) = parse_instance_record(body, context, (false, false), &PartFaults::none())?;
     let open = match rest {
         InstanceRest::Exact => None,
         InstanceRest::Open(range) => Some(range),

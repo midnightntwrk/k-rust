@@ -165,7 +165,7 @@ fn malformed_lists_are_rejected_with_their_reason() {
         ("Run([..rest])", "it is the list `rest` itself"),
         (
             "Run([x, ..])",
-            "an anonymous `..` keeps the rest only in a list cell's own brackets",
+            "an anonymous `..` keeps the rest only in a cell's own brackets",
         ),
         ("Run([x, ..=rest])", "a list's rest is written `..rest`"),
     ] {

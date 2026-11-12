@@ -1056,26 +1056,27 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
             "an ordinary fixed cell's result is one term",
         ),
         // An anonymous `..` in a result's list notation names no list: the notation refuses it
-        // once the cell's kind admits the entry, in a term and in a present content alike.
+        // once the cell's kind admits the entry, in a term, in a group's record and in a present
+        // content alike, each saying its own place.
         (
             "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
-            "an anonymous `..` keeps the rest only in a list cell's own brackets",
+            "an anonymous `..` keeps the rest only in a cell's own brackets",
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: C { cc: [n, ..], cn: 0 } };",
-            "an anonymous `..` keeps the rest only in a list cell's own brackets",
+            "an anonymous `..` in a result group record's child keeps no rest yet",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], pc: [.., x] };",
-            "an anonymous `..` keeps the rest only in a list cell's own brackets",
+            "an anonymous `..` keeps the rest only in a cell's own brackets",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], counter: Some([..]) };",
-            "an anonymous `..` keeps the rest only in a list cell's own brackets",
+            "an anonymous `..` inside a result's `Some(..)` keeps no rest yet",
         ),
         (
             "for Machine; x: { k: [Go(), ..], counter: Some(n) } => { k: [..], counter: Some([n, ..]) };",
-            "an anonymous `..` keeps the rest only in a list cell's own brackets",
+            "an anonymous `..` inside a result's `Some(..)` keeps no rest yet",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)
