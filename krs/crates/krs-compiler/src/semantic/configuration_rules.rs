@@ -1008,6 +1008,18 @@ fn check_child_rests(
                         ),
                         key,
                     ),
+                    // A pattern's `[..]`, read as the child's whole content, which a list cell's
+                    // `Cell([..])` refuses as naming no element.
+                    ProtocolRuleFrame::Anonymous { key } if sequence.items.is_empty() => {
+                        Err(super::cell_states::collection_error(
+                            descriptor,
+                            krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+                            key,
+                            format!(
+                                "`[..]` names no element of the list child `{child}`, as `Cell([..])` names none at a list cell: it would match any list, so write `_` to match the list whole, or a binder `rest` declared at the list's sort to write it again (`[a, ..rest]`)"
+                            ),
+                        ))
+                    }
                     _ => Ok(()),
                 }
             }

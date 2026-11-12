@@ -3298,6 +3298,37 @@ fn remainder_sequence(
     .map(Some)
 }
 
+/// The sequence a pattern's brackets holding their anonymous rest alone, `[..]`, spell: no item
+/// and that rest, the child's whole content ([`parse_instance_child`]). `None` for any other
+/// value and outside a pattern.
+fn item_less_sequence(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<KSequence>, SyntaxError> {
+    if context != StateMacroContext::Pattern {
+        return Ok(None);
+    }
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Group(group)] = trees.as_slice() else {
+        return Ok(None);
+    };
+    let inside = crate::parse::strip_trailing_comma(group.stream())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let dots = matches!(inside.as_slice(), [TokenTree::Punct(first), TokenTree::Punct(second)]
+        if first.as_char() == '.' && first.spacing() == proc_macro2::Spacing::Joint
+            && second.as_char() == '.');
+    if group.delimiter() != Delimiter::Bracket || !dots {
+        return Ok(None);
+    }
+    parse_cell_k_sequence(
+        group.stream(),
+        context,
+        Some(TokenRange::for_tokens(tokens)?),
+    )
+    .map(Some)
+}
+
 /// Parses one instance child value: `k::k![..]`, `map![..]`, a term (a
 /// leaf's content or a whole nested cell, which semantic analysis tells
 /// apart by the declaration), read as a key when `keys`, or a `?` cell's
@@ -3354,6 +3385,13 @@ fn parse_instance_child(
         }
     }
     if let Some(sequence) = remainder_sequence(&tokens, context)? {
+        return Ok(StateTerm::KSequence(sequence));
+    }
+    // A pattern's brackets holding their rest alone, `[..]`, write no item: the child's whole
+    // content, any content, as its cell's own `KCell(..)` matches it and a list cell's
+    // `Cell([..])` refuses it as naming no element; the child's kind reads the sequence they
+    // spell (the compiler's `check_child_rests`).
+    if let Some(sequence) = item_less_sequence(&tokens, context)? {
         return Ok(StateTerm::KSequence(sequence));
     }
     // An instance child is a cell, so a result's brackets whose one bare `..` keeps the rest its
@@ -3603,9 +3641,9 @@ fn rewritten_entry(tokens: &TokenStream) -> Option<EntryRewrite> {
 
 /// The group record a whole nested-cell entry `k::fragment![Group { .. }]` is when one of its
 /// children is written as that child cell's map entry, `child: k::map![..]` (ruling R4), as a
-/// computation's `k::k![..]`, or as brackets ending in a remainder the signature does not declare
-/// ([`remainder_sequence`]): such a child is the child's entry, which no term of a pattern spells,
-/// so the record's children are
+/// computation's `k::k![..]`, as brackets ending in a remainder the signature does not declare
+/// ([`remainder_sequence`]), or as a pattern's `[..]` ([`item_less_sequence`]): such a child is
+/// the child's entry, which no term of a pattern spells, so the record's children are
 /// read as an instance's are, each that child cell's entry. `None` for a
 /// fragment whose children are all terms, which is read as the group's term, and for an update
 /// `Group { .., ..base }`, which builds a term from its base.
@@ -3649,11 +3687,14 @@ fn fragment_record(
                 if colon.as_char() == ':' =>
             {
                 let value = value.iter().cloned().collect::<TokenStream>();
-                // A computation child's `k::k![..]` and its brackets ending in a remainder are that
-                // child's entry too ([`remainder_sequence`]), which no term of the group spells.
+                // A computation child's `k::k![..]`, its brackets ending in a remainder, and a
+                // pattern's brackets holding their rest alone are that child's entry too
+                // ([`remainder_sequence`], [`item_less_sequence`]), which no term of the group
+                // spells.
                 maps |= qualified_macro_payload(&value)
                     .is_some_and(|(name, _)| name == "map" || name == "k")
-                    || remainder_sequence(&value, context).is_ok_and(|sequence| sequence.is_some());
+                    || remainder_sequence(&value, context).is_ok_and(|sequence| sequence.is_some())
+                    || item_less_sequence(&value, context).is_ok_and(|sequence| sequence.is_some());
             }
             _ => {}
         }
