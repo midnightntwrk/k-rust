@@ -397,6 +397,464 @@ impl ResolvedObservations {
                     .map(|log| (log.name.as_str(), ChannelKind::Log)),
             )
     }
+
+    /// Where the component `component` of a class is a document, as the recording writes it
+    /// ([`ObservationOracle`]): a cell's value in the run's definition at the cell's declared
+    /// type, a function's in the observer at its declared result type.
+    fn component_position<'a>(&'a self, component: &'a ResolvedComponent) -> Position<'a> {
+        match component {
+            ResolvedComponent::Cell { declared, .. } => Position::at(&self.subject, Some(declared)),
+            ResolvedComponent::Function { function, .. } => {
+                Position::at(function.observer_values(), function.result.as_ref())
+            }
+        }
+    }
+
+    /// Where an element of the log `log` is a document, as the recording writes it: an item in
+    /// the run's definition at the cell's item type, or an element of the element function's
+    /// value in the observer at its declared element type.
+    fn log_position<'a>(&'a self, log: &'a ResolvedLog) -> Position<'a> {
+        match &log.element {
+            None => Position::at(&self.subject, Some(&log.item)),
+            Some(function) => Position::at(&self.observer, Some(&function.element)),
+        }
+    }
+
+    /// Refuse a name of `channels` that is no channel of the declaration.
+    fn known_channels(&self, channels: &[String]) -> Result<(), String> {
+        match channels
+            .iter()
+            .find(|name| !self.channels().any(|(known, _)| known == name.as_str()))
+        {
+            None => Ok(()),
+            Some(name) => Err(format!(
+                "`{name}` is no channel of the declaration (its channels: {})",
+                self.channels()
+                    .map(|(known, _)| format!("`{known}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    }
+
+    /// What each channel named in `channels` asks of another producer of its elements, in
+    /// channel order (the classes, then the logs), whatever the order of `channels`:
+    ///
+    /// - a class: `{"name", "kind": "point", "stutter", "filtered", "components": [{"name",
+    ///   "type"}], "points": {"before", "after"}}`. `components` are the keys of an element's
+    ///   value, in the class's order, each with the type its value is a document at; `filtered`
+    ///   says the class has a filter, so only the points where it holds are elements; `points`
+    ///   are the rules as the declaration names them.
+    /// - a log: `{"name", "kind": "log", "element": {"type"}, "at"}`, the type an element is a
+    ///   document at and the classes the declaration reads it at. A log has no stuttering mode
+    ///   and no filter, so it states neither.
+    ///
+    /// A type is spelled as [`InputType`] displays it (`Int`, `Map<Reg8, Int>`): a sort by the
+    /// last segment of its path. A component whose sort no KRS declaration names is a document
+    /// at the untyped position, spelled `K` ([`Self::document_forms`] reports it).
+    ///
+    /// # Errors
+    ///
+    /// Returns the name of `channels` that is no channel of the declaration.
+    pub fn channel_shapes(&self, channels: &[String]) -> Result<Vec<Json>, String> {
+        self.known_channels(channels)?;
+        let named = |name: &str| channels.iter().any(|channel| channel == name);
+        let mut shapes = Vec::new();
+        for (class, point) in self.classes.iter().zip(&self.spec.points) {
+            if !named(&class.name) {
+                continue;
+            }
+            let components = class
+                .components
+                .iter()
+                .map(|component| {
+                    serde_json::json!({
+                        "name": component.name(),
+                        "type": self.component_position(component).ty.to_string(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            shapes.push(serde_json::json!({
+                "name": class.name,
+                "kind": ChannelKind::Point,
+                "stutter": class.stutter.as_str(),
+                "filtered": class.filter.is_some(),
+                "components": components,
+                "points": {"before": point.before, "after": point.after},
+            }));
+        }
+        for (log, declared) in self.logs.iter().zip(&self.spec.logs) {
+            if !named(&log.name) {
+                continue;
+            }
+            shapes.push(serde_json::json!({
+                "name": log.name,
+                "kind": ChannelKind::Log,
+                "element": {"type": self.log_position(log).ty.to_string()},
+                "at": declared.at,
+            }));
+        }
+        Ok(shapes)
+    }
+
+    /// Whether every value position of the channels named in `channels` (a class's components,
+    /// a log's element) is one some document of the typed encoding is a value at.
+    ///
+    /// A position this accepts can still hold a value with no document (an opaque part, a
+    /// parametric constructor's application): that is a fact of the value, which a recording
+    /// shows as [`UNDOCUMENTED`]. A position this refuses holds no value with a document, so
+    /// no producer can state an element there.
+    ///
+    /// # Errors
+    ///
+    /// Returns the name of `channels` that is no channel of the declaration, or the first
+    /// position with no document, naming its channel, its component and why: a sort no KRS
+    /// declaration names; or a declared sort (the position's, or an element type's of a
+    /// collection) with no constructor, token sort or builtin sort at most it.
+    pub fn document_forms(&self, channels: &[String]) -> Result<(), String> {
+        self.known_channels(channels)?;
+        let named = |name: &str| channels.iter().any(|channel| channel == name);
+        for class in self.classes.iter().filter(|class| named(&class.name)) {
+            for component in &class.components {
+                if let Some(reason) = self.component_position(component).no_document() {
+                    return Err(format!(
+                        "the component `{}` of the channel `{}` {reason}",
+                        component.name(),
+                        class.name
+                    ));
+                }
+            }
+        }
+        for log in self.logs.iter().filter(|log| named(&log.name)) {
+            if let Some(reason) = self.log_position(log).no_document() {
+                return Err(format!(
+                    "an element of the log channel `{}` {reason}",
+                    log.name
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The record another producer states for this declaration (`record`, as
+    /// [`Observations::from_document`] reads its document), as a record of the declaration to
+    /// compare with a recording's ([`compare_records`]).
+    ///
+    /// Two records are compared by their elements' documents, so each stated value is replaced
+    /// by its canonical document ([`crate::encode()`]): it is decoded at the position the
+    /// recording writes the same component at, and encoded again. Equal values then have equal
+    /// documents, whichever of a value's documents the producer wrote, and unequal values
+    /// unequal ones, since a canonical document decodes back to its value. Then a `collapse`
+    /// class's channel is collapsed as a recording collapses it: an element equal to the last
+    /// one kept is dropped, and an unknown element opens the channel there, since the index of
+    /// every later element rests on an equality with it. The elements and the open point are
+    /// indexed by what is kept. A producer may therefore state a `collapse` class at any
+    /// granularity that only repeats contents.
+    ///
+    /// The record's elements carry no digest: a digest is of a definition's term, which another
+    /// producer does not hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first part that is no record of the declaration, named by its position in
+    /// the record's document: a channel that is no channel of the declaration or of another
+    /// kind (`channels[1]`); an element that names a rule or a side, which are points of the
+    /// definition (`channels[1].elements[3].rule`); a point's value that is no object of
+    /// exactly the class's components (`channels[1].elements[3].value`); and a value that is
+    /// no value of its position's type, that applies a function (an application is not a
+    /// value), or that has no canonical document
+    /// (`channels[1].elements[3].value.<component>` and the position inside it; a log's
+    /// `channels[1].elements[3].value`).
+    pub fn foreign_record(&self, record: &Observations) -> Result<Observations, String> {
+        let mut channels = Vec::with_capacity(record.channels.len());
+        for (position, channel) in record.channels.iter().enumerate() {
+            let at = format!("channels[{position}]");
+            let class = self.classes.iter().find(|class| class.name == channel.name);
+            let log = self.logs.iter().find(|log| log.name == channel.name);
+            let declared = match (class, log) {
+                (Some(_), _) => ChannelKind::Point,
+                (None, Some(_)) => ChannelKind::Log,
+                (None, None) => {
+                    return Err(format!(
+                        "at `{at}`: `{}` is no channel of the declaration",
+                        channel.name
+                    ));
+                }
+            };
+            if declared != channel.kind {
+                let kind = |kind| match kind {
+                    ChannelKind::Point => "a point class",
+                    ChannelKind::Log => "a log",
+                };
+                return Err(format!(
+                    "at `{at}`: the declaration's `{}` is {}, and the record states {}",
+                    channel.name,
+                    kind(declared),
+                    kind(channel.kind)
+                ));
+            }
+            let mut kept = Channel {
+                name: channel.name.clone(),
+                kind: channel.kind,
+                elements: Vec::with_capacity(channel.elements.len()),
+                closed: None,
+                open: None,
+            };
+            let stutter = class.map(|class| class.stutter);
+            for (index, element) in channel.elements.iter().enumerate() {
+                let at = format!("{at}.elements[{index}]");
+                if element.rule.is_some() {
+                    return Err(format!(
+                        "at `{at}.rule`: a rule is a point of the definition, which another producer's element does not name; `rule` is null"
+                    ));
+                }
+                if element.side.is_some() {
+                    return Err(format!(
+                        "at `{at}.side`: a side is of a point of the definition, which another producer's element does not name; `side` is null"
+                    ));
+                }
+                let Some(stated) = &element.value else {
+                    let Some(reason) = &element.undecided else {
+                        return Err(format!(
+                            "at `{at}`: the element holds neither its `value` nor why it is unknown (`undecided`)"
+                        ));
+                    };
+                    // An unknown element. Under `collapse` the index of every later element
+                    // rests on an equality with it, so the channel is known up to here, as a
+                    // recording's is (`ObservationOracle::event`).
+                    if stutter == Some(Stutter::Collapse) {
+                        kept.open_at(reason.clone(), true, None);
+                    } else {
+                        kept.emit(stutter, element.clone());
+                    }
+                    continue;
+                };
+                let value = match (class, log) {
+                    (Some(class), _) => self.foreign_content(class, stated, &format!("{at}.value")),
+                    (None, Some(log)) => self
+                        .log_position(log)
+                        .canonical(stated, &format!("{at}.value")),
+                    (None, None) => unreachable!("the channel is declared"),
+                }?;
+                // Equal canonical documents are equal values, so the digest of the document's
+                // canonical text tells this record's elements apart as a recording's digests
+                // tell its own: the one collapse reads either.
+                let digest = ElementDigest::of(crate::encode::canonical_text(&value).as_bytes());
+                kept.emit(
+                    stutter,
+                    Element {
+                        depth: element.depth,
+                        rule: None,
+                        side: None,
+                        digest: Some(digest),
+                        value: Some(value),
+                        undecided: None,
+                    },
+                );
+            }
+            if !kept.stopped() {
+                kept.closed = channel.closed;
+                kept.open = channel.open.as_ref().map(|open| Open {
+                    index: kept.elements.len() as u64,
+                    reason: open.reason.clone(),
+                    undecided: open.undecided,
+                    at: None,
+                });
+            }
+            for element in &mut kept.elements {
+                element.digest = None;
+            }
+            channels.push(kept);
+        }
+        Ok(Observations {
+            channels,
+            conversions: 0,
+        })
+    }
+
+    /// The canonical content of `class` that `stated`, at `at` of a record's document, states:
+    /// an object of exactly the class's components, each replaced by its canonical document.
+    fn foreign_content(
+        &self,
+        class: &ResolvedClass,
+        stated: &Json,
+        at: &str,
+    ) -> Result<Json, String> {
+        let components = || {
+            class
+                .components
+                .iter()
+                .map(|component| format!("`{}`", component.name()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let Json::Object(stated) = stated else {
+            return Err(format!(
+                "at `{at}`: an element of `{}` is an object of its components, {}",
+                class.name,
+                components()
+            ));
+        };
+        if let Some(key) = stated.keys().find(|key| {
+            !class
+                .components
+                .iter()
+                .any(|component| component.name() == key.as_str())
+        }) {
+            return Err(format!(
+                "at `{at}`: `{key}` is no component of `{}`; its components are {}",
+                class.name,
+                components()
+            ));
+        }
+        let mut content = serde_json::Map::new();
+        for component in &class.components {
+            let name = component.name();
+            let at = format!("{at}.{name}");
+            let Some(stated) = stated.get(name) else {
+                return Err(format!(
+                    "at `{at}`: the element does not state the component `{name}` of `{}`",
+                    class.name
+                ));
+            };
+            content.insert(
+                name.to_owned(),
+                self.component_position(component).canonical(stated, &at)?,
+            );
+        }
+        Ok(Json::Object(content))
+    }
+}
+
+/// Where a value of a channel is a document: the definition whose values read it, and the type
+/// it is read at.
+struct Position<'a> {
+    values: &'a ValueIndex,
+    /// The declared type; the untyped position where no KRS declaration names the sort.
+    ty: InputType,
+    /// Whether a KRS declaration names the declared sort.
+    named: bool,
+}
+
+impl<'a> Position<'a> {
+    fn at(values: &'a ValueIndex, declared: Option<&InputType>) -> Self {
+        Self {
+            values,
+            ty: declared.cloned().unwrap_or_else(InputType::untyped),
+            named: declared.is_some(),
+        }
+    }
+
+    /// The canonical document of the value `stated` denotes here, `stated` at `at` of a
+    /// record's document; the refusal of a document that states no value here.
+    fn canonical(&self, stated: &Json, at: &str) -> Result<Json, String> {
+        let value = crate::encode::decode(self.values, stated, &self.ty).map_err(|error| {
+            format!(
+                "at `{at}{}`: {} (a value of type `{}`)",
+                error.position, error.message, self.ty
+            )
+        })?;
+        if let Some(function) = applied_function(self.values, &value) {
+            return Err(format!(
+                "at `{at}`: it applies the function `{function}`, and an application is not a value: an element states the value itself"
+            ));
+        }
+        crate::encode::encode(self.values, &value, &self.ty).map_err(|error| {
+            format!(
+                "at `{at}{}`: {} has no document in the typed encoding",
+                error.position, error.part
+            )
+        })
+    }
+
+    /// Why no document is a value here, where none is.
+    fn no_document(&self) -> Option<String> {
+        if !self.named {
+            return Some(
+                "is of a sort no KRS declaration names, so none of its values has a document in the typed encoding"
+                    .to_owned(),
+            );
+        }
+        unread_sort(self.values, &self.ty).map(|sort| {
+            let whole = self.ty.to_string();
+            let of = if whole == sort {
+                String::new()
+            } else {
+                format!(" of its type `{whole}`")
+            };
+            format!(
+                "has no document in the typed encoding: the sort `{sort}`{of} has no constructor, no token sort and no builtin sort at most it"
+            )
+        })
+    }
+}
+
+/// The first sort of `ty` (its own, then its element types', in order) at which no document of
+/// the typed encoding is a value: a declared sort that no constructor's result, no token sort
+/// and no builtin sort with a document is at most. The untyped position reads constructor forms
+/// and tagged forms.
+fn unread_sort(values: &ValueIndex, ty: &InputType) -> Option<String> {
+    const DOCUMENTED: [BuiltinSort; 8] = [
+        BuiltinSort::Int,
+        BuiltinSort::Bool,
+        BuiltinSort::String,
+        BuiltinSort::Float,
+        BuiltinSort::Bytes,
+        BuiltinSort::List,
+        BuiltinSort::Set,
+        BuiltinSort::Map,
+    ];
+    if ty.is_untyped() {
+        return None;
+    }
+    let at_most = |sort: &SortRef| values.is_subsort(sort, &ty.sort) == Some(true);
+    let read = DOCUMENTED
+        .into_iter()
+        .any(|builtin| at_most(&SortRef::Builtin(builtin)))
+        || values.token_sorts().any(at_most)
+        || values.productions().any(|info| {
+            !info.function
+                && info.parameters == 0
+                && info
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| at_most(&result.sort))
+        });
+    if !read {
+        return Some(ValueIndex::sort_name(&ty.sort));
+    }
+    ty.arguments
+        .iter()
+        .find_map(|argument| unread_sort(values, argument))
+}
+
+/// The first function `value` applies, by its KRS path: the decoder reads `$call` as an
+/// application, which the definition's equations would evaluate and which is no value.
+fn applied_function(values: &ValueIndex, value: &Value) -> Option<String> {
+    match value {
+        Value::Ctor(ctor) => {
+            if values.info(ctor.decl()).is_some_and(|info| info.function) {
+                return Some(ctor.decl().path().to_owned());
+            }
+            ctor.fields()
+                .iter()
+                .find_map(|(_, field)| applied_function(values, field))
+        }
+        Value::Seq(items) | Value::List(items) => {
+            items.iter().find_map(|item| applied_function(values, item))
+        }
+        Value::Set(items) => items.iter().find_map(|item| applied_function(values, item)),
+        Value::Map(entries) => entries.iter().find_map(|(key, item)| {
+            applied_function(values, key).or_else(|| applied_function(values, item))
+        }),
+        Value::Int(_)
+        | Value::Bool(_)
+        | Value::String(_)
+        | Value::Bytes(_)
+        | Value::Float(_)
+        | Value::Token { .. }
+        | Value::Opaque(_) => None,
+    }
 }
 
 const COMPONENT: Use = Use {
@@ -3301,6 +3759,622 @@ mod tests {
             assert!(
                 message.starts_with(expected),
                 "{expected:?} is not the start of {message:?}"
+            );
+        }
+    }
+
+    /// A sort `T` with the constructors `named` and `pair` and the function `f`.
+    const DECLARED: &str = r"[]
+        module MAIN
+            sort SortT{} []
+            sort SortMap{} []
+            sort SortInt{} []
+            symbol named{}() : SortT{} [constructor{}(), functional{}(), injective{}()]
+            symbol pair{}(SortInt{}, SortInt{}) : SortT{} [constructor{}(), functional{}(), injective{}()]
+            symbol f{}(SortInt{}) : SortT{} [function{}()]
+        endmodule []";
+
+    fn builtin(sort: BuiltinSort, arguments: &[InputType]) -> InputType {
+        InputType {
+            sort: SortRef::Builtin(sort),
+            arguments: arguments.to_vec(),
+        }
+    }
+
+    fn cell(name: &str, declared: InputType) -> ResolvedComponent {
+        ResolvedComponent::Cell {
+            name: name.to_owned(),
+            cell: ReadCell::named(name),
+            declared,
+        }
+    }
+
+    fn class(name: &str, stutter: Stutter, components: Vec<ResolvedComponent>) -> ResolvedClass {
+        ResolvedClass {
+            name: name.to_owned(),
+            stutter,
+            before: BTreeSet::new(),
+            after: BTreeSet::new(),
+            components,
+            filter: None,
+        }
+    }
+
+    /// The classes and logs as a declaration resolved over `values`, the declaration's own
+    /// rules as `before` and `after` of each class.
+    fn resolved(
+        values: &Arc<ValueIndex>,
+        classes: Vec<ResolvedClass>,
+        logs: Vec<ResolvedLog>,
+    ) -> ResolvedObservations {
+        ResolvedObservations {
+            spec: ObservationSpec {
+                points: classes
+                    .iter()
+                    .map(|class| PointClass {
+                        name: class.name.clone(),
+                        before: vec![format!("crate::{}", class.name)],
+                        after: vec!["crate::done".to_owned()],
+                        stutter: class.stutter,
+                        cells: Vec::new(),
+                        views: BTreeMap::new(),
+                        components: Vec::new(),
+                        when: None,
+                    })
+                    .collect(),
+                logs: logs
+                    .iter()
+                    .map(|log| LogChannel {
+                        name: log.name.clone(),
+                        cell: log.cell.path.clone(),
+                        element: None,
+                        at: classes.iter().map(|class| class.name.clone()).collect(),
+                    })
+                    .collect(),
+                observer: None,
+            },
+            classes,
+            logs,
+            subject: Arc::clone(values),
+            observer: Arc::clone(values),
+            functions: false,
+        }
+    }
+
+    /// `ticks` (`count`: an `Int`, a `Map<Int, Int>` and a `T`), `states` (`collapse`: a
+    /// `Set<Int>`) and the log `writes` of `T` items.
+    fn declaration() -> ResolvedObservations {
+        use crate::values::function_index;
+
+        let (values, sort) = function_index(
+            DECLARED,
+            &[
+                ("named", "Named", &[][..]),
+                ("pair", "Pair", &["a", "b"][..]),
+                ("f", "f", &["n"][..]),
+            ],
+            "f",
+        );
+        let values = Arc::new(values);
+        let int = builtin(BuiltinSort::Int, &[]);
+        let ticks = class(
+            "ticks",
+            Stutter::Count,
+            vec![
+                cell("n", int.clone()),
+                cell("m", builtin(BuiltinSort::Map, &[int.clone(), int.clone()])),
+                cell("regs.t", InputType::of(sort.clone())),
+            ],
+        );
+        let states = class(
+            "states",
+            Stutter::Collapse,
+            vec![cell("s", builtin(BuiltinSort::Set, &[int]))],
+        );
+        let writes = ResolvedLog {
+            name: "writes".to_owned(),
+            cell: ReadCell::named("bus"),
+            item: InputType::of(sort),
+            element: None,
+            at: BTreeSet::from([0]),
+        };
+        resolved(&values, vec![ticks, states], vec![writes])
+    }
+
+    fn names(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    /// A record another producer states: each channel's values, with no rule and no side.
+    fn stated(channels: &[(&str, ChannelKind, &[Json], bool)]) -> Json {
+        let channels = channels
+            .iter()
+            .map(|(name, kind, values, closed)| {
+                let elements = values
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| {
+                        if value.is_null() {
+                            serde_json::json!({"index": index, "depth": index, "rule": null,
+                                "side": null, "undecided": "not stated"})
+                        } else {
+                            serde_json::json!({"index": index, "depth": index, "rule": null,
+                                "side": null, "value": value})
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let open = serde_json::json!({"index": elements.len(), "reason": "asked no more"});
+                serde_json::json!({
+                    "name": name,
+                    "kind": kind,
+                    "elements": elements,
+                    "closed": if *closed { Json::from("end") } else { Json::Null },
+                    "open": if *closed { Json::Null } else { open },
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({"schema": OBSERVATIONS_FORMAT, "channels": channels})
+    }
+
+    fn foreign(document: &Json) -> Result<Observations, String> {
+        declaration().foreign_record(&Observations::from_document(document).unwrap())
+    }
+
+    fn tick(n: Json, m: Json, t: Json) -> Json {
+        Json::Object(
+            [("n", n), ("m", m), ("regs.t", t)]
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value))
+                .collect(),
+        )
+    }
+
+    /// A channel's shape names what another producer states for it: the components and the
+    /// types their values are documents at, the stuttering mode, whether a filter selects the
+    /// points, and the points as written; a log's, its element's type. The shapes come in
+    /// channel order, and say nothing of how many elements are asked for.
+    #[test]
+    fn a_channel_s_shape_is_what_another_producer_states() {
+        let mut declaration = declaration();
+        let values = Arc::clone(&declaration.subject);
+        let function = |result: Option<InputType>| ResolvedComponent::Function {
+            name: "view".to_owned(),
+            function: ResolvedCondition::of_result(values.decl("Named").unwrap(), &values, result),
+        };
+        // A function's component is typed by its declared result; one of a sort no KRS
+        // declaration names is a document at the untyped position.
+        declaration.classes[1]
+            .components
+            .push(function(Some(builtin(BuiltinSort::Bool, &[]))));
+        declaration.classes[1]
+            .components
+            .push(ResolvedComponent::Function {
+                name: "raw".to_owned(),
+                function: ResolvedCondition::of_result(
+                    values.decl("Named").unwrap(),
+                    &values,
+                    None,
+                ),
+            });
+        declaration.classes[1].filter = Some(ResolvedCondition::of_result(
+            values.decl("Named").unwrap(),
+            &values,
+            Some(builtin(BuiltinSort::Bool, &[])),
+        ));
+        assert_eq!(
+            declaration
+                .channel_shapes(&names(&["writes", "states", "ticks"]))
+                .unwrap(),
+            vec![
+                serde_json::json!({
+                    "name": "ticks", "kind": "point", "stutter": "count", "filtered": false,
+                    "components": [
+                        {"name": "n", "type": "Int"},
+                        {"name": "m", "type": "Map<Int, Int>"},
+                        {"name": "regs.t", "type": "T"},
+                    ],
+                    "points": {"before": ["crate::ticks"], "after": ["crate::done"]},
+                }),
+                serde_json::json!({
+                    "name": "states", "kind": "point", "stutter": "collapse", "filtered": true,
+                    "components": [
+                        {"name": "s", "type": "Set<Int>"},
+                        {"name": "view", "type": "Bool"},
+                        {"name": "raw", "type": "K"},
+                    ],
+                    "points": {"before": ["crate::states"], "after": ["crate::done"]},
+                }),
+                serde_json::json!({
+                    "name": "writes", "kind": "log", "element": {"type": "T"},
+                    "at": ["ticks", "states"],
+                }),
+            ]
+        );
+        let one = declaration.channel_shapes(&names(&["writes"])).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0]["name"], "writes");
+        assert_eq!(
+            declaration.channel_shapes(&names(&["ticks", "tocks"])),
+            Err("`tocks` is no channel of the declaration (its channels: `ticks`, `states`, `writes`)".to_owned())
+        );
+    }
+
+    /// Every document of a value is replaced by the value's canonical document, so two records
+    /// that state equal values compare equal whichever documents they wrote, and two that state
+    /// unequal values differ.
+    #[test]
+    fn another_producer_s_values_are_read_as_their_canonical_documents() {
+        use serde_json::json;
+
+        let spellings = [
+            tick(json!(16), json!({"1": 2, "2": 3}), json!("Named")),
+            tick(json!("0x10"), json!([[2, 3], [1, 2]]), json!({"Named": []})),
+            tick(
+                json!("16"),
+                json!([["0x2", 3], [1, "2"]]),
+                json!({"$ctor": {"t::S::Named": []}}),
+            ),
+            tick(json!(16), json!({"2": 3, "01": 2}), json!("Named")),
+        ];
+        let pairs = [
+            json!({"Pair": {"a": 1, "b": 2}}),
+            json!({"Pair": [1, 2]}),
+            json!({"$ctor": {"t::S::Pair": {"b": 2, "a": 1}}}),
+        ];
+        let sets = [json!({"s": [3, 1, 2]}), json!({"s": ["0x1", 2, 3]})];
+        let read = foreign(&stated(&[
+            ("ticks", ChannelKind::Point, &spellings, true),
+            ("states", ChannelKind::Point, &sets, false),
+            ("writes", ChannelKind::Log, &pairs, true),
+        ]))
+        .unwrap();
+        let [ticks, states, writes] = read.channels.as_slice() else {
+            panic!("{read:?}");
+        };
+        let canonical = tick(json!(16), json!({"1": 2, "2": 3}), json!("Named"));
+        assert_eq!(ticks.elements.len(), 4);
+        for element in &ticks.elements {
+            assert_eq!(element.value.as_ref(), Some(&canonical));
+            assert_eq!(
+                (element.digest, &element.rule, element.side),
+                (None, &None, None)
+            );
+        }
+        assert_eq!(ticks.closed, Some(Closure::End));
+        // Two spellings of one set are one element of a `collapse` class.
+        assert_eq!(states.elements.len(), 1);
+        assert_eq!(states.elements[0].value, Some(json!({"s": [1, 2, 3]})));
+        assert_eq!(states.open.as_ref().map(|open| open.index), Some(1));
+        for element in &writes.elements {
+            assert_eq!(element.value, Some(json!({"Pair": {"a": 1, "b": 2}})));
+        }
+        // The record is one `compare_records` reads against a recording's values.
+        let recorded = |values: [Json; 2]| {
+            record(vec![Channel {
+                closed: Some(Closure::End),
+                ..channel(
+                    "ticks",
+                    values
+                        .into_iter()
+                        .enumerate()
+                        .map(|(depth, value)| element(depth as u64, b"d", Some(value)))
+                        .collect(),
+                    None,
+                    None,
+                )
+            }])
+        };
+        let two = |second: Json| {
+            foreign(&stated(&[(
+                "ticks",
+                ChannelKind::Point,
+                &[spellings[1].clone(), second],
+                true,
+            )]))
+            .unwrap()
+        };
+        assert!(matches!(
+            compare_records(
+                &two(spellings[2].clone()),
+                &recorded([canonical.clone(), canonical.clone()])
+            ),
+            RecordComparison::Agree(_)
+        ));
+        // Unequal values have unequal documents: the maps differ at the key 2.
+        let other = tick(json!("0x10"), json!([[2, 4], [1, 2]]), json!("Named"));
+        let RecordComparison::Differs(difference) =
+            compare_records(&two(other), &recorded([canonical.clone(), canonical]))
+        else {
+            panic!("equal");
+        };
+        assert_eq!(
+            (difference.index, difference.path.as_deref()),
+            (1, Some("m.2"))
+        );
+    }
+
+    /// A stated value that is no value of its position's type is refused naming its place in
+    /// the record's document, down to the part inside the value; so is a value that applies a
+    /// function, an element that names a rule or a side, and a content of other components.
+    #[test]
+    fn another_producer_s_record_is_refused_naming_the_place() {
+        use serde_json::json;
+
+        let named = json!("Named");
+        let good = tick(json!(1), json!({}), named.clone());
+        let ticks = |second: Json| {
+            foreign(&stated(&[
+                ("writes", ChannelKind::Log, &[], true),
+                ("ticks", ChannelKind::Point, &[good.clone(), second], true),
+            ]))
+            .unwrap_err()
+        };
+        for (second, expected) in [
+            (
+                tick(json!("one"), json!({}), named.clone()),
+                "at `channels[1].elements[1].value.n`: ",
+            ),
+            (
+                tick(json!(true), json!({}), named.clone()),
+                "at `channels[1].elements[1].value.n`: ",
+            ),
+            (
+                tick(json!(1), json!({"1": "x"}), named.clone()),
+                "at `channels[1].elements[1].value.m[\"1\"]`: ",
+            ),
+            (
+                tick(json!(1), json!({}), json!("Other")),
+                "at `channels[1].elements[1].value.regs.t`: ",
+            ),
+            (
+                tick(json!(1), json!({}), json!(null)),
+                "at `channels[1].elements[1].value.regs.t`: ",
+            ),
+            (
+                tick(json!(1), json!({}), json!({"$call": {"f": [1]}})),
+                "at `channels[1].elements[1].value.regs.t`: it applies the function `t::S::f`, and an application is not a value",
+            ),
+            (
+                json!({"n": 1, "m": {}}),
+                "at `channels[1].elements[1].value.regs.t`: the element does not state the component `regs.t` of `ticks`",
+            ),
+            (
+                json!({"n": 1, "m": {}, "regs.t": "Named", "pc": 1}),
+                "at `channels[1].elements[1].value`: `pc` is no component of `ticks`; its components are `n`, `m`, `regs.t`",
+            ),
+            (
+                json!([1, {}, "Named"]),
+                "at `channels[1].elements[1].value`: an element of `ticks` is an object of its components, `n`, `m`, `regs.t`",
+            ),
+        ] {
+            let message = ticks(second.clone());
+            assert!(message.starts_with(expected), "{second}: {message}");
+        }
+        assert!(ticks(tick(json!("one"), json!({}), named)).ends_with("(a value of type `Int`)"),);
+        let log = foreign(&stated(&[(
+            "writes",
+            ChannelKind::Log,
+            &[json!("Named"), json!({"Pair": {"a": "x", "b": 2}})],
+            true,
+        )]))
+        .unwrap_err();
+        assert!(
+            log.starts_with("at `channels[0].elements[1].value.Pair.a`: "),
+            "{log}"
+        );
+        // A rule and a side are points of the definition, which another producer does not name.
+        let document = stated(&[("ticks", ChannelKind::Point, &[good.clone(), good], true)]);
+        for (key, value) in [("rule", json!("crate::tick")), ("side", json!("before"))] {
+            let mut document = document.clone();
+            document["channels"][0]["elements"][1][key] = value;
+            let message = foreign(&document).unwrap_err();
+            assert!(
+                message.starts_with(&format!("at `channels[0].elements[1].{key}`: ")),
+                "{message}"
+            );
+        }
+        for (channels, expected) in [
+            (
+                stated(&[("tocks", ChannelKind::Point, &[], true)]),
+                "at `channels[0]`: `tocks` is no channel of the declaration",
+            ),
+            (
+                stated(&[("ticks", ChannelKind::Log, &[], true)]),
+                "at `channels[0]`: the declaration's `ticks` is a point class, and the record states a log",
+            ),
+        ] {
+            assert_eq!(foreign(&channels).unwrap_err(), expected);
+        }
+    }
+
+    /// A `collapse` class's channel is collapsed as a recording collapses it, after its values
+    /// are made canonical: an element equal to the last one kept is dropped, the elements and
+    /// the open point are indexed by what is kept, and an unknown element opens the channel. A
+    /// `count` class's and a log's keep every element.
+    #[test]
+    fn another_producer_s_collapse_channel_is_collapsed() {
+        use serde_json::json;
+
+        let set = |items: Json| json!({"s": items});
+        let states = [
+            set(json!([1, 2])),
+            set(json!([2, 1])),
+            set(json!([])),
+            set(json!([])),
+            set(json!(["0x1", 2])),
+            set(json!([2, 1])),
+        ];
+        let tick = tick(json!(1), json!({}), json!("Named"));
+        for closed in [false, true] {
+            let record = foreign(&stated(&[
+                ("states", ChannelKind::Point, &states, closed),
+                (
+                    "ticks",
+                    ChannelKind::Point,
+                    &[tick.clone(), tick.clone()],
+                    closed,
+                ),
+                (
+                    "writes",
+                    ChannelKind::Log,
+                    &[json!("Named"), json!("Named")],
+                    closed,
+                ),
+            ]))
+            .unwrap();
+            let [collapsed, counted, log] = record.channels.as_slice() else {
+                panic!("{record:?}");
+            };
+            assert_eq!(
+                collapsed
+                    .elements
+                    .iter()
+                    .map(|element| (element.depth, element.value.clone().unwrap()))
+                    .collect::<Vec<_>>(),
+                [
+                    (0, set(json!([1, 2]))),
+                    (2, set(json!([]))),
+                    (4, set(json!([1, 2])))
+                ]
+            );
+            assert_eq!(counted.elements.len(), 2);
+            assert_eq!(log.elements.len(), 2);
+            if closed {
+                assert_eq!(collapsed.closed, Some(Closure::End));
+                assert_eq!(collapsed.open, None);
+            } else {
+                assert_eq!(collapsed.closed, None);
+                let open = collapsed.open.as_ref().unwrap();
+                assert_eq!((open.index, open.reason.as_str()), (3, "asked no more"));
+                assert_eq!(counted.open.as_ref().unwrap().index, 2);
+            }
+            // The record's document states the kept elements at their own indices.
+            let document = record.document();
+            assert_eq!(document["channels"][0]["elements"][2]["index"], 2);
+            assert_eq!(
+                Observations::from_document(&document).unwrap().document(),
+                document
+            );
+        }
+        // An unknown element: the index of what follows rests on an equality with it, so a
+        // `collapse` channel is known up to it; under `count` it is one element among the others.
+        let unknown = [
+            states[0].clone(),
+            states[1].clone(),
+            Json::Null,
+            states[2].clone(),
+        ];
+        let ticks = [tick.clone(), Json::Null, tick];
+        let record = foreign(&stated(&[
+            ("states", ChannelKind::Point, &unknown, true),
+            ("ticks", ChannelKind::Point, &ticks, true),
+        ]))
+        .unwrap();
+        let [collapsed, counted] = record.channels.as_slice() else {
+            panic!("{record:?}");
+        };
+        assert_eq!(collapsed.elements.len(), 1);
+        assert_eq!(collapsed.closed, None);
+        let open = collapsed.open.as_ref().unwrap();
+        assert_eq!(
+            (open.index, open.reason.as_str(), open.undecided),
+            (1, "not stated", true)
+        );
+        assert_eq!(counted.elements.len(), 3);
+        assert_eq!(counted.elements[1].undecided.as_deref(), Some("not stated"));
+        assert_eq!(counted.closed, Some(Closure::End));
+    }
+
+    /// A position no document is a value at is reported, naming its channel and component: a
+    /// sort no KRS declaration names, and a declared sort, alone or as an element type, with
+    /// no constructor, token sort or builtin sort at most it.
+    #[test]
+    fn a_position_with_no_document_is_reported() {
+        use crate::values::map_sort_index;
+
+        let declaration = declaration();
+        let all = names(&["ticks", "states", "writes"]);
+        assert_eq!(declaration.document_forms(&all), Ok(()));
+        assert!(declaration.document_forms(&names(&["tocks"])).is_err());
+
+        // The same sorts, where no KRS declaration gives `T` a constructor.
+        let (values, sort) = map_sort_index(DECLARED, &[]);
+        let values = Arc::new(values);
+        let bare = InputType::of(sort);
+        let int = builtin(BuiltinSort::Int, &[]);
+        let log = |item: &InputType| ResolvedLog {
+            name: "writes".to_owned(),
+            cell: ReadCell::named("bus"),
+            item: item.clone(),
+            element: None,
+            at: BTreeSet::new(),
+        };
+        let unnamed = ResolvedComponent::Function {
+            name: "raw".to_owned(),
+            function: ResolvedCondition::of_result(
+                declaration.subject.decl("Named").unwrap(),
+                &values,
+                None,
+            ),
+        };
+        let declaration = resolved(
+            &values,
+            vec![
+                class("ok", Stutter::Count, vec![cell("n", int.clone())]),
+                class(
+                    "bare",
+                    Stutter::Count,
+                    vec![cell("n", int.clone()), cell("t", bare.clone())],
+                ),
+                class(
+                    "nested",
+                    Stutter::Count,
+                    vec![cell(
+                        "m",
+                        builtin(
+                            BuiltinSort::Map,
+                            &[
+                                int.clone(),
+                                builtin(BuiltinSort::List, std::slice::from_ref(&bare)),
+                            ],
+                        ),
+                    )],
+                ),
+                class("unnamed", Stutter::Count, vec![unnamed]),
+                // The untyped position reads constructor forms and tagged forms.
+                class(
+                    "untyped",
+                    Stutter::Count,
+                    vec![cell("k", InputType::untyped())],
+                ),
+            ],
+            vec![log(&bare)],
+        );
+        assert_eq!(
+            declaration.document_forms(&names(&["ok", "untyped"])),
+            Ok(())
+        );
+        for (channel, expected) in [
+            (
+                "bare",
+                "the component `t` of the channel `bare` has no document in the typed encoding: the sort `T` has no constructor, no token sort and no builtin sort at most it",
+            ),
+            (
+                "nested",
+                "the component `m` of the channel `nested` has no document in the typed encoding: the sort `T` of its type `Map<Int, List<T>>` has no constructor, no token sort and no builtin sort at most it",
+            ),
+            (
+                "unnamed",
+                "the component `raw` of the channel `unnamed` is of a sort no KRS declaration names, so none of its values has a document in the typed encoding",
+            ),
+            (
+                "writes",
+                "an element of the log channel `writes` has no document in the typed encoding: the sort `T` has no constructor, no token sort and no builtin sort at most it",
+            ),
+        ] {
+            assert_eq!(
+                declaration.document_forms(&names(&["ok", channel])),
+                Err(expected.to_owned())
             );
         }
     }

@@ -94,6 +94,16 @@ pub(crate) struct ReadCell {
 }
 
 impl ReadCell {
+    /// The cell at `path`, read by no symbols: for the tests of what reads only its name.
+    #[cfg(test)]
+    pub(crate) fn named(path: &str) -> Self {
+        Self {
+            path: path.to_owned(),
+            symbols: Vec::new(),
+            parameter: Arc::from(""),
+        }
+    }
+
     /// The cell symbols as the backend's walk takes them.
     pub(crate) fn symbol_path(&self) -> Vec<&str> {
         self.symbols.iter().map(String::as_str).collect()
@@ -182,6 +192,25 @@ pub struct ResolvedCondition {
 }
 
 impl ResolvedCondition {
+    /// A function `decl` of `values` of no cell, with the declared result `result`: for the
+    /// tests of what reads only where its value is a document.
+    #[cfg(test)]
+    pub(crate) fn of_result(
+        decl: Decl,
+        values: &Arc<ValueIndex>,
+        result: Option<InputType>,
+    ) -> Self {
+        Self {
+            function: decl.path().to_owned(),
+            symbol: String::new(),
+            decl,
+            cells: Vec::new(),
+            subject: Arc::clone(values),
+            observer: Arc::clone(values),
+            result,
+        }
+    }
+
     /// The function as the condition named it.
     #[must_use]
     pub fn function(&self) -> &str {

@@ -2145,6 +2145,33 @@ pub(crate) fn map_sort_index(text: &str, ctors: &[(&str, &str, &[&str])]) -> (Va
     (index, sort)
 }
 
+/// [`map_sort_index`], with the declaration named `function` a function, as a `fn` declaration's
+/// is, where the others are constructors.
+#[cfg(test)]
+pub(crate) fn function_index(
+    text: &str,
+    ctors: &[(&str, &str, &[&str])],
+    function: &str,
+) -> (ValueIndex, SortRef) {
+    let (mut index, sort) = map_sort_index(text, ctors);
+    let decl = index.decl(function).unwrap();
+    let declared = &index.ctors_by_decl[&decl];
+    let info = Arc::new(CtorInfo {
+        decl: declared.decl.clone(),
+        symbol: declared.symbol.clone(),
+        fields: declared.fields.clone(),
+        field_types: declared.field_types.clone(),
+        result: declared.result.clone(),
+        function: true,
+        parameters: declared.parameters,
+    });
+    index
+        .ctors_by_symbol
+        .insert(info.symbol.clone(), info.clone());
+    index.ctors_by_decl.insert(decl, info);
+    (index, sort)
+}
+
 /// The index of `text` with the KRS declarations `ctors`, each `(symbol, name, fields)` declared
 /// at `t::S::<name>` with the result sort `result`.
 #[cfg(test)]
