@@ -2137,15 +2137,6 @@ enum InstanceReading {
 
 impl BracketReadings {
     fn of(group: &proc_macro2::Group, result: Option<&MachineResultCell>) -> Self {
-        // A computation cell the result leaves out is only read. An item-less `[..]` it keeps is
-        // read by what it means on each kind instead ([`read_machine_clause`]).
-        let computation = !item_less_kept(group, result)
-            && bracket_prefix(group).is_ok()
-            && match result {
-                None => true,
-                Some(MachineResultCell::Bracket(result)) => bracket_items(result).is_ok(),
-                Some(_) => false,
-            };
         let instances = |records: bool| {
             // A result child's fault leaves the cell only read, whatever reading it takes, so a
             // value holding one reads as the instances it is.
@@ -2175,9 +2166,24 @@ impl BracketReadings {
         } else {
             InstanceReading::None
         };
+        // `[..]` names nothing, so what its brackets hold is what its result writes: kept (left
+        // out or `[..]` again), it is read by what it means on each kind
+        // ([`read_machine_clause`]), and beside a result of instance records it is a List
+        // collection's instances. Only a result that writes items or elements reads it as the
+        // computation's or a list's.
+        let names_nothing = is_dots(&group.stream())
+            && (item_less_kept(group, result) || instances == InstanceReading::Records);
+        // A computation cell the result leaves out is only read.
+        let computation = !names_nothing
+            && bracket_prefix(group).is_ok()
+            && match result {
+                None => true,
+                Some(MachineResultCell::Bracket(result)) => bracket_items(result).is_ok(),
+                Some(_) => false,
+            };
         // A list's result may also be one term, the whole new list; the
         // anonymous `..` is one rest, on both sides or neither.
-        let elements = !item_less_kept(group, result)
+        let elements = !names_nothing
             && list_pattern(group).is_ok_and(|pattern| match result {
                 None => true,
                 Some(MachineResultCell::Term(_)) => !pattern.rest.is_shared(),
