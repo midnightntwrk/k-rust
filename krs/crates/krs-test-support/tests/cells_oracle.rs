@@ -3215,11 +3215,11 @@ fn a_named_rest_in_a_result_is_refused_at_the_form() {
 /// R4 (P6, P0; EDOTS): a bare `..` in the record a result's entry writes for a group that is
 /// there says the children it leaves unnamed keep their content, so the record writes the
 /// children it names, here the record of a group and a child's record inside it; beside a
-/// subject that matches the group whole it is refused. A `..` after every field leaves none:
+/// subject that matches the group whole, its binder is the record's base (WHOLEKEEP). A `..`
+/// after every field leaves none:
 /// Rust and K read the same exact record.
 #[test]
 fn a_bare_rest_in_an_entrys_record_keeps_the_fields_it_leaves_unnamed() {
-    let open = Outcome::Refuse("open-record-outside-pattern");
     let group = [group_g()];
     let w = children_stack("group W");
     let frame = [sweep_group(
@@ -3239,7 +3239,7 @@ fn a_bare_rest_in_an_entrys_record_keeps_the_fields_it_leaves_unnamed() {
         ),
         (
             result_probe(Form::Readable, &group, "G { a: x, .. }", Some("g")),
-            open,
+            Outcome::After,
         ),
         (
             result_probe(
@@ -3347,12 +3347,11 @@ fn a_bare_rest_in_a_term_is_refused_whatever_fields_it_names() {
 
 /// F3 (EDOTS): a bare `..` in a result's record of a group the subject matches keeps the
 /// children it leaves unnamed (P6), over a subject that matches the group by its children or
-/// whatever they hold; beside a binder or an alias of the whole group, and inside a `?` group's
-/// presence, which the result writes whole, it is refused; an instance record's is its
-/// template's.
+/// whatever they hold, and beside a binder or an alias of the whole group or inside a `?`
+/// group's presence, where the subject's match is the record's base (WHOLEKEEP); a created
+/// instance record's is its template's.
 #[test]
 fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_a_matched_group() {
-    let refused = Outcome::Refuse("open-record-outside-pattern");
     let group = [group_g()];
     let optional = [Layer::Optional, group_g()];
     let set = [Layer::Instances(Order::Set), group_g()];
@@ -3381,7 +3380,7 @@ fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_a_matched_group() 
         ),
         (
             result_probe(Form::Readable, &group, "G { a: x, .. }", Some("g")),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(
@@ -3390,7 +3389,7 @@ fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_a_matched_group() 
                 "G { a: x, .. }",
                 Some("g @ G { a: y, .. }"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(
@@ -3399,7 +3398,7 @@ fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_a_matched_group() 
                 "Some(G { a: x, .. })",
                 Some("Some(G { a: y, .. })"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(
@@ -3416,6 +3415,17 @@ fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_a_matched_group() 
                 &set,
                 "{ G { a: x, .. }, .. }",
                 Some("{ G { a: y, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        // A whole binder of an instance item is its alias, so `..o` updates it in place
+        // (WHOLEKEEP case 5).
+        (
+            result_probe(
+                Form::Readable,
+                &set,
+                "{ G { a: x, ..o }, .. }",
+                Some("{ o, .. }"),
             ),
             Outcome::After,
         ),
@@ -3465,12 +3475,11 @@ fn a_result_group_record_with_a_bare_rest_keeps_the_rest_over_an_overwritten_gro
 
 /// D-3 (S5.0g, EDOTS): `k::fragment![crate::G { a: x, .. }]` is the record readable
 /// `G { a: x, .. }` abbreviates (P7), so its bare `..` in a result keeps the children it leaves
-/// unnamed of a group that is there, matched or overwritten, too (P6, ruling 1), and is refused
-/// inside a `?` group's presence, which the result writes whole; a `?` cell created over a
+/// unnamed of a group that is there, matched or overwritten, too (P6, ruling 1), inside a `?`
+/// group's presence as well, whose subject match is its base (WHOLEKEEP); a `?` cell created over a
 /// subject `None` and a created instance have their template's.
 #[test]
 fn a_result_group_fragment_with_a_bare_rest_keeps_the_rest_as_its_record_does() {
-    let refused = Outcome::Refuse("open-record-outside-pattern");
     let group = [group_g()];
     let optional = [Layer::Optional, group_g()];
     let list = [Layer::Instances(Order::List), group_g()];
@@ -3497,7 +3506,7 @@ fn a_result_group_fragment_with_a_bare_rest_keeps_the_rest_as_its_record_does() 
                 open_present,
                 Some("Some(k::fragment![crate::G { a: y, .. }])"),
             ),
-            refused,
+            Outcome::After,
         ),
         (
             result_probe(Form::Cells, &optional, open_present, Some("None")),

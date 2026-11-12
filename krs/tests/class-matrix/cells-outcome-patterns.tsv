@@ -664,11 +664,11 @@ rx11	?	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	i
 rx11	*	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
 rx11	member	readable more, claim more	result, matched	? leaf List
 rx11	principle	Result over `? leaf List` matched by `Some([y, ..])`: Some([..]) ok (design:R3, P6: it keeps the subject's rest); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: a built item leaving fields open, named first, S5.0g:P-R5; kind answers, they stand); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx12	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+rx12	-	br	iop	arm	wop	ok	br	iop	iop
 rx12	?	br	iop	arm	wop	owp	br	iop	iop
 rx12	*	br	iop	arm	wop	cwi	br	iop	iop
 rx12	member	readable more, claim more	result, matched	? group G
-rx12	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(G { .. }) open-record-outside-pattern (S5.0:F3: a bare `..` over the existing group leaves a and b to Rust's defaults; pairing, so under a path the ancestor's class replaces it, S5.0g:P-R12); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx12	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(G { .. }) ok (S5.0:F3, P6: a bare `..` over the present group keeps a and b, the subject's present record being its base; pairing); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 rx13	-	sort	ils	arm	wop	pop	pop	ils	ils
 rx13	?	owp	ils	arm	wop	pop	pop	ils	ils
 rx13	*	cwi	ils	arm	wop	pop	pop	ils	ils

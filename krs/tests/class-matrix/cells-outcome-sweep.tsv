@@ -668,7 +668,7 @@ result, matched	-	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
 result, matched	-	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
 result, matched	-	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	ok	iop	iop
 result, matched	-	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	-	? group G	Some(G { a: y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+result, matched	-	? group G	Some(G { a: y, .. })	br	iop	arm	wop	ok	br	iop	iop
 result, matched	-	* List of G	[G { a: y, .. }, ..]	sort	ils	arm	wop	pop	pop	ils	ils
 result, matched	-	* Set of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	sort
 result, matched	-	* Map of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	map-collection-key
@@ -839,7 +839,7 @@ result, matched	-	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
 result, matched	-	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
 result, matched	-	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	ok	iop	iop
 result, matched	-	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	-	? group G	Some(G { a: y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+result, matched	-	? group G	Some(G { a: y, .. })	br	iop	arm	wop	ok	br	iop	iop
 result, matched	-	* List of G	[G { a: y, .. }, ..]	sort	ils	arm	wop	pop	pop	ils	ils
 result, matched	-	* Set of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	sort
 result, matched	-	* Map of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	map-collection-key

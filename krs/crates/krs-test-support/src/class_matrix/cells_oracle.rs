@@ -32,9 +32,10 @@
 //!    the ancestor's mark, so a spelling its own stack refuses would be refused again there;
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
 //!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
-//!    record (P6: the children it leaves unnamed are what they would otherwise be, kept over a
-//!    group that is there, refused beside a subject matching the group whole and where the
-//!    result writes the group whole, a `?` group's content or an instance's group child). A result is paired at every content root it writes: its
+//!    record (P6: the children it leaves unnamed are what they would otherwise be: over a group
+//!    that is there, whatever the subject matched it by, kept, the subject's match being the
+//!    record's base; over a created group, its template's). A result is paired at every content
+//!    root it writes: its
 //!    cell's, and each child's of the group and instance records it writes (P1: a child is an
 //!    entry of its own cell), against the child's own other side: the subject record's same
 //!    child, the same child of the subject instance an update `..me` labels (R10), an unmatched
@@ -856,13 +857,6 @@ fn names_every_field(record: &Record, group: &Group) -> bool {
     record.fields.len() == group.children.len()
 }
 
-/// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed (P6:
-/// the children it does not name are what they would otherwise be). A `..` after every child
-/// leaves none: Rust and K then read the same exact record, so P0 refuses nothing.
-fn leaves_open(record: &Record, group: &Group) -> bool {
-    record.rest == RecordRest::Open && !names_every_field(record, group)
-}
-
 /// Adds to `groups` each group `layers` hold, at any depth (a group's children's included),
 /// once by name: a configuration's groups, as [`Context::groups`] holds them.
 pub fn collect_groups(layers: &[Layer], groups: &mut Vec<Group>) {
@@ -1295,8 +1289,7 @@ impl Judge<'_> {
                     .other
                     .as_ref()
                     .map_or(Other::Unmatched, Other::Matched);
-                self.pair_result(stack, spelling, other, false)
-                    .map(|()| None)
+                self.pair_result(stack, spelling, other).map(|()| None)
             }
             Side::Guard | Side::Initializer => Ok(None),
         }
@@ -1311,7 +1304,6 @@ impl Judge<'_> {
         stack: &[Layer],
         spelling: &Spelling,
         other: Other<'_>,
-        whole: bool,
     ) -> Result<(), Refusal> {
         let anon = Root::Rest(Rest::Anon);
         match other {
@@ -1353,7 +1345,7 @@ impl Judge<'_> {
                 }
             }
         }
-        self.pair_children(stack, spelling, other, whole)
+        self.pair_children(stack, spelling, other)
     }
 
     /// The children of the group or instance records a result's content writes, each against
@@ -1372,39 +1364,24 @@ impl Judge<'_> {
         stack: &[Layer],
         spelling: &Spelling,
         other: Other<'_>,
-        whole: bool,
     ) -> Result<(), Refusal> {
         match (stack, spelling) {
             ([Layer::Optional, below @ ..], Spelling::Present(inner)) => {
-                self.pair_children(below, inner, other.present(), true)
+                self.pair_children(below, inner, other.present())
             }
             ([Layer::Group(group), ..], _) => {
                 let Some(record) = record_of(spelling, group) else {
                     return Ok(());
                 };
                 // P6: a bare `..` says the children the record leaves unnamed are what they
-                // would otherwise be: over a group that is there, matched by a record of its
-                // children or `_`, or overwritten, their content, kept; the record writes the
-                // children it names, each as its own cell (EDOTS). Two such places have no
-                // lowering and are refused: beside a subject that matches the group whole (a
-                // binder, an alias), and where the result writes the group whole (`whole`: a
-                // `?` group's present content, an instance record's group child). A created
-                // group's `..` is its template's (the lowering's limit, not this table's). A
-                // `..` after every child leaves none: the exact record (P0). A fragment of the
-                // group is its record (P7: readable `G { a: x, .. }` abbreviates
-                // `k::fragment![crate::G { a: x, .. }]`), as Q1's lint reads it ([`total`]).
-                if leaves_open(record, group) {
-                    let kept = match other {
-                        Other::Created => true,
-                        _ if whole => false,
-                        Other::Matched(subject) => matched_by_children(subject, group),
-                        Other::Unmatched => true,
-                    };
-                    if !kept {
-                        return refuse("open-record-outside-pattern", Step::Pairing, 0);
-                    }
-                }
-                self.pair_fields(group, record, other, whole)?;
+                // would otherwise be. Over a group that is there, the subject's match of the
+                // place is the record's base, whatever it matched the group by (a record of its
+                // children, `_`, a binder, an alias, a `?` group's present content, the paired
+                // subject instance's child), so they are kept; over a group the subject does not
+                // match, overwritten, their content is kept; a created group's `..` is its
+                // template's. So P6 refuses no bare `..` here; each child the record names is
+                // paired as its own cell (P1, EDOTS).
+                self.pair_fields(group, record, other)?;
                 if self.form == Form::Cells && matches!(record.rest, RecordRest::Update(_)) {
                     return refuse("record-remainder-in-cells-term", Step::Pairing, 0);
                 }
@@ -1419,7 +1396,7 @@ impl Judge<'_> {
                         if !keyed(*order, group, record) {
                             return refuse("map-collection-key", Step::Pairing, 0);
                         }
-                        self.pair_fields(group, record, other, true)?;
+                        self.pair_fields(group, record, other)?;
                         // An update whose other side is a created instance updates no subject
                         // instance.
                         if self.form == Form::Cells
@@ -1437,16 +1414,10 @@ impl Judge<'_> {
     }
 
     /// Each field of `record`, a record of `group`, against the same child of `other`.
-    fn pair_fields(
-        &self,
-        group: &Group,
-        record: &Record,
-        other: Other<'_>,
-        whole: bool,
-    ) -> Result<(), Refusal> {
+    fn pair_fields(&self, group: &Group, record: &Record, other: Other<'_>) -> Result<(), Refusal> {
         for (name, value) in &record.fields {
             if let Some(stack) = child(group, name) {
-                self.pair_result(stack, value, other.child(group, name), whole)?;
+                self.pair_result(stack, value, other.child(group, name))?;
             }
         }
         Ok(())
@@ -1511,6 +1482,9 @@ impl Other<'_> {
             Self::Matched(subject) => seq_of(unaliased(subject)).and_then(|(items, _)| {
                 items.iter().find_map(|item| match item {
                     Spelling::Alias(name, inner) if name == label => Some(Self::Matched(inner)),
+                    // A whole binder of an instance item is its alias: `{ o, .. }` is
+                    // `o @ Obj { .. }`, the instance labelled `o` (WHOLEKEEP case 5).
+                    Spelling::Binder(name) if name == label => Some(Self::Matched(item)),
                     _ => None,
                 })
             }),
@@ -1624,17 +1598,6 @@ fn computation_front(layer: &Layer, spelling: &Spelling, depth: usize) -> Result
 }
 
 /// The record of `group` that `spelling` writes, below an alias: a record, or its fragment.
-/// Whether `subject`, a subject's entry of a group cell, matches the group by its children or
-/// whatever they hold: a record of `group` (its fragment included), or `_`. A binder or an alias
-/// matches the group whole.
-fn matched_by_children(subject: &Spelling, group: &Group) -> bool {
-    match subject {
-        Spelling::Wild => true,
-        Spelling::Record(record) | Spelling::Fragment(record) => record.head == group.name,
-        _ => false,
-    }
-}
-
 fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
     match unaliased(spelling) {
         Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
