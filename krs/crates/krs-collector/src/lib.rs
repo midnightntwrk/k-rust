@@ -13,6 +13,6 @@ pub use collect::{
     PackageContext, collect_host_descriptors, collect_host_descriptors_with_builtins,
     collect_host_descriptors_with_builtins_timed, run_collector,
 };
-pub use error::{CollectionError, CollectionErrorKind};
+pub use error::{CollectionError, CollectionErrorKind, host_package_label};
 pub use facade::{FacadeAliases, package_facade_aliases};
 pub use krs_ir::{IntLiterals, RawKProfile};

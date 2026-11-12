@@ -957,3 +957,41 @@ fn an_observer_holds_the_configured_module_of_an_fu18_composition() {
         "{definition}"
     );
 }
+
+/// SELECT-DIAGNOSTIC: a definition whose sources name an item of a package no selected facet is
+/// of is refused with `package-not-selected`, and the diagnostic names the selection that holds
+/// the package: the `--dependency PACKAGE:FACET` of the facet the package declares. The
+/// composition tour's root (`krs/tests/tour-composition`) names its base package's items, and
+/// checks once `--dependency base-semantics:base` is passed.
+#[test]
+fn a_package_of_no_selected_facet_names_the_dependency_that_selects_it() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/tour-composition/Cargo.toml")
+        .canonicalize()
+        .unwrap();
+    // Built outside the checked-in fixture, whose directory holds its sources only.
+    let target = shared_fixture_target();
+    let check = |dependencies: &[&str]| {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, target.path());
+        process
+            .arg("check")
+            .arg("--manifest-path")
+            .arg(&manifest)
+            .args(["--package", "root-semantics", "--definition", "main"])
+            .args(dependencies)
+            .env("NO_COLOR", "1")
+            .output()
+            .unwrap()
+    };
+    let refused = check(&[]);
+    assert_eq!(refused.status.code(), Some(1), "{}", stdout(&refused));
+    let text = stderr(&refused);
+    assert!(text.contains("package-not-selected"), "{text}");
+    assert!(
+        text.contains("pass `--dependency base-semantics:base`"),
+        "{text}"
+    );
+    let selected = check(&["--dependency", "base-semantics:base"]);
+    assert!(selected.status.success(), "{}", stderr(&selected));
+}

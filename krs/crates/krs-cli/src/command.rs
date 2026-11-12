@@ -520,7 +520,7 @@ fn execute_with_sources(
             return Ok(outcome);
         }
     }
-    let collected = run_collector(&collector_directory, &executable, measurement)?;
+    let collected = run_collector(&collector_directory, &executable, &metadata, measurement)?;
     let read_set = collected.read_set;
     // `krs expand` prints each readable rule's elaborated rule, which lowering keeps when asked.
     let retain = match &request.command {
@@ -1291,7 +1291,7 @@ fn composed_facet(
     *sources = crate::DiagnosticSources::from_plan(&plan);
     let directory = generate_collector(metadata, &plan, measurement)?;
     let executable = build_collector_measured(&directory, &plan, None, measurement)?;
-    let collected = run_collector(&directory, &executable, measurement)?;
+    let collected = run_collector(&directory, &executable, metadata, measurement)?;
     let prepared = prepare(
         collected.stdout,
         collected.warnings,

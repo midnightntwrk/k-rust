@@ -341,9 +341,11 @@ fn collect_pending_descriptors(
             return Err(CollectionError::new(
                 CollectionErrorKind::PackageNotSelected,
                 format!(
-                    "host package `{} {}` at `{}` is not in the selected collection",
-                    host.id.package().cargo_name(),
-                    host.id.package().cargo_version(),
+                    "{} at `{}` is not in the selected collection",
+                    crate::host_package_label(
+                        host.id.package().cargo_name(),
+                        host.id.package().cargo_version()
+                    ),
                     host.id.package().manifest_dir().display()
                 ),
             ));

@@ -190,7 +190,7 @@ register_codes! {
         DUPLICATE_CRATE_NAME: "krs::collect::duplicate-crate-name" => "Two packages of a definition have libraries with the same crate name.",
         UNSUPPORTED_SCHEMA_VERSION: "krs::collect::unsupported-schema-version" [Environment] => "A descriptor carried a schema version other than the current one.",
         INVALID_BUILTIN_REGISTRY: "krs::collect::invalid-builtin-registry" [Internal] => "The compiler-provided builtin marker catalog was incomplete or ambiguous.",
-        PACKAGE_NOT_SELECTED: "krs::collect::package-not-selected" => "No selected Cargo package matched a descriptor's host lookup key.",
+        PACKAGE_NOT_SELECTED: "krs::collect::package-not-selected" => "No selected Cargo package matched a descriptor's host lookup key; the help names the `--dependency PACKAGE:FACET` that selects the package.",
         CRATE_ROOT_MISMATCH: "krs::collect::crate-root-mismatch" [Internal] => "The first `module_path!()` segment did not match the selected target.",
         INVALID_STABLE_IDENTITY: "krs::collect::invalid-stable-identity" [Internal] => "A host item could not become a stable item identity.",
         DUPLICATE_ITEM_ID: "krs::collect::duplicate-item-id" => "Two declarations produced the same final stable identity.",

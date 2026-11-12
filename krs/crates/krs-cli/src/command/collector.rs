@@ -76,6 +76,7 @@ pub(super) struct CollectorRun {
 pub(super) fn run_collector(
     collector_directory: &Path,
     executable: &Path,
+    metadata: &crate::CargoMetadata,
     measurement: &mut Measurement,
 ) -> Result<CollectorRun, CommandError> {
     let read_set = scratch_file("krs-collector-read-set-")?;
@@ -111,7 +112,8 @@ pub(super) fn run_collector(
             }
         }
     }
-    let (output, warnings) = collector_result(output, diagnostics.path())?;
+    let (output, warnings) = collector_result(output, diagnostics.path())
+        .map_err(|error| naming_selections(error, metadata))?;
     let bytes = fs::read(read_set.path()).map_err(|source| CommandError::Io {
         path: read_set.path().to_path_buf(),
         source,
@@ -122,6 +124,65 @@ pub(super) fn run_collector(
         read_set,
         warnings,
     })
+}
+
+/// `error` with each of its diagnostics that finds a package of no selected facet
+/// ([`krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED`]) naming the selection that holds
+/// the package: the `--dependency PACKAGE:FACET` to pass, for each facet the package declares
+/// (`package.metadata.krs.definitions`, read from `metadata`).
+/// A definition holds the items of the facets its command selects and of no other package, so
+/// the fix of a source that names another package's item is to select one of that package's
+/// facets; the collector, which finds the item, knows the package and not its facets.
+fn naming_selections(error: CommandError, metadata: &crate::CargoMetadata) -> CommandError {
+    let CommandError::Diagnostics(mut diagnostics) = error else {
+        return error;
+    };
+    for diagnostic in &mut diagnostics {
+        if diagnostic.code != krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED.as_str() {
+            continue;
+        }
+        let package = metadata.packages.iter().find(|package| {
+            diagnostic
+                .message
+                .contains(&krs_collector::host_package_label(
+                    &package.name,
+                    &package.version,
+                ))
+        });
+        if let Some(package) = package {
+            diagnostic.help.push(selection_help(package));
+        }
+    }
+    CommandError::Diagnostics(diagnostics)
+}
+
+/// How a command selects `package`, a package of the resolved graph that no selected facet is
+/// of: by one of its definition facets, each spelled as `--dependency` takes it.
+fn selection_help(package: &crate::MetadataPackage) -> String {
+    let name = &package.name;
+    let facets = package
+        .metadata
+        .get("krs")
+        .and_then(|krs| krs.get("definitions"))
+        .and_then(serde_json::Value::as_object)
+        .map(|definitions| definitions.keys().collect::<Vec<_>>())
+        .unwrap_or_default();
+    match facets.as_slice() {
+        [] => format!(
+            "the package `{name}` declares no definition facet, so no --dependency selects it: declare one in its Cargo.toml (`[package.metadata.krs.definitions.NAME]`) and pass `--dependency {name}:NAME`"
+        ),
+        [facet] => {
+            format!("select the package's definition facet: pass `--dependency {name}:{facet}`")
+        }
+        facets => format!(
+            "select one of the package's definition facets: pass {}",
+            facets
+                .iter()
+                .map(|facet| format!("`--dependency {name}:{facet}`"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        ),
+    }
 }
 
 /// The collector's output and the warnings of its collection, read from the diagnostic sidecar

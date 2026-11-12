@@ -155,6 +155,15 @@ pub struct CollectionError {
     item: Option<String>,
 }
 
+/// How a collection diagnostic names a host package, by its Cargo name and version: the
+/// spelling by which the command that planned the collection finds the package a
+/// [`CollectionErrorKind::PackageNotSelected`] diagnostic is about, to name the selection that
+/// holds it.
+#[must_use]
+pub fn host_package_label(cargo_name: &str, cargo_version: &str) -> String {
+    format!("host package `{cargo_name} {cargo_version}`")
+}
+
 impl CollectionError {
     pub(crate) fn new(kind: CollectionErrorKind, detail: impl Into<String>) -> Self {
         Self {

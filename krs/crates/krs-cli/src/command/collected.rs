@@ -204,7 +204,12 @@ impl PlannedCollection {
             target_directory,
             measurement,
         )?;
-        let collected = run_collector(&collector_directory, &executable, measurement)?;
+        let collected = run_collector(
+            &collector_directory,
+            &executable,
+            &self.metadata,
+            measurement,
+        )?;
         let bundle = measurement.timings.try_span("protocol.decode", |_| {
             DescriptorBundle::from_collector_protocol(&collected.stdout)
                 .map_err(CommandError::DescriptorProtocol)
