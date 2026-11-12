@@ -8,13 +8,22 @@ description: "Where KCore stands, as of kcore-spec cb071587 (2026-11-12): the go
 As of kcore-spec `cb071587`, 2026-11-12.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
+## Changed since you last read
+
+Newest first.
+
+- The reader now refuses a function with an `[owise]` equation beside another equation of priority 200 or more, whether or not the tie is used (decision 2 asks whether to keep refusing).
+- A frozen peano statement was corrected. `pred(N) = z for every N that is not s(_)` had no premise that N is a Nat. With `[owise]` as an ordinary clause of priority 200 ([lesson 5](/lean/evaluation)), `pred` has no value at a term that is not a Nat, so the statement is false; it was refuted in the kernel. It now carries the premise that N is a Nat. If you would rather keep the old statement and change the kernel, say so.
+
 ## The goal
+
+As of 2026-11-12.
 
 Every K definition we care about, read from kompile's own KORE, gets a Lean package that states soundness and completeness under well-formedness and a list of obligations, and a proof built on top of that package checks.
 
 | Definition | read | well-formed | obligations | sound and complete | used by a proof |
 | --- | --- | --- | --- | --- | --- |
-| imp | — | — | — | — | — |
+| imp | ✓ | ✓ | ✓ (none named) | ✓ | — |
 | KEVM | — | — | — | — | — |
 | wasm | — | — | — | — | — |
 | mir | — | — | — | — | — |
@@ -26,8 +35,10 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 - **sound and complete**: the generated package states both theorems for the definition.
 - **used by a proof**: one existing proof about the definition is rebuilt on the package.
 
-Today no row has its first column.
-All 15 examples are read from k-rust's KORE, not from kompile's.
+imp is read from kompile 7.1.337's own KORE (1,104 sentences, none refused, none unaccounted for).
+Two caveats: the package is not tied to the text, so the reader is trusted for it (decision 3); and the reading still contains one builtin constructor the text never declares, which is being removed.
+The peano and fprio examples are also read from kompile's own KORE now.
+The other 15 examples are read from k-rust's KORE.
 
 ## The core, layer by layer
 
@@ -63,6 +74,6 @@ Not trusted: the generator, the deciders, the executable evaluator and k-rust. T
 Each is a question you can answer by replying.
 
 1. **Strict Bool operations.** Today `A andBool B` has a value only when both `A` and `B` have one, and a definition that relies on short-circuiting carries an obligation per place it does. imp-sec's six such obligations are false, and parts of KEVM carry more, so those definitions would have to be rewritten with `ite` or guarded clauses. Keep the strict reading? (Recommended: yes.)
-2. **A priority above 200 beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority above 200 is refused today. Keep refusing, or read a priority above 200 as "after `[owise]`" and state where that differs from the KORE text?
+2. **A priority of 200 or above beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority 200 or above is refused today. The KORE text puts the `[owise]` equation after every other equation, while the kernel reads `[owise]` as priority 200, and the two differ wherever both equations apply. Keep refusing, or read a priority of 200 or above as "after `[owise]`" and state where that differs from the KORE text?
 3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
 4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.
