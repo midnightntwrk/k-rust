@@ -758,3 +758,56 @@ pub mod rest {
     assert!(print.contains("Cell(rest_2)"), "{print}");
     assert_eq!(readable_k.replace("Krs_RestLl", "Rest2"), printed_k);
 }
+
+/// Round 3, D1's twin: a collection's instance list that names no instance, its rest kept
+/// (`[..]`, `{ .. }`), matches every content of the collection, as `KCell(..)` matches every
+/// computation, so beside it a rule whose other patterns constrain nothing is
+/// `always-enabled-rule`. A rule about a group held by a collection (`for Th`) applies only
+/// where an instance exists, so it is never always enabled, whatever its patterns.
+#[test]
+fn an_item_less_instance_list_matches_every_collection() {
+    let rule = |body: &str| readable(body, false);
+    let group = |group: &str, body: &str| {
+        format!("k::rules! {{\n    for {group};\n    use Cmd::*;\n\n    {body}\n}}\n")
+    };
+    let lines = verdicts(&[
+        (
+            "list-collection",
+            rule("go: { aux: [..], job: [..] } => { aux: [Go(), ..], job: [..] };"),
+        ),
+        (
+            "list-leaf",
+            rule("go: { ll: [..], job: [..] } => { ll: [Go(), ..], job: [..] };"),
+        ),
+        (
+            "map-collection",
+            rule("go: { aux: [..], th: { .. } } => { aux: [Go(), ..], th: { .. } };"),
+        ),
+        (
+            "named-instance",
+            rule(
+                "go: { aux: [..], th: { Th { tid: 0, .. }, .. } } => { aux: [Go(), ..], th: { Th { tid: 0, .. }, .. } };",
+            ),
+        ),
+        (
+            "no-instance",
+            rule("go: { aux: [..], job: [] } => { aux: [Go(), ..], job: [] };"),
+        ),
+        (
+            "for-th-variable",
+            group("Th", "go: { tl: l } => { tl: [1, ..l] };"),
+        ),
+        (
+            "for-th-computation",
+            group("Th", "go: { tk: [..] } => { tk: [Go(), ..] };"),
+        ),
+    ]);
+    expect_test::expect![[r"
+        list-collection: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, or a collection's instance list that names no instance (`[..]`, `{ .. }`), which every content of the collection matches, and it has no requires guard
+        list-leaf: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a collection's instance list that names no instance (`[..]`, `{ .. }`), which every content of the collection matches, and it has no requires guard
+        map-collection: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, or a collection's instance list that names no instance (`[..]`, `{ .. }`), which every content of the collection matches, and it has no requires guard
+        named-instance: rule [go]: <aux> .K => go ... </aux> <th> <tid> 0 </tid> ... </th>
+        no-instance: rule [go]: <aux> .K => go ... </aux> <jobs> .Bag </jobs>
+        for-th-variable: rule [go]: <th> <tl> L:List => ListItem(1) L:List </tl> ... </th>
+        for-th-computation: rule [go]: <th> <tk> .K => go ... </tk> ... </th>"]].assert_eq(&lines.join("\n"));
+}

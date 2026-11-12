@@ -422,6 +422,26 @@ fn subject_path(tree: &ConfigurationTree<'_>, subject: Option<&DescriptorSubject
     }
 }
 
+/// Whether a sentence about `subject` in the configuration `configuration` applies only where an
+/// instance its subject's group is one of exists: the group lies below a `?` or `*` cell, whose
+/// instance a configuration may lack. A sentence about the whole configuration, or about a group
+/// at a fixed position, applies in every configuration its cells match.
+///
+/// # Errors
+///
+/// As [`configuration_tree`].
+pub(super) fn subject_may_be_absent(
+    configuration: &StableItemId,
+    subject: Option<&DescriptorSubject>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<bool, DescriptorLoweringError> {
+    if subject.is_none() {
+        return Ok(false);
+    }
+    let tree = configuration_tree(configuration, declarations)?;
+    Ok(!subject_path(&tree, subject).is_empty())
+}
+
 /// What a message calls the holder at `index`: `the optional cell `fpu``, `the Map collection
 /// cell `hart``.
 fn holder_text(tree: &ConfigurationTree<'_>, index: usize) -> String {

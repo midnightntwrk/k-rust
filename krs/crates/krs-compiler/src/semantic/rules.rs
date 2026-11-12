@@ -796,6 +796,7 @@ pub(super) fn check_step_effect(
             rule: Box::new(descriptor.id().clone()),
             range: step_range(descriptor, pattern_key)?,
             whole_sequence: clauses.iter().any(matches_whole_sequence),
+            whole_instances: clauses.iter().any(matches_every_instance),
         });
     }
     Ok(())
@@ -824,12 +825,23 @@ pub(super) fn matches_every_content(
     declared: Option<&SemanticSortRef>,
 ) -> bool {
     matches_whole_sequence(clause)
+        || matches_every_instance(clause)
         || clause.as_fixed().is_some_and(|clause| {
             matches!(
                 clause.before().kind(),
                 krs_ir_levels::SemanticTermKind::Variable { .. }
             ) && declared.is_some_and(|sort| sort == clause.before().sort())
         })
+}
+
+/// Whether `clause` matches a collection's instances by none of them, the rest kept (`[..]`,
+/// `{ .. }`): every content of the collection, none included.
+fn matches_every_instance(clause: &ConfigurationClause<SemanticId, SemanticTerm>) -> bool {
+    matches!(
+        clause,
+        ConfigurationClause::Instances(instances)
+            if instances.is_open() && instances.front().is_empty() && instances.back().is_empty()
+    )
 }
 
 /// Whether `clause` matches a computation by no item before its kept tail, `KCell(..)`.

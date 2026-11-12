@@ -1013,7 +1013,13 @@ pub(super) fn lower_configuration_rule_descriptor(
             descriptor,
             &rule.pattern_key,
             body.clauses(),
-            matches_every_configuration && requires.is_none(),
+            matches_every_configuration
+                && requires.is_none()
+                && !super::subjects::subject_may_be_absent(
+                    &rule.subject_configuration.configuration,
+                    rule.subject_configuration.subject.as_ref(),
+                    declarations,
+                )?,
         )?;
     }
     check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
