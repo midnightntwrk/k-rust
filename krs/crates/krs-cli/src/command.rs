@@ -33,6 +33,7 @@ mod collected;
 mod collector;
 mod compare;
 mod counters;
+mod definition_cache;
 mod exec;
 mod failed_items;
 mod output;
@@ -45,6 +46,7 @@ use collector::{
     rustc_host_target,
 };
 use counters::{count_bundle, count_definition};
+use definition_cache::{DefinitionCache, RunDefinition};
 use output::{prepare_output, remove_other_emitted, write_output};
 use result_cache::ResultCache;
 use stage_cache::StageCache;
@@ -93,7 +95,8 @@ impl CommandKind {
     }
 
     /// Whether a successful result is stored and restored by the result cache.
-    /// Runs and their relatives are never cached (they reuse only the compiled stage).
+    /// Runs and their relatives are never cached (they reuse the prepared definition and the
+    /// compiled stage).
     #[must_use]
     pub const fn reuses_results(self) -> bool {
         matches!(self, Self::Check | Self::EmitK | Self::Build)
@@ -518,10 +521,57 @@ fn execute_composed(
     *sources = crate::DiagnosticSources::from_plan(&plan);
     let collector_directory = generate_collector(metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &plan, None, measurement)?;
-    let cache = ResultCache::new(&collector_directory, &executable, request);
-    let reuse =
-        !request.no_reuse && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"));
-    if request.command.kind().reuses_results() && reuse {
+    if matches!(
+        request.command,
+        Command::Parse(_)
+            | Command::Run(_)
+            | Command::Search(_)
+            | Command::Prove(_)
+            | Command::Cases(_)
+            | Command::Compare(_)
+    ) {
+        let (definition, unstored) = run_definition(
+            request,
+            &plan,
+            &collector_directory,
+            &executable,
+            metadata,
+            Some(&plan),
+            measurement,
+        )?;
+        return execute_on(
+            definition,
+            unstored,
+            request,
+            &observer_dependencies,
+            sources,
+            metadata.workspace_root.as_deref().map(Path::new),
+            measurement,
+        );
+    }
+    lower_and_execute(
+        request,
+        metadata,
+        &plan,
+        &collector_directory,
+        &executable,
+        measurement,
+    )
+}
+
+/// A command of `request` that reads the whole lowering (`check`, `expand`, `emit-k`, `build`),
+/// whose collector `executable` Cargo has just brought up to date in `collector_directory`:
+/// its stored result restored, or the package collected, lowered and judged.
+fn lower_and_execute(
+    request: &CommandRequest,
+    metadata: &crate::CargoMetadata,
+    plan: &CollectorPlan,
+    collector_directory: &Path,
+    executable: &Path,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    let cache = ResultCache::new(collector_directory, executable, request);
+    if request.command.kind().reuses_results() && reuses(request) {
         let started = std::time::Instant::now();
         if let Some(outcome) = cache.restore(request, &mut measurement.counters)? {
             measurement
@@ -532,10 +582,10 @@ fn execute_composed(
         }
     }
     let collected = run_collector(
-        &collector_directory,
-        &executable,
+        collector_directory,
+        executable,
         metadata,
-        Some(&plan),
+        Some(plan),
         measurement,
     )?;
     let read_set = collected.read_set;
@@ -548,7 +598,7 @@ fn execute_composed(
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
-        &plan,
+        plan,
         request.profile,
         retain,
         measurement,
@@ -563,7 +613,7 @@ fn execute_composed(
         Command::Expand { output } => measurement
             .timings
             .try_span("expand.render", |_| {
-                expand(&prepared, &plan, output.as_deref())
+                expand(&prepared, plan, output.as_deref())
             })
             .map(CommandExecution::without_artifacts),
         Command::EmitK { output, ir } => emit(&prepared, output, *ir, measurement),
@@ -573,22 +623,14 @@ fn execute_composed(
         | Command::Search(_)
         | Command::Prove(_)
         | Command::Cases(_)
-        | Command::Compare(_) => exec_command(
-            &prepared,
-            request,
-            &observer_dependencies,
-            sources,
-            metadata.workspace_root.as_deref().map(Path::new),
-            reuse,
-            measurement,
-        ),
+        | Command::Compare(_) => unreachable!("an executing command returned above"),
     };
     // `KRS_CHECK_EXPANDS=1`: a package `krs check` accepts has a printed form (S6 defines a
     // readable rule as the rule `krs expand` prints).
     if let Command::Check { .. } = &request.command
         && outcome.is_ok()
         && check_expands()
-        && let Err(error) = expansion(&prepared, &plan)
+        && let Err(error) = expansion(&prepared, plan)
     {
         outcome = Err(CommandError::CheckDisagreement(format!(
             "KRS_CHECK_EXPANDS: krs check passed, but krs expand refuses the package: {error}"
@@ -753,13 +795,45 @@ fn plan_collector(
     })
 }
 
+/// An executing command of `request` on `definition`, which is then released.
+/// A definition the frontend just lowered comes with its record `unstored`, which is stored
+/// while the command runs: storing checks that the record decodes to the same definition,
+/// which the run need not wait for.
+fn execute_on(
+    definition: RunDefinition,
+    unstored: Option<Unstored>,
+    request: &CommandRequest,
+    observer_dependencies: &[FacetSelector],
+    sources: &mut crate::DiagnosticSources,
+    workspace_root: Option<&Path>,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    let outcome = std::thread::scope(|scope| {
+        if let Some(unstored) = unstored {
+            let definition = &definition;
+            scope.spawn(move || unstored.store(definition));
+        }
+        exec_command(
+            &definition,
+            request,
+            observer_dependencies,
+            sources,
+            workspace_root,
+            reuses(request),
+            measurement,
+        )
+    });
+    measurement.timings.span("release", |_| drop(definition));
+    outcome.map(|value| value.outcome)
+}
+
 /// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings ([`definition_warnings`]), the trusted claims `prove` assumes, and the stage-cache warning to its outcome or its failure.
 ///
 /// `observer_dependencies` are the dependency facets the definition's closure does not hold, which
 /// the observers compose ([`composed_dependencies`]); an observer's diagnostics are rendered with
 /// its packages' sources, which `sources` gains.
 fn exec_command(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     request: &CommandRequest,
     observer_dependencies: &[FacetSelector],
     sources: &mut crate::DiagnosticSources,
@@ -768,15 +842,15 @@ fn exec_command(
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
     // The warnings hold whatever the run's verdict: a failure reports them too.
-    let mut warnings = definition_warnings(prepared);
+    let mut warnings = prepared.warnings().clone();
     if matches!(request.command, Command::Prove(_)) {
-        push_trusted_claim_warnings(prepared, &mut warnings);
+        push_trusted_claim_warnings(prepared.definition(), &mut warnings);
     }
     // krs-exec compiles the definition natively in the symbolic dialect.
-    require_route(prepared.lowered.definition(), Route::NativeRust)
+    require_route(prepared.definition(), Route::NativeRust)
         .map_err(|error| error.warned(warnings.clone()))?;
     let (stage_cache, refused_store) =
-        match StageCache::new(prepared.lowered.definition(), workspace_root) {
+        match StageCache::new(prepared.definition_sha256(), workspace_root) {
             Ok(cache) => (cache, None),
             Err(refused) => (None, Some(refused)),
         };
@@ -848,7 +922,7 @@ fn exec_command(
     reason = "The comparison takes exec_command's prepared definition, request and observers' inputs."
 )]
 fn execute_compare(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     request: &CommandRequest,
     compare: &CompareRequest,
     observer_dependencies: &[FacetSelector],
@@ -878,7 +952,8 @@ fn execute_compare(
             },
         );
     }
-    let read = compare::read(compare).map_err(|failure| failure.into_command_error(prepared))?;
+    let read = compare::read(compare)
+        .map_err(|failure| failure.into_command_error(prepared.source_map()))?;
     let observer = compare::observer_name(compare, &read)
         .map(|name| prepare_observer(request, name, workspace_root))
         .transpose()
@@ -925,7 +1000,7 @@ fn execute_compare(
     reason = "The batch takes exec_command's prepared definition, request and observers' inputs."
 )]
 fn execute_cases(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     request: &CommandRequest,
     cases: &CasesRequest,
     observer_dependencies: &[FacetSelector],
@@ -1283,11 +1358,13 @@ fn prepare_observer_with(
     let outside = outside_the_graph(package, &request.manifest_path, &metadata);
     let (prepared, _) = composed_facet(request, selector, &metadata, sources, composed)
         .map_err(|error| observer_refusal(name, Some(&outside), &error))?;
-    require_route(prepared.lowered.definition(), Route::NativeRust).map_err(refuse)?;
-    let definition = prepared.lowered.definition().clone();
+    require_route(prepared.definition(), Route::NativeRust).map_err(refuse)?;
     // A store inside the workspace is not used, as for the definition the case runs on, whose
     // command warns about it.
-    let cache = StageCache::new(&definition, workspace_root).ok().flatten();
+    let cache = StageCache::new(prepared.definition_sha256(), workspace_root)
+        .ok()
+        .flatten();
+    let definition = prepared.into_definition();
     Ok(Some(exec::ObserverDefinition { definition, cache }))
 }
 
@@ -1303,7 +1380,7 @@ fn composed_facet(
     metadata: &crate::CargoMetadata,
     sources: &mut crate::DiagnosticSources,
     composed: &mut Vec<FacetSelector>,
-) -> Result<(PreparedDefinition, CollectorPlan), CommandError> {
+) -> Result<(RunDefinition, CollectorPlan), CommandError> {
     let measurement = &mut Measurement::disabled();
     let given = request
         .dependencies
@@ -1338,16 +1415,86 @@ fn composed_facet(
     *sources = crate::DiagnosticSources::from_plan(&plan);
     let directory = generate_collector(metadata, &plan, measurement)?;
     let executable = build_collector_measured(&directory, &plan, None, measurement)?;
-    let collected = run_collector(&directory, &executable, metadata, None, measurement)?;
+    let (prepared, unstored) = run_definition(
+        &composition,
+        &plan,
+        &directory,
+        &executable,
+        metadata,
+        None,
+        measurement,
+    )?;
+    if let Some(unstored) = unstored {
+        unstored.store(&prepared);
+    }
+    Ok((prepared, plan))
+}
+
+/// Whether `request` may restore what an earlier command stored (`--no-reuse` and
+/// `KRS_NO_REUSE=1` forbid it).
+fn reuses(request: &CommandRequest) -> bool {
+    !request.no_reuse && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"))
+}
+
+/// What an executing command reads of the definition `request` composes, whose collector
+/// `executable` Cargo has just brought up to date in `directory`: restored from the
+/// composition's record when everything the frontend's work is a function of is unchanged
+/// ([`definition_cache`]), else collected and lowered as every command does, and stored.
+/// `request` does not restore under `--no-reuse`. A definition the frontend lowered comes with
+/// its record still to store ([`Unstored::store`]), which is stored under `--no-reuse` too.
+/// `declares` is [`run_collector`]'s. The counter `definition.reused` says which happened.
+fn run_definition(
+    request: &CommandRequest,
+    plan: &CollectorPlan,
+    directory: &Path,
+    executable: &Path,
+    metadata: &crate::CargoMetadata,
+    declares: Option<&CollectorPlan>,
+    measurement: &mut Measurement,
+) -> Result<(RunDefinition, Option<Unstored>), CommandError> {
+    let cache = DefinitionCache::new(directory, executable, request);
+    if reuses(request) {
+        let started = std::time::Instant::now();
+        if let Some(definition) = cache.restore(&mut measurement.counters) {
+            measurement
+                .timings
+                .record("definition.reuse", started.elapsed().as_secs_f64(), 0);
+            measurement.counters.set("definition.reused", 1u64);
+            return Ok((definition, None));
+        }
+    }
+    measurement.counters.set("definition.reused", 0u64);
+    let collected = run_collector(directory, executable, metadata, declares, measurement)?;
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
-        &plan,
-        composition.profile,
+        plan,
+        request.profile,
         false,
         measurement,
     )?;
-    Ok((prepared, plan))
+    let Measurement { timings, counters } = measurement;
+    let (definition, lowered) = timings.span("definition.keep", |_| {
+        RunDefinition::new(prepared, collected.read_set, counters)
+    });
+    Ok((
+        definition,
+        lowered.map(|lowered| Unstored { cache, lowered }),
+    ))
+}
+
+/// The record of a definition the frontend just lowered, still to store.
+struct Unstored {
+    cache: DefinitionCache,
+    lowered: definition_cache::Lowered,
+}
+
+impl Unstored {
+    /// Store the record of `definition`, the one it was made with
+    /// ([`DefinitionCache::store`]).
+    fn store(self, definition: &RunDefinition) {
+        self.cache.store(definition, self.lowered);
+    }
 }
 
 /// A KRS patterns package's Definition IR, prepared for `krs kink` ([`patterns_definition`]),
@@ -1383,7 +1530,7 @@ pub(crate) fn patterns_definition(
         .map_err(refuse);
     match prepared {
         Ok((prepared, plan)) => Ok(PatternsDefinition {
-            definition: prepared.lowered.definition().clone(),
+            definition: prepared.into_definition(),
             roots: plan
                 .facets()
                 .iter()
@@ -1969,10 +2116,10 @@ fn extend_unique(reports: &mut crate::DiagnosticReports, more: crate::Diagnostic
 /// Appends one `krs::emit::trusted-claim` warning per trusted claim (KF-042): every
 /// Haskell build and every prove run names the claims it assumes without proof.
 fn push_trusted_claim_warnings(
-    prepared: &PreparedDefinition,
+    definition: &krs_ir_levels::DefinitionIr,
     reports: &mut crate::DiagnosticReports,
 ) {
-    for diagnostic in krs_compiler::trusted_claim_warnings(prepared.lowered.definition()) {
+    for diagnostic in krs_compiler::trusted_claim_warnings(definition) {
         reports.push(diagnostic, DiagnosticStage::Analysis);
     }
 }
@@ -2390,7 +2537,7 @@ fn finish_native(
     })?;
     let mut warnings = definition_warnings(prepared);
     if backend == Backend::Haskell {
-        push_trusted_claim_warnings(prepared, &mut warnings);
+        push_trusted_claim_warnings(prepared.lowered.definition(), &mut warnings);
     }
     // Only concrete execution needs what these warnings name: `ensures`
     // conditions it does not assume, and equations for `smt_hook` functions.

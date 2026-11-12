@@ -27,6 +27,7 @@ use krs_ir::measure::{Measurement, Timings};
 use krs_ir_levels::DefinitionIr;
 use serde_json::json;
 
+use super::definition_cache::RunDefinition;
 use super::stage_cache::StageCache;
 use super::supervisor::{self, ProveOutput};
 use super::{
@@ -281,7 +282,7 @@ pub(super) fn load_observer(
 /// `read` is what was read of a `run`'s or `search`'s case before the definition was loaded: the
 /// case, and the observer definition its views are evaluated in, when it names one.
 pub(super) fn execute(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     command: &Command,
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
@@ -290,7 +291,7 @@ pub(super) fn execute(
 ) -> Result<CommandOutcome, CommandError> {
     let sources = sources.clone();
     let timings = &mut measurement.timings;
-    let definition = prepared.lowered.definition();
+    let definition = prepared.definition();
     let mut reused = false;
     let reused_flag = &mut reused;
     let mut spec_reused = None;
@@ -392,7 +393,7 @@ pub(super) fn execute(
             .counters
             .set("spec_stage.reused", u64::from(reused));
     }
-    result.map_err(|failure| failure.into_command_error(prepared))
+    result.map_err(|failure| failure.into_command_error(prepared.source_map()))
 }
 
 /// Whether `command` reports the backend's work counters (`krs_exec::work`), which it then turns
@@ -454,7 +455,7 @@ pub(super) fn judge(
             .join()
             .map_err(|_| CommandError::InvalidRequest("the check worker panicked".into()))
     })?;
-    result.map_err(|failure| failure.into_command_error(prepared))
+    result.map_err(|failure| failure.into_command_error(Some(prepared.lowered.source_map())))
 }
 
 /// Restore the proof definition of the author spec module `module` from the stage cache, or compile and store it, and load it into `semantics`; returns whether it was restored.
@@ -509,11 +510,17 @@ impl Failure {
         }
     }
 
-    pub(super) fn into_command_error(self, prepared: &PreparedDefinition) -> CommandError {
+    /// The command's error: a native compile's diagnostics are located by `source_map`, the
+    /// definition's, and are unlocated without one.
+    pub(super) fn into_command_error(
+        self,
+        source_map: Option<&krs_compiler::SourceMap>,
+    ) -> CommandError {
         match self {
-            Self::Exec(ExecError::Compile(error)) => {
-                native_command_error(prepared.lowered.source_map(), error)
-            }
+            Self::Exec(ExecError::Compile(error)) => match source_map {
+                Some(source_map) => native_command_error(source_map, error),
+                None => CommandError::Native(error),
+            },
             Self::Exec(error) => CommandError::Exec(error),
             Self::Usage(message) => CommandError::Usage(message),
             Self::Serialization(error) => CommandError::Serialization(error),

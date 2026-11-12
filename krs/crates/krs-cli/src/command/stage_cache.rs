@@ -12,7 +12,6 @@
 
 use super::result_cache::{Executable, executable};
 use krs_exec::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
-use krs_ir_levels::DefinitionIr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -86,24 +85,24 @@ impl StoreInsideWorkspace {
 }
 
 impl StageCache {
-    /// The entry for `definition`: `Ok(None)` when there is no usable store, and an error when the store lies inside the input's Cargo workspace.
+    /// The entry for the definition whose canonical JSON has the SHA-256 `definition_sha256` (`None` for a definition without one, which has no entry): `Ok(None)` when there is no usable store, and an error when the store lies inside the input's Cargo workspace.
     pub(super) fn new(
-        definition: &DefinitionIr,
+        definition_sha256: Option<&str>,
         workspace_root: Option<&Path>,
     ) -> Result<Option<Self>, StoreInsideWorkspace> {
         let Some(root) = store_root(std::env::var_os(STAGE_CACHE_VARIABLE), workspace_root)? else {
             return Ok(None);
         };
-        Ok(Self::at(root, definition))
+        Ok(definition_sha256.and_then(|digest| Self::at(root, digest)))
     }
 
-    fn at(root: PathBuf, definition: &DefinitionIr) -> Option<Self> {
+    fn at(root: PathBuf, definition_sha256: &str) -> Option<Self> {
         let krs = executable(&std::env::current_exe().ok()?, true)?;
         let key = Key {
             stage_format: STAGE_FORMAT.to_owned(),
             krs_version: env!("CARGO_PKG_VERSION").to_owned(),
             krs,
-            definition_ir_sha256: definition_sha256(definition)?,
+            definition_ir_sha256: definition_sha256.to_owned(),
             spec_module: None,
         };
         Self::keyed(root, key)
@@ -314,23 +313,14 @@ fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// The SHA-256 of the Definition IR's canonical JSON, streamed into the hasher: the key needs the
-/// digest, not the text, which is hundreds of megabytes for a large definition.
-fn definition_sha256(definition: &DefinitionIr) -> Option<String> {
-    let mut hasher = Sha256::new();
-    let mut buffered = std::io::BufWriter::with_capacity(1 << 16, &mut hasher);
-    definition.write_canonical_json(&mut buffered).ok()?;
-    buffered.flush().ok()?;
-    drop(buffered);
-    Some(format!("{:x}", hasher.finalize()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use krs_ir_levels::DefinitionIr;
 
-    /// The streamed digest is the digest of the canonical bytes, so the key, and every stored
-    /// entry's meaning, is that of the Definition IR's canonical JSON.
+    /// The key's digest is that of the Definition IR's canonical JSON
+    /// (`RunDefinition::definition_sha256`), which is the golden text itself, so every stored
+    /// entry's meaning is that of the canonical JSON.
     #[test]
     fn the_definition_digest_is_that_of_the_canonical_json() {
         let golden = include_bytes!("../../../krs-ir-levels/tests/golden/definition_foo_bar.json");
@@ -338,7 +328,6 @@ mod tests {
             krs_ir::json::from_slice(golden).expect("golden Definition IR");
         let canonical = definition.to_canonical_json().unwrap();
         assert_eq!(canonical.as_bytes(), golden);
-        assert_eq!(definition_sha256(&definition), Some(sha256(golden)));
     }
 
     #[test]

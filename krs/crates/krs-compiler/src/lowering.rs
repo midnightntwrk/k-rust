@@ -64,6 +64,13 @@ impl LoweredDefinition {
         &self.source_map
     }
 
+    /// The Definition IR and its source map, owned, without the other sidecars: what a command
+    /// that executes the definition reads of a lowering.
+    #[must_use]
+    pub fn into_definition_and_source_map(self) -> (DefinitionIr, SourceMap) {
+        (self.definition, self.source_map)
+    }
+
     /// Returns the program-syntax partition of every package.
     #[must_use]
     pub const fn partition(&self) -> &Partition {

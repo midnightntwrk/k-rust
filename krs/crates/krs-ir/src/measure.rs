@@ -58,10 +58,12 @@
 //! | `collector.generate` | render and write the collector package |
 //! | `collector.build` | `cargo build` of the generated collector package |
 //! | `result.reuse` | validate and restore a cached successful result |
+//! | `definition.reuse` | `parse`, `run`, `search`, `prove`, `cases`, `compare`: validate and restore the prepared definition's record, in place of `collector.run`, `protocol.decode`, `semantic.lower`, `definition.lower` and `definition.keep` |
 //! | `collector.run` | execute the built collector binary, with children below |
 //! | `protocol.decode` | decode collector stdout as a descriptor bundle |
 //! | `semantic.lower` | descriptor bundle to semantic theory |
 //! | `definition.lower` | semantic theory to Definition IR and sidecars |
+//! | `definition.keep` | `parse`, `run`, `search`, `prove`, `cases`, `compare`, after the lowerings: keep what the command reads of them (the Definition IR, its canonical JSON and digest, the source map, the warnings) and drop the rest |
 //! | `expand.render` | `expand`: select, reread, and render the source |
 //! | `emit_k.emit` | `emit-k`, `check`: K emission, with the symbol and source maps |
 //! | `emit_k.render` | `emit-k`: canonical JSON rendering of the artifacts |
@@ -139,6 +141,7 @@
 //! | `emit_k.bytes.<artifact>` | `emit-k` artifact bytes |
 //! | `native.omitted_claims`, `native.bytes.<artifact>` | `build` KORE bytes |
 //! | `result.reused` | 1 when a saved result was restored, otherwise 0 |
+//! | `definition.reused` | `parse`, `run`, `search`, `prove`, `cases`, `compare`: 1 when the prepared definition was restored from its record, otherwise 0; the frontend's counters are then those recorded when the record was stored |
 //! | `stage.reused` | `parse`, `run`, `search`, `prove`: 1 when the compiled stage was restored from the stage cache, otherwise 0 |
 //! | `rewrite.*`, `execution.*`, `matching.*`, `unification.*`, `simplify.*`, `smt.*`, `search.*`, `term.*`, `coverage.*` | `run`, `search`: the work counters of the k-rust backend, by k-rust's names, for the run itself (the definition's load is not counted), zeros included: `rewrite.rules_applied` is the steps the run took and `rewrite.steps` the states the execution loop visited (more: the end state is visited and takes no step), `rewrite.rule_attempts` the rule applications it tried, `simplify.equation_attempts` the function equations it tried, `matching.pairs` the pattern and subject pairs the matcher processed, `smt.queries` the solver queries |
 //!

@@ -41,11 +41,12 @@ use krs_ir::measure::{Measurement, Timings};
 use krs_ir_levels::DefinitionIr;
 use serde_json::json;
 
+use super::definition_cache::RunDefinition;
 use super::exec::{
     self, Checked, ConditionSource, Failure, Inputs, ObserverDefinition, Run, SelectedCase,
     StageReuse, WORKER_STACK,
 };
-use super::{CommandError, CommandOutcome, PreparedDefinition, exit_status};
+use super::{CommandError, CommandOutcome, exit_status};
 use crate::DiagnosticSources;
 
 /// The schema every record of `krs cases --output json` names. Version 2 records a case with
@@ -97,14 +98,14 @@ const AHEAD_PER_WORKER: usize = 4;
 
 /// Run the cases of `request` on the prepared definition, its stage restored or compiled once.
 pub(super) fn execute(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     request: &CasesRequest,
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
     observers: &PrepareObserver<'_>,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
-    let definition = prepared.lowered.definition();
+    let definition = prepared.definition();
     let timings = &mut measurement.timings;
     let mut reused = false;
     let reused_flag = &mut reused;
@@ -132,7 +133,7 @@ pub(super) fn execute(
             .map_err(|_| CommandError::InvalidRequest("the cases worker panicked".into()))
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
-    result.map_err(|failure| failure.into_command_error(prepared))
+    result.map_err(|failure| failure.into_command_error(prepared.source_map()))
 }
 
 /// An observer definition, prepared and compiled once, which each worker loads on first use.

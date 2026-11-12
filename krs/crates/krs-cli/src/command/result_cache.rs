@@ -291,6 +291,46 @@ fn request_key(request: &CommandRequest) -> String {
     serde_json::to_string(&key).expect("cache request serialization cannot fail")
 }
 
+/// What of a request selects the composition the frontend lowers, and so the prepared
+/// definition ([`super::definition_cache`]): the manifest, the root facet, the dependency
+/// facets (those the command line gives and those the root facet declares, which
+/// [`super::composed_request`] adds), the KRS cfg values, the registration mode, and the raw-K
+/// profile. The command and its options are not read by the frontend.
+pub(super) fn composition_key(request: &CommandRequest) -> String {
+    #[derive(Serialize)]
+    struct Composition<'a> {
+        manifest_path: &'a [u8],
+        root: &'a FacetSelector,
+        dependencies: &'a [FacetSelector],
+        cfg: &'a [KrsCfg],
+        registration: &'static str,
+        profile: Option<&'static str>,
+    }
+    let CommandRequest {
+        command: _,
+        manifest_path,
+        root,
+        dependencies,
+        cfg,
+        registration,
+        no_reuse: _,
+        message_format: _,
+        profile,
+    } = request;
+    let key = Composition {
+        manifest_path: manifest_path.as_os_str().as_bytes(),
+        root,
+        dependencies,
+        cfg,
+        registration: match registration {
+            RegistrationMode::Inventory => "inventory",
+            RegistrationMode::Explicit => "explicit",
+        },
+        profile: profile.map(krs_ir::RawKProfile::as_str),
+    };
+    serde_json::to_string(&key).expect("composition key serialization cannot fail")
+}
+
 pub(super) fn executable(path: &Path, krs: bool) -> Option<Executable> {
     let metadata = fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
@@ -304,7 +344,9 @@ pub(super) fn executable(path: &Path, krs: bool) -> Option<Executable> {
     })
 }
 
-fn read_set_matches(read_set: &CollectorReadSet) -> bool {
+/// Whether every file `read_set` names still has the content it had, and every path it probed
+/// still resolves as it did.
+pub(super) fn read_set_matches(read_set: &CollectorReadSet) -> bool {
     for (path, expected) in &read_set.files {
         let Ok(bytes) = fs::read(path) else {
             return false;
@@ -323,7 +365,7 @@ fn read_set_matches(read_set: &CollectorReadSet) -> bool {
     true
 }
 
-fn sha256(bytes: &[u8]) -> String {
+pub(super) fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 fn valid_name(name: &str) -> bool {

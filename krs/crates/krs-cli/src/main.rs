@@ -414,7 +414,9 @@ the verb, and so are the list flags of the Usage lines that name a kink-flow ope
 --mutations, query --patterns, fuzz --templates); every other option is the kink-flow
 verb's own. krs kink VERB --help lists the verb's options, kink-flow's included. A usage
 error prints its message, the verb's usage line and where its options are listed. Every
-command that builds the package builds it in process, so krs kink takes no --no-reuse.
+command that builds the package builds it in process, so krs kink takes no --no-reuse; an
+observer's or a patterns package's definition is restored from its record as a run's is,
+unless KRS_NO_REUSE=1.
 ";
 
 /// Each verb of `krs kink` with its usage line, as [`KINK_USAGE`] lists it.

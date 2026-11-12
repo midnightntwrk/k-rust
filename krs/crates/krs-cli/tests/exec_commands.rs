@@ -886,6 +886,149 @@ fn the_compiled_stage_is_reused_from_the_stage_cache_and_never_changes_a_result(
     assert!(!stderr(&cold).contains("krs::exec::stage-cache"));
 }
 
+/// The definition records (`krs-definition.bin`) of the collectors generated for the package at
+/// `manifest`, in the fixture target `target`.
+fn definition_records(target: &Path, manifest: &Path) -> Vec<PathBuf> {
+    let project = manifest.parent().unwrap();
+    let dependency_path = format!(
+        "path = {}",
+        toml_edit::Value::from(project.to_string_lossy().as_ref())
+    );
+    let mut records = fs::read_dir(target.join("krs/collectors"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|directory| {
+            fs::read_to_string(directory.join("Cargo.toml"))
+                .is_ok_and(|manifest| manifest.contains(&dependency_path))
+        })
+        .map(|directory| directory.join("krs-definition.bin"))
+        .filter(|record| record.exists())
+        .collect::<Vec<_>>();
+    records.sort();
+    records
+}
+
+/// RUN-WARM-START: a command that executes the definition restores what it reads of the
+/// frontend's work (the Definition IR, its source map, the definition's warnings) from the
+/// record an earlier command stored, and then runs neither the collector nor the lowerings.
+/// The record is the definition's, not a run's: another depth, another output and another
+/// command restore it. It is restored only while what the frontend read is what it was: an
+/// edited source is lowered again, and its run is the edited definition's. `--no-reuse` and a
+/// damaged record lower again, and never change a result.
+#[test]
+fn the_prepared_definition_is_restored_until_a_source_changes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), &tour_minimal());
+    let cache = temporary.path().join("stage-cache");
+    let counters = temporary.path().join("counters.json");
+    let arguments = ["--trace", "--output", "json"];
+    let run = |arguments: &[&str]| {
+        let (output, document) = krs_counted(
+            target.path(),
+            &manifest,
+            &cache,
+            &counters,
+            "run",
+            arguments,
+        );
+        let reused = document["counters"]["definition.reused"].as_u64().unwrap();
+        (output, document, reused)
+    };
+    // What the frontend counted, which a restored definition reports as it was counted.
+    let frontend = |document: &Value| {
+        document["counters"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| {
+                [
+                    "bundle.",
+                    "descriptors.",
+                    "declarations.",
+                    "semantic.",
+                    "definition.modules",
+                ]
+                .iter()
+                .any(|family| name.starts_with(family))
+            })
+            .map(|(name, value)| (name.clone(), value.as_u64().unwrap()))
+            .collect::<Vec<_>>()
+    };
+
+    let (cold, cold_counters, reused) = run(&arguments);
+    assert_eq!(reused, 0);
+    assert_eq!(json(&cold)["run"]["steps"], 1);
+    assert!(!frontend(&cold_counters).is_empty(), "{cold_counters:#}");
+    let records = definition_records(target.path(), &manifest);
+    assert_eq!(records.len(), 1, "one record for one composition");
+
+    let (warm, warm_counters, reused) = run(&arguments);
+    assert_eq!(reused, 1);
+    assert_eq!(warm_counters["counters"]["stage.reused"], 1);
+    assert_eq!(warm.stdout, cold.stdout);
+    assert_eq!(warm.stderr, cold.stderr);
+    assert_eq!(frontend(&warm_counters), frontend(&cold_counters));
+    // The restored definition keeps the authored trace origin.
+    assert_eq!(
+        json(&warm)["run"]["trace"][0]["origin"]["file"],
+        "src/lib.rs"
+    );
+
+    // What a run gives is not the definition's: another depth and another output restore the
+    // record, and so does another command.
+    let (stopped, _, reused) = run(&["--depth", "0", "--output", "json"]);
+    assert_eq!(reused, 1);
+    assert_eq!(json(&stopped)["run"]["steps"], 0);
+    let (_, searched) = krs_counted(
+        target.path(),
+        &manifest,
+        &cache,
+        &counters,
+        "search",
+        &["--output", "json"],
+    );
+    assert_eq!(searched["counters"]["definition.reused"], 1);
+
+    // `--no-reuse` lowers again and stores the record again.
+    let mut no_reuse = arguments.to_vec();
+    no_reuse.push("--no-reuse");
+    let (fresh, _, reused) = run(&no_reuse);
+    assert_eq!(reused, 0);
+    assert_eq!(fresh.stdout, cold.stdout);
+    assert_eq!(run(&arguments).2, 1);
+
+    // A damaged record is a miss, and the run replaces it.
+    let mut bytes = fs::read(&records[0]).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    fs::write(&records[0], bytes).unwrap();
+    let (repaired, _, reused) = run(&arguments);
+    assert_eq!(reused, 0);
+    assert_eq!(repaired.stdout, cold.stdout);
+    assert_eq!(run(&arguments).2, 1);
+
+    // An edited source is lowered again: the run is the edited definition's, which starts at
+    // `bar` and takes no step.
+    let source = manifest.parent().unwrap().join("src/lib.rs");
+    let authored = fs::read_to_string(&source).unwrap();
+    let edited = authored.replace("krs::k![Object::Foo()]", "krs::k![Object::Bar()]");
+    assert_ne!(edited, authored);
+    fs::write(&source, edited).unwrap();
+    let (changed, _, reused) = run(&arguments);
+    assert_eq!(reused, 0);
+    assert_eq!(json(&changed)["run"]["steps"], 0);
+    let (again, _, reused) = run(&arguments);
+    assert_eq!(reused, 1);
+    assert_eq!(again.stdout, changed.stdout);
+
+    // The source as it was is lowered again too, and runs as it did.
+    fs::write(&source, authored).unwrap();
+    let (restored, _, reused) = run(&arguments);
+    assert_eq!(reused, 0);
+    assert_eq!(restored.stdout, cold.stdout);
+}
+
 /// `krs run --counters` reports the backend's work counters for the run: the keys the engine
 /// work is read from are present, zeros included, the rules applied are the steps the run
 /// reports, and the counts are those of the run alone, the same from a stage compiled anew and

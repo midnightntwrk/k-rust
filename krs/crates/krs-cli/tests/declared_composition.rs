@@ -274,6 +274,63 @@ fn flags_replace_a_declared_kind_and_the_same_composition_is_the_same_definition
     assert!(!other_cfg.contains(EXTENDED), "{other_cfg}");
 }
 
+/// RUN-WARM-START: the prepared definition a run restores is its own composition's. A run
+/// restores the record an earlier run of the same composition stored; another cfg value or
+/// another dependency facet, given by a flag or by the facet's declaration, is another
+/// definition, which is lowered: its record is not the first composition's, whose runs go on
+/// restoring their own.
+#[test]
+fn a_run_restores_the_prepared_definition_of_its_own_composition_only() {
+    let workspace = Workspace::declared();
+    let counters = workspace.path("counters.json");
+    let run = |composition: &[&str]| {
+        let run = workspace.krs(
+            &[
+                &["run"][..],
+                &SELECTION,
+                composition,
+                &["--output", "end", "--counters", counters.to_str().unwrap()],
+            ]
+            .concat(),
+        );
+        assert!(run.status.success(), "{}", stderr(&run));
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&counters).unwrap()).unwrap();
+        let counted = |name: &str| document["counters"][name].as_u64().unwrap();
+        (
+            stdout(&run),
+            counted("definition.reused"),
+            counted("definition.modules"),
+        )
+    };
+
+    let (declared, reused, declared_modules) = run(&[]);
+    assert_eq!(reused, 0);
+    assert_eq!(run(&[]), (declared.clone(), 1, declared_modules));
+
+    // Another cfg value, then another dependency selection, by flags: each is lowered, and
+    // then restored by its own next run.
+    let (_, reused, _) = run(&["--cfg", "another"]);
+    assert_eq!(reused, 0);
+    assert_eq!(run(&["--cfg", "another"]).1, 1);
+    let (_, reused, one_dependency_modules) = run(&["--dependency", "base-semantics:base"]);
+    assert_eq!(reused, 0);
+    // The definition without the facet of `extra-semantics` is without its modules.
+    assert!(
+        one_dependency_modules < declared_modules,
+        "{one_dependency_modules} modules without the facet, {declared_modules} with it"
+    );
+    assert_eq!(run(&[]), (declared.clone(), 1, declared_modules));
+
+    // Another declaration, with the same command line: the definition the manifest now
+    // declares is lowered, not restored from the record of the one it declared.
+    workspace.declare("dependencies = [\"base-semantics:base\"]\n");
+    let (_, reused, modules) = run(&[]);
+    assert_eq!(reused, 0);
+    assert_eq!(modules, one_dependency_modules);
+    assert_eq!(run(&[]).1, 1);
+}
+
 /// An observer is composed with the definition and the dependency facets of its composition, so
 /// the observer of a definition with a declared composition composes the declared facets: the
 /// root's sources name `base-semantics`, which the observer holds without a `--dependency`.

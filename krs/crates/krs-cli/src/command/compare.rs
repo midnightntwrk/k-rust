@@ -92,11 +92,12 @@ use krs_ir_levels::DefinitionIr;
 use serde_json::{Value as Json, json};
 
 use super::cases::{PrepareObserver, write_stdout};
+use super::definition_cache::RunDefinition;
 use super::exec::{
     self, CaseFiles, Checked, Failure, Inputs, ObserverDefinition, SelectedCase, StageReuse,
     WORKER_STACK,
 };
-use super::{CommandError, CommandOutcome, PreparedDefinition, compared_status, exit_status};
+use super::{CommandError, CommandOutcome, compared_status, exit_status};
 use crate::DiagnosticSources;
 
 /// The schema `krs compare --output json` names.
@@ -477,7 +478,7 @@ fn read_side(file: &SideFile) -> Result<SideDocument, Failure> {
     reason = "The comparison takes exec_command's prepared definition, request and observers' inputs."
 )]
 pub(super) fn execute(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     request: &CompareRequest,
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
@@ -489,7 +490,7 @@ pub(super) fn execute(
     let sources = sources.clone();
     let conditions_named = conditions;
     let timings = &mut measurement.timings;
-    let definition = prepared.lowered.definition();
+    let definition = prepared.definition();
     let mut reused = false;
     let reused_flag = &mut reused;
     let result = std::thread::scope(|scope| {
@@ -560,7 +561,7 @@ pub(super) fn execute(
             .map_err(|_| CommandError::InvalidRequest("the compare worker panicked".into()))
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
-    result.map_err(|failure: Failure| failure.into_command_error(prepared))
+    result.map_err(|failure: Failure| failure.into_command_error(prepared.source_map()))
 }
 
 /// The observations part of a comparison ([module documentation](self)).
@@ -2284,7 +2285,7 @@ struct Job {
 /// stage restored or compiled once, each observer prepared by `observers` the first time a pair
 /// names it.
 pub(super) fn execute_pairs(
-    prepared: &PreparedDefinition,
+    prepared: &RunDefinition,
     request: &CompareRequest,
     sources: &DiagnosticSources,
     reuse: StageReuse<'_>,
@@ -2295,9 +2296,9 @@ pub(super) fn execute_pairs(
         unreachable!("execute_pairs is called for --pairs")
     };
     // The document is read before the definition is loaded, as a single comparison's sides are.
-    let pairs =
-        read_pairs(file, request).map_err(|failure| failure.into_command_error(prepared))?;
-    let definition = prepared.lowered.definition();
+    let pairs = read_pairs(file, request)
+        .map_err(|failure| failure.into_command_error(prepared.source_map()))?;
+    let definition = prepared.definition();
     let timings = &mut measurement.timings;
     let mut reused = false;
     let reused_flag = &mut reused;
@@ -2334,7 +2335,7 @@ pub(super) fn execute_pairs(
             .map_err(|_| CommandError::InvalidRequest("the compare worker panicked".into()))
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
-    result.map_err(|failure| failure.into_command_error(prepared))
+    result.map_err(|failure| failure.into_command_error(prepared.source_map()))
 }
 
 /// The batch: the definition and its compiled stage, which every worker loads once, and the
