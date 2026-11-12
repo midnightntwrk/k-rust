@@ -951,9 +951,6 @@ fn record_maps_as_terms(
                     && contains_top_level_arrow(map) =>
             {
                 let items = top_level_items(map.stream());
-                if let Some(rest) = named_rest_of(map) {
-                    return Err(named_child_map_rest_refusal(&rest));
-                }
                 if context == StateMacroContext::Expression && items.last().is_some_and(is_dots) {
                     let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
                         crate::cell_entry::EntryForm::Readable,
@@ -1030,12 +1027,14 @@ fn named_rest_of(map: &proc_macro2::Group) -> Option<Ident> {
     })
 }
 
-/// The refusal of a named rest `rest @ ..` in a map read that a group record's child writes in a
-/// readable rule, which no readable rule can use: no readable result writes a map over it and no
-/// readable condition reads it.
-fn named_child_map_rest_refusal(name: &Ident) -> ParseError {
+/// The refusal of a named rest `rest @ ..` in a map read that a group record's child writes at a
+/// readable record's top level (`gg: Gg { hm: { k -> v, rest @ .. }, .. }`), a stated limitation:
+/// the rest is the map's other entries, which that record, read as its children's own cells, has
+/// no binder for yet. A group record inside an instance or `Some(..)` is read as the group's term,
+/// where the rest is a map term ([`record_maps_as_terms`]).
+fn top_record_map_rest_refusal(name: &Ident) -> ParseError {
     let reason = format!(
-        "the subject names the rest of the map `..{name}` in a group record's child, which a readable rule can never use: no readable result writes a map over it and no readable condition reads it, so write `..`, or match the child whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`k::map![k -> v, rest @ ..]`) may put it back under other entries (`k::map![k -> w, ..rest]`)"
+        "not supported yet: the subject names the rest of the map `..{name}` in a group record's child at a readable record's top level, which reads that record as its children's own cells and binds no map rest there; write `..`, or match the group whole with a binder and read its map with `map::` functions; inside an instance or a `?` group's `Some(..)` the record names it (`og: Some(Og {{ om: {{ k -> v, {name} @ .. }}, .. }})`), and a `cells!` rule writes it `k::map![k -> v, {name} @ ..]` with `{name}: Map` declared"
     );
     crate::SyntaxError::new(
         crate::SyntaxErrorKind::InvalidListNotation { reason },
@@ -1912,7 +1911,7 @@ fn readable_record(
                 // A named rest binds a map no readable rule can use, as at an instance's group
                 // child ([`record_maps_as_terms`]).
                 if let Some(rest) = named_rest_of(map) {
-                    return Err(named_child_map_rest_refusal(&rest));
+                    return Err(top_record_map_rest_refusal(&rest));
                 }
                 // A map read's `..` is the map's anonymous rest, as at a record's top level.
                 StateTerm::Map(crate::state_macro::parse_map(

@@ -697,6 +697,23 @@ fn a_map_read_in_an_instance_or_present_group_record_is_its_twin_s() {
                 th("tg: Tg { gm: { 0 -> v, r @ .. }, .. }")
             )),
         ),
+        (
+            "named-twin",
+            cells(
+                "v: Int,\n    r: Map,\n    ",
+                &format!(
+                    "{go}, {}, out: {KC}Cell(_)",
+                    cth("tg: crate::Tg { gm: k::map![0 -> v, r @ ..], .. }")
+                ),
+                &format!("{kept}, out: {KC}Cell([v])"),
+            ),
+        ),
+        (
+            "named-top",
+            readable(
+                "go: { k: [Go(), ..], gg: Gg { hm: { 0 -> v, r @ .. }, .. }, out: _ } => { k: [..], out: [v] };",
+            ),
+        ),
     ];
     expect_test::expect![[r"
         read-og: rule [go]: <k> go => .K ... </k> <og> <om> 0 |-> V:KItem _ </om> <ov> _ </ov> </og> <out> _ => ListItem(V:KItem) </out>
@@ -712,7 +729,9 @@ fn a_map_read_in_an_instance_or_present_group_record_is_its_twin_s() {
         write-inst: rule [go]: <k> go => .K ... </k> <th> (<tg> <gm> _ </gm> <ga> MeTgGa:Int </ga> </tg> => <tg> <gm> .Map [ 0 <- 1 ] </gm> <ga> MeTgGa:Int </ga> </tg>) ... </th>
         write-inst-twin: rule [go]: <k> go => .K ... </k> <th> (<tg> <gm> _ </gm> <ga> MeTgGa:Int </ga> </tg> => <tg> <gm> .Map [ 0 <- 1 ] </gm> <ga> MeTgGa:Int </ga> </tg>) ... </th>
         read-in-result: error[krs::syntax::rust-syntax]: the entry of the cell `gm` reads a map (`{ k -> v, .. }`) in a result: a map read is a pattern, and a readable record's result has no map write yet (a stated limitation; a `cells!` result has `Cell(k::map![k -> v, ..])`)
-        named: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..r` in a group record's child, which a readable rule can never use: no readable result writes a map over it and no readable condition reads it, so write `..`, or match the child whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`k::map![k -> v, rest @ ..]`) may put it back under other entries (`k::map![k -> w, ..rest]`)"]].assert_eq(&table(&rows));
+        named: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> 0 |-> V:KItem R:Map </gm> <ga> _ </ga> </tg> ... </th> <out> _ => ListItem(V:KItem) </out>
+        named-twin: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> 0 |-> V:Int R:Map </gm> <ga> _ </ga> </tg> ... </th> <out> _ => ListItem(V:Int) </out>
+        named-top: error[krs::syntax::invalid-list-notation]: not supported yet: the subject names the rest of the map `..r` in a group record's child at a readable record's top level, which reads that record as its children's own cells and binds no map rest there; write `..`, or match the group whole with a binder and read its map with `map::` functions; inside an instance or a `?` group's `Some(..)` the record names it (`og: Some(Og { om: { k -> v, r @ .. }, .. })`), and a `cells!` rule writes it `k::map![k -> v, r @ ..]` with `r: Map` declared"]].assert_eq(&table(&rows));
 }
 
 /// Rules writing and reading a map in an instance's group record and reading one in a `?` group's
