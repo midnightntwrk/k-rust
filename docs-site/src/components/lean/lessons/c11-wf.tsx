@@ -1,50 +1,59 @@
 'use client'
 
 // Core lesson 11: well-formedness, the decidable check `coreOK` the theorems assume of a
-// semantics: its five conjuncts in words and in Lean; okAll's five parts; faithOK's thirteen
-// conditions as a table; a kernel-checked semantics whose theory has no model because one
-// condition fails. Every pane is kcore-spec's text at the manifest's commit.
+// semantics, which reads only what their proofs use: sortedOK (subsorts, clauses and rules well
+// sorted), faithCoreOK's twelve conditions as a table, a kernel-checked semantics whose theory has
+// no model because one condition fails, and the names apart. Every pane is kcore-spec's text at
+// the manifest's commit.
 
 import { type Source, coreCommit, coreFile, lineOf, slice, span } from '../data'
 import { type Lesson, note } from '../lesson'
 import { Rows } from '../viz'
 
-const coreOK = slice(coreFile('KcoreSpec/Statements.lean'), '/-- **The decidable conditions soundness and completeness assume of a semantics**', 'c.okAll && c.faithOK && c.hooksApart && c.predsApart && c.idsOK')
+const coreOK = slice(coreFile('KcoreSpec/Statements.lean'), '/-- **The decidable conditions soundness and completeness assume of a semantics**', 'c.sortedOK && c.faithCoreOK && c.hooksApart && c.predsApart && c.idsOK')
 const tie = coreFile('KcoreSpec/Tie.lean')
-const okAll = slice(tie, '/-- The definition is well-formed: as `ok`', 'c.declsOK && c.subsortsOK && c.inhabited && c.fnsOKAll && c.rules.all c.ruleOKAll')
+const sorted = slice(tie, '/-- **The semantics is well sorted**', 'c.rules.all c.ruleSorted')
+const sortedParts = slice(tie, '/-- A clause of `f` is well sorted over the function signatures', "sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort")
 const apart = slice(tie, '/-- No user constructor or function is named like an interpreted hooked symbol', 'def Semantics.predsApart')
 const wfLean = coreFile('KcoreSpec/DefinitionWf.lean')
-const decls = slice(wfLean, 'def declsOK : Bool :=', '[Srt.k, Srt.kitem, Srt.int, Srt.bool].contains c.pgmSort)')
-const subsorts = slice(wfLean, '/-- Subsorts into the user', '  nodup subs')
-const inhabited = slice(wfLean, '/-- Every sort of the definition has a value', 'c.userSorts.all all.contains')
-const rules = slice(wfLean, '/-- A rule, as `ruleOK`, its left-hand side well-sorted', 'def clauseOKAll')
-const fns = slice(wfLean, '/-- `fnOK`, its clauses as `clauseOKAll`. -/', 'def fnsOKAll')
+const subsorts = slice(wfLean, '/-- The declared subsorts form a strict partial order', '  nodup subs')
 const ids = slice(wfLean, "/-- The definition's own sorts and symbols are numbered as Core.lean says", '&& c.lib.ok)')
-const faithOK = slice(coreFile('KcoreSpec/FaithOK.lean'), '/-- **The decidable conditions of the theory**', 'kindsApart c && ctorsOnce c && fnsApart c')
-const witness = coreFile('KcoreSpec/ModelDupCtorWitness.lean')
-const witnessDoc = slice(witness, '  KCore. A semantics that satisfies', 'The decidable facts are kernel decisions.')
-const witnessThm = slice(witness, '/-- **`Γ c` has no model**', 'theorem no_model')
+const faith = slice(coreFile('KcoreSpec/FaithOK.lean'), '/-- **The decidable conditions of the theory that soundness and completeness read**', 'kindsApart c && ctorsOnce c && fnsApart c')
+const witness = coreFile('KcoreSpec/ModelKindsWitness.lean')
+const witnessDoc = slice(witness, '  KCore. A semantics that meets every condition of `coreOK` but `kindsApart`', 'The decidable facts are kernel')
+const witnessThm = slice(witness, '/-- Every condition of `coreOK` but `kindsApart` holds, and `FnHyp`. -/', 'theorem not_sound : ¬ SoundC c')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 
-// faithOK's conditions: name, what it says, and why soundness or the model needs it. "Model"
-// marks the conditions the existence of a model reads, "step" those step soundness reads
-// (FaithOK.lean's header); "witness" those with a kernel-checked semantics whose Γ has no model
-// without them; "not settled" the manifest's provisional ones.
+// What coreOK no longer asks, because no proof of either theorem reads it.
+const notAsked = () => (
+  <Rows
+    head={['Not asked by coreOK', 'Still checked by']}
+    rows={[
+      { key: 'inh', cells: ['every sort has a value', 'okAll and wf, not core'] },
+      { key: 'decl', cells: ['signatures are over declared sorts', 'okAll and wf, not core'] },
+      { key: 'map', cells: ['a map pattern has at most one frame', 'okAll and wf, not core'] },
+      { key: 'fn', cells: ['a function without clauses is never applied', 'okAll and wf, not core'] },
+    ]}
+  />
+)
+
+// faithCoreOK's conditions: name, what it says, and what needs it. "step": step soundness reads it;
+// "model": the existence of a model reads it; "witness": a kernel-checked semantics meeting every
+// other condition and FnHyp has no model without it (FaithOK.lean, the Model*Witness files).
 const conditions: readonly [string, string, string][] = [
   ['namesNumbered', 'no symbol is named like ite at a sort; every sort of a function is numbered', 'step'],
   ['genWf', 'values are built by constructors and injections, in sorts with no literals', 'step'],
   ['collSortsOK', 'no collection sort holds a literal', 'step'],
   ['collsOK', "the definition's collections are well formed and built by their own symbols", 'step'],
   ['patHeadsOK', 'every symbol a left side may apply is one matching reads', 'step'],
-  ['namesApartK', 'no two symbols, and no two sorts, share a name', 'model: without it Γ has no model (witness)'],
+  ['namesApartK', 'no two symbols, and no two sorts, share a name', 'model · witness'],
   ['LitsApart', 'no token or byte sort is Int or Bool, so a literal is told by its text', 'model'],
-  ['sortsNumbered', 'every sort a value may have is a numbered sort', 'model · not settled'],
-  ['collsNotCtors', "no collection's unit, element or concatenation is a constructor", 'model · not settled'],
-  ['itesApart', 'symbols named like ite are apart by their sort', 'model · not settled'],
-  ['kindsApart', 'hooks and parameters are not constructors, nor parameters hooks', 'model · not settled'],
-  ['ctorsOnce', 'no constructor is listed twice', 'model: without it Γ has no model (witness)'],
-  ['fnsApart', 'no function is named like a constructor, hook or parameter', 'model: without it Γ has no model (witness)'],
+  ['sortsNumbered', 'every sort a value may have is a numbered sort', 'model · witness'],
+  ['itesApart', 'symbols named like ite are named at a numbered sort, and apart by their sort', 'model · witness · one half not settled'],
+  ['kindsApart', 'hooks and parameters are not constructors, nor parameters hooks', 'model · witness'],
+  ['ctorsOnce', 'no constructor is listed twice', 'model · witness'],
+  ['fnsApart', 'no function is named like a constructor, hook or parameter', 'model · witness'],
 ]
 
 const table = () => (
@@ -64,14 +73,14 @@ export const wf11: Lesson = {
       frames: [
         {
           hl: { c: [at(coreOK, 'def Semantics.coreOK')] },
-          say: "The theorems' other hypothesis is a check on the semantics that Lean computes: `coreOK` is `true` or `false`, and a package proves it is `true` by evaluation. It is the least interesting thing to read, and the last.",
+          say: "The theorems' other hypothesis is a check on the semantics that Lean computes: `coreOK` is `true` or `false`, and a package proves it is `true` by evaluation. It asks only what the proofs of the two theorems read.",
         },
         {
-          hl: { c: [at(coreOK, 'c.okAll && c.faithOK')] },
+          hl: { c: [at(coreOK, 'c.sortedOK && c.faithCoreOK')] },
           notes: [
-            note('c', at(coreOK, 'c.okAll && c.faithOK'), 'Declarations, subsorts, functions and rules are well formed.', 'c.okAll'),
-            note('c', at(coreOK, 'c.okAll && c.faithOK'), "The conditions the theory Γ needs to have a model.", 'c.faithOK'),
-            note('c', at(coreOK, 'c.okAll && c.faithOK'), 'Names and numbers apart.', 'c.hooksApart && c.predsApart && c.idsOK'),
+            note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'Subsorts, clauses and rules are well sorted.', 'c.sortedOK'),
+            note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'The conditions the theory Γ needs to have a model.', 'c.faithCoreOK'),
+            note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'Names and numbers apart.', 'c.hooksApart && c.predsApart && c.idsOK'),
           ],
           say: 'Five conjuncts.',
         },
@@ -79,103 +88,91 @@ export const wf11: Lesson = {
     },
     {
       id: 'w2',
-      title: 'Well-formed declarations',
+      title: 'Well-sorted subsorts',
       panes: [
-        { id: 'o', label: 'KcoreSpec/Tie.lean', source: okAll, lang: 'lean' },
-        { id: 'd', label: 'KcoreSpec/DefinitionWf.lean', source: decls, lang: 'lean' },
+        { id: 's', label: 'KcoreSpec/Tie.lean', source: sorted, lang: 'lean' },
+        { id: 'u', label: 'KcoreSpec/DefinitionWf.lean', source: subsorts, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { o: [at(okAll, 'def Semantics.okAll'), at(okAll, 'c.declsOK && c.subsortsOK')] },
-          say: '`okAll` has five parts.',
+          hl: { s: span(sorted, 'def sortedOK', 'c.rules.all c.ruleSorted') },
+          say: '`sortedOK` has three parts: the subsorts, every clause, every rule.',
         },
         {
-          hl: { o: [at(okAll, 'c.declsOK && c.subsortsOK')], d: span(decls, 'def declsOK', 'c.pgmSort)') },
-          notes: [note('d', at(decls, 'def declsOK'), 'Every constructor and function is declared over sorts the definition has.', 'declsOK')],
+          hl: { u: span(subsorts, 'def subsortsOK', 'nodup subs') },
+          notes: [
+            note('u', at(subsorts, '(c.userSorts.contains b || c.libConsSorts.contains b)'), "The upper sort is one of the definition's sorts or a library sort of constructor terms, such as JSON. A sort of literals or a collection sort is refused.", 'c.libConsSorts.contains b'),
+            note('u', at(subsorts, 'c.declaredClosure.all (fun (a, b) => a != b)'), 'No cycle: a strict partial order.', 'a != b'),
+          ],
         },
       ],
     },
     {
       id: 'w3',
-      title: 'Subsorts and inhabited sorts',
-      panes: [
-        { id: 's', label: 'KcoreSpec/DefinitionWf.lean', source: subsorts, lang: 'lean' },
-        { id: 'i', label: 'KcoreSpec/DefinitionWf.lean', source: inhabited, lang: 'lean' },
-      ],
+      title: 'Well-sorted clauses and rules',
+      panes: [{ id: 'r', label: 'KcoreSpec/Tie.lean', source: sortedParts, lang: 'lean' }],
       frames: [
         {
-          hl: { s: span(subsorts, 'def subsortsOK', 'nodup subs') },
-          notes: [note('s', at(subsorts, "c.declaredClosure.all (fun (a, b) => a != b)"), 'Subsorts form a strict partial order: no cycle.', 'a != b')],
+          hl: { r: span(sortedParts, 'def ruleSorted', "r.vars r.rhs == some topCellSort") },
+          notes: [
+            note('r', at(sortedParts, 'sortOfTerm c.patCtxAll r.vars r.lhs == some topCellSort'), 'Both sides have the configuration sort…', 'some topCellSort'),
+            note('r', at(sortedParts, 'binds r.vars.length (varOccs r.lhs)'), '…the left side binds every variable…', 'binds'),
+            note('r', at(sortedParts, 'reqOK (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.req'), '…and the `requires` is a Bool.', 'reqOK'),
+          ],
         },
         {
-          hl: { i: span(inhabited, 'def inhabited', 'c.userSorts.all all.contains') },
-          notes: [note('i', at(inhabited, 'def inhabited'), 'Every sort has a value, built up from the sorts that surely have one.', 'inhabited')],
+          hl: { r: span(sortedParts, 'def clauseSorted', 'cl.rhs == some f.result') },
+          notes: [note('r', at(sortedParts, 'def clauseSorted'), "A clause the same way: its patterns of the function's argument sorts, its right side of its result sort.", 'clauseSorted')],
         },
       ],
     },
     {
       id: 'w4',
-      title: 'Well-sorted functions and rules',
-      panes: [
-        { id: 'f', label: 'KcoreSpec/DefinitionWf.lean', source: fns, lang: 'lean' },
-        { id: 'r', label: 'KcoreSpec/DefinitionWf.lean', source: rules, lang: 'lean' },
-      ],
+      title: 'What it does not ask',
+      visual: notAsked,
       frames: [
-        {
-          hl: { r: span(rules, 'def ruleOKAll', "sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs == some topCellSort") },
-          notes: [
-            note('r', at(rules, 'sortOfTerm c.patCtxAll r.vars r.lhs == some topCellSort'), 'Both sides have the configuration sort…', 'some topCellSort'),
-            note('r', at(rules, 'binds r.vars.length'), '…the left side binds every variable…', 'binds'),
-            note('r', at(rules, 'reqOK'), '…and the `requires` is a Bool.', 'reqOK'),
-          ],
-        },
-        {
-          hl: { r: [at(rules, 'noMapIn r.lhs')] },
-          notes: [note('r', at(rules, 'noMapIn r.lhs'), 'Not settled: at most one frame in a map pattern. Whether soundness needs it is not yet known.', 'noMapIn')],
-        },
-        {
-          hl: { f: span(fns, 'def fnOKAll', '(!f.clauses.isEmpty || !used.contains f.label)') },
-          notes: [
-            note('f', at(fns, 'f.clauses.all (c.clauseOKAll f heads)'), 'Every clause well sorted, as a rule is.', 'clauseOKAll'),
-            note('f', at(fns, '(!f.clauses.isEmpty || !used.contains f.label)'), 'Not settled: a function without clauses is never applied. It changes when such a function is read as a parameter.', '!f.clauses.isEmpty'),
-          ],
-        },
+        { say: 'No proof of either theorem reads these four, so `coreOK` does not ask them. Larger checks still do, for the executable matcher and the tie to a KORE text, but they are not part of the core.' },
       ],
     },
     {
       id: 'w5',
       title: 'What the theory needs',
-      panes: [{ id: 'f', label: 'KcoreSpec/FaithOK.lean', source: faithOK, lang: 'lean' }],
+      panes: [{ id: 'f', label: 'KcoreSpec/FaithOK.lean', source: faith, lang: 'lean' }],
       frames: [
         {
-          hl: { f: span(faithOK, 'def Semantics.faithOK', 'kindsApart c && ctorsOnce c && fnsApart c') },
-          say: '`faithOK` is thirteen conditions, mostly about names and numbering. Each closes a way the theory Γ of lesson 9 would say something false of the definition, or have no model at all.',
+          hl: { f: span(faith, 'def Semantics.faithCoreOK', 'kindsApart c && ctorsOnce c && fnsApart c') },
+          say: '`faithCoreOK` is twelve conditions, mostly about names and numbering. Each closes a way the theory Γ of lesson 9 would say something false of the definition, or have no model at all.',
         },
       ],
     },
     {
       id: 'w6',
-      title: 'The thirteen conditions',
+      title: 'The twelve conditions',
       visual: table,
       frames: [
-        { say: '"Step": step soundness reads it. "Model": the existence of a model reads it. Four have no example yet of what goes wrong without them, and are not settled: they may be stricter than needed.' },
+        { say: '"Step": step soundness reads it. "Model": the existence of a model reads it. "Witness": a kernel-checked definition that meets every other condition and the hypothesis on functions has no model without it.' },
+        { say: 'Not settled: one half of `itesApart`, which may be needed by the proof only and not in truth.' },
       ],
     },
     {
       id: 'w7',
       title: 'A theory with no model',
       panes: [
-        { id: 'd', label: 'KcoreSpec/ModelDupCtorWitness.lean', source: witnessDoc, lang: 'lean' },
-        { id: 't', label: 'KcoreSpec/ModelDupCtorWitness.lean', source: witnessThm, lang: 'lean' },
+        { id: 'd', label: 'KcoreSpec/ModelKindsWitness.lean', source: witnessDoc, lang: 'lean' },
+        { id: 't', label: 'KcoreSpec/ModelKindsWitness.lean', source: witnessThm, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { d: span(witnessDoc, 'its distinctness axiom (Cons-Dist)', 'inhabited model satisfies') },
-          notes: [note('d', at(witnessDoc, 'its distinctness axiom (Cons-Dist)'), 'A constructor listed twice: its no-confusion axiom (lesson 9) says it differs from itself.', 'Cons-Dist')],
+          hl: { d: span(witnessDoc, 'The library lists the interpreted hook `ite`', 'distinct values of KItem distinct elements') },
+          notes: [note('d', at(witnessDoc, 'The library lists the interpreted hook `ite`'), 'A builtin operation also listed as a constructor: Γ says one term is two different values.', 'ite')],
         },
         {
-          hl: { t: [at(witnessThm, 'theorem no_model')] },
-          notes: [note('t', at(witnessThm, 'theorem no_model'), 'So the theory has no model, a fact the kernel checks. `ctorsOnce` rules this semantics out.', 'no_model')],
+          hl: { t: span(witnessThm, 'theorem meets_others', 'Model.fnsApart c = true ∧ FnHyp c') },
+          notes: [note('t', at(witnessThm, 'theorem meets_others'), 'Every other condition of `coreOK` holds, and `FnHyp`…', 'meets_others')],
+        },
+        {
+          hl: { t: [at(witnessThm, 'theorem not_sound')] },
+          notes: [note('t', at(witnessThm, 'theorem not_sound'), '…yet soundness fails, a fact the kernel checks. `kindsApart` cannot be left out.', '¬ SoundC c')],
         },
       ],
     },
@@ -194,7 +191,7 @@ export const wf11: Lesson = {
         {
           hl: { n: span(ids, 'def idsOK', '&& c.lib.ok)') },
           notes: [note('n', at(ids, 'def idsOK'), "The definition's own sorts and symbols are numbered in order, as lesson 1 showed for peano.", 'idsOK')],
-          say: 'Every package proves its `coreOK` by evaluation. A larger check, `wf`, also reads the definition\'s presentation and its printing as KORE; it implies `coreOK` and is what the tie to a KORE text uses. It is not part of the core.',
+          say: "Every package proves its `coreOK` by evaluation, and a package can be generated from it alone. The larger check `wf` implies it and is what the tie to a KORE text uses; it is not part of the core.",
         },
       ],
     },
@@ -207,14 +204,14 @@ export const wf11: Lesson = {
       why: '`coreOK` is a function to `Bool`: a decision, not an assumption.',
     },
     {
-      q: 'What goes wrong if a constructor is listed twice?',
-      options: ["Γ says it differs from itself, so Γ has no model", 'Nothing: the second entry is ignored', 'Evaluation becomes nondeterministic'],
+      q: 'Why does `coreOK` not ask that every sort has a value?',
+      options: ['No proof of either theorem reads it', 'Every sort always has a value', 'It is too expensive to check'],
       answer: 0,
-      why: 'That is the kernel-checked witness of the last scene but one.',
+      why: 'The check asks only what the proofs use; larger checks outside the core still ask it.',
     },
   ],
   checked: [
     `Every pane is kcore-spec's text at \`${coreCommit}\`, the witness included; its theorems are checked by Lean's kernel.`,
-    'The table summarises FaithOK.lean in words.',
+    'The two tables summarise Tie.lean, DefinitionWf.lean and FaithOK.lean in words.',
   ],
 }

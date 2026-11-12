@@ -1,18 +1,22 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec 15fd1538 (2026-11-12): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec c5815203 (2026-11-12): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
 
-As of kcore-spec `15fd1538`, 2026-11-12.
+As of kcore-spec `c5815203`, 2026-11-12.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
 ## Changed since you last read
 
 Newest first.
 
-- Cell collections (cells with multiplicity `*`, like KEVM's accounts) are being read: the text declares each cell a subsort of its collection, which the kernel does not read, because the text's own axiom for it is false of the empty map; no rule in KEVM uses it.
+- The check on the semantics dropped four conditions the theorems never used, among them "every sort has a value". What you must read to know what the theorems say is now about 3,000 lines of Lean. [Lesson 11](/lean/well-formedness) changed for this.
+- The three naming conditions that had no example now have one each: a definition that meets every other condition and whose theory has no model.
+- KEVM: every sentence of both texts is read or accounted for, except one equation with `ensures` in kompile's text (decision 5). k-rust's text passes the whole well-formedness check. Both meet the check on the semantics when it is computed outside the kernel; inside the kernel, three name conditions run out of the 12 GB memory cap, and work on that is running.
+- A package can now be generated from the check on the semantics alone, without the larger well-formedness check.
+- Cells with multiplicity `*`, like KEVM's accounts, are read. The text declares each cell a subsort of its collection, which the kernel does not read: the text's own axiom for it is false of the empty map, and no rule in KEVM uses it.
 - The short-circuit obligations (decision 1) are used by neither theorem; the decision now only affects separate corollaries about definedness.
 - The two theorems now take only the semantics, its decidable check and four statements about its functions; what you must read to know what they say went from about 4,700 to about 3,100 lines of Lean. Lessons 7, 10 and 11 changed for this.
 - The reader now refuses a function with an `[owise]` equation beside another equation of priority 200 or more, whether or not the tie is used (decision 2 asks whether to keep refusing).
@@ -27,7 +31,7 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 | Definition | read | well-formed | obligations | sound and complete | used by a proof |
 | --- | --- | --- | --- | --- | --- |
 | imp | ✓ | ✓ | ✓ (none named) | ✓ | — |
-| KEVM | — | — | — | — | — |
+| KEVM | k-rust's text ✓; kompile's, all but one sentence | computed yes, not yet kernel-checked | listed, open | — | — |
 | wasm | — | — | — | — | — |
 | mir | — | — | — | — | — |
 | K in K | — | — | — | — | — |
@@ -43,7 +47,7 @@ One caveat: the package is not tied to the text, so the reader is trusted for it
 The peano and fprio examples are also read from kompile's own KORE now.
 The other 15 examples are read from k-rust's KORE.
 
-KEVM, measured 2026-11-12 on both k-rust's and kompile's KORE: about 6,900 sentences read; well-formedness fails in four places only (sorts without a value, functions applied without equations, 12 rules, a cell below its collection sort); about 370 facts would be left to the author. Work on the four is running.
+KEVM, measured 2026-11-12: about 400 facts are left to the author. For k-rust's text: 90 functions whose termination no declaration order shows, 37 whose termination certificate is open, 95 `[total]` functions not confirmed to have a value, 46 functions whose clauses of one priority are not confirmed to agree, 41 clauses whose matches are not confirmed to agree, and 69 short-circuit occurrences (decision 1).
 
 ## The core, layer by layer
 
@@ -62,7 +66,7 @@ Everything else (every proof, the generator, the executable evaluator) is checke
 | 8 | Matching logic | patterns, models and entailment, as much as the statements use | settled |
 | 9 | The theory Γ | the theory a definition denotes, built from the Lean value: sorts, constructors, collections, function equations, rule axioms | settled, except the axioms of the builtin domains |
 | 10 | Sound and Complete | every step is entailed by the theory, which has a model; every successor the theory forces is a step; the two theorems, with their two hypotheses | settled |
-| 11 | Well-formedness | the check on the semantics both theorems assume: well-formed declarations, functions and rules, and the conditions the theory needs to have a model | settled, except two checks inside it that may be removed and four naming conditions with no example yet |
+| 11 | Well-formedness | the check on the semantics both theorems assume: well-sorted subsorts, clauses and rules, the conditions the theory needs to have a model, and names apart | settled, except one half of one naming condition |
 
 ## What you trust
 
@@ -82,3 +86,4 @@ Each is a question you can answer by replying.
 2. **A priority of 200 or above beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority 200 or above is refused today. The KORE text puts the `[owise]` equation after every other equation, while the kernel reads `[owise]` as priority 200, and the two differ wherever both equations apply. Keep refusing, or read a priority of 200 or above as "after `[owise]`" and state where that differs from the KORE text?
 3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
 4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.
+5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed: read the equation without it and list the claim as stated by the text but not part of the reading; such a definition cannot be tied to its text. Agree?
