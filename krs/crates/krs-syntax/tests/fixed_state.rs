@@ -1083,21 +1083,29 @@ fn a_result_remainder_of_another_frame_is_refused_after_parsing() {
     let reuse = SyntaxErrorKind::UnsupportedRuleBody {
         reason: "a result remainder must reuse a subject frame of the same kind",
     };
-    for source in [
-        // An unbound frame.
+    // An unbound computation's rest (the macro answers it first as an unbound name; the parser's
+    // own refusal stays the reuse's).
+    let rule = krs_syntax::StateRuleItem::parse_source(
         "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..missing) } }",
-        // Instances written on a plain cell over no instances the subject binds (the class
-        // matrix's `cells/result/pc/[k::fragment![..], ..instances0]`).
+    )
+    .unwrap();
+    assert_eq!(
+        rule.reuse_refusal().as_ref().map(SyntaxError::kind),
+        Some(&reuse)
+    );
+    // Instances written on a plain cell over no instances the subject binds (the class matrix's
+    // `cells/result/pc/[k::fragment![..], ..instances0]`): a name bound nowhere is an unbound
+    // name, asked once the instance list is judged against its cell's kind.
+    let rule = krs_syntax::StateRuleItem::parse_source(
         "fn bad(x: Term<Id>, old: Term<Int>, cells! { k: KCell(x, tail @ ..), pc: Cell(old) }: Machine) -> Machine { cells! { k: KCell(..tail), pc: [k::fragment![crate::Job { payload: x, ..old }], ..instances0] } }",
-    ] {
-        let rule = krs_syntax::StateRuleItem::parse_source(source)
-            .unwrap_or_else(|error| panic!("{source}: {error}"));
-        assert_eq!(
-            rule.reuse_refusal().as_ref().map(SyntaxError::kind),
-            Some(&reuse),
-            "{source}"
-        );
-    }
+    )
+    .unwrap();
+    assert_eq!(
+        rule.reuse_refusal().as_ref().map(SyntaxError::kind),
+        Some(&SyntaxErrorKind::UnboundRemainder {
+            name: "instances0".to_owned()
+        })
+    );
     for source in [
         "fn good(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(..tail), ..state } }",
         // The configuration's remainder as a computation's tail: refused by the compiler, which

@@ -2146,6 +2146,23 @@ fn validate_remainder_reuse(
     {
         return Ok(());
     }
+    // A collection's instance rest or the configuration's that nothing binds is an unbound name,
+    // as the macro tells a computation's or a map's rest (krs-expand `unbound_result_remainder`),
+    // which also knows the existentials.
+    if let StateMacroRemainder::Reuse { binding, range } = remainder
+        && matches!(
+            expected,
+            StateRuleBindingKind::InstancesFrame | StateRuleBindingKind::ConfigurationFrame
+        )
+        && !bindings.iter().any(|existing| existing.name == *binding)
+    {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::UnboundRemainder {
+                name: syn::ext::IdentExt::unraw(binding).to_string(),
+            },
+            range.first(),
+        ));
+    }
     if let StateMacroRemainder::Reuse { binding, range } = remainder
         && !bindings.iter().any(|existing| {
             existing.name == *binding

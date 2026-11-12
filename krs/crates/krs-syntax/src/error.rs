@@ -445,6 +445,14 @@ pub enum SyntaxErrorKind {
         /// What the sentence is, and why it has no result state.
         reason: &'static str,
     },
+    /// A result's rest `..name` whose name nothing in the sentence binds. Its code is the expand
+    /// route's `unbound-name`, the class of every name bound nowhere wherever it is written: the
+    /// macro raises it for a computation's or a map's rest, and the parser for a collection's
+    /// instance rest, whose instance list is judged against its cell's kind first.
+    UnboundRemainder {
+        /// The name.
+        name: String,
+    },
     /// An instance record's child written as a `?` cell's presence or absence, `Some(..)` or
     /// `None`: an instance record does not name a `?` or `*` child yet, a stated limitation
     /// ([`crate::INSTANCE_CHILD_MULTIPLICITY`]) whose code is the compiler's for the same child.
@@ -612,6 +620,7 @@ impl SyntaxErrorKind {
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
             Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
+            Self::UnboundRemainder { .. } => codes::expand::UNBOUND_NAME,
             Self::InstanceChildMultiplicity { .. } => codes::analysis::COLLECTION_ENTRY,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
@@ -924,6 +933,10 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::FreshBinderPosition { reason }
             | SyntaxErrorKind::MisplacedFresh { reason }
             | SyntaxErrorKind::MisplacedExistential { reason } => formatter.write_str(reason),
+            SyntaxErrorKind::UnboundRemainder { name } => write!(
+                formatter,
+                "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one"
+            ),
             SyntaxErrorKind::RetiredAttribute {
                 attribute,
                 replacement,
