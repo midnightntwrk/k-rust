@@ -989,7 +989,7 @@ pub fn ModExpOutputBody(
 /// for a length that is not positive (padding to a negative length has no value).
 #[k::function(
     total,
-    assumed = "where modulus_length > 0, WriteMemoryWord writes the indexes 0 .. modulus_length - 1 of a memory of modulus_length bytes, each a byte value, and its count falls to 0",
+    assumed = "where modulus_length > 0, WriteMemoryWord writes the indexes 0 .. modulus_length - 1 of a memory of modulus_length bytes, each a byte value, and its count falls to 0; ModExpPower has a value there because its exponent is BytesToInt(.., 0, 0), which is at least 0 for every bytes",
     syntax = "#kevmModExpOutputExponent({body}, {base}, {exponent_length}, {modulus_length})"
 )]
 pub fn ModExpOutputExponent(
@@ -1014,17 +1014,16 @@ pub fn ModExpOutputExponent(
     }
 }
 
-#[k::function(total, syntax = "#kevmModExpPower({base}, {exponent}, {modulus})")]
+/// `base` to the power `exponent` modulo `modulus`, and 0 for a modulus that is not positive.
+/// It has no value where the power is no integer: a negative exponent of a base other than 1
+/// and -1. MODEXP reads its exponent from bytes, so none is negative.
+#[k::function(partial, syntax = "#kevmModExpPower({base}, {exponent}, {modulus})")]
 pub fn ModExpPower(
     base: k::Term<Int>,
     exponent: k::Term<Int>,
     modulus: k::Term<Int>,
 ) -> k::Term<Int> {
     if modulus <= 0 {
-        0
-    } else if exponent < 0 {
-        // `int::pow_mod` has no value for a negative exponent. MODEXP reads its exponent from
-        // bytes, so none is negative.
         0
     } else {
         int::pow_mod(base, exponent, modulus)
