@@ -170,6 +170,14 @@ fn parse_readable_pattern_state(
             if let Some(map) = braced_map_entries(&tokens, StateMacroContext::Pattern)? {
                 return Ok(Some(StateTerm::Present(Box::new(StateTerm::Map(map)))));
             }
+            // A present group's record whose child writes map notation is the group's term over
+            // the map those entries denote, as an instance's group child is
+            // ([`record_maps_as_terms`]).
+            if let Some(record) = record_maps_as_terms(&tokens, StateMacroContext::Pattern)? {
+                return Ok(Some(StateTerm::Present(Box::new(StateTerm::Term(
+                    TermExpression::parse_pattern_tokens(record)?,
+                )))));
+            }
             // So an item-less `[..]` there is whatever the present cell holds, its `_`.
             let tokens = match tokens.clone().into_iter().collect::<Vec<_>>().as_slice() {
                 [TokenTree::Group(group)]
@@ -277,6 +285,22 @@ fn parse_readable_result_state(
                     Ok(StateTerm::Absent(TokenRange::for_tokens(&ident)?))
                 }
                 Some(ident) if ident == "Some" && fork.peek(syn::token::Paren) => {
+                    // A present group's record whose child writes a map is the group's term over
+                    // that map ([`record_maps_as_terms`]).
+                    let fork = input.fork();
+                    fork.parse::<Ident>()?;
+                    let parenthesized: proc_macro2::Group = fork.parse()?;
+                    if let Some(record) = record_maps_as_terms(
+                        &parenthesized.stream(),
+                        StateMacroContext::Expression,
+                    )? {
+                        input.parse::<Ident>()?;
+                        input.parse::<proc_macro2::Group>()?;
+                        let expression = crate::term::parse_term_expression.parse2(record)?;
+                        return Ok(StateTerm::Present(Box::new(StateTerm::Term(
+                            TermExpression::from_expression(expression)?,
+                        ))));
+                    }
                     input.parse::<Ident>()?;
                     let expression = input.call(|input| {
                         let inner;
@@ -796,6 +820,13 @@ fn parse_readable_child(
             group, items, tail,
         )?));
     }
+    // A group record whose child writes a map cell's entries in map notation (`Tg { gm: { k -> v,
+    // .. }, .. }`): the child is a cell, so the record is the group's term whose map child holds
+    // the map those entries denote, as a `cells!` instance's group child writes it
+    // (`crate::Tg { gm: k::map![k -> v, ..], .. }`).
+    if let Some(record) = record_maps_as_terms(&tokens, context)? {
+        return Ok(StateTerm::Term(read(record)?));
+    }
     // `k::k![..]`, the computation's item notation, which a readable record writes in brackets:
     // read as the sequence it lists, as a `cells!` instance child's is, so the collector judges
     // it by the child's sort first (a readable record does not read it yet).
@@ -871,6 +902,146 @@ fn splices(chunk: &TokenStream) -> bool {
             if first.as_char() == '.' && second.as_char() == '.'
                 && first.spacing() == proc_macro2::Spacing::Joint
     )
+}
+
+/// A group record `Group { .. }` some child of which, at any depth, writes a map cell's entries in
+/// the map notation of a readable record, `{ k -> v, .. }` or `{ k -> v }`, with each such child
+/// written as the `k::map![..]` term those entries denote, the spelling a `cells!` record's child
+/// writes: a record's child is a cell, whose map notation is its content, so in a term of the
+/// group it is that map. `None` for any other value. In a result a map read, whose `..` names no
+/// map the result writes, is refused as at a record's top level (`map-read-in-result`); a named
+/// rest `rest @ ..` binds a map no readable rule can use, refused as at an instance's map child.
+fn record_maps_as_terms(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<TokenStream>, ParseError> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let Some((TokenTree::Group(body), owner)) = trees.split_last() else {
+        return Ok(None);
+    };
+    if body.delimiter() != proc_macro2::Delimiter::Brace
+        || owner.is_empty()
+        || syn::parse2::<Path>(owner.iter().cloned().collect()).is_err()
+    {
+        return Ok(None);
+    }
+    let mut changed = false;
+    let mut stream = TokenStream::new();
+    for (index, item) in top_level_items(body.stream()).into_iter().enumerate() {
+        if index > 0 {
+            stream.extend([TokenTree::Punct(proc_macro2::Punct::new(
+                ',',
+                proc_macro2::Spacing::Alone,
+            ))]);
+        }
+        let item_trees = item.clone().into_iter().collect::<Vec<_>>();
+        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = item_trees.as_slice()
+        else {
+            stream.extend(item);
+            continue;
+        };
+        if colon.as_char() != ':' || value.is_empty() {
+            stream.extend(item);
+            continue;
+        }
+        let value = value.iter().cloned().collect::<TokenStream>();
+        let written = match value.clone().into_iter().collect::<Vec<_>>().as_slice() {
+            [TokenTree::Group(map)]
+                if map.delimiter() == proc_macro2::Delimiter::Brace
+                    && contains_top_level_arrow(map) =>
+            {
+                let items = top_level_items(map.stream());
+                if let Some(rest) = named_rest_of(map) {
+                    return Err(named_child_map_rest_refusal(&rest));
+                }
+                if context == StateMacroContext::Expression && items.last().is_some_and(is_dots) {
+                    let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
+                        crate::cell_entry::EntryForm::Readable,
+                        &child.unraw().to_string(),
+                        &crate::cell_entries::EntryKind::default(),
+                        None,
+                    );
+                    return Err(crate::SyntaxError::new(
+                        crate::SyntaxErrorKind::RustSyntax(reason),
+                        map.span(),
+                    )
+                    .into());
+                }
+                let span = map.span();
+                let path = [
+                    TokenTree::Ident(Ident::new("k", span)),
+                    TokenTree::Punct(proc_macro2::Punct::new(':', proc_macro2::Spacing::Joint)),
+                    TokenTree::Punct(proc_macro2::Punct::new(':', proc_macro2::Spacing::Alone)),
+                    TokenTree::Ident(Ident::new("map", span)),
+                    TokenTree::Punct(proc_macro2::Punct::new('!', proc_macro2::Spacing::Alone)),
+                ]
+                .into_iter()
+                .map(|mut tree| {
+                    tree.set_span(span);
+                    tree
+                });
+                let mut entries =
+                    proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, map.stream());
+                entries.set_span(span);
+                Some(
+                    path.chain([TokenTree::Group(entries)])
+                        .collect::<TokenStream>(),
+                )
+            }
+            _ => record_maps_as_terms(&value, context)?,
+        };
+        match written {
+            Some(written) => {
+                changed = true;
+                stream.extend([item_trees[0].clone(), item_trees[1].clone()]);
+                stream.extend(written);
+            }
+            None => stream.extend(item),
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    let mut record = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, stream);
+    record.set_span(body.span());
+    Ok(Some(
+        owner
+            .iter()
+            .cloned()
+            .chain([TokenTree::Group(record)])
+            .collect(),
+    ))
+}
+
+/// The name of a map read's rest `rest @ ..`, among the items of the braces `map`.
+fn named_rest_of(map: &proc_macro2::Group) -> Option<Ident> {
+    top_level_items(map.stream()).iter().find_map(|item| {
+        match item.clone().into_iter().collect::<Vec<_>>().as_slice() {
+            [
+                TokenTree::Ident(rest),
+                TokenTree::Punct(at),
+                TokenTree::Punct(first),
+                TokenTree::Punct(second),
+            ] if at.as_char() == '@' && first.as_char() == '.' && second.as_char() == '.' => {
+                Some(rest.clone())
+            }
+            _ => None,
+        }
+    })
+}
+
+/// The refusal of a named rest `rest @ ..` in a map read that a group record's child writes in a
+/// readable rule, which no readable rule can use: no readable result writes a map over it and no
+/// readable condition reads it.
+fn named_child_map_rest_refusal(name: &Ident) -> ParseError {
+    let reason = format!(
+        "the subject names the rest of the map `..{name}` in a group record's child, which a readable rule can never use: no readable result writes a map over it and no readable condition reads it, so write `..`, or match the child whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`k::map![k -> v, rest @ ..]`) may put it back under other entries (`k::map![k -> w, ..rest]`)"
+    );
+    crate::SyntaxError::new(
+        crate::SyntaxErrorKind::InvalidListNotation { reason },
+        name.span(),
+    )
+    .into()
 }
 
 /// The braces of a value spelled as a map read with its other entries open, `{ k -> v, .. }`:
