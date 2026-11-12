@@ -498,13 +498,13 @@ fn an_item_less_sequence_subject_alone_is_always_enabled() {
             rule("go: { aux: [..], ll: [x, ..] } => { aux: [x, ..], ll: [..] };"),
         ),
     ]);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         aux: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
         k: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
         k-and-aux: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
         cells-aux: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, or a computation's `[..]` (`KCell(..)`), which no item constrains, and it has no requires guard
         ll: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard
-        aux-guarded: rule [go]: <aux> .K => X:KItem ... </aux> <ll> ListItem(X:KItem) Krs_RestLl:List => Krs_RestLl:List </ll>"#]].assert_eq(&lines.join("\n"));
+        aux-guarded: rule [go]: <aux> .K => X:KItem ... </aux> <ll> ListItem(X:KItem) Krs_RestLl:List => Krs_RestLl:List </ll>"]].assert_eq(&lines.join("\n"));
     assert_eq!(of(&lines, "aux"), of(&lines, "cells-aux"));
     assert_eq!(of(&lines, "aux"), of(&lines, "k"));
 }
@@ -561,11 +561,11 @@ fn an_item_less_list_subject_prints_with_its_rest_named() {
     )
     .map(|(name, verdict)| format!("{name}: {verdict}"))
     .collect::<Vec<_>>();
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         readable: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Krs_RestLl:List => ListItem(A:Int) Krs_RestLl:List </ll>
         printed: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Rest:List => ListItem(A:Int) Rest:List </ll>
         cells-named: rule [go]: <k> put ( A:Int , B:Int ) => .K ... </k> <ll> Rest:List => ListItem(A:Int) Rest:List </ll>
-        cells-dots: error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, or a binder `rest` to write the list again (`[a, ..rest]`), and the second is the binder `rest` itself"#]].assert_eq(&lines.join("\n"));
+        cells-dots: error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, or a binder `rest` to write the list again (`[a, ..rest]`), and the second is the binder `rest` itself"]].assert_eq(&lines.join("\n"));
     assert!(
         print.contains("Cell(rest)") && print.contains("Cell([a, ..rest])"),
         "{print}"
@@ -646,9 +646,9 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
             rule("go: { ll: [x, ..], out: _ } => { ll: [], out: [x] };"),
         ),
     ]);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         ll: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)
         ll-dropped: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard
         aux: error[krs::syntax::invalid-list-notation]: the entry of the cell `aux` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule's `KCell(.., rest @ ..)` drops or moves it
-        ll-items: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"#]].assert_eq(&lines.join("\n"));
+        ll-items: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"]].assert_eq(&lines.join("\n"));
 }
