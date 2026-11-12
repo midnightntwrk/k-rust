@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     BackendOptions, Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue,
-    Coverage, CoverageOptions, Difference, DifferenceAt, EndError, EndKast, Ends, ExecError,
-    Expectation, Halt, InputError, InputFiles, ObservationSpec, Observations, Observers,
+    Coverage, CoverageOptions, Difference, DifferenceAt, EndError, EndKast, EndPattern, Ends,
+    ExecError, Expectation, Halt, InputError, InputFiles, ObservationSpec, Observations, Observers,
     PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport, ProveOptions, RUN_REPORT_SCHEMA,
     ReadBack, Rendered, RunOptions, RunReport, SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions,
     Semantics, Side, SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion,
@@ -1206,6 +1206,7 @@ fn run(
         condition_budget: Some(request.view_budget),
         observe,
         end_kast: end_kast(request.output),
+        end_pattern: end_pattern(request.output),
         ..RunOptions::default()
     };
     let report = match (
@@ -2378,6 +2379,23 @@ const fn end_kast(output: TermOutput) -> EndKast {
     }
 }
 
+/// Whether a run printed in `output` builds the KORE pattern of its end: `none` and
+/// `observations` print nothing of the end but the head of its main cell in the status line, so
+/// the run asks the backend's state what it decides from the end and builds no pattern; every
+/// other output prints the end from its pattern, or converts its KAST from it.
+const fn end_pattern(output: TermOutput) -> EndPattern {
+    match output {
+        TermOutput::None | TermOutput::Observations => EndPattern::WhenRead,
+        TermOutput::Pretty
+        | TermOutput::Program
+        | TermOutput::Kore
+        | TermOutput::Kast
+        | TermOutput::Json
+        | TermOutput::JsonLines
+        | TermOutput::End => EndPattern::Built,
+    }
+}
+
 /// Print a result term; a pretty print's warnings go to `stderr`.
 fn print(
     semantics: &Semantics,
@@ -2631,6 +2649,29 @@ mod tests {
             TermOutput::Observations,
         ] {
             assert_eq!(end_kast(output), EndKast::WhenRead, "{output:?}");
+        }
+    }
+
+    /// A run builds its end's pattern for every output that prints the end; `none` and
+    /// `observations` print none of it, and no end whose pattern is unbuilt has its KAST
+    /// converted by the run, which would build it.
+    #[test]
+    fn a_run_builds_its_ends_pattern_only_for_an_output_that_prints_the_end() {
+        use super::{EndKast, EndPattern, TermOutput, end_kast, end_pattern};
+        for output in [TermOutput::None, TermOutput::Observations] {
+            assert_eq!(end_pattern(output), EndPattern::WhenRead, "{output:?}");
+            assert_eq!(end_kast(output), EndKast::WhenRead, "{output:?}");
+        }
+        for output in [
+            TermOutput::Pretty,
+            TermOutput::Program,
+            TermOutput::Kore,
+            TermOutput::Kast,
+            TermOutput::Json,
+            TermOutput::JsonLines,
+            TermOutput::End,
+        ] {
+            assert_eq!(end_pattern(output), EndPattern::Built, "{output:?}");
         }
     }
 

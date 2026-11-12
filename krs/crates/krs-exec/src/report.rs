@@ -13,9 +13,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use k_rust::{
-    backend::{ChosenValueOutput, HaltReasonOutput},
+    backend::{ChosenValueOutput, HaltReasonOutput, HeldState},
     kast::{Term as KastTerm, convert::Converter, json as kast_json, printer::Printer},
-    kore::{ast::Pattern, walk},
+    kore::{
+        ast::Pattern,
+        node::{PatternNode, PatternSource, materialize},
+        walk,
+    },
     names::WellKnownSymbol,
 };
 use serde::{Deserialize, Serialize, Serializer};
@@ -77,12 +81,34 @@ pub const PROVE_REPORT_SCHEMA: &str = "krs-exec/2";
 /// ([`crate::EndKast::WhenRead`]) converts it when it is first read ([`Self::kast`]), so a
 /// report nothing reads as KAST holds the pattern alone.
 ///
+/// A run's end built without its pattern ([`crate::EndPattern::WhenRead`]) holds the state as
+/// the backend has it, and builds the pattern when it is first read ([`Self::kore`]): the same
+/// pattern, a tree of the end's size beside the backend's term. What a run and its status line
+/// ask of an end (whether it holds a term with no value or a Float, its stdout buffer, the head
+/// of its main cell) is asked of the held state, which answers as the pattern would without
+/// building it.
+///
 /// It serializes as the KAST JSON envelope that `krun --output json` prints,
 /// so a gate normalizes the native and Java results with one policy.
 #[derive(Clone, Debug)]
 pub struct Term {
-    kore: Pattern,
+    kore: Kore,
     kast: Kast,
+}
+
+/// A term's KORE pattern.
+#[derive(Clone, Debug)]
+enum Kore {
+    /// Built when the term was.
+    Built(Pattern),
+    /// Built from the backend's state when it is first read.
+    WhenRead {
+        held: HeldState,
+        built: OnceLock<Pattern>,
+        /// The first cell of the pattern with a label asked for ([`Term::computation_head_kore`]),
+        /// built alone: the label, and the cell where the pattern has one.
+        cell: OnceLock<(String, Option<Pattern>)>,
+    },
 }
 
 /// A term's KAST.
@@ -100,7 +126,7 @@ enum Kast {
 impl Term {
     pub(crate) const fn new(kore: Pattern, kast: KastTerm) -> Self {
         Self {
-            kore,
+            kore: Kore::Built(kore),
             kast: Kast::Held(kast),
         }
     }
@@ -108,7 +134,7 @@ impl Term {
     /// `kore` as a term whose KAST is converted with `hooks` when it is first read.
     pub(crate) const fn unconverted(kore: Pattern, hooks: Arc<HashMap<String, String>>) -> Self {
         Self {
-            kore,
+            kore: Kore::Built(kore),
             kast: Kast::WhenRead {
                 hooks,
                 converted: OnceLock::new(),
@@ -116,11 +142,48 @@ impl Term {
         }
     }
 
-    /// The KORE pattern, as the backend returned it; a run or search result has its Floats in the
-    /// form `krun` prints them.
+    /// `held` as a term whose pattern is built when it is first read, and whose KAST is
+    /// converted from it with `hooks` when that is first read.
+    pub(crate) const fn unbuilt(held: HeldState, hooks: Arc<HashMap<String, String>>) -> Self {
+        Self {
+            kore: Kore::WhenRead {
+                held,
+                built: OnceLock::new(),
+                cell: OnceLock::new(),
+            },
+            kast: Kast::WhenRead {
+                hooks,
+                converted: OnceLock::new(),
+            },
+        }
+    }
+
+    /// The KORE pattern, as the backend returned it, built now if the term was built without
+    /// it; a run or search result has its Floats in the form `krun` prints them.
     #[must_use]
-    pub const fn kore(&self) -> &Pattern {
-        &self.kore
+    pub fn kore(&self) -> &Pattern {
+        match &self.kore {
+            Kore::Built(kore) => kore,
+            Kore::WhenRead { held, built, .. } => built.get_or_init(|| held.kore()),
+        }
+    }
+
+    /// Whether the term holds its KORE pattern: it was built with it, or it has been read
+    /// ([`Self::kore`]).
+    #[must_use]
+    pub fn holds_kore(&self) -> bool {
+        match &self.kore {
+            Kore::Built(_) => true,
+            Kore::WhenRead { built, .. } => built.get().is_some(),
+        }
+    }
+
+    /// The backend's state the pattern is built from, where the term does not hold its pattern.
+    pub(crate) fn held(&self) -> Option<&HeldState> {
+        match &self.kore {
+            Kore::WhenRead { held, built, .. } if built.get().is_none() => Some(held),
+            Kore::Built(_) | Kore::WhenRead { .. } => None,
+        }
     }
 
     /// The KAST term converted from the KORE pattern, converted now if the term was built
@@ -137,7 +200,7 @@ impl Term {
                 if let Some(kast) = converted.get() {
                     return Ok(kast);
                 }
-                let kast = convert(&self.kore, hooks)?;
+                let kast = convert(self.kore(), hooks)?;
                 Ok(converted.get_or_init(|| kast))
             }
         }
@@ -155,7 +218,10 @@ impl Term {
 
     /// The KORE pattern, given up.
     pub(crate) fn into_kore(self) -> Pattern {
-        self.kore
+        match self.kore {
+            Kore::Built(kore) => kore,
+            Kore::WhenRead { held, built, .. } => built.into_inner().unwrap_or_else(|| held.kore()),
+        }
     }
 
     /// The first item of the computation cell `<cell>` (the definition's main cell,
@@ -195,10 +261,27 @@ impl Term {
     ///
     /// Nested `kseq` and `append` applications are one flat sequence, as in KAST, so the first
     /// item is the leftmost pattern that is neither of them nor `dotk`.
+    ///
+    /// A term that does not hold its pattern builds the cell alone: the first application of
+    /// the cell's symbol in the pattern's pre-order is found by reading the backend's state,
+    /// and the pattern built from that node is the subpattern the search of the whole finds.
     #[must_use]
     pub fn computation_head_kore(&self, cell: &str) -> Option<Option<&Pattern>> {
         let label_name = format!("<{cell}>");
-        let mut stack = vec![&self.kore];
+        let whole = match (&self.kore, self.held()) {
+            (Kore::WhenRead { cell: found, .. }, Some(held)) => {
+                let (label, found) =
+                    found.get_or_init(|| (label_name.clone(), first_cell(held, &label_name)));
+                if *label == label_name {
+                    // The search below finds the cell at the root of what it is given.
+                    found.as_ref()?
+                } else {
+                    self.kore()
+                }
+            }
+            _ => self.kore(),
+        };
+        let mut stack = vec![whole];
         while let Some(pattern) = stack.pop() {
             if let Pattern::Application { symbol, arguments }
             | Pattern::AssociativeApplication {
@@ -221,7 +304,7 @@ impl Term {
     #[must_use]
     pub fn leaf_cells(&self) -> Vec<(&str, &Pattern)> {
         let mut cells = Vec::new();
-        leaf_cells(&self.kore, &mut cells);
+        leaf_cells(self.kore(), &mut cells);
         cells
     }
 
@@ -234,6 +317,23 @@ impl Term {
     pub fn kast_json(&self) -> Result<String, ExecError> {
         kast_json::to_string(self.kast()?).map_err(|error| ExecError::Result(error.to_string()))
     }
+}
+
+/// The first application, in the pre-order of the pattern of `held`, of a symbol whose label is
+/// `label_name`, built as a pattern; `None` where the pattern has none.
+fn first_cell(held: &HeldState, label_name: &str) -> Option<Pattern> {
+    let mut pending = vec![held.source()];
+    while let Some(source) = pending.pop() {
+        let node = source.node();
+        if let PatternNode::Application { symbol, .. } = &node
+            && krs_unparse::label_name(&symbol.name) == label_name
+        {
+            return Some(materialize(source));
+        }
+        let (_, children) = node.split();
+        pending.extend(children.into_iter().rev());
+    }
+    None
 }
 
 /// The KAST of `kore`, a pattern of a definition whose sort hooks are `sort_hooks`: a domain

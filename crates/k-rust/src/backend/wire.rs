@@ -1354,6 +1354,31 @@ impl WireKore for KorePattern {
     }
 }
 
+/// The form a result holds a leaf's state in, beside the form `K` of its other KORE: `K` itself,
+/// the state's pattern, or a form that keeps the state without building its pattern
+/// ([`super::LeafState`]).
+pub(super) trait WireState<K>: Sized {
+    /// The state `pattern` of a leaf.
+    fn of_leaf(pattern: k_rust_backend::rewrite::Pattern) -> Result<Self, BackendError>;
+}
+
+impl<K: WireKore> WireState<K> for K {
+    fn of_leaf(pattern: k_rust_backend::rewrite::Pattern) -> Result<Self, BackendError> {
+        encode_constrained(&pattern)
+    }
+}
+
+/// A state without constraints is held; one with constraints is its pattern, built here, inside
+/// the operation, as a `K` state is.
+impl WireState<KorePattern> for super::LeafState {
+    fn of_leaf(pattern: k_rust_backend::rewrite::Pattern) -> Result<Self, BackendError> {
+        match externalize::HeldState::hold(pattern) {
+            Ok(held) => Ok(Self::Held(held)),
+            Err(pattern) => encode_constrained(&pattern).map(Self::Kore),
+        }
+    }
+}
+
 fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>, K: WireKore>(
     source: S,
 ) -> Result<K, BackendError> {
@@ -2120,12 +2145,12 @@ fn incomplete_searches_output<K: WireKore, E>(
 /// arrives during the conversion answers its error too; under `partial` the result is converted
 /// whole, unpolled. With `counted` (the request set `stopCount`), each leaf reports its count of
 /// arrivals at a stop.
-pub(super) fn execute_answer<K: WireKore>(
+pub(super) fn execute_answer<K: WireKore, S: WireState<K>>(
     shape: CancelledResultOutput,
     counted: bool,
     asked: bool,
     result: k_rust_backend::rewrite::ExecutionResult,
-) -> Result<ExecutionResult<K>, BackendError> {
+) -> Result<ExecutionResult<K, S>, BackendError> {
     match (shape, &result.stopped) {
         (CancelledResultOutput::Error, Some(cause)) => Err(BackendError::from(cause.clone())),
         (CancelledResultOutput::Error, None) => execution_response(result, true, counted, asked),
@@ -2138,13 +2163,14 @@ pub(super) fn execute_answer<K: WireKore>(
 /// and converts no further leaf; without it nothing is polled, so a run that completed is
 /// converted whole whenever a cancellation arrives. With `counted`, each leaf reports its count
 /// of arrivals at a stop (`stops`); with `asked` (a stop condition), also every arrival it
-/// passed (`arrivals`).
-pub(super) fn execution_response<K: WireKore>(
+/// passed (`arrivals`). A leaf's state is in the form `S` ([`WireState`]); everything else the
+/// result holds as KORE is a `K`.
+pub(super) fn execution_response<K: WireKore, S: WireState<K>>(
     result: k_rust_backend::rewrite::ExecutionResult,
     polled: bool,
     counted: bool,
     asked: bool,
-) -> Result<ExecutionResult<K>, BackendError> {
+) -> Result<ExecutionResult<K, S>, BackendError> {
     Ok(ExecutionResult {
         modality: result.modality.into(),
         leaves: result
@@ -2227,7 +2253,7 @@ pub(super) fn execution_response<K: WireKore>(
                 };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
-                    state: encode_constrained(&leaf.pattern)?,
+                    state: S::of_leaf(leaf.pattern)?,
                     diagnostics: diagnostics_output(leaf.diagnostics, &result_sort)?,
                     candidates,
                     remainder,
@@ -2888,14 +2914,16 @@ mod tests {
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let error = token
-            .scope(|| execution_response::<KorePattern>(result.clone(), true, false, false))
+            .scope(|| {
+                execution_response::<KorePattern, KorePattern>(result.clone(), true, false, false)
+            })
             .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let converted = token
-            .scope(|| execution_response::<KorePattern>(result, false, false, false))
+            .scope(|| execution_response::<KorePattern, KorePattern>(result, false, false, false))
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
@@ -2915,7 +2943,7 @@ mod tests {
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let error = token
             .scope(|| {
-                execute_answer::<KorePattern>(
+                execute_answer::<KorePattern, KorePattern>(
                     CancelledResultOutput::Error,
                     false,
                     false,
@@ -2930,15 +2958,24 @@ mod tests {
             stopped: Some(StopCause::Cancelled),
             ..result.clone()
         };
-        let error =
-            execute_answer::<KorePattern>(CancelledResultOutput::Error, false, false, stopped)
-                .unwrap_err();
+        let error = execute_answer::<KorePattern, KorePattern>(
+            CancelledResultOutput::Error,
+            false,
+            false,
+            stopped,
+        )
+        .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
 
         let converted = token
             .scope(|| {
-                execute_answer::<KorePattern>(CancelledResultOutput::Partial, false, false, result)
+                execute_answer::<KorePattern, KorePattern>(
+                    CancelledResultOutput::Partial,
+                    false,
+                    false,
+                    result,
+                )
             })
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);

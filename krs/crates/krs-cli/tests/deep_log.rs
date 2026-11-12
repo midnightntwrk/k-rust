@@ -22,7 +22,8 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use krs_exec::{
-    CompiledStage, ConfigInputs, ConfigValue, EndKast, Halt, RunOptions, Semantics, Value, View,
+    CompiledStage, ConfigInputs, ConfigValue, EndKast, EndPattern, Halt, RunOptions, Semantics,
+    Value, View,
 };
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
@@ -311,5 +312,67 @@ fn a_run_asked_for_no_kast_of_its_end_converts_none_until_it_is_read() {
         assert!(converted.state.holds_kast());
         report.state.kast().expect("the end has a KAST form");
         assert!(report.state.holds_kast());
+    });
+}
+
+/// A run asked not to build its end's pattern ([`EndPattern::WhenRead`]) reports the end as the
+/// backend holds it: the run's status, and the head of the main cell `krs run --output none`
+/// names in its status line, are read from that state and build no pattern of the 200,000-entry
+/// log. The report is the one a run that builds the pattern gives, and the pattern, once read,
+/// is that run's.
+#[test]
+fn a_run_asked_for_no_pattern_of_its_end_builds_none_until_it_is_read() {
+    on_an_8_mib_thread(entries(200_000), |semantics, log, entries| {
+        let state = configure(semantics, log);
+        let report = semantics
+            .run(
+                &state,
+                RunOptions {
+                    end_kast: EndKast::WhenRead,
+                    end_pattern: EndPattern::WhenRead,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(report.halt, Halt::Stuck);
+        assert_eq!(report.steps, 3);
+        assert!(report.valueless.is_empty());
+        let head = semantics
+            .unparse_computation_head(&report.state)
+            .expect("the definition has a main cell")
+            .expect("the main cell holds an item");
+        assert_eq!(head.text, "#tick");
+        assert!(
+            !report.state.holds_kore() && !report.state.holds_kast(),
+            "the run's status and the status line's head read the backend's state"
+        );
+        let built = semantics
+            .run(
+                &state,
+                RunOptions {
+                    end_kast: EndKast::WhenRead,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap();
+        drop(state);
+        assert!(built.state.holds_kore());
+        assert_eq!(built.halt, report.halt);
+        assert_eq!(built.steps, report.steps);
+        assert_eq!(built.stdout, report.stdout);
+        assert_eq!(built.exit_code, report.exit_code);
+        assert_eq!(
+            semantics
+                .unparse_computation_head(&built.state)
+                .expect("the definition has a main cell")
+                .expect("the main cell holds an item")
+                .text,
+            head.text
+        );
+        // Compared, not printed: a pattern of the log's length is no message.
+        let same = report.state.kore() == built.state.kore();
+        assert!(same, "the pattern read is the built run's");
+        assert!(report.state.holds_kore());
+        assert_read_back(semantics, &report.state, entries);
     });
 }

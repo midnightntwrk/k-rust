@@ -528,6 +528,13 @@ impl Unparser {
         float::llvm_floats(&self.data, pattern)
     }
 
+    /// Whether `sort` is a sort of Floats (hooked to `FLOAT.Float`). A pattern with no domain
+    /// value of such a sort holds no Float, and [`Self::llvm_floats`] of it is `None`.
+    #[must_use]
+    pub fn is_float(&self, sort: &k_rust::kore::ast::Sort) -> bool {
+        float::is_float(&self.data, sort)
+    }
+
     /// Print a KORE pattern.
     ///
     /// A [`Mode::Pretty`] print through aliases that writes a part no value's grammar reads (a

@@ -230,6 +230,7 @@ pub use k_rust_backend::definition::{
     EXECUTION_DIGEST_VERSION, ExecutionDigest, ExecutionDigestError, ExecutionRole,
     ParseExecutionDigestError, UnstatedDefinedness, execution_digest, execution_role,
 };
+pub use k_rust_backend::externalize::HeldState;
 pub use k_rust_backend::nesting::SegmentRefused;
 pub use k_rust_backend::rewrite::{
     CellHandle, InProcess, Probe, ProbeArrival, ProbeCycle, ProbeDecision, ProbeLeaf, ProbePath,
@@ -1078,6 +1079,81 @@ pub enum ExecutionStrategy {
 
 /// An execution result whose KORE is held as patterns ([`Backend::execute_kore`]).
 pub type KoreExecutionResult = ExecutionResult<KorePattern>;
+/// An execution result whose KORE is held as patterns, but for its leaves' states, which are
+/// held as the backend has them ([`Backend::execute_kore_held`]).
+pub type HeldExecutionResult = ExecutionResult<KorePattern, LeafState>;
+/// A leaf of a [`HeldExecutionResult`].
+pub type HeldExecutionLeaf = ExecutionLeaf<KorePattern, LeafState>;
+
+/// The state of a leaf of [`Backend::execute_kore_held`]: the state as the backend has it,
+/// which answers what its pattern holds without building it ([`HeldState`]), or the pattern,
+/// for a state with constraints.
+#[derive(Clone, Debug)]
+pub enum LeafState {
+    /// A state without constraints, as the backend's own term.
+    Held(HeldState),
+    /// The state's pattern: a configuration conjoined with its constraints.
+    Kore(KorePattern),
+}
+
+impl LeafState {
+    /// The state's pattern, the `state` of the same leaf of [`Backend::execute_kore_with_probe`]:
+    /// built now for a held state.
+    #[must_use]
+    pub fn into_kore(self) -> KorePattern {
+        match self {
+            Self::Held(held) => held.kore(),
+            Self::Kore(kore) => kore,
+        }
+    }
+}
+
+impl<K, S> ExecutionLeaf<K, S> {
+    /// The leaf with `state` for its state, and the state it had.
+    pub fn with_state<T>(self, state: T) -> (ExecutionLeaf<K, T>, S) {
+        let Self {
+            state: had,
+            diagnostics,
+            candidates,
+            remainder,
+            depth,
+            reason,
+            rule_id,
+            rule_label,
+            contradicted_total,
+            cause,
+            detail,
+            trace,
+            branch,
+            effects,
+            observations,
+            stops,
+            arrivals,
+        } = self;
+        (
+            ExecutionLeaf {
+                state,
+                diagnostics,
+                candidates,
+                remainder,
+                depth,
+                reason,
+                rule_id,
+                rule_label,
+                contradicted_total,
+                cause,
+                detail,
+                trace,
+                branch,
+                effects,
+                observations,
+                stops,
+                arrivals,
+            },
+            had,
+        )
+    }
+}
 /// A leaf of a [`KoreExecutionResult`].
 pub type KoreExecutionLeaf = ExecutionLeaf<KorePattern>;
 /// A search response whose KORE is held as patterns ([`Backend::search_kore`]).
@@ -1092,13 +1168,15 @@ pub type KorePathPatternSearchResponse = PathPatternSearchResponse<KorePattern>;
 /// A proof result whose leaves' KORE is held as patterns ([`Backend::prove_kore`]).
 pub type KoreProofResult = ProofResultOutput<KorePattern>;
 
+/// A result's KORE is held in the form `K`; its leaves' states in the form `S`, which is `K`
+/// but for [`Backend::execute_kore_held`].
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecutionResult<K> {
+pub struct ExecutionResult<K, S = K> {
     /// Whether `leaves` is a state set (equal configurations merged) or a path set (one leaf
     /// per explored path), as selected by `ExecuteRequest::result_modality`.
     pub modality: ResultModalityOutput,
-    pub leaves: Vec<ExecutionLeaf<K>>,
+    pub leaves: Vec<ExecutionLeaf<K, S>>,
     /// Compatibility copy of the committed effects when execution retains exactly one leaf.
     /// Multi-leaf executions carry their transcripts on the individual leaves.
     pub effects: Vec<EffectOutput>,
@@ -2269,9 +2347,9 @@ fn is_zero(count: &usize) -> bool {
 /// decides whether it has an instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[serde(bound(deserialize = "K: Deserialize<'de>"))]
-pub struct ExecutionLeaf<K = Value> {
-    pub state: K,
+#[serde(bound(deserialize = "K: Deserialize<'de>, S: Deserialize<'de>"))]
+pub struct ExecutionLeaf<K = Value, S = K> {
+    pub state: S,
     /// The backend diagnostics of the work this leaf's path went through, each distinct one once.
     /// A leaf of a `state-set` result also carries those of every path whose equal configuration
     /// was merged into it, so its list may name work that is not on its own `trace`, and the
@@ -3230,6 +3308,27 @@ impl Backend {
         self.execute_using(request, None, in_process, probe_rules)
     }
 
+    /// [`Self::execute_kore_with_probe`] with each leaf's state held as the backend has it
+    /// ([`LeafState`]) rather than built as a pattern: the same run and the same result, whose
+    /// leaf states built ([`LeafState::into_kore`]) are that result's.
+    ///
+    /// A leaf's pattern is a tree of its state's size beside the term the run reached, which
+    /// the run shares with the states before it. A caller that asks what the state holds (an
+    /// application of some symbol, a domain value of some sort, one cell) asks the held state
+    /// ([`HeldState`]), and builds the pattern only to print or keep all of it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::execute_kore_with_probe`].
+    pub fn execute_kore_held(
+        &mut self,
+        request: ExecuteRequest,
+        probe_rules: ProbeRules,
+        in_process: InProcess<'_>,
+    ) -> Result<HeldExecutionResult, BackendError> {
+        self.execute_using(request, None, in_process, probe_rules)
+    }
+
     /// Execute with observation without changing the leaves or their order.
     /// For the same request, leaves match [`Self::execute_kore`] after clearing `branch` and
     /// `observations`.
@@ -3252,13 +3351,13 @@ impl Backend {
         )
     }
 
-    fn execute_using<K: wire::WireKore>(
+    fn execute_using<K: wire::WireKore, S: wire::WireState<K>>(
         &mut self,
         mut request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
         in_process: InProcess<'_>,
         probe_rules: ProbeRules,
-    ) -> Result<ExecutionResult<K>, BackendError> {
+    ) -> Result<ExecutionResult<K, S>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         if request.collect_offered && !request.collect_coverage {
             return Err(BackendError::new(
@@ -3814,7 +3913,7 @@ impl Backend {
         request: ObservedRequest<ExecuteRequest>,
         writer: W,
     ) -> Result<(), BackendError> {
-        let response = self.execute_using::<Box<RawValue>>(
+        let response = self.execute_using::<Box<RawValue>, Box<RawValue>>(
             request.request,
             Some(request.rules),
             InProcess::default(),
@@ -3824,7 +3923,7 @@ impl Backend {
     }
 
     pub fn execute_json(&mut self, request: ExecuteRequest) -> Result<String, BackendError> {
-        serialize_wire(&self.execute_using::<Box<RawValue>>(
+        serialize_wire(&self.execute_using::<Box<RawValue>, Box<RawValue>>(
             request,
             None,
             InProcess::default(),
@@ -3836,7 +3935,7 @@ impl Backend {
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
     ) -> Result<String, BackendError> {
-        serialize_wire(&self.execute_using::<Box<RawValue>>(
+        serialize_wire(&self.execute_using::<Box<RawValue>, Box<RawValue>>(
             request.request,
             Some(request.rules),
             InProcess::default(),

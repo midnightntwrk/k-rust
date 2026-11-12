@@ -2859,6 +2859,19 @@ The tests `rewrite::execute::tests::probe::paths` run a probe that follows paths
 `the_probe_reaches_the_facade` in [backend/mod.rs](../crates/k-rust/src/backend/mod.rs) reads `probe-difference` and `probe-done` from the facade and finds a continuing probe's result equal to the plain request's.
 The backend's `ExecutionOptions` and `InProcess` gain public fields (`probe_rules`, `probe`), so a struct literal of them outside k-rust names the field; the `Probe` trait's `cycle_states`, `progress`, `cycled`, `follows_paths`, `fork`, `split`, `merged` and `history` have defaults, so an existing probe is unchanged; the backend's `HaltReason` and the facade's `HaltReasonOutput` gain variants, and the TypeScript declarations gain the reasons `probe-difference` and `probe-done`, which those bindings never produce.
 
+### Held leaf states (in-process)
+
+An in-process execution may ask for each leaf's state as the backend has it rather than as a KORE pattern (`Backend::execute_kore_held`, whose result is `ExecutionResult<KorePattern, LeafState>`).
+The run and every other field of the result are those of `Backend::execute_kore_with_probe`; a leaf's `LeafState::into_kore` is that result's `state` for the leaf.
+The wire request and every wire result are unchanged: a held state is a term of the process, which no wire result carries.
+
+A state without constraints is held (`LeafState::Held`, a `HeldState`); a state with constraints is its pattern, built inside the operation as every other leaf's is (`LeafState::Kore`).
+A held state is the term the run reached, which shares with the states before it what no step changed, where the pattern is a second tree of the state's size.
+It answers what its pattern holds by reading the pattern's nodes one at a time (`HeldState::source`, the `External` source the pattern is built from), so each answer is the answer the same reading gives on the built pattern: whether an application names a symbol (`HeldState::names_symbol`, a collection's unit, element and concatenation symbols and `inj` among them, since the pattern names them), whether a domain value has a sort (`HeldState::holds_domain_value_of`), and, through the source, any subpattern built alone.
+`HeldState::kore` builds the whole pattern.
+
+The test `externalize::tests::a_held_state_answers_what_its_built_pattern_holds` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs) compares both facts with a walk of the built pattern for lists of no, one and three items and an injected value, and checks that a state with a constraint is not held.
+
 ### Work budget
 
 An execute request may bound the work of its run: `maxWork` (`ExecuteRequest::max_work`, `ExecutionOptions::max_work` in the backend; absent by default, no bound) is the most states the run may visit across all its paths.

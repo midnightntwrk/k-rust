@@ -16,22 +16,21 @@ use k_rust::kore::ast::{KoreString, Pattern, Sort};
 use k_rust::kore::node::PatternSource;
 use k_rust::kore::walk;
 
+/// Whether `sort` is a sort of Floats, hooked to `FLOAT.Float`: [`llvm_floats`] changes domain
+/// values of such sorts only.
+pub(crate) fn is_float(data: &PrintData, sort: &Sort) -> bool {
+    matches!(sort, Sort::Application { name, .. }
+        if data.hooks.get(name).is_some_and(|hook| hook == "FLOAT.Float"))
+}
+
 /// `pattern` with each binary32 and binary64 Float domain value in the LLVM runtime's printed
 /// form, or `None` when no domain value changes.
 pub(crate) fn llvm_floats(data: &PrintData, pattern: &Pattern) -> Option<Pattern> {
     let printed = |pattern: &Pattern| -> Option<KoreString> {
-        let Pattern::DomainValue {
-            sort: Sort::Application { name, .. },
-            value,
-        } = pattern
-        else {
+        let Pattern::DomainValue { sort, value } = pattern else {
             return None;
         };
-        if data
-            .hooks
-            .get(name)
-            .is_none_or(|hook| hook != "FLOAT.Float")
-        {
+        if !is_float(data, sort) {
             return None;
         }
         let token = value.as_utf8().ok()?;

@@ -5,7 +5,9 @@
 //! `stream = "stdout"` cell's `#buffer` holds when the run ends. The request API performs no host
 //! I/O (k-rust `docs/compatibility.md`), so nothing is written while the rules run.
 
+use k_rust::backend::HeldState;
 use k_rust::kore::ast::{Pattern, Sort, Symbol};
+use k_rust::kore::node::{PatternNode, PatternSource, materialize};
 use krs_ir::{CellAttribute, CellStream, FixedCell, FixedCellContent};
 use krs_ir_levels::{DefinitionIr, DefinitionSentence};
 
@@ -82,6 +84,83 @@ pub(crate) fn stdout_buffer(state: &Pattern) -> Option<Vec<u8>> {
     let mut buffers = found.into_iter();
     let buffer = buffers.next()?;
     buffers.next().is_none().then_some(buffer)
+}
+
+/// [`stdout_buffer`] of the pattern of `state`, read from the backend's state without building
+/// the pattern.
+///
+/// The pattern's nodes are read in the order [`stdout_buffer`] reads them, and descended into
+/// where it descends. A cell is built, alone, where its content may be a list of three items
+/// ([`may_hold_three_items`]), which the stream cell's shape requires; the shape is then read on
+/// the built cell as it is on the whole pattern, so every other cell, however long its list, is
+/// read and not built.
+pub(crate) fn stdout_buffer_held(state: &HeldState) -> Option<Vec<u8>> {
+    let mut found = Vec::new();
+    let mut pending = vec![state.source()];
+    while let Some(source) = pending.pop() {
+        let arguments = match source.node() {
+            PatternNode::Application { symbol, arguments } => {
+                if let [content] = arguments.as_slice()
+                    && symbol.name.starts_with("Lbl'-LT-'")
+                    && may_hold_three_items(*content)
+                    && let Some(buffer) = match &materialize(source) {
+                        Pattern::Application { symbol, arguments } => {
+                            stream_cell_buffer(&symbol.name, arguments)
+                        }
+                        _ => None,
+                    }
+                {
+                    found.push(buffer);
+                    continue;
+                }
+                arguments
+            }
+            PatternNode::And { arguments, .. } | PatternNode::Or { arguments, .. } => arguments,
+            _ => continue,
+        };
+        pending.extend(arguments.into_iter().rev());
+    }
+    let mut buffers = found.into_iter();
+    let buffer = buffers.next()?;
+    buffers.next().is_none().then_some(buffer)
+}
+
+/// Whether [`list_items`] of the pattern of `content` may give exactly three items: false only
+/// where it gives another number or none. The items are counted as [`list_items`] finds them,
+/// and the count stops past three, so a long list is not read to its end.
+fn may_hold_three_items<'a, S: PatternSource<'a>>(content: S) -> bool {
+    let mut items = 0_usize;
+    let mut pending = vec![content];
+    while let Some(mut source) = pending.pop() {
+        // The pattern below its injections ([`uninjected`]).
+        let node = loop {
+            match source.node() {
+                PatternNode::Application { symbol, arguments }
+                    if symbol.name == "inj" && arguments.len() == 1 =>
+                {
+                    source = arguments.into_iter().next().expect("one argument");
+                }
+                node => break node,
+            }
+        };
+        match node {
+            PatternNode::Application { symbol, arguments }
+                if symbol.name == "Lbl'Unds'List'Unds'" =>
+            {
+                pending.extend(arguments.into_iter().rev());
+            }
+            PatternNode::Application { symbol, arguments }
+                if symbol.name == "LblListItem" && arguments.len() == 1 =>
+            {
+                items += 1;
+                if items > 3 {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    items == 3
 }
 
 fn collect_stdout_buffers(pattern: &Pattern, found: &mut Vec<Vec<u8>>) {
@@ -270,6 +349,53 @@ mod tests {
         assert_eq!(stdout_buffer(&interactive), None);
         let stderr = parse_pattern(&cell("2", "off")).unwrap();
         assert_eq!(stdout_buffer(&stderr), None);
+    }
+
+    /// The count that decides whether a cell is built to read its stream shape is true of
+    /// every list of three items, the stream cell's among them, and false of a list of another
+    /// length, however long, and of what is no list of items.
+    #[test]
+    fn a_cell_is_built_only_where_its_content_may_be_three_items() {
+        use super::may_hold_three_items;
+
+        let item = |text: &str| {
+            format!(
+                r#"LblListItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{text}")))"#
+            )
+        };
+        let list = |length: usize| {
+            let mut items = (0..length).map(|index| item(&index.to_string()));
+            let last = items
+                .next_back()
+                .unwrap_or_else(|| "Lbl'Stop'List{}()".to_owned());
+            items.rfold(last, |rest, item| {
+                format!("Lbl'Unds'List'Unds'{{}}({item}, {rest})")
+            })
+        };
+        for (length, may) in [
+            (0, false),
+            (1, false),
+            (2, false),
+            (3, true),
+            (4, false),
+            (50, false),
+        ] {
+            let content = parse_pattern(&list(length)).unwrap();
+            assert_eq!(may_hold_three_items(&content), may, "{length}");
+        }
+        let left_nested = parse_pattern(&format!(
+            "Lbl'Unds'List'Unds'{{}}(Lbl'Unds'List'Unds'{{}}({}, {}), {})",
+            item("0"),
+            item("1"),
+            item("2")
+        ))
+        .unwrap();
+        assert!(may_hold_three_items(&left_nested));
+        let injected =
+            parse_pattern(&format!("inj{{SortList{{}}, SortKItem{{}}}}({})", list(3))).unwrap();
+        assert!(may_hold_three_items(&injected));
+        let no_list = parse_pattern(r#"\dv{SortInt{}}("3")"#).unwrap();
+        assert!(!may_hold_three_items(&no_list));
     }
 
     #[test]

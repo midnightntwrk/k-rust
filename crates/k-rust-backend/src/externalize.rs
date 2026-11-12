@@ -988,6 +988,81 @@ impl<T> std::ops::Deref for Apart<'_, T> {
     }
 }
 
+/// A state kept as the backend's own term, for a caller that asks facts of the state's KORE
+/// pattern without holding the pattern.
+///
+/// The pattern is the one a result's leaf carries for the state ([`External::Constrained`]),
+/// and is built only by [`Self::kore`]. Every other reading goes over [`Self::source`], which
+/// gives that pattern one node at a time: an answer read from it is the answer the same reading
+/// gives on the built pattern, since both read the same nodes in the same order. The term is
+/// shared with the run that reached it, so holding it costs a handle, where the pattern is a
+/// second tree of the state's size.
+///
+/// Only a state without constraints is held: its pattern is its term's, with no binder to
+/// rename apart ([`Printable`]), so the source borrows the term as it is.
+#[derive(Clone, Debug)]
+pub struct HeldState(Pattern);
+
+impl HeldState {
+    /// `pattern` held, where it has no constraint.
+    ///
+    /// # Errors
+    ///
+    /// Gives `pattern` back where it has a constraint.
+    pub fn hold(pattern: Pattern) -> Result<Self, Pattern> {
+        if pattern.constraints.is_empty() {
+            Ok(Self(pattern))
+        } else {
+            Err(pattern)
+        }
+    }
+
+    /// The state's KORE pattern, one node at a time.
+    #[must_use]
+    pub fn source(&self) -> External<'_> {
+        External::Constrained(Apart(&self.0))
+    }
+
+    /// The state's KORE pattern, built: a tree of the state's size.
+    #[must_use]
+    pub fn kore(&self) -> kore::Pattern {
+        k_rust_kore::kore::node::materialize(self.source())
+    }
+
+    /// Whether the state's pattern holds an application of a symbol `select` accepts.
+    ///
+    /// The pattern is read, not built: the cost is the time of one pass over it, and the memory
+    /// of the path from its root to the node read.
+    pub fn names_symbol(&self, mut select: impl FnMut(&str) -> bool) -> bool {
+        self.any_node(
+            |node| matches!(node, PatternNode::Application { symbol, .. } if select(&symbol.name)),
+        )
+    }
+
+    /// Whether the state's pattern holds a domain value of a sort `select` accepts; read as
+    /// [`Self::names_symbol`] reads.
+    pub fn holds_domain_value_of(&self, mut select: impl FnMut(&kore::Sort) -> bool) -> bool {
+        self.any_node(|node| matches!(node, PatternNode::DomainValue { sort, .. } if select(sort)))
+    }
+
+    /// Whether `holds` is true of a node of the state's pattern; the nodes are read in the
+    /// pattern's pre-order, up to the first it is true of.
+    fn any_node(&self, mut holds: impl FnMut(&PatternNode<'_, External<'_>>) -> bool) -> bool {
+        // A collection is a chain one level per element, so the sources still to read are on a
+        // stack of their own rather than the thread's.
+        let mut pending = vec![self.source()];
+        while let Some(source) = pending.pop() {
+            let node = source.node();
+            if holds(&node) {
+                return true;
+            }
+            let (_, children) = node.split();
+            pending.extend(children.into_iter().rev());
+        }
+        false
+    }
+}
+
 fn application(
     name: &str,
     sort_parameters: Vec<kore::Sort>,
@@ -1590,6 +1665,85 @@ mod tests {
                 json::to_value(&super::term(&term)).unwrap(),
             );
         }
+    }
+
+    /// A held state's facts are those of its built pattern: the symbols its applications name
+    /// (a collection's own and an injection's among them) and the sorts of its domain values.
+    #[test]
+    fn a_held_state_answers_what_its_built_pattern_holds() {
+        use k_rust_kore::kore::walk;
+
+        let string = Term::raw_domain_value(Sort::simple("SortString"), "x");
+        let item = Term::injection(
+            Sort::simple("SortString"),
+            Sort::simple("SortKItem"),
+            string,
+        );
+        let list = |items: Vec<Term>| {
+            Term::list(
+                std::sync::Arc::new(crate::term::ListDefinition {
+                    symbols: CollectionSymbols {
+                        unit: "Lbl'Stop'List".into(),
+                        element: "LblListItem".into(),
+                        concat: "Lbl'Unds'List'Unds'".into(),
+                    },
+                    element_sort: Sort::simple("SortKItem"),
+                    list_sort: "SortList".into(),
+                }),
+                items,
+                None,
+            )
+        };
+        for term in [
+            list(Vec::new()),
+            list(vec![item.clone()]),
+            list(vec![item.clone(), item.clone(), item.clone()]),
+            item,
+        ] {
+            let held = HeldState::hold(Pattern {
+                term: term.clone(),
+                constraints: Vec::new(),
+            })
+            .expect("a state without constraints is held");
+            let built = held.kore();
+            assert_eq!(built, super::term(&term));
+            let mut symbols = BTreeSet::new();
+            let mut sorts = BTreeSet::new();
+            walk::for_each_post_order(&built, |node| match node {
+                kore::Pattern::Application { symbol, .. } => {
+                    symbols.insert(symbol.name.clone());
+                }
+                kore::Pattern::DomainValue { sort, .. } => {
+                    sorts.insert(sort.to_string());
+                }
+                _ => {}
+            });
+            for symbol in [
+                "Lbl'Stop'List",
+                "LblListItem",
+                "Lbl'Unds'List'Unds'",
+                "inj",
+                "LblgetExitCode",
+            ] {
+                assert_eq!(
+                    held.names_symbol(|name| name == symbol),
+                    symbols.contains(symbol),
+                    "{symbol} in {built}"
+                );
+            }
+            for sort in ["SortString{}", "SortInt{}"] {
+                assert_eq!(
+                    held.holds_domain_value_of(|held| held.to_string() == sort),
+                    sorts.contains(sort),
+                    "{sort} in {built}"
+                );
+            }
+        }
+        let constrained = Pattern {
+            term: Term::raw_domain_value(Sort::simple("SortInt"), "1"),
+            constraints: vec![Predicate::False],
+        };
+        assert!(HeldState::hold(constrained).is_err());
     }
 
     #[cfg(feature = "measure")]

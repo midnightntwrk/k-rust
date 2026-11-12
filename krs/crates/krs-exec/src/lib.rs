@@ -67,13 +67,18 @@ use std::{collections::HashMap, fmt};
 use k_rust::{
     backend::{
         Backend, EffectOutput, ExecuteRequest, ExecutionCandidateOutput, ExecutionStrategy,
-        HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult, KoreSearchResponse, ProveRequest,
-        RunCoverageOutput, SearchRequest, SearchTypeArg, TraceEntry,
+        HaltReasonOutput, HeldExecutionLeaf, HeldExecutionResult, KoreExecutionLeaf,
+        KoreExecutionResult, KoreSearchResponse, LeafState, ProveRequest, RunCoverageOutput,
+        SearchRequest, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     k_rust_backend::definition::Admission,
     kast::{Sort as KastSort, convert::sort_hooks, printer::Printer},
-    kore::{ast::Pattern, parser::parse_definition},
+    kore::{
+        ast::Pattern,
+        node::{PatternNode, PatternSource},
+        parser::parse_definition,
+    },
 };
 use krs_ir::{SourceFileId, measure::Timings};
 use krs_ir_levels::DefinitionIr;
@@ -102,7 +107,9 @@ pub use inputs::{
 pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT, SmtBudget,
 };
-use k_rust::backend::{BackendErrorKind, InProcess, Probe, ProbeDecision, StopCondition, StopSide};
+use k_rust::backend::{
+    BackendErrorKind, InProcess, Probe, ProbeDecision, ProbeRules, StopCondition, StopSide,
+};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
@@ -171,6 +178,36 @@ pub struct RunOptions {
     pub observe: Option<ObservationSpec>,
     /// Whether the report's end state is built with its KAST ([`RunReport::state`]).
     pub end_kast: EndKast,
+    /// Whether the report's end state is built with its KORE pattern ([`RunReport::state`]).
+    pub end_pattern: EndPattern,
+}
+
+/// Whether a run's report builds the KORE pattern of its end state
+/// ([`RunOptions::end_pattern`]).
+///
+/// The backend reaches the end as a term of its own, which shares what the states before it
+/// left unchanged; the end's pattern is a tree of the end's size beside it. What a run decides
+/// from its end is a fact of that term: whether the end holds a term with no value (the
+/// `undefined` status) or a Float, what its stdout buffer holds, what the head of its main cell
+/// is. A run that builds no pattern asks the backend's state for each
+/// ([`k_rust::backend::HeldState`]), which reads the pattern's nodes without building them, so
+/// the answers are the pattern's. A consumer that prints or keeps none of the end asks for
+/// none.
+///
+/// Either way the end's pattern is the same when it is read ([`Term::kore`]): the choice is
+/// when it is built. A run builds it at once, whatever is asked, where it must read all of it:
+/// an end with constraints or of several leaves, an end that names a partial function (one
+/// that may hold a term with no value, which the report then lists), an end that holds a
+/// Float, a stop before a rule, an exit cell of a completed run, and under `KRS_CHECK_ENDS`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EndPattern {
+    /// The run builds it.
+    #[default]
+    Built,
+    /// The run does not build it where it need not read all of it; [`Term::kore`] does, when
+    /// it is first called. The end's KAST, converted from the pattern, is then converted when
+    /// it is first read too ([`EndKast::WhenRead`]).
+    WhenRead,
 }
 
 /// Whether a run's report builds the KAST of its end state ([`RunOptions::end_kast`]).
@@ -1597,10 +1634,45 @@ impl Semantics {
     fn execute(
         &mut self,
         request: ExecuteRequest,
+        oracle: Option<&mut ConditionOracle<'_>>,
+        probe: Option<&mut ObservationOracle<'_>>,
+        offset: u64,
+    ) -> Result<KoreExecutionResult, ExecError> {
+        self.execute_as(
+            request,
+            oracle,
+            probe,
+            offset,
+            Backend::execute_kore_with_probe,
+        )
+    }
+
+    /// [`Self::execute`] with each leaf's state held as the backend has it
+    /// ([`Backend::execute_kore_held`]): the same result, whose leaf states built are its.
+    fn execute_held(
+        &mut self,
+        request: ExecuteRequest,
+        oracle: Option<&mut ConditionOracle<'_>>,
+        probe: Option<&mut ObservationOracle<'_>>,
+        offset: u64,
+    ) -> Result<HeldExecutionResult, ExecError> {
+        self.execute_as(request, oracle, probe, offset, Backend::execute_kore_held)
+    }
+
+    /// [`Self::execute`] by `run`, the backend's execution in the form of result asked for.
+    fn execute_as<R>(
+        &mut self,
+        request: ExecuteRequest,
         mut oracle: Option<&mut ConditionOracle<'_>>,
         mut probe: Option<&mut ObservationOracle<'_>>,
         offset: u64,
-    ) -> Result<KoreExecutionResult, ExecError> {
+        run: impl for<'a> FnOnce(
+            &mut Backend,
+            ExecuteRequest,
+            ProbeRules,
+            InProcess<'a>,
+        ) -> Result<R, BackendError>,
+    ) -> Result<R, ExecError> {
         self.execute_requests = self.execute_requests.saturating_add(1);
         let reading = valueless::Successors(self.values.as_ref());
         let probe_rules = probe
@@ -1619,9 +1691,7 @@ impl Semantics {
                 .as_deref_mut()
                 .map(|probe| -> &mut dyn Probe { probe }),
         };
-        let result = self
-            .backend
-            .execute_kore_with_probe(request, probe_rules, in_process);
+        let result = run(&mut self.backend, request, probe_rules, in_process);
         // An element with no value ended the request at its point: the run is refused.
         if result.is_ok()
             && let Some(refusal) = probe.and_then(|probe| probe.refusal())
@@ -2762,6 +2832,7 @@ impl Semantics {
                 depth: Some(0),
                 trace: options.trace,
                 end_kast: options.end_kast,
+                end_pattern: options.end_pattern,
                 ..RunOptions::default()
             };
             let mut report = self.run_from(
@@ -2989,14 +3060,14 @@ impl Semantics {
     ) -> Result<RunReport, ExecError> {
         let asked = oracle.is_some();
         let offset = u64::from(taken.is_some());
-        let KoreExecutionResult {
+        let HeldExecutionResult {
             leaves,
             implementation_chosen_values,
             unsupported_hooks,
             coverage,
             passed_stops,
             ..
-        } = self.execute(
+        } = self.execute_held(
             run_request(start, options, stops),
             oracle.as_deref_mut(),
             probe.as_deref_mut(),
@@ -3005,29 +3076,35 @@ impl Semantics {
         // A hook the backend left unevaluated may leave an equation's condition open, so no
         // application is decided to have no value ([`decided`]).
         let decides = unsupported_hooks.is_empty();
-        let path = one_path(leaves, self.heads(decides));
-        let OnePath {
-            mut leaf,
-            mut valueless,
-            held,
-        } = match path {
-            Ok(path) => path,
-            Err(error) => return Err(self.path_error(error)),
+        let checks_ends = options.check_ends || check_ends();
+        let unbuilt = options.end_pattern == EndPattern::WhenRead && !checks_ends;
+        let (mut leaf, mut valueless, held) = match one_end(leaves, unbuilt, self.heads(decides)) {
+            // The end has a value, and no condition was read to find it.
+            Ok(leaf) => (leaf, Vec::new(), false),
+            Err(leaves) => {
+                let leaves = leaves.into_iter().map(built).collect();
+                match one_path(leaves, self.heads(decides)) {
+                    Ok(path) => (kept(path.leaf), path.valueless, path.held),
+                    Err(error) => return Err(self.path_error(error)),
+                }
+            }
         };
         if held && leaf.depth > 0 {
-            leaf = self.before_valueless(
+            leaf = kept(self.before_valueless(
                 start,
-                leaf,
+                built(leaf),
                 decides,
                 options.trace,
                 stops,
                 oracle.as_deref_mut(),
                 offset,
-            )?;
+            )?);
             // The run ends at the last state with a value: the steps past it are undefined, so
             // they have no points, and the logs are read at the new end.
             if let Some(probe) = probe.as_deref_mut() {
-                probe.cut_back(leaf.depth.saturating_add(offset), &leaf.state);
+                let end = built(leaf);
+                probe.cut_back(end.depth.saturating_add(offset), &end.state);
+                leaf = kept(end);
                 if let Some(refusal) = probe.refusal() {
                     return Err(self.observation_error(refusal));
                 }
@@ -3039,9 +3116,9 @@ impl Semantics {
         let mut passed = leaf.arrivals.filter(|_| asked);
         let mut proposal = None;
         if leaf.reason == HaltReasonOutput::CutPoint {
-            let (read, proposed) =
-                read_proposal(leaf, self.heads(decides)).map_err(|error| self.path_error(error))?;
-            leaf = read;
+            let (read, proposed) = read_proposal(built(leaf), self.heads(decides))
+                .map_err(|error| self.path_error(error))?;
+            leaf = kept(read);
             match proposed {
                 Ok(proposed) => proposal = Some(proposed),
                 // The step reaches no state, so it is no arrival.
@@ -3052,7 +3129,7 @@ impl Semantics {
                 }
             }
         }
-        if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
+        if leaf.reason == HaltReasonOutput::Stuck && checks_ends {
             self.execute_requests = self.execute_requests.saturating_add(1);
             // The definition's heads, borrowed beside the backend ([`Self::heads`]).
             let heads: &dyn valueless::Heads = if decides {
@@ -3060,7 +3137,9 @@ impl Semantics {
             } else {
                 &valueless::Undecided
             };
-            check_final_state(&mut self.backend, heads, &leaf.state, "the run ended stuck")?;
+            let end = built(leaf);
+            check_final_state(&mut self.backend, heads, &end.state, "the run ended stuck")?;
+            leaf = kept(end);
         }
         let valueless = valueless
             .into_iter()
@@ -3109,9 +3188,17 @@ impl Semantics {
                 budget_spent: undecided.budget_spent,
             });
         let observations = probe.map(|probe| self.observed(probe, halt));
-        let reached = self.end_term(leaf.state, options.end_kast)?;
+        let reached = match leaf.state {
+            LeafState::Held(held) if options.end_kast == EndKast::WhenRead => {
+                Term::unbuilt(held, Arc::clone(&self.sort_hooks))
+            }
+            state => self.end_term(state.into_kore(), options.end_kast)?,
+        };
         let stdout = if self.console.stdout {
-            console::stdout_buffer(reached.kore())
+            match reached.held() {
+                Some(held) => console::stdout_buffer_held(held),
+                None => console::stdout_buffer(reached.kore()),
+            }
         } else {
             None
         };
@@ -3161,6 +3248,13 @@ impl Semantics {
                 label: proposal.label,
             }),
         });
+        // An end with no Float is printed as it is: asked of the backend's state, the pattern
+        // is not built to find none.
+        if let Some(held) = reached.held()
+            && !held.holds_domain_value_of(|sort| self.unparser.is_float(sort))
+        {
+            return Ok((reached, resume));
+        }
         Ok(match self.unparser.llvm_floats(reached.kore()) {
             Some(kore) => (
                 self.end_term(kore, end_kast)?,
@@ -3243,7 +3337,7 @@ impl Semantics {
     /// last step of the trace.
     fn stop(
         &mut self,
-        leaf: &KoreExecutionLeaf,
+        leaf: &HeldExecutionLeaf,
         stops: &StopIds,
         trace: &[Step],
         nth: u64,
@@ -4389,6 +4483,52 @@ fn one_path(
         valueless: held,
         held: true,
     })
+}
+
+/// `leaf` with its state's pattern built ([`LeafState::into_kore`]).
+fn built(leaf: HeldExecutionLeaf) -> KoreExecutionLeaf {
+    let (leaf, state) = leaf.with_state(());
+    leaf.with_state(state.into_kore()).0
+}
+
+/// `leaf`, its state the pattern it holds.
+fn kept(leaf: KoreExecutionLeaf) -> HeldExecutionLeaf {
+    let (leaf, state) = leaf.with_state(());
+    leaf.with_state(LeafState::Kore(state)).0
+}
+
+/// The one leaf of `leaves` where [`one_path`] of the leaves built gives it as it is, with no
+/// term with no value, and that is decided on the backend's state without building its pattern;
+/// `leaves` back otherwise, and whenever `unbuilt` is false.
+///
+/// That holds of one leaf that is a state (neither `trivial` nor `vacuous`), held without
+/// constraints, whose pattern is an application that names no partial function defined by its
+/// equations alone. The pattern is then one conjunct that is no predicate: [`valueless::split`]
+/// finds it as the configuration, with no predicate to read, so the reading holds and reads no
+/// term; and a witness is an application of such a function, so the configuration holds none.
+/// A stop before a rule is read at its successor ([`read_proposal`]), a pattern: its leaf is
+/// given back.
+fn one_end(
+    leaves: Vec<HeldExecutionLeaf>,
+    unbuilt: bool,
+    heads: &dyn valueless::Heads,
+) -> Result<HeldExecutionLeaf, Vec<HeldExecutionLeaf>> {
+    let decided = unbuilt
+        && matches!(
+            leaves.as_slice(),
+            [HeldExecutionLeaf { state: LeafState::Held(held), reason, .. }]
+                if !matches!(
+                    reason,
+                    HaltReasonOutput::Trivial
+                        | HaltReasonOutput::Vacuous
+                        | HaltReasonOutput::CutPoint
+                ) && matches!(held.source().node(), PatternNode::Application { .. })
+                    && !held.names_symbol(|symbol| heads.is_equational_partial(symbol))
+        );
+    if !decided {
+        return Err(leaves);
+    }
+    Ok(leaves.into_iter().next().expect("one leaf"))
 }
 
 /// `leaf` at its state's configuration, where its state has one ([`valueless::split`]), moved
