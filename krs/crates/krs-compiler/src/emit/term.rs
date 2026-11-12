@@ -33,6 +33,10 @@ pub(super) fn render_context_term(
             }
             if is_wildcard(item) {
                 output.append(render_sequence_wildcard(item, context)?);
+            } else if let Some(rewrite) = render_sequence_rewrite(item, context, |to| {
+                render_context_term(to, here, here_origin, context, names)
+            })? {
+                output.append(rewrite);
             } else {
                 output.append(render_context_term(
                     item,
@@ -63,6 +67,31 @@ fn render_sequence_wildcard(
     wildcard.push("_:");
     wildcard.push(&context.sort_name_ref(item.sort())?);
     Ok(wildcard.finish(item.origin().key(), 0))
+}
+
+/// A K-sequence item `(_ => to)` whose left side is a wildcard, the item's removal
+/// (`k::rewrite!(_ => ())`) among them: the `_` is the one item the rewrite replaces, so it is
+/// printed with its sort, as a lone `_` item is ([`render_sequence_wildcard`]); bare, K would
+/// read it at the sort of the rewrite there, `K`, and the rule would replace any part of the
+/// computation. `None` for every other item.
+fn render_sequence_rewrite(
+    item: &DefinitionTerm,
+    context: &EmitContext<'_>,
+    render_to: impl FnOnce(&DefinitionTerm) -> Result<Rendered, EmitError>,
+) -> Result<Option<Rendered>, EmitError> {
+    let DefinitionTermKind::Rewrite { from, to } = item.kind() else {
+        return Ok(None);
+    };
+    if !is_wildcard(from) {
+        return Ok(None);
+    }
+    let mut output = Rendered::default();
+    output.push("(");
+    output.append(render_sequence_wildcard(from, context)?);
+    output.push(" => ");
+    output.append(render_to(to)?);
+    output.push(")");
+    Ok(Some(output.finish(item.origin().key(), 0)))
 }
 
 #[derive(Default)]
@@ -313,6 +342,10 @@ fn render_term_with_binders<'t>(
                     }
                     if is_wildcard(item) {
                         output.append(render_sequence_wildcard(item, context)?);
+                    } else if let Some(rewrite) = render_sequence_rewrite(item, context, |to| {
+                        render_term_with_binders(to, context, false, names, within)
+                    })? {
+                        output.append(rewrite);
                     } else {
                         output.append(render_term_with_binders(
                             item, context, false, names, within,

@@ -21,6 +21,7 @@ use super::denotation::denotation;
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 use super::record_updates::Fill;
+use super::rules::head_item_sort;
 
 /// Where a sentence's head stands, which tells what fixes a parametric head's instance (KF-027).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2669,9 +2670,29 @@ impl StructuredTermBuilder<'_> {
             .map_err(|error| self.locate(error, term))
     }
 
+    /// [`Self::infer`] for a whole K-sequence item ([`Self::lower_k_item`]): the item a removal
+    /// `k::rewrite!(item => ())` names stands at the item's own place, typed as a lone item is
+    /// ([`head_item_sort`]: `_` is any one item, a `KItem`), and its `()` removes it.
+    pub(super) fn infer_k_item(
+        &mut self,
+        term: &DescriptorTerm,
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        match term {
+            DescriptorTerm::Rewrite { from, to: None, .. } if subject => {
+                let k_item = self.k_item_sort.clone();
+                let item = head_item_sort(from, expected_sort, &k_item).cloned();
+                self.infer(from, item.as_ref(), true)
+            }
+            _ => self.infer(term, expected_sort, subject),
+        }
+    }
+
     /// [`Self::lower`] for a whole K-sequence item: `k::rewrite!(item => ())` there removes the
-    /// item, the one place a `()` (.K) right side needs no sort of K's (KF-011). The caller,
-    /// which reads the sequence, says that `term` is one of its items.
+    /// item, the one place a `()` (.K) right side needs no sort of K's (KF-011), and the item it
+    /// names is typed as a lone item is ([`Self::infer_k_item`]). The caller, which reads the
+    /// sequence, says that `term` is one of its items.
     pub(super) fn lower_k_item(
         &mut self,
         term: &DescriptorTerm,
@@ -2687,7 +2708,9 @@ impl StructuredTermBuilder<'_> {
                 ..
             } if subject => {
                 self.head_pending = false;
-                self.lower_rewrite(key, to_key, from, None, expected_sort, true)
+                let k_item = self.k_item_sort.clone();
+                let item = head_item_sort(from, expected_sort, &k_item).cloned();
+                self.lower_rewrite(key, to_key, from, None, item.as_ref(), true)
                     .map_err(|error| self.locate(error, term))
             }
             _ => self.lower(term, expected_sort, subject),

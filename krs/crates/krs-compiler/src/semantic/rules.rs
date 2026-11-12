@@ -1415,8 +1415,10 @@ fn instance_computation_items(
 
 /// The expected sort of one matched computation item: a `for Sort` table's
 /// head has the table's sort; in a record, `_` is any one item, a `KItem`,
-/// and every other item has the sort it states or infers.
-fn head_item_sort<'a>(
+/// and every other item has the sort it states or infers. The item an item's
+/// removal (`k::rewrite!(_ => ())`) names is typed so too
+/// ([`StructuredTermBuilder::lower_k_item`]).
+pub(super) fn head_item_sort<'a>(
     item: &DescriptorTerm,
     head_sort: Option<&'a SemanticSortRef>,
     k_item: &'a SemanticSortRef,

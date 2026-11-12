@@ -6170,3 +6170,122 @@ fn a_dot_k_right_side_stands_where_k_is_admissible() {
     assert!(success, "{stdout}\n{stderr}");
     expect_test::expect!["<generatedTop> <k> keep(.K) ~> .K </k> <acc> 1 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
 }
+
+/// `krs check`'s first error, or the emitted sentences (rules, claims, equations) that hold
+/// `needle`, one line each.
+fn sentences_or_error(target: &Path, manifest: &Path, needle: &str) -> String {
+    let verdict = first_error(target, manifest);
+    if !verdict.starts_with("passed") {
+        return verdict;
+    }
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target,
+        manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let k = ["definition.k", "spec.k"]
+        .iter()
+        .filter_map(|file| fs::read_to_string(output.join(file)).ok())
+        .map(|k| krs_test_support::without_source_comments(&k))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut sentences = Vec::new();
+    for line in k.lines().map(str::trim) {
+        let opens = ["rule ", "claim ", "context "]
+            .iter()
+            .any(|kind| line.starts_with(kind));
+        if opens {
+            sentences.push(line.to_owned());
+        } else if ["syntax ", "module ", "endmodule", "imports ", "requires \""]
+            .iter()
+            .any(|kind| line.starts_with(kind))
+        {
+            sentences.push(String::new());
+        } else if let Some(sentence) = sentences.last_mut().filter(|sentence| !sentence.is_empty())
+        {
+            sentence.push(' ');
+            sentence.push_str(line);
+        }
+    }
+    let found = sentences
+        .into_iter()
+        .map(|sentence| sentence.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|sentence| sentence.contains(needle))
+        .collect::<Vec<_>>();
+    format!("passed: {}", found.join(" | "))
+}
+
+/// ITEMSORTS item 1: an item is typed by its place. `k::rewrite!(_ => ())` as a whole
+/// K-sequence item removes that item whatever it is: its `_` is the one item, a `KItem`, as a
+/// lone `_` item is, so it means K's `<k> (_:KItem => .K) ... </k>`, the readable
+/// `{ k: [_, ..] } => { k: [..] }`'s meaning, at the head, at a later item, and in a closed
+/// computation. The `_` is printed with its sort: bare, K would read it at the rewrite's sort
+/// there, `K`. It was refused "wildcard has no expected production-field sort", which says
+/// nothing true of an item. A readable rule states its after-state and holds no rewrite.
+#[test]
+fn an_item_removal_names_the_one_item_it_removes() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let fixture = dot_k_fixture();
+    let kk = "k::configuration::KCell";
+    let cc = "k::configuration::Cell";
+    let cells = |parameters: &str, entries: &str| {
+        format!(
+            "{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    {parameters}\n    k::cells! {{ {entries}, .. }}: Machine,\n) {{}}\n"
+        )
+    };
+    let readable = |clause: &str| {
+        format!(
+            "{fixture}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    probe: {clause};\n}}\n"
+        )
+    };
+    let rows = [
+        ("cells/head", cells("", &format!("k: {kk}(k::rewrite!(_ => ()), ..)"))),
+        ("cells/head-beside-a-cell", cells("a: Int,", &format!("k: {kk}(k::rewrite!(_ => ()), ..), acc: {cc}(k::rewrite!(a => 1))"))),
+        ("cells/second", cells("x: Int,", &format!("k: {kk}(Cmd::Make {{ x }}, k::rewrite!(_ => ()), ..)"))),
+        ("cells/only", cells("", &format!("k: {kk}(k::rewrite!(_ => ()))"))),
+        ("cells/binder", cells("y: k::KItem,", &format!("k: {kk}(k::rewrite!(y => ()), ..)"))),
+        ("cells/replaced", cells("", &format!("k: {kk}(k::rewrite!(_ => Cmd::Make {{ x: 1 }}), ..)"))),
+        ("cells/result", format!("{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    k::cells! {{ k: {kk}(_, rest @ ..), .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {kk}(..rest), .. }}\n}}\n")),
+        ("readable", readable("{ k: [_, ..] } => { k: [..] }")),
+        ("readable-claim", format!("{fixture}k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(all_paths)]\n    probe: {{ k: [_, ..] }} => {{ k: [..] }};\n}}\n")),
+        ("readable/rewrite", readable("{ k: [k::rewrite!(_ => ()), ..] } => { k: [..] }")),
+    ]
+    .map(|(name, source)| {
+        let manifest = library_package(temporary.path(), &format!("item-removal-{}", name.replace('/', "-")), &source);
+        format!("{name}: {}", sentences_or_error(target.path(), &manifest, "probe"))
+    });
+    expect_test::expect![[r"
+        cells/head: passed: rule [probe]: <k> (_:KItem => .K) ... </k>
+        cells/head-beside-a-cell: passed: rule [probe]: <k> (_:KItem => .K) ... </k> <acc> A:Int => 1 </acc>
+        cells/second: passed: rule [probe]: <k> make ( X:Int ) ~> (_:KItem => .K) ... </k>
+        cells/only: passed: rule [probe]: <k> (_:KItem => .K) </k>
+        cells/binder: passed: rule [probe]: <k> (Y:KItem => .K) ... </k>
+        cells/replaced: passed: rule [probe]: <k> (_:Stmt => make ( 1 )) ... </k>
+        cells/result: passed: rule [probe]: <k> _:KItem ~> Rest:K => .K ~> Rest:K </k>
+        readable: passed: rule [probe]: <k> _:KItem => .K ... </k>
+        readable-claim: passed: claim [probe]: <k> _:KItem => .K ... </k>
+        readable/rewrite: error[krs::syntax::invalid-local-rewrite]: `k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body rule or the hole of a context, once and outside any local pattern; here it stands in the subject of a readable rule @ 92:18"]].assert_eq(&rows.join("\n"));
+    // `split` makes `hold(1) ~> hold(1)`; `second` removes the second item, `head` then the
+    // head, `acc` counting both.
+    let manifest = library_package(
+        temporary.path(),
+        "item-removal-run",
+        &format!(
+            "{fixture}k::rules! {{\n    for Stmt;\n    use Cmd::*;\n    split: Make {{ x }} => k::k![Hold {{ x }}, Hold {{ x }}];\n}}\n\n#[k::rule(label = \"second\")]\npub fn second(\n    k::cells! {{ k: {kk}(Cmd::Hold {{ x: 1 }}, k::rewrite!(_ => ()), ..), acc: {cc}(k::rewrite!(0 => 1)), .. }}: Machine,\n) {{}}\n\n#[k::rule(label = \"head\", priority = 100)]\npub fn head(\n    k::cells! {{ k: {kk}(k::rewrite!(_ => ()), ..), acc: {cc}(k::rewrite!(1 => 2)), .. }}: Machine,\n) {{}}\n"
+        ),
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "make(1)").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<generatedTop> <k> .K </k> <acc> 2 </acc> <frame> <pc> 0 </pc> <gas> 0 </gas> </frame> <env> .Map </env> <lst> .List </lst> .OptCell .OmapCell <objs> .ObjCellMap </objs> </generatedTop>"].assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+}

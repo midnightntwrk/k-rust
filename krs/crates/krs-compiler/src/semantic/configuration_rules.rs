@@ -195,7 +195,14 @@ impl<'a> StateRuleTerms<'a> {
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
         };
-        builder.infer_sentence(|builder| builder.infer(term, expected_sort, subject))?;
+        let k_item = self.k_item;
+        builder.infer_sentence(|builder| {
+            if k_item {
+                builder.infer_k_item(term, expected_sort, subject)
+            } else {
+                builder.infer(term, expected_sort, subject)
+            }
+        })?;
         builder.resolve_binding_sorts()?;
         let lowered = if looked_up_key {
             builder.lower_key(term, expected_sort)?
