@@ -474,7 +474,7 @@ impl StateContextAliasItem {
             ));
         }
         let typed = parse_typed_bindings(&item)?;
-        require_declared_binders_occur(&bindings, &typed)?;
+        require_declared_binders_occur(&bindings, &typed, &instance_labels(&pattern))?;
         let ordinary_names = bindings
             .iter()
             .filter(|binding| binding.kind == StateRuleBindingKind::Term && binding.name != *here)
@@ -809,7 +809,7 @@ impl StateRuleItem {
             existentials.names()
         };
         validate_rewrite_right_sides(&subject, &bindings, &result_names)?;
-        attach_typed_binding_sorts(&mut bindings, typed_bindings)?;
+        attach_typed_binding_sorts(&mut bindings, typed_bindings, &instance_labels(&subject))?;
         // What the result's spelling alone refuses; its remainders pair it with the subject,
         // which is judged after the entries' kinds ([`Self::reuse_refusal`]).
         if let Some(result) = &result {
@@ -1901,19 +1901,42 @@ fn push_binding(
     Ok(())
 }
 
-/// Rejects a declared binder that the subject never binds (X5.6).
+/// The labels of the instances `cells` names, at any depth (`me @ ..`, or a whole item `o`).
+fn instance_labels(cells: &CellsExpression) -> Vec<Ident> {
+    fn labels(state: &StateTerm, found: &mut Vec<Ident>) {
+        if let StateTerm::Instances(list) = state {
+            found.extend(list.instances().filter_map(|item| item.label().cloned()));
+        }
+        for nested in state.nested_states() {
+            labels(nested, found);
+        }
+    }
+    let mut found = Vec::new();
+    for entry in cells.entries() {
+        labels(entry.value(), &mut found);
+    }
+    found
+}
+
+/// Rejects a declared binder that the subject never binds (X5.6). A name that labels one of the
+/// subject's instances, `labels`, names that instance for an update and binds no value, so its
+/// declaration is refused for that.
 fn require_declared_binders_occur(
     bindings: &[StateRuleBinding],
     typed: &[(Ident, TermSort)],
+    labels: &[Ident],
 ) -> Result<(), SyntaxError> {
     for (name, _) in typed {
         if !bindings.iter().any(|binding| &binding.name == name) {
+            let reason = if labels.contains(name) {
+                format!(
+                    "binder `{name}` is declared but the subject binds no value to it: `{name}` labels an instance there, which names that instance for an update and binds no value; drop its declaration"
+                )
+            } else {
+                format!("binder `{name}` is declared but does not occur in the subject")
+            };
             return Err(SyntaxError::new(
-                SyntaxErrorKind::InvalidBinderList {
-                    reason: format!(
-                        "binder `{name}` is declared but does not occur in the subject"
-                    ),
-                },
+                SyntaxErrorKind::InvalidBinderList { reason },
                 name.span(),
             ));
         }
@@ -1924,8 +1947,9 @@ fn require_declared_binders_occur(
 fn attach_typed_binding_sorts(
     bindings: &mut [StateRuleBinding],
     typed: Vec<(Ident, TermSort)>,
+    labels: &[Ident],
 ) -> Result<(), SyntaxError> {
-    require_declared_binders_occur(bindings, &typed)?;
+    require_declared_binders_occur(bindings, &typed, labels)?;
     let subject_terms = bindings
         .iter()
         .filter(|binding| binding.kind == StateRuleBindingKind::Term)

@@ -1415,7 +1415,7 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Stmt, result = KResult)]
-#[k::precedence(cmd (Newf, Lab, Pair, Whole, Mvw, Mva, Clab) > right seq (Seq))]
+#[k::precedence(cmd (Newf, Lab, Pair, Whole, Mvw, Mva, Clab, Cwhole, Cmvw) > right seq (Seq))]
 #[rustfmt::skip]
 pub enum Cmd {
     #[k::syntax("newf {id} {a} {b}")] Newf { id: Int, a: Int, b: Int },
@@ -1425,6 +1425,8 @@ pub enum Cmd {
     #[k::syntax("mvw")] Mvw(),
     #[k::syntax("mva {x}")] Mva { x: Int },
     #[k::syntax("clab {x}")] Clab { x: Int },
+    #[k::syntax("cwhole {x}")] Cwhole { x: Int },
+    #[k::syntax("cmvw")] Cmvw(),
     #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
 }
 
@@ -1496,6 +1498,37 @@ fn clab(
     k::cells! {
         k: k::configuration::KCell(..tail),
         Fobjs::fobj: { k::fragment![crate::Fobj { frame: crate::Frame { fa: x, .. }, ..me }], ..instances0 },
+        ..state
+    }
+}
+
+#[k::rule(label = "cwhole")]
+fn cwhole(
+    x: Int,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cwhole { x }, tail @ ..),
+        Fobjs::fobj: { o, instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Fobjs::fobj: { k::fragment![crate::Fobj { frame: crate::Frame { fa: x, .. }, ..o }], ..instances0 },
+        ..state
+    }
+}
+
+#[k::rule(label = "cmvw")]
+fn cmvw(
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Cmvw(), tail @ ..),
+        Fobjs::fobj: { o, instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Fobjs::fobj: { k::fragment![crate::Fobj { fid: 9, ..o }], ..instances0 },
         ..state
     }
 }
@@ -1578,6 +1611,15 @@ fn an_instance_s_group_child_keeps_what_its_rest_leaves_unnamed() {
         })
         .collect::<Vec<_>>();
     emitted.push(one_line(&implicit_k, "clab"));
+    // A `cells!` whole item `o` is the instance labelled `o`, as the readable one is: the
+    // computation cell aside, `cwhole` and `cmvw` are `whole` and `mvw`.
+    let after_k = |label: &str| {
+        let rule = one_line(&implicit_k, label);
+        let end = rule.find("</k>").map_or(0, |end| end + "</k>".len());
+        rule[end..].trim().to_owned()
+    };
+    assert_eq!(after_k("cwhole"), after_k("whole"));
+    assert_eq!(after_k("cmvw"), after_k("mvw"));
     expect_test::expect![[r#"
         [
             "rule [lab]: <k> lab X:Int => .K ... </k> <fobj> <fid> 1 </fid> (<frame> <fa> _ </fa> <fb> MeFrameFb:Int </fb> </frame> => <frame> <fa> X:Int </fa> <fb> MeFrameFb:Int </fb> </frame>) ... </fobj>",
@@ -1591,9 +1633,10 @@ fn an_instance_s_group_child_keeps_what_its_rest_leaves_unnamed() {
     .assert_debug_eq(&emitted);
     // `fb` 6 is kept by every rule, the moves included.
     let runs = [
-        "newf 1 5 6 lab 7 pair 8 whole 9 clab 10",
+        "newf 1 5 6 lab 7 pair 8 whole 9 clab 10 cwhole 11",
         "newf 1 5 6 mva 4",
         "newf 1 5 6 mvw",
+        "newf 1 5 6 cmvw",
     ]
     .map(|text| {
         let program = implicit.with_file_name("program.txt");
@@ -1612,12 +1655,31 @@ fn an_instance_s_group_child_keeps_what_its_rest_leaves_unnamed() {
     });
     expect_test::expect![[r#"
         [
-            "newf 1 5 6 lab 7 pair 8 whole 9 clab 10: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 1 </fid> <frame> <fa> 10 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
+            "newf 1 5 6 lab 7 pair 8 whole 9 clab 10 cwhole 11: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 1 </fid> <frame> <fa> 11 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
             "newf 1 5 6 mva 4: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 3 </fid> <frame> <fa> 4 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
             "newf 1 5 6 mvw: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 9 </fid> <frame> <fa> 5 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
+            "newf 1 5 6 cmvw: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 9 </fid> <frame> <fa> 5 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
         ]
     "#]]
     .assert_debug_eq(&runs);
+    // A whole item's name labels the instance and binds no value, so a declaration of it is
+    // refused for that.
+    let declared = package_of(
+        temporary.path(),
+        "kept-children-declared",
+        &KEPT_CHILDREN.replace("{RULES}", "").replace(
+            "fn cmvw(\n    k::cells!",
+            "fn cmvw(\n    o: Fobj,\n    k::cells!",
+        ),
+    );
+    let (success, _, stderr) = krs(target.path(), &declared, "check", &[]);
+    assert!(!success);
+    expect_test::expect!["error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: binder `o` is declared but the subject binds no value to it: `o` labels an instance there, which names that instance for an update and binds no value; drop its declaration"].assert_eq(
+        stderr
+            .lines()
+            .find(|line| line.starts_with("error"))
+            .unwrap_or_default(),
+    );
 }
 
 #[test]
