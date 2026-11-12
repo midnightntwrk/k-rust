@@ -961,6 +961,14 @@ fn compared(
     };
     let mut declared = Vec::new();
     for implementation in &selected {
+        // What of the declaration depends on the flow, before what depends on the definition.
+        if let Err(detail) = implementation.declaration(manifest.observe.as_ref()) {
+            return refused(
+                manifest,
+                "declaration",
+                format!("implementation `{}`: {detail}", implementation.name),
+            );
+        }
         if let Err(detail) = vocabulary.check(implementation) {
             return refused(
                 manifest,

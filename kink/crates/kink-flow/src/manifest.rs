@@ -70,7 +70,7 @@ mod pattern_sources;
 use crate::admit::InputDecoder;
 use crate::evidence::{EndRenderer, Renderer};
 use case_pattern::CasePattern;
-pub use implementation::{Given, IdentitySection, ImplementationSection, ViewSection};
+pub use implementation::{Given, IdentitySection, ImplementationSection, Protocol, ViewSection};
 use kink_corpus::ProgramSource;
 pub use pattern_sources::PatternsEntry;
 use std::{
@@ -472,6 +472,14 @@ pub struct LogSection {
 }
 
 impl ObserveSection {
+    /// The channels' names, in channel order: the point classes, then the logs.
+    pub fn channel_names(&self) -> impl Iterator<Item = &str> {
+        self.points
+            .iter()
+            .map(|point| point.name.as_str())
+            .chain(self.logs.iter().map(|log| log.name.as_str()))
+    }
+
     /// Each key a front end that evaluates functions of values reads, as the manifest spells its
     /// place (`observe.observer`, `observe.point[0].views`), in the order written.
     #[must_use]
