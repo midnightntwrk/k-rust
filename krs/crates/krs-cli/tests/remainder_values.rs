@@ -1,7 +1,9 @@
 //! A `cells!` rule's computation remainder `tail @ ..` is the variable
 //! `Tail:K`, a value a result may write: at a `KSequence` field it saves the
 //! continuation, and a result that does not put it back with `..tail` has
-//! moved it, so the computation cell's new content is what the result lists.
+//! moved it, so the computation cell's new content is what the result lists;
+//! another computation cell's result may write it after its own items
+//! (`aux: KCell(..tail)`).
 //! A map remainder is a value too: put back, or moved, when the result
 //! writes the map cell without `..rest`, which binds it on the left only
 //! (`<env> 0 |-> V Rest => Rest [ 1 <- V ] </env>`). A dropped remainder,
@@ -305,6 +307,133 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
     let start = flat.find("<env>").unwrap();
     let end = flat.find("</env>").unwrap() + "</env>".len();
     expect_test::expect!["<env> 1 |-> 5 2 |-> 7 </env>"].assert_eq(&flat[start..end]);
+}
+
+/// The rules of [`a_computation_remainder_moves_into_another_computation_cell`]: `hand` moves the
+/// rest of `k` into an empty `aux`, `follow` after the item `aux` holds, `swap` exchanges the two
+/// cells' rests, and `copy` puts it back in `k` and writes it in `aux` too.
+fn moved_rules() -> String {
+    let sentence = |label: &str, head: &str, aux: &str, k_after: &str, aux_after: &str| {
+        format!(
+            r#"
+#[k::rule(label = "{label}")]
+pub fn {label}(
+    k::cells! {{ k: k::configuration::KCell({head}, tail @ ..), aux: k::configuration::KCell({aux}), state @ .. }}: crate::Machine,
+) -> crate::Machine {{
+    k::cells! {{ k: k::configuration::KCell({k_after}), aux: k::configuration::KCell({aux_after}), ..state }}
+}}
+"#
+        )
+    };
+    [
+        sentence("hand", "crate::Cmd::Park()", "", "", "..tail"),
+        sentence(
+            "follow",
+            "crate::Cmd::Keep()",
+            "crate::Cmd::Bump()",
+            "",
+            "crate::Cmd::Bump(), ..tail",
+        ),
+        sentence(
+            "swap",
+            "crate::Cmd::Store()",
+            "crate::Cmd::Bump(), held @ ..",
+            "..held",
+            "..tail",
+        ),
+        sentence(
+            "copy",
+            "crate::Cmd::Drop()",
+            "",
+            "crate::Cmd::Bump(), ..tail",
+            "..tail",
+        ),
+    ]
+    .concat()
+}
+
+/// A computation remainder another computation cell's result writes after its items
+/// (`aux: KCell(..tail)`) is that cell's new content, after the items it lists; the computation
+/// cell that bound it and does not put it back has moved it. Over an empty `aux` the rule hands
+/// the rest of the computation to `aux` (`<aux> .K => Tail:K </aux>`), and a run of
+/// `park report` leaves `report` there; over a held item it follows the item; two cells swap
+/// their rests; and a cell that puts its rest back while another writes it copies it.
+#[test]
+fn a_computation_remainder_moves_into_another_computation_cell() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = PREAMBLE
+        .replace(
+            "    #[k::cell]\n    pub env: Map,\n}",
+            "    #[k::cell]\n    pub env: Map,\n    #[k::cell]\n    pub aux: KSequence,\n}",
+        )
+        .replace(
+            "frame: Frame { pc, gas }, env }",
+            "frame: Frame { pc, gas }, env, aux: k::k![] }",
+        );
+    assert!(
+        preamble.contains("pub aux: KSequence") && preamble.contains("aux: k::k![]"),
+        "the preamble declares `aux`"
+    );
+    let rules = moved_rules();
+    let manifest = package(temporary.path(), "moved", &format!("{preamble}{rules}"));
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let k = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
+    expect_test::expect![[r"
+        rule [hand]:
+            <k> park ~> Tail:K => .K </k>
+            <aux> .K => Tail:K </aux>
+        rule [follow]:
+            <k> keep ~> Tail:K => .K </k>
+            <aux> bump => bump ~> Tail:K </aux>
+        rule [swap]:
+            <k> store ~> Tail:K => Held:K </k>
+            <aux> bump ~> Held:K => Tail:K </aux>
+        rule [copy]:
+            <k> drop ~> Tail:K => bump ~> Tail:K </k>
+            <aux> .K => Tail:K </aux>"]]
+    .assert_eq(
+        &["hand", "follow", "swap", "copy"]
+            .map(|label| rule(&k, label))
+            .join("\n"),
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "park report").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[
+            program.to_str().unwrap(),
+            "-c",
+            "PC=0",
+            "-c",
+            "GAS=0",
+            "-c",
+            "ENV=.Map",
+        ],
+    );
+    assert!(success, "park report:\n{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cell = |name: &str| {
+        let start = flat.find(&format!("<{name}>")).unwrap();
+        let end = flat.find(&format!("</{name}>")).unwrap() + name.len() + 3;
+        flat[start..end].to_owned()
+    };
+    expect_test::expect!["<k> .K </k> <aux> report ~> .K </aux>"].assert_eq(&format!(
+        "{} {}",
+        cell("k"),
+        cell("aux")
+    ));
 }
 
 /// `krs check`'s first error headline.

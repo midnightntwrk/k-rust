@@ -1661,7 +1661,8 @@ fn lower_configuration_rule_clause(
             // The result is the update chain over the remainder: bound on the left only.
             frame = moved_map_frame(&frame, remainder.binding())?;
         }
-        let result_frame = result_state_frame(&subject.value, &result.value);
+        let (after, result_frame) =
+            with_spliced_computation(descriptor, &subject.value, &result.value, after)?;
         if let Some((moved, moved_frame)) =
             pair_cell_frames(terms, subject_frame, result_frame, &before)?
         {
@@ -2280,6 +2281,7 @@ enum AssociativeStateFrame<'a> {
         binding: &'a str,
     },
     Reuse {
+        key: &'a ProvenanceKey,
         binding: &'a str,
     },
 }
@@ -2304,7 +2306,7 @@ fn associative_state_frame(
         ProtocolRuleFrame::Exact => return RuleStateFrame::Exact,
         ProtocolRuleFrame::Anonymous { key } => AssociativeStateFrame::Anonymous { key },
         ProtocolRuleFrame::Bind { key, binding } => AssociativeStateFrame::Bind { key, binding },
-        ProtocolRuleFrame::Reuse { binding, .. } => AssociativeStateFrame::Reuse { binding },
+        ProtocolRuleFrame::Reuse { key, binding } => AssociativeStateFrame::Reuse { key, binding },
     };
     RuleStateFrame::Framed { family, frame }
 }
@@ -2418,6 +2420,57 @@ fn moved_computation_remainder<'a>(
         ) => Some((binding, key)),
         _ => None,
     }
+}
+
+/// The computation `..tail` a result writes after its items when `tail` is not the rest its
+/// own subject leaves, and the key of that `..tail`: the remainder another computation cell binds
+/// (`tail @ ..`), which this cell's new content ends in. The subject's own frame is then exact,
+/// or a named rest of its own, which the result does not put back and so moves; an unnamed rest
+/// the result does not keep is the entry's rest mismatch, refused before lowering.
+fn spliced_computation<'a>(
+    subject: RuleStateFrame<'_>,
+    result: RuleStateFrame<'a>,
+) -> Option<(&'a str, &'a ProvenanceKey)> {
+    let RuleStateFrame::Framed {
+        family: AssociativeStateFamily::KSequence,
+        frame: AssociativeStateFrame::Reuse { key, binding },
+    } = result
+    else {
+        return None;
+    };
+    match subject {
+        RuleStateFrame::Exact => Some((binding, key)),
+        RuleStateFrame::Framed {
+            family: AssociativeStateFamily::KSequence,
+            frame: AssociativeStateFrame::Bind { binding: own, .. },
+        } if own != binding => Some((binding, key)),
+        RuleStateFrame::Framed { .. } => None,
+    }
+}
+
+/// The result state `result`'s term `after` and frame, its frame written into `after` where it
+/// is a computation another cell binds ([`spliced_computation`]): the result's items followed by
+/// that computation are the cell's whole new content, so its frame is then exact.
+fn with_spliced_computation<'a>(
+    descriptor: &Descriptor,
+    subject: &ProtocolRuleStateTerm<DescriptorTerm>,
+    result: &'a ProtocolRuleStateTerm<DescriptorTerm>,
+    after: SemanticTerm,
+) -> Result<(SemanticTerm, RuleStateFrame<'a>), DescriptorLoweringError> {
+    let result_frame = result_state_frame(subject, result);
+    let Some((tail, key)) = spliced_computation(rule_state_frame(subject), result_frame) else {
+        return Ok((after, result_frame));
+    };
+    let after = with_trailing_item(
+        descriptor,
+        &after,
+        SemanticTerm::variable(
+            semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
+            SemanticSortRef::k_sequence(),
+            SemanticId::new(tail)?,
+        ),
+    )?;
+    Ok((after, RuleStateFrame::Exact))
 }
 
 /// Checks that a leaf cell's subject and result frames agree. A result
@@ -3118,5 +3171,48 @@ mod state_frame_tests {
             moved_computation_remainder(rule_state_frame(&framed_map), rule_state_frame(&empty))
                 .is_none()
         );
+    }
+
+    /// A result's `..tail` over a subject that does not bind `tail` itself writes the
+    /// computation another cell binds after its items: over an exact subject, and over a
+    /// subject whose own named rest the result then moves; never over the subject's own rest,
+    /// which it puts back, nor over an unnamed one, which it would drop.
+    #[test]
+    fn a_result_rest_another_cell_binds_is_spliced() {
+        let sequence = |tail: ProtocolRuleFrame| {
+            ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
+                payload_key: key(ProvenanceRole::KSequencePayload),
+                dot_k_key: None,
+                notation: krs_ir::DescriptorKSequenceNotation::Comma,
+                items: Vec::new(),
+                tail,
+            })
+        };
+        let frame = |name: &str| ProtocolRuleFrame::Bind {
+            key: key(ProvenanceRole::KSequenceTail),
+            binding: name.into(),
+        };
+        let exact = sequence(ProtocolRuleFrame::Exact);
+        let own = sequence(frame("held"));
+        let anonymous = sequence(ProtocolRuleFrame::Anonymous {
+            key: key(ProvenanceRole::KSequenceTail),
+        });
+        let reused = |name: &str| {
+            sequence(ProtocolRuleFrame::Reuse {
+                key: key(ProvenanceRole::KSequenceTail),
+                binding: name.into(),
+            })
+        };
+        let (tail, held) = (reused("tail"), reused("held"));
+        let spliced = |subject: &ProtocolRuleStateTerm<DescriptorTerm>,
+                       result: &ProtocolRuleStateTerm<DescriptorTerm>| {
+            spliced_computation(rule_state_frame(subject), rule_state_frame(result))
+                .map(|(binding, _)| binding.to_owned())
+        };
+        assert_eq!(spliced(&exact, &tail), Some("tail".to_owned()));
+        assert_eq!(spliced(&own, &tail), Some("tail".to_owned()));
+        assert_eq!(spliced(&own, &held), None);
+        assert_eq!(spliced(&anonymous, &tail), None);
+        assert_eq!(spliced(&exact, &exact), None);
     }
 }
