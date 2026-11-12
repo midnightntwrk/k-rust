@@ -820,6 +820,117 @@ fn with_named_child_rests(
     Ok((!variables.is_empty()).then_some((rule, variables)))
 }
 
+/// The refusal of an instance's or a group record's child whose brackets' named rest the
+/// signature declares where its twin cell's must not be, or leaves undeclared where its twin's
+/// must be declared. A child is a cell: a computation child's rest is a remainder, as
+/// `KCell(x, rest @ ..)`'s is, which no typed parameter declares; a list child's is a term of the
+/// list's sort, as `Cell([x, rest @ ..])`'s is, which one declares. The reader reads the brackets
+/// by the declaration (`krs_syntax` `remainder_sequence`), so a declared rest on a computation
+/// child is list notation ending in that term, and an undeclared one on a list child a sequence
+/// ending in a remainder.
+fn check_child_rests(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    let terms = rule
+        .bindings
+        .iter()
+        .filter(|binding| matches!(binding.kind, ProtocolRuleBindingKind::Term { .. }))
+        .map(|binding| binding.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let refused = |reason: String, key: &ProvenanceKey| {
+        Err(super::cell_states::collection_error(
+            descriptor,
+            krs_diagnostic::codes::syntax::UNSUPPORTED_RULE_SIGNATURE,
+            key,
+            reason,
+        ))
+    };
+    let check = |field: &krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+                 children: &[krs_ir::DescriptorCellField]|
+     -> Result<(), DescriptorLoweringError> {
+        let Some(ProtocolCellContent::Leaf { wrapper, .. }) = children
+            .iter()
+            .find(|child| child.rust_field == field.field)
+            .map(|child| &child.content)
+        else {
+            return Ok(());
+        };
+        let child = &field.field;
+        match (wrapper, &field.value) {
+            (krs_ir::CellWrapper::KCell, ProtocolRuleStateTerm::Term(term)) => {
+                let mut term = term.clone();
+                if let DescriptorTerm::Variable { key, name, .. } = list_spine_end(&mut term)
+                    && terms.contains(name.as_str())
+                {
+                    return refused(
+                        format!(
+                            "the rest `{name}` of the computation child `{child}` is a remainder of the computation, as a computation cell's `KCell(x, {name} @ ..)` rest is, and a rule's typed parameters declare no remainder: leave `{name}` out of them"
+                        ),
+                        key,
+                    );
+                }
+                Ok(())
+            }
+            (krs_ir::CellWrapper::Cell, ProtocolRuleStateTerm::KSequence(sequence)) => {
+                match &sequence.tail {
+                    ProtocolRuleFrame::Bind { key, binding }
+                    | ProtocolRuleFrame::Reuse { key, binding } => refused(
+                        format!(
+                            "the rest `{binding}` of the list child `{child}` is a list, a term of the child's sort, as a list cell's `Cell([x, {binding} @ ..])` rest is, and a rule's typed parameters declare every term it binds: declare `{binding}` among them at the child's sort"
+                        ),
+                        key,
+                    ),
+                    _ => Ok(()),
+                }
+            }
+            _ => Ok(()),
+        }
+    };
+    let children_of = |group: &StableItemId| {
+        declarations
+            .cell(group)
+            .map(|declaration| declaration.fields.as_slice())
+    };
+    for cell in rule
+        .subject
+        .cells
+        .iter()
+        .chain(rule.result.iter().flat_map(|result| &result.cells))
+    {
+        let mut value = &cell.value;
+        while let ProtocolRuleStateTerm::Present { value: inside } = value {
+            value = inside;
+        }
+        match value {
+            ProtocolRuleStateTerm::Instances(instances) => {
+                let declared = require_cell_field(&cell.field.cell, declarations)?;
+                let ProtocolCellContent::Nested { declaration } = &declared.content else {
+                    continue;
+                };
+                let children = children_of(&declaration.declaration)?;
+                for instance in instances.front.iter().chain(&instances.back) {
+                    for field in &instance.fields {
+                        check(field, children)?;
+                    }
+                }
+            }
+            ProtocolRuleStateTerm::Record(record) => {
+                let DescriptorTerm::Cell { declaration, .. } = &record.head else {
+                    continue;
+                };
+                let children = children_of(declaration)?;
+                for field in &record.fields {
+                    check(field, children)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// The name [`with_named_child_rests`] gives the rest the subject instance `matched` matches with
 /// `..` in its child `field`, the `_` that ends its brackets' spine, which it replaces by the
 /// variable of that name, of the child's declared sort (`children`), recorded in `variables`; the
@@ -1013,6 +1124,9 @@ pub(super) fn lower_configuration_rule_descriptor(
         .map(|cell| cell.field.cell.clone())
         .collect::<BTreeSet<_>>();
     let exact = matches!(rule.subject.remainder, ProtocolRuleFrame::Exact);
+    if readable.is_none() {
+        check_child_rests(descriptor, rule, declarations)?;
+    }
     let bracketed = super::group_records::with_computation_brackets(rule, declarations)?;
     let rule = bracketed.as_ref().unwrap_or(rule);
     let stated = super::cell_states::with_present_groups(rule, declarations)?;

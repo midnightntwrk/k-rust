@@ -725,13 +725,20 @@ impl StateRuleItem {
         {
             return Err(rule_changes_no_cell(&item, subject_span));
         }
+        // The typed parameters declare the rule's term binders; an instance child's named rest
+        // that none declares is a remainder ([`crate::state_macro::with_declared_binders`]).
+        let declared = declared_names(&item);
         // A sentence's entries are judged against their cells' kinds before an item after a
         // computation's rest is asked ([`Self::misplaced_tail`]), a claim's as a rule's.
-        let subject = if form == StateRuleForm::Claim {
-            crate::state_macro::parse_cells_claim_pattern(subject_macro.mac.tokens.clone())?
-        } else {
-            crate::state_macro::parse_cells_pattern_judged_later(subject_macro.mac.tokens.clone())?
-        };
+        let subject = crate::state_macro::with_declared_binders(declared.clone(), || {
+            if form == StateRuleForm::Claim {
+                crate::state_macro::parse_cells_claim_pattern(subject_macro.mac.tokens.clone())
+            } else {
+                crate::state_macro::parse_cells_pattern_judged_later(
+                    subject_macro.mac.tokens.clone(),
+                )
+            }
+        })?;
         let subject_type = parse_configuration_type(&argument.ty)?;
         if form == StateRuleForm::Context {
             check_context_shape(
@@ -752,13 +759,15 @@ impl StateRuleItem {
                 let result_macro = parse_result_macro(&item)?;
                 validate_cells_path(&result_macro.path, result_macro.span())?;
                 let delimiters = result_macro.delimiter.span();
-                let result = crate::state_macro::parse_cells_expression_judged_later(
-                    result_macro.tokens.clone(),
-                    Some(crate::TokenRange::new(
-                        delimiters.open(),
-                        delimiters.close(),
-                    )),
-                )?;
+                let result = crate::state_macro::with_declared_binders(declared, || {
+                    crate::state_macro::parse_cells_expression_judged_later(
+                        result_macro.tokens.clone(),
+                        Some(crate::TokenRange::new(
+                            delimiters.open(),
+                            delimiters.close(),
+                        )),
+                    )
+                })?;
                 Some(StateRuleResult {
                     result_macro,
                     result_type,
@@ -1620,6 +1629,24 @@ fn validate_signature(item: &ItemFn) -> Result<(), SyntaxError> {
         ));
     }
     Ok(())
+}
+
+/// The names the typed parameters of `item` bind, its declared term binders, every parameter but
+/// the last (the `cells!` subject); the parameters are validated where they are read
+/// ([`parse_typed_bindings`]).
+fn declared_names(item: &ItemFn) -> std::collections::BTreeSet<String> {
+    item.sig
+        .inputs
+        .iter()
+        .take(item.sig.inputs.len().saturating_sub(1))
+        .filter_map(|argument| match argument {
+            FnArg::Typed(argument) => match &*argument.pat {
+                Pat::Ident(pattern) => Some(syn::ext::IdentExt::unraw(&pattern.ident).to_string()),
+                _ => None,
+            },
+            FnArg::Receiver(_) => None,
+        })
+        .collect()
 }
 
 fn parse_typed_bindings(item: &ItemFn) -> Result<Vec<(Ident, TermSort)>, SyntaxError> {

@@ -3182,6 +3182,107 @@ fn parse_instance_record(
     )
 }
 
+thread_local! {
+    /// The names the typed parameters of the rule being read declare, its term binders
+    /// ([`with_declared_binders`]); `None` outside a rule's signature.
+    static DECLARED_BINDERS: std::cell::RefCell<Option<std::collections::BTreeSet<String>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `read` with `declared` as the term binders the rule being read declares, by which an
+/// instance child's named rest reads as a term or as a remainder ([`remainder_sequence`]).
+pub(crate) fn with_declared_binders<T>(
+    declared: std::collections::BTreeSet<String>,
+    read: impl FnOnce() -> T,
+) -> T {
+    /// Restores the outer declarations when dropped, so a read that unwinds (a proc-macro server
+    /// reuses its threads) leaves no later read with these.
+    struct Restore(Option<std::collections::BTreeSet<String>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let outer = self.0.take();
+            DECLARED_BINDERS.with(|declared| *declared.borrow_mut() = outer);
+        }
+    }
+    let _restore = Restore(DECLARED_BINDERS.with(|outer| outer.replace(Some(declared))));
+    read()
+}
+
+/// The sequence an instance child's brackets are when their last item is a rest the rule's
+/// signature does not declare, `[x, rest @ ..]` in a pattern and `[y, ..rest]` in a result: a
+/// remainder, as a computation cell's `KCell(x, rest @ ..)` binds and `KCell(y, ..rest)` puts
+/// back, which no typed parameter declares. The child is a cell, so its kind reads the sequence:
+/// a computation's items before its rest, as at the computation cell; a list, whose rest is a
+/// term of the list's sort that the signature declares (`Cell([x, rest @ ..])` with `rest: List`),
+/// refuses it. A rest the signature declares is that term binder, and the brackets are the list
+/// notation they write. `None` outside a rule's signature and for any other value.
+fn remainder_sequence(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Result<Option<KSequence>, SyntaxError> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Group(group)] = trees.as_slice() else {
+        return Ok(None);
+    };
+    if group.delimiter() != Delimiter::Bracket {
+        return Ok(None);
+    }
+    let items = crate::parse::strip_trailing_comma(group.stream())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut chunks = items
+        .split(|tree| matches!(tree, TokenTree::Punct(comma) if comma.as_char() == ','))
+        .collect::<Vec<_>>();
+    let Some(last) = chunks.pop() else {
+        return Ok(None);
+    };
+    let dots = |first: &proc_macro2::Punct, second: &proc_macro2::Punct| {
+        first.as_char() == '.'
+            && first.spacing() == proc_macro2::Spacing::Joint
+            && second.as_char() == '.'
+    };
+    let rest = match (last, context) {
+        (
+            [
+                TokenTree::Ident(rest),
+                TokenTree::Punct(at),
+                TokenTree::Punct(first),
+                TokenTree::Punct(second),
+            ],
+            StateMacroContext::Pattern,
+        ) if at.as_char() == '@' && dots(first, second) => rest,
+        (
+            [
+                TokenTree::Punct(first),
+                TokenTree::Punct(second),
+                TokenTree::Ident(rest),
+            ],
+            StateMacroContext::Expression,
+        ) if dots(first, second) => rest,
+        _ => return Ok(None),
+    };
+    let other_rest = chunks.iter().any(|chunk| {
+        chunk
+            .windows(2)
+            .any(|pair| matches!(pair, [TokenTree::Punct(first), TokenTree::Punct(second)] if dots(first, second)))
+    });
+    let declared = DECLARED_BINDERS.with(|declared| {
+        declared
+            .borrow()
+            .as_ref()
+            .map(|declared| declared.contains(&syn::ext::IdentExt::unraw(rest).to_string()))
+    });
+    if other_rest || declared != Some(false) {
+        return Ok(None);
+    }
+    parse_k_sequence(
+        group.stream(),
+        context,
+        Some(TokenRange::for_tokens(tokens)?),
+    )
+    .map(Some)
+}
+
 /// Parses one instance child value: `k::k![..]`, `map![..]`, a term (a
 /// leaf's content or a whole nested cell, which semantic analysis tells
 /// apart by the declaration), read as a key when `keys`, or a `?` cell's
@@ -3226,6 +3327,9 @@ fn parse_instance_child(
             }
             _ => {}
         }
+    }
+    if let Some(sequence) = remainder_sequence(&tokens, context)? {
+        return Ok(StateTerm::KSequence(sequence));
     }
     // An instance child is a cell, so a result's brackets whose one bare `..` keeps the rest its
     // subject's `..` matched mean what they mean as a list cell's whole content (`Cell([x, ..])`,
@@ -3463,9 +3567,10 @@ fn rewritten_entry(tokens: &TokenStream) -> Option<EntryRewrite> {
 }
 
 /// The group record a whole nested-cell entry `k::fragment![Group { .. }]` is when one of its
-/// children is written as that child cell's map entry, `child: k::map![..]` (ruling R4): a map
-/// written as a fragment's child is the child's entry, which no term of a pattern spells, so the
-/// record's children are read as an instance's are, each that child cell's entry. `None` for a
+/// children is written as that child cell's map entry, `child: k::map![..]` (ruling R4), or as
+/// brackets ending in a remainder the signature does not declare ([`remainder_sequence`]): such a
+/// child is the child's entry, which no term of a pattern spells, so the record's children are
+/// read as an instance's are, each that child cell's entry. `None` for a
 /// fragment whose children are all terms, which is read as the group's term, and for an update
 /// `Group { .., ..base }`, which builds a term from its base.
 fn fragment_record(
@@ -3507,8 +3612,11 @@ fn fragment_record(
             [TokenTree::Ident(_), TokenTree::Punct(colon), value @ ..]
                 if colon.as_char() == ':' =>
             {
-                maps |= qualified_macro_payload(&value.iter().cloned().collect())
-                    .is_some_and(|(name, _)| name == "map");
+                let value = value.iter().cloned().collect::<TokenStream>();
+                // A computation child's brackets ending in a remainder are that child's entry too
+                // ([`remainder_sequence`]), which no term of the group spells.
+                maps |= qualified_macro_payload(&value).is_some_and(|(name, _)| name == "map")
+                    || remainder_sequence(&value, context).is_ok_and(|sequence| sequence.is_some());
             }
             _ => {}
         }
