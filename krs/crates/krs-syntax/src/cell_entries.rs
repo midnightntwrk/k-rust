@@ -483,9 +483,19 @@ impl Refusal {
             Self::AbsenceTestWithoutCreation => format!(
                 "the subject tests that the optional cell `{cell}` is absent (`None`), and the result does not create it: K tests a cell's absence only by creating the cell, so a subject's `None` stands where its result creates it with `Some(..)`"
             ),
-            Self::RestMismatch if lists(&kind.own.layers) => format!(
+            Self::RestMismatch if lists(present_content(own)) => format!(
                 "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed"
             ),
+            Self::RestMismatch
+                if matches!(
+                    present_content(own).first(),
+                    Some(Layer::Leaf(Notation::Map))
+                ) =>
+            {
+                format!(
+                    "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader"
+                )
+            }
             Self::RestMismatch => format!(
                 "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader"
             ),
@@ -2081,6 +2091,15 @@ fn pair_content(
         }
     }
     pair_records(form, stack, spelling, other, bound, path)
+}
+
+/// The layers of the content a present `?` cell of the layers `layers` holds (`Some(..)`), or
+/// `layers` themselves for a cell that is always there.
+fn present_content(mut layers: &[Layer]) -> &[Layer] {
+    while let [Layer::Optional, inner @ ..] = layers {
+        layers = inner;
+    }
+    layers
 }
 
 /// Whether `stack`'s content is a list, a builtin `List` or a cons list.

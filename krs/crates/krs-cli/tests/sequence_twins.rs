@@ -705,6 +705,134 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         cells-k-moved: rule [go]: <k> put ( A:Int , B:Int ) ~> Rest:K => go ~> Rest:K </k>"]].assert_eq(&lines.join("\n"));
 }
 
+/// The rows of [`a_map_or_collection_rest_mismatch_advises_a_spelling_that_works`], over the
+/// preamble with the Map cells `env` and `env2`.
+fn map_and_collection_rows() -> [(&'static str, String); 10] {
+    const KC: &str = "k::configuration::";
+    let rule = |body: &str| readable(body, false);
+    let v = "v: KItem,\n    ";
+    [
+        (
+            "env",
+            cells(
+                v,
+                &format!("env: {KC}Cell(map![0 -> v, ..])"),
+                &format!("env: {KC}Cell(map![0 -> 1])"),
+                false,
+            ),
+        ),
+        (
+            "readable-env",
+            rule("go: { k: [Go(), ..], env: { 0 -> v, .. }, env2: e } => { k: [..], env: e };"),
+        ),
+        (
+            "env-back",
+            cells(
+                v,
+                &format!("env: {KC}Cell(map![0 -> v, rest @ ..])"),
+                &format!("env: {KC}Cell(map![0 -> 1, ..rest])"),
+                false,
+            ),
+        ),
+        (
+            "env-moved",
+            cells(
+                v,
+                &format!("env: {KC}Cell(map![0 -> v, rest @ ..]), env2: {KC}Cell(map![])"),
+                &format!("env: {KC}Cell(map![0 -> 1]), env2: {KC}Cell(rest)"),
+                false,
+            ),
+        ),
+        (
+            "env-condition",
+            format!(
+                "#[k::rule(label = \"go\")]\n#[k::requires(map::size(rest) == 0)]\npub fn go(\n    v: KItem,\n    k::cells! {{ env: {KC}Cell(map![0 -> v, rest @ ..]), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ env: {KC}Cell(map![0 -> 1]), ..state }}\n}}\n"
+            ),
+        ),
+        (
+            "readable-env-whole",
+            rule("go: { k: [Go(), ..], env: m } => { k: [..], env: map::update(m, 0, 1) };"),
+        ),
+        (
+            "job",
+            rule(
+                "go: { k: [Go(), ..], job: [Job { jk: [] }, ..] } => { k: [..], job: [Job { jk: [Go()] }] };",
+            ),
+        ),
+        (
+            "cells-job",
+            cells(
+                "",
+                &format!(
+                    "k: {KC}KCell(Cmd::Go(), ..), Jobs::job: [k::fragment![crate::Job {{ jk: [] }}], ..]"
+                ),
+                &format!(
+                    "k: {KC}KCell(..), Jobs::job: [k::fragment![crate::Job {{ jk: [Cmd::Go()] }}]]"
+                ),
+                false,
+            ),
+        ),
+        (
+            "job-kept",
+            rule(
+                "go: { k: [Go(), ..], job: [Job { jk: [] }, ..] } => { k: [..], job: [Job { jk: [Go()] }, ..] };",
+            ),
+        ),
+        (
+            "job-named",
+            rule(
+                "go: { k: [Go(), ..], job: [Job { jk: [] }, rest @ ..] } => { k: [..], job: [Job { jk: [Go()] }] };",
+            ),
+        ),
+    ]
+}
+
+/// FRAMEMOVE, item 2: a map's and a collection's rest-mismatch advice names only spellings that
+/// work there. A map's result has no `..`, so a `cells!` rule names the rest and puts it back
+/// under other entries (`env-back`), moves it into another cell (`env-moved`) or drops it where
+/// a condition reads it (`env-condition`); a readable record names no map rest a result writes,
+/// so it matches the map whole and builds the new map from it (`readable-env-whole`). A
+/// collection keeps its other instances with `..` on both sides (`job-kept`): a rule that
+/// removes them is not supported yet (`job-named`).
+#[test]
+fn a_map_or_collection_rest_mismatch_advises_a_spelling_that_works() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = PREAMBLE
+        .replace("List, Set, list, set}", "List, Map, Set, list, map, set}")
+        .replace(
+            "    #[k::cell]\n    pub out: List,\n",
+            "    #[k::cell]\n    pub out: List,\n    #[k::cell]\n    pub env: Map,\n    #[k::cell]\n    pub env2: Map,\n",
+        )
+        .replace(
+            "out: list::empty(),",
+            "out: list::empty(),\n            env: k::map![],\n            env2: k::map![],",
+        );
+    assert!(
+        preamble.contains("pub env2: Map") && preamble.contains("env2: k::map![]"),
+        "the preamble has two Map cells"
+    );
+    let lines = map_and_collection_rows().map(|(name, source)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("seq-fm-{name}"),
+            &format!("{preamble}{source}"),
+        );
+        format!("{name}: {}", verdict(target.path(), &manifest))
+    });
+    expect_test::expect![[r"
+        env: error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused
+        readable-env: error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; a readable record names no rest of a map that a result can write, so match the map whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it
+        env-back: rule [go]: <env> 0 |-> V:KItem Rest:Map => 0 |-> 1 Rest:Map </env>
+        env-moved: rule [go]: <env> 0 |-> V:KItem Rest:Map => 0 |-> 1 </env> <env2> .Map => Rest:Map </env2>
+        env-condition: rule [go]: <env> 0 |-> V:KItem Rest:Map => 0 |-> 1 </env> requires size(Rest:Map) ==Int 0
+        readable-env-whole: rule [go]: <k> go => .K ... </k> <env> M:Map => M:Map [ 0 <- 1 ] </env>
+        job: error[krs::syntax::invalid-list-notation]: the entry of the cell `job` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a rule does not remove a collection's other instances yet
+        cells-job: error[krs::syntax::invalid-list-notation]: the entry of the cell `job` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a rule does not remove a collection's other instances yet
+        job-kept: rule [go]: <k> go => .K ... </k> <jobs> <job> <jk> .K => go </jk> </job> ... </jobs>
+        job-named: error[krs::analysis::collection-entry]: not supported yet: the pattern binds the other instances of the collection `job` to `rest` (`rest @ ..`), and a result that does not put them back with `..rest` removes them, which a rule does not state yet"]].assert_eq(&lines.join("\n"));
+}
+
 /// The verdict of the library `library`'s readable rule `go`, its `krs expand` print's `go`
 /// function, and that print's verdict.
 fn printed_twin(name: &str, library: &str) -> (String, String, String) {

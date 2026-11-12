@@ -896,11 +896,13 @@ fn a_moved_remainder_the_rule_drops_is_an_error() {
 /// A map result over a subject's anonymous rest that writes no `..` is an
 /// error at the result's entry (`rest-mismatch`): at a cell's content root,
 /// K reads the omitted rest as kept and Rust reads it as dropped, so the
-/// spelling must say which (P6): `rest @ ..` and `..rest` to keep it,
-/// `_rest @ ..` to drop it. Here `moved` is written with the rest anonymous,
-/// `map![a -> 10, b -> v]` over `map![a -> v, ..]`. Keeping an anonymous map
-/// rest with `..` in a `cells!` result comes back with M3, which gives a map's
-/// `..` a result side; until then the rest is named.
+/// spelling must say which (P6): `rest @ ..` and `..rest` to keep it, and
+/// `rest @ ..` read by a condition to drop it (a named rest the rule neither
+/// puts back nor uses, `_rest` too, is refused). Here `moved` is written with
+/// the rest anonymous, `map![a -> 10, b -> v]` over `map![a -> v, ..]`.
+/// Keeping an anonymous map rest with `..` in a `cells!` result comes back
+/// with M3, which gives a map's `..` a result side; until then the rest is
+/// named.
 #[test]
 fn a_map_result_over_an_anonymous_rest_without_dots_is_an_error() {
     let target = shared_fixture_target();
@@ -917,7 +919,7 @@ fn a_map_result_over_an_anonymous_rest_without_dots_is_an_error() {
     let error = check_error_in(target.path(), &text);
     expect_test::expect![[r#"
         (
-            "error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it",
+            "error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused",
             "k::configuration::Cell(map![a -> 10, b -> v])",
         )
     "#]]

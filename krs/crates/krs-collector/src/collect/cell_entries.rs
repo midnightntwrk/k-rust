@@ -2300,32 +2300,63 @@ fn subject_twin<'e>(
         .and_then(|twin| twin.field.spelling.as_ref())
 }
 
-/// What a rest on one side of a cell is fixed by, in a spelling its kind and route admit: `..`
-/// on both sides keeps the rest. A readable rule keeps a computation's rest always; a `cells!`
-/// rule names it in the subject (`rest @ ..`) and then puts it back (`..rest`) or reads it in a
-/// condition, which drops it from the cell (a named rest it neither puts back nor uses is
-/// refused). A list matched by brackets of its rest alone (`[..]`, where
-/// `[rest @ ..]` is refused) is matched whole, by `_` to drop it or by a binder to move it; any
-/// other subject names its rest (`rest @ ..`) to drop or move it. A record child's subject twin is
-/// its other side as the pairing pairs it ([`cell_entries::paired_subject`]).
+/// What a rest on one side of a cell is fixed by, in a spelling its kind and route admit; a
+/// present `?` cell's rest is its content's (`Some(..)`).
+/// - A computation keeps its rest with `..` on both sides. A readable rule keeps it always; a
+///   `cells!` rule names it in the subject (`rest @ ..`) and then puts it back (`..rest`) or
+///   reads it in a condition, which drops it from the cell (a named rest it neither puts back
+///   nor uses is refused).
+/// - A list keeps its rest with `..` on both sides. Matched by brackets of its rest alone
+///   (`[..]`, where `[rest @ ..]` is refused) it is matched whole, by `_` to drop it or by a
+///   binder to move it; otherwise its subject names the rest (`rest @ ..`) to drop or move it.
+/// - A map's result writes the whole map and has no `..` (the reason says so). A `cells!`
+///   subject names the rest (`rest @ ..`), as for a computation: the result puts it back under
+///   other entries (`..rest`), another cell's result writes it (`Cell(rest)`), or a condition
+///   reads it. A readable record names no map rest a result can write, so its rule matches the
+///   map whole and builds the new map from it.
+/// - A collection keeps its other instances with `..` on both sides: a rule does not remove
+///   them yet.
+/// - Any other content keeps its rest with `..` on both sides.
+///
+/// A record child's subject twin is its other side as the pairing pairs it
+/// ([`cell_entries::paired_subject`]).
 fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
     let keep = "write `..` on both sides to keep the rest";
+    let mut twin = entry.twin;
+    while let Some(EntrySpelling::Present(inner)) = twin {
+        twin = Some(inner);
+    }
     let item_less = matches!(
-        entry.twin,
+        twin,
         Some(EntrySpelling::Brackets(seq))
             if seq.items.is_empty() && matches!(seq.rest, Some((EntryRest::Anonymous, _)))
     );
-    match entry.layers {
-        [Layer::Computation] if form.is_readable() => format!(
+    let content = {
+        let mut layers = entry.layers;
+        while let [Layer::Optional, inner @ ..] = layers {
+            layers = inner;
+        }
+        layers
+    };
+    match (entry.layers, content) {
+        ([Layer::Computation], _) if form.is_readable() => format!(
             "{keep}: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`) or drop it where a condition reads it"
         ),
-        [Layer::Computation] => format!(
+        ([Layer::Computation], _) => format!(
             "{keep}, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`) or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused"
         ),
-        [Layer::Leaf(Notation::List | Notation::Cons)] if item_less => format!(
+        (_, [Layer::Leaf(Notation::List | Notation::Cons)]) if item_less => format!(
             "{keep}, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)"
         ),
-        _ => format!("{keep}, or name it in the subject (`rest @ ..`) to drop or move it"),
+        (_, [Layer::Leaf(Notation::List | Notation::Cons)]) => {
+            format!("{keep}, or name it in the subject (`rest @ ..`) to drop or move it")
+        }
+        (_, [Layer::Leaf(Notation::Map)]) if form.is_readable() => "a readable record names no rest of a map that a result can write, so match the map whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it".to_owned(),
+        (_, [Layer::Leaf(Notation::Map)]) => "name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused".to_owned(),
+        (_, [Layer::Instances(_), ..]) => {
+            format!("{keep}: a rule does not remove a collection's other instances yet")
+        }
+        _ => keep.to_owned(),
     }
 }
 
