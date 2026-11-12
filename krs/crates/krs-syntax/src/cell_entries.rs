@@ -1842,6 +1842,9 @@ impl Other<'_> {
                     EntrySpelling::Alias(name, instance) if name == label => {
                         Some(Self::Matched(instance))
                     }
+                    // A whole instance named by one name is that instance labelled so,
+                    // `label @ Decl { .. }`.
+                    EntrySpelling::Binder(name) if name == label => Some(Self::Matched(item)),
                     _ => None,
                 })
             }),
@@ -3638,6 +3641,16 @@ mod tests {
                 &accounts,
                 "{ Acct { aframe: Frame { ret: x, .. }, ..me }, .. }",
                 Some("{ me @ Acct { id: i, .. }, .. }")
+            ),
+            Ok(None)
+        );
+        // A whole instance named by one name is labelled so: its update keeps it in place.
+        assert_eq!(
+            result(
+                readable,
+                &accounts,
+                "{ Acct { aframe: Frame { ret: x, .. }, ..me }, .. }",
+                Some("{ me, .. }")
             ),
             Ok(None)
         );

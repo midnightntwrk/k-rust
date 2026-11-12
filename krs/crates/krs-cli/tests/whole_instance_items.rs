@@ -16,6 +16,9 @@
 //! An update `..o` of a Map collection's instance that writes a key not provably the one `o`
 //! matched is `o` moved to that key: removed, unless the result keeps it, and created there with
 //! the children the record does not write taken from `o`, the K of its long form.
+//!
+//! A group child such a result instance writes with `..` keeps the children it leaves unnamed:
+//! it updates the same child of the subject instance the record is, or of the moved one.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1399,6 +1402,224 @@ fn a_move_carries_a_group_child_and_names_its_binders_apart() {
 /// instance updated in place, which KRS does not emit at the back: refused, as its labelled twin.
 /// The refusal's way out (CELLS4) names every child on both sides: the rule removes the instance
 /// and creates the result's at the back, the same list, `lmem` kept through its binder.
+/// Objects keyed by `fid` with a group child `frame` (`fa`, `fb`) and a leaf `fv`, created by
+/// `newf`; `{RULES}` is the machine rules.
+const KEPT_CHILDREN: &str = r#"
+use k::KResult;
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[k::precedence(cmd (Newf, Lab, Pair, Whole, Mvw, Mva, Clab) > right seq (Seq))]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("newf {id} {a} {b}")] Newf { id: Int, a: Int, b: Int },
+    #[k::syntax("lab {x}")] Lab { x: Int },
+    #[k::syntax("pair {x}")] Pair { x: Int },
+    #[k::syntax("whole {x}")] Whole { x: Int },
+    #[k::syntax("mvw")] Mvw(),
+    #[k::syntax("mva {x}")] Mva { x: Int },
+    #[k::syntax("clab {x}")] Clab { x: Int },
+    #[k::syntax("{first} {second}")] Seq { first: Stmt, second: Stmt },
+}
+
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub fa: Int,
+    #[k::cell]
+    pub fb: Int,
+}
+
+#[k::cell]
+pub struct Fobj {
+    #[k::cell]
+    pub fid: Int,
+    #[k::cell(nested)]
+    pub frame: Frame,
+    #[k::cell]
+    pub fv: Int,
+}
+
+#[k::cell]
+pub struct Fobjs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub fobj: Fobj,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub fobjs: Fobjs,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            fobjs: Fobjs { fobj: Fobj { fid: 0, frame: Frame { fa: 0, fb: 0 }, fv: 0 } },
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    use Cmd::*;
+
+    seq: Seq(s1, s2) => k::k![s1, s2];
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    newf: { k: [Newf(i, a, b), ..], fobj: { .. } } => { k: [..], fobj: { Fobj { fid: i, frame: Frame { fa: a, fb: b }, fv: 9 }, .. } };
+{RULES}}
+
+#[k::rule(label = "clab")]
+fn clab(
+    x: Int,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Clab { x }, tail @ ..),
+        Fobjs::fobj: { me @ k::fragment![crate::Fobj { fid: 1, .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Fobjs::fobj: { k::fragment![crate::Fobj { frame: crate::Frame { fa: x, .. }, ..me }], ..instances0 },
+        ..state
+    }
+}
+"#;
+
+/// WHOLEKEEP cases 3 and 5: an updated instance's group child written with `..` keeps the
+/// children it leaves unnamed, the same child of the subject instance it is (its label's, or its
+/// twin's by its key) taken as the child's base; a whole instance named by one name (`{ o, .. }`)
+/// is that instance labelled so, `o @ Fobj { .. }`, whose update keeps it in place or, under
+/// another key, moves it with its children; and a move's group child written with `..` keeps
+/// those of the moved instance's same child. Each rule emits the K of its explicit twin, the base
+/// named as the lowering names it (`me_frame`, `frame`, `o_frame`), and the runs keep `fb`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of instances, each with its explicit twin, and the runs."
+)]
+fn an_instance_s_group_child_keeps_what_its_rest_leaves_unnamed() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // Each rule: its label, its implicit spelling, and its explicit twin.
+    let rules = [
+        (
+            "lab",
+            "{ k: [Lab(x), ..], fobj: { me @ Fobj { fid: 1, .. }, .. } } => { k: [..], fobj: { Fobj { frame: Frame { fa: x, .. }, ..me }, .. } }",
+            "{ k: [Lab(x), ..], fobj: { me @ Fobj { fid: 1, frame: me_frame @ Frame { .. }, .. }, .. } } => { k: [..], fobj: { Fobj { frame: Frame { fa: x, ..me_frame }, ..me }, .. } }",
+        ),
+        (
+            "pair",
+            "{ k: [Pair(x), ..], fobj: { Fobj { fid: 1, frame: Frame { fa: a, .. }, fv: v }, .. } } => { k: [..], fobj: { Fobj { fid: 1, frame: Frame { fa: x, .. }, fv: v }, .. } }",
+            "{ k: [Pair(x), ..], fobj: { Fobj { fid: 1, frame: frame @ Frame { fa: a, .. }, fv: v }, .. } } => { k: [..], fobj: { Fobj { fid: 1, frame: Frame { fa: x, ..frame }, fv: v }, .. } }",
+        ),
+        (
+            "whole",
+            "{ k: [Whole(x), ..], fobj: { o, .. } } => { k: [..], fobj: { Fobj { frame: Frame { fa: x, .. }, ..o }, .. } }",
+            "{ k: [Whole(x), ..], fobj: { o @ Fobj { frame: o_frame @ Frame { .. }, .. }, .. } } => { k: [..], fobj: { Fobj { frame: Frame { fa: x, ..o_frame }, ..o }, .. } }",
+        ),
+        (
+            "mvw",
+            "{ k: [Mvw(), ..], fobj: { o, .. } } => { k: [..], fobj: { Fobj { fid: 9, ..o }, .. } }",
+            "{ k: [Mvw(), ..], fobj: { o @ Fobj { .. }, .. } } => { k: [..], fobj: { Fobj { fid: 9, ..o }, .. } }",
+        ),
+        (
+            "mva",
+            "{ k: [Mva(x), ..], fobj: { me @ Fobj { fid: 1, frame: h @ Frame { fa: a, .. }, .. }, .. } } => { k: [..], fobj: { Fobj { fid: 3, frame: Frame { fa: x, .. }, ..me }, .. } }",
+            "{ k: [Mva(x), ..], fobj: { me @ Fobj { fid: 1, frame: h @ Frame { fa: a, .. }, .. }, .. } } => { k: [..], fobj: { Fobj { fid: 3, frame: Frame { fa: x, ..h }, ..me }, .. } }",
+        ),
+    ];
+    let written = |twin: bool| {
+        rules
+            .iter()
+            .map(|(label, implicit, explicit)| {
+                format!("    {label}: {};\n", if twin { explicit } else { implicit })
+            })
+            .collect::<Vec<_>>()
+            .concat()
+    };
+    let [implicit, explicit] =
+        [("kept-children", false), ("kept-children-twin", true)].map(|(name, twin)| {
+            package_of(
+                temporary.path(),
+                name,
+                &KEPT_CHILDREN.replace("{RULES}", &written(twin)),
+            )
+        });
+    let [implicit_k, explicit_k] =
+        [&implicit, &explicit].map(|manifest| emitted_k(target.path(), manifest));
+    let one_line = |k: &str, label: &str| {
+        rule(k, label)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut emitted = rules
+        .iter()
+        .map(|(label, _, _)| {
+            let k = one_line(&implicit_k, label);
+            assert_eq!(k, one_line(&explicit_k, label), "{label}");
+            k
+        })
+        .collect::<Vec<_>>();
+    emitted.push(one_line(&implicit_k, "clab"));
+    expect_test::expect![[r#"
+        [
+            "rule [lab]: <k> lab X:Int => .K ... </k> <fobj> <fid> 1 </fid> (<frame> <fa> _ </fa> <fb> MeFrameFb:Int </fb> </frame> => <frame> <fa> X:Int </fa> <fb> MeFrameFb:Int </fb> </frame>) ... </fobj>",
+            "rule [pair]: <k> pair X:Int => .K ... </k> <fobj> <fid> 1 </fid> (<frame> <fa> A:Int </fa> <fb> FrameFb:Int </fb> </frame> => <frame> <fa> X:Int </fa> <fb> FrameFb:Int </fb> </frame>) <fv> V:Int </fv> </fobj>",
+            "rule [whole]: <k> whole X:Int => .K ... </k> <fobj> (<frame> <fa> _ </fa> <fb> OFrameFb:Int </fb> </frame> => <frame> <fa> X:Int </fa> <fb> OFrameFb:Int </fb> </frame>) ... </fobj>",
+            "rule [mvw]: <k> mvw => .K ... </k> (<fobj> OFrame:FrameCell <fv> OFv:Int </fv> ... </fobj> => .Bag) (.Bag => <fobj> <fid> 9 </fid> OFrame:FrameCell <fv> OFv:Int </fv> </fobj>)",
+            "rule [mva]: <k> mva X:Int => .K ... </k> (<fobj> <fid> 1 </fid> <frame> <fa> A:Int </fa> <fb> HFb:Int </fb> </frame> <fv> MeFv:Int </fv> </fobj> => .Bag) (.Bag => <fobj> <fid> 3 </fid> <frame> <fa> X:Int </fa> <fb> HFb:Int </fb> </frame> <fv> MeFv:Int </fv> </fobj>)",
+            "rule [clab]: <k> clab X:Int ~> Tail:K => .K ~> Tail:K </k> <fobj> <fid> 1 </fid> (<frame> <fa> _ </fa> <fb> MeFrameFb:Int </fb> </frame> => <frame> <fa> X:Int </fa> <fb> MeFrameFb:Int </fb> </frame>) ... </fobj>",
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+    // `fb` 6 is kept by every rule, the moves included.
+    let runs = [
+        "newf 1 5 6 lab 7 pair 8 whole 9 clab 10",
+        "newf 1 5 6 mva 4",
+        "newf 1 5 6 mvw",
+    ]
+    .map(|text| {
+        let program = implicit.with_file_name("program.txt");
+        fs::write(&program, text).unwrap();
+        let (success, stdout, stderr) = krs(
+            target.path(),
+            &implicit,
+            "run",
+            &[program.to_str().unwrap()],
+        );
+        assert!(success, "{stdout}\n{stderr}");
+        format!(
+            "{text}: {}",
+            stdout.split_whitespace().collect::<Vec<_>>().join(" ")
+        )
+    });
+    expect_test::expect![[r#"
+        [
+            "newf 1 5 6 lab 7 pair 8 whole 9 clab 10: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 1 </fid> <frame> <fa> 10 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
+            "newf 1 5 6 mva 4: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 3 </fid> <frame> <fa> 4 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
+            "newf 1 5 6 mvw: <generatedTop> <k> .K </k> <fobjs> <fobj> <fid> 9 </fid> <frame> <fa> 5 </fa> <fb> 6 </fb> </frame> <fv> 9 </fv> </fobj> </fobjs> </generatedTop>",
+        ]
+    "#]]
+    .assert_debug_eq(&runs);
+}
+
 #[test]
 fn a_back_instance_updated_in_place_is_refused_as_its_labelled_twin() {
     let target = shared_fixture_target();
