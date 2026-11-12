@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 
 use k_rust::kore::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
 
+use crate::stack::guarded;
+
 /// A symbol occurrence: its name, its sort parameters, and, once instantiated, its argument and result sorts.
 #[derive(Clone, Debug)]
 pub(crate) struct Sym {
@@ -74,7 +76,7 @@ pub(crate) struct App {
 }
 
 /// A pattern of the printer's term model.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) enum Node {
     /// A variable, with its KORE name (`VarX`, `@VarX`) and sort.
     Var { name: String, set: bool, sort: Sort },
@@ -82,6 +84,73 @@ pub(crate) enum Node {
     Str(Vec<u8>),
     /// An application of a symbol or a matching-logic connective.
     App(App),
+}
+
+/// A copy of the node and of every node below it, each counted in a test ([`copies`]).
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        #[cfg(test)]
+        copies::count();
+        match self {
+            Self::Var { name, set, sort } => Self::Var {
+                name: name.clone(),
+                set: *set,
+                sort: sort.clone(),
+            },
+            Self::Str(bytes) => Self::Str(bytes.clone()),
+            Self::App(app) => Self::App(guarded(|| app.clone())),
+        }
+    }
+}
+
+/// A node is released with the nodes below it from a list of their own, not one level of the
+/// thread's stack per level of the term.
+impl Drop for Node {
+    fn drop(&mut self) {
+        let Self::App(app) = self else {
+            return;
+        };
+        let mut pending = std::mem::take(&mut app.args);
+        // Invariant: every node popped gives its arguments to `pending` before it is released,
+        // so the release of a node here releases no node below it.
+        while let Some(mut node) = pending.pop() {
+            if let Self::App(app) = &mut node {
+                pending.append(&mut app.args);
+            }
+        }
+    }
+}
+
+/// The nodes a test's thread copies: a pass that copies a subterm at each level of a term is
+/// quadratic in the term's depth, which a count of the copies shows and a clock does not.
+#[cfg(test)]
+pub(crate) mod copies {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COPIED: Cell<u64> = const { Cell::new(0) };
+        static BUDGET: Cell<u64> = const { Cell::new(u64::MAX) };
+    }
+
+    pub(super) fn count() {
+        let copied = COPIED.get() + 1;
+        COPIED.set(copied);
+        assert!(
+            copied <= BUDGET.get(),
+            "more than {} nodes copied",
+            BUDGET.get()
+        );
+    }
+
+    /// Run `body`, which panics at the copy of a node beyond `budget`, so that a quadratic pass
+    /// fails before it takes the memory its copies would; the nodes it copied.
+    pub(crate) fn within<R>(budget: u64, body: impl FnOnce() -> R) -> (R, u64) {
+        COPIED.set(0);
+        BUDGET.set(budget);
+        let result = body();
+        BUDGET.set(u64::MAX);
+        (result, COPIED.get())
+    }
 }
 
 impl Node {
@@ -141,7 +210,7 @@ impl Node {
                     if index > 0 {
                         text.push(',');
                     }
-                    argument.write_key(text);
+                    guarded(|| argument.write_key(text));
                 }
                 text.push(')');
             }
@@ -167,8 +236,8 @@ fn variable(variable: &Variable) -> Node {
     reason = "one arm per KORE pattern kind, mirroring the model's connective list"
 )]
 pub(crate) fn from_pattern(pattern: &Pattern) -> Node {
-    let many = |patterns: &[Pattern]| patterns.iter().map(from_pattern).collect::<Vec<_>>();
-    let one = |pattern: &Pattern| from_pattern(pattern);
+    let one = |pattern: &Pattern| guarded(|| from_pattern(pattern));
+    let many = |patterns: &[Pattern]| patterns.iter().map(one).collect::<Vec<_>>();
     match pattern {
         Pattern::String(value) => Node::Str(value.as_bytes().to_vec()),
         Pattern::Variable(value) => variable(value),
@@ -316,7 +385,7 @@ pub(crate) fn to_pattern(node: &Node) -> Option<Pattern> {
             let args = app
                 .args
                 .iter()
-                .map(to_pattern)
+                .map(|argument| guarded(|| to_pattern(argument)))
                 .collect::<Option<Vec<_>>>()?;
             connective_pattern(&app.sym, args)?
         }

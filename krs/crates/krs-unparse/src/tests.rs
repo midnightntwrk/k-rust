@@ -1095,3 +1095,120 @@ fn a_list_ends_without_its_terminator_only_where_nothing_continues_it() {
         ),
     ]);
 }
+
+/// A list cell as a run's end holds one: `cat` is the associative concatenation, `item` a list
+/// item, whose element stands under an injection as a `KItem` does.
+const LONG_LIST: &str = r#"[]
+module LONG-LIST
+  sort SortInt{} [hook{}("INT.Int")]
+  sort SortEvent{} []
+  sort SortKItem{} []
+  sort SortList{} []
+  sort SortCell{} []
+  symbol Lblevent{}(SortInt{}, SortInt{}) : SortEvent{} [format{}("event ( %1 , %2 )"), terminals{}("110101")]
+  symbol Lblitem{}(SortKItem{}) : SortList{} [format{}("ListItem ( %1 )"), terminals{}("1101")]
+  symbol Lblcat{}(SortList{}, SortList{}) : SortList{} [assoc{}(), format{}("%1 %2"), terminals{}("00")]
+  symbol Lblbus{}(SortList{}) : SortCell{} [format{}("<bus>%i%n%1%d%n</bus>"), terminals{}("101")]
+endmodule []
+"#;
+
+/// The `<bus>` cell of `length` events, its list nested to the right as the backend returns
+/// it, and its print.
+fn long_list(length: usize) -> (Pattern, String) {
+    use k_rust::kore::ast::{Sort, Symbol};
+    let sort = |name: &str| Sort::Application {
+        name: name.to_owned(),
+        arguments: Vec::new(),
+    };
+    let apply =
+        |name: &str, sort_parameters: Vec<Sort>, arguments: Vec<Pattern>| Pattern::Application {
+            symbol: Symbol {
+                name: name.to_owned(),
+                sort_parameters,
+            },
+            arguments,
+        };
+    let int = |value: usize| Pattern::DomainValue {
+        sort: sort("SortInt"),
+        value: value.to_string().into(),
+    };
+    let item = |index: usize| {
+        apply(
+            "Lblitem",
+            Vec::new(),
+            vec![apply(
+                "inj",
+                vec![sort("SortEvent"), sort("SortKItem")],
+                vec![apply(
+                    "Lblevent",
+                    Vec::new(),
+                    vec![int(index), int(index % 256)],
+                )],
+            )],
+        )
+    };
+    let text = |index: usize| format!("ListItem ( event ( {index} , {} ) )", index % 256);
+    let mut list = item(length - 1);
+    for index in (0..length - 1).rev() {
+        list = apply("Lblcat", Vec::new(), vec![item(index), list]);
+    }
+    let items = (0..length).map(text).collect::<Vec<_>>().join(" ");
+    (
+        apply("Lblbus", Vec::new(), vec![list]),
+        format!("<bus>\n  {items}\n</bus>"),
+    )
+}
+
+/// Print `cell` on a thread of its own with `stack` bytes of stack; the print, and the nodes of
+/// the printer's term model that it copied, of which it may copy `budget`.
+fn print_counted(cell: Pattern, stack: usize, budget: u64) -> (Printed, u64) {
+    std::thread::Builder::new()
+        .stack_size(stack)
+        .spawn(move || {
+            let unparser = Unparser::from_kore(LONG_LIST, "").expect("KORE");
+            crate::node::copies::within(budget, || unparser.print_kore(&cell, &Options::default()))
+        })
+        .expect("spawn")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
+/// The nodes of the printer's term model for [`long_list`]'s cell of `length` events: the cell,
+/// a concatenation between two events, and seven an event (its item, injection and event, and
+/// two domain values each over its text).
+const fn long_list_nodes(length: u64) -> u64 {
+    1 + (length - 1) + 7 * length
+}
+
+/// A list cell prints in time and memory linear in its length, on any thread.
+///
+/// The print copies a number of nodes proportional to the term's, where a pass that copies each
+/// tail of the list before it descends into it copies `length²/2` events: the budget stops such
+/// a pass at its first copy beyond it, long before it takes the memory of its copies. The
+/// thread's stack is 20 bytes for each of the list's levels, so a pass that takes a frame of the
+/// thread's stack per level, or releases the term so, overflows it.
+#[test]
+fn a_long_list_prints_with_copies_linear_in_its_length_on_a_small_stack() {
+    const LENGTH: usize = 50_000;
+    let (cell, expected) = long_list(LENGTH);
+    let nodes = long_list_nodes(LENGTH as u64);
+    let (printed, copied) = print_counted(cell, 1 << 20, 4 * nodes);
+    assert_eq!(printed.warnings, []);
+    assert!(printed.text == expected, "the print of {LENGTH} events");
+    assert!(copied <= 4 * nodes, "{copied} copies of {nodes} nodes");
+}
+
+/// The copies a print makes of each node do not grow with the list: the count at twice the
+/// length is at most twice the count.
+#[test]
+fn a_list_twice_as_long_prints_with_twice_the_copies() {
+    let copies = |length: usize| {
+        let (cell, expected) = long_list(length);
+        let (printed, copied) = print_counted(cell, 1 << 20, u64::MAX);
+        assert_eq!(printed.text, expected);
+        copied
+    };
+    let (short, long) = (copies(200), copies(400));
+    eprintln!("copies: {short} at 200 events, {long} at 400");
+    assert!(long <= 2 * short, "{short} copies at 200, {long} at 400");
+}

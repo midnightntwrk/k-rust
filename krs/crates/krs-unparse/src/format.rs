@@ -14,6 +14,7 @@ use k_rust::kore::ast::Sort;
 use crate::data::PrintData;
 use crate::node::{App, Node};
 use crate::program::{Item, ProgramProduction};
+use crate::stack::guarded;
 
 /// The authored formats of the program grammar, by KORE symbol name.
 pub(crate) type ProgramFormats = std::collections::BTreeMap<String, ProgramProduction>;
@@ -188,7 +189,7 @@ impl<'a> Printer<'a> {
         // A list's last element is printed alone, and the empty list as no text.
         if name == crate::user_list::LAST {
             if let Some(element) = app.args.first() {
-                self.print(element);
+                guarded(|| self.print(element));
             }
             return;
         }
@@ -269,7 +270,7 @@ impl<'a> Printer<'a> {
                     if assoc {
                         self.indent -= local_indent;
                     }
-                    self.print(inner);
+                    guarded(|| self.print(inner));
                     if assoc {
                         self.indent += local_indent;
                     }
@@ -359,7 +360,7 @@ impl Printer<'_> {
                             if assoc {
                                 self.indent -= local_indent;
                             }
-                            self.print(inner);
+                            guarded(|| self.print(inner));
                             if assoc {
                                 self.indent += local_indent;
                             }

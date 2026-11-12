@@ -11,6 +11,12 @@ description = "Grammar-directed printing of KORE terms, as K's kprint and kast -
 k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false }
 k-rust-domain.workspace = true
 
+# A term's depth is not bounded (a collection a run built is as deep as it is long), so the
+# passes that descend it grow their native stack onto heap segments; on wasm32 the engine's
+# call-stack limit is invisible to the module, so the growth is absent there.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+stacker.workspace = true
+
 [lints]
 workspace = true
 

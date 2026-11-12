@@ -71,6 +71,7 @@ mod format;
 mod instance;
 mod node;
 mod program;
+mod stack;
 mod user_list;
 
 use std::{

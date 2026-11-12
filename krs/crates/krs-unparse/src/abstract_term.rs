@@ -7,13 +7,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::data::PrintData;
 use crate::format::{Problems, key_text, variable_text};
 use crate::node::{App, Node, Sym};
+use crate::stack::guarded;
 
 /// `kore_composite_pattern::unflatten_and_or`: n-ary `\and` and `\or` become left-nested binary applications.
 pub(crate) fn unflatten_and_or(node: &Node) -> Node {
     let Node::App(app) = node else {
         return node.clone();
     };
-    let args = app.args.iter().map(unflatten_and_or).collect::<Vec<_>>();
+    let args = app
+        .args
+        .iter()
+        .map(|argument| guarded(|| unflatten_and_or(argument)))
+        .collect::<Vec<_>>();
     if matches!(app.sym.name.as_str(), "\\and" | "\\or") && args.len() != 2 && !args.is_empty() {
         let mut args = args.into_iter();
         let first = args.next().expect("arguments are not empty");
@@ -28,7 +33,7 @@ pub(crate) fn unflatten_and_or(node: &Node) -> Node {
 fn flatten(app: &App, name: &str, items: &mut Vec<Node>) {
     for argument in &app.args {
         match argument {
-            Node::App(child) if child.sym.name == name => flatten(child, name, items),
+            Node::App(child) if child.sym.name == name => guarded(|| flatten(child, name, items)),
             _ => items.push(argument.clone()),
         }
     }
@@ -58,7 +63,7 @@ pub(crate) fn sort_collections(data: &PrintData, node: &Node, problems: &mut Pro
         let mut printed = items
             .iter()
             .map(|item| {
-                let item = sort_collections(data, item, problems);
+                let item = guarded(|| sort_collections(data, item, problems));
                 (key_text(data, &item, problems), item)
             })
             .collect::<Vec<_>>();
@@ -72,7 +77,7 @@ pub(crate) fn sort_collections(data: &PrintData, node: &Node, problems: &mut Pro
         app.sym.clone(),
         app.args
             .iter()
-            .map(|argument| sort_collections(data, argument, problems))
+            .map(|argument| guarded(|| sort_collections(data, argument, problems)))
             .collect(),
     )
 }
@@ -115,7 +120,7 @@ fn var_counts(node: &Node, counts: &mut BTreeMap<String, usize>) {
         Node::Str(_) => {}
         Node::App(app) => {
             for argument in &app.args {
-                var_counts(argument, counts);
+                guarded(|| var_counts(argument, counts));
             }
         }
     }
@@ -167,11 +172,14 @@ pub(crate) fn filter_substitution(
                 .args
                 .iter()
                 .map(|argument| {
-                    if app.sym.name == "\\or" {
-                        filter_substitution(data, argument, &singleton_vars(argument), problems)
-                    } else {
-                        filter_substitution(data, argument, vars, problems)
-                    }
+                    guarded(|| {
+                        if app.sym.name == "\\or" {
+                            let vars = singleton_vars(argument);
+                            filter_substitution(data, argument, &vars, problems)
+                        } else {
+                            filter_substitution(data, argument, vars, problems)
+                        }
+                    })
                 })
                 .collect::<Vec<_>>();
             if app.sym.name == "\\and"

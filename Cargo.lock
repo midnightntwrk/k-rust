@@ -1658,6 +1658,7 @@ dependencies = [
  "k-rust",
  "k-rust-domain",
  "serde_json",
+ "stacker",
 ]
 
 [[package]]

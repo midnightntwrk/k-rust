@@ -13,6 +13,7 @@ use k_rust::kore::ast::Sort;
 
 use crate::data::PrintData;
 use crate::node::{App, Node, Sym};
+use crate::stack::guarded;
 
 const BARE_LEFT: u8 = 1;
 const BARE_RIGHT: u8 = 2;
@@ -113,16 +114,12 @@ impl<'a> Brackets<'a> {
         fixity
     }
 
-    fn is_priority_wrong(&self, outer: &App, inner: &App, position: usize) -> bool {
+    fn is_priority_wrong(&self, outer: Applied<'_>, inner: Applied<'_>, position: usize) -> bool {
         let outer_name = outer.sym.name.as_str();
         let inner_name = inner.sym.name.as_str();
         if let (Some(inner_sort), Some(outer_sort)) = (
             return_sort(inner),
-            argument_sort(
-                &outer.sym,
-                position,
-                outer.args.first().and_then(Node::sort),
-            ),
+            argument_sort(outer.sym, position, outer.args.first().and_then(Node::sort)),
         ) && !self.data.less_than_eq(&inner_sort, &outer_sort)
         {
             return true;
@@ -135,7 +132,7 @@ impl<'a> Brackets<'a> {
         {
             return true;
         }
-        let Some(terminals) = self.terminals(&outer.sym) else {
+        let Some(terminals) = self.terminals(outer.sym) else {
             return false;
         };
         let at = item_position(terminals, position);
@@ -157,15 +154,16 @@ impl<'a> Brackets<'a> {
 
     fn requires_bracket(
         &self,
-        outer: &App,
-        left_capture: Option<&App>,
-        right_capture: Option<&App>,
+        outer: Applied<'_>,
+        left_capture: Option<Applied<'_>>,
+        right_capture: Option<Applied<'_>>,
         inner: &Node,
         position: usize,
     ) -> bool {
         let Node::App(inner) = inner else {
             return false;
         };
+        let inner = Applied::of(inner);
         let inner_name = inner.sym.name.as_str();
         if inner_name == outer.sym.name && self.data.assoc.contains(inner_name) {
             return false;
@@ -173,22 +171,22 @@ impl<'a> Brackets<'a> {
         if inner_name == "\\dv" {
             return false;
         }
-        if self.argument_fixity(position, &outer.sym) == 0 {
+        if self.argument_fixity(position, outer.sym) == 0 {
             return false;
         }
         if self.is_priority_wrong(outer, inner, position) {
             return true;
         }
-        if self.terminals(&inner.sym) == Some(b"0".as_slice()) {
+        if self.terminals(inner.sym) == Some(b"0".as_slice()) {
             return false;
         }
-        let inner_fixity = self.fixity(&inner.sym);
+        let inner_fixity = self.fixity(inner.sym);
         if inner_fixity & BARE_RIGHT != 0
             && let Some(capture) = right_capture
         {
             let inverse =
                 self.is_priority_wrong(inner, capture, inner.args.len().saturating_sub(1));
-            if !inverse && self.fixity(&capture.sym) & BARE_LEFT != 0 {
+            if !inverse && self.fixity(capture.sym) & BARE_LEFT != 0 {
                 return true;
             }
         }
@@ -196,19 +194,19 @@ impl<'a> Brackets<'a> {
             && let Some(capture) = left_capture
         {
             let inverse = self.is_priority_wrong(inner, capture, 0);
-            return !inverse && self.fixity(&capture.sym) & BARE_RIGHT != 0;
+            return !inverse && self.fixity(capture.sym) & BARE_RIGHT != 0;
         }
         false
     }
 
-    fn wrap(&self, inner: &Node, outer: &App, position: usize) -> Node {
-        let outer_sort = argument_sort(
-            &outer.sym,
-            position,
-            outer.args.first().and_then(Node::sort),
-        );
+    /// The symbol of the bracket around `inner`, the `position`-th child of `outer`, which
+    /// needs one: a bracket production of the definition, or the fallback's; `None` where the
+    /// fallback prints the child as it is.
+    fn bracket(&self, inner: &Node, outer: Applied<'_>, position: usize) -> Option<Sym> {
+        let outer_sort =
+            argument_sort(outer.sym, position, outer.args.first().and_then(Node::sort));
         let inner_sort = match inner {
-            Node::App(app) => return_sort(app),
+            Node::App(app) => return_sort(Applied::of(app)),
             _ => inner.sort().cloned(),
         };
         if let (Some(outer_sort), Some(inner_sort)) = (&outer_sort, &inner_sort) {
@@ -225,7 +223,7 @@ impl<'a> Brackets<'a> {
                         let mut sym = Sym::new(symbol.name.clone(), Vec::new());
                         sym.arguments = symbol.argument.iter().cloned().collect();
                         sym.sort = Some(sort.clone());
-                        return Node::app(sym, vec![inner.clone()]);
+                        return Some(sym);
                     }
                 }
             }
@@ -234,50 +232,42 @@ impl<'a> Brackets<'a> {
             .borrow_mut()
             .insert(sort_name(inner_sort.as_ref()));
         match self.fallback {
-            Fallback::Nothing => inner.clone(),
+            Fallback::Nothing => None,
             Fallback::Parentheses => {
                 let mut sym = Sym::new("bracket", Vec::new());
                 sym.sort = inner_sort;
-                Node::app(sym, vec![inner.clone()])
+                Some(sym)
             }
         }
     }
 
-    fn child(
-        &self,
-        inner: &Node,
-        outer: &App,
-        left_capture: Option<&App>,
-        right_capture: Option<&App>,
-        position: usize,
-    ) -> Node {
-        if let Node::App(app) = inner
-            && app.sym.name == "inj"
-            && let Some(child) = app.args.first()
-        {
-            return self.child(child, outer, left_capture, right_capture, position);
-        }
-        if self.requires_bracket(outer, left_capture, right_capture, inner, position) {
-            self.wrap(inner, outer, position)
-        } else {
-            inner.clone()
-        }
-    }
-
     /// `add_brackets(t, previous_left_capture, previous_right_capture)`.
+    ///
+    /// `node` is read where it stands and each of its nodes is written to the result once, so
+    /// the pass takes time and memory linear in the size of `node`.
     pub fn add(
         &self,
         node: &Node,
-        left_capture: Option<&App>,
-        right_capture: Option<&App>,
+        left_capture: Option<Applied<'_>>,
+        right_capture: Option<Applied<'_>>,
     ) -> Node {
-        let Node::App(outer) = node else {
-            return node.clone();
-        };
-        if outer.sym.name == "\\dv" || outer.sym.name == crate::instance::KORE_TEXT {
-            return node.clone();
+        match node {
+            Node::App(app) => self.add_applied(Applied::of(app), left_capture, right_capture),
+            leaf => leaf.clone(),
         }
-        let outer_fixity = self.fixity(&outer.sym);
+    }
+
+    /// [`Self::add`] of the application `outer`.
+    fn add_applied(
+        &self,
+        outer: Applied<'_>,
+        left_capture: Option<Applied<'_>>,
+        right_capture: Option<Applied<'_>>,
+    ) -> Node {
+        if outer.sym.name == "\\dv" || outer.sym.name == crate::instance::KORE_TEXT {
+            return Node::app(outer.sym.clone(), outer.args.to_vec());
+        }
+        let outer_fixity = self.fixity(outer.sym);
         let last = outer.args.len().saturating_sub(1);
         let args = outer
             .args
@@ -294,11 +284,51 @@ impl<'a> Brackets<'a> {
                 } else {
                     Some(outer)
                 };
-                let child = self.child(inner, outer, left, right, position);
-                self.add(&child, left, right)
+                // An injection prints as its argument.
+                let mut inner = inner;
+                while let Node::App(app) = inner
+                    && app.sym.name == "inj"
+                    && let Some(child) = app.args.first()
+                {
+                    inner = child;
+                }
+                let bracket = if self.requires_bracket(outer, left, right, inner, position) {
+                    self.bracket(inner, outer, position)
+                } else {
+                    None
+                };
+                guarded(|| match &bracket {
+                    // The bracket's application of the child, which it borrows.
+                    Some(sym) => self.add_applied(
+                        Applied {
+                            sym,
+                            args: std::slice::from_ref(inner),
+                        },
+                        left,
+                        right,
+                    ),
+                    None => self.add(inner, left, right),
+                })
             })
             .collect();
         Node::app(outer.sym.clone(), args)
+    }
+}
+
+/// An application read where it stands: a node of the term, or a bracket's application of a
+/// child of the term, which no node holds.
+#[derive(Clone, Copy)]
+pub(crate) struct Applied<'n> {
+    sym: &'n Sym,
+    args: &'n [Node],
+}
+
+impl<'n> Applied<'n> {
+    const fn of(app: &'n App) -> Self {
+        Self {
+            sym: &app.sym,
+            args: app.args.as_slice(),
+        }
     }
 }
 
@@ -348,8 +378,8 @@ fn argument_sort(sym: &Sym, position: usize, first_argument: Option<&Sort>) -> O
 }
 
 /// `get_return_sort`: the sort of an application.
-fn return_sort(app: &App) -> Option<Sort> {
-    let sym = &app.sym;
+fn return_sort(app: Applied<'_>) -> Option<Sort> {
+    let sym = app.sym;
     if !sym.is_builtin() {
         return sym.sort.clone();
     }

@@ -35,6 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::data::{Macro, PrintData};
 use crate::node::{App, BUILTINS, Node, Sym};
+use crate::stack::guarded;
 use k_rust::kore::ast::Sort;
 
 /// How many reversals one chain may make before it is reported as unbounded and printed
@@ -79,7 +80,7 @@ impl<'a> Reverser<'a> {
             args: app
                 .args
                 .iter()
-                .map(|argument| self.expand_with(argument))
+                .map(|argument| guarded(|| self.expand_with(argument)))
                 .collect(),
         };
         self.reverse(applied, &BTreeSet::new(), 0)
@@ -147,7 +148,9 @@ impl<'a> Reverser<'a> {
                     args: app
                         .args
                         .iter()
-                        .map(|argument| self.written(argument, substitution, chain, depth))
+                        .map(|argument| {
+                            guarded(|| self.written(argument, substitution, chain, depth))
+                        })
                         .collect(),
                 };
                 self.reverse(rebuilt, chain, depth)
@@ -253,7 +256,7 @@ fn same_term(data: &PrintData, left: &Node, right: &Node) -> bool {
                     .args
                     .iter()
                     .zip(&right.args)
-                    .all(|(left, right)| same_term(data, left, right))
+                    .all(|(left, right)| guarded(|| same_term(data, left, right)))
         }
         _ => left.key() == right.key(),
     }
@@ -314,7 +317,7 @@ fn instantiate(node: &Node, substitution: &Substitution) -> Option<Node> {
             args: app
                 .args
                 .iter()
-                .map(|argument| instantiate(argument, substitution))
+                .map(|argument| guarded(|| instantiate(argument, substitution)))
                 .collect::<Option<_>>()?,
         })),
     }
@@ -378,7 +381,9 @@ fn matches(
                     .args
                     .iter()
                     .zip(&subject_app.args)
-                    .all(|(pattern, subject)| matches(data, pattern, subject, substitution))
+                    .all(|(pattern, subject)| {
+                        guarded(|| matches(data, pattern, subject, substitution))
+                    })
         }
     }
 }
