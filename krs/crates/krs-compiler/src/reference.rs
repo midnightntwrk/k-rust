@@ -2261,21 +2261,9 @@ fn render_rule(
         root: &root,
         brackets: &brackets,
         list_rests: Vec::new(),
+        list_rest_names: Vec::new(),
     };
-    let results = printed
-        .result
-        .as_ref()
-        .map_or(&[][..], |result| result.cells.as_slice());
-    let mut left_cells = Vec::new();
-    let mut right_cells = Vec::new();
-    for before in &printed.subject.cells {
-        let after = results
-            .iter()
-            .find(|after| after.field.cell == before.field.cell);
-        let (left, right) = render_rule_cell(before, after, &mut rendering)?;
-        left_cells.push(left);
-        right_cells.extend(right);
-    }
+    let (mut left_cells, mut right_cells) = render_rule_cells(printed, &mut rendering)?;
     let state = match (
         &printed.subject.remainder,
         printed.result.as_ref().map(|result| &result.remainder),
@@ -2371,7 +2359,8 @@ fn render_rule(
     };
     // A list rest the print names is a binder of the cell's sort, fresh against every
     // identifier the sentence prints, its restated conditions and helpers, attributes and path
-    // segments included: `rest`, then `rest_2`.
+    // segments included: `rest`, then `rest_2`. The cells are printed again with those names, so
+    // each rest is named where it is made and nothing printed is renamed.
     if !rendering.list_rests.is_empty() {
         let mut spelled = BTreeSet::new();
         for part in left_cells.iter().chain(&right_cells).chain([
@@ -2383,8 +2372,8 @@ fn render_rule(
         for (name, _) in &parameters {
             spelled.insert(name.clone());
         }
-        let mut names = BTreeMap::new();
-        for (placeholder, sort) in &rendering.list_rests {
+        let mut names = Vec::new();
+        for (_, sort) in &rendering.list_rests {
             let name = (1..=spelled.len() + 1)
                 .map(|ordinal| {
                     if ordinal == 1 {
@@ -2399,11 +2388,11 @@ fn render_rule(
             let ident = rust_ident(&name)?;
             let ty = render_binding_type(sort, package)?;
             parameters.push((name, quote!(#ident: #ty)));
-            names.insert(placeholder.to_string(), ident);
+            names.push(ident);
         }
-        for cell in left_cells.iter_mut().chain(&mut right_cells) {
-            *cell = rename_identifiers(cell.clone(), &names);
-        }
+        rendering.list_rests.clear();
+        rendering.list_rest_names = names;
+        (left_cells, right_cells) = render_rule_cells(printed, &mut rendering)?;
     }
     // A sorted wildcard is named last, fresh against every identifier the rule prints.
     let wildcards = wildcard_names(
@@ -2715,10 +2704,35 @@ struct CellRendering<'a> {
     /// What the rule is about, relative to which each cell is named.
     root: &'a StableItemId,
     brackets: &'a ListBrackets<'a>,
-    /// The list rests the print names that the elaborated rule leaves unnamed, each by the
-    /// placeholder its entries print (a reserved spelling no author writes), with its list
-    /// cell's sort ([`render_list_cell`]).
+    /// The list rests the print names that the elaborated rule leaves unnamed, in the order they
+    /// are made, each by the name its entries print, with its list cell's sort
+    /// ([`render_list_cell`]).
     list_rests: Vec<(Ident, krs_ir::DescriptorSortRef)>,
+    /// The fresh names of those rests, once the sentence's names are known ([`render_rule`]);
+    /// empty on the first print, whose rests print by a reserved spelling only to be counted.
+    list_rest_names: Vec<Ident>,
+}
+
+/// The subject and result entries of `printed`'s cells, each printed by [`render_rule_cell`].
+fn render_rule_cells(
+    printed: &krs_ir::DescriptorConfigurationRule,
+    rendering: &mut CellRendering<'_>,
+) -> Result<(Vec<TokenStream>, Vec<TokenStream>), ReferenceExpansionError> {
+    let results = printed
+        .result
+        .as_ref()
+        .map_or(&[][..], |result| result.cells.as_slice());
+    let mut left_cells = Vec::new();
+    let mut right_cells = Vec::new();
+    for before in &printed.subject.cells {
+        let after = results
+            .iter()
+            .find(|after| after.field.cell == before.field.cell);
+        let (left, right) = render_rule_cell(before, after, rendering)?;
+        left_cells.push(left);
+        right_cells.extend(right);
+    }
+    Ok((left_cells, right_cells))
 }
 
 /// One cell of an elaborated rule's subject (`before`) and of its result (`after`, absent where
@@ -2958,15 +2972,19 @@ fn render_list_cell(
         .map(|_| -> Result<_, ReferenceExpansionError> {
             let sort = list_cell_sort(cell, rendering.descriptor_index)
                 .ok_or(ReferenceExpansionError::UnsupportedState)?;
-            // The marker no author spells ([`krs_ir::ir::RESERVED_MARKER`]): only this rest is
-            // renamed to its fresh name.
-            let placeholder = format_ident!(
-                "{}list_rest_{}",
-                krs_ir::ir::RESERVED_MARKER,
-                rendering.list_rests.len()
-            );
-            rendering.list_rests.push((placeholder.clone(), sort));
-            Ok(entries::Rest::Named(quote!(#placeholder)))
+            // Its fresh name, once the sentence's names are known; on the first print, which
+            // only counts the sentence's names, a spelling reserved for generated names
+            // ([`krs_ir::ir::RESERVED_MARKER`]).
+            let ordinal = rendering.list_rests.len();
+            let name = rendering
+                .list_rest_names
+                .get(ordinal)
+                .cloned()
+                .unwrap_or_else(|| {
+                    format_ident!("{}list_rest_{ordinal}", krs_ir::ir::RESERVED_MARKER)
+                });
+            rendering.list_rests.push((name.clone(), sort));
+            Ok(entries::Rest::Named(quote!(#name)))
         })
         .transpose()?;
     let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,

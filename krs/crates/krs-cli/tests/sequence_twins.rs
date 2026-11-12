@@ -818,3 +818,35 @@ fn an_item_less_instance_list_matches_every_collection() {
         for-th-variable: rule [go]: <th> <tl> L:List => ListItem(1) L:List </tl> ... </th>
         for-th-computation: rule [go]: <th> <tk> .K => go ... </tk> ... </th>"]].assert_eq(&lines.join("\n"));
 }
+
+/// Round 4, the printer: the print names a `[..]` subject's kept rest where it makes it, on a
+/// second print once the sentence's names are known, so nothing printed is renamed, not even an
+/// item spelled like the first print's reserved placeholder (a constructor `__krs_list_rest_0`,
+/// which krs admits).
+#[test]
+fn a_named_rest_renames_no_item() {
+    let preamble = PREAMBLE.replace(
+        "#[k::syntax(\"go\")] Go(),",
+        "#[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"odd\")] __krs_list_rest_0(),",
+    );
+    assert!(
+        preamble.contains("__krs_list_rest_0()"),
+        "the preamble declares the item"
+    );
+    let (readable_k, print, printed_k) = printed_twin(
+        "printer",
+        &format!(
+            "{preamble}{}",
+            readable(
+                "go: { k: [__krs_list_rest_0(), ..], ll: [..] } => { k: [..], ll: [Go(), ..] };",
+                false,
+            )
+        ),
+    );
+    expect_test::expect![[r"
+        rule [go]: <k> odd => .K ... </k> <ll> Krs_RestLl:List => ListItem(go) Krs_RestLl:List </ll>
+        pub fn go( rest: k::Term<k::builtin::List>, k::cells! { k : k::configuration::KCell(crate ::Cmd::__krs_list_rest_0(), ..), ll : k::configuration::Cell(rest), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ll : k::configuration::Cell([crate ::Cmd::Go(), ..rest]), ..state } }
+        rule [go]: <k> odd => .K ... </k> <ll> Rest:List => ListItem(go) Rest:List </ll>"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
+    assert!(print.contains("Cmd::__krs_list_rest_0()"), "{print}");
+    assert_eq!(readable_k.replace("Krs_RestLl", "Rest"), printed_k);
+}
