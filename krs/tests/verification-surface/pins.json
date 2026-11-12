@@ -4,7 +4,7 @@
     "krs-verification-surface-l21": "e4f64e7deb707255d933166a4e1e7130e6d11ff7d02b950e76a1f52ca18bdd03",
     "krs-verification-surface-l21-readable": "c739722f7f055e78f227a80b4130a1871e27f0d39963825e80d7e61c4bb88faf",
     "krs-verification-surface-imp-sum": "740ae3d86b6e487d9e27a96819f63895cccc2bc0ec28f129c1f7f17e108d88b7",
-    "krs-verification-surface-l22-verification": "e675635a7d37be255111d5a2902c64ba128f80a7402c143d41599120aa1de973",
+    "krs-verification-surface-l22-verification": "d2d455c051f4841202a5b651563a1ac8bf18c29fa08130634602d35189f0a658",
     "krs-verification-surface-cell-maps": "b2e844f66fd383435fe8da42baf9390abfbfdd9b2d12573f68d1e5533668916d",
     "krs-verification-surface-set-instance-claims": "ac04d2c44aa3969a242f5cb10ecd5b169bb4dfdecf46e8d435d85f1d8ba1f8ab",
     "krs-verification-surface-local-function-claims": "9df0099362817542f3482c8f5167d4f5d95e38cdaab3fa44129b5244384b0fea",
@@ -47,8 +47,8 @@
       "spec.k": "f91cbee22a9abb9d8afa5fe4f45f2700a57ad652f51f581dc99e83753e37518a"
     },
     "krs-verification-surface-l22-verification": {
-      "definition.k": "78169f50c8c8221edea235acc2a410178e9188a2d8a0f88739acc6f241133d6e",
-      "spec.k": "b5723412c918dbe8c6cb94f136c547a70621a4bcb2e4212892eaf86e485f9ed3"
+      "definition.k": "4ed49a6bc55f349046c41257ac7a2445d1d80ec8ff1201633a6aae146ae1c1a9",
+      "spec.k": "6e36f5e7149edc7761908d2e91c52cbac284a50dd9c7f5b20a2c357bd13f49a6"
     },
     "krs-verification-surface-l22-lesson": {
       "definition.k": "08324e3a84a47e50c433a289dd8e318bb2e57a1506fe0ccaeaa1aa4310317561",
@@ -85,12 +85,12 @@
     "krs-verification-surface-conc": "53eb4a3abda7263066fc94a27db3ce57dd22457f880176379d0e51ca7220b6ec",
     "krs-verification-surface-conc-smt-lemma": "53a86dd48d5ac1681d7333152fe58f65a23be6ca2bb13b248fe93ff996c41272",
     "krs-verification-surface-imp-sum": "59ebf801b5071e972fc3a385a45fbb14507084d817fab018de17c9404ff54a88",
-    "krs-verification-surface-l22-verification": "e9fa48f5d531bb47c5744beffc6497e412e4090727600e5247bb6353be63f11c",
     "krs-verification-surface-l22-lesson": "0663e7fceaf8b485b3eaedc7d983ec4cd135dd7a2617a6d716d2e44425650cec",
     "krs-verification-surface-set-instance-claims": "83f274c3a3f98a7abe38a2c61b28e5668f954a766ff7719b3dc03e0841b3881a",
     "krs-verification-surface-local-function-claims": "d4ba4a692f7bad7b55fc2adbcce541b6e901d2163aed53569989560b3f0faa23",
     "krs-verification-surface-owise": "567e1f7dd1e37ef12d4c80a2de91ecc9f886c25563e288f42cfbea3fa2f8ac18",
-    "krs-verification-surface-cell-maps": "03e402eccbb167fab44bc3350d3186f4e54e87cda01217621eed8b2970453e9e"
+    "krs-verification-surface-cell-maps": "03e402eccbb167fab44bc3350d3186f4e54e87cda01217621eed8b2970453e9e",
+    "krs-verification-surface-l22-verification": "91622744445f16b5c1717af3e5f610ec3c7f8a7fd37d1e5baa7f4d5972addee7"
   },
   "outcomes": {
     "krs-verification-surface-l21": {
@@ -234,9 +234,6 @@
     ],
     "ml-bool-predicate": [
       "error[krs::analysis::invalid-ml-predicate]: a predicate is expected here, but this is an object term; an object Bool enters matching logic only as `ml::equals(true, <term>)` (K's `{ true #Equals B }`)"
-    ],
-    "ml-equals-sorts": [
-      "error[krs::analysis::invalid-ml-predicate]: the operands of ml::equals have sorts `Left` and `Right`, which share no least common sort; both sides of an equality denote values of one sort"
     ],
     "ml-exists-shadows": [
       "error[krs::analysis::invalid-ml-predicate]: the ml::exists binder `a` shadows a binder of the sentence; quantify a fresh name (K would silently shadow `a`)"
@@ -423,11 +420,12 @@
         "statuses": {
           "branch": "proven",
           "div-eq": "proven",
-          "div-small": "proven"
+          "div-small": "proven",
+          "equals-two-joins": "proven"
         },
         "exit": 0,
         "summary": [
-          "krs prove: 3 of 3 claims proven"
+          "krs prove: 4 of 4 claims proven"
         ],
         "warnings": []
       },
@@ -448,7 +446,8 @@
       "KRS-L22-CLAIMS": {
         "branch": true,
         "div-eq": true,
-        "div-small": true
+        "div-small": true,
+        "equals-two-joins": true
       },
       "KRS-L22-ABLATION": {
         "branch-ablation": false

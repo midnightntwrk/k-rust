@@ -16,8 +16,10 @@
 //! - `KRS-L22-CLAIMS` imports them and states the lesson's `branch` claim (both
 //!   branches of an `if` on symbolic `$a < $b` store some `?C` that equals `A`
 //!   or `B`), `div-eq` (an ML precondition `#Not({ B #Equals 0 })` and an ML
-//!   postcondition `{ ?R #Equals A /Int B }`), and `div-small`, whose
-//!   postcondition quantifies with `#Exists`.
+//!   postcondition `{ ?R #Equals A /Int B }`), `div-small`, whose
+//!   postcondition quantifies with `#Exists`, and `equals-two-joins`, an
+//!   equality of operands whose sorts `Left` and `Right` have two least common
+//!   supersorts, `Both1` and `Both2`.
 //! - `KRS-L22-ABLATION` states `branch` again without the lemmas. It still
 //!   holds: a prover that matches the two stores key by key finds `?C` without
 //!   `update-injective`, while one that needs the lemma to equate the stores
@@ -31,6 +33,16 @@ use krs_verification_surface_l22::{Machine, Op, Pf, StmtSyntax};
 /// Every `$`-prefixed identifier, as the lesson's spec syntax declares them.
 #[k::token(regex = r"\$[a-zA-Z0-9_]+")]
 pub type DollarId = k::builtin::Id;
+
+// `Left` and `Right` are both below `Both1` and `Both2`, so they have two least common
+// supersorts and no one least; they meet at their common subsort `Mid`.
+k::sorts! {
+    Both1;
+    Both2;
+    Left: Both1 + Both2;
+    Right: Both1 + Both2;
+    Mid: Left + Right;
+}
 
 /// Lemmas: predicate simplifications, which the prover trusts. A
 /// simplification is an unchecked axiom, not a match arm.
@@ -61,7 +73,7 @@ pub mod lemmas {
 /// The lesson's claims, proved with the lemmas.
 #[k::spec_module(name = "KRS-L22-CLAIMS", imports = [lemmas])]
 mod spec {
-    use super::{Int, Machine, Map, Op, StmtSyntax, Term, bool, int, map, ml};
+    use super::{Int, Left, Machine, Map, Op, Right, StmtSyntax, Term, bool, int, map, ml};
 
     /// Lesson 1.22 claim 3: both branches of an `if` on a symbolic condition
     /// store some `c` that is `a` or `b`. Only `update-injective` lets the
@@ -128,6 +140,22 @@ mod spec {
         k::cells! { k: k::configuration::KCell(Op::Div(a, 2), tail @ ..), state @ .. }: Machine,
     ) -> Machine {
         k::cells! { k: k::configuration::KCell(r, ..tail), ..state }
+    }
+
+    /// An equality of operands of sorts `Left` and `Right`, which have two least common
+    /// supersorts, `Both1` and `Both2`. It has one meaning at either: sort injections are
+    /// injective and compose, so the injected operands are equal at one common supersort
+    /// exactly when they are at every other, which is where both are the same value of their
+    /// common subsort `Mid`. The claim's end state is its start, which the condition narrows to
+    /// such values.
+    #[k::claim(all_paths, label = "equals-two-joins")]
+    #[k::requires(ml::equals(l, r))]
+    fn equals_two_joins(
+        l: Term<Left>,
+        r: Term<Right>,
+        k::cells! { k: k::configuration::KCell(l, r, tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        k::cells! { k: k::configuration::KCell(l, r, ..tail), ..state }
     }
 }
 

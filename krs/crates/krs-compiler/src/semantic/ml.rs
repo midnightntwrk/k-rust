@@ -22,7 +22,7 @@ use krs_ir_levels::{
 use super::catalog::semantic_sort_ref;
 use super::denotation::denotation;
 use super::error::DescriptorLoweringError;
-use super::infer::{StructuredTermBuilder, least_instance};
+use super::infer::{InstanceError, StructuredTermBuilder, least_instance};
 use super::origin::semantic_origin;
 
 /// The K spelling of a connective in diagnostics.
@@ -380,21 +380,34 @@ impl StructuredTermBuilder<'_> {
             MlConnective::Equals => {
                 let left = self.lower(operands[0], None, subject)?;
                 let right = self.lower(operands[1], None, subject)?;
-                let operand_sort = least_instance(
+                let operand_sort = match least_instance(
                     &[left.sort().clone(), right.sort().clone()],
                     None,
                     self.sort_parents,
-                )
-                .map_err(|_| {
-                    self.invalid_ml(
-                        &reference.key,
-                        format!(
-                            "the operands of ml::equals have sorts `{}` and `{}`, which share no least common sort; both sides of an equality denote values of one sort",
-                            super::overload::sort_name(left.sort()),
-                            super::overload::sort_name(right.sort())
-                        ),
-                    )
-                })?;
+                ) {
+                    Ok(sort) => sort,
+                    // Operands with several least common supersorts (`Left` and `Right`, both
+                    // below `Both1` and `Both2`) are compared at `K`, a common supersort of
+                    // every pair, where each operand is its one-item sequence (`at_place`
+                    // below): an instance no reader of the sentence has to choose. The choice
+                    // does not change what the equality states: sort injections are injective
+                    // and compose, so the two injected operands are equal at one common
+                    // supersort exactly when they are at every other. Either both pass through a
+                    // common subsort, where the equality is decided, or they never meet.
+                    Err(InstanceError::Ambiguous(_)) => SemanticSortRef::k_sequence(),
+                    // Every sort of a definition is below `KItem` and `K`, so operands always
+                    // share a supersort there; only a sort graph without them has none.
+                    Err(InstanceError::NoCommonSort { .. }) => {
+                        return Err(self.invalid_ml(
+                            &reference.key,
+                            format!(
+                                "the operands of ml::equals have sorts `{}` and `{}`, which have no common supersort; both sides of an equality denote values of one sort",
+                                super::overload::sort_name(left.sort()),
+                                super::overload::sort_name(right.sort())
+                            ),
+                        ));
+                    }
+                };
                 // At the operand sort `K`, an operand of a sort below it is its one-item
                 // sequence ([`StructuredTermBuilder::at_place`]).
                 let left = Self::at_place(left, Some(&operand_sort));

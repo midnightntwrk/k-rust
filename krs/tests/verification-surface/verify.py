@@ -133,17 +133,21 @@ that steps only for a nonzero divisor, and the partial function `pf`), and
 #Equals X:Int >Int 0 }`. `KRS-L22-CLAIMS` imports them and holds the lesson's
 `branch` claim (an `ensures { true #Equals .. }` on an existential), `div-eq`
 (`requires #Not ( { B:Int #Equals 0 } )`, `ensures { ?R:Int #Equals A:Int
-/Int B:Int }`), and `div-small`, whose postcondition is `#Exists Q:Int . ( ..
-)`. Every claim is proved natively (`krs prove --spec-module`) and by Java
+/Int B:Int }`), `div-small`, whose postcondition is `#Exists Q:Int . ( ..
+)`, and `equals-two-joins`, whose operand sorts `Left` and `Right` have two
+least common supersorts, `Both1` and `Both2`, and meet at their common subsort
+`Mid`: sort injections are injective and compose, so the equality has one
+meaning at every common supersort, and it is stated at `K`, each operand its
+one-item sequence (`requires { L:Left ~> .K #Equals R:Right ~> .K }`), where
+K has no least upper bound to choose. Every claim is proved natively (`krs prove --spec-module`) and by Java
 `kprove --claims` on the emitted files. `KRS-L22-ABLATION` states `branch`
 without the lemmas. The claim still holds (each branch stores `?C` as `B` or
 `A`); `krs prove` closes it by matching the two stores key by key, while
 Java `kprove` needs `update-injective` to equate them and fails, a pinned
 divergence. Negative fixtures pin
 each KF-039 diagnostic: a predicate on a transition or equation condition, a
-predicate as an object operand, a Bool where a predicate is expected,
-`ml::equals` operands without a common sort, a shadowing or untyped
-`ml::exists` binder, a closure elsewhere, an unknown `ml::` item, a predicate
+predicate as an object operand, a Bool where a predicate is expected, a
+shadowing or untyped `ml::exists` binder, a closure elsewhere, an unknown `ml::` item, a predicate
 simplification not rooted at `ml::equals` or `ml::ceil`, one whose types
 disagree, and a predicate subject on a transition.
 
@@ -506,7 +510,6 @@ NEGATIVE = (
     "ml-equation-requires",
     "ml-object-operand",
     "ml-bool-predicate",
-    "ml-equals-sorts",
     "ml-exists-shadows",
     "ml-exists-untyped",
     "ml-closure-elsewhere",
@@ -1008,7 +1011,12 @@ L22 = Fixture(
 L22_MODULES = ["KRS-L22-ABLATION", "KRS-L22-LEMMAS", "KRS-L22-CLAIMS"]
 # spec module: claim labels and native statuses. Every claim holds.
 L22_EXPECTED = {
-    "KRS-L22-CLAIMS": {"branch": "proven", "div-eq": "proven", "div-small": "proven"},
+    "KRS-L22-CLAIMS": {
+        "branch": "proven",
+        "div-eq": "proven",
+        "div-small": "proven",
+        "equals-two-joins": "proven",
+    },
     "KRS-L22-ABLATION": {"branch-ablation": "proven"},
 }
 # Claims Java kprove does not prove although they hold: without
@@ -1026,6 +1034,7 @@ L22_FRAGMENTS = (
     "    ensures { ?R:Int #Equals A:Int /Int B:Int }\n",
     "    requires { true #Equals 0 <=Int A:Int } #And { true #Equals A:Int <Int 10 }\n"
     "    ensures #Exists Q:Int . ( { ?R:Int #Equals Q:Int } #And { true #Equals Q:Int <Int 5 } )\n",
+    "    requires { L:Left ~> .K #Equals R:Right ~> .K }\n",
 )
 
 

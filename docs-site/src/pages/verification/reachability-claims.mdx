@@ -260,6 +260,7 @@ The connectives live in `k::ml` and are function shaped, with no operator or met
 | `ml::exists(\|q: Int\| p)` | `#Exists Q:Int . P` | a quantifier, not a callback |
 
 An object Bool enters matching logic only as `ml::equals(true, b)`, K's `{ true #Equals B }`.
+Operands of two sorts are compared at a common supersort. Where they have several least ones, the equality states the same at each, since sort injections are injective and compose: KRS compares them at `K`.
 Predicates are written in claim `requires` and `ensures`, in a simplification's `requires`, and on both sides of a predicate simplification, whose subject and result have type `ml::Predicate`:
 
 ```rust
@@ -313,7 +314,7 @@ Lesson 1.22's `branch` claim needs `update_injective`: without it the prover can
 
 Prover residuals use the same vocabulary, so read them back through it: `#Not ( { true #Equals A <Int B } )` is `ml::not(ml::equals(true, int::lt(a, b)))`.
 
-KRS rejects a predicate in a transition or equation condition (`krs::analysis::ml-placement`; rule conditions stay object Bool), and, with `krs::analysis::invalid-ml-predicate`, a predicate as an operand of an object function, a Bool term where a predicate is expected (write `ml::equals(true, <term>)`), `ml::equals` operands without a common sort, a predicate simplification whose left side is not rooted at `ml::equals` or `ml::ceil`, and an `ml::exists` binder that reuses a sentence binder's name.
+KRS rejects a predicate in a transition or equation condition (`krs::analysis::ml-placement`; rule conditions stay object Bool), and, with `krs::analysis::invalid-ml-predicate`, a predicate as an operand of an object function, a Bool term where a predicate is expected (write `ml::equals(true, <term>)`), a predicate simplification whose left side is not rooted at `ml::equals` or `ml::ceil`, and an `ml::exists` binder that reuses a sentence binder's name.
 An `ml::exists` closure without exactly one typed parameter, a closure anywhere else, an `ml::` item outside the connectives above, and an `ml::Predicate` subject or result on anything but a simplification are expansion errors.
 `#Floor`, `#In`, and set variables are not part of `k::ml`.
 

@@ -526,12 +526,27 @@ pub(super) fn render_predicate(
         IrMlKind::Or { left, right } => binary("#Or", left, right, &mut output)?,
         IrMlKind::Implies { left, right } => binary("#Implies", left, right, &mut output)?,
         IrMlKind::Equals { left, right, .. } => {
+            // Operands compared at `K` as their one-item sequences, both of a sort below it,
+            // are ones whose sorts have several least common supersorts (`at_place` in the
+            // lowering; any two other sorts below `K` share one below `KItem`). K would compute
+            // the least upper bound of their own sorts, which has no one answer there, so each
+            // states its sequence's end: `{ L:Left ~> .K #Equals R:Right ~> .K }`, an equality
+            // at `K`, which means the same at every common supersort.
+            let sequences = [left, right]
+                .iter()
+                .all(|operand| one_item_sequence(operand));
             output.push("{ ");
             output.append(render_term_with_binders(left, context, false, names, None)?);
+            if sequences {
+                output.push(" ~> .K");
+            }
             output.push(" #Equals ");
             output.append(render_term_with_binders(
                 right, context, false, names, None,
             )?);
+            if sequences {
+                output.push(" ~> .K");
+            }
             output.push(" }");
         }
         IrMlKind::Ceil { term, .. } => {
@@ -567,6 +582,15 @@ pub(super) fn render_predicate(
         }
     }
     Ok(output.finish(predicate.origin().key(), 0))
+}
+
+/// Whether `term` is a sequence of one item of a sort below `K`, which prints as that item.
+fn one_item_sequence(term: &DefinitionTerm) -> bool {
+    matches!(
+        term.kind(),
+        DefinitionTermKind::KSequence { items, .. }
+            if matches!(items.as_slice(), [item] if *item.sort() != DefinitionSortRef::k_sequence())
+    )
 }
 
 /// The use of a constant that the term being rendered stands inside: the frames of that use's
