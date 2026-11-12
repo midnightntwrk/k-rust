@@ -730,7 +730,8 @@ impl<'a> StateRuleBuilder<'a> {
                 cell_field_identity(facade, &field_owner, entry.name(), entry.name().span());
             let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
                 let computation = path.segments.iter().any(|segment| segment.ident == "KCell");
-                let sequence = matches!(entry.value(), StateTerm::KSequence(_));
+                // A present `?` cell's content is inside its `Some(..)`.
+                let sequence = matches!(entry.value().unwrap_present(), StateTerm::KSequence(_));
                 if computation && !sequence {
                     return Err(ExpandError::new(
                         expand::CELL_STATE_FAMILY_MISMATCH,

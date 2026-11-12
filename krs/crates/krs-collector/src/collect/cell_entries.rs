@@ -2302,7 +2302,8 @@ fn subject_twin<'e>(
 
 /// What a rest on one side of a cell is fixed by, in a spelling its kind and route admit; a
 /// present `?` cell's rest is its content's (`Some(..)`).
-/// - A computation keeps its rest with `..` on both sides. A readable rule keeps it always; a
+/// - A computation, fixed or present `?`, keeps its rest with `..` on both sides. A readable rule
+///   keeps a fixed computation's rest always, and reads no `?` computation's items yet; a
 ///   `cells!` rule names it in the subject (`rest @ ..`) and then puts it back (`..rest`),
 ///   writes it after another computation cell's items (`aux: KCell(..rest)`), which moves it,
 ///   or reads it in a condition, which drops it from the cell (a named rest it neither puts
@@ -2340,10 +2341,13 @@ fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
         layers
     };
     match (entry.layers, content) {
-        ([Layer::Computation], _) if form.is_readable() => format!(
+        // A readable record reads no `?` computation's items yet: its brackets there are read as
+        // a list's.
+        ([Layer::Optional, ..], [Layer::Computation]) if form.is_readable() => "a readable record does not read the items of a `?` computation cell yet; a `cells!` rule writes them in `Some(KCell(..))`, where `..` on both sides keeps the rest and a subject that names it (`Some(KCell(x, rest @ ..))`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it where a condition reads it".to_owned(),
+        (_, [Layer::Computation]) if form.is_readable() => format!(
             "{keep}: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it where a condition reads it"
         ),
-        ([Layer::Computation], _) => format!(
+        (_, [Layer::Computation]) => format!(
             "{keep}, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused"
         ),
         (_, [Layer::Leaf(Notation::List | Notation::Cons)]) if item_less => format!(

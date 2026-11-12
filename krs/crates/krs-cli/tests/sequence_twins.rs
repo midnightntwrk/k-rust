@@ -844,6 +844,156 @@ fn a_map_or_collection_rest_mismatch_advises_a_spelling_that_works() {
         job-named: error[krs::analysis::collection-entry]: not supported yet: the pattern binds the other instances of the collection `job` to `rest` (`rest @ ..`), and a result that does not put them back with `..rest` removes them, which a rule does not state yet"]].assert_eq(&lines.join("\n"));
 }
 
+/// The rows of [`a_moved_rest_has_one_rule_at_fixed_and_optional_cells`], over the preamble with
+/// a `?` computation cell `ok`, a Map cell `env` and a Map child `tm` of `Th`.
+fn optional_and_child_rows() -> [(&'static str, String); 10] {
+    const KC: &str = "k::configuration::";
+    let rule = |body: &str| readable(body, false);
+    let th = "th: { me @ Th { tm: { 0 -> v, rest @ .. }, .. }, .. }";
+    [
+        (
+            "ok-out",
+            cells(
+                "",
+                &format!(
+                    "k: {KC}KCell(Cmd::Go(), ..), ok: Some({KC}KCell(Cmd::Put {{ a: 1, b: 2 }}, rest @ ..)), aux: {KC}KCell()"
+                ),
+                &format!("k: {KC}KCell(..), ok: Some({KC}KCell()), aux: {KC}KCell(..rest)"),
+                false,
+            ),
+        ),
+        (
+            "ok-in",
+            cells(
+                "",
+                &format!("k: {KC}KCell(Cmd::Go(), rest @ ..), ok: Some({KC}KCell())"),
+                &format!("k: {KC}KCell(), ok: Some({KC}KCell(..rest))"),
+                false,
+            ),
+        ),
+        (
+            "ok-condition",
+            format!(
+                "#[k::rule(label = \"go\")]\n#[k::requires(k::is!(KResult, rest))]\npub fn go(\n    k::cells! {{ k: {KC}KCell(Cmd::Go(), ..), ok: Some({KC}KCell(Cmd::Go(), rest @ ..)), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {KC}KCell(..), ok: Some({KC}KCell()), ..state }}\n}}\n"
+            ),
+        ),
+        (
+            "ok-swap",
+            cells(
+                "",
+                &format!(
+                    "k: {KC}KCell(Cmd::Go(), rest @ ..), ok: Some({KC}KCell(Cmd::Go(), other @ ..))"
+                ),
+                &format!("k: {KC}KCell(..other), ok: Some({KC}KCell(..rest))"),
+                false,
+            ),
+        ),
+        (
+            "ok-mismatch",
+            cells(
+                "",
+                &format!("k: {KC}KCell(Cmd::Go(), ..), ok: Some({KC}KCell(Cmd::Go(), ..))"),
+                &format!("k: {KC}KCell(..), ok: Some({KC}KCell())"),
+                false,
+            ),
+        ),
+        (
+            "readable-ok-mismatch",
+            rule("go: { k: [Go(), ..], ok: Some([Go(), ..]) } => { k: [..], ok: Some([]) };"),
+        ),
+        (
+            "readable-tm-whole",
+            rule(
+                "go: { k: [Go(), ..], th: { me @ Th { tm: m, .. }, .. } } => { k: [..], th: { Th { tm: map::update(m, 0, 1), ..me }, .. } };",
+            ),
+        ),
+        (
+            "readable-tm-named",
+            rule(&format!(
+                "go: {{ k: [Go(), ..], {th} }} => {{ k: [..], th: {{ Th {{ tm: {{ 0 -> 1 }}, ..me }}, .. }} }};"
+            )),
+        ),
+        (
+            "readable-env-named",
+            rule(
+                "go: { k: [Go(), ..], env: { 0 -> v, rest @ .. }, out: _ } => { k: [..], out: [v] };",
+            ),
+        ),
+        (
+            "tk-into-aux",
+            cells(
+                "rest: KSequence,\n    ",
+                &format!(
+                    "Ths::th: {{ me @ k::fragment![crate::Th {{ tk: [Cmd::Go(), rest @ ..], .. }}], i @ .. }}, aux: {KC}KCell()"
+                ),
+                &format!(
+                    "Ths::th: {{ k::fragment![crate::Th {{ tk: [], ..me }}], ..i }}, aux: {KC}KCell(..rest)"
+                ),
+                false,
+            ),
+        ),
+    ]
+}
+
+/// FRAMEMOVE round 2: a computation's rest moves by one rule at a fixed and a present `?`
+/// computation cell (`ok`): out of it (`ok-out`), into it (`ok-in`), dropped where a condition
+/// reads it (`ok-condition`) and swapped (`ok-swap`); a `?` computation's rest mismatch advises
+/// those spellings, and on the readable route, which reads no `?` computation's items yet, the
+/// `cells!` ones. A readable map read names no rest a result writes, at a record child
+/// (`readable-tm-named`) and at a top cell (`readable-env-named`) alike, and the whole binder
+/// it advises builds the new map at a child (`readable-tm-whole`). An instance child's
+/// computation rest moved into another computation cell is a stated limit (`tk-into-aux`).
+#[test]
+fn a_moved_rest_has_one_rule_at_fixed_and_optional_cells() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let preamble = PREAMBLE
+        .replace("List, Set, list, set}", "List, Map, Set, list, map, set}")
+        .replace(
+            "    #[k::cell]\n    pub tk: KSequence,\n}",
+            "    #[k::cell]\n    pub tk: KSequence,\n    #[k::cell]\n    pub tm: Map,\n}",
+        )
+        .replace("tk: k::k![] } }", "tk: k::k![], tm: k::map![] } }")
+        .replace(
+            "    #[k::cell]\n    pub out: List,\n",
+            "    #[k::cell]\n    pub out: List,\n    #[k::cell]\n    pub env: Map,\n    #[k::cell(multiplicity = \"?\")]\n    pub ok: Option<KSequence>,\n",
+        )
+        .replace(
+            "out: list::empty(),",
+            "out: list::empty(),\n            env: k::map![],\n            ok: k::absent!(k::k![]),",
+        );
+    assert!(
+        [
+            "pub tm: Map",
+            "tm: k::map![]",
+            "pub ok: Option<KSequence>",
+            "ok: k::absent!"
+        ]
+        .iter()
+        .all(|part| preamble.contains(part)),
+        "the preamble has `tm`, `env` and `ok`"
+    );
+    let lines = optional_and_child_rows().map(|(name, source)| {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("seq-fm2-{name}"),
+            &format!("{preamble}{source}"),
+        );
+        format!("{name}: {}", verdict(target.path(), &manifest))
+    });
+    expect_test::expect![[r"
+        ok-out: rule [go]: <k> go => .K ... </k> <ok> put ( 1 , 2 ) ~> Rest:K => .K </ok> <aux> .K => Rest:K </aux>
+        ok-in: rule [go]: <k> go ~> Rest:K => .K </k> <ok> .K => Rest:K </ok>
+        ok-condition: rule [go]: <k> go => .K ... </k> <ok> go ~> Rest:K => .K </ok> requires isKResult(Rest:K)
+        ok-swap: rule [go]: <k> go ~> Rest:K => Other:K </k> <ok> go ~> Other:K => Rest:K </ok>
+        ok-mismatch: error[krs::syntax::invalid-list-notation]: the entry of the cell `ok` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused
+        readable-ok-mismatch: error[krs::syntax::invalid-list-notation]: the entry of the cell `ok` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; a readable record does not read the items of a `?` computation cell yet; a `cells!` rule writes them in `Some(KCell(..))`, where `..` on both sides keeps the rest and a subject that names it (`Some(KCell(x, rest @ ..))`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it where a condition reads it
+        readable-tm-whole: rule [go]: <k> go => .K ... </k> <th> <tm> M:Map => M:Map [ 0 <- 1 ] </tm> ... </th>
+        readable-tm-named: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it
+        readable-env-named: error[krs::syntax::rust-syntax]: a readable map read keeps the rest of the map with `..` and names no rest: no readable result writes a map over a named rest and no readable condition reads one, so `rest @ ..` could only drop it; a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule's subject names the rest (`map![k -> v, rest @ ..]`)
+        tk-into-aux: error[krs::syntax::unsupported-rule-body]: unsupported rule body: a result's `..rest` in a computation writes the rest a computation cell's subject binds (`rest @ ..`), and this name is a term the subject binds, as an instance child's computation rest is: moving a rest between an instance child and another computation cell is not supported yet"]].assert_eq(&lines.join("\n"));
+}
+
 /// The verdict of the library `library`'s readable rule `go`, its `krs expand` print's `go`
 /// function, and that print's verdict.
 fn printed_twin(name: &str, library: &str) -> (String, String, String) {

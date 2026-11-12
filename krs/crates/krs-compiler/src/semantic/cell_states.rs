@@ -66,6 +66,10 @@ pub(super) trait StateLowering {
     /// Whether two lowered terms are the same term, ignoring origins.
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool;
 
+    /// Records the computation rest `tail` a clause moves, which the rule must use
+    /// ([`super::configuration_rules::MovedComputation`]).
+    fn moved_computation_remainder(&mut self, tail: SemanticId);
+
     /// The sort the rule binds `name` at, where it binds it, and whether every term of `sort`
     /// is a term of it.
     fn bound_sort(&self, name: &str, sort: &SemanticSortRef) -> Option<(SemanticSortRef, bool)>;
@@ -1688,6 +1692,10 @@ pub(super) fn declare_map_rests(
 
 /// Lowers an optional (`?`) cell's entry (KF-023, R7): read, update, create
 /// (`None => Some(..)`), or delete (`Some(..) => None`).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one optional entry: its presences, its terms, and the rests its present content moves"
+)]
 pub(super) fn lower_optional_clause(
     lowering: &mut impl StateLowering,
     declarations: &DescriptorIndex<'_>,
@@ -1771,12 +1779,34 @@ pub(super) fn lower_optional_clause(
             })
         })
         .transpose()?;
+    // A present computation's rests move as a fixed cell's do.
+    let moved = match (before_inner, after_inner.flatten()) {
+        (Some(subject), Some(result)) => moved_presence(
+            &descriptor,
+            (subject, result),
+            &before_presence,
+            after_presence.as_ref(),
+        )?,
+        _ => None,
+    };
     let frame = match before_inner {
-        Some(state) => with_moved_remainder(
+        Some(state) if moved.is_none() => with_moved_remainder(
             state_frame(&descriptor, state, after_inner.flatten())?,
             &base,
         )?,
-        None => CellContentFrame::Exact,
+        _ => CellContentFrame::Exact,
+    };
+    let (before_presence, after_presence) = match moved {
+        Some(moved) => {
+            if let Some(tail) = moved.moved {
+                lowering.moved_computation_remainder(tail);
+            }
+            (
+                Presence::Present { term: moved.before },
+                Some(Presence::Present { term: moved.after }),
+            )
+        }
+        None => (before_presence, after_presence),
     };
     // A present cell restated unchanged is read only, unless its remainder moved into the
     // result.
@@ -1799,6 +1829,30 @@ pub(super) fn lower_optional_clause(
         after_presence,
         frame,
     )))
+}
+
+/// The moves of a present `?` computation's rests, its subject and result states `states`
+/// lowered to `before` and `after` ([`super::configuration_rules::moved_computation`]), where
+/// its result moves one; `None` where it moves none, or the cell is absent on a side.
+fn moved_presence(
+    descriptor: &Descriptor,
+    (subject, result): (&DescriptorState, &DescriptorState),
+    before: &Presence<SemanticTerm>,
+    after: Option<&Presence<SemanticTerm>>,
+) -> Result<Option<super::configuration_rules::MovedComputation>, DescriptorLoweringError> {
+    let (Presence::Present { term: before }, Some(Presence::Present { term: after })) =
+        (before, after)
+    else {
+        return Ok(None);
+    };
+    let moved = super::configuration_rules::moved_computation(
+        descriptor,
+        subject,
+        result,
+        before,
+        after.clone(),
+    )?;
+    Ok(moved.exact.then_some(moved))
 }
 
 /// An optional cell's states in a single-body rule (KF-011), which has no result: a `k::rewrite!`

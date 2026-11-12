@@ -1048,6 +1048,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
+    let readable_route = terms.readable;
     let (variables, guards) = terms.finish();
     let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
     // A step of execution changes a cell and is not enabled everywhere, as a
@@ -1067,7 +1068,12 @@ pub(super) fn lower_configuration_rule_descriptor(
                 )?,
         )?;
     }
-    check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
+    check_moved_remainders(
+        &unused_moved,
+        requires.as_ref(),
+        ensures.as_ref(),
+        readable_route,
+    )?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
@@ -1529,6 +1535,10 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
         semantic_terms_equivalent(left, right)
     }
 
+    fn moved_computation_remainder(&mut self, tail: SemanticId) {
+        self.terms.moved_remainders.push(tail);
+    }
+
     fn bound_sort(&self, name: &str, sort: &SemanticSortRef) -> Option<(SemanticSortRef, bool)> {
         let bound = self.result_sorts.get(name)?;
         Some((
@@ -1646,7 +1656,6 @@ fn lower_configuration_rule_clause(
         subject_sorts,
         true,
     )?;
-    let subject_frame = rule_state_frame(&subject.value);
     let mut frame = lower_subject_cell_frame(descriptor, &subject.value, terms.inserted_frames)?;
     let post = if let Some(result) = result {
         let base = MapBase::of(Some(&before), Some(&subject.value), Some(&result.value))?;
@@ -1661,13 +1670,14 @@ fn lower_configuration_rule_clause(
             // The result is the update chain over the remainder: bound on the left only.
             frame = moved_map_frame(&frame, remainder.binding())?;
         }
-        let (after, result_frame) =
-            with_spliced_computation(descriptor, &subject.value, &result.value, after)?;
-        if let Some((moved, moved_frame)) =
-            pair_cell_frames(terms, subject_frame, result_frame, &before)?
-        {
-            before = moved;
-            frame = moved_frame;
+        let moved = moved_computation(descriptor, &subject.value, &result.value, &before, after)?;
+        let after = moved.after;
+        if moved.exact {
+            before = moved.before;
+            frame = CellContentFrame::Exact;
+            terms.moved_remainders.extend(moved.moved);
+        } else if let Some(moved) = pair_cell_frames(descriptor, &subject.value, &result.value)? {
+            frame = moved;
         }
         // A moved remainder leaves the cell, so the result is its whole new content.
         if !matches!(frame, CellContentFrame::MovedMapRemainder { .. })
@@ -2448,67 +2458,80 @@ fn spliced_computation<'a>(
     }
 }
 
-/// The result state `result`'s term `after` and frame, its frame written into `after` where it
-/// is a computation another cell binds ([`spliced_computation`]): the result's items followed by
-/// that computation are the cell's whole new content, so its frame is then exact.
-fn with_spliced_computation<'a>(
-    descriptor: &Descriptor,
-    subject: &ProtocolRuleStateTerm<DescriptorTerm>,
-    result: &'a ProtocolRuleStateTerm<DescriptorTerm>,
-    after: SemanticTerm,
-) -> Result<(SemanticTerm, RuleStateFrame<'a>), DescriptorLoweringError> {
-    let result_frame = result_state_frame(subject, result);
-    let Some((tail, key)) = spliced_computation(rule_state_frame(subject), result_frame) else {
-        return Ok((after, result_frame));
-    };
-    let after = with_trailing_item(
-        descriptor,
-        &after,
-        SemanticTerm::variable(
-            semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
-            SemanticSortRef::k_sequence(),
-            SemanticId::new(tail)?,
-        ),
-    )?;
-    Ok((after, RuleStateFrame::Exact))
+/// A computation clause's pattern and result after the rests its result moves, one rule for a
+/// fixed and a present `?` computation cell: a result's `..tail` that its own subject does not
+/// bind writes that computation after the result's items ([`spliced_computation`]), and a
+/// subject's named rest the result then does not put back has moved, so it is the pattern's last
+/// item ([`moved_computation_remainder`]), and `moved` names it, which the rule must use. `exact`
+/// says the clause is then exact: the pattern and the result are the cell's whole contents. Any
+/// other pair keeps its terms and pairs its frames as it is.
+pub(super) struct MovedComputation {
+    pub(super) before: SemanticTerm,
+    pub(super) after: SemanticTerm,
+    pub(super) moved: Option<SemanticId>,
+    pub(super) exact: bool,
 }
 
-/// Checks that a leaf cell's subject and result frames agree. A result
-/// that does not put a bound remainder back writes the cell's whole new
-/// content, and the remainder, used elsewhere, has been moved. It returns the
-/// clause's pattern and frame then: a computation remainder is the pattern's
-/// last item, with no frame; a map remainder is bound on the left only
-/// (`CellContentFrame::MovedMapRemainder`).
-fn pair_cell_frames(
-    terms: &mut StateRuleTerms<'_>,
-    subject_frame: RuleStateFrame<'_>,
-    result_frame: RuleStateFrame<'_>,
+/// The [`MovedComputation`] of the clause whose subject state `subject` lowers to `before` and
+/// whose result state `result` lowers to `after`.
+pub(super) fn moved_computation(
+    descriptor: &Descriptor,
+    subject: &ProtocolRuleStateTerm<DescriptorTerm>,
+    result: &ProtocolRuleStateTerm<DescriptorTerm>,
     before: &SemanticTerm,
-) -> Result<Option<(SemanticTerm, CellContentFrame)>, DescriptorLoweringError> {
-    let descriptor = terms.descriptor;
-    if let Some((tail, key)) = moved_computation_remainder(subject_frame, result_frame) {
-        let tail = SemanticId::new(tail)?;
-        let moved = with_trailing_item(
-            descriptor,
-            before,
-            SemanticTerm::variable(
-                semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
-                SemanticSortRef::k_sequence(),
-                tail.clone(),
-            ),
-        )?;
-        terms.moved_remainders.push(tail);
-        return Ok(Some((moved, CellContentFrame::Exact)));
-    }
+    after: SemanticTerm,
+) -> Result<MovedComputation, DescriptorLoweringError> {
+    let rest = |key: &ProvenanceKey, name: &str| -> Result<SemanticTerm, DescriptorLoweringError> {
+        Ok(SemanticTerm::variable(
+            semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
+            SemanticSortRef::k_sequence(),
+            SemanticId::new(name)?,
+        ))
+    };
+    let subject_frame = rule_state_frame(subject);
+    let mut result_frame = result_state_frame(subject, result);
+    let spliced = spliced_computation(subject_frame, result_frame);
+    let after = match spliced {
+        Some((tail, key)) => {
+            result_frame = RuleStateFrame::Exact;
+            with_trailing_item(descriptor, &after, rest(key, tail)?)?
+        }
+        None => after,
+    };
+    let (before, moved) = match moved_computation_remainder(subject_frame, result_frame) {
+        Some((tail, key)) => (
+            with_trailing_item(descriptor, before, rest(key, tail)?)?,
+            Some(SemanticId::new(tail)?),
+        ),
+        None => (before.clone(), None),
+    };
+    Ok(MovedComputation {
+        before,
+        after,
+        exact: spliced.is_some() || moved.is_some(),
+        moved,
+    })
+}
+
+/// Checks that a leaf cell's subject state `subject` and result state `result` agree in their
+/// frames, once its computation moves are
+/// read ([`moved_computation`]). A map result that does not put a bound remainder back writes
+/// the cell's whole new content, and the remainder, used elsewhere, has been moved: the clause's
+/// frame then binds it on the left only (`CellContentFrame::MovedMapRemainder`).
+fn pair_cell_frames(
+    descriptor: &Descriptor,
+    subject: &ProtocolRuleStateTerm<DescriptorTerm>,
+    result: &ProtocolRuleStateTerm<DescriptorTerm>,
+) -> Result<Option<CellContentFrame>, DescriptorLoweringError> {
+    let (subject_frame, result_frame) = (
+        rule_state_frame(subject),
+        result_state_frame(subject, result),
+    );
     if let Some((rest, key)) = moved_map_remainder(subject_frame, result_frame) {
-        let rest = SemanticId::new(rest)?;
-        return Ok(Some((
-            before.clone(),
-            CellContentFrame::MovedMapRemainder {
-                origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
-                binding: rest,
-            },
-        )));
+        return Ok(Some(CellContentFrame::MovedMapRemainder {
+            origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
+            binding: SemanticId::new(rest)?,
+        }));
     }
     validate_state_frame_pair(
         descriptor,
@@ -2662,11 +2685,15 @@ fn moved_remainders_unused_by(
 
 /// A moved remainder must be used: in a result term or a condition. A
 /// bound remainder the rule neither puts back nor uses would be dropped
-/// silently, so it keeps the frame-mismatch error.
+/// silently, so it keeps the frame-mismatch error. On the readable route (an elaborated
+/// readable rule, `readable`) only a record child's map read names a rest, and no readable
+/// result writes a map over it nor a readable condition reads it, so the advice names the
+/// spellings that change a map there and the `cells!` ones.
 fn check_moved_remainders(
     unused: &[(SemanticId, AssociativeStateFamily)],
     requires: Option<&SemanticCondition>,
     ensures: Option<&SemanticCondition>,
+    readable: bool,
 ) -> Result<(), DescriptorLoweringError> {
     for (rest, family) in unused {
         let used = requires
@@ -2679,12 +2706,19 @@ fn check_moved_remainders(
                 AssociativeStateFamily::KSequence => "rest of the computation",
                 AssociativeStateFamily::Map => "rest of the map",
             };
+            let advice = if readable && *family == AssociativeStateFamily::Map {
+                format!(
+                    "a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, {rest} @ ..]`) may put it back under other entries (`map![k -> w, ..{rest}]`), move it into another cell (`Cell({rest})`), or drop it where a condition reads it"
+                )
+            } else {
+                format!("put it back with `..{rest}`, or use it in a condition")
+            };
             // A subject rest the result drops: the rest-mismatch mistake, whose code is the
             // bracket notation's.
             return Err(DescriptorLoweringError::CellCollection {
                 code: krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
                 reason: format!(
-                    "the subject names the {rest_of} `..{rest}`, and the result neither puts it back with `..{rest}` nor uses it, so the rule would drop it: put it back with `..{rest}`, or use it in a condition"
+                    "the subject names the {rest_of} `..{rest}`, and the result neither puts it back with `..{rest}` nor uses it, so the rule would drop it: {advice}"
                 ),
                 range: None,
                 item: None,
