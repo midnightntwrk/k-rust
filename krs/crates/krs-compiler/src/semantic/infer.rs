@@ -1000,9 +1000,10 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// Lowers `k::rewrite!(from => to)` (KF-011) at the join of its sides'
-    /// sorts; `()` on the right is `.K`, which at a whole K-sequence `item`
-    /// removes the item and keeps the item's sort, and anywhere else stands
-    /// only where K is admissible.
+    /// sorts. At a whole K-sequence `item` the left side is that one item, typed by the item's
+    /// place ([`head_item_sort`]), never by the right side; `()` on the right is `.K`, which
+    /// there removes the item and keeps the item's sort, and anywhere else stands only where K
+    /// is admissible.
     fn lower_rewrite(
         &mut self,
         key: &ProvenanceKey,
@@ -1012,12 +1013,17 @@ impl StructuredTermBuilder<'_> {
         expected_sort: Option<&SemanticSortRef>,
         item: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        let (from_sort, to_sort) = self.rewrite_side_sorts(expected_sort, from, to);
+        let (from_sort, to_sort) = if item {
+            let k_item = self.k_item_sort.clone();
+            (head_item_sort(from, expected_sort, &k_item).cloned(), None)
+        } else {
+            self.rewrite_side_sorts(expected_sort, from, to)
+        };
         let from = self.lower(from, from_sort.as_ref(), true)?;
         let (sort, to) = match to {
             Some(to) => {
                 let to = self.lower(to, to_sort.as_ref(), false)?;
-                let sort = match expected_sort {
+                let sort = match expected_sort.filter(|_| !item) {
                     Some(expected) => expected.clone(),
                     None => self.join_sort(from.sort(), to.sort()).ok_or_else(|| {
                         self.invalid_local_rewrite(
@@ -2676,9 +2682,11 @@ impl StructuredTermBuilder<'_> {
             .map_err(|error| self.locate(error, term))
     }
 
-    /// [`Self::infer`] for a whole K-sequence item ([`Self::lower_k_item`]): the item a removal
-    /// `k::rewrite!(item => ())` names stands at the item's own place, typed as a lone item is
-    /// ([`head_item_sort`]: `_` is any one item, a `KItem`), and its `()` removes it.
+    /// [`Self::infer`] for a whole K-sequence item ([`Self::lower_k_item`]): the left side of
+    /// `k::rewrite!(item => to)` there is the one item the rewrite replaces, so it stands at the
+    /// item's own place, typed as a lone item is ([`head_item_sort`]: `_` is any one item, a
+    /// `KItem`), and the right side never types it: it states its own sort, and the rewrite
+    /// has the join of the two. A `()` right side removes the item.
     pub(super) fn infer_k_item(
         &mut self,
         term: &DescriptorTerm,
@@ -2686,19 +2694,23 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
         match term {
-            DescriptorTerm::Rewrite { from, to: None, .. } if subject => {
+            DescriptorTerm::Rewrite { from, to, .. } if subject => {
                 let k_item = self.k_item_sort.clone();
                 let item = head_item_sort(from, expected_sort, &k_item).cloned();
-                self.infer(from, item.as_ref(), true)
+                self.infer(from, item.as_ref(), true)?;
+                match to {
+                    Some(to) => self.infer(to, None, false),
+                    None => Ok(()),
+                }
             }
             _ => self.infer(term, expected_sort, subject),
         }
     }
 
-    /// [`Self::lower`] for a whole K-sequence item: `k::rewrite!(item => ())` there removes the
-    /// item, the one place a `()` (.K) right side needs no sort of K's (KF-011), and the item it
-    /// names is typed as a lone item is ([`Self::infer_k_item`]). The caller, which reads the
-    /// sequence, says that `term` is one of its items.
+    /// [`Self::lower`] for a whole K-sequence item: the left side of `k::rewrite!(item => to)`
+    /// there is typed as a lone item is ([`Self::infer_k_item`]), and `k::rewrite!(item => ())`
+    /// removes the item, the one place a `()` (.K) right side needs no sort of K's (KF-011). The
+    /// caller, which reads the sequence, says that `term` is one of its items.
     pub(super) fn lower_k_item(
         &mut self,
         term: &DescriptorTerm,
@@ -2710,13 +2722,11 @@ impl StructuredTermBuilder<'_> {
                 key,
                 to_key,
                 from,
-                to: None,
+                to,
                 ..
             } if subject => {
                 self.head_pending = false;
-                let k_item = self.k_item_sort.clone();
-                let item = head_item_sort(from, expected_sort, &k_item).cloned();
-                self.lower_rewrite(key, to_key, from, None, item.as_ref(), true)
+                self.lower_rewrite(key, to_key, from, to.as_deref(), expected_sort, true)
                     .map_err(|error| self.locate(error, term))
             }
             _ => self.lower(term, expected_sort, subject),

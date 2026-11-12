@@ -6236,12 +6236,19 @@ fn sentences_or_error(target: &Path, manifest: &Path, needle: &str) -> String {
 /// `{ k: [_, ..] } => { k: [..] }`'s meaning, at the head, at a later item, and in a closed
 /// computation. The `_` is printed with its sort: bare, K would read it at the rewrite's sort
 /// there, `K`. It was refused "wildcard has no expected production-field sort", which says
-/// nothing true of an item. A readable rule states its after-state and holds no rewrite.
+/// nothing true of an item. A readable rule states its after-state and holds no rewrite. Every
+/// whole item's rewrite types its left side so, by the item's place and never by its right side
+/// (ITEMSORTS round 2): `_ => make(1)` replaces any one item, `_ => b` with `b` of sort `K` is
+/// `(_:KItem => B:K)`, not a `_:K` that would match an empty computation, and an operation on
+/// the right (`int::add(x, 1)`) states its own sort.
 #[test]
 fn an_item_removal_names_the_one_item_it_removes() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let fixture = dot_k_fixture();
+    let fixture = dot_k_fixture().replace(
+        "use k::builtin::{Int, KSequence, List, Map, list, map};",
+        "use k::builtin::{Int, KSequence, List, Map, int, list, map};",
+    );
     let kk = "k::configuration::KCell";
     let cc = "k::configuration::Cell";
     let cells = |parameters: &str, entries: &str| {
@@ -6261,6 +6268,8 @@ fn an_item_removal_names_the_one_item_it_removes() {
         ("cells/only", cells("", &format!("k: {kk}(k::rewrite!(_ => ()))"))),
         ("cells/binder", cells("y: k::KItem,", &format!("k: {kk}(k::rewrite!(y => ()), ..)"))),
         ("cells/replaced", cells("", &format!("k: {kk}(k::rewrite!(_ => Cmd::Make {{ x: 1 }}), ..)"))),
+        ("cells/replaced-by-k", cells("b: KSequence,", &format!("k: {kk}(k::rewrite!(_ => b), Cmd::Keep {{ body: b }}, ..)"))),
+        ("cells/replaced-by-an-operation", cells("x: Int,", &format!("k: {kk}(k::rewrite!(_ => int::add(x, 1)), Cmd::Make {{ x }}, ..)"))),
         ("cells/result", format!("{fixture}#[k::rule(label = \"probe\")]\npub fn probe(\n    k::cells! {{ k: {kk}(_, rest @ ..), .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ k: {kk}(..rest), .. }}\n}}\n")),
         ("readable", readable("{ k: [_, ..] } => { k: [..] }")),
         ("readable-claim", format!("{fixture}k::claims! {{\n    for Machine;\n    use Cmd::*;\n    #[k::claim(all_paths)]\n    probe: {{ k: [_, ..] }} => {{ k: [..] }};\n}}\n")),
@@ -6276,7 +6285,9 @@ fn an_item_removal_names_the_one_item_it_removes() {
         cells/second: passed: rule [probe]: <k> make ( X:Int ) ~> (_:KItem => .K) ... </k>
         cells/only: passed: rule [probe]: <k> (_:KItem => .K) </k>
         cells/binder: passed: rule [probe]: <k> (Y:KItem => .K) ... </k>
-        cells/replaced: passed: rule [probe]: <k> (_:Stmt => make ( 1 )) ... </k>
+        cells/replaced: passed: rule [probe]: <k> (_:KItem => make ( 1 )) ... </k>
+        cells/replaced-by-k: passed: rule [probe]: <k> (_:KItem => B:K) ~> keep ( B:K ) ... </k>
+        cells/replaced-by-an-operation: passed: rule [probe]: <k> (_:KItem => X:Int +Int 1) ~> make ( X:Int ) ... </k>
         cells/result: passed: rule [probe]: <k> _:KItem ~> Rest:K => .K ~> Rest:K </k>
         readable: passed: rule [probe]: <k> _:KItem => .K ... </k>
         readable-claim: passed: claim [probe]: <k> _:KItem => .K ... </k>
