@@ -652,3 +652,45 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         aux: error[krs::syntax::invalid-list-notation]: the entry of the cell `aux` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule's `KCell(.., rest @ ..)` drops or moves it
         ll-items: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"]].assert_eq(&lines.join("\n"));
 }
+
+/// The readable rule `source`'s verdict, its `krs expand` print's `go` function, and that
+/// print's verdict.
+fn printed_twin(name: &str, source: &str) -> (String, String, String) {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), &format!("seq-{name}-readable"), source);
+    let (success, stderr, print) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let printed = library_package(temporary.path(), &format!("seq-{name}-printed"), &print);
+    let start = print.find("pub fn go(").expect("the print holds `go`");
+    let end = print[start..]
+        .find("\n}\n")
+        .map_or(print.len(), |end| start + end + 2);
+    (
+        verdict(target.path(), &manifest),
+        print[start..end]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        verdict(target.path(), &printed),
+    )
+}
+
+/// Round 3, R2-1: the print names a `[..]` subject's kept rest fresh where it makes it, so an
+/// author's name spelled like the print's own placeholder is printed as written: the print is
+/// the readable rule, its K the readable K but for the rest's name.
+#[test]
+fn a_named_rest_never_renames_an_author_s_name() {
+    let (readable_k, print, printed_k) = printed_twin(
+        "r21",
+        &readable(
+            "go: { k: [Put(list_rest_0, b), ..], ll: [..] } => { k: [..], ll: [list_rest_0, ..] };",
+            false,
+        ),
+    );
+    expect_test::expect![[r"
+        rule [go]: <k> put ( ListRest0:Int , B:Int ) => .K ... </k> <ll> Krs_RestLl:List => ListItem(ListRest0:Int) Krs_RestLl:List </ll>
+        pub fn go( list_rest_0: k::Term<k::builtin::Int>, b: k::Term<k::builtin::Int>, rest: k::Term<k::builtin::List>, k::cells! { k : k::configuration::KCell(crate ::Cmd::Put(list_rest_0, b), ..), ll : k::configuration::Cell(rest), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ll : k::configuration::Cell([list_rest_0, ..rest]), ..state } }
+        rule [go]: <k> put ( ListRest0:Int , B:Int ) => .K ... </k> <ll> Rest:List => ListItem(ListRest0:Int) Rest:List </ll>"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
+    assert_eq!(readable_k.replace("Krs_RestLl", "Rest"), printed_k);
+}

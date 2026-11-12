@@ -2712,7 +2712,8 @@ struct CellRendering<'a> {
     root: &'a StableItemId,
     brackets: &'a ListBrackets<'a>,
     /// The list rests the print names that the elaborated rule leaves unnamed, each by the
-    /// placeholder its entries print, with its list cell's sort ([`render_list_cell`]).
+    /// placeholder its entries print (a reserved spelling no author writes), with its list
+    /// cell's sort ([`render_list_cell`]).
     list_rests: Vec<(Ident, krs_ir::DescriptorSortRef)>,
 }
 
@@ -2953,7 +2954,13 @@ fn render_list_cell(
         .map(|_| -> Result<_, ReferenceExpansionError> {
             let sort = list_cell_sort(cell, rendering.descriptor_index)
                 .ok_or(ReferenceExpansionError::UnsupportedState)?;
-            let placeholder = format_ident!("list_rest_{}", rendering.list_rests.len());
+            // The marker no author spells ([`krs_ir::ir::RESERVED_MARKER`]): only this rest is
+            // renamed to its fresh name.
+            let placeholder = format_ident!(
+                "{}list_rest_{}",
+                krs_ir::ir::RESERVED_MARKER,
+                rendering.list_rests.len()
+            );
             rendering.list_rests.push((placeholder.clone(), sort));
             Ok(entries::Rest::Named(quote!(#placeholder)))
         })
