@@ -17,6 +17,13 @@
 //! user function's application is not tested: its equations state where it has a value, and
 //! guarding a partial one is the author's.
 //!
+//! A step or an `unless` of a `k::patterns!` chain is such a sentence: the part is the set of
+//! states that match its body and at which its condition is true, so a state where a construct
+//! of the condition has no value is not in the set. A step does not match there, and an
+//! `unless` does not exclude there; a construct below `!` is no exception, since the negation of
+//! no value is no value. The pass therefore reads a module's rules and its pattern parts as one
+//! sequence ([`SemanticModule::sentences`]), the one the validation of its result reads.
+//!
 //! A test stands where `false` and "no value" mean the same: at a conjunct of the condition's
 //! top-level conjunction, or in the body of a `#let` that stands there
 //! ([`krs_ir_levels::definedness`]), before the conjunct whose evaluation reaches the construct;
@@ -47,8 +54,8 @@ use krs_ir_levels::{
 use super::error::DescriptorLoweringError;
 use super::origin::inserted_copy;
 
-/// `modules` with each rule's condition holding the test of every partial construct it
-/// evaluates before the construct (the module documentation).
+/// `modules` with the condition of each rule and of each `k::patterns!` part holding the test
+/// of every partial construct it evaluates before the construct (the module documentation).
 pub(super) fn guard_conditions(
     modules: Vec<SemanticModule>,
 ) -> Result<Vec<SemanticModule>, DescriptorLoweringError> {
@@ -56,15 +63,14 @@ pub(super) fn guard_conditions(
     modules
         .into_iter()
         .map(|module| {
-            if !module.rules().iter().any(needs_guards) {
+            if !module.sentences().any(needs_guards) {
                 return Ok(module);
             }
-            let rules = module
-                .rules()
-                .iter()
+            let sentences = module
+                .sentences()
                 .map(|rule| guard_rule(rule, &sorts))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(module.with_rules(rules))
+            Ok(module.with_sentences(sentences))
         })
         .collect()
 }
@@ -76,7 +82,7 @@ pub(super) fn guard_conditions(
 pub fn guard_warnings(modules: &[SemanticModule]) -> Vec<Diagnostic> {
     let sorts = Sorts::of_modules(modules);
     let mut warnings = Vec::new();
-    for rule in modules.iter().flat_map(SemanticModule::rules) {
+    for rule in modules.iter().flat_map(SemanticModule::sentences) {
         for dead in definedness::dead_tests(rule, &sorts) {
             let name = &dead.name;
             let mut warning = Diagnostic::error(

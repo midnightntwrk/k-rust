@@ -4,6 +4,7 @@
 //! claim's left side is; no part is a sentence of `definition.k` or `spec.k`, and the
 //! specification emits the same bytes whether or not a patterns package exists.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -249,6 +250,279 @@ k::patterns! {
     beside: { pc: d } => { pc: d2 };
 }
 ";
+
+/// `SPEC` with a second register and a function of two arguments, for conditions that read the
+/// memory in a function's arguments.
+fn spec_with_requested() -> String {
+    format!(
+        "{SPEC}
+/// Interrupt enable register.
+#[k::constant]
+pub const IE: Int = 0xFFFF;
+
+#[k::function(total, internal)]
+pub fn Requested(enabled: k::Term<Int>, flags: k::Term<Int>) -> k::Term<Int> {{
+    enabled & flags & 0x1F
+}}
+"
+    )
+}
+
+/// Each partial construct a part's condition evaluates, in a step and in an `unless` (FB-63):
+/// a map lookup, a lookup below `!`, lookups in a function's arguments, a lookup after the
+/// author's key test, a read with a default, a division and a sort projection.
+const PARTIAL_CONDITIONS: &str = r"#![deny(non_snake_case)]
+use k::builtin::Int;
+use spec::{IE, IF, Requested};
+
+k::patterns! {
+    for spec::Machine;
+
+    #[k::requires(memory[IF] != 0)]
+    lookup: { memory };
+
+    #[k::requires(!(memory[IF] == 0))]
+    negated: { memory };
+
+    #[k::requires(Requested(memory[IE], memory[IF]) != 0)]
+    requested: { halt_bug: true, memory };
+
+    #[k::requires(memory.contains_key(IF) && memory[IF] != 0)]
+    keyed: { memory };
+
+    #[k::requires(memory.get_or(IF, 0) != 0)]
+    defaulted: { memory };
+
+    #[k::requires(100 / pc == 1)]
+    divided: { pc };
+
+    #[k::requires(k::project!(Int, stash) > 0)]
+    projected: { stash };
+
+    excluded: { pc: d } => unless({ memory }, requires(memory[IF] != d)) { halt_bug: true };
+
+    negated_exclusion: { pc: d } => unless({ memory }, requires(!(memory[IF] == d))) { halt_bug: true };
+}
+";
+
+/// A part is the set of states at which its condition is true, so a state where a construct of
+/// the condition has no value is not in it: each construct's test stands in the part's
+/// `requires` before the conjunct that evaluates it and outside any `!`, as in a rule's
+/// condition, and a test the author wrote is not stated twice. `krs check` accepts every one.
+#[test]
+fn a_part_s_condition_tests_each_partial_construct_before_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let (_, patterns) = workspace(
+        temporary.path(),
+        &spec_with_requested(),
+        Some(PARTIAL_CONDITIONS),
+    );
+    let patterns = patterns.unwrap();
+    let (success, _, stderr) = krs(target.path(), &patterns, "check", &[]);
+    assert!(success, "{stderr}");
+    assert!(!stderr.contains("warning["), "{stderr}");
+    let emitted = emitted_patterns(target.path(), &patterns).unwrap();
+    let mut parts = String::new();
+    for pattern in &emitted {
+        for step in &pattern.steps {
+            if let Some(unless) = &step.unless {
+                writeln!(parts, "{} unless: {unless}", pattern.id).unwrap();
+            }
+            writeln!(parts, "{}: {}", pattern.id, step.pattern).unwrap();
+        }
+    }
+    expect_test::expect![[r"
+        defaulted: <memory> Memory:Map </memory> requires isInt(Memory:Map [ 65295 ] orDefault 0) andThenBool ({Memory:Map [ 65295 ] orDefault 0}:>Int =/=Int 0)
+        divided: <pc> Pc:Int </pc> requires (Pc:Int =/=Int 0) andThenBool ((100 /Int Pc:Int) ==Int 1)
+        excluded: <pc> D:Int </pc>
+        excluded unless: <memory> Memory:Map </memory> requires 65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool ({Memory:Map [ 65295 ]}:>Int =/=Int D:Int))
+        excluded: <haltBug> true </haltBug>
+        keyed: <memory> Memory:Map </memory> requires 65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool ({Memory:Map [ 65295 ]}:>Int =/=Int 0))
+        lookup: <memory> Memory:Map </memory> requires 65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool ({Memory:Map [ 65295 ]}:>Int =/=Int 0))
+        negated: <memory> Memory:Map </memory> requires 65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool (notBool ({Memory:Map [ 65295 ]}:>Int ==Int 0)))
+        negated-exclusion: <pc> D:Int </pc>
+        negated-exclusion unless: <memory> Memory:Map </memory> requires 65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool (notBool ({Memory:Map [ 65295 ]}:>Int ==Int D:Int)))
+        negated-exclusion: <haltBug> true </haltBug>
+        projected: <stash> Stash:KItem </stash> requires isInt(Stash:KItem) andThenBool ({Stash:KItem}:>Int >Int 0)
+        requested: <haltBug> true </haltBug> <memory> Memory:Map </memory> requires 65535 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65535 ]) andThenBool (65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool (requested ( {Memory:Map [ 65535 ]}:>Int , {Memory:Map [ 65295 ]}:>Int ) =/=Int 0))))
+    "]].assert_eq(&parts);
+}
+
+/// A test the author wrote below `||` in a part's condition protects nothing, as in a rule's:
+/// the condition has no value where the lookup has none, whichever operand is read first.
+#[test]
+fn a_test_below_a_connective_in_a_part_s_condition_is_reported() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let (_, patterns) = workspace(
+        temporary.path(),
+        SPEC,
+        Some(
+            "use spec::IF;
+            k::patterns! {
+                for spec::Machine;
+                #[k::requires(!memory.contains_key(IF) || memory[IF] != 0)]
+                unprotected: { memory };
+            }",
+        ),
+    );
+    let patterns = patterns.unwrap();
+    let (success, _, stderr) = krs(target.path(), &patterns, "check", &[]);
+    assert!(success, "{stderr}");
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.starts_with("warning["))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "{stderr}");
+    assert!(
+        warnings[0].starts_with(
+            "warning[krs::analysis::dead-guard]: this lookup is tested below `!` or `||`"
+        ),
+        "{stderr}"
+    );
+    let emitted = emitted_patterns(target.path(), &patterns).unwrap();
+    expect_test::expect![[r#"
+        "<memory> Memory:Map </memory> requires 65295 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 65295 ]) andThenBool ((notBool 65295 in_keys(Memory:Map)) orElseBool ({Memory:Map [ 65295 ]}:>Int =/=Int 0)))"
+    "#]].assert_debug_eq(&emitted[0].steps[0].pattern);
+}
+
+/// The tests are a property the theory's validation checks of every sentence, a part among
+/// them: the composed theory with a part's tests taken out of its condition is refused, so a
+/// pass that left a part untested cannot hand its theory on.
+#[test]
+fn a_part_without_its_tests_is_refused_by_the_theory_s_validation() {
+    use krs_ir_levels::definedness::{Place, conjunction};
+    use krs_ir_levels::{
+        SemanticCondition, SemanticRuleCondition, SemanticTheory, SemanticValidationError,
+    };
+
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let (_, patterns) = workspace(
+        temporary.path(),
+        SPEC,
+        Some(
+            "use spec::IF;
+            k::patterns! {
+                for spec::Machine;
+                #[k::requires(memory[IF] != 0)]
+                lookup: { memory };
+            }",
+        ),
+    );
+    let patterns = patterns.unwrap();
+    let directory = patterns.with_file_name("emitted");
+    emit(target.path(), &patterns, &directory);
+    // Reading the theory validates it: the part's condition holds its tests.
+    let theory: SemanticTheory =
+        serde_json::from_str(&fs::read_to_string(directory.join("semantic-ir.json")).unwrap())
+            .unwrap();
+    let mut untested = 0;
+    let modules = theory
+        .modules()
+        .iter()
+        .map(|module| {
+            let sentences = module
+                .sentences()
+                .map(|sentence| {
+                    let Some(SemanticCondition::Bool(condition)) = sentence.requires() else {
+                        return sentence.clone();
+                    };
+                    if sentence
+                        .claim()
+                        .is_none_or(|claim| claim.pattern().is_none())
+                    {
+                        return sentence.clone();
+                    }
+                    // The last conjunct is the author's: the tests stand before it.
+                    let mut term = condition.term();
+                    while let Some((_, rest, _)) = conjunction(term) {
+                        term = rest;
+                    }
+                    untested += 1;
+                    sentence
+                        .clone()
+                        .with_requires(Some(SemanticCondition::Bool(SemanticRuleCondition::new(
+                            condition.origin().clone(),
+                            term.clone(),
+                        ))))
+                        .unwrap()
+                })
+                .collect();
+            module.clone().with_sentences(sentences)
+        })
+        .collect();
+    assert_eq!(untested, 1);
+    let error = SemanticTheory::new(modules).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            SemanticValidationError::UnguardedPartialConstruct(Place::Condition)
+        ),
+        "{error}"
+    );
+}
+
+/// A specification that names no framework sort, with a `Map` cell.
+const PLAIN_SPEC: &str = r#"
+use k::builtin::{Int, KSequence, Map};
+
+k::sorts! {
+    Light;
+}
+
+#[k::constructors(sort = Light, result = KResult)]
+pub enum LightSyntax {
+    #[k::syntax("red")]
+    Red(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(name = "memory")]
+    pub memory: Map<Int, Int>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Light) -> Self {
+        Self { k: k::k![pgm], memory: k::map![] }
+    }
+}
+"#;
+
+/// A lookup KRS projects is K's read, whose value is a `KItem`, and its test reads it at that
+/// sort: a part that holds the composed theory's only such read keeps the framework sorts in
+/// that theory, so the part's tests are checked against a signature that has them.
+#[test]
+fn a_part_s_projected_read_keeps_the_framework_sorts() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let (spec, patterns) = workspace(
+        temporary.path(),
+        PLAIN_SPEC,
+        Some(
+            "k::patterns! {
+                for spec::Machine;
+                #[k::requires(memory[9] != 0)]
+                lookup: { memory };
+            }",
+        ),
+    );
+    // The specification alone uses no framework sort.
+    let directory = spec.with_file_name("emitted");
+    emit(target.path(), &spec, &directory);
+    let definition = fs::read_to_string(directory.join("definition.k")).unwrap();
+    assert!(!definition.contains("KRS-FRAMEWORK"), "{definition}");
+    let emitted = emitted_patterns(target.path(), &patterns.unwrap()).unwrap();
+    assert_eq!(
+        emitted[0].steps[0].pattern,
+        "<memory> Memory:Map </memory> requires 9 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 9 ]) andThenBool ({Memory:Map [ 9 ]}:>Int =/=Int 0))"
+    );
+}
 
 /// The files `krs emit-k --ir` writes for the package, in `directory`.
 fn emit(target: &Path, manifest: &Path, directory: &Path) {

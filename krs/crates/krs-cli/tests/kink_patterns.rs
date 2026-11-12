@@ -129,6 +129,20 @@ struct Workspace {
 
 impl Workspace {
     fn new(packages: &[(&str, &str)]) -> Self {
+        Self::of(
+            SPEC,
+            FLOW,
+            &[
+                ("p1", "seq(wr(1, 5), seq(mark, rd(1, 5)))\n"),
+                ("p2", "seq(wr(2, 7), seq(mark, rd(2, 8)))\n"),
+            ],
+            packages,
+        )
+    }
+
+    /// A workspace of the specification `spec` with the corpus `flow` over the programs
+    /// `cases` (id, text) and the patterns packages `packages`.
+    fn of(spec: &str, flow: &str, cases: &[(&str, &str)], packages: &[(&str, &str)]) -> Self {
         let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../krs")
             .canonicalize()
@@ -145,16 +159,11 @@ impl Workspace {
             )
         };
         workspace.write("spec/Cargo.toml", &manifest("spec", ""));
-        workspace.write("spec/src/lib.rs", SPEC);
-        workspace.write("spec/kink/FLOW.toml", FLOW);
-        workspace.write(
-            "spec/kink/cases/p1.prog",
-            "seq(wr(1, 5), seq(mark, rd(1, 5)))\n",
-        );
-        workspace.write(
-            "spec/kink/cases/p2.prog",
-            "seq(wr(2, 7), seq(mark, rd(2, 8)))\n",
-        );
+        workspace.write("spec/src/lib.rs", spec);
+        workspace.write("spec/kink/FLOW.toml", flow);
+        for (id, program) in cases {
+            workspace.write(&format!("spec/kink/cases/{id}.prog"), program);
+        }
         let mut members = vec!["\"spec\"".to_owned()];
         for (name, source) in packages {
             workspace.write(
@@ -510,4 +519,134 @@ fn editing_one_clause_re_asks_only_its_pattern() {
     }
     assert_eq!(row(&second, "marked-read", "p1")["answer"], "hit");
     assert_status(&workspace.kink("emit", &["--check"]), 0);
+}
+
+/// A machine whose statements store values in a memory map and count steps in `pc`.
+/// The store's condition joins two tests, so the specification's module imports `BOOL`: kink
+/// parses a pattern in that module, whose grammar must hold the connective a part's condition
+/// is joined with.
+const MEMORY_SPEC: &str = r#"use k::KResult;
+use k::builtin::{Int, KSequence, Map};
+
+k::sorts! {
+    Stmt: k::KItem;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("set ( {a} , {v} )")]
+    Set { a: Int, v: Int },
+    #[k::syntax("mark")]
+    Mark(),
+    #[k::syntax("seq ( {first} , {second} )")]
+    Seq { first: Stmt, second: Stmt },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell(name = "k")]
+    pub k: KSequence,
+    #[k::cell(name = "pc")]
+    pub pc: Int,
+    #[k::cell(name = "memory")]
+    pub memory: Map<Int, Int>,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] program: Stmt) -> Self {
+        Self {
+            k: k::k![program],
+            pc: 0,
+            memory: k::map![],
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    seq: { k: [Seq { first: a, second: b }, ..] } => { k: [a, b, ..] };
+    #[k::requires(addr >= 0 && value >= 0)]
+    set: { k: [Set { a: addr, v: value }, ..], pc, memory: m } => { k: [..], pc: pc + 1, memory: k::map![addr -> value, ..m] };
+    mark: { k: [Mark(), ..], pc } => { k: [..], pc: pc + 1 };
+}
+"#;
+
+/// Each question of key 9 written twice, with the lookup in the condition and with the map
+/// pattern that binds the key's value: a step, a step whose lookup stands below `!`, and an
+/// `unless` on the states between `pc` 0 and `pc` 2, plain and below `!`.
+const MEMORY_PATTERNS: &str = r"k::patterns! {
+    for spec::Machine;
+
+    #[k::requires(memory[9] != 0)]
+    lookup: { memory };
+
+    #[k::requires(!(memory[9] == 0))]
+    negated_lookup: { memory };
+
+    #[k::requires(v != 0)]
+    bound: { memory: { 9 -> v, .. } };
+
+    kept: { pc: 0 } => unless({ memory }, requires(memory[9] == 0)) { pc: 2 };
+
+    negated_kept: { pc: 0 } => unless({ memory }, requires(!(memory[9] != 0))) { pc: 2 };
+
+    bound_kept: { pc: 0 } => unless({ memory: { 9 -> v, .. } }, requires(v == 0)) { pc: 2 };
+}
+";
+
+/// The memory corpus: a program that never stores key 9, one that stores 5 there and one that
+/// stores 0, each reaching `pc` 2 through one state at `pc` 1.
+const MEMORY_FLOW: &str = "[spec]\nkrs = { definition = \"main\" }\n\n[budget]\ntime_ms = 600000\n\n\
+                           [[program]]\nid = \"absent\"\nfile = \"cases/absent.prog\"\n\n\
+                           [[program]]\nid = \"five\"\nfile = \"cases/five.prog\"\n\n\
+                           [[program]]\nid = \"zero\"\nfile = \"cases/zero.prog\"\n\n\
+                           [[patterns]]\nkrs = \"pats\"\n";
+
+/// A part is the set of states at which its condition is true, and a lookup of a key the map
+/// lacks has no value, so the condition is not true there, also where the lookup stands below
+/// `!` (FB-63). A step does not match a state without the key; an `unless` does not exclude
+/// one. The lookup spelling answers each program as the map pattern that binds the key's value
+/// does.
+#[test]
+fn a_condition_with_no_value_is_not_true_of_a_state() {
+    let workspace = Workspace::of(
+        MEMORY_SPEC,
+        MEMORY_FLOW,
+        &[
+            ("absent", "seq(mark, mark)\n"),
+            ("five", "seq(set(9, 5), mark)\n"),
+            ("zero", "seq(set(9, 0), mark)\n"),
+        ],
+        &[("pats", MEMORY_PATTERNS)],
+    );
+    // `--full` asks every program of every pattern, past its first hit.
+    let output = workspace.kink("query", &["--full"]);
+    assert_status(&output, 0);
+    let document = json_of(&output);
+    let answers = |id: &str| {
+        ["absent", "five", "zero"].map(|program| row(&document, id, program)["answer"].clone())
+    };
+
+    // A step: only the program that stores a value other than 0 at the key hits.
+    let step = [json!("no"), json!("hit"), json!("no")];
+    assert_eq!(answers("bound"), step, "{document:#}");
+    assert_eq!(answers("lookup"), step, "{document:#}");
+    assert_eq!(answers("negated-lookup"), step, "{document:#}");
+
+    // An `unless`: only the program whose state at `pc` 1 holds 0 at the key is excluded; the
+    // one whose memory lacks the key is not, below `!` either.
+    let unless = [json!("hit"), json!("hit"), json!("no")];
+    assert_eq!(answers("bound-kept"), unless, "{document:#}");
+    assert_eq!(answers("kept"), unless, "{document:#}");
+    assert_eq!(answers("negated-kept"), unless, "{document:#}");
+
+    // The lookup's tests stand before the conjunct that evaluates it, outside its `!`.
+    assert_eq!(
+        pattern(&document, "negated-lookup")["pattern"],
+        "<memory> Memory:Map </memory> requires 9 in_keys(Memory:Map) andThenBool (isInt(Memory:Map [ 9 ]) andThenBool (notBool ({Memory:Map [ 9 ]}:>Int ==Int 0)))",
+        "{document:#}"
+    );
 }

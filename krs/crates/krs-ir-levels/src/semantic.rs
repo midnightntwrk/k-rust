@@ -449,7 +449,7 @@ impl SemanticTheory {
             {
                 return Err(SemanticValidationError::InvalidPatternParts(module.id.clone()).into());
             }
-            for rule in module.rules.iter().chain(&module.patterns) {
+            for rule in module.sentences() {
                 in_item(Some(&rule.id), || {
                     let expected = rule.kind().item_kind();
                     validate_item_kind(&rule.id, expected)?;
@@ -594,7 +594,7 @@ impl SemanticTheory {
                     &mut node_keys,
                 )?;
             }
-            for rule in module.rules.iter().chain(&module.patterns) {
+            for rule in module.sentences() {
                 in_item(Some(&rule.id), || {
                     validate_rule::<SemanticLevel>(
                         rule,
@@ -621,7 +621,7 @@ impl SemanticTheory {
                     &cell_ids,
                 )?;
             }
-            for rule in module.rules.iter().chain(&module.patterns) {
+            for rule in module.sentences() {
                 in_item(Some(&rule.id), || {
                     validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)
                 })?;
@@ -870,6 +870,26 @@ impl SemanticModule {
     #[must_use]
     pub fn pattern_parts(&self) -> &[SemanticRule] {
         &self.patterns
+    }
+
+    /// Every sentence of the module that has a condition: its rules, then the parts of its
+    /// `k::patterns!` chains.
+    ///
+    /// A rule's condition and a part's condition mean the same thing, the states at which the
+    /// condition is true, so a pass that rewrites conditions and the validation that checks its
+    /// result both read this one sequence; [`Self::with_sentences`] writes it back.
+    pub fn sentences(&self) -> impl Iterator<Item = &SemanticRule> {
+        self.rules.iter().chain(&self.patterns)
+    }
+
+    /// Replaces the module's rules and the parts of its `k::patterns!` chains by `sentences`,
+    /// each kept in the list its kind names ([`Self::sentences`]).
+    #[must_use]
+    pub fn with_sentences(mut self, sentences: Vec<SemanticRule>) -> Self {
+        let (parts, rules): (Vec<_>, Vec<_>) = sentences.into_iter().partition(is_pattern_part);
+        self.rules = SortedByKey::new(rules);
+        self.patterns = SortedByKey::new(parts);
+        self
     }
 
     /// Replaces the module's productions.

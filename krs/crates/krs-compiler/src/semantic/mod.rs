@@ -973,7 +973,7 @@ fn uses_framework(modules: &[SemanticModule]) -> bool {
                 .imports()
                 .iter()
                 .any(crate::partition::is_framework_module)
-                || module.rules().iter().any(reads_projected_collection)
+                || module.sentences().any(reads_projected_collection)
                 || serde_json::to_value(module).is_ok_and(|module| names_framework_item(&module))
         })
 }
