@@ -1044,7 +1044,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 34, width 10",
             ),
             (
-                "error[krs::syntax::invalid-expression-notation]: the entry of the cell `env` holds a map literal with an anonymous `..`, which names no map here: the literal is not the cell's content, so there is no map whose other entries the `..` could stand for",
+                "error[krs::syntax::invalid-expression-notation]: the entry of the cell `env` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
                 "column 46, width 1",
             ),
             (
