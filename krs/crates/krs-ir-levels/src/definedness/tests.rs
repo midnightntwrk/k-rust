@@ -8,7 +8,9 @@ use krs_ir::{
     SentenceKind,
 };
 
-use super::{Place, Requirement, Sorts, dead_tests, requirements, unguarded};
+use super::{
+    NotShown, Place, Requirement, Sorts, dead_tests, requirements, unguarded, without_value,
+};
 use crate::{
     IrTermKind, ListOperands, MapOperands, SemanticCondition, SemanticRule, SemanticRuleCondition,
     SemanticSortRef, SemanticTerm, SemanticVariable, SetOperands,
@@ -841,4 +843,204 @@ fn a_lookup_needs_its_key_and_its_projection_their_sort() {
         },
     );
     assert_eq!(check(&rule(None, Some(matched))), None);
+}
+
+/// What [`without_value`] reports of `result` built where `facts` hold: each construct with
+/// `needs` for a fact not stated and `untested` for an operation no condition tests, then each
+/// declared production applied.
+fn not_shown(result: &SemanticTerm, facts: &[&SemanticTerm]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut applied = Vec::new();
+    without_value(
+        result,
+        facts,
+        &sorts(),
+        &mut |construct, why| {
+            found.push(match why {
+                NotShown::Requirement(requirement) => format!(
+                    "{} needs {}",
+                    render(construct),
+                    render(&requirement.test(
+                        &sorts(),
+                        &mut krs_ir::NodeOrigin::clone,
+                        &mut krs_ir::NodeOrigin::clone,
+                        &mut |_, typed| super::test_name(typed, 0),
+                    ))
+                ),
+                NotShown::Untested(_) => format!("{} untested", render(construct)),
+            });
+        },
+        &mut |_, production| applied.push(format!("applies {}", production.item_name())),
+    );
+    found.extend(applied);
+    found
+}
+
+#[test]
+fn a_result_s_construct_is_shown_by_the_fact_that_states_its_test() {
+    let x = || var("X", int());
+    let compare = |operation, left: SemanticTerm, right: SemanticTerm| {
+        apply(operation, bool_sort(), vec![left, right])
+    };
+    let division = apply(BuiltinOperation::IntTDiv, int(), vec![lit("100"), x()]);
+    assert_eq!(
+        not_shown(&division, &[]),
+        ["(100 /Int X) needs (X =/=Int 0)"]
+    );
+    let nonzero = compare(BuiltinOperation::IntNotEqual, x(), lit("0"));
+    assert_eq!(not_shown(&division, &[&nonzero]), [""; 0]);
+    // A bound that implies the fact shows it, and so does the negation an `if` block's second
+    // equation states.
+    let positive = compare(BuiltinOperation::IntGreater, x(), lit("0"));
+    assert_eq!(not_shown(&division, &[&positive]), [""; 0]);
+    let not_zero = apply(
+        BuiltinOperation::BoolNot,
+        bool_sort(),
+        vec![compare(BuiltinOperation::IntEqual, x(), lit("0"))],
+    );
+    assert_eq!(not_shown(&division, &[&not_zero]), [""; 0]);
+    // A construct below another operation is found, and one fact does not show another's.
+    let shifted = apply(
+        BuiltinOperation::IntAdd,
+        int(),
+        vec![
+            apply(BuiltinOperation::IntShiftLeft, int(), vec![lit("1"), x()]),
+            lit("1"),
+        ],
+    );
+    assert_eq!(
+        not_shown(&shifted, &[&nonzero]),
+        ["(1 <<Int X) needs (0 <=Int X)"]
+    );
+}
+
+#[test]
+fn a_conditional_written_as_an_operation_guards_nothing() {
+    let x = || var("X", int());
+    let test = apply(
+        BuiltinOperation::IntNotEqual,
+        bool_sort(),
+        vec![x(), lit("0")],
+    );
+    let conditional = apply(
+        BuiltinOperation::KEqualIte,
+        int(),
+        vec![
+            test,
+            apply(BuiltinOperation::IntTDiv, int(), vec![lit("100"), x()]),
+            lit("0"),
+        ],
+    );
+    assert_eq!(
+        not_shown(&conditional, &[]),
+        ["(100 /Int X) needs (X =/=Int 0)"]
+    );
+}
+
+#[test]
+fn a_projected_read_in_a_result_needs_its_key_and_its_sort() {
+    let map = || var("M", builtin_sort(BuiltinSort::Map));
+    let read = |sort: SemanticSortRef| {
+        SemanticTerm::typed_map(
+            origin("read"),
+            sort,
+            MapOperands::Get {
+                map: map(),
+                key: lit("9"),
+            },
+        )
+    };
+    let in_keys = SemanticTerm::typed_map(
+        origin("in-keys"),
+        bool_sort(),
+        MapOperands::InKeys {
+            key: lit("9"),
+            map: map(),
+        },
+    );
+    let is_int = generated(
+        GeneratedOperation::SortPredicate(int()),
+        bool_sort(),
+        read(k_item()),
+    );
+    assert_eq!(not_shown(&read(int()), &[]).len(), 2);
+    // The key alone leaves the projection to `Int` unshown: nothing states that a typed map
+    // holds its element sort.
+    let half = not_shown(&read(int()), &[&in_keys]);
+    assert_eq!(half.len(), 1, "{half:?}");
+    assert!(half[0].contains("needs isInt("), "{half:?}");
+    assert_eq!(not_shown(&read(int()), &[&in_keys, &is_int]), [""; 0]);
+    // A read at `KItem` is K's own read: the key suffices.
+    assert_eq!(not_shown(&read(k_item()), &[&in_keys]), [""; 0]);
+    // A read with a default has every key, and is projected like any read.
+    let or_default = |sort: SemanticSortRef| {
+        SemanticTerm::typed_map(
+            origin("read-or"),
+            sort,
+            MapOperands::GetOrDefault {
+                map: map(),
+                key: lit("9"),
+                default: lit("0"),
+            },
+        )
+    };
+    assert_eq!(not_shown(&or_default(k_item()), &[]), [""; 0]);
+    assert_eq!(not_shown(&or_default(int()), &[]).len(), 1);
+}
+
+#[test]
+fn a_result_reports_untested_operations_applications_and_names_a_let_binds() {
+    let text = var("S", builtin_sort(BuiltinSort::String));
+    let parsed = apply(BuiltinOperation::StringToInt, int(), vec![text]);
+    assert_eq!(not_shown(&parsed, &[]), ["String2Int(S) untested"]);
+    let helper = item("syntax", "helper", ItemKind::Constructor);
+    let called = SemanticTerm::application(
+        origin("call"),
+        int(),
+        ApplicationRef::Declared(helper),
+        vec![var("X", int())],
+    );
+    assert_eq!(not_shown(&called, &[]), ["applies helper"]);
+    // A name bound alone is read with its value in its place, which a fact of the sentence
+    // may state; a name a pattern binds is read by no condition of the sentence.
+    let nonzero = |name: &str| {
+        apply(
+            BuiltinOperation::IntNotEqual,
+            bool_sort(),
+            vec![var(name, int()), lit("0")],
+        )
+    };
+    let divide = |name: &str| {
+        apply(
+            BuiltinOperation::IntTDiv,
+            int(),
+            vec![lit("100"), var(name, int())],
+        )
+    };
+    let bind = |pattern: SemanticTerm, value: SemanticTerm, body: SemanticTerm, binds: &[&str]| {
+        SemanticTerm::let_binding(
+            origin("let"),
+            int(),
+            pattern,
+            value,
+            body,
+            binds
+                .iter()
+                .map(|name| SemanticId::new(*name).unwrap())
+                .collect(),
+        )
+    };
+    let named = bind(var("Y", int()), var("X", int()), divide("Y"), &["Y"]);
+    assert_eq!(not_shown(&named, &[&nonzero("X")]), [""; 0]);
+    let pair = SemanticTerm::application(
+        origin("pair"),
+        pair_sort(),
+        ApplicationRef::Declared(pair_constructor()),
+        vec![var("Y", int()), var("Z", int())],
+    );
+    let matched = bind(pair, var("P", k_item()), divide("Y"), &["Y", "Z"]);
+    let found = not_shown(&matched, &[&nonzero("Y")]);
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found[0], "(100 /Int Y) needs (Y =/=Int 0)");
+    assert!(found[1].contains(":=K P:KItem"), "{found:?}");
 }

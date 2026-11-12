@@ -46,7 +46,9 @@
 //! lower priority) apply in its place, which the author did not write. A claim's start state and
 //! its `ensures` are not tested either: a start state with no value denotes no state, so the
 //! claim states nothing there, as `requires isS(t)` would make it; and `ensures` with no value
-//! is `ensures false`, as a test would make it.
+//! is `ensures false`, as a test would make it. Where the sentence is an equation of a function
+//! declared `total`, a result with no value contradicts the declaration, so the author states
+//! each construct's test in the condition, and [`without_value`] finds the ones not stated.
 //!
 //! [`unguarded`] is the structural check of that rule over one sentence. It checks where each
 //! test stands, from [`requirements`] and [`Requirement::test`], which the guarding pass shares,
@@ -1787,6 +1789,115 @@ impl Checker<'_, '_> {
         for requirement in requirements(term, projected, self.sorts) {
             self.report(term, &requirement, established, bound, conjunct);
         }
+    }
+}
+
+/// What [`without_value`] found in a result: why a construct is not shown to have a value.
+#[derive(Clone, Copy, Debug)]
+pub enum NotShown<'r, 'a> {
+    /// A fact the construct needs, which no fact that holds where the result is built states.
+    Requirement(&'r Requirement<'a>),
+    /// A builtin operation that is partial on some operands with no test a condition could
+    /// state ([`OperationDomain::Untested`]): the text says why.
+    Untested(&'static str),
+}
+
+/// Each construct of `result`, a term a sentence builds where `facts` hold, that `facts` do not
+/// show to have a value, given that its operands have one: `visit` receives the construct and
+/// why; `apply` receives each application of a declared production, whose value is its
+/// declaration's to state.
+///
+/// A result is not tested ([the module documentation](self)): where a construct in it has no
+/// value, the sentence applied and its result has none. So a sentence whose result must have a
+/// value wherever it applies (an equation of a function declared `total`) states each
+/// construct's test in its condition, and `facts` are that condition's conjuncts. A requirement
+/// is shown as [`Requirement::established_by`] shows it for a condition's later conjunct. A
+/// construct below a `let` whose test would read a name the `let` binds by a pattern is not
+/// shown: no condition of the sentence reads that name. `kequal::ite`, `&&` and `||` are
+/// operations like any other here: each keeps the definedness of every operand, evaluated or not.
+pub fn without_value(
+    result: &SemanticTerm,
+    facts: &[&SemanticTerm],
+    sorts: &Sorts,
+    visit: &mut dyn FnMut(&SemanticTerm, NotShown<'_, '_>),
+    apply: &mut dyn FnMut(&SemanticTerm, &StableItemId),
+) {
+    ResultWalk {
+        sorts,
+        facts,
+        visit,
+        apply,
+    }
+    .term(result, true, &BTreeSet::new());
+}
+
+struct ResultWalk<'s, 'f, 'v> {
+    sorts: &'s Sorts,
+    facts: &'f [&'f SemanticTerm],
+    visit: &'v mut dyn FnMut(&SemanticTerm, NotShown<'_, '_>),
+    apply: &'v mut dyn FnMut(&SemanticTerm, &StableItemId),
+}
+
+impl ResultWalk<'_, '_, '_> {
+    fn term(&mut self, term: &SemanticTerm, projected: bool, bound: &BTreeSet<SemanticId>) {
+        if let Some((name, value, body)) = name_binding(term, self.sorts) {
+            self.term(value, true, bound);
+            let body = substituted(body, name, value);
+            self.term(&body, true, bound);
+            return;
+        }
+        match term.kind() {
+            IrTermKind::Let {
+                value, body, binds, ..
+            } => {
+                self.term(value, true, bound);
+                let mut inner = bound.clone();
+                inner.extend(binds.iter().cloned());
+                self.term(body, true, &inner);
+            }
+            // The pattern is matched, not evaluated.
+            IrTermKind::Matches { subject, .. } => self.term(subject, true, bound),
+            _ => {
+                let generated = is_generated(term);
+                for child in term.children() {
+                    self.term(child, !generated, bound);
+                }
+            }
+        }
+        for requirement in requirements(term, projected, self.sorts) {
+            if reads_any(&requirement, bound) || !requirement.established_by(self.facts, self.sorts)
+            {
+                (self.visit)(term, NotShown::Requirement(&requirement));
+            }
+        }
+        if let Some(why) = untested(term) {
+            (self.visit)(term, NotShown::Untested(why));
+        }
+        if let IrTermKind::Application {
+            application: ApplicationRef::Declared(production),
+            ..
+        } = term.kind()
+        {
+            (self.apply)(term, production);
+        }
+    }
+}
+
+/// Why the operation at `term`'s root is partial with no test a condition states, when it is.
+fn untested(term: &SemanticTerm) -> Option<&'static str> {
+    let domain = match term.kind() {
+        IrTermKind::Application {
+            application: ApplicationRef::Builtin(operation),
+            ..
+        } => operation.domain(),
+        IrTermKind::Map(operands) => operands.operation().domain(),
+        IrTermKind::List(operands) => operands.operation().domain(),
+        IrTermKind::Set(operands) => operands.operation().domain(),
+        _ => return None,
+    };
+    match domain {
+        OperationDomain::Untested(why) => Some(why),
+        OperationDomain::Total | OperationDomain::Where(_) => None,
     }
 }
 

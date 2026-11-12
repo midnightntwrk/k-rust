@@ -601,6 +601,17 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending statement or name.
         range: Option<Box<SourceRange>>,
     },
+    /// A function declared `total` has an equation whose result KRS cannot
+    /// show to have a value wherever the equation applies: `total` and the
+    /// equation would contradict each other there.
+    TotalWithoutValue {
+        /// The function.
+        item: Box<StableItemId>,
+        /// Stable reason.
+        reason: String,
+        /// Sole exact authored range of the construct or the call.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `let` block or `k::matches!` in a claim written in an author spec
     /// module (NT-15-1): the function KRS lifts it into would be a syntax
     /// declaration in a proof module, which no prover takes.
@@ -1296,6 +1307,11 @@ macro_rules! by_subject_slots {
                 item: $named_item,
                 ..
             }
+            | DescriptorLoweringError::TotalWithoutValue {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::MlPlacement {
                 range: $named_range,
                 item: $named_item,
@@ -1915,6 +1931,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::OpenRecordOutsidePattern { reason, .. }
             | Self::SubjectRootNotFunction { reason, .. }
             | Self::InvalidLet { reason, .. }
+            | Self::TotalWithoutValue { reason, .. }
             | Self::MlPlacement { reason, .. }
             | Self::LocalFunctionInProofModule { reason, .. }
             | Self::LocalFunctionInPattern { reason, .. }
@@ -2033,6 +2050,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             }
             Self::SubjectRootNotFunction { .. } => codes::analysis::SUBJECT_ROOT_NOT_FUNCTION,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
+            Self::TotalWithoutValue { .. } => codes::analysis::TOTAL_WITHOUT_VALUE,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
             Self::LocalFunctionInProofModule { matches: true, .. }
             | Self::LocalFunctionInPattern { matches: true, .. } => {

@@ -1,10 +1,11 @@
 //! Coverage of `total` functions: `warning[krs::analysis::uncovered-total-function]`.
 //!
-//! `total` claims that a function has a value on every argument. The claim is
-//! trusted, not proved: where no equation applies, the function still has a
-//! value, but the definition does not say which. This lint finds those
-//! arguments. It is a statement about under-specification, never about
-//! soundness, so it warns.
+//! `total` states that a function has a value on every argument. Where no
+//! equation applies, the function still has a value, but the definition does
+//! not say which. This lint finds those arguments. A missing equation leaves
+//! the theory consistent and a value unnamed, so the lint warns. An equation
+//! that applies and whose result has no value is another matter, a
+//! contradiction of `total`, which `semantic::total_values` refuses.
 //!
 //! The values of a sort are its ground constructor terms, the values of its
 //! subsorts, and the domain values of builtin sorts; they are known only for
@@ -641,7 +642,7 @@ pub(crate) fn display_name(id: &StableItemId) -> String {
     }
 }
 
-fn sort_name(sort: &Sort) -> String {
+pub(crate) fn sort_name(sort: &Sort) -> String {
     match sort {
         Sort::Builtin(builtin) => builtin.k_name().to_owned(),
         Sort::Declared(id) | Sort::Cell(id) => id.item_name().to_owned(),

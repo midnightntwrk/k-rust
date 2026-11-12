@@ -53,6 +53,7 @@ mod subject_roots;
 mod subjects;
 mod token_collisions;
 mod tokens;
+mod total_values;
 mod visibility;
 
 pub use error::{
@@ -521,6 +522,7 @@ fn lower_bundle(
     let pre_derivation = if retain { modules.clone() } else { Vec::new() };
     let modules = local_functions::lift_local_functions(modules)?;
     let modules = definedness::guard_conditions(modules)?;
+    total_values::check_total_values(&modules)?;
     // A package's items are named by its library's crate name, which the bundle records where
     // it is not the package's default.
     let theory = checked_theory(modules)?
