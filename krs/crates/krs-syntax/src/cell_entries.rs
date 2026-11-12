@@ -718,12 +718,11 @@ pub fn spelling_at<'s>(spelling: &'s EntrySpelling, at: &[usize]) -> Option<&'s 
 }
 
 /// The subject's other side of the spelling at `at` ([`Located::at`]) inside `result`, the
-/// result entry of a cell of the layers `stack` whose subject entry is `subject`, paired as the
-/// pairing step pairs them ([`pair_records`]): a `Some(..)` against the subject's `Some(..)`, a
-/// group record's child against the subject record's same child, an instance record against the
-/// subject instance it is by its collection's identity ([`instance_twins`]), else the instance
-/// its update labels. `None` where `at` leads to a spelling with no subject side: a child the
-/// subject's record does not name, a created instance, a path inside a child's own content.
+/// result entry of a cell of the layers `stack` whose subject entry is `subject`, as the pairing
+/// step pairs them: the one walk [`pair_walk`]. `at` leads to the entry itself, to a child's
+/// content (a nested cell's entry, [`nested_cell`]), or to an instance record. `None` where that
+/// spelling has no subject side: a child the subject's record does not name, a created instance or
+/// one of its children, a path that leads to no pairing (inside a child's own content).
 #[must_use]
 pub fn paired_subject<'s>(
     stack: &[Layer],
@@ -731,63 +730,39 @@ pub fn paired_subject<'s>(
     result: &EntrySpelling,
     at: &[usize],
 ) -> Option<&'s EntrySpelling> {
-    let Some((&step, below)) = at.split_first() else {
-        return Some(subject);
-    };
-    match (stack, result) {
-        (_, EntrySpelling::Alias(_, inner)) if step == 0 => {
-            paired_subject(stack, unaliased(subject), inner, below)
-        }
-        ([Layer::Optional, rest @ ..], EntrySpelling::Present(content)) if step == 0 => {
-            let Other::Matched(subject) = Other::Matched(subject).present() else {
-                return None;
-            };
-            paired_subject(rest, subject, content, below)
-        }
-        ([Layer::Group(group), ..], _) => {
-            let (name, value) = record_of(result, group)?.fields.get(step)?;
-            let kind = group.child(name)?;
-            let Other::Matched(subject) = Other::Matched(subject).child(group, name) else {
-                return None;
-            };
-            paired_subject(&kind.layers, subject, value, below)
-        }
-        ([Layer::Instances(order), Layer::Group(group), ..], _) => {
-            let item = sequence(result)?.items.get(step)?;
-            let record = record_of(item, group)?;
-            let twin = instance_twins(*order, group, subject, result)
-                .into_iter()
-                .find(|(_, at)| *at == step)
-                .map(|(twin, _)| unaliased(twin))
-                .or_else(|| match &record.tail {
-                    RecordTail::Update(label) => sequence(unaliased(subject))?
-                        .items
-                        .iter()
-                        .find_map(|instance| match instance {
-                            EntrySpelling::Alias(name, instance) if name == label => {
-                                Some(&**instance)
-                            }
-                            _ => None,
-                        }),
-                    _ => None,
-                })?;
-            let below = match (item, below.split_first()) {
-                (EntrySpelling::Alias(..), Some((0, below))) => below,
-                (EntrySpelling::Alias(..), _) => return None,
-                _ => below,
-            };
-            let Some((&field, below)) = below.split_first() else {
-                return Some(twin);
-            };
-            let (name, value) = record.fields.get(field)?;
-            let kind = group.child(name)?;
-            let Other::Matched(subject) = Other::Matched(twin).child(group, name) else {
-                return None;
-            };
-            paired_subject(&kind.layers, subject, value, below)
-        }
-        _ => None,
+    /// Walks the pairing of `result` against `other` down to `at`: stops with the other side
+    /// met there.
+    fn find<'s>(
+        stack: &[Layer],
+        result: &EntrySpelling,
+        other: Other<'s>,
+        at: &[usize],
+        path: &mut Vec<usize>,
+    ) -> Result<(), Option<&'s EntrySpelling>> {
+        let matched = |other: Option<Other<'s>>| match other {
+            Some(Other::Matched(subject)) => Some(subject),
+            _ => None,
+        };
+        pair_walk(stack, result, other, &|_| None, path, &mut |met, path| {
+            if !at.starts_with(path) {
+                return Ok(());
+            }
+            match met {
+                Met::Instance { other, .. } if path.len() == at.len() => Err(matched(other)),
+                Met::Child { other, .. } if path.len() == at.len() => Err(matched(Some(other))),
+                Met::Child {
+                    layers,
+                    value,
+                    other,
+                } => find(layers, value, other, at, path),
+                Met::Instance { .. } | Met::Paired { .. } => Ok(()),
+            }
+        })
     }
+    if at.is_empty() {
+        return Some(subject);
+    }
+    find(stack, result, Other::Matched(subject), at, &mut Vec::new()).err()?
 }
 
 /// The innermost cell whose entry holds the spelling at `at` ([`Located::at`]) inside the entry
@@ -2136,28 +2111,101 @@ fn pair_records(
     bound: &dyn Fn(&str) -> Option<Bound>,
     path: &mut Vec<usize>,
 ) -> Result<(), Refusal> {
-    let fields =
-        |group: &GroupKind, record: &EntryRecord, other: Other<'_>, path: &mut Vec<usize>| {
-            for (step, (name, value)) in record.fields.iter().enumerate() {
-                if let Some(kind) = group.child(name) {
-                    path.push(step);
-                    pair_content(
-                        form,
-                        &kind.layers,
-                        value,
-                        other.child(group, name),
-                        bound,
-                        path,
-                    )?;
-                    path.pop();
+    pair_walk(
+        stack,
+        spelling,
+        other,
+        bound,
+        path,
+        &mut |met, path| match met {
+            Met::Instance {
+                order,
+                group,
+                record,
+                other,
+            } => {
+                let other = other.ok_or(Refusal::RecordUpdateBase)?;
+                if !keyed(order, group, record) {
+                    return Err(Refusal::MapCollectionKey);
                 }
+                kept_child_rest(group, record, other, path)
             }
-            Ok(())
-        };
+            Met::Child {
+                layers,
+                value,
+                other,
+            } => pair_content(form, layers, value, other, bound, path),
+            // An instance update whose other side is a created instance updates no subject instance.
+            Met::Paired {
+                record,
+                other,
+                instance,
+            } if form == EntryForm::Cells
+                && matches!(record.tail, RecordTail::Update(_))
+                && (!instance || other == Other::Created) =>
+            {
+                Err(Refusal::RecordRemainderInCellsTerm)
+            }
+            Met::Paired { .. } => Ok(()),
+        },
+    )
+}
+
+/// What the pairing walk ([`pair_walk`]) meets below a result's content, at the path it then
+/// stands at.
+enum Met<'r, 's> {
+    /// An instance record of `group`, in a collection ordered by `order`, before its children:
+    /// the subject instance it is by its collection's identity, else the instance its update
+    /// names, else a created instance ([`Other::instance`]); `None` where it has none, an update
+    /// with no base, whose children the walk then does not pair.
+    Instance {
+        order: Order,
+        group: &'r GroupKind,
+        record: &'r EntryRecord,
+        other: Option<Other<'s>>,
+    },
+    /// The content `value`, of the layers `layers`, of a child of a record the result writes,
+    /// against its other side. What the child's content writes is the caller's to walk, from
+    /// here.
+    Child {
+        layers: &'r [Layer],
+        value: &'r EntrySpelling,
+        other: Other<'s>,
+    },
+    /// A group record (`instance` false) or an instance record once its children are met, against
+    /// its other side.
+    Paired {
+        record: &'r EntryRecord,
+        other: Other<'s>,
+        instance: bool,
+    },
+}
+
+/// The one pairing of a result's content `spelling`, on `stack`, with its other side `other`:
+/// below a `?` cell's `Some(..)`, what the subject's `Some(..)` holds ([`Other::present`]); a
+/// group record's children, each against the other side's same child ([`Other::child`]); an
+/// instance record against the subject instance it is ([`instance_twins`]), else the instance its
+/// update names ([`Other::instance`]), and its children against that instance's. An update that
+/// moves its labelled instance to a key not provably its own ([`moves`]) builds a created
+/// instance: each child it writes whole is a new value with no other side, and a child written
+/// with a rest keeps one of the labelled instance's same child, the rest it would keep, so it is
+/// paired against that child. Each pairing is handed to `visit` at its path in `path` (as
+/// [`Located::at`]), in reading order; a `visit` that stops ends the walk, leaving `path` there.
+///
+/// Both the pairing step ([`pair_records`]) and the subject twin of a refused child
+/// ([`paired_subject`]) walk this one relation.
+fn pair_walk<'r, 's, E>(
+    stack: &'r [Layer],
+    spelling: &'r EntrySpelling,
+    other: Other<'s>,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+    path: &mut Vec<usize>,
+    visit: &mut Visit<'_, 'r, 's, E>,
+) -> Result<(), E> {
     match (stack, spelling) {
         ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
             path.push(0);
-            pair_records(form, below, content, other.present(), bound, path)?;
+            pair_walk(below, content, other.present(), bound, path, visit)?;
             path.pop();
             Ok(())
         }
@@ -2169,68 +2217,125 @@ fn pair_records(
             if aliased {
                 path.push(0);
             }
-            fields(group, record, other, path)?;
-            if form == EntryForm::Cells && matches!(record.tail, RecordTail::Update(_)) {
-                return Err(Refusal::RecordRemainderInCellsTerm);
-            }
+            pair_children(
+                group,
+                record,
+                &|name, _| other.child(group, name),
+                path,
+                visit,
+            )?;
+            visit(
+                Met::Paired {
+                    record,
+                    other,
+                    instance: false,
+                },
+                path,
+            )?;
             if aliased {
                 path.pop();
             }
             Ok(())
         }
         ([Layer::Instances(order), Layer::Group(group), ..], _) => {
-            let items = sequence(spelling).map_or(&[][..], |seq| &seq.items[..]);
-            let twins = match other {
-                Other::Matched(subject) => instance_twins(*order, group, subject, spelling),
-                Other::Unmatched | Other::Created => Vec::new(),
-            };
-            for (step, item) in items.iter().enumerate() {
-                let Some(record) = record_of(item, group) else {
-                    continue;
-                };
-                path.push(step);
-                if matches!(item, EntrySpelling::Alias(..)) {
-                    path.push(0);
-                }
-                // The subject instance the record is, by its collection's identity, else the
-                // instance its update names, else none: a created instance.
-                let twin = twins
-                    .iter()
-                    .find(|(_, at)| *at == step)
-                    .map(|(subject, _)| Other::Matched(unaliased(subject)));
-                let other = match twin {
-                    Some(twin) => twin,
-                    None => other
-                        .instance(record, bound)
-                        .ok_or(Refusal::RecordUpdateBase)?,
-                };
-                if !keyed(*order, group, record) {
-                    return Err(Refusal::MapCollectionKey);
-                }
-                kept_child_rest(group, record, other, path)?;
-                // An update that moves its labelled instance to a key not provably its own is a
-                // created instance, whose children are paired as one's ([`pair_moved`]).
-                if moves(*order, group, other, record) {
-                    pair_moved(form, group, record, other, bound, path)?;
-                } else {
-                    fields(group, record, other, path)?;
-                }
-                // An update whose other side is a created instance updates no subject instance.
-                if form == EntryForm::Cells
-                    && matches!(record.tail, RecordTail::Update(_))
-                    && other == Other::Created
-                {
-                    return Err(Refusal::RecordRemainderInCellsTerm);
-                }
-                if matches!(item, EntrySpelling::Alias(..)) {
-                    path.pop();
-                }
-                path.pop();
-            }
-            Ok(())
+            pair_instances(*order, group, spelling, other, bound, path, visit)
         }
         _ => Ok(()),
     }
+}
+
+/// What [`pair_walk`] hands each pairing to.
+type Visit<'v, 'r, 's, E> = dyn FnMut(Met<'r, 's>, &mut Vec<usize>) -> Result<(), E> + 'v;
+
+/// [`pair_walk`] over the instance records of a collection of `group`'s instances ordered by
+/// `order`, whose result list is `spelling` and other side `other`.
+fn pair_instances<'r, 's, E>(
+    order: Order,
+    group: &'r GroupKind,
+    spelling: &'r EntrySpelling,
+    other: Other<'s>,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+    path: &mut Vec<usize>,
+    visit: &mut Visit<'_, 'r, 's, E>,
+) -> Result<(), E> {
+    let items = sequence(spelling).map_or(&[][..], |seq| &seq.items[..]);
+    let twins = match other {
+        Other::Matched(subject) => instance_twins(order, group, subject, spelling),
+        Other::Unmatched | Other::Created => Vec::new(),
+    };
+    for (step, item) in items.iter().enumerate() {
+        let Some(record) = record_of(item, group) else {
+            continue;
+        };
+        path.push(step);
+        if matches!(item, EntrySpelling::Alias(..)) {
+            path.push(0);
+        }
+        let instance = twins
+            .iter()
+            .find(|(_, at)| *at == step)
+            .map(|(subject, _)| Other::Matched(unaliased(subject)))
+            .or_else(|| other.instance(record, bound));
+        visit(
+            Met::Instance {
+                order,
+                group,
+                record,
+                other: instance,
+            },
+            path,
+        )?;
+        if let Some(instance) = instance {
+            let moved = moves(order, group, instance, record);
+            let side = |name: &str, value: &EntrySpelling| {
+                if moved && root(value) == Root::Other {
+                    Other::Created
+                } else {
+                    instance.child(group, name)
+                }
+            };
+            pair_children(group, record, &side, path, visit)?;
+            visit(
+                Met::Paired {
+                    record,
+                    other: instance,
+                    instance: true,
+                },
+                path,
+            )?;
+        }
+        if matches!(item, EntrySpelling::Alias(..)) {
+            path.pop();
+        }
+        path.pop();
+    }
+    Ok(())
+}
+
+/// Hands `visit` each child `record` writes of `group`, at its step, against the other side
+/// `side` gives it from its name and value.
+fn pair_children<'r, 's, E>(
+    group: &'r GroupKind,
+    record: &'r EntryRecord,
+    side: &dyn Fn(&str, &EntrySpelling) -> Other<'s>,
+    path: &mut Vec<usize>,
+    visit: &mut Visit<'_, 'r, 's, E>,
+) -> Result<(), E> {
+    for (step, (name, value)) in record.fields.iter().enumerate() {
+        if let Some(kind) = group.child(name) {
+            path.push(step);
+            visit(
+                Met::Child {
+                    layers: &kind.layers,
+                    value,
+                    other: side(name, value),
+                },
+                path,
+            )?;
+            path.pop();
+        }
+    }
+    Ok(())
 }
 
 /// The refusal at the first child of `record`, a result instance record of `group` whose other
@@ -2289,34 +2394,6 @@ fn moves(order: Order, group: &GroupKind, other: Other<'_>, record: &EntryRecord
             record_field(record, key).map(key_spelling).as_ref(),
             matched.map(key_spelling).as_ref(),
         )
-}
-
-/// Pairs the children of `record`, a result instance record of `group` that moves the instance
-/// `labelled` to a key not provably its own ([`moved_label`]), as a created instance's: each child
-/// it writes whole is a new value with no other side. A child written with a rest keeps one of the
-/// labelled instance's same child, which a created instance does not write yet (the lowering's
-/// stated limit), so it is paired against that child, as the rest it would keep.
-fn pair_moved(
-    form: EntryForm,
-    group: &GroupKind,
-    record: &EntryRecord,
-    labelled: Other<'_>,
-    bound: &dyn Fn(&str) -> Option<Bound>,
-    path: &mut Vec<usize>,
-) -> Result<(), Refusal> {
-    for (step, (name, value)) in record.fields.iter().enumerate() {
-        if let Some(kind) = group.child(name) {
-            let side = if root(value) == Root::Other {
-                Other::Created
-            } else {
-                labelled.child(group, name)
-            };
-            path.push(step);
-            pair_content(form, &kind.layers, value, side, bound, path)?;
-            path.pop();
-        }
-    }
-    Ok(())
 }
 
 /// Where `subject`, a subject's content on `stack`, tests a `?` child absent (`None`, inside a
