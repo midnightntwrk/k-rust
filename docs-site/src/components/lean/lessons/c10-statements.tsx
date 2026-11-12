@@ -5,7 +5,7 @@
 // listing `Step`'s successors lists. The theorems `sound` and `complete`, and what a reader trusts
 // once lessons 1 to 10 are understood. Every Lean pane is kcore-spec's text at the manifest's commit.
 
-import { type Source, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
+import { checked, checkedLabel, coreCommit, coreFile, lineOf, slice, type Source, span } from '../data'
 import { type Lesson, note } from '../lesson'
 import { Board } from '../viz'
 
@@ -17,17 +17,8 @@ const stmts = coreFile('KcoreSpec/Statements.lean')
 const stepIsDef = slice(stmts, '/-- The step relation\'s successors, as a step function', '∀ (x : Config c) (y : GroundTerm), y ∈ ref x.val ↔')
 const peanoSound = slice(coreFile('examples/peano/Peano/Sound.lean'), 'theorem sound : Sound defn', 'theorem sound : Sound defn')
 
-const workedSound = textSource('worked by hand', [
-  "-- the prologue's first step is a Step (lesson 6), so Sound gives",
-  'Γ ⊧ ⟦run(s(s(z)))⟧ ⇒ •⟦run(s(z))⟧          -- cells left out',
-].join('\n'))
-const workedComplete = textSource('worked by hand', [
-  '-- ref lists no successor of done(z) (lesson 6), so Complete gives',
-  'Γ ∪ Γstep ⊧ ⟦done(z)⟧ ⇒ ◦⊥                 -- no model gives it one',
-  '',
-  '-- and one, run(s(z)), for run(s(s(z)))',
-  'Γ ∪ Γstep ⊧ ⟦run(s(s(z)))⟧ ⇒ ◦⟦run(s(z))⟧',
-].join('\n'))
+const workedSound = checked('sound')
+const workedComplete = checked('complete')
 
 const trusted = [
   {
@@ -63,7 +54,7 @@ export const statements10: Lesson = {
       title: 'Sound',
       panes: [
         { id: 's', label: 'KcoreSpec/Sound.lean', source: sound, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedSound, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedSound), source: workedSound, lang: 'lean' },
       ],
       frames: [
         {
@@ -76,7 +67,7 @@ export const statements10: Lesson = {
           notes: [note('s', at(sound, '(∃ (M : Type)'), 'The theory, with the step\'s closure, has a model, so it is consistent.', 'I ⊧ᴵP (Γ d.sem ∪ Γstep d.sem)')],
         },
         {
-          hl: { s: [at(sound, '∀ x y : Config d.sem, Step d.sem x y →')], w: span(workedSound, '-- the prologue', 'Γ ⊧') },
+          hl: { s: [at(sound, '∀ x y : Config d.sem, Step d.sem x y →')], w: span(workedSound, '-- runSSZ', 'sound_runSSZ') },
           notes: [note('s', at(sound, '∀ x y : Config d.sem, Step d.sem x y →'), 'Every step is a theorem of Γ: in every model, `x` has `y` as a successor.', 'Step d.sem x y')],
         },
       ],
@@ -104,15 +95,16 @@ export const statements10: Lesson = {
       title: 'On peano',
       panes: [
         { id: 'c', label: 'KcoreSpec/Sound.lean', source: complete, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedComplete, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedComplete), source: workedComplete, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { w: span(workedComplete, '-- ref lists no successor', 'Γ ∪ Γstep ⊧ ⟦done(z)⟧') },
-          notes: [note('w', at(workedComplete, 'Γ ∪ Γstep ⊧ ⟦done(z)⟧'), "The prologue's stuck configuration, as a theorem about every model.", '◦⊥')],
+          hl: { w: span(workedComplete, '-- doneZ', 'complete_doneZ\'') },
+          notes: [note('w', at(workedComplete, 'KoreAML.allNext ⊥'), "The prologue's stuck configuration, as a theorem about every model.", 'allNext ⊥')],
+          say: 'These are `complete_doneZ` and `complete_runSSZ`, whose empty and one-element disjunctions are read here as `⊥` and as their element.',
         },
         {
-          hl: { w: span(workedComplete, '-- and one, run(s(z))', 'Γ ∪ Γstep ⊧ ⟦run(s(s(z)))⟧') },
+          hl: { w: span(workedComplete, '-- runSSZ', 'complete_runSSZ\'') },
           say: 'With `Sound`, the prologue\'s run is exactly what the theory says: these steps, and no others.',
         },
       ],
@@ -169,6 +161,6 @@ export const statements10: Lesson = {
   ],
   checked: [
     `Every Lean pane is kcore-spec's text at \`${coreCommit}\`.`,
-    '`sound` and `complete` are proved; Lean\'s kernel checks the proofs. The theorems about peano are worked by hand from them.',
+    '`sound` and `complete` are proved; Lean\'s kernel checks the proofs. The instances for peano are theorems of its package, which the kernel checks too.',
   ],
 }

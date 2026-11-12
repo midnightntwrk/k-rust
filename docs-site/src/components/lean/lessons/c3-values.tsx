@@ -28,7 +28,7 @@ export const values3: Lesson = {
       title: 'The sort of a tree',
       panes: [
         { id: 'v', label: 'KcoreSpec/Value.lean', source: sortOf, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedCtor, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedCtor), source: workedCtor, lang: 'lean' },
       ],
       frames: [
         {
@@ -47,7 +47,7 @@ export const values3: Lesson = {
       title: 'Injections',
       panes: [
         { id: 'v', label: 'KcoreSpec/Value.lean', source: sortOf, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedInj, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedInj), source: workedInj, lang: 'lean' },
       ],
       frames: [
         {
@@ -85,7 +85,7 @@ export const values3: Lesson = {
       title: 'Configurations',
       panes: [
         { id: 'c', label: 'KcoreSpec/Value.lean', source: configDef, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedConfig, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedConfig), source: workedConfig, lang: 'lean' },
       ],
       frames: [
         {
@@ -119,6 +119,6 @@ export const values3: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`.`,
-    `The panes headed “${checkedLabel}” state each sort in Lean; Lean's kernel computed them from peano's package.`,
+    `The panes headed “Checked by Lean” state each sort in Lean; Lean's kernel computed them from peano's package.`,
   ],
 }

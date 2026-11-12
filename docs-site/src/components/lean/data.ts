@@ -212,13 +212,14 @@ export function coreFile(path: string): Source {
 // derived by hand, each proved by a theorem of an example package or by the kernel; written by
 // docs-gen/lean_checks.py, which fails unless every file checks.
 
-const checks = checksRaw as { commit: string; panes: Record<string, string> }
+const checks = checksRaw as { panes: Record<string, { at: string; text: string }> }
 
-export const checkedLabel = `Checked by Lean at ${checks.commit}`
-
-/** A pane of Lean facts that checked, numbered from 1. */
+/** A pane of Lean facts that checked, numbered from 1; its file names the commit it checked at. */
 export function checked(name: string): Source {
-  const text = checks.panes[name]
-  if (text === undefined) throw new Error(`lean lessons: no checked pane ${name}`)
-  return textSource('checked by Lean', text)
+  const found = checks.panes[name]
+  if (found === undefined) throw new Error(`lean lessons: no checked pane ${name}`)
+  return textSource(`checked by Lean at ${found.at}`, found.text)
 }
+
+/** The label of a checked pane: "Checked by Lean at <commit>". */
+export const checkedLabel = (src: Source) => src.file.charAt(0).toUpperCase() + src.file.slice(1)

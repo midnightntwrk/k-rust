@@ -4,9 +4,9 @@
 // every clause of a smaller priority fails; no result where every clause fails; the order of
 // clauses means nothing; `[owise]` is priority 200. Then `EvalTerm`, a right-hand side's value.
 // Every Lean pane is kcore-spec's text at the manifest's commit, as is fprio.k; the results shown
-// are worked by hand from those definitions.
+// are theorems of the example packages, checked by Lean (docs-gen/lean_checks.py).
 
-import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, peanoK, slice, span, textSource } from '../data'
+import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, peanoK, slice, span } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const ev = coreFile('KcoreSpec/Evaluation.lean')
@@ -19,13 +19,7 @@ const k = peanoK
 const workedPred = checked('predEval')
 const workedPr = checked('fprioEval')
 
-const workedRhs = textSource('worked by hand', [
-  "-- the k cell of the first rule's right side, run(pred(V)), under",
-  '--   σ = [N ↦ s(z), V ↦ s(s(z)), 2 ↦ the counter cell]',
-  'EvalTerm c σ (.var 1) (some s(s(z)))                  -- var: V',
-  'EvalTerm c σ (.app pred [.var 1]) (some s(z))         -- call: Eval c pred [s(s(z))] (some s(z))',
-  'EvalTerm c σ (.app run [.app pred [.var 1]]) (some run(s(z)))   -- ctor',
-].join('\n'))
+const workedRhs = checked('rhs')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 
@@ -55,7 +49,7 @@ export const evaluation5: Lesson = {
       title: 'A clause decides',
       panes: [
         { id: 'e', label: 'KcoreSpec/Evaluation.lean', source: evalDef, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedPred, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedPred), source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -81,7 +75,7 @@ export const evaluation5: Lesson = {
       title: '[owise] is priority 200',
       panes: [
         { id: 'f', label: 'KcoreSpec/Evaluation.lean', source: fails, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedPred, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedPred), source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -108,7 +102,7 @@ export const evaluation5: Lesson = {
       title: 'Priorities in fprio',
       panes: [
         { id: 'k', label: 'fprio.k', source: fprioK, lang: 'k' },
-        { id: 'w', label: checkedLabel, source: workedPr, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedPr), source: workedPr, lang: 'lean' },
       ],
       frames: [
         {
@@ -126,7 +120,7 @@ export const evaluation5: Lesson = {
       title: 'No result where every clause fails',
       panes: [
         { id: 'e', label: 'KcoreSpec/Evaluation.lean', source: evalDef, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedPr, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedPr), source: workedPr, lang: 'lean' },
       ],
       frames: [
         {
@@ -141,15 +135,15 @@ export const evaluation5: Lesson = {
       title: 'The value of a right-hand side',
       panes: [
         { id: 't', label: 'KcoreSpec/Evaluation.lean', source: evalTerm, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedRhs, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedRhs), source: workedRhs, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { t: [at(evalTerm, 'inductive EvalTerm'), at(evalTerm, '| var {σ'), ...span(evalTerm, '| ctor {σ', 'EvalTerm c σ (.app f ts) ((allSome rs).map (.ctor f))')], w: [at(workedRhs, 'EvalTerm c σ (.var 1)'), at(workedRhs, 'EvalTerm c σ (.app run')] },
+          hl: { t: [at(evalTerm, 'inductive EvalTerm'), at(evalTerm, '| var {σ'), ...span(evalTerm, '| ctor {σ', 'EvalTerm c σ (.app f ts) ((allSome rs).map (.ctor f))')], w: span(workedRhs, 'example : EvalTerm c σ₁', 'eval_rhs_runSSZ') },
           notes: [note('t', at(evalTerm, '| var {σ'), 'A variable has the value σ gives it.', 'σ.lookup i'), note('t', at(evalTerm, 'EvalTerm c σ (.app f ts) ((allSome rs).map (.ctor f))'), 'A constructor builds its term, undefined if an argument is.', 'allSome rs')],
         },
         {
-          hl: { t: span(evalTerm, '| call {σ', 'EvalTerm c σ (.app f ts) r', at(evalTerm, '| call {σ') - 1), w: span(workedRhs, 'EvalTerm c σ (.app pred', 'EvalTerm c σ (.app run') },
+          hl: { t: span(evalTerm, '| call {σ', 'EvalTerm c σ (.app f ts) r', at(evalTerm, '| call {σ') - 1), w: [at(workedRhs, '(.app Sym.«run» [.app Sym.«pred» [.var 1]])'), at(workedRhs, 'some (cfg (run (s z))')] },
           notes: [note('t', at(evalTerm, '(hvs : allSome rs = some vs) (hf : Eval c f vs r)'), 'A function is called on its arguments\' values, by `Eval`.', 'Eval c f vs r')],
           say: "So the first rule's right-hand side has the value `run(s(z))`: `pred` is evaluated within the step, as the prologue's run showed.",
         },
@@ -198,7 +192,6 @@ export const evaluation5: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so is \`fprio.k\`.`,
-    `The panes headed “${checkedLabel}” state results in Lean, each proved by a theorem of peano's or fprio's package.`,
-    'The value of the right-hand side in “Worked by hand” is derived from `EvalTerm`. Lean did not compute it.',
+    `The panes headed “Checked by Lean” state results in Lean, each proved by a theorem of peano's or fprio's package.`,
   ],
 }

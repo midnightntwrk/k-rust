@@ -2,11 +2,9 @@
 
 // Core lesson 1: terms. What a configuration is in Lean: ground terms, terms with variables,
 // sorts and symbols as numbers, substitutions. Every Lean pane is kcore-spec's text at the
-// manifest's commit; the ground terms are checked by Lean (docs-gen/lean_checks.py), the other
-// worked panes derived by hand from it and from peano's Names.lean,
-// with the numbers read from those files so a renumbering fails the build.
+// manifest's commit; the worked panes are facts checked by Lean (docs-gen/lean_checks.py).
 
-import { type Ground, checked, checkedLabel, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
+import { type Ground, checked, checkedLabel, coreCommit, coreFile, lineOf, slice, span } from '../data'
 import { type Lesson, note } from '../lesson'
 import { Svg, Tree, groundTree } from '../viz'
 
@@ -33,10 +31,7 @@ const state = srt('State')
 
 const worked = checked('terms')
 const workedTerm = checked('rule0')
-const workedSubst = textSource('worked by hand', [
-  "-- run(s(s(z))) against the rule's run(s(N) #as V): N is s(z), V is s(s(z))",
-  `[(0, .ctor ${s} [.ctor ${z} []]), (1, .ctor ${s} [.ctor ${s} [.ctor ${z} []]])]`,
-].join('\n'))
+const workedSubst = checked('subst')
 
 // The prologue's starting configuration, as krust printed it at depth 0.
 const c = (ctor: string, ...args: Ground[]): Ground => ({ ctor, args })
@@ -96,7 +91,7 @@ export const terms1: Lesson = {
       title: 'Ground terms',
       panes: [
         { id: 'g', label: 'KcoreSpec/Core.lean', source: ground, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: worked, lang: 'lean' },
+        { id: 'w', label: checkedLabel(worked), source: worked, lang: 'lean' },
       ],
       frames: [
         {
@@ -124,7 +119,7 @@ export const terms1: Lesson = {
       title: 'Terms with variables',
       panes: [
         { id: 't', label: 'KcoreSpec/Core.lean', source: terms, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedTerm, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedTerm), source: workedTerm, lang: 'lean' },
       ],
       frames: [
         {
@@ -152,13 +147,13 @@ export const terms1: Lesson = {
       title: 'Substitutions',
       panes: [
         { id: 'e', label: 'KcoreSpec/Evaluation.lean', source: subst, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedSubst, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedSubst), source: workedSubst, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { e: [at(subst, 'abbrev Subst')], w: [at(workedSubst, '[(0,')] },
-          notes: [note('e', at(subst, 'abbrev Subst'), 'Variable numbers paired with ground terms.', 'List (Nat × GroundTerm)'), note('w', at(workedSubst, '[(0,'), '`N`, variable 0, is `s(z)`; `V`, variable 1, is `s(s(z))`.', '(0,')],
-          say: 'Matching `run(s(s(z)))` against the rule\'s `run(s(N) #as V)` gives `N` and `V` values: a substitution.',
+          hl: { e: [at(subst, 'abbrev Subst')], w: span(workedSubst, 'example : σ₁', '(2, ctr0)') },
+          notes: [note('e', at(subst, 'abbrev Subst'), 'Variable numbers paired with ground terms.', 'List (Nat × GroundTerm)'), note('w', at(workedSubst, 'example : σ₁'), '`N`, variable 0, is `s(z)`; `V`, variable 1, is `s(s(z))`; the counter cell, variable 2, is the counter at 0.', '(0,')],
+          say: 'Matching the configuration holding `run(s(s(z)))` against the first rule\'s left side gives `N`, `V` and the counter cell values: a substitution.',
         },
         { say: 'Lesson 4 says exactly when a pattern matches a ground term under a substitution. Before that, lesson 2 shows where the patterns come from: the definition itself, as a Lean value.' },
       ],
@@ -180,7 +175,6 @@ export const terms1: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`.`,
-    `The panes headed “${checkedLabel}” state their facts in Lean; Lean's kernel checked them against peano's package.`,
-    "The panes headed “Worked by hand” are derived from those definitions and from peano's numbers in `Names.lean`. Lean did not compute them.",
+    `The panes headed “Checked by Lean” state their facts in Lean; Lean's kernel checked them against peano's package.`,
   ],
 }

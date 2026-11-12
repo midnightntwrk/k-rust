@@ -4,7 +4,7 @@
 // signature, the constructors (no confusion, no junk), the domains, the collections, the function
 // equations in priority form with the closure axiom, and the rule axioms; the step's closure; and a
 // configuration's denotation. Every pane is kcore-spec's text at the manifest's commit; the axioms
-// shown for peano are worked by hand from it.
+// shown for peano are simplified renderings of it, by hand.
 
 import { type Source, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
 import { type Lesson, note } from '../lesson'
@@ -19,7 +19,7 @@ const rules = slice(faithful, '/-- A rule\'s axiom with its priority read:', 'de
 const closure = slice(faithful, '/-- The step\'s closure axiom,', 'def Γstep (c : Semantics)')
 const den = slice(coreFile('KcoreSpec/Statements.lean'), '/-- ⟦t⟧: the AML pattern of a ground value. -/', 'def den (c : Semantics)')
 
-const workedCons = textSource('worked by hand', [
+const workedCons = textSource('simplified, by hand', [
   "-- peano's Nat: its generators are z and s",
   'z ∈ ⟦Nat⟧                       -- Cons-Fun: z is an element of Nat',
   's(x) = s(y) → x = y            -- Cons-Inj',
@@ -27,7 +27,7 @@ const workedCons = textSource('worked by hand', [
   '⟦Nat⟧ ≡ μX. z ∨ s(X)            -- Cons-NoJunk: nothing but z, s(z), s(s(z)), …',
 ].join('\n'))
 
-const workedPred = textSource('worked by hand', [
+const workedPred = textSource('simplified, by hand', [
   '-- pred(s(N)) => N, priority 50: nothing of a smaller priority',
   'X ∈ s(N)                          → pred(X) = N',
   '',
@@ -38,7 +38,7 @@ const workedPred = textSource('worked by hand', [
   'y ∈ pred(X) → (∃N. X ∈ s(N) ∧ y ∈ N) ∨ (¬(∃N. X ∈ s(N)) ∧ y ∈ z)',
 ].join('\n'))
 
-const workedRule = textSource('worked by hand', [
+const workedRule = textSource('simplified, by hand', [
   '-- peano: rule <k> run(s(N)) => run(pred(s(N))) </k>, priority 50',
   '⟦lhs⟧ ∧ ⌈⟦rhs⟧⌉ → •⟦rhs⟧               -- no rule of a smaller priority',
   '',
@@ -71,7 +71,7 @@ export const theory9: Lesson = {
       title: 'The constructors',
       panes: [
         { id: 'n', label: 'KcoreSpec/Kore/Gamma.lean', source: noJunk, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedCons, lang: 'lean' },
+        { id: 'w', label: 'Simplified, by hand', source: workedCons, lang: 'lean' },
       ],
       frames: [
         {
@@ -108,7 +108,7 @@ export const theory9: Lesson = {
       title: 'The functions',
       panes: [
         { id: 'f', label: 'KcoreSpec/Faithful.lean', source: fns, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedPred, lang: 'lean' },
+        { id: 'w', label: 'Simplified, by hand', source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -131,7 +131,7 @@ export const theory9: Lesson = {
       title: 'The rules',
       panes: [
         { id: 'r', label: 'KcoreSpec/Faithful.lean', source: rules, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedRule, lang: 'lean' },
+        { id: 'w', label: 'Simplified, by hand', source: workedRule, lang: 'lean' },
       ],
       frames: [
         {
@@ -189,6 +189,6 @@ export const theory9: Lesson = {
   ],
   checked: [
     `Every pane is kcore-spec's text at \`${coreCommit}\`.`,
-    "The axioms shown for peano and prio are worked by hand from the definitions above, in simplified notation (sorts and guards left out). Lean did not compute them.",
+    "The panes headed “Simplified, by hand” render the axioms for peano and prio from the definitions above in simplified notation (sorts and guards left out). Lean did not compute them.",
   ],
 }

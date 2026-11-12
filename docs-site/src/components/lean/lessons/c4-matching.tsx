@@ -3,9 +3,9 @@
 // Core lesson 4: matching. `PatVal c σ p v`, the relation saying the pattern p denotes the value v
 // under σ, including map and list patterns; and well-sorted substitutions. Every Lean pane is
 // kcore-spec's text at the manifest's commit, as are kimp's KORE axiom and colls-list.k; the
-// matches shown are worked by hand from those definitions.
+// matches shown are theorems of the example packages, checked by Lean (docs-gen/lean_checks.py).
 
-import { type Source, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
+import { checked, checkedLabel, coreCommit, coreFile, lineOf, slice, type Source, span } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const ev = coreFile('KcoreSpec/Evaluation.lean')
@@ -14,25 +14,9 @@ const wellSorted = slice(ev, '/-- σ gives each variable of the list', 'c.sortOf
 const kimpVar = coreFile('examples/kimp/Kimp/definition.kore#CALC.var')
 const colls = coreFile('f2-examples/colls-list.k')
 
-const workedRun = textSource('worked by hand', [
-  "-- the k cell of peano's first rule, run(s(N) #as V), against run(s(s(z)))",
-  '-- (names for numbers, as in lesson 1)',
-  'σ = [(0, s(z)), (1, s(s(z)))]                    -- N is s(z), V is s(s(z))',
-  'PatVal c σ (.var 0) s(z)                          -- var: σ gives 0 the value s(z)',
-  'PatVal c σ (.app s [.var 0]) s(s(z))              -- ctor: s is a constructor',
-  'PatVal c σ (.as (.app s [.var 0]) 1) s(s(z))      -- as: and σ gives 1 the same value',
-  'PatVal c σ (.app run [.as (.app s [.var 0]) 1]) run(s(s(z)))   -- ctor',
-].join('\n'))
-const workedMap = textSource('worked by hand', [
-  '-- the env cell holds {x ↦ 1, y ↦ 2}',
-  '-- its pattern: _Map_(X |-> V, M)',
-  '',
-  'σ₁ = [X ↦ x, V ↦ 1, M ↦ {y ↦ 2}]     -- {x ↦ 1} joined with {y ↦ 2}',
-  'σ₂ = [X ↦ y, V ↦ 2, M ↦ {x ↦ 1}]     -- {y ↦ 2} joined with {x ↦ 1}',
-  '',
-  '-- the k cell holds x, and X there too:',
-  '-- only σ₁ matches the whole left side',
-].join('\n'))
+const workedRun = checked('match')
+const workedMap = checked('kimp')
+const workedList = checked('colls')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 const envFirst = at(kimpVar, "Lbl'-LT-'env'-GT-'")
@@ -49,7 +33,7 @@ export const matching4: Lesson = {
       title: 'Matching is a relation',
       panes: [
         { id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedRun, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedRun), source: workedRun, lang: 'lean' },
       ],
       frames: [
         {
@@ -58,7 +42,7 @@ export const matching4: Lesson = {
           say: 'Matching is not a program here. `PatVal` says when a match holds, so a pattern and a value may have several substitutions, or none.',
         },
         {
-          hl: { p: [at(patVal, '| var {i : Nat}'), ...span(patVal, '| ctor {f : Sym}', '(h : c.isCtor f = true)')], w: [at(workedRun, 'σ = ['), at(workedRun, 'PatVal c σ (.var 0)'), at(workedRun, 'PatVal c σ (.app s'), at(workedRun, 'PatVal c σ (.app run')] },
+          hl: { p: [at(patVal, '| var {i : Nat}'), ...span(patVal, '| ctor {f : Sym}', '(h : c.isCtor f = true)')], w: [at(workedRun, 'example : σ₁ ='), ...span(workedRun, 'example : PatVal c σ₁', '(cfg (run (s (s z))) ctr0)')] },
           notes: [
             note('p', at(patVal, '| var {i : Nat}'), 'A variable denotes the value σ gives it.', 'σ.lookup i = some v'),
             note('p', at(patVal, '(h : c.isCtor f = true)'), "A constructor denotes the constructor term of its arguments' values.", 'c.isCtor f = true'),
@@ -75,7 +59,7 @@ export const matching4: Lesson = {
       title: 'Injections and aliases',
       panes: [
         { id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedRun, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedRun), source: workedRun, lang: 'lean' },
       ],
       frames: [
         {
@@ -83,7 +67,7 @@ export const matching4: Lesson = {
           notes: [note('p', at(patVal, 'PatVal c σ (.inj a b p) (injNormal a b w)'), "An injection denotes its pattern's value, injected. If that value is already an injection, the two become one, so the value is never an injection of an injection.", 'injNormal')],
         },
         {
-          hl: { p: span(patVal, '| as {p : Term}', 'PatVal c σ (.as p i) v'), w: [at(workedRun, 'σ = ['), at(workedRun, 'PatVal c σ (.as')] },
+          hl: { p: span(patVal, '| as {p : Term}', 'PatVal c σ (.as p i) v'), w: [at(workedRun, 'example : σ₁ ='), at(workedRun, '.as (.app Sym.«s»')] },
           notes: [note('p', at(patVal, '| as {p : Term}'), 'An alias denotes what its pattern denotes, and σ gives its variable that same value.', 'σ.lookup i = some v')],
         },
       ],
@@ -93,7 +77,7 @@ export const matching4: Lesson = {
       title: 'A map in a rule',
       panes: [
         { id: 'k', label: 'Kimp/definition.kore', source: kimpVar, lang: 'kore' },
-        { id: 'w', label: 'Worked by hand', source: workedMap, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedMap), source: workedMap, lang: 'lean' },
       ],
       frames: [
         {
@@ -102,12 +86,13 @@ export const matching4: Lesson = {
           say: "kimp is a small imperative language. This rule replaces a variable `X` in the k cell by its value `V` in the env cell.",
         },
         {
-          hl: { w: span(workedMap, 'σ₁ =', 'σ₂ =') },
-          notes: [note('w', at(workedMap, 'σ₂ ='), 'A map has no first entry: both ways to split it match.', 'σ₂')],
+          hl: { w: span(workedMap, '-- split at x', 'mapPat_y') },
+          notes: [note('w', at(workedMap, '(0, ident "y")'), 'A map has no first entry: both ways to split it match.', 'ident "y"')],
         },
         {
-          hl: { k: [at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})')], w: span(workedMap, '-- the k cell holds x', '-- only σ₁') },
+          hl: { k: [at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})')], w: span(workedMap, 'example : c.rules[19]', 'rule19_lhs') },
           notes: [note('k', at(kimpVar, 'kseq{}(inj{SortId{}, SortKItem{}}(VarX:SortId{})'), 'The same `X`, in the k cell.', 'VarX')],
+          say: 'The k cell holds `x`, and the same `X` stands there, so only the split at `x` matches the whole left side.',
         },
       ],
     },
@@ -116,11 +101,11 @@ export const matching4: Lesson = {
       title: 'Map patterns denote maps',
       panes: [
         { id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedMap, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedMap), source: workedMap, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { p: span(patVal, '| hook {f : Sym}', '(hv : hook f vs = some (some v))'), w: span(workedMap, 'σ₁ =', 'σ₂ =') },
+          hl: { p: span(patVal, '| hook {f : Sym}', '(hv : hook f vs = some (some v))'), w: span(workedMap, '-- split at x', 'mapPat_y') },
           notes: [note('p', at(patVal, '| hook {f : Sym}'), '`.Map`, `|->` and `_Map_` denote the map they build. `K |-> V M` is defined only when `K` is not already a key of `M`.', 'hook')],
           say: 'So a map pattern matches exactly the ways of splitting the map, with no order between entries.',
         },
@@ -131,19 +116,29 @@ export const matching4: Lesson = {
       title: 'List patterns',
       panes: [
         { id: 'k', label: 'colls-list.k', source: colls, lang: 'k' },
-        { id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedList), source: workedList, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { k: [at(colls, 'configuration'), at(colls, 'rule <k> pop')] },
+          hl: { k: [at(colls, 'configuration'), at(colls, 'rule <k> pop')], w: span(workedList, '-- pop:', 'pop_matches') },
           notes: [note('k', at(colls, 'configuration'), 'The stack starts as the list `[1, 2]`.', 'ListItem(1) ListItem(2)'), note('k', at(colls, 'rule <k> pop'), 'Matches with `X` = 1 and `L` = `[2]`.', 'ListItem(X:Int) L:List')],
         },
         {
-          hl: { k: [at(colls, 'rule <k> drop')] },
+          hl: { k: [at(colls, 'rule <k> drop')], w: span(workedList, '-- drop:', 'drop_matches') },
           notes: [note('k', at(colls, 'rule <k> drop'), 'From the back: `L` = `[1]`.', 'L:List ListItem(_)')],
         },
+      ],
+    },
+    {
+      id: 'm5b',
+      title: 'List patterns denote lists',
+      panes: [
+        { id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedList), source: workedList, lang: 'lean' },
+      ],
+      frames: [
         {
-          hl: { p: span(patVal, '| coll {f : Sym}', 'PatVal c σ (.app f ps) v', at(patVal, '| coll {f : Sym}') - 1) },
+          hl: { p: span(patVal, '| coll {f : Sym}', 'PatVal c σ (.app f ps) v', at(patVal, '| coll {f : Sym}') - 1), w: [...span(workedList, 'example : PatVal c [(1, ival 1)', 'pop_matches'), ...span(workedList, 'example : PatVal c [(1, list [iv 1])', 'drop_matches')] },
           notes: [note('p', at(patVal, '| coll {f : Sym}'), 'A list symbol denotes the list it builds from the values of its parts.', 'coll')],
         },
       ],
@@ -177,6 +172,6 @@ export const matching4: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so are kimp's KORE axiom and \`colls-list.k\`.`,
-    'The substitutions shown are worked by hand from `PatVal`. Lean did not compute them.',
+    'The matches shown are theorems of peano\'s, kimp\'s and colls-list\'s packages, checked by Lean\'s kernel.',
   ],
 }

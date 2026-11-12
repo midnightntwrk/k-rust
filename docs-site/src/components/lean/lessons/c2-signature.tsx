@@ -61,7 +61,7 @@ export const signature2: Lesson = {
       title: 'Constructors and subsorts',
       panes: [
         { id: 'c', label: 'KcoreSpec/FixedSignature.lean', source: ctorSig, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedSig, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedSig), source: workedSig, lang: 'lean' },
       ],
       frames: [
         {
@@ -80,7 +80,7 @@ export const signature2: Lesson = {
       title: 'Functions are clauses with priorities',
       panes: [
         { id: 'f', label: 'KcoreSpec/Core.lean', source: fnClause, lang: 'lean' },
-        { id: 'w', label: checkedLabel, source: workedPred, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedPred), source: workedPred, lang: 'lean' },
       ],
       frames: [
         {
@@ -182,6 +182,6 @@ export const signature2: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so are \`prio.k\` and \`fprio.k\`.`,
-    `The panes headed “${checkedLabel}” state peano's constructors, subsort and \`pred\` in Lean; Lean's kernel checked them against peano's package.`,
+    `The panes headed “Checked by Lean” state peano's constructors, subsort and \`pred\` in Lean; Lean's kernel checked them against peano's package.`,
   ],
 }

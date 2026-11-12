@@ -5,7 +5,7 @@
 // next) and its dual `◦` (all next); and definedness, which lesson 9's theory uses. Every pane is
 // the text of aml-port or kcore-spec at the manifest's commit.
 
-import { type Source, coreCommit, coreFile, lineOf, slice, span, textSource } from '../data'
+import { checked, checkedLabel, coreCommit, coreFile, lineOf, slice, type Source, span } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const pattern = slice(coreFile('../aml-port/MatchingLogic/Pattern.lean'), 'inductive Pattern (𝕊 : Type) where', 'deriving DecidableEq, Inhabited, Repr')
@@ -18,14 +18,8 @@ const sig = coreFile('KcoreSpec/Kore/Signature.lean')
 const next = slice(sig, '/-- `•φ`: one-path next', 'def sNext (φ : P) : P := sym .next ⬝ φ')
 const allNext = slice(coreFile('KcoreSpec/Kore/Gamma.lean'), '/-- `◦φ ≡ ¬•¬φ`, all-path next', 'def allNext (φ : P) : P := ∼(sNext (∼φ))')
 
-const workedNext = textSource('worked by hand', [
-  "-- the prologue's first step, as a pattern (cells left out)",
-  '⟦run(s(s(z)))⟧ ⇒ •⟦run(s(z))⟧',
-  '-- every element run(s(s(z))) denotes has one that run(s(z)) denotes as a successor',
-  '',
-  '-- done(z) has no successor',
-  '⟦done(z)⟧ ⇒ ◦⊥',
-].join('\n'))
+const workedSound = checked('sound')
+const workedComplete = checked('complete')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
 
@@ -125,11 +119,11 @@ export const matchingLogic8: Lesson = {
       title: 'Next',
       panes: [
         { id: 'n', label: 'KcoreSpec/Kore/Signature.lean', source: next, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedNext, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedSound), source: workedSound, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { n: [at(next, 'def sNext')], w: span(workedNext, '⟦run(s(s(z)))⟧', '-- every element') },
+          hl: { n: [at(next, 'def sNext')], w: [at(workedSound, 'sound_runSSZ')] },
           notes: [note('n', at(next, 'def sNext'), '`•φ`: the elements with some successor in φ.', 'sym .next ⬝ φ')],
           say: "K's matching logic has a symbol `•`, next. A rewrite from `x` to `y` is the pattern `⟦x⟧ ⇒ •⟦y⟧`.",
         },
@@ -140,11 +134,11 @@ export const matchingLogic8: Lesson = {
       title: 'All next',
       panes: [
         { id: 'a', label: 'KcoreSpec/Kore/Gamma.lean', source: allNext, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedNext, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedComplete), source: workedComplete, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { a: [at(allNext, 'def allNext')], w: span(workedNext, '-- done(z) has no successor', '⟦done(z)⟧ ⇒ ◦⊥') },
+          hl: { a: [at(allNext, 'def allNext')], w: span(workedComplete, '-- doneZ', 'complete_doneZ\'') },
           notes: [note('a', at(allNext, 'def allNext'), '`◦φ`: every successor is in φ. `◦⊥`: there is none.', '∼(sNext (∼φ))')],
           say: '`Sound` uses `•`: each step is one the theory allows. `Complete` uses `◦`: the theory allows no other.',
         },
@@ -167,6 +161,6 @@ export const matchingLogic8: Lesson = {
   ],
   checked: [
     `Every pane is the text of aml-port or kcore-spec at \`${coreCommit}\`.`,
-    'The patterns of the prologue\'s run are written by hand; lesson 9 says how a configuration becomes a pattern.',
+    'The two facts about peano\'s run are theorems of its package, checked by Lean; `Γ` is lesson 9\'s, and lesson 10 says why they hold.',
   ],
 }

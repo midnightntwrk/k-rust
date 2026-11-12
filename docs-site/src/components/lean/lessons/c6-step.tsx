@@ -3,9 +3,9 @@
 // Core lesson 6: one step. `Step c x y`: a rule whose left side denotes x under a well-sorted σ,
 // whose requires is true, whose right side has the value y, and no rule of a smaller priority
 // applies to x. Every Lean pane is kcore-spec's text at the manifest's commit, as are prio.k and
-// fprio.k; the steps shown are worked by hand from those definitions.
+// fprio.k; the steps shown are theorems of the example packages, checked by Lean.
 
-import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, peanoK, slice, span, textSource } from '../data'
+import { type Source, checked, checkedLabel, coreCommit, coreFile, lineOf, peanoK, slice, span } from '../data'
 import { type Lesson, note } from '../lesson'
 
 const stepLean = coreFile('KcoreSpec/Step.lean')
@@ -15,26 +15,8 @@ const prioK = coreFile('f2-examples/prio.k')
 const fprioK = slice(coreFile('f2-examples/fprio.k'), 'syntax Int ::= ow(Int)', 'rule [t4]')
 const k = peanoK
 
-const workedRun = textSource('worked by hand', [
-  "-- the prologue's first step, by rule <k> run(s(N)) => run(pred(s(N))) </k>",
-  '-- (the cells are as in lesson 3; x and y are configurations)',
-  'σ   = [N ↦ s(z), V ↦ s(s(z)), 2 ↦ <generatedCounter>(0)]',
-  '                             -- the left side denotes x: run(s(s(z))) in the k cell',
-  'req = none                   -- nothing to check',
-  'rhs ↦ run(s(z))              -- lesson 5: run(pred(V)), and pred(s(s(z))) is s(z)',
-  'no rule of peano has a priority below 50   -- both are 50',
-  'Step c x y',
-].join('\n'))
-
-const workedPrio = textSource('worked by hand', [
-  '-- go(d): the rule of priority 40 applies, X ↦ d',
-  'Step: go(d) ⇒ out(d)          -- and it blocks go(X:B), priority 50',
-  '',
-  '-- go(b): go(X:D) does not apply, since b is not a D:',
-  '--   no well-sorted σ makes its left side denote go(b)',
-  'Step: go(b) ⇒ other(b)        -- by go(X:B), priority 50',
-].join('\n'))
-
+const workedRun = checked('step1')
+const workedPrio = checked('prio')
 const workedRunAll = checked('steps')
 
 const at = (src: Source, needle: string, after = 0) => lineOf(src, needle, after)
@@ -50,7 +32,7 @@ export const step6: Lesson = {
       title: 'One step',
       panes: [
         { id: 's', label: 'KcoreSpec/Step.lean', source: step, lang: 'lean' },
-        { id: 'w', label: 'Worked by hand', source: workedRun, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedRun), source: workedRun, lang: 'lean' },
       ],
       frames: [
         {
@@ -59,19 +41,19 @@ export const step6: Lesson = {
           say: 'Everything so far comes together here: configurations (lesson 3), matching (lesson 4) and evaluation (lesson 5).',
         },
         {
-          hl: { s: [at(step, '(hσ :'), at(step, '(hmatch :')], w: [at(workedRun, 'σ   ='), at(workedRun, '-- the left side denotes x')] },
+          hl: { s: [at(step, '(hσ :'), at(step, '(hmatch :')], w: [...span(workedRun, '-- hσ', 'σ₁_wellSorted'), ...span(workedRun, '-- hmatch', 'match_runSSZ')] },
           notes: [note('s', at(step, '(hmatch :'), "Some rule's left side denotes `x` under a well-sorted σ.", 'PatVal c σ r.lhs x.val')],
         },
         {
-          hl: { s: [at(step, '(hreq :')], w: [at(workedRun, 'req =')] },
+          hl: { s: [at(step, '(hreq :')], w: span(workedRun, '-- hreq', 'some none') },
           notes: [note('s', at(step, '(hreq :'), 'Its `requires`, if any, evaluates to `true`.', 'some (bool true)')],
         },
         {
-          hl: { s: [at(step, '(heval :')], w: [at(workedRun, 'rhs ↦')] },
+          hl: { s: [at(step, '(heval :')], w: span(workedRun, '-- heval', 'eval_rhs_runSSZ') },
           notes: [note('s', at(step, '(heval :'), 'Its right side has a value, and that value is `y`.', 'some y.val')],
         },
         {
-          hl: { s: [at(step, '(hprio :')], w: [at(workedRun, 'no rule of peano'), at(workedRun, 'Step c x y')] },
+          hl: { s: [at(step, '(hprio :')], w: span(workedRun, '-- hprio', 'step_runSSZ') },
           notes: [note('s', at(step, '(hprio :'), 'No rule of a smaller priority applies to `x`.', 'NotApplies c r\' x.val')],
         },
       ],
@@ -100,16 +82,16 @@ export const step6: Lesson = {
       title: 'Priorities in prio',
       panes: [
         { id: 'k', label: 'prio.k', source: prioK, lang: 'k' },
-        { id: 'w', label: 'Worked by hand', source: workedPrio, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedPrio), source: workedPrio, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { k: [at(prioK, 'rule <k> go(X:D)')], w: span(workedPrio, '-- go(d):', 'Step: go(d)') },
-          notes: [note('w', at(workedPrio, 'Step: go(d)'), '`go(X:B)` also matches `go(d)`, but it is blocked.', 'out(d)')],
+          hl: { k: [at(prioK, 'rule <k> go(X:D)')], w: span(workedPrio, '-- go(d) steps', 'not_step_goD_otherD') },
+          notes: [note('w', at(workedPrio, 'not_step_goD_otherD'), '`go(X:B)` also matches `go(d)`, but it is blocked.', 'not_step_goD_otherD')],
         },
         {
-          hl: { k: [at(prioK, 'rule <k> go(X:B)')], w: span(workedPrio, '-- go(b):', 'Step: go(b)') },
-          notes: [note('w', at(workedPrio, 'Step: go(b)'), 'Nothing of a smaller priority applies, so this rule steps.', 'other(b)')],
+          hl: { k: [at(prioK, 'rule <k> go(X:B)')], w: span(workedPrio, '-- go(b) steps', 'step_goB') },
+          notes: [note('w', at(workedPrio, 'step_goB'), 'Nothing of a smaller priority applies, so this rule steps.', 'goBcfg otherBcfg')],
         },
       ],
     },
@@ -130,16 +112,16 @@ export const step6: Lesson = {
       title: "The prologue's run, as steps",
       panes: [
         { id: 'k', label: 'peano.k', source: k, lang: 'k' },
-        { id: 'w', label: checkedLabel, source: workedRunAll, lang: 'lean' },
+        { id: 'w', label: checkedLabel(workedRunAll), source: workedRunAll, lang: 'lean' },
       ],
       frames: [
         {
-          hl: { k: [at(k, 'rule <k> run(s(N))'), at(k, 'rule <k> run(z)')], w: span(workedRunAll, '-- the first step', 'step_run_zero') },
+          hl: { k: [at(k, 'rule <k> run(s(N))'), at(k, 'rule <k> run(z)')], w: span(workedRunAll, 'step_runSSZ', 'step_runZ ') },
           say: "Each line of the prologue's run is one `Step`.",
         },
         {
-          hl: { w: span(workedRunAll, '∀ y : Config c, ¬ Step', 'stuck_done') },
-          notes: [note('w', at(workedRunAll, '∀ y : Config c, ¬ Step'), 'No `Step` leaves `done(z)`: the run stops.', '¬ Step c x y')],
+          hl: { w: [at(workedRunAll, 'stuck_doneZ')] },
+          notes: [note('w', at(workedRunAll, 'stuck_doneZ'), 'No `Step` leaves `done(z)`: the run stops.', '¬ Step c doneZ y')],
           say: 'What a step is now has a precise meaning, for every configuration, reachable or not. Lessons 8 to 10 say why it is the meaning of the definition.',
         },
       ],
@@ -161,7 +143,6 @@ export const step6: Lesson = {
   ],
   checked: [
     `The Lean in every pane is kcore-spec's text at \`${coreCommit}\`, and so are \`prio.k\` and \`fprio.k\`.`,
-    `The pane headed “${checkedLabel}” states peano's last two steps and its stuck configuration in Lean, each a theorem of peano's package.`,
-    'The panes headed “Worked by hand” are derived from `Step` and `NotApplies`. Lean did not compute them.',
+    `The panes headed “Checked by Lean” state peano's and prio's steps in Lean, each a theorem of their packages.`,
   ],
 }
