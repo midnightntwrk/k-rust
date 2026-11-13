@@ -103,6 +103,9 @@ pub enum CollisionNamespace {
     /// Emitted cell names: a cell `<k>` is no sort and no symbol, so a function `K` (symbol
     /// `k`) is another name.
     EmittedCell,
+    /// The sorts K generates for the cells, one per cell name (`<call-stack>` has `CallStackCell`),
+    /// which two cell names can share (`<call-stack>` and `<callStack>`, `<T>` and `<t>`).
+    EmittedCellSort,
     /// Emitted rule and context-alias labels.
     EmittedLabel,
     /// Definition label identities.
@@ -116,6 +119,7 @@ impl fmt::Display for CollisionNamespace {
             Self::SymbolId => "symbol ID",
             Self::EmittedSymbol => "emitted symbol",
             Self::EmittedCell => "emitted cell",
+            Self::EmittedCellSort => "cell sort",
             Self::EmittedLabel => "emitted label",
             Self::LabelId => "label ID",
         })
@@ -310,7 +314,9 @@ impl ToDiagnostic for LoweringError {
             Self::InvalidEmittedName { .. } => codes::analysis::INVALID_EMITTED_NAME,
             Self::NameCollision { namespace, .. } => match namespace {
                 CollisionNamespace::EmittedSymbol => codes::analysis::SYMBOL_NAME_COLLISION,
-                CollisionNamespace::EmittedCell => codes::analysis::DUPLICATE_CELL_NAME,
+                CollisionNamespace::EmittedCell | CollisionNamespace::EmittedCellSort => {
+                    codes::analysis::DUPLICATE_CELL_NAME
+                }
                 CollisionNamespace::Module
                 | CollisionNamespace::SymbolId
                 | CollisionNamespace::EmittedLabel
@@ -928,6 +934,7 @@ impl NamingPass {
         let mut sort_claims = Claims::new();
         let mut emitted = Claims::new();
         let mut cell_claims = Claims::new();
+        let mut cell_sort_claims = Claims::new();
         let mut labels = Claims::new();
         let mut modules = Claims::new();
         let mut list_owners = BTreeMap::<String, String>::new();
@@ -1095,6 +1102,7 @@ impl NamingPass {
                     &mut pass.group_cells,
                     &mut identities,
                     &mut cell_claims,
+                    &mut cell_sort_claims,
                     &mut cells,
                 )?;
             }
@@ -1351,6 +1359,7 @@ fn name_fixed_cells(
     groups: &mut BTreeMap<StableItemId, SymbolId>,
     identities: &mut Claims,
     cell_claims: &mut Claims,
+    cell_sort_claims: &mut Claims,
     named: &mut Vec<(String, Option<krs_ir::CellCollectionType>)>,
 ) -> Result<(), LoweringError> {
     for cell in cells {
@@ -1365,6 +1374,24 @@ fn name_fixed_cells(
                 value: cell.name().to_owned(),
                 owner: format!("the cell `{}`", cell.field().unwrap_or(cell.name())),
                 reserved: (*reserved).to_owned(),
+                help: "give the cell another K name with `#[k::cell(name = \"..\")]`",
+                origin: cell.origin().origin().clone(),
+            });
+        }
+        // K names a cell's sort after the cell (`<call-stack>` has `CallStackCell`), so a cell
+        // whose sort is the sort of a cell K adds takes K's sort.
+        let sort = krs_ir_levels::k_surface::cell_sort_name(cell.name());
+        if let Some((added, reserved)) = crate::k_reserved::K_CELLS
+            .iter()
+            .find(|(name, _)| krs_ir_levels::k_surface::cell_sort_name(name) == sort)
+        {
+            return Err(LoweringError::ReservedKName {
+                value: cell.name().to_owned(),
+                owner: format!("the cell `{}`", cell.field().unwrap_or(cell.name())),
+                reserved: format!(
+                    "K generates as the sort `{sort}` of `<{added}>`, the cell K {}",
+                    reserved.strip_prefix("K ").unwrap_or(reserved)
+                ),
                 help: "give the cell another K name with `#[k::cell(name = \"..\")]`",
                 origin: cell.origin().origin().clone(),
             });
@@ -1386,8 +1413,15 @@ fn name_fixed_cells(
         claim(
             cell_claims,
             cell.name().to_owned(),
-            cell_owner,
+            cell_owner.clone(),
             CollisionNamespace::EmittedCell,
+            cell.origin(),
+        )?;
+        claim(
+            cell_sort_claims,
+            sort,
+            cell_owner,
+            CollisionNamespace::EmittedCellSort,
             cell.origin(),
         )?;
         if let Some(declaration) = cell.declaration() {
@@ -1395,7 +1429,15 @@ fn name_fixed_cells(
         }
         lowered.insert(cell.id().clone(), id);
         if let FixedCellContent::Children { children } = cell.content() {
-            name_fixed_cells(children, lowered, groups, identities, cell_claims, named)?;
+            name_fixed_cells(
+                children,
+                lowered,
+                groups,
+                identities,
+                cell_claims,
+                cell_sort_claims,
+                named,
+            )?;
         }
     }
     Ok(())
@@ -5084,12 +5126,17 @@ fn validate_sort_name(value: &str, origin: &OriginStack) -> Result<(), LoweringE
     }
 }
 
+/// A K cell name: an ASCII letter, then ASCII letters, digits and `-` (K's `#CellName`,
+/// `[a-zA-Z][a-zA-Z0-9\-]*`). Each name K spells is one KRS emits; a name whose generated sort
+/// another cell's name also gives is refused by the cell-sort claim ([`name_fixed_cells`]).
 fn validate_cell_name(value: &str, origin: &OriginStack) -> Result<(), LoweringError> {
     let valid = value
         .bytes()
         .next()
-        .is_some_and(|byte| byte.is_ascii_lowercase())
-        && value.bytes().all(|byte| byte.is_ascii_alphanumeric());
+        .is_some_and(|byte| byte.is_ascii_alphabetic())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
     if valid {
         Ok(())
     } else {

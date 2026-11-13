@@ -900,3 +900,72 @@ fn a_name_no_k_name_spells_is_refused_at_its_declaration() {
         variant: error[krs::analysis::invalid-emitted-name]: production symbol name "stmtSyntaxCafé" is not canonical K syntax (at 16:5)
         cell: error[krs::analysis::invalid-emitted-name]: cell name "generated_top" is not canonical K syntax (at 26:9)"#]].assert_eq(&table);
 }
+
+/// `LIBRARY` with the cells `fields`, each `(attribute, field, type, initial value)`, beside `acc`.
+fn with_cells(fields: &[(&str, &str, &str, &str)]) -> String {
+    let declared = fields
+        .iter()
+        .map(|(attribute, field, ty, _)| format!("    #[k::cell{attribute}]\n    pub {field}: {ty},\n"))
+        .collect::<String>();
+    let initial = fields
+        .iter()
+        .map(|(_, field, _, value)| format!(", {field}: {value}"))
+        .collect::<String>();
+    library(
+        &[
+            ("    pub acc: Int,\n", &format!("    pub acc: Int,\n{declared}")),
+            ("acc: 0 }", &format!("acc: 0{initial} }}")),
+        ],
+        "",
+    )
+}
+
+/// A cell may take every name K's cell grammar spells, `[a-zA-Z][a-zA-Z0-9\-]*`: `<T>` and
+/// `<call-stack>` are K cells, whose sorts K names `TCell` and `CallStackCell` (LEFTS item 6;
+/// both K routes build and run them). Two cells whose names give one sort are refused naming
+/// both (`<call-stack>` beside `<callStack>`, `<K>` beside `<k>`), as is a name whose sort is the
+/// sort of a cell K adds (`generated-top`); a name K's grammar does not spell stays refused.
+#[test]
+fn a_cell_takes_every_name_k_spells_unless_its_sort_is_taken() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        ("upper", with_cells(&[("(name = \"T\")", "tt", "Int", "0")])),
+        (
+            "hyphen",
+            with_cells(&[("(name = \"call-stack\")", "cs", "Int", "0")]),
+        ),
+        (
+            "hyphen-camel",
+            with_cells(&[
+                ("(name = \"call-stack\")", "cs", "Int", "0"),
+                ("(name = \"callStack\")", "cs2", "Int", "0"),
+            ]),
+        ),
+        ("upper-k", with_cells(&[("(name = \"K\")", "tt", "Int", "0")])),
+        (
+            "generated-top",
+            with_cells(&[("(name = \"generated-top\")", "tt", "Int", "0")]),
+        ),
+        ("digit", with_cells(&[("(name = \"1x\")", "tt", "Int", "0")])),
+        ("underscore", with_cells(&[("", "my_cell", "Int", "0")])),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, library)| {
+            format!(
+                "{name}: {}",
+                check_located(target.path(), temporary.path(), name, library)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        upper: checks
+        hyphen: checks
+        hyphen-camel: error[krs::analysis::duplicate-cell-name]: cell sort name collision for "CallStackCell" between the cell `<call-stack>` (field `cs`) and the cell `<callStack>` (field `cs2`) (at 28:9)
+        upper-k: error[krs::analysis::duplicate-cell-name]: cell sort name collision for "KCell" between the cell `<k>` and the cell `<K>` (field `tt`) (at 26:9)
+        generated-top: error[krs::analysis::symbol-name-collision]: the cell `tt` has the K name "generated-top", which K generates as the sort `GeneratedTopCell` of `<generatedTop>`, the cell K adds as the top cell of every configuration (at 26:9)
+        digit: error[krs::analysis::invalid-emitted-name]: cell name "1x" is not canonical K syntax (at 26:9)
+        underscore: error[krs::analysis::invalid-emitted-name]: cell name "my_cell" is not canonical K syntax (at 26:9)"#]].assert_eq(&table);
+}
