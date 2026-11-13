@@ -1068,10 +1068,11 @@ fn record_maps_as_terms(
                 &crate::cell_entries::EntryKind::default(),
                 None,
             );
-            return Err(
-                crate::SyntaxError::new(crate::SyntaxErrorKind::RustSyntax(reason), map.span())
-                    .into(),
-            );
+            return Err(crate::SyntaxError::new(
+                crate::SyntaxErrorKind::RustSyntax(reason),
+                map.span(),
+            )
+            .into());
         }
         // The child's `map![k -> v, ..]` reads as its braces `{ k -> v, .. }`.
         let trees = rooted_map_braces(&value).map_or_else(
@@ -1933,7 +1934,40 @@ fn read_result_presence(
             .and(fork.parse::<proc_macro2::Group>().ok())
             .filter(|_| fork.is_empty() || fork.peek(Token![,]))
     };
-    if let Some(map) = inside.and_then(|inside| result_map_read(&inside.stream())) {
+    // `Some(..)` holds the present cell's content, so its braces are what they are at the cell's
+    // own entry: holding a rest over a map (`{ k -> v, ..m }`) a map read, as `{ k -> v, .. }` is;
+    // naming every entry (`{ k -> v }`) the map written, `k::map![k -> v]`.
+    let rest_over = |inside: &proc_macro2::Group| match inside
+        .stream()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [TokenTree::Group(map)]
+            if map.delimiter() == proc_macro2::Delimiter::Brace
+                && contains_top_level_arrow(map)
+                && top_level_items(map.stream()).last().is_some_and(splices) =>
+        {
+            Some(map.clone())
+        }
+        _ => None,
+    };
+    if let Some(inside) = &inside
+        && let Some(map) = exact_map(&inside.stream())
+    {
+        let span = inside.span();
+        let mut written = proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, map);
+        written.set_span(span);
+        skip_value(content)?;
+        return Ok(crate::parse::structured_with(
+            quote_spanned!(span=> Some #written),
+            |content| read_result_presence(content, cell),
+            crate::SyntaxError::from,
+        )?);
+    }
+    if let Some(map) =
+        inside.and_then(|inside| result_map_read(&inside.stream()).or_else(|| rest_over(&inside)))
+    {
         let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
             crate::cell_entry::EntryForm::Readable,
             &cell.unraw().to_string(),
@@ -2365,7 +2399,11 @@ fn exact_map(tokens: &TokenStream) -> Option<TokenStream> {
 /// `m @ map![k -> v, ..]`, is. `None` for any other value.
 fn aliased_map_braces(tokens: &TokenStream) -> Option<TokenStream> {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
-    let [TokenTree::Ident(alias), TokenTree::Punct(at), TokenTree::Group(map)] = trees.as_slice()
+    let [
+        TokenTree::Ident(alias),
+        TokenTree::Punct(at),
+        TokenTree::Group(map),
+    ] = trees.as_slice()
     else {
         return None;
     };
