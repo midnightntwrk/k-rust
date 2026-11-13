@@ -2347,7 +2347,7 @@ fn record_term_with_map_literals(
     let children = body
         .stream()
         .into_iter()
-        .map(|tree| match tree {
+        .flat_map(|tree| match tree {
             // A child's whole value in braces splicing a map, `m: { ..m }`, is no entry of the
             // child's cell (no instance reading takes it), so it is the literal it spells.
             TokenTree::Group(group) if splices_a_map(&group) => {
@@ -2371,7 +2371,6 @@ fn record_term_with_map_literals(
             }
             tree => vec![tree],
         })
-        .flatten()
         .collect::<TokenStream>();
     if children.to_string() == body.stream().to_string() {
         return Ok(None);
