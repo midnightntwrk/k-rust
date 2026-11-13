@@ -970,6 +970,10 @@ These ranges are read for a result only: a condition is guarded with the same te
 
 A result that is not shown to have a value is `error[krs::analysis::total-without-value]` at the construct or the application.
 The ways out are to state the domain in the equation's condition and give the remaining arguments an equation (`#[k::equation(owise)]`); to use a form that has a value everywhere; to declare the function `partial`; or to write `#[k::function(total, assumed = "reason")]`.
+Where the arguments outside the domain are ones the definition never passes, prefer a form that states why, or `partial`, to a guard and an `owise` equation.
+A bit index decoded from three bits of an instruction is `bit & 7`, so `1 << (bit & 7)` is total in one equation and says what the guard `bit >= 0` only assumed.
+An `owise` equation that no run reaches is a sentence that coverage holds open, and that mutation testing cannot tell apart from any other result there.
+`partial` states the definedness the callers rely on, and a claim that applies the function carries it as an obligation.
 
 The check is sound and incomplete.
 It refuses a result that has a value by a fact it does not read: a range that relates two names (`bytes::substr(c, 0, int::min(bytes::length(c), n))`, whose end is at most the length), an application of a `partial` function inside that function's domain, what an `owise` equation knows from the equations before it, a condition that applies a function, an invariant of the states a definition reaches.
