@@ -830,7 +830,11 @@ fn parse_readable_child(
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     // A map cell's entries with its other entries open, `{ k -> v, .. }`, as a readable record
     // reads a map cell's entries, and as a `cells!` instance writes `map![k -> v, ..]`.
-    if let Some(group) = map_read_group(&tokens) {
+    let map_read = match context {
+        StateMacroContext::Pattern => map_read_group(&tokens),
+        StateMacroContext::Expression => result_map_read(&tokens),
+    };
+    if let Some(group) = map_read {
         // A map read is a pattern: in a result it is refused as at a record's top-level cell,
         // since a readable record has no spelling for the frame write it would be.
         if context == StateMacroContext::Expression {
@@ -1052,6 +1056,23 @@ fn record_maps_as_terms(
             continue;
         }
         let value = value.iter().cloned().collect::<TokenStream>();
+        // A result's child `map![..]` names no entry of the map read it is
+        // ([`result_map_read`]).
+        if context == StateMacroContext::Expression
+            && map_read_group(&value).is_none()
+            && let Some(map) = result_map_read(&value)
+        {
+            let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
+                crate::cell_entry::EntryForm::Readable,
+                &child.unraw().to_string(),
+                &crate::cell_entries::EntryKind::default(),
+                None,
+            );
+            return Err(
+                crate::SyntaxError::new(crate::SyntaxErrorKind::RustSyntax(reason), map.span())
+                    .into(),
+            );
+        }
         // The child's `map![k -> v, ..]` reads as its braces `{ k -> v, .. }`.
         let trees = rooted_map_braces(&value).map_or_else(
             || value.clone().into_iter().collect::<Vec<_>>(),
@@ -1179,6 +1200,22 @@ fn rooted_map_braces(tokens: &TokenStream) -> Option<proc_macro2::Group> {
         && contains_top_level_arrow(&braces)
         && top_level_items(braces.stream()).last().is_some_and(is_dots))
     .then_some(braces)
+}
+
+/// The braces a result's value at a cell's content reads as when it is a map read: braces
+/// holding a rest, the cell's `map![k -> v, ..]` ([`map_read_group`]), or the cell's `map![..]`,
+/// which names no entry and whose `..` keeps every entry of the cell's map, its braces `{ .. }`.
+/// A result writes no map read, whatever entries it names: keeping the entries it does not name
+/// is a frame write ([`crate::cell_entries::Refusal::MapReadInResult`]). `None` for any other
+/// value.
+fn result_map_read(tokens: &TokenStream) -> Option<proc_macro2::Group> {
+    map_read_group(tokens).or_else(|| {
+        let (name, entries) = crate::state_macro::qualified_macro_payload(tokens)?;
+        let span = tokens.clone().into_iter().last()?.span();
+        let mut braces = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, entries);
+        braces.set_span(span);
+        (name == "map" && is_dots(&braces.stream())).then_some(braces)
+    })
 }
 
 /// A map read `{ k -> v, .. }` that `tokens` spell, as a map cell's entries in `context`, or
@@ -1732,6 +1769,20 @@ fn parse_machine_result_record(
             // The cell's `map![k -> v, ..]` is its map read, as its braces `{ k -> v, .. }` are.
             skip_value(&content)?;
             MachineResultCell::MapRead(map)
+        } else if let Some(map) = result_map_read(&value_tokens(&content)) {
+            // The cell's `map![..]` is its map read naming no entry, which a result does not
+            // write, refused once the cell's kind has answered ([`result_map_read`]).
+            let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
+                crate::cell_entry::EntryForm::Readable,
+                &cell.unraw().to_string(),
+                &crate::cell_entries::EntryKind::default(),
+                None,
+            );
+            skip_value(&content)?;
+            MachineResultCell::Refused(Box::new(crate::SyntaxError::new(
+                crate::SyntaxErrorKind::RustSyntax(reason),
+                map.span(),
+            )))
         } else if family == Some(StateFamily::Instances)
             && (content.peek(syn::token::Bracket) || content.peek(syn::token::Brace))
         {
@@ -1816,8 +1867,9 @@ fn record_child_entry(content: ParseStream<'_>) -> Option<crate::SyntaxError> {
         if colon.as_char() != ':' {
             return None;
         }
-        // Braces holding a rest, or the child's `map![k -> v, ..]`, which reads as them.
-        let map = map_read_group(&value.iter().cloned().collect())?;
+        // Braces holding a rest, or the child's `map![k -> v, ..]` or `map![..]`, which read as
+        // braces.
+        let map = result_map_read(&value.iter().cloned().collect())?;
         let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
             crate::cell_entry::EntryForm::Readable,
             &child.unraw().to_string(),
@@ -1881,7 +1933,7 @@ fn read_result_presence(
             .and(fork.parse::<proc_macro2::Group>().ok())
             .filter(|_| fork.is_empty() || fork.peek(Token![,]))
     };
-    if let Some(map) = inside.and_then(|inside| map_read_group(&inside.stream())) {
+    if let Some(map) = inside.and_then(|inside| result_map_read(&inside.stream())) {
         let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
             crate::cell_entry::EntryForm::Readable,
             &cell.unraw().to_string(),
