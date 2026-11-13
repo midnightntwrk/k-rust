@@ -623,7 +623,18 @@ pub(super) fn admit_initializer(
         .flat_map(|declaration| &declaration.fields)
         .map(|field| (field.reference.cell.resolve(), field))
         .collect::<HashMap<_, _>>();
-    if let Some((path, reason)) = initializer_shape(&configuration.initializer.cells, &declared) {
+    // The `#[k::cell]` structs: a field of a plain type that is none of them is a sort's.
+    let cell_structs = pending
+        .iter()
+        .filter(|descriptor| matches!(descriptor.host.payload, HostDescriptorPayload::Cell(_)))
+        .filter_map(|descriptor| match &descriptor.host.declared_type {
+            Some(krs_ir::HostDeclarationIdentity::Nominal(key)) => Some(key.resolve()),
+            _ => None,
+        })
+        .collect::<std::collections::HashSet<_>>();
+    if let Some((path, reason)) =
+        initializer_shape(&configuration.initializer.cells, &declared, &cell_structs)
+    {
         return Err(super::cell_entries::initializer_content_sort(
             authored, &path, reason,
         ));
@@ -648,6 +659,7 @@ pub(super) fn admit_initializer(
 fn initializer_shape(
     cells: &[krs_ir::HostInitializerCell],
     declared: &HashMap<(TypeId, TypeId), &krs_ir::HostCellField>,
+    cell_structs: &std::collections::HashSet<TypeId>,
 ) -> Option<(Vec<String>, ShapeMismatch)> {
     use krs_ir::{ProtocolCellContent, ProtocolInitializerCellContent};
     for cell in cells {
@@ -656,6 +668,14 @@ fn initializer_shape(
         };
         let name = field.rust_field.clone();
         let mismatch = match (&cell.content, &field.content) {
+            (
+                ProtocolInitializerCellContent::Leaf { .. },
+                ProtocolCellContent::Nested { declaration },
+            ) if !cell_structs.contains(&declaration.declaration.key.resolve()) => {
+                Some(ShapeMismatch::PlainFieldIsGroup {
+                    ty: last_segment(&declaration.declaration.authored_path),
+                })
+            }
             (
                 ProtocolInitializerCellContent::Leaf { .. },
                 ProtocolCellContent::Nested { declaration },
@@ -680,7 +700,9 @@ fn initializer_shape(
                         record: last_segment(&written.declaration.authored_path),
                         group: last_segment(&declaration.declaration.authored_path),
                     })
-                } else if let Some((mut path, reason)) = initializer_shape(children, declared) {
+                } else if let Some((mut path, reason)) =
+                    initializer_shape(children, declared, cell_structs)
+                {
                     path.insert(0, name.clone());
                     return Some((path, reason));
                 } else {
@@ -701,6 +723,10 @@ fn initializer_shape(
 pub(super) enum ShapeMismatch {
     /// A term on a group cell of this struct.
     TermOnGroup { group: String },
+    /// A term on a cell whose declaration writes its leaves with their wrappers and declares it
+    /// by a plain type `ty` that is no `#[k::cell]` struct (a sort): the declaration reads such a
+    /// field as a group, which the type is not.
+    PlainFieldIsGroup { ty: String },
     /// A record of this group struct on a leaf cell.
     RecordOnLeaf { record: String },
     /// A record of the group struct `record` on a group cell of the struct `group`.

@@ -698,6 +698,9 @@ pub(super) fn initializer_content_sort(
         ShapeMismatch::TermOnGroup { group } => format!(
             "the cell `{cell}` holds a `{group}` group, and the initializer gives it a term, whose sort is no group's: a group's initial content is the record of its children, `{group} {{ .. }}`"
         ),
+        ShapeMismatch::PlainFieldIsGroup { ty } => format!(
+            "the cell `{cell}` is declared `{ty}` in a declaration that writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `{ty}` is not, being no `#[k::cell]` struct: write the leaf with its wrapper, `Cell<{ty}>`"
+        ),
         ShapeMismatch::RecordOnLeaf { record } => format!(
             "the initializer gives `{cell}` a `{record}` record, a group's content, whose sort is not below the cell's: `{cell}` holds a term of its declared sort"
         ),

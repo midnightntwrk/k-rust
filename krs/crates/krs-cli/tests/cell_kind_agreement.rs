@@ -414,3 +414,57 @@ fn a_declaration_that_writes_one_wrapper_writes_every_leaf_s() {
         )
     "#]].assert_debug_eq(&(refusal, run));
 }
+
+/// A plain leaf of a sort beside wrapped leaves, `#[k::cell] n: Int`, is a group where the
+/// declaration writes wrappers, and its initializer's term is refused for what is true (LEFTS
+/// item 10): the declaration writes its leaves with their wrappers, so the plain field reads as a
+/// group, which a sort is not, advising `Cell<Int>`; every leaf wrapped is the accepted form
+/// ([`a_declaration_that_writes_one_wrapper_writes_every_leaf_s`]).
+#[test]
+fn a_plain_sort_field_beside_wrapped_leaves_is_told_as_the_declaration_s() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        ("int", "Int", "0"),
+        ("list", "List", "k::builtin::list::empty()"),
+    ];
+    let refusals = rows
+        .iter()
+        .map(|(name, ty, value)| {
+            let source = EXPLICIT_WRAPPERS
+                .replace(
+                    "    pub saved: k::configuration::Cell<KSequence>,\n",
+                    &format!("    pub saved: k::configuration::Cell<KSequence>,\n    #[k::cell]\n    pub n: {ty},\n"),
+                )
+                .replace(
+                    "            saved: k::configuration::Cell::new(saved),\n",
+                    &format!("            saved: k::configuration::Cell::new(saved),\n            n: {value},\n"),
+                );
+            let package = format!("cell-kinds-plain-{name}");
+            let manifest = write_package(&temporary.path().join(name), &package, &source);
+            let mut process = krs_command!();
+            fixture_build_env(&mut process, target.path());
+            let output = process
+                .args(["check", "--manifest-path"])
+                .arg(&manifest)
+                .args(["--package", &package, "--definition", "main"])
+                .env("NO_COLOR", "1")
+                .env("KRS_STAGE_CACHE_DIR", target.path().join("stages"))
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            stderr
+                .lines()
+                .find(|line| line.starts_with("error"))
+                .unwrap_or_else(|| panic!("no error:\n{stderr}"))
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::invalid-term]: the cell `n` is declared `Int` in a declaration that writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `Int` is not, being no `#[k::cell]` struct: write the leaf with its wrapper, `Cell<Int>`",
+            "error[krs::analysis::invalid-term]: the cell `n` is declared `List` in a declaration that writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `List` is not, being no `#[k::cell]` struct: write the leaf with its wrapper, `Cell<List>`",
+        ]
+    "#]].assert_debug_eq(&refusals);
+}
