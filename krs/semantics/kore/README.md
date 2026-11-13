@@ -25,12 +25,48 @@ The expected result of each case comes from the reference backends run on the ob
 Covered: sorts, subsorts and injections, constructors, as-patterns, non-linear left sides, function equations with priorities, `requires` and `[owise]`, rewrite rules with priorities, `requires` and `[owise]`, the hooks `+Int -Int *Int /Int %Int <Int <=Int >Int >=Int ==Int =/=Int andBool orBool notBool #if_#then_#else_#fi`, and undefinedness propagating strictly.
 
 Not covered: collections (`Map`, `Set`, `List`) and their hooks, and therefore AC matching with frame variables and cell collections; any hook outside the list above; `ensures`; configurations of more than one cell (an object definition has the one cell `<k> $PGM:S </k>`); symbolic terms (an initial term is ground); conditions on results.
+The encoder stops with an error naming the construct when it meets one outside the fragment that it recognizes: a hook outside the list, a domain value of another sort, a matching-logic connective in a term, an `ensures`, a configuration of another shape.
 
 ## Layout
 
 | Path | Content |
 | --- | --- |
 | `kore.k` | The interpreter: module `KORE`, syntax module `KORE-SYNTAX`; 313 lines, 141 rules and equations (11 rewrite rules for the search, the rest equations of 44 functions). |
+| `tools/korek.py` | The KORE text reader; the encoder of kompile's `definition.kore` and the initial term's KORE into a program of `kore.k`; the decoders of `krun --search`'s and `kore.k`'s results into one canonical text. |
+| `tools/case.py` | Builds a case's encoded program and its reference expected result (needs K). |
+| `cases/<id>/` | One case, below. |
+
+### A case
+
+| File | Content |
+| --- | --- |
+| `def.k` | The object definition: module `CASE`, syntax module `CASE-SYNTAX`, `configuration <k> $PGM:S </k>`, rewrite rules on the closed cell (`<k> L => R </k>`). Its first comment says what the case tests. |
+| `pgm` | The initial term, in `CASE-SYNTAX`. |
+| `pgm.kore` | `kast pgm --output kore` against `def.k` kompiled for the haskell backend: the initial term of sort `S`. The initial configuration is `<generatedTop>(<k>(kseq(inj{S,KItem}(PGM), dotk())), <generatedCounter>(0))`. |
+| `kore.pgm`, `symbols.json` | The encoded program for `kore.k` (start sort `Pgm`) and the encoder's numbering of symbols and sorts. |
+| `expected.json` | The reference result. For each backend (`haskell`, and `llvm` kompiled with `--enable-search`), `finals`: the item `inj{S,KItem}(X)` the `<k>` cell holds in each final configuration of `krun --search`, as canonical text (`Lbl…(args)`, integers, `true`/`false`, `inj{SortA,SortB}(v)`; a result under a condition carries ` if defined(…)`), sorted; or `error`, the backend's failure without its temporary paths. `reference` names the K release and backend that produced each; `backends_agree`; `inputs`, the SHA-256 of `def.k` and `pgm` the results were computed from. |
+
+The kompiled object definition is not committed.
+`kompile` writes the absolute path of `def.k` and of K's own installation into the `Source` attributes of `definition.kore`, and a case's `definition.kore` is about 250 KB, almost all of it K's builtin modules.
+`def.k` and `pgm` are the sources; `tools/case.py` rebuilds the kompiled text in its build directory, and the encoder selects the object definition's axioms by that build's `Source` path.
+What a harness needs without K is committed: `pgm.kore` (which names no path), `kore.pgm`, `symbols.json` and `expected.json`.
+A harness that reads KORE definitions kompiles `def.k` itself, as `tools/case.py` does.
+
+## Building a case
+
+From this directory, with the pinned K toolchain (`k/result/bin` at the repository root):
+
+```sh
+export K_KOMPILE=$PWD/../../../k/result/bin/kompile
+python3 tools/case.py --all              # every case
+python3 tools/case.py cases/<id>         # one case
+python3 tools/case.py --refresh --all    # also recompute expected.json whose inputs did not change
+```
+
+A new case is a directory `cases/<id>/` with `def.k` and `pgm`; `tools/case.py cases/<id>` writes the rest.
+The reference runs are cached in `expected.json` by the SHA-256 of `def.k` and `pgm`; with unchanged inputs only the haskell kompile (for the encoder) and `kast` run again.
+A case costs about 15 to 80 s of reference runs (two kompiles, two searches; an llvm search that fails takes up to a minute), each under a 120 s timeout and a 12 GiB memory scope.
+Keep the object search finite: on a cycle the haskell backend's search does not stop, and only the timeout ends it.
 
 ## Why K and not KRS
 
@@ -48,5 +84,5 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition.
-Next: the encoder and the cases with their reference results, the kink corpus, and the command that reruns the cases.
+Done: the definition, the encoder and the case builder.
+Next: the cases with their reference results, the kink corpus, and the command that reruns the cases.
