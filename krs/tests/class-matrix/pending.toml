@@ -378,14 +378,6 @@ kind = "k8"
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
 # and its twin triaged by meaning (TWIN-1 .. TWIN-10, findings.toml; the progress log ranks them).
 
-["child-twins/cells-claim/subject/group-child/set/k::set![y, ..]"]
-finding = "TWIN-4"
-deviation = "krs::syntax::invalid-state-macro @ entry"
-
-["child-twins/cells-claim/subject/opt-child/set/k::set![y, ..]"]
-finding = "TWIN-4"
-deviation = "krs::syntax::invalid-state-macro @ entry"
-
 ["child-twins/cells-claim/subject/top/int/k::configuration::Cell([..])"]
 finding = "TWIN-6"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -398,14 +390,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "TWIN-6"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["child-twins/cells/subject/group-child/set/k::set![y, ..]"]
-finding = "TWIN-4"
-deviation = "krs::syntax::invalid-state-macro @ entry"
-
-["child-twins/cells/subject/opt-child/set/k::set![y, ..]"]
-finding = "TWIN-4"
-deviation = "krs::syntax::invalid-state-macro @ entry"
-
 ["child-twins/cells/subject/top/int/k::configuration::Cell([..])"]
 finding = "TWIN-6"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -417,22 +401,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["child-twins/cells/subject/top/set/k::configuration::Cell([..])"]
 finding = "TWIN-6"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/readable/subject/group-child/set/{ y, .. }"]
-finding = "TWIN-5"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["child-twins/readable/subject/list-child/set/{ y, .. }"]
-finding = "TWIN-5"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["child-twins/readable/subject/map-child/set/{ y, .. }"]
-finding = "TWIN-5"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["child-twins/readable/subject/opt-child/set/{ y, .. }"]
-finding = "TWIN-5"
-deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["k3/child-twins/readable/both/list-child/list/[..] => [1, ..]"]
 finding = "TWIN-9"

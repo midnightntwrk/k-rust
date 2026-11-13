@@ -175,7 +175,7 @@ fn parse_readable_pattern_state(
             // is ([`readable_record`]): each child is that child cell's entry, which its kind
             // reads, so a list child's `[..]` is its whole list and a computation child's its
             // items.
-            if holds_item_less_child(&tokens) {
+            if holds_entry_child(&tokens) {
                 let record = crate::parse::structured_with(
                     tokens.clone(),
                     |input| {
@@ -233,9 +233,10 @@ fn parse_readable_pattern_state(
     Ok(None)
 }
 
-/// Whether `tokens` are a record `Group { .. }` one of whose children is brackets holding their
-/// rest alone, `child: [..]` ([`readable_record`]).
-fn holds_item_less_child(tokens: &TokenStream) -> bool {
+/// Whether `tokens`, read in a pattern, are a record `Group { .. }` one of whose children is
+/// spelled as that child cell's entry, which no term spells: brackets holding their rest alone,
+/// `child: [..]`, or instance braces, `child: { y, .. }` ([`readable_record`]).
+fn holds_entry_child(tokens: &TokenStream) -> bool {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let Some((TokenTree::Group(body), owner)) = trees.split_last() else {
         return false;
@@ -243,12 +244,40 @@ fn holds_item_less_child(tokens: &TokenStream) -> bool {
     body.delimiter() == proc_macro2::Delimiter::Brace
         && !owner.is_empty()
         && top_level_items(body.stream()).iter().any(|item| {
-            matches!(item.clone().into_iter().collect::<Vec<_>>().as_slice(),
-                [TokenTree::Ident(_), TokenTree::Punct(colon), TokenTree::Group(group)]
-                    if colon.as_char() == ':'
-                        && group.delimiter() == proc_macro2::Delimiter::Bracket
-                        && is_dots(&group.stream()))
+            match item.clone().into_iter().collect::<Vec<_>>().as_slice() {
+                [TokenTree::Ident(_), TokenTree::Punct(colon), value @ ..]
+                    if colon.as_char() == ':' =>
+                {
+                    let value = value.iter().cloned().collect::<TokenStream>();
+                    matches!(value.clone().into_iter().collect::<Vec<_>>().as_slice(),
+                        [TokenTree::Group(group)]
+                            if group.delimiter() == proc_macro2::Delimiter::Bracket
+                                && is_dots(&group.stream()))
+                        || instance_braces(&value, StateMacroContext::Pattern).is_some()
+                }
+                _ => false,
+            }
         })
+}
+
+/// The braces of a record value spelled as an instance list, `{ y, .. }` or `{ Obj { .. }, .. }`:
+/// one braced group holding no top-level arrow (a map read or literal holds one), and in a
+/// result no term (a block `{ let p = t; r }` is one). `None` for any other value.
+fn instance_braces(tokens: &TokenStream, context: StateMacroContext) -> Option<proc_macro2::Group> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Group(group)] = trees.as_slice() else {
+        return None;
+    };
+    let term = || {
+        context == StateMacroContext::Expression
+            && crate::term::parse_term_expression
+                .parse2(tokens.clone())
+                .is_ok()
+    };
+    (group.delimiter() == proc_macro2::Delimiter::Brace
+        && !contains_top_level_arrow(group)
+        && !term())
+    .then(|| group.clone())
 }
 
 /// A result value in braces that the entry reader reads as instance braces `{ .. }`: a readable
@@ -863,6 +892,14 @@ fn parse_readable_child(
         }
         return Ok(StateTerm::KSequence(crate::KSequence::readable(
             group, items, tail,
+        )?));
+    }
+    // Braces holding no arrow are an instance list, as at a cell (`te: { y, .. }`): the child is
+    // a cell, whose kind judges them, so on a child that is no collection the collector says so
+    // (`instances-on-plain-cell`) from the same spelling.
+    if let Some(group) = instance_braces(&tokens, context) {
+        return Ok(StateTerm::Instances(parse_readable_instances_reading(
+            &group, context, false, faults,
         )?));
     }
     // A group record whose child writes a map cell's entries in map notation (`Tg { gm: { k -> v,
@@ -1864,8 +1901,9 @@ fn read_result_record(content: ParseStream<'_>) -> Result<MachineResultCell, Par
 
 /// The group record of entries a readable record value `Group { .. }` is when one of its
 /// children is spelled as that child cell's map entry, which no term spells (ruling R4): a map
-/// read `{ k -> v, .. }` in a pattern, or a map `{ k -> v }` that names every entry; or, in a
-/// pattern, brackets holding their rest alone, `[..]`, the child's whole content, which no term
+/// read `{ k -> v, .. }` in a pattern, or a map `{ k -> v }` that names every entry; instance
+/// braces `{ y, .. }`, an instance list, which the child's kind judges as at its own cell; or, in
+/// a pattern, brackets holding their rest alone, `[..]`, the child's whole content, which no term
 /// spells either and which the child's kind reads once the declarations are known (a list's whole
 /// list, a computation's items), as an instance's child's is ([`parse_readable_child`]). The value
 /// is consumed. Whether `Group` names the cell's group or a constructor is its path's question,
@@ -1903,12 +1941,15 @@ fn readable_record(
         }
         _ => false,
     };
+    let braces =
+        |value: &[TokenTree]| instance_braces(&value.iter().cloned().collect(), reading).is_some();
     let items = top_level_items(body.stream());
     let maps = items.iter().any(|item| {
         let trees = item.clone().into_iter().collect::<Vec<_>>();
         matches!(trees.as_slice(),
             [TokenTree::Ident(_), TokenTree::Punct(colon), value @ ..]
-                if colon.as_char() == ':' && (map_child(value) || item_less(value)))
+                if colon.as_char() == ':'
+                    && (map_child(value) || item_less(value) || braces(value)))
     });
     if !maps || !is_plain_path(&owner) {
         return Ok(None);
@@ -1935,6 +1976,10 @@ fn readable_record(
             return Ok(None);
         }
         let state = match value.clone().into_iter().collect::<Vec<_>>().as_slice() {
+            // Instance braces, which the child's kind judges, as at its own cell.
+            trees @ [TokenTree::Group(group)] if braces(trees) => StateTerm::Instances(
+                parse_readable_instances_reading(group, reading, false, None)?,
+            ),
             // The item-less sequence, the child's whole content, as an instance's child reads it.
             trees @ [TokenTree::Group(group)] if item_less(trees) => {
                 StateTerm::KSequence(crate::KSequence::readable(

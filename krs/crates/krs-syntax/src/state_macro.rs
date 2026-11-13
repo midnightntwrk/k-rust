@@ -3532,18 +3532,17 @@ fn parse_group_entry(
         // `..` in a child's list keeps no rest, a stated limitation the term reader names; a
         // result's `k::map![k -> v, ..]` is built, so its anonymous `..` names no map the entries
         // are written over, the literal's own refusal whichever reading it has. A map child is
-        // read as the child's entry first ([`fragment_record`]).
+        // read as the child's entry first ([`fragment_record`]). A child's notation the term
+        // reader refuses on either side (`k::set![y, ..]`, whose `..` names no set) is that
+        // child's mistake, as at an instance's child or the child's own cell: the fragment is a
+        // nested cell's entry, so it is no entry without a wrapper.
         SyntaxErrorKind::InvalidListNotation { .. } if fragment => {
             crate::list_notation::anonymous_rest_in(
                 error,
                 crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
             )
         }
-        SyntaxErrorKind::InvalidExpressionNotation { .. }
-            if fragment && context == StateMacroContext::Expression =>
-        {
-            error
-        }
+        SyntaxErrorKind::InvalidExpressionNotation { .. } if fragment => error,
         _ => invalid(span),
     })?;
     match term.tree() {

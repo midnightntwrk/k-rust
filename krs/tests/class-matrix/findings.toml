@@ -42,16 +42,6 @@ owner = "S5"
 kind = "bug"
 what = "the source `krs expand` prints for a readable result that writes a `?` group's child (`og: Some(Og { ol: [x], .. })`, `on: x`, `ol: [..rest, y]` over a subject naming the group) is refused (`krs::analysis::cell-wrapper` at the item), so K3 cannot read it back; the case itself is accepted with its twin's K"
 
-["TWIN-4"]
-owner = "S5"
-kind = "diagnostic"
-what = "`k::set![y, ..]` as a fixed or `?` group fragment's child (`gg: k::fragment![crate::Gg { ge: k::set![y, ..], .. }]`) is refused `krs::syntax::invalid-state-macro` \"an entry without a wrapper is a nested cell's\" outside the case's site, where its twin `te: Cell(k::set![y, ..])` and an instance's child say `invalid-expression-notation` (a set literal's anonymous `..` names no set)"
-
-["TWIN-5"]
-owner = "S5"
-kind = "diagnostic"
-what = "a readable record child of the builtin `Set` written with braces (`je: { y, .. }` in an instance, a group record or `Some(..)`) is a rust-syntax parse error (\"expected one of: identifier ..\"), where its twin `te: { y, .. }` is `instances-on-plain-cell` (braces of items are an instance list, and a Set leaf is no collection)"
-
 ["TWIN-6"]
 owner = "S5"
 kind = "diagnostic"
