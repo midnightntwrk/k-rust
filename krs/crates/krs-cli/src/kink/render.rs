@@ -59,6 +59,23 @@
 //! expectation compares that the corpus's `[result]` leaves out is not in the ends kink keeps,
 //! which makes the check inconclusive too.
 //!
+//! An expectation may state the declared class of a stuck end (`class`, `end`, `reason`), in a
+//! definition that declares ends. Without `[stop]` each baseline end is one no rule applies to,
+//! so the check reads its class from the definition's own end functions, as below, before it
+//! compares, and krs-exec compares each part where the expectation states it; a class not
+//! decided, or ends of both classes, make the check inconclusive. Under `[stop]` the halt is not
+//! observed, and neither is the class.
+//!
+//! # Declared ends
+//!
+//! The renderer gives kink the declared class of each end of a baseline run at which no rule
+//! applies ([`EndRenderer::declared_ends`]): [`krs_exec::Semantics::declared_class`] applies each
+//! declared end's function to the end, within `krs run`'s default budget of polls, as `krs run`
+//! does at its last state. Where the slot leaves cells out, the end holds `\top` in their place,
+//! which states nothing of them: each becomes a fresh variable of its sort, so a class decided
+//! there is the class of every content of those cells, and one that depends on a content is
+//! undecided. The class is never compared by a kill (kink-flow's "Declared ends").
+//!
 //! # Views
 //!
 //! An expectation states one question, and `krs run --case` answers it with the expectation's
@@ -122,8 +139,8 @@ use k_rust::kast::identifier::label_or_name;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::Element;
 use kink_flow::{
-    CheckedExpectation, EndRenderer, ExpectationCheck, ExpectationVerdict, ObserveSection,
-    ObservedDifference, StopSection,
+    CheckedExpectation, DeclaredEnd, EndRenderer, ExpectationCheck, ExpectationVerdict,
+    ObserveSection, ObservedDifference, StopSection,
 };
 use krs_exec::{
     CellInfo, Compared, Comparison, CompiledStage, DIFFERENCE_FORMAT, End, EndClass, EndError,
@@ -384,6 +401,36 @@ impl EndRenderer for KrsEnds {
                     .map_err(|error| error.to_string())?;
                 self.with_views(semantics, &mut expectation, expected_views)
             })
+    }
+
+    fn declared_ends(&self, ends: &[Pattern], not_compared: &[String]) -> Option<Vec<DeclaredEnd>> {
+        let answered =
+            self.inputs
+                .with_semantics_mut("reading the declared class of an end", |semantics| {
+                    if !semantics.declares_ends() {
+                        return Ok(None);
+                    }
+                    let cells = semantics.cells();
+                    let unstated = unstated(&cells, not_compared);
+                    let left_out = !unstated.is_empty();
+                    Ok(Some(
+                        ends.iter()
+                            .map(|end| declared_of(semantics, end, left_out))
+                            .collect::<Vec<_>>(),
+                    ))
+                });
+        match answered {
+            Ok(classes) => classes,
+            // The definition does not compile natively: no end's class is known.
+            Err(reason) => Some(vec![DeclaredEnd::Undecided(reason); ends.len()]),
+        }
+    }
+
+    fn expected_class(&self, expect: &toml::Table) -> Option<String> {
+        expect
+            .get("class")
+            .and_then(toml::Value::as_str)
+            .map(str::to_owned)
     }
 
     fn check_expectation(&self, check: ExpectationCheck<'_>) -> Result<CheckedExpectation, String> {
@@ -680,8 +727,20 @@ fn checked_expectation(
     };
     let cells = semantics.cells();
     let unstated = unstated(&cells, not_compared);
+    let read = read_ends(semantics, ends, &class, &unstated)?;
+    let left_out = !unstated.is_empty();
+    // Without `[stop]` every end is one no rule applies to, so it has a declared class, which an
+    // expectation that states one compares (module documentation, "Expectations").
+    let read = if halt == HaltCheck::Compared {
+        match with_declared_classes(semantics, ends, read, &expectation.end.class, left_out) {
+            Ok(read) => read,
+            Err(reason) => return Ok(CheckedExpectation::inconclusive(reason)),
+        }
+    } else {
+        read
+    };
     let baseline = Ends {
-        ends: read_ends(semantics, ends, &class, &unstated)?,
+        ends: read,
         incomplete: None,
     };
     let expected = Ends::one(expectation.end.clone());
@@ -835,6 +894,128 @@ pub(super) fn read_ends(
                 .map_err(|error| format!("an end does not read as the definition's: {error}"))
         })
         .collect()
+}
+
+/// The declared class of `end`, a final configuration of a baseline run at which no rule applies,
+/// as the slot compares it (module documentation, "Declared ends"): read from the definition's
+/// own functions of its ends ([`Semantics::declared_class`]), each evaluation within
+/// `krs run`'s default budget of polls ([`DEFAULT_VIEW_BUDGET`]). Where the slot leaves cells
+/// out (`left_out`), each placeholder `\top` it put in their place becomes a variable of its
+/// sort, so a class decided there is the class of every content of those cells, and one that
+/// depends on a content is undecided, saying so.
+fn declared_of(semantics: &mut Semantics, end: &Pattern, left_out: bool) -> DeclaredEnd {
+    match run_end(semantics, end, left_out) {
+        Ok(Ok(end)) => match (end.class, end.item, end.reason) {
+            (krs_exec::DeclaredClass::None, _, _) => DeclaredEnd::None,
+            (krs_exec::DeclaredClass::Finished, Some(item), _) => DeclaredEnd::Finished { item },
+            (krs_exec::DeclaredClass::Refused, Some(item), reason) => DeclaredEnd::Refused {
+                item,
+                reason: reason.as_ref().and_then(|reason| reason.document.clone()),
+                text: reason.map(|reason| reason.text).unwrap_or_default(),
+            },
+            (class, None, _) => DeclaredEnd::Undecided(format!(
+                "a `{}` end that names no declared end",
+                class.as_str()
+            )),
+        },
+        Ok(Err(reason)) => DeclaredEnd::Undecided(reason),
+        Err((finished, refused)) => DeclaredEnd::Overlap { finished, refused },
+    }
+}
+
+/// [`declared_of`]'s reading of `end`: the run end krs-exec gives, or why its class is undecided,
+/// or the first finished and refused ends that both hold.
+fn run_end(
+    semantics: &mut Semantics,
+    end: &Pattern,
+    left_out: bool,
+) -> Result<Result<krs_exec::RunEnd, String>, (String, String)> {
+    let configuration = if left_out {
+        with_variables(end, &mut 0)
+    } else {
+        end.clone()
+    };
+    match semantics.declared_class(configuration, Some(DEFAULT_VIEW_BUDGET)) {
+        None => Ok(Err("the definition declares no end".to_owned())),
+        Some(Ok(Ok(end))) => Ok(Ok(end)),
+        Some(Ok(Err(undecided))) => {
+            let cells = if left_out {
+                "; the corpus leaves cells out of its ends ([result], unobservable cells), and \
+                 the class may depend on their content"
+            } else {
+                ""
+            };
+            Ok(Err(format!(
+                "whether the declared end `{}` holds is undecided: {}{cells}",
+                undecided.item, undecided.reason
+            )))
+        }
+        Some(Err(krs_exec::ExecError::EndClassesOverlap {
+            finished, refused, ..
+        })) => Err((finished, refused)),
+        Some(Err(error)) => Ok(Err(error.to_string())),
+    }
+}
+
+/// `pattern` with each `\top` of a sort, the placeholder of a cell the slot leaves out, replaced
+/// by a fresh element variable of that sort, numbered from `fresh`.
+fn with_variables(pattern: &Pattern, fresh: &mut usize) -> Pattern {
+    use k_rust::kore::ast::{Variable, VariableKind};
+    match pattern {
+        Pattern::Top { sort } => {
+            let variable = Pattern::Variable(Variable {
+                kind: VariableKind::Element,
+                name: format!("VarLeftOut'Unds'{fresh}"),
+                sort: sort.clone(),
+            });
+            *fresh += 1;
+            variable
+        }
+        Pattern::Application { symbol, arguments } => Pattern::Application {
+            symbol: symbol.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| with_variables(argument, fresh))
+                .collect(),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Each end of `ends` with its declared class, read as [`declared_of`] reads it, where the
+/// definition declares ends and the expectation `expected` states a part of the class; else
+/// `ends` as they are. An end whose class is not decided, or of both classes, leaves the
+/// expectation's class undecided: its reason.
+fn with_declared_classes(
+    semantics: &mut Semantics,
+    configurations: &BTreeSet<Pattern>,
+    mut ends: Vec<End>,
+    expected: &EndClass,
+    left_out: bool,
+) -> Result<Vec<End>, String> {
+    if expected.declared.is_none() || !semantics.declares_ends() {
+        return Ok(ends);
+    }
+    for (end, configuration) in ends.iter_mut().zip(configurations) {
+        let declared = match run_end(semantics, configuration, left_out) {
+            Ok(Ok(run)) => krs_exec::DeclaredEnd {
+                class: Some(run.class),
+                end: run.item,
+                reason: run.reason,
+            },
+            Ok(Err(reason)) => {
+                return Err(format!("an end's declared class is not decided: {reason}"));
+            }
+            Err((finished, refused)) => {
+                return Err(format!(
+                    "at an end the declared ends `{finished}` (finished) and `{refused}` \
+                     (refused) both hold, so the definition contradicts itself there"
+                ));
+            }
+        };
+        end.class.declared = Some(declared);
+    }
+    Ok(ends)
 }
 
 /// The krs-exec comparison of the slot's two sets of ends (module documentation).

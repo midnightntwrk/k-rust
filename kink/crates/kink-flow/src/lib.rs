@@ -95,7 +95,7 @@ pub use compare::{
     Stated, StatedEnd, TraceAnswer, TraceDifference, TraceJudged, TraceQuestion, TraceReach,
     Vocabulary,
 };
-pub use evidence::{EndRenderer, Renderer};
+pub use evidence::{DeclaredEnd, EndRenderer, Renderer};
 pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
 /// The values of a baseline run's channels ([`results::BaselineRunner::observed_values`]).
 pub use kink_campaign::{ChannelValues, StopSide, ValueElement, ValuesEnd, ValuesRefusal};

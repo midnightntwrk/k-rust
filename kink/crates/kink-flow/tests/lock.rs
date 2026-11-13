@@ -805,7 +805,7 @@ mod kink_tier {
         let output = binary(&manifest, &["--lock", "kink.lock", "--locked"]);
         assert_eq!(output.status.code(), Some(i32::from(EXIT_NO)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(document["version"], 41);
+        assert_eq!(document["version"], 42);
         assert_eq!(
             (&document["lock"]["status"], &document["lock"]["header"]),
             (&json!("stale"), &json!(true))

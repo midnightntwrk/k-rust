@@ -351,6 +351,13 @@ pub const COMPARE_LEGEND: &[&str] = &[
     "`identity_sha256` its build (its `identity` file); a run that gave no answer keeps its rows.",
 ];
 
+/// The comment after [`COMPARE_LEGEND`] in a section with a `definition-refused` verdict, which only
+/// a definition that declares ends gives, so that a section without one keeps its bytes.
+pub const DEFINITION_REFUSED_LEGEND: &[&str] = &[
+    "definition-refused: the definition ends the program at a declared refused end, so it states",
+    "no end to compare the answer with; `reason` names the end and its reason.",
+];
+
 /// The comment before a run section's first `[[run.mutation]]`: what a row is and what each status
 /// says.
 pub const MUTATIONS_LEGEND: &[&str] = &[
@@ -409,6 +416,30 @@ pub fn lock_text(document: &Value) -> Result<String, String> {
 /// `[run]` or `[coverage]` line, ending with one newline. The error names what the document is
 /// when it is neither a run nor a coverage document.
 pub fn lock_section(document: &Value) -> Result<String, String> {
+    lock_section_with(document, &[])
+}
+
+/// The name of the table of a lock section that states the definition's assumed totalities
+/// ([`lock_section_with`]).
+pub const ASSUMED_TOTALS: &str = "assumed_totals";
+
+/// The comment of a lock section's [`ASSUMED_TOTALS`] table.
+pub const ASSUMED_TOTALS_PREAMBLE: &[&str] = &[
+    "The functions the definition declares total on its author's word, without a check, each",
+    "by its symbol, with the reason as written: every verdict above may rest on each.",
+];
+
+/// [`lock_section`] of a definition whose functions `assumed` (each a symbol and its reason) are
+/// total on its author's word ([`crate::lock::Lock::with_assumed_totals`]): the section, with,
+/// where `assumed` is not empty, a table `[<command>.assumed_totals]` after the section's header
+/// tables and before its rows, one `"<symbol>" = "<reason>"` line per function, in the given
+/// order. The verdicts rendering (`--output verdicts`) never holds it: the list is the record's,
+/// to tell a section written on another list, and no output prints it.
+///
+/// # Errors
+///
+/// As [`lock_section`].
+pub fn lock_section_with(document: &Value, assumed: &[(String, String)]) -> Result<String, String> {
     let schema = &document["schema"];
     if schema != crate::report::RUN_SCHEMA
         && schema != crate::coverage::COVERAGE_SCHEMA
@@ -420,7 +451,7 @@ pub fn lock_section(document: &Value) -> Result<String, String> {
         );
     }
     let kind = section_name(document)?;
-    Ok(section(document, kind, false))
+    Ok(section(document, kind, false, assumed))
 }
 
 /// The header of a record, before its first section: [`RECORD_PREAMBLE`], `schema`, and
@@ -451,7 +482,7 @@ fn render(document: &Value, killed_by: bool) -> Result<String, String> {
     Ok(format!(
         "{}\n{}",
         record_header(definition_of(document)),
-        section(document, kind, killed_by)
+        section(document, kind, killed_by, &[])
     ))
 }
 
@@ -482,7 +513,7 @@ fn section_name(document: &Value) -> Result<&'static str, String> {
 }
 
 /// The section `kind` (`run`, `coverage`) of `document` (module documentation).
-fn section(document: &Value, kind: &str, killed_by: bool) -> String {
+fn section(document: &Value, kind: &str, killed_by: bool, assumed: &[(String, String)]) -> String {
     let mut text = format!("[{kind}]\n");
     comment(
         &mut text,
@@ -559,6 +590,13 @@ fn section(document: &Value, kind: &str, killed_by: bool) -> String {
             if let Some(value) = object.get(key).and_then(Value::as_str) {
                 line(&mut text, key, &string(value));
             }
+        }
+    }
+    if !assumed.is_empty() {
+        let _ = write!(text, "\n[{kind}.{ASSUMED_TOTALS}]\n");
+        comment(&mut text, ASSUMED_TOTALS_PREAMBLE);
+        for (symbol, reason) in assumed {
+            line(&mut text, &string(symbol), &string(reason));
         }
     }
     match kind {
@@ -887,6 +925,12 @@ fn compare(text: &mut String, document: &Value) {
     if !rows.is_empty() {
         text.push('\n');
         comment(text, COMPARE_LEGEND);
+        if rows
+            .iter()
+            .any(|row| row["verdict"] == crate::compare::DEFINITION_REFUSED)
+        {
+            comment(text, DEFINITION_REFUSED_LEGEND);
+        }
     }
     for (index, row) in rows.iter().enumerate() {
         text.push_str(if index == 0 {

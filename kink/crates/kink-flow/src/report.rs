@@ -276,7 +276,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// 41 since an `unknown` row every undecided program of which, live or cached, the work budget
 /// cut has the reason `work-budget` ([`WORK_BUDGET_REASON`]), with its own `action`, as
 /// `open-application` has, where it had none and the generic action (FB45-KINK).
-pub const RUN_VERSION: u64 = 41;
+/// 42 since, in a definition that declares ends, each end of a program row where no rule applies
+/// has its declared class (`declared`, `declared_by`, `reason`, `reason_text`,
+/// `declared_detail`; `crate::evidence`, "Declared ends") and a row whose classes are a finding
+/// has `declared_end`; a definition that declares none writes the rows it wrote.
+pub const RUN_VERSION: u64 = 42;
 
 /// The name of the observation slot of an executed entry's `slots`, after the end slots
 /// ([`crate::observed::ResultProjection::slots`]), under `[observe]`.

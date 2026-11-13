@@ -477,7 +477,12 @@ pub const COVERAGE_SCHEMA: &str = "kink-flow-coverage";
 /// 24 since an argued item's evidence names the programs whose run read a step of the item's
 /// rules (`argument_check.evidence.stepped_by`, and each `argument_checks` entry's): a holding
 /// evidence is non-vacuous by any one of them, which `prune` reads ([`crate::prune`]).
-pub const COVERAGE_VERSION: u64 = 24;
+/// 25 since, in a definition that declares ends, program rows carry their ends' declared classes
+/// and `declared_end` as the run document's do (`crate::report::RUN_VERSION` 42), which the exit
+/// status joins (`undeclared-end` 1, `end-classes-overlap` 2, `end-undecided` 3), and an equation
+/// only the declared ends reach has the status `declared-end` (`counts.declared_end`), from which
+/// no flip is derived; a definition that declares none writes the document it wrote.
+pub const COVERAGE_VERSION: u64 = 25;
 
 /// The status of a rule some comparable program fired.
 pub const FIRED: &str = "fired";
@@ -493,6 +498,9 @@ pub const CLAIM_HELPER: &str = "claim-helper";
 /// The status of an equation of a function only the manifest's `[[coverage.invariant]]`
 /// functions reach, whatever the programs did: no obligation of any family ([`scope`]).
 pub const INVARIANT: &str = "invariant";
+/// The status of an equation of a function only the definition's declared ends reach, whatever
+/// the programs did: no obligation of any family ([`scope`]; `crate::evidence`, "Declared ends").
+pub const DECLARED_END: &str = "declared-end";
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: no
 /// obligation.
 pub const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
@@ -626,6 +634,7 @@ pub fn command(
             &front.spelling.verb(crate::Verb::Coverage),
             manifest.definition.as_deref(),
         )
+        .map(|lock| lock.with_assumed_totals(&manifest.assumed_totals))
     };
     let lock = match options.lock.as_deref().map(read).transpose() {
         Ok(lock) => lock,
@@ -1412,6 +1421,7 @@ fn unsupported_kind(probe: &Value, id: &str) -> Option<&'static str> {
         Some(OUT_OF_SCOPE) => Some(OUT_OF_SCOPE),
         Some(CLAIM_HELPER) => Some(CLAIM_HELPER),
         Some(INVARIANT) => Some(INVARIANT),
+        Some(DECLARED_END) => Some(DECLARED_END),
         Some(NO_COVERAGE_SIGNAL) => Some(NO_COVERAGE_SIGNAL),
         _ if rule["rewrite"] == true => None,
         _ => Some("equation"),
@@ -3741,6 +3751,7 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
             OUT_OF_SCOPE,
             CLAIM_HELPER,
             INVARIANT,
+            DECLARED_END,
             NO_COVERAGE_SIGNAL,
         ] {
             if status == known {
@@ -3948,6 +3959,11 @@ pub fn derive(document: &mut Value, spelling: &dyn CommandSpelling) {
         "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
         "heating": {"obligations": heating_obligations, "fired": heating_fired},
     });
+    // Only a definition that declares ends has such equations, so a document of one that
+    // declares none keeps its counts.
+    if count(DECLARED_END) > 0 {
+        rules["counts"]["declared_end"] = json!(count(DECLARED_END));
+    }
     let families = &mut document["families"];
     families["requirements"] = json!({
         "tier": 1,

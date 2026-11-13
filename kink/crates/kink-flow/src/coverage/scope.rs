@@ -23,6 +23,13 @@
 //!   equations and those of the functions only it applies are no behaviour of the definition a
 //!   program exercises, and an edit of them changes no step of any run that does not apply them
 //!   through an input. As for a claim helper, such a sentence is no obligation whatever the
+//!   programs did;
+//! - [`Excluded::DeclaredEnd`]: an equation of a function only the definition's declared ends
+//!   reach ([`FlowManifest::end_functions`], reached as the invariants' functions are, below). A
+//!   declared end's function is applied to a run's last state by the front end that reads the
+//!   class (`crate::evidence`, "Declared ends"), never by a step of a run, and the slots compare
+//!   final configurations, not classes: an edit of such an equation changes no step and no end
+//!   any slot compares, so no program can tell it apart, and it is no obligation whatever the
 //!   programs did.
 //!
 //! # Invariant-only functions
@@ -70,7 +77,9 @@
 //! `not_generated`, and reads only the occurrences in scope of every other flip
 //! ([`crate::flips::scoped`]).
 
-use super::{CLAIM_HELPER, INVARIANT, InvariantResolver, NO_COVERAGE_SIGNAL, OUT_OF_SCOPE};
+use super::{
+    CLAIM_HELPER, DECLARED_END, INVARIANT, InvariantResolver, NO_COVERAGE_SIGNAL, OUT_OF_SCOPE,
+};
 use crate::{admit::AdmittedSpec, manifest::FlowManifest, results::no_coverage_signal};
 use k_rust::{
     definition::{AttributeKey, Definition, Sentence},
@@ -93,6 +102,8 @@ pub(crate) enum Excluded {
     ClaimHelper,
     /// An equation of a function only the manifest's invariants reach ([`INVARIANT`]).
     Invariant,
+    /// An equation of a function only the definition's declared ends reach ([`DECLARED_END`]).
+    DeclaredEnd,
 }
 
 impl Excluded {
@@ -104,6 +115,7 @@ impl Excluded {
             Self::NoCoverageSignal(_) => NO_COVERAGE_SIGNAL,
             Self::ClaimHelper => CLAIM_HELPER,
             Self::Invariant => INVARIANT,
+            Self::DeclaredEnd => DECLARED_END,
         }
     }
 
@@ -125,6 +137,12 @@ impl Excluded {
                  definition applies it except through an input that applies it, since an \
                  invariant is read off a run's states, never applied by a step"
             }
+            Self::DeclaredEnd => {
+                "an equation of a function only the definition's declared ends reach: a declared \
+                 end's function is applied to a run's last state to read its class, never by a \
+                 step, and the slots compare final configurations, so no program can tell an \
+                 edit of it apart"
+            }
         }
     }
 }
@@ -136,6 +154,8 @@ pub(crate) struct Scope<'m> {
     /// The authored sentences only the manifest's invariants reach (module documentation,
     /// "Invariant-only functions").
     invariant_only: BTreeSet<SentenceRef>,
+    /// The authored sentences only the definition's declared ends reach ([`Excluded::DeclaredEnd`]).
+    end_only: BTreeSet<SentenceRef>,
     /// The reach of the compiled equations, where the input backend's definition was selected.
     reach: Option<EquationReach>,
 }
@@ -159,10 +179,15 @@ impl<'m> Scope<'m> {
             .zip(invariants)
             .map(|(reach, resolver)| invariant_only(spec, manifest, reach, resolver))
             .unwrap_or_default();
+        let end_only = reach
+            .as_ref()
+            .map(|reach| only_reached_from(spec, manifest, reach, manifest.end_functions.clone()))
+            .unwrap_or_default();
         Self {
             no_signal: no_coverage_signal(spec),
             manifest,
             invariant_only,
+            end_only,
             reach,
         }
     }
@@ -198,6 +223,8 @@ impl<'m> Scope<'m> {
             Some(Excluded::ClaimHelper)
         } else if self.invariant_only.contains(at) {
             Some(Excluded::Invariant)
+        } else if self.end_only.contains(at) {
+            Some(Excluded::DeclaredEnd)
         } else {
             None
         }
@@ -226,6 +253,19 @@ fn invariant_only(
         .filter_map(|invariant| resolver.resolve(spec, invariant).ok())
         .map(|resolved| resolved.symbol)
         .collect::<BTreeSet<_>>();
+    only_reached_from(spec, manifest, reach, functions)
+}
+
+/// The authored sentences of `spec` that only `functions` (KORE symbols) reach over `reach`, and
+/// not a run of a result record (module documentation, "Invariant-only functions"): each such
+/// sentence's compiled ids are all equations or lemmas indexed at a symbol of that difference.
+/// None where `functions` is empty, or where a front end's function of an observer is not named.
+fn only_reached_from(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    reach: &EquationReach,
+    functions: BTreeSet<String>,
+) -> BTreeSet<SentenceRef> {
     if functions.is_empty() {
         return BTreeSet::new();
     }

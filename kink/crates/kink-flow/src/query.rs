@@ -240,7 +240,10 @@ pub const QUERY_SCHEMA: &str = "kink-flow-query";
 /// baseline is not run and is `unknown` (`no-work-bound`). A chain's key names the bound
 /// (`budget.max_polls`), so every chain answer is asked again once. Every single pattern's
 /// answer, row and witness is unchanged.
-pub const QUERY_VERSION: u64 = 12;
+/// 13 since, in a definition that declares ends, program rows carry their ends' declared classes
+/// and `declared_end`, as the run document's do; a definition that declares none writes the
+/// document it wrote, but for `version`.
+pub const QUERY_VERSION: u64 = 13;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
@@ -520,7 +523,7 @@ pub(crate) fn query_with(
             command,
             manifest.definition.as_deref(),
         ) {
-            Ok(lock) => Some(lock),
+            Ok(lock) => Some(lock.with_assumed_totals(&manifest.assumed_totals)),
             Err(detail) => {
                 let mut document = refused_document(&AdmissionRecord::new(&manifest.spec.entry));
                 document["spec"] = Value::Null;

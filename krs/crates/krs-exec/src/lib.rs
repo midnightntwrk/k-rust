@@ -95,11 +95,13 @@ pub use condition::{
     ArrivalObservation, ConditionOracle, ObservationError, ObservedState, ResolvedCondition,
 };
 pub use configuration::Configuration;
-pub use declared_ends::{DeclaredClass, EndReason, EndUndecided, RunEnd, declares_ends};
+pub use declared_ends::{
+    DeclaredClass, EndReason, EndUndecided, RunEnd, declares_ends, end_functions,
+};
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use ends::{
-    CellInfo, Compared, Comparison, DIFFERENCE_FORMAT, Difference, DifferenceAt, DifferenceSide,
-    End, EndCell, EndCells, EndClass, EndError, Ends, Rendered, Side, VALUE_CAP,
+    CellInfo, Compared, Comparison, DIFFERENCE_FORMAT, DeclaredEnd, Difference, DifferenceAt,
+    DifferenceSide, End, EndCell, EndCells, EndClass, EndError, Ends, Rendered, Side, VALUE_CAP,
 };
 pub use inputs::{
     Case, CaseDocument, CaseRun, Expectation, InputError, InputFiles, InputType, MainVariable,
@@ -3290,6 +3292,35 @@ impl Semantics {
     #[must_use]
     pub fn declares_ends(&self) -> bool {
         !self.ends.is_empty()
+    }
+
+    /// The declared class of `configuration`, a configuration no rule applies to that another
+    /// tool's run of the definition ended in ([module
+    /// documentation](declared_ends#the-class-of-an-end)); or the declared end left undecided,
+    /// each evaluation bounded by `budget` polls when there is one. `None` for a definition that
+    /// declares no end.
+    ///
+    /// The configuration may hold variables where its producer did not keep a cell's content: a
+    /// function that simplifies to `true` or `false` there has that value at every content, so
+    /// the class is the class of every configuration it stands for, and one whose value depends
+    /// on such a content is left undecided.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::EndClassesOverlap`] (with no steps) where ends of both classes hold,
+    /// and an error of the backend that is no stop of the evaluation.
+    pub fn declared_class(
+        &mut self,
+        configuration: Pattern,
+        budget: Option<u64>,
+    ) -> Option<Result<Result<RunEnd, EndUndecided>, ExecError>> {
+        if self.ends.is_empty() {
+            return None;
+        }
+        Some(
+            self.term(configuration)
+                .and_then(|state| self.declared_end(&state, 0, budget)),
+        )
     }
 
     /// The declared class of `state`, a state no rule applies to, `steps` steps into its run

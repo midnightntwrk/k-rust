@@ -161,6 +161,17 @@ pub struct FlowManifest {
     /// did ([`Self::is_claim_helper`]): `coverage` gives it the status `claim-helper` and lists
     /// no condition flip that changes it.
     pub claim_helpers: BTreeSet<(String, String)>,
+    /// The functions of the definition's declared ends, as KORE symbols: each end's function of
+    /// the configuration and its reason's. A front end that reads declared ends sets them
+    /// ([`Self::with_end_functions`]); `coverage` gives an equation only they reach the status
+    /// `declared-end` (`crate::coverage`). Empty for a decoded `FLOW.toml`.
+    pub end_functions: BTreeSet<String>,
+    /// The definition's functions whose totality its author states without a check, each its
+    /// symbol and the reason as written, which a front end sets ([`Self::with_assumed_totals`]).
+    /// The record (`--lock`) states them in each section it writes, so that a change of the
+    /// list is a change of the section, as a change of the definition's verdicts is
+    /// ([`crate::lock`]); no document prints them. Empty for a decoded `FLOW.toml`.
+    pub assumed_totals: Vec<(String, String)>,
     /// The front end's spelling of the sentences finding names name (kink-native
     /// `SentenceNames`): `[spec] assume_joined` is written in it, and every document prints names
     /// in it. A front end that names sentences its own way sets it
@@ -1037,6 +1048,8 @@ impl ManifestFile {
             input_decoder: Decoder::default(),
             end_renderer: Renderer::default(),
             claim_helpers: BTreeSet::new(),
+            end_functions: BTreeSet::new(),
+            assumed_totals: Vec::new(),
             sentence_names: kink_native::data::SentenceNames::default(),
             syntax: None,
         })
@@ -1208,6 +1221,25 @@ impl FlowManifest {
         helpers: impl IntoIterator<Item = (String, String)>,
     ) -> Self {
         self.claim_helpers = helpers.into_iter().collect();
+        self
+    }
+
+    /// This manifest with `functions` (KORE symbols) as the functions of its definition's declared
+    /// ends ([`Self::end_functions`]).
+    #[must_use]
+    pub fn with_end_functions(mut self, functions: impl IntoIterator<Item = String>) -> Self {
+        self.end_functions = functions.into_iter().collect();
+        self
+    }
+
+    /// This manifest with `assumed` as its definition's assumed totalities, each a symbol and its
+    /// reason ([`Self::assumed_totals`]).
+    #[must_use]
+    pub fn with_assumed_totals(
+        mut self,
+        assumed: impl IntoIterator<Item = (String, String)>,
+    ) -> Self {
+        self.assumed_totals = assumed.into_iter().collect();
         self
     }
 

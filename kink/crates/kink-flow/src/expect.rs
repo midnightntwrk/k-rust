@@ -30,7 +30,7 @@
 //! record, and is inconclusive for a program without one.
 
 use crate::admit::InputFiles;
-use crate::evidence::{EndRenderer, Renderer};
+use crate::evidence::{DeclaredEnd, EndRenderer, Renderer};
 use crate::manifest::{CaseRoot, Program, StopSection};
 use crate::results::{ProgramResult, ResultClass, record_final_configuration};
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
@@ -205,6 +205,108 @@ pub(crate) fn expectation_value(
         .unwrap_or_else(CheckedExpectation::inconclusive),
     };
     Some(checked.value())
+}
+
+/// The finding a program row states of its ends' declared classes (`declared_end`): an end in no
+/// declared class that the case does not expect.
+pub const UNDECLARED_END: &str = "undeclared-end";
+/// The finding of an end whose declared class is not decided.
+pub const END_UNDECIDED: &str = "end-undecided";
+/// The finding of an end at which ends of both declared classes hold.
+pub const END_CLASSES_OVERLAP: &str = "end-classes-overlap";
+
+/// `row`, a program row whose `ends` are the summaries of `baseline`'s ends, with each end at
+/// which no rule applies given its declared class (`crate::evidence`, "Declared ends"), and with
+/// `declared_end`, `{finding, detail}`, where those classes are a finding: an end of class
+/// `none` that the case does not expect (`expect.class = "none"`) is [`UNDECLARED_END`], since
+/// the definition has no rule there and does not call the state an end; one of both classes is
+/// [`END_CLASSES_OVERLAP`]; one whose class is not decided is [`END_UNDECIDED`]. Where several
+/// ends are findings the row names the first of the most severe (overlap, then a gap, then an
+/// undecided class), by exit status. A row of a definition that declares no end, and one with no
+/// ends, is left as it is. `stop` is whether the corpus has a `[stop]`: an end then has a class
+/// only where its `halt` is `own`.
+pub(crate) fn with_declared(
+    renderer: &Renderer,
+    program: &Program,
+    row: &mut Value,
+    baseline: &Baseline<'_>,
+    not_compared: &[String],
+    stop: bool,
+) {
+    let Some(renderer) = renderer.get() else {
+        return;
+    };
+    if baseline.class != ResultClass::Comparable.as_str() {
+        return;
+    }
+    let (Some(texts), Some(summaries)) = (baseline.ends.as_ref(), row["ends"].as_array()) else {
+        return;
+    };
+    if texts.len() != summaries.len() {
+        return;
+    }
+    let mut asked = Vec::new();
+    let mut ends = Vec::new();
+    for (index, (text, summary)) in texts.iter().zip(summaries).enumerate() {
+        if stop && summary["halt"] != "own" {
+            continue;
+        }
+        let Ok(end) = parse_pattern(text) else {
+            return;
+        };
+        asked.push(index);
+        ends.push(end);
+    }
+    if ends.is_empty() {
+        return;
+    }
+    let Some(declared) = renderer.declared_ends(&ends, not_compared) else {
+        return;
+    };
+    let gap_expected = program
+        .expect
+        .as_ref()
+        .and_then(|expect| renderer.expected_class(expect))
+        .is_some_and(|class| class == "none");
+    let mut finding: Option<(u8, &'static str, String)> = None;
+    for (index, class) in asked.into_iter().zip(&declared) {
+        class.annotate(&mut row["ends"][index]);
+        let found = match class {
+            DeclaredEnd::Overlap { finished, refused } => Some((
+                0,
+                END_CLASSES_OVERLAP,
+                format!(
+                    "end {index}: the declared ends `{finished}` (finished) and `{refused}` \
+                     (refused) both hold; an end is of one class, so the definition contradicts \
+                     itself: state the two ends so that no state is in both"
+                ),
+            )),
+            DeclaredEnd::None if !gap_expected => Some((
+                1,
+                UNDECLARED_END,
+                format!(
+                    "end {index}: no rule applies and no declared end holds, so the definition \
+                     does not account for this end: declare it (`#[k::end(..)]`), add the rule \
+                     that is missing, or state `class = \"none\"` in the case's `expect` where \
+                     the gap is meant"
+                ),
+            )),
+            DeclaredEnd::Undecided(detail) => Some((
+                2,
+                END_UNDECIDED,
+                format!("end {index}: whether a declared end holds is not decided: {detail}"),
+            )),
+            _ => None,
+        };
+        if let Some(found) = found
+            && finding.as_ref().is_none_or(|(rank, ..)| found.0 < *rank)
+        {
+            finding = Some(found);
+        }
+    }
+    if let Some((_, name, detail)) = finding {
+        row["declared_end"] = json!({"finding": name, "detail": detail});
+    }
 }
 
 /// [`expectation_value`]'s check of `expect` against `baseline`, or why there is none.

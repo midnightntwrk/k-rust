@@ -1653,6 +1653,22 @@ fn expectation_status(row: &Value) -> u8 {
     }
 }
 
+/// The status of a program row's finding about its ends' declared classes (`declared_end`,
+/// `crate::expect::with_declared`): [`EXIT_NO`] for an end in no declared class the case does not
+/// expect (`undeclared-end`: the definition does not account for the end), [`EXIT_UNASKED`] for
+/// ends of both classes at one state (`end-classes-overlap`: the definition contradicts itself,
+/// which its author must fix), [`EXIT_UNANSWERED`] for a class not decided (`end-undecided`);
+/// [`EXIT_YES`] for a row without one. Only `coverage`, which asks whether each baseline can
+/// count, exits by it, as by an expectation.
+fn declared_status(row: &Value) -> u8 {
+    match row["declared_end"]["finding"].as_str() {
+        Some(crate::expect::UNDECLARED_END) => EXIT_NO,
+        Some(crate::expect::END_CLASSES_OVERLAP) => EXIT_UNASKED,
+        Some(crate::expect::END_UNDECIDED) => EXIT_UNANSWERED,
+        _ => EXIT_YES,
+    }
+}
+
 /// Whether a row reports a record the command could not write (`cache_error`), which fails the
 /// command ([`EXIT_UNASKED`]: fix the cache directory): every `cache_error` but
 /// [`crate::results::RESULT_CACHE_NO_BUILD`], which says only that no result record is written
@@ -1703,8 +1719,8 @@ fn baseline_status(row: &Value) -> u8 {
 
 /// The exit status of a `coverage` document: the corpus ran, every program is comparable and
 /// every expectation is met. The join of each program's class ([`program_status`]: a timeout or
-/// unknown program covers nothing, so the answer is incomplete) and expectation
-/// ([`expectation_status`]), [`EXIT_NO`] for a `--verify` mismatch, [`EXIT_UNANSWERED`] for a
+/// unknown program covers nothing, so the answer is incomplete), expectation
+/// ([`expectation_status`]) and declared ends ([`declared_status`]), [`EXIT_NO`] for a `--verify` mismatch, [`EXIT_UNANSWERED`] for a
 /// flip the kill search gave no verdict (`unknown`), [`EXIT_UNASKED`] for one whose search ended
 /// in an error (`kink_status` `error`: a corpus error, a failed run or an unwritten record),
 /// [`EXIT_NO`] for a needless argument (`summary.needless_arguments`: a `[[coverage.argued]]`
@@ -1727,7 +1743,11 @@ pub fn coverage_status(document: &Value) -> u8 {
         .as_array()
         .into_iter()
         .flatten()
-        .map(|row| exit_join(program_status(row), expectation_status(row)))
+        .map(|row| {
+            [expectation_status(row), declared_status(row)]
+                .into_iter()
+                .fold(program_status(row), exit_join)
+        })
         .fold(EXIT_YES, exit_join);
     let flips = document["families"]["flips"]["items"]
         .as_array()

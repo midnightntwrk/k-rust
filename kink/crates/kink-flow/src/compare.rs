@@ -125,7 +125,10 @@ pub const COMPARE_SCHEMA: &str = "kink-flow-compare";
 /// view may be `not-compared` for `no-end`, `several-paths` or `observed-nothing`, an answer's
 /// `end` may be `horizon`, and a lock's changed and kept rows name a `horizon`. The document of
 /// a flow of the first protocol's implementations differs from version 2's in `version` only.
-pub const COMPARE_VERSION: u64 = 3;
+/// 4 since an end view of a program the definition ends at a declared `refused` end has the
+/// verdict `definition-refused`, whatever the implementation answered, which the summary then
+/// counts; the document of a definition that declares no end differs in `version` only.
+pub const COMPARE_VERSION: u64 = 4;
 /// The protocol a request names (`protocol`) and its answer is read by, unless the
 /// implementation declares another ([`Protocol`]).
 pub const PROTOCOL: &str = "kink-implementation/1";
@@ -965,6 +968,10 @@ enum Definition {
         ends: BTreeSet<Pattern>,
         /// The words of the ends, each once.
         words: BTreeSet<&'static str>,
+        /// Where an end is of a declared `refused` class (its summary's `declared`,
+        /// `crate::evidence`, "Declared ends"), the first such end's item and reason, as a
+        /// `definition-refused` verdict's detail states them.
+        refused: Option<String>,
     },
     /// The program's baseline was cut by its bounds before it ended (`comparable-prefix`): it
     /// has no end, and its channels' elements up to their horizons, which a trace view compares.
@@ -1043,8 +1050,46 @@ fn definition_side(
             })
             .unwrap_or_default()
     };
-    Definition::Ends { ends, words }
+    // The first end the definition declares refused, in the order of the record's ends.
+    let refused = row.row["ends"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|summary| summary["declared"] == "refused")
+        .map(|summary| {
+            format!(
+                "the definition refuses the program, at its declared end `{}`: `{}`",
+                summary["declared_by"].as_str().unwrap_or_default(),
+                summary["reason_text"].as_str().unwrap_or_default()
+            )
+        });
+    Definition::Ends {
+        ends,
+        words,
+        refused,
+    }
 }
+
+/// `views`, the rows of `implementation`'s views on a program whose definition ends at a declared
+/// `refused` end (`refused`, the detail), with each end view's verdict `definition-refused`
+/// whatever the implementation answered: the definition states no end of the program to compare
+/// an answer with, only that it refuses the program, for its reason, which the detail gives.
+/// This mirrors `could-not-apply`, the implementation's own refusal, and is an answer as that
+/// is. A trace view is kept: the elements before the end are behaviour the definition states.
+fn definition_refused(views: &mut [Value], implementation: &ImplementationSection, refused: &str) {
+    for (row, view) in views.iter_mut().zip(&implementation.views) {
+        if view.is_trace() {
+            continue;
+        }
+        let mut replaced = view_row(view);
+        replaced["verdict"] = json!(DEFINITION_REFUSED);
+        replaced["detail"] = json!(refused);
+        *row = replaced;
+    }
+}
+
+/// The verdict of an end view on a program the definition refuses ([`definition_refused`]).
+pub const DEFINITION_REFUSED: &str = "definition-refused";
 
 /// The definition's observation record of one program, which its trace views are compared
 /// against: the `observations` of its baseline row.
@@ -1619,7 +1664,7 @@ fn definition_rows(
 }
 
 /// The status of one (implementation, program) row: the join of its required views' verdicts
-/// (`equal` and `could-not-apply` [`EXIT_YES`], `different` [`EXIT_NO`], `not-compared` its
+/// (`equal`, `could-not-apply` and `definition-refused` [`EXIT_YES`], `different` [`EXIT_NO`], `not-compared` its
 /// reason's status, `agree-up-to` its own: [`EXIT_YES`] where the definition limits every
 /// horizon, [`EXIT_UNANSWERED`] where the implementation's answer limits one), and of its failure
 /// where some view is required. A view that is not
@@ -1636,7 +1681,7 @@ pub fn row_status(row: &Value) -> u8 {
         status = exit_join(
             status,
             match view["verdict"].as_str() {
-                Some("equal" | "could-not-apply") => EXIT_YES,
+                Some("equal" | "could-not-apply" | DEFINITION_REFUSED) => EXIT_YES,
                 Some("different") => EXIT_NO,
                 Some("not-compared" | "agree-up-to") => view["status"]
                     .as_u64()
@@ -1743,7 +1788,7 @@ pub fn command(
             verb,
             manifest.definition.as_deref(),
         ) {
-            Ok(lock) => Some(lock),
+            Ok(lock) => Some(lock.with_assumed_totals(&manifest.assumed_totals)),
             Err(detail) => return lock_refused(manifest, path, &detail),
         },
     };
@@ -2084,7 +2129,7 @@ fn compared_selected(
                     continue;
                 }
                 Definition::Prefix { .. } => None,
-                Definition::Ends { ends, words } => Some((ends, words)),
+                Definition::Ends { ends, words, .. } => Some((ends, words)),
             };
             // The channels to ask for with their positions, or why the trace views are not
             // compared on this program; `None` for an implementation without a trace view.
@@ -2302,7 +2347,16 @@ fn compared_selected(
                                 &not_compared,
                                 side,
                             ) {
-                                Ok(views) => out["views"] = json!(views),
+                                Ok(mut views) => {
+                                    if let Definition::Ends {
+                                        refused: Some(refused),
+                                        ..
+                                    } = &definition
+                                    {
+                                        definition_refused(&mut views, implementation, refused);
+                                    }
+                                    out["views"] = json!(views);
+                                }
                                 Err(detail) => {
                                     document["refusal"] = json!({
                                         "stage": "compare",
@@ -2762,7 +2816,7 @@ pub fn verdict_rows(document: &Value) -> Vec<Value> {
                 let verdict = view["verdict"].as_str().unwrap_or_default();
                 let reason = match verdict {
                     "not-compared" => view["reason"].clone(),
-                    "could-not-apply" => view["detail"].clone(),
+                    "could-not-apply" | DEFINITION_REFUSED => view["detail"].clone(),
                     _ => Value::Null,
                 };
                 let difference = if view["difference"].is_null() {
@@ -2987,7 +3041,8 @@ fn counted(second_protocol: bool) -> impl Iterator<Item = &'static str> {
 
 /// The counts of the document's verdicts and failures: `{verdicts: {equal, different,
 /// could-not-apply, not-compared}, required: {..the same, of required views}, failures}`, each
-/// with `agree-up-to` under `second_protocol` ([`counted`]).
+/// with `agree-up-to` under `second_protocol` ([`counted`]) and with `definition-refused` where
+/// some view has that verdict.
 fn summary(rows: &[Value], second_protocol: bool) -> Value {
     let mut verdicts = Map::new();
     let mut required = Map::new();
@@ -3001,6 +3056,19 @@ fn summary(rows: &[Value], second_protocol: bool) -> Value {
         };
         verdicts.insert(verdict.into(), json!(count(false)));
         required.insert(verdict.into(), json!(count(true)));
+    }
+    // Only a definition that declares ends refuses a program, so the count is there where some
+    // view is `definition-refused`, and a summary without one is the one it was.
+    let refused = |only_required: bool| {
+        rows.iter()
+            .flat_map(|row| row["views"].as_array().into_iter().flatten())
+            .filter(|view| view["verdict"] == DEFINITION_REFUSED)
+            .filter(|view| !only_required || view["required"] == true)
+            .count()
+    };
+    if refused(false) > 0 {
+        verdicts.insert(DEFINITION_REFUSED.into(), json!(refused(false)));
+        required.insert(DEFINITION_REFUSED.into(), json!(refused(true)));
     }
     json!({
         "verdicts": verdicts,
@@ -3066,10 +3134,12 @@ pub fn text(document: &Value) -> Result<String, String> {
                     .or_else(|| view["difference"]["path"].as_str())
                     .map(|at| format!(" at {at}"))
                     .unwrap_or_default(),
-                "could-not-apply" | "not-compared" | "agree-up-to" => view["detail"]
-                    .as_str()
-                    .map(|detail| format!(": {detail}"))
-                    .unwrap_or_default(),
+                "could-not-apply" | DEFINITION_REFUSED | "not-compared" | "agree-up-to" => {
+                    view["detail"]
+                        .as_str()
+                        .map(|detail| format!(": {detail}"))
+                        .unwrap_or_default()
+                }
                 _ => String::new(),
             };
             // A trace view's line ends with what its verdict rests on.

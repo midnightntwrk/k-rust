@@ -275,6 +275,30 @@ pub fn declares_ends(definition: &DefinitionIr) -> bool {
         })
 }
 
+/// The KORE symbols of the functions of `definition`'s declared ends: each end's function of
+/// the configuration, and a refused end's reason function, in the definition's order of
+/// sentences. A tool that reads a run's states without applying these functions (kink's
+/// coverage) tells by them which equations only a declared end applies.
+#[must_use]
+pub fn end_functions(definition: &DefinitionIr) -> Vec<String> {
+    definition
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .filter_map(|sentence| {
+            let DefinitionSentence::Production(production) = sentence else {
+                return None;
+            };
+            (sentence.item().is_some()
+                && production
+                    .attributes()
+                    .iter()
+                    .any(|attribute| matches!(attribute, ProductionAttribute::End { .. })))
+            .then(|| kore_symbol_name(production.symbol().emitted_name()))
+        })
+        .collect()
+}
+
 /// `symbol` applied to the configuration of `state`, a state's pattern: the pattern itself, or
 /// its one configuration conjunct where it carries constraints; `None` for any other pattern.
 pub(crate) fn application(symbol: &str, state: &Pattern) -> Option<Pattern> {

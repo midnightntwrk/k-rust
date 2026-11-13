@@ -1327,18 +1327,39 @@ impl Resolvers {
 /// read and checked (by Rust field path and canonical documents, over the decoder's compile, its
 /// views evaluated in the definition or in one of `observers`), and which sentences are claim
 /// helpers. Only claims apply a claim helper, and the claims are not in the K kink loads, so the
-/// emission, which wrote both, names them.
+/// emission, which wrote both, names them. Also the functions of the definition's declared ends,
+/// which `coverage` tells apart from what a run applies, and its assumed totalities, which the
+/// record states in each section it writes ([`assumed_totals`]).
 fn with_front_end_facts(
     manifest: kink_flow::FlowManifest,
     emitted: &EmittedDefinition,
     decoder: Arc<inputs::KrsInputs>,
     observers: Arc<render::Observers>,
 ) -> kink_flow::FlowManifest {
+    let definition = decoder.definition();
+    let ends = krs_exec::end_functions(definition);
+    let assumed = assumed_totals(definition);
     manifest
         .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone(), observers)))
         .with_input_decoder(decoder)
         .with_claim_helpers(claim_helpers(emitted))
         .with_sentence_names(sentence_names(emitted))
+        .with_end_functions(ends)
+        .with_assumed_totals(assumed)
+}
+
+/// The functions `definition` takes to be total on its author's word
+/// ([`krs_compiler::assumed_totals`]), each by its K symbol with its reason, in that list's order,
+/// a symbol once: what `kink.lock` states in each section, so that a change of the list changes
+/// the section as a change of the definition's verdicts does (TOTAL-PARTIAL-BODY T3b). No output
+/// prints it.
+fn assumed_totals(definition: &krs_ir_levels::DefinitionIr) -> Vec<(String, String)> {
+    let mut seen = std::collections::BTreeSet::new();
+    krs_compiler::assumed_totals(definition)
+        .into_iter()
+        .filter(|assumed| seen.insert(assumed.label.clone()))
+        .map(|assumed| (assumed.label, assumed.reason))
+        .collect()
 }
 
 /// How a finding's name spells each sentence of `emitted` (kink-flow

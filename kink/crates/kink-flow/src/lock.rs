@@ -77,7 +77,7 @@
 //! same verdicts, so the check could only fail, and a command without `--locked` reads its killers
 //! and rewrites it. So is an old file a front end names, while it is there.
 
-use crate::verdicts::{VERDICTS_SCHEMA, lock_section, record_header};
+use crate::verdicts::{ASSUMED_TOTALS, VERDICTS_SCHEMA, lock_section_with, record_header};
 use kink_corpus::Store;
 use serde_json::{Map, Value, json};
 use std::{
@@ -338,6 +338,9 @@ pub struct Lock {
     /// The definition the file's header names; `None` when the file is absent or names none (a K
     /// flow's record, or one written before version 28).
     pub recorded_definition: Option<String>,
+    /// The definition's assumed totalities, each its symbol and its reason
+    /// ([`Lock::with_assumed_totals`]), which a write states in the command's section.
+    pub assumed_totals: Vec<(String, String)>,
 }
 
 /// An old file a front end kept a command's lock in before version 24, still beside the record.
@@ -473,6 +476,20 @@ impl Lock {
         }
         self.definition = definition.map(str::to_owned);
         Ok(self)
+    }
+
+    /// The lock as the record of a definition whose functions `assumed` (each a symbol and its
+    /// reason) are total on its author's word, which a write states in the command's section
+    /// (`[<command>.assumed_totals]`, [`crate::verdicts::lock_section_with`]). Every verdict of
+    /// the section may rest on each: a backend takes a total function's application to have a
+    /// value. So a change of the list changes the section, as a change of the definition's
+    /// verdicts does, and `--locked` finds the section stale; a definition with none writes no
+    /// such table, so its section is the one it was. The list is in the record only: no document
+    /// prints it, and a difference in it is named by its line alone.
+    #[must_use]
+    pub fn with_assumed_totals(mut self, assumed: &[(String, String)]) -> Self {
+        self.assumed_totals = assumed.to_vec();
+        self
     }
 
     /// Read `kind`'s section of the record at `path` for a command whose flow is for
@@ -667,6 +684,7 @@ impl Lock {
             legacy: None,
             definition: None,
             recorded_definition,
+            assumed_totals: Vec::new(),
         })
     }
 
@@ -865,7 +883,7 @@ impl Lock {
         // those values ([`crate::clock`]).
         let clock = crate::clock::keep(self, document);
         let document = &clock.document;
-        let section = match lock_section(document) {
+        let section = match lock_section_with(document, &self.assumed_totals) {
             Ok(section) if LockKind::of(document) == self.kind => section,
             _ => return (self.not_written("refused"), true),
         };
@@ -1082,6 +1100,12 @@ impl Lock {
                 (a, b) => break (a, b),
             }
         };
+        // A line of the assumed totalities is named by its place alone: no output prints them
+        // ([`Lock::with_assumed_totals`]).
+        let at = usize::try_from(line - 1).unwrap_or(usize::MAX);
+        if in_assumed_totals(old, at) || in_assumed_totals(section, at) {
+            return json!({"kind": ASSUMED_TOTALS, "line": line + offset});
+        }
         json!({"kind": "text", "line": line + offset, "recorded": recorded, "now": now})
     }
 
@@ -1298,7 +1322,11 @@ fn header_values(table: &toml::Table, kind: LockKind) -> BTreeMap<String, Value>
     let mut header = BTreeMap::new();
     for (key, value) in table {
         match value {
-            _ if key == kind.row() || key == "schema" || key == "document" => {}
+            // The assumed totalities are named by no change: no output prints them.
+            _ if key == kind.row()
+                || key == "schema"
+                || key == "document"
+                || key == ASSUMED_TOTALS => {}
             toml::Value::Table(_)
                 if kind == LockKind::Coverage
                     && (crate::coverage::FAMILIES.contains(&key.as_str())
@@ -1377,6 +1405,28 @@ fn id_lines(text: &str, kind: LockKind) -> Vec<(u64, &str)> {
         }
     }
     lines
+}
+
+/// Whether line `at` (from 0) of the section `text` is inside its `assumed_totals` table
+/// ([`Lock::with_assumed_totals`]), its heading included.
+fn in_assumed_totals(text: &str, at: usize) -> bool {
+    let mut inside = false;
+    for (index, line) in text.split('\n').enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            inside = trimmed
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .rsplit('.')
+                .next()
+                == Some(ASSUMED_TOTALS)
+                && !trimmed.starts_with("[[");
+        }
+        if index == at {
+            return inside;
+        }
+    }
+    false
 }
 
 /// The header of a section of `kind`: a run section's lines before its first `[[run.mutation]]`
@@ -1717,7 +1767,7 @@ pub fn lock_notes(document: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::verdicts::lock_text;
+    use crate::verdicts::{lock_section, lock_text};
 
     /// A run document judging `rows` (`(id, status, killer)`), admitted, under `profile`.
     fn run_document(rows: &[(&str, &str, Option<&str>)]) -> Value {
@@ -1944,6 +1994,67 @@ mod tests {
         assert_eq!(
             (&value["status"], &value["reason"]),
             (&json!("not-written"), &json!("only"))
+        );
+    }
+
+    /// A definition with no assumed totality writes the section it wrote before; one with some
+    /// states them in a table of the section's header, which the verdicts rendering never holds;
+    /// a change of them makes the section stale under `--locked`, and the change is named by its
+    /// line alone, in no header change, and with neither symbol nor reason.
+    #[test]
+    fn the_assumed_totalities_are_in_the_section_and_a_change_of_them_is_stale() {
+        let document = run_document(&[("m1", "killed", Some("p1")), ("m2", "survived", None)]);
+        assert_eq!(
+            crate::verdicts::lock_section_with(&document, &[]).unwrap(),
+            lock_section(&document).unwrap()
+        );
+        let first = [("Lblsame".to_owned(), "the first reason".to_owned())];
+        let section = crate::verdicts::lock_section_with(&document, &first).unwrap();
+        assert!(
+            section.contains("\n[run.assumed_totals]\n")
+                && section.contains("\n\"Lblsame\" = \"the first reason\"\n"),
+            "{section}"
+        );
+        assert!(!lock_text(&document).unwrap().contains("assumed_totals"));
+        // The table is in the section's header, before its rows.
+        assert!(section.find("assumed_totals") < section.find("[[run.mutation]]"));
+
+        let dir = scratch("assumed-totals");
+        let path = dir.join(LOCK_FILE);
+        let store = Store::new(&dir);
+        let read = |assumed: &[(String, String)]| {
+            Lock::read_kind(&path, LockKind::Run)
+                .unwrap()
+                .with_assumed_totals(assumed)
+        };
+        let (value, ok) = read(&first).settle(&store, &document, WRITE);
+        assert!(ok);
+        assert_eq!(value["status"], "created", "{value:#}");
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("the first reason"), "{written}");
+        let (value, _) = read(&first).settle(&store, &document, LOCKED);
+        assert_eq!(value["status"], "unchanged", "{value:#}");
+
+        let other = [("Lblsame".to_owned(), "another reason".to_owned())];
+        for assumed in [&other[..], &[][..]] {
+            let (value, _) = read(assumed).settle(&store, &document, LOCKED);
+            assert_eq!(value["status"], "stale", "{value:#}");
+            assert_eq!(value["header"], true, "{value:#}");
+            assert_eq!(value["header_changes"], json!([]), "{value:#}");
+            assert_eq!(value["difference"]["kind"], ASSUMED_TOTALS, "{value:#}");
+            let shown = value.to_string();
+            for hidden in ["Lblsame", "the first reason", "another reason"] {
+                assert!(!shown.contains(hidden), "{value:#}");
+            }
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), written);
+        // A run without --locked rewrites the section with the list it has.
+        let (value, _) = read(&other).settle(&store, &document, WRITE);
+        assert_eq!(value["status"], "written", "{value:#}");
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("another reason")
         );
     }
 

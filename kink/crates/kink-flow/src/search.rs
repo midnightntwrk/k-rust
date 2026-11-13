@@ -2856,6 +2856,7 @@ pub(crate) fn run_session(
             &front.spelling.verb(Verb::Run),
             manifest.definition.as_deref(),
         )
+        .map(|lock| lock.with_assumed_totals(&manifest.assumed_totals))
     };
     let lock = match options.lock.as_deref().map(read).transpose() {
         Ok(lock) => lock,

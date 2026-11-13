@@ -872,6 +872,27 @@ impl<'a> InputSession<'a> {
         )
     }
 
+    /// `row`, `program`'s row whose `ends` summarize `baseline`'s ends, with their declared
+    /// classes and the finding they make, where the front end reads declared ends
+    /// (`crate::expect::with_declared`); `stop` is whether the manifest has a `[stop]`.
+    pub fn declared(
+        &self,
+        program: &Program,
+        mut row: serde_json::Value,
+        baseline: &crate::expect::Baseline<'_>,
+        stop: bool,
+    ) -> serde_json::Value {
+        crate::expect::with_declared(
+            self.renderer,
+            program,
+            &mut row,
+            baseline,
+            &self.spec.result.not_compared,
+            stop,
+        );
+        row
+    }
+
     /// The program's concrete initial configuration (`inputs` is [`Self::read`]'s result):
     /// assembled with the session's specification's own baseline compile (re-pin L1-4: no
     /// compile per program), the program text bound to `$PGM`, the text variables and then the

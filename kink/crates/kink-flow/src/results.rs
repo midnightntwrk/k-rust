@@ -2679,18 +2679,23 @@ fn program_row(
     let stop = manifest.stop.as_ref();
     if let (Some(record), false) = (&stored, context.verify) {
         return ProgramRow {
-            row: expected(
-                with_wall(
-                    row(
-                        Some(digest),
-                        record["class"].as_str().unwrap_or("error"),
-                        &record["cause"],
-                        true,
-                        Value::Null,
+            row: inputs.declared(
+                program,
+                expected(
+                    with_wall(
+                        row(
+                            Some(digest),
+                            record["class"].as_str().unwrap_or("error"),
+                            &record["cause"],
+                            true,
+                            Value::Null,
+                        ),
+                        record,
                     ),
-                    record,
+                    inputs.expectation(program, Ok(Baseline::of_record(record)), stop),
                 ),
-                inputs.expectation(program, Ok(Baseline::of_record(record)), stop),
+                &Baseline::of_record(record),
+                stop.is_some(),
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored.map(without_ends),
@@ -2722,18 +2727,23 @@ fn program_row(
             "mismatch"
         };
         return ProgramRow {
-            row: expected(
-                with_wall(
-                    row(
-                        Some(digest),
-                        record["class"].as_str().unwrap_or("error"),
-                        &record["cause"],
-                        true,
-                        json!(verdict),
+            row: inputs.declared(
+                program,
+                expected(
+                    with_wall(
+                        row(
+                            Some(digest),
+                            record["class"].as_str().unwrap_or("error"),
+                            &record["cause"],
+                            true,
+                            json!(verdict),
+                        ),
+                        &record,
                     ),
-                    &record,
+                    inputs.expectation(program, Ok(Baseline::of_record(&record)), stop),
                 ),
-                inputs.expectation(program, Ok(Baseline::of_record(&record)), stop),
+                &Baseline::of_record(&record),
+                stop.is_some(),
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: Some(without_ends(record)),
@@ -2751,18 +2761,23 @@ fn program_row(
         };
     }
     let record = record_value(spec, &key, context.spec_digest, &program.id, &result);
-    let mut row = expected(
-        with_wall(
-            row(
-                Some(digest),
-                result.class.as_str(),
-                &json!(result.cause),
-                false,
-                Value::Null,
+    let mut row = inputs.declared(
+        program,
+        expected(
+            with_wall(
+                row(
+                    Some(digest),
+                    result.class.as_str(),
+                    &json!(result.cause),
+                    false,
+                    Value::Null,
+                ),
+                &record,
             ),
-            &record,
+            inputs.expectation(program, Ok(Baseline::of_result(&result)), stop),
         ),
-        inputs.expectation(program, Ok(Baseline::of_result(&result)), stop),
+        &Baseline::of_result(&result),
+        stop.is_some(),
     );
     // A record is written only when the store is on and the result is a function of its key;
     // an error row still fails the command, cached or not.

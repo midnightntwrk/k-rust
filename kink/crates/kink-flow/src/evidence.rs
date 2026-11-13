@@ -95,6 +95,31 @@
 //! keeps one leaf of the two, so which halt the run reports for such an end can depend on the
 //! order the run explored them.
 //!
+//! # Declared ends
+//!
+//! A definition may declare ends (krs: `#[k::end(finished)]`, `#[k::end(refused)]`): each a
+//! function of the configuration, true exactly on the end, and a `refused` end also a function
+//! giving its reason. Only a front end that reads the definition at its own level knows them, so
+//! it gives the class of each end ([`EndRenderer::declared_ends`]); kink computes none.
+//! A declared end is a statement about a state at which no rule applies, so only such an end has
+//! a class: without `[stop]` every end, and with it every end whose `halt` is `own` (a path ended
+//! there on its own, so no rule applies there); an end reached at a stop is not known to be one,
+//! and has none.
+//! The summary of such an end of a definition that declares ends adds `declared` (`finished`,
+//! `refused`, `none` where no declared end holds, `undecided`, or `overlap` where ends of both
+//! classes hold), `declared_by` (the item of the declared end that holds), `reason` and
+//! `reason_text` (a refused end's reason, as the front end writes it) and `declared_detail` (why
+//! it is undecided or of both classes).
+//! The ends a front end is given are the slot's: where the slot leaves a cell out, that cell's
+//! content is not known, and a class that depends on it is undecided.
+//! The class is computed again by every command, from the ends a result record holds: it is in no
+//! record, digest or key.
+//!
+//! The class is evidence and a finding, never part of a compared observation: the slots compare
+//! the final configurations, so a mutant that changes only a declared end's function changes no
+//! end any slot compares. Such functions are therefore no obligation of `coverage`'s families
+//! (status `declared-end`), so no flip is derived from them; see `crate::coverage`.
+//!
 //! # Observation evidence
 //!
 //! Under `[observe]` a test can be killed by its observation slot alone (a prefix program's end
@@ -318,6 +343,83 @@ pub trait EndRenderer {
             "the front end's ends ({}) check no expectation",
             self.format()
         ))
+    }
+
+    /// The declared class of each of `ends`, in their order, where the definition declares ends
+    /// (module documentation, "Declared ends"): each a final configuration of a baseline run at
+    /// which no rule applies, as the second slot compares it, each cell of `not_compared`
+    /// replaced by `\top` of its sort. The class is read from the definition's own functions of
+    /// its ends, and from nothing else. `None` for a definition that declares no end, and by
+    /// default: a renderer that reads no declared end.
+    fn declared_ends(&self, ends: &[Pattern], not_compared: &[String]) -> Option<Vec<DeclaredEnd>> {
+        let _ = (ends, not_compared);
+        None
+    }
+
+    /// The declared class a case's expectation states, its `expect` table as written (`finished`,
+    /// `refused` or `none`), where it states one; `None` by default.
+    fn expected_class(&self, expect: &toml::Table) -> Option<String> {
+        let _ = expect;
+        None
+    }
+}
+
+/// The declared class of one end of a baseline run where no rule applies
+/// ([`EndRenderer::declared_ends`]; module documentation, "Declared ends").
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeclaredEnd {
+    /// A declared `finished` end holds, the first in the definition's order: its item.
+    Finished { item: String },
+    /// A declared `refused` end holds: its item, and its reason's document (`None` where the
+    /// value has none) and text.
+    Refused {
+        item: String,
+        reason: Option<Value>,
+        text: String,
+    },
+    /// No declared end holds: a gap.
+    None,
+    /// Whether a declared end holds is not decided (its evaluation stopped, ended short of a
+    /// value, or depends on a cell the ends leave out): why.
+    Undecided(String),
+    /// Ends of both classes hold, so the definition contradicts itself there: the first of each.
+    Overlap { finished: String, refused: String },
+}
+
+impl DeclaredEnd {
+    /// The word an end summary's `declared` writes.
+    #[must_use]
+    pub const fn word(&self) -> &'static str {
+        match self {
+            Self::Finished { .. } => "finished",
+            Self::Refused { .. } => "refused",
+            Self::None => "none",
+            Self::Undecided(_) => "undecided",
+            Self::Overlap { .. } => "overlap",
+        }
+    }
+
+    /// Adds the class to an end summary (module documentation, "Declared ends"): `declared`,
+    /// with `declared_by` for a finished or a refused end, `reason` and `reason_text` for a
+    /// refused one, and `declared_detail` for one undecided or of both classes.
+    pub fn annotate(&self, summary: &mut Value) {
+        summary["declared"] = json!(self.word());
+        match self {
+            Self::Finished { item } => summary["declared_by"] = json!(item),
+            Self::Refused { item, reason, text } => {
+                summary["declared_by"] = json!(item);
+                summary["reason"] = reason.clone().unwrap_or(Value::Null);
+                summary["reason_text"] = json!(text);
+            }
+            Self::None => {}
+            Self::Undecided(detail) => summary["declared_detail"] = json!(detail),
+            Self::Overlap { finished, refused } => {
+                summary["declared_detail"] = json!(format!(
+                    "the declared ends `{finished}` (finished) and `{refused}` (refused) both \
+                     hold: an end is of one class, so the definition contradicts itself here"
+                ));
+            }
+        }
     }
 }
 
