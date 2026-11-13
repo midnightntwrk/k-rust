@@ -581,7 +581,9 @@ fn a_held_statement_runs_natively() {
 /// What the completed lattice still rejects: an operator whose operands no
 /// occurrence sorts as a builtin domain (the `KItem` occurrence no longer
 /// narrows `x` to `Int`), two rules that both apply to a held statement,
-/// and a `K` part beside an item and a rest in a pattern, not supported yet.
+/// and a `K` part beside a rest that nothing before it fixes, which splits a
+/// computation in more than one way (KSEQSPLITS). After the item whose field
+/// fixes it, the same part splits one way and is admitted.
 #[test]
 fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
     let target = shared_fixture_target();
@@ -612,17 +614,17 @@ fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
                     "{}{}",
                     "#[k::constructors(sort = Stmt, result = KResult)]\n#[k::precedence((Wrap))]\npub enum WrapSyntax {\n    #[k::syntax(\"wrap ( {body} )\")]\n    Wrap { body: KSequence },\n}\n",
                     rules(
-                        "use WrapSyntax::*;\n    probe: { k: [Wrap { body: b }, b, Skip(), ..] } => { k: [..] };"
+                        "use WrapSyntax::*;\n    probe: { k: [b, Wrap { body: b }, Skip(), ..] } => { k: [..] };"
                     ),
                 ),
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet".to_owned(),
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): the computation pattern has several parts of unknown length, `b` and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place".to_owned(),
                 "k",
             ),
             (
                 "cells-sequence",
-                "#[k::constructors(sort = Stmt, result = KResult)]\n#[k::precedence((Wrap))]\npub enum WrapSyntax {\n    #[k::syntax(\"wrap ( {body} )\")]\n    Wrap { body: KSequence },\n}\n\n#[k::rule(label = \"probe\")]\npub fn probe(\n    b: Term<KSequence>,\n    k::cells! { k: k::configuration::KCell(WrapSyntax::Wrap(b), b, StmtSyntax::Skip(), tail @ ..), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n".to_owned(),
-                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): a computation pattern with a `K` part beside another part of unknown length is not supported yet".to_owned(),
-                "WrapSyntax::Wrap(b), b, StmtSyntax::Skip(), tail @ ..",
+                "#[k::constructors(sort = Stmt, result = KResult)]\n#[k::precedence((Wrap))]\npub enum WrapSyntax {\n    #[k::syntax(\"wrap ( {body} )\")]\n    Wrap { body: KSequence },\n}\n\n#[k::rule(label = \"probe\")]\npub fn probe(\n    b: Term<KSequence>,\n    k::cells! { k: k::configuration::KCell(b, WrapSyntax::Wrap(b), StmtSyntax::Skip(), tail @ ..), state @ .. }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n".to_owned(),
+                "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): the computation pattern has several parts of unknown length, `b` and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place".to_owned(),
+                "b, WrapSyntax::Wrap(b), StmtSyntax::Skip(), tail @ ..",
             ),
         ],
     );
@@ -636,6 +638,21 @@ fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
     assert_eq!(
         rule(&emitted(target.path(), &manifest), "sum"),
         "<k> hold ( X:Int ) ~> pair ( X:Int , Y:Int ) => .K ... </k> <acc> _ => X:Int +Int Y:Int </acc>"
+    );
+    let manifest = package(
+        temporary.path(),
+        "sequence-fixed",
+        &format!(
+            "{}{}",
+            "#[k::constructors(sort = Stmt, result = KResult)]\n#[k::precedence((Wrap))]\npub enum WrapSyntax {\n    #[k::syntax(\"wrap ( {body} )\")]\n    Wrap { body: KSequence },\n}\n",
+            rules(
+                "use WrapSyntax::*;\n    probe: { k: [Wrap { body: b }, b, Skip(), ..] } => { k: [..] };"
+            ),
+        ),
+    );
+    assert_eq!(
+        rule(&emitted(target.path(), &manifest), "probe"),
+        "<k> wrap ( B:K ) ~> B:K ~> skip => .K ... </k>"
     );
 }
 
