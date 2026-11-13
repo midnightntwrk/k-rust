@@ -149,6 +149,9 @@ pub enum LoweringError {
         value: String,
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
+        /// The authored declaration of the name (a sort, a production, a cell's field), where
+        /// the error is located; `None` for a name KRS derives from no one declaration.
+        origin: Option<Box<OriginStack>>,
     },
     /// Two semantic declarations selected the same Definition identity or emitted name.
     NameCollision {
@@ -345,6 +348,12 @@ impl ToDiagnostic for LoweringError {
                 .as_deref()
                 .cloned()
                 .map_or(Location::None, Location::Source),
+            Self::InvalidEmittedName {
+                origin: Some(origin),
+                ..
+            } => origin
+                .exact_authored_range()
+                .map_or(Location::None, Location::Source),
             Self::Partition(PartitionError::MixedGroup { origin, .. }) => origin
                 .origin()
                 .exact_authored_range()
@@ -352,7 +361,7 @@ impl ToDiagnostic for LoweringError {
             // No authored text is the subject: generated K, a sidecar, or a whole module.
             Self::UnsupportedShape { .. }
             | Self::InvalidProductionTemplate { .. }
-            | Self::InvalidEmittedName { .. }
+            | Self::InvalidEmittedName { origin: None, .. }
             | Self::SourceMapCollision { .. }
             | Self::InvalidGeneratedIdentity { .. }
             | Self::InvalidSidecar(_)
@@ -959,7 +968,8 @@ impl NamingPass {
                     || sort.id().item_name().to_owned(),
                     |symbol| symbol.final_component().to_owned(),
                 );
-                validate_sort_name(&name).map_err(|error| error.within(sort.id()))?;
+                validate_sort_name(&name, sort.origin().origin())
+                    .map_err(|error| error.within(sort.id()))?;
                 claim(
                     &mut identities,
                     id.as_str().to_owned(),
@@ -996,8 +1006,12 @@ impl NamingPass {
                 let owner = stable_symbol_text(production.id(), production.explicit_symbol());
                 let id = SymbolId::new(format!("production:{}", lower_hex(owner.as_bytes())))?;
                 let name = production_symbol_name(production, &owner);
-                validate_label_name("production symbol", &name)
-                    .map_err(|error| error.within(production.id()))?;
+                validate_label_name_at(
+                    "production symbol",
+                    &name,
+                    Some(production.origin().origin()),
+                )
+                .map_err(|error| error.within(production.id()))?;
                 claim(
                     &mut identities,
                     id.as_str().to_owned(),
@@ -1342,7 +1356,7 @@ fn name_fixed_cells(
     for cell in cells {
         let owner = format!("configuration cell {}", cell.id().as_str());
         let id = SymbolId::new(format!("cell:{}", lower_hex(cell.id().as_str().as_bytes())))?;
-        validate_cell_name(cell.name())?;
+        validate_cell_name(cell.name(), cell.origin().origin())?;
         if let Some((_, reserved)) = crate::k_reserved::K_CELLS
             .iter()
             .find(|(name, _)| *name == cell.name())
@@ -5045,11 +5059,12 @@ fn validate_module_name(value: &str) -> Result<(), LoweringError> {
             role: "module",
             value: value.to_owned(),
             item: None,
+            origin: None,
         })
     }
 }
 
-fn validate_sort_name(value: &str) -> Result<(), LoweringError> {
+fn validate_sort_name(value: &str, origin: &OriginStack) -> Result<(), LoweringError> {
     let valid = value
         .bytes()
         .next()
@@ -5064,11 +5079,12 @@ fn validate_sort_name(value: &str) -> Result<(), LoweringError> {
             role: "sort",
             value: value.to_owned(),
             item: None,
+            origin: Some(Box::new(origin.clone())),
         })
     }
 }
 
-fn validate_cell_name(value: &str) -> Result<(), LoweringError> {
+fn validate_cell_name(value: &str, origin: &OriginStack) -> Result<(), LoweringError> {
     let valid = value
         .bytes()
         .next()
@@ -5081,11 +5097,21 @@ fn validate_cell_name(value: &str) -> Result<(), LoweringError> {
             role: "cell",
             value: value.to_owned(),
             item: None,
+            origin: Some(Box::new(origin.clone())),
         })
     }
 }
 
 fn validate_label_name(role: &'static str, value: &str) -> Result<(), LoweringError> {
+    validate_label_name_at(role, value, None)
+}
+
+/// [`validate_label_name`], the error located at the declaration `origin` names.
+fn validate_label_name_at(
+    role: &'static str,
+    value: &str,
+    origin: Option<&OriginStack>,
+) -> Result<(), LoweringError> {
     let valid = value
         .bytes()
         .next()
@@ -5100,6 +5126,7 @@ fn validate_label_name(role: &'static str, value: &str) -> Result<(), LoweringEr
             role,
             value: value.to_owned(),
             item: None,
+            origin: origin.map(|origin| Box::new(origin.clone())),
         })
     }
 }

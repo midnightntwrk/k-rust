@@ -835,3 +835,68 @@ fn the_bundled_prelude_s_names_are_reserved() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// The headline of `krs check`'s first error on a package of `library` and the line and column
+/// it points at (`at L:C`, or `unlocated`), or `checks` when the package checks.
+fn check_located(target: &Path, root: &Path, directory: &str, library: &str) -> String {
+    let name = format!("name_map_{}", directory.replace('-', "_"));
+    let manifest = package(root, directory, &name, library);
+    let (success, _, stderr) = krs(target, &manifest, &name, "check", &[]);
+    if success {
+        return "checks".to_owned();
+    }
+    let mut lines = stderr.lines().skip_while(|line| !line.starts_with("error"));
+    let headline = lines
+        .next()
+        .unwrap_or_else(|| panic!("no error:\n{stderr}"))
+        .to_owned();
+    let at = lines
+        .next()
+        .and_then(|line| line.trim_start().strip_prefix("--> "))
+        .and_then(|path| path.rsplit_once("lib.rs:"))
+        .map_or_else(|| "unlocated".to_owned(), |(_, at)| format!("at {at}"));
+    format!("{headline} ({at})")
+}
+
+/// A sort, a production and a cell whose emitted K name is no K name are refused at their
+/// declaration (the sort's name in `k::sorts!`, the variant, the cell's field), with the reason
+/// as before (LEFTS item 5).
+#[test]
+fn a_name_no_k_name_spells_is_refused_at_its_declaration() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        ("sort", library(&[], &sort("Café"))),
+        (
+            "variant",
+            library(
+                &[("    Skip(),\n", "    Skip(),\n    #[k::syntax(\"cafe\")]\n    Café(),\n")],
+                "",
+            ),
+        ),
+        (
+            "cell",
+            library(
+                &[
+                    ("    pub acc: Int,\n", "    pub acc: Int,\n    #[k::cell]\n    pub generated_top: Int,\n"),
+                    ("acc: 0 }", "acc: 0, generated_top: 0 }"),
+                ],
+                "",
+            ),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, library)| {
+            format!(
+                "{name}: {}",
+                check_located(target.path(), temporary.path(), name, library)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        sort: error[krs::analysis::invalid-emitted-name]: sort name "Café" is not canonical K syntax (at 49:5)
+        variant: error[krs::analysis::invalid-emitted-name]: production symbol name "stmtSyntaxCafé" is not canonical K syntax (at 16:5)
+        cell: error[krs::analysis::invalid-emitted-name]: cell name "generated_top" is not canonical K syntax (at 26:9)"#]].assert_eq(&table);
+}
