@@ -36,3 +36,53 @@ what = "a constant's whole value that rustc cannot parse gets no KRS answer, and
 owner = "S5"
 kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`); since INITDIAG an initializer value is judged by its cell's kind, and since INITREC its group record update `G { a: 0, ..base }` too (the R6 limit only on a group of `G` or a `*` template of one), an alias in it answers `invalid-pattern-as` beside rustc's parse error, and a `cells!` result instance record's child the term reader refuses (`T { tk: [x, ..], ..me }`) waits for the record's own judgement. Left: K8 advice that follows a subject's `Some([..])`"
+
+["TWIN-1"]
+owner = "S5"
+kind = "bug"
+what = "a `cells!` result that writes the computation's remainder into a computation cell its subject leaves out, a top-level cell (`tk: KCell(..tail)`) or a fixed group's child (`gg: k::fragment![crate::Gg { gk: [..tail], .. }]`), is the internal `krs::analysis::unsupported-shape` \"the result selects a fixed cell absent from the subject\" outside the case; it means the overwrite `<tk> _ => Tail:K </tk>`, as `KCell(x)` there is accepted (`<prog> _ => V0:Int </prog>`)"
+
+["TWIN-10"]
+owner = "S5"
+kind = "bug"
+what = "the source `krs expand` prints for a readable result that writes a `?` group's child (`og: Some(Og { ol: [x], .. })`, `on: x`, `ol: [..rest, y]` over a subject naming the group) is refused (`krs::analysis::cell-wrapper` at the item), so K3 cannot read it back; the case itself is accepted with its twin's K"
+
+["TWIN-2"]
+owner = "S5"
+kind = "feature"
+what = "a readable record's top-level Map cell refuses braces of exact entries, `tm: { 0 -> v }` in a subject (rust-syntax \"a machine-rule map pattern is `{ key -> value, .. }`\") and `tm: { 0 -> x }` in a result (map-read-in-result), where every record child of the same kind reads them as the map's entries (`0 |-> V`, `.Map [ 0 <- X ]`): one spelling, two readings"
+
+["TWIN-3"]
+owner = "S5"
+kind = "feature"
+what = "an instance child written with the computation's remainder in a result over an instance that leaves the child in its `..` (`[me @ k::fragment![crate::J { .. }], ..] => [k::fragment![crate::J { jk: [..tail], ..me }], ..]`) is refused `krs::analysis::collection-entry` \"the result keeps a rest of `jk`, which the pattern instance does not name\": `..tail` is `k`'s remainder, no rest of `jk`, and the twin means the overwrite"
+
+["TWIN-4"]
+owner = "S5"
+kind = "diagnostic"
+what = "`k::set![y, ..]` as a fixed or `?` group fragment's child (`gg: k::fragment![crate::Gg { ge: k::set![y, ..], .. }]`) is refused `krs::syntax::invalid-state-macro` \"an entry without a wrapper is a nested cell's\" outside the case's site, where its twin `te: Cell(k::set![y, ..])` and an instance's child say `invalid-expression-notation` (a set literal's anonymous `..` names no set)"
+
+["TWIN-5"]
+owner = "S5"
+kind = "diagnostic"
+what = "a readable record child of the builtin `Set` written with braces (`je: { y, .. }` in an instance, a group record or `Some(..)`) is a rust-syntax parse error (\"expected one of: identifier ..\"), where its twin `te: { y, .. }` is `instances-on-plain-cell` (braces of items are an instance list, and a Set leaf is no collection)"
+
+["TWIN-6"]
+owner = "S5"
+kind = "diagnostic"
+what = "a `cells!` top-level `Int`, `Map` or `Set` cell written `Cell([..])` is refused with the list's text, \"`[..]` names no element: the first matches any list, so write `_`\", false of a cell that is no list, where every child of those kinds says `bracket-reading` (brackets denote nothing there); the kind is the truer first mistake"
+
+["TWIN-7"]
+owner = "S5"
+kind = "feature"
+what = "a readable `?` group record reads its children as one term, so a list child's `[..]` (`og: Some(Og { ol: [..], .. })`) is refused \"`[..]` names no element\", where its twin `tl: [..]` is the entry `_` (accepted, `no-effect-entry`) and a fixed group's or an instance's list child is too"
+
+["TWIN-8"]
+owner = "S5"
+kind = "diagnostic"
+what = "the same term reading of a readable `?` group record gives `[..]` on an `Int`, `Map` or `Set` child the list's \"names no element\" (the twin and every other child: `bracket-reading`), and a computation child `[..]` or `[Go()]` \"names no element\" or \"list notation .. sort `K`\" (both false: the child is a computation cell, whose brackets are its items), where the limit is the `?` group computation child's (`optional-group-computation-child`, which the `cells!` children say)"
+
+["TWIN-9"]
+owner = "S5"
+kind = "bug"
+what = "the source `krs expand` prints for a readable List or Map instance's list child written `[..]` (`job: [J { jl: [..], .. }, ..]`, and `[..] => [1, ..]` over it) is refused (`krs::syntax::invalid-list-notation`, unlocated): the print writes the child's item-less brackets in `cells!` form, which names no element there, so K3 cannot read it back; the case itself is accepted with its twin's K"

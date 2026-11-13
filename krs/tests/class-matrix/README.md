@@ -190,6 +190,58 @@ the twin writes `int::sub(0, ..)`, the advice `notation-in-pattern` gives `-(x +
 that advice: the call stands at a simplification's subject too (`terms::advised_spellings`), the
 class's second advised case.
 
+**A child and its twin** (`class_matrix::child_twins`, TWINORACLE). An instance's child, and a
+group record's child, is a cell, read by its declared kind as if it were written as its own cell
+(the language reference's "Each child of a record there is that child cell's entry" and "An
+instance child is a cell"). So each spelling of a child means what the same spelling means at a
+top-level cell of the child's kind and sort, its *twin*. The family `child-twins/..` (base
+`Base::ChildTwins`: the computation `k`, the twins `tk tl tm te tn` at the top level, and a child of
+every kind in a List collection's instance `queue.job` of `J`, a Map collection's `bank.acct` of `A`
+keyed by `aid`, the fixed group `gg` of `Gg` and the `?` group `og` of `Og`) writes each row of
+`child_twins::ROWS` (the computation, `List`, `Map`, `Set` and `Int`: brackets with `..` at either
+end and `[..]`, named rests, map braces with `..` and a named rest, `k::k![..]` and `k::map![..]`, a
+constant after `..`, a remainder written into another kind, and brackets on kinds they denote
+nothing in) at each place, in a readable rule, a `cells!` rule and a `cells!` claim, on the subject,
+the result or both, and once at the top level. IDs are `child-twins/FORM/SIDE/PLACE/KIND/SPELLING`,
+`child-twins/cells/both/map-child/list/[_, ..] => [x, ..]`; a twin's PLACE is `top`, and its
+`cells!` spelling wraps the content (`k::configuration::Cell([_, ..])`, a computation's items in
+`KCell(..)`, which `[..]` and `k::k![..]` children both are). The record around a child is the
+same on both sides and matches its instance or group with `..`; a result over a subject that leaves
+the child in the record's `..` is twinned with a result over a top-level cell the subject leaves
+out.
+
+The relation is the oracle. The table holds entries for the twins only, each stated from what the
+spelling denotes at its cell, and a child case is expected what its twin is (`table::resolve`,
+`child_twins::twin_of`), accepted with the twin's accept entry or refused with its class, as a case
+through a local is its direct case's; an accept entry naming a child is a table error. A child's K
+is compared with its twin's read at the twin's place (`child_twins::projection`: a rewrite of the
+whole holder that writes its other cells alike on both sides is the child's rewrite, as a group the
+rule writes as one term is printed; the instance or group cell and the collection cell around the
+child are taken away where they hold nothing but frames and cells holding `_`; the child's cell is
+renamed its twin's), as `case_k` records a K, equal or equal under `closure::twin_equal`'s rules,
+then K3's reading of a variable used once as `_`: a computation cell's explicit rest `<c> A ~> T:K
+=> B ~> T:K </c>` is its frame `<c> A => B ... </c>` where `T` occurs nowhere else, as K3 reads
+`k`'s, since a readable record writes a kept computation rest as the variable and a `cells!` record
+as the frame; `.Map [ K <- V ]` is `K |-> V` (the reference's "one entry is `K |-> V`, which is
+`.Map [ K <- V ]` whatever `K` is"), and `K |-> A R => R [ K <- B ]` is `K |-> A R => K |-> B R`,
+since `R` holds no entry of `K`; a cell's unit beside its frame (`.Map ...`, `.K ...`) and its frame
+alone are `_`; and `_:List` (`Map`, `Set`) at a cell's content edge is `_`. A twin's lint
+(`no-effect-entry`) is a child's only at a fixed group (`child_twins::owes_twin_lint`): an instance
+record requires an instance, and `Some(..)` the group's presence. It states
+agreement, not a verdict: a child that disagrees with its twin is a red whose triage decides by
+meaning which of the two is wrong, and a twin the product refuses where its spelling means something
+is accepted without K and pending, so its children are expected accepted too. A readable computation
+child's twin is the `cells!` twin (`child_twins::twin_form`): a readable record brackets one
+computation cell per rule (`computation-brackets-per-rule`), while a record's computation child is
+"no second cell of the record". Where a child genuinely cannot mean what its twin means, by a limit
+the documentation states, the relation does not apply and the child has entries of its own
+(`child_twins::stated`, each predicate with its reason): a `?` group's computation child, not
+supported yet in a rule, and a group record child's kept result rest (`nested-anonymous-rest`).
+There is no leaf of sort `KSequence`: a declaration holding one writes every leaf with its wrapper,
+and the source `krs expand` prints for such a base is refused (`krs::analysis::cell-wrapper`), which
+would turn every case's K3 red. The family runs in the `cells` shard and the first shard of the fast
+tier.
+
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
 

@@ -750,6 +750,26 @@ doc = "`_` in a result, a condition or an initializer"
 examples = ["readable ; result ; - ; leaf Int ; _ ; old", "readable ; result ; - ; ? leaf Int ; Some(_) ; Some(old)", "init ; init ; - ; leaf Int ; _ ; -"]
 advice = "none"
 
+[class.anonymous-rest-in-set-literal]
+code = "krs::syntax::invalid-expression-notation"
+doc = "an anonymous `..` in a `set![..]`, which is a literal wherever it stands, a `cells!` leaf's `Cell(..)` content included: its rest is the set its elements join, and `..` names none (no content-root reading reads a set's elements, as `Cell(map![k -> v, ..])` reads a map's entries)"
+advice = "none"
+
+[class.optional-group-computation-child]
+code = "krs::analysis::collection-entry"
+doc = "a present `?` group's computation child written in its record, in a rule: the group is written whole, as one term naming every child, and a record whose child's entry is a computation's items is lowered as its children's own cells, so it is not supported yet where the group must be one term (`krs::analysis::collection-entry`); a mistake the sentence makes around it (a rest on one side, an unbound name, a result's anonymous `..`) is told first"
+advice = "none"
+
+[class.item-less-brackets]
+code = "krs::syntax::invalid-list-notation"
+doc = "`[..]` in a `cells!` term, a leaf's `Cell(..)` content included: it names no element, so it matches whatever the cell holds; `_` or a binder writes that (language reference, \"`[..]`, which matches any list, is rejected\"). A readable record's `[..]` on a list cell is its entry `_`, and the form step refuses the `cells!` brackets before the cell's kind is asked"
+advice = "child-twins/cells/both/top/list/k::configuration::Cell([_, ..]) => k::configuration::Cell([x, ..])"
+
+[class.remainder-into-another-kind]
+code = "krs::syntax::invalid-list-notation"
+doc = "a remainder, the rest of the content it was bound in (a computation's `tail @ ..`, a map's `r @ ..`), written as the rest of a cell or child of another kind (`Cell([1, ..tail])` on a List cell, `k::map![0 -> 1, ..tail]`, `k::set![1, ..tail]`): a remainder is written back only into a cell of its own kind (CHILDLEFT item 1)"
+advice = ["child-twins/cells/both/top/list/k::configuration::Cell([y, rest @ ..]) => k::configuration::Cell([..rest, y])", "child-twins/cells/both/top/map/k::configuration::Cell(k::map![0 -> v, rest @ ..]) => k::configuration::Cell(k::map![0 -> x, ..rest])"]
+
 # absence-test-without-creation
 
 [[refuse]]
@@ -7547,6 +7567,103 @@ match = 'sweep/init/init/job/Gl \{ la: 0\, ..base \}'
 class = "template-record-update"
 at = "spelling"
 
+# TWINORACLE: the twins (`child-twins/FORM/SIDE/top/..`), each spelling at a top-level cell of its
+# kind; a child case is expected what its twin is (`class_matrix::child_twins`), so no rule names a
+# child but where a stated difference (`child_twins::stated`) leaves it without a twin.
+
+[[refuse]]
+match = 'child-twins/readable/subject/top/set/\{ y\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/readable/subject/top/{int,map,set}/[..]'
+class = "bracket-reading"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/result/top/k/k::configuration::KCell(Cmd::Hold()\, ..zz)'
+class = "unbound-name"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/subject/top/set/k::configuration::Cell(k::set![y\, ..])'
+class = "anonymous-rest-in-set-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/readable/subject/top/map/map![0 -> v\, ..]'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/both/top/{k/k::configuration::KCell(Cmd::Go()\, ..) => k::configuration::KCell(),list/k::configuration::Cell([y\, ..]) => k::configuration::Cell([])}'
+class = "rest-mismatch"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/readable/both/top/list/[y\, ..] => []'
+class = "rest-mismatch"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/{subject,both}/top/list/k::configuration::Cell([..])*'
+class = "item-less-brackets"
+at = "spelling"
+
+# On a leaf of another kind than a list, brackets denote nothing, the kind's mistake, met before
+# `[..]`'s ("names no element ... matches any list" is false of an `Int`, `Map` or `Set` cell); the
+# `cells!` twin says the list's (TWIN-6), its children the kind's.
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/subject/top/{int,map,set}/k::configuration::Cell([..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/result/top/{list,map,set}/*..tail*'
+class = "remainder-into-another-kind"
+at = "spelling"
+
+[[refuse]]
+match = 'child-twins/readable/both/top/map/\{ 0 -> v\, rest @ .. \} => \{ 0 -> x\, ..rest \}'
+class = "map-read-in-result"
+at = "spelling"
+
+# TWINORACLE's stated differences (`child_twins::stated`): a child that cannot mean what its twin
+# means, by a limit the reference states, has rules of its own. A group record's child keeps no
+# result rest (`nested-anonymous-rest`), and a `?` group's computation child is not supported yet
+# in a rule (`optional-group-computation-child`), after the sentence's other mistakes.
+
+[[refuse]]
+match = 'child-twins/{readable,cells,cells-claim}/both/{group-child,opt-child}/list/{*\, ..],*=> [..\, x]}'
+class = "nested-anonymous-rest"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/{readable,cells,cells-claim}/both/group-child/k/*\, ..]'
+class = "nested-anonymous-rest"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/{readable,cells,cells-claim}/both/opt-child/k/*\, ..]'
+class = "nested-anonymous-rest"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/{readable,cells,cells-claim}/{subject,result,both}/opt-child/k/*'
+class = "optional-group-computation-child"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/{readable,cells,cells-claim}/both/opt-child/k/{[Go()\, ..] => [],[Cmd::Go()\, ..] => []}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'child-twins/{cells,cells-claim}/result/opt-child/k/[Cmd::Hold()\, ..zz]'
+class = "unbound-name"
+at = "entry"
+
 [accept."cells/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -7925,6 +8042,508 @@ k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
 <stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+# TWINORACLE: twins the product refuses where the spelling means something at its cell (findings
+# TWIN-1, TWIN-2); their K is recorded once they are accepted.
+
+[accept."child-twins/cells-claim/result/top/k/k::configuration::KCell(..tail)"]
+
+[accept."child-twins/cells/result/top/k/k::configuration::KCell(..tail)"]
+
+[accept."child-twins/readable/result/top/map/{ 0 -> x }"]
+
+[accept."child-twins/readable/subject/top/map/{ 0 -> v }"]
+
+[accept."child-twins/cells-claim/both/top/k/k::configuration::KCell(..) => k::configuration::KCell(Cmd::Hold(), ..)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> .K => hold ... </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/both/top/k/k::configuration::KCell(Cmd::Go(), ..) => k::configuration::KCell(Cmd::Hold(), ..)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> go => hold ... </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/both/top/k/k::configuration::KCell(Cmd::Go(), rest @ ..) => k::configuration::KCell(Cmd::Hold(), ..rest)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> go ~> V0:K => hold ~> V0:K </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/both/top/k/k::configuration::KCell(_, ..) => k::configuration::KCell(x, ..)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tk> _:KItem => V0:Int ... </tk>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/both/top/list/k::configuration::Cell([_, ..]) => k::configuration::Cell([.., x])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> ListItem(_) V1:List => V1:List ListItem(V0:Int) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/both/top/list/k::configuration::Cell([_, ..]) => k::configuration::Cell([x, ..])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> ListItem(_) V1:List => ListItem(V0:Int) V1:List </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/both/top/list/k::configuration::Cell([y, rest @ ..]) => k::configuration::Cell([..rest, y])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> ListItem(V0:KItem) V1:List => V1:List ListItem(V0:KItem) </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/both/top/map/k::configuration::Cell(k::map![0 -> v, rest @ ..]) => k::configuration::Cell(k::map![0 -> x, ..rest])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tm> 0 |-> V1:KItem V2:Map => 0 |-> V0:Int V2:Map </tm>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/result/top/int/k::configuration::Cell(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tn> _ => V0:Int </tn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/result/top/list/k::configuration::Cell([x, ..ELS])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> _ => ListItem(V0:Int) ListItem(5) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/result/top/list/k::configuration::Cell([x])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> _ => ListItem(V0:Int) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/result/top/map/k::configuration::Cell(k::map![0 -> x])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tm> _ => 0 |-> V0:Int </tm>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/result/top/set/k::configuration::Cell(k::set![x])"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<te> _ => SetItem(V0:Int) </te>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/int/k::configuration::Cell(y)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tn> V0:Int </tn>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/k/k::configuration::KCell(..)"]
+lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> .K ... </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/k/k::configuration::KCell(Cmd::Go())"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> go </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/list/k::configuration::Cell([.., y])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> V0:List ListItem(V1:KItem) </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/list/k::configuration::Cell([y, ..])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> ListItem(V0:KItem) ... </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/map/k::configuration::Cell(k::map![..])"]
+lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> .Map ... </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/map/k::configuration::Cell(k::map![0 -> v, ..])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> 0 |-> V0:KItem ... </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells-claim/subject/top/map/k::configuration::Cell(k::map![0 -> v])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> 0 |-> V0:KItem </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/both/top/k/k::configuration::KCell(..) => k::configuration::KCell(Cmd::Hold(), ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> .K => hold ... </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/both/top/k/k::configuration::KCell(Cmd::Go(), ..) => k::configuration::KCell(Cmd::Hold(), ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> go => hold ... </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/both/top/k/k::configuration::KCell(Cmd::Go(), rest @ ..) => k::configuration::KCell(Cmd::Hold(), ..rest)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> go ~> V0:K => hold ~> V0:K </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/both/top/k/k::configuration::KCell(_, ..) => k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tk> _:KItem => V0:Int ... </tk>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/both/top/list/k::configuration::Cell([_, ..]) => k::configuration::Cell([.., x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> ListItem(_) V1:List => V1:List ListItem(V0:Int) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/both/top/list/k::configuration::Cell([_, ..]) => k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> ListItem(_) V1:List => ListItem(V0:Int) V1:List </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/both/top/list/k::configuration::Cell([y, rest @ ..]) => k::configuration::Cell([..rest, y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> ListItem(V0:KItem) V1:List => V1:List ListItem(V0:KItem) </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/both/top/map/k::configuration::Cell(k::map![0 -> v, rest @ ..]) => k::configuration::Cell(k::map![0 -> x, ..rest])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tm> 0 |-> V1:KItem V2:Map => 0 |-> V0:Int V2:Map </tm>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/result/top/int/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tn> _ => V0:Int </tn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/result/top/list/k::configuration::Cell([x, ..ELS])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> _ => ListItem(V0:Int) ListItem(5) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/result/top/list/k::configuration::Cell([x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> _ => ListItem(V0:Int) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/result/top/map/k::configuration::Cell(k::map![0 -> x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tm> _ => 0 |-> V0:Int </tm>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/result/top/set/k::configuration::Cell(k::set![x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<te> _ => SetItem(V0:Int) </te>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/subject/top/int/k::configuration::Cell(y)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tn> V0:Int </tn>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/k/k::configuration::KCell(..)"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> .K ... </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/k/k::configuration::KCell(Cmd::Go())"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tk> go </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/list/k::configuration::Cell([.., y])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> V0:List ListItem(V1:KItem) </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/list/k::configuration::Cell([y, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> ListItem(V0:KItem) ... </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/map/k::configuration::Cell(k::map![..])"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> .Map ... </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/map/k::configuration::Cell(k::map![0 -> v, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> 0 |-> V0:KItem ... </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/cells/subject/top/map/k::configuration::Cell(k::map![0 -> v])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> 0 |-> V0:KItem </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/both/top/list/[..] => [1, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> V0:List => ListItem(1) V0:List </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/both/top/list/[_, ..] => [.., x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> ListItem(_) V1:List => V1:List ListItem(V0:Int) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/readable/both/top/list/[_, ..] => [x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> ListItem(_) V1:List => ListItem(V0:Int) V1:List </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/readable/both/top/list/[y, rest @ ..] => [..rest, y]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> ListItem(V0:KItem) V1:List => V1:List ListItem(V0:KItem) </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/result/top/int/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tn> _ => V0:Int </tn>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/readable/result/top/list/[x, ..ELS]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> _ => ListItem(V0:Int) ListItem(5) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/readable/result/top/list/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tl> _ => ListItem(V0:Int) </tl>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/readable/subject/top/int/y"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tn> V0:Int </tn>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/subject/top/list/[.., y]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> V0:List ListItem(V1:KItem) </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/subject/top/list/[..]"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> _ </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/subject/top/list/[y, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tl> ListItem(V0:KItem) ... </tl>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."child-twins/readable/subject/top/map/{ 0 -> v, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> 0 |-> V0:KItem ... </tm>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -19325,6 +19944,11 @@ findings = ["S5-F2"]
 code = "krs::analysis::invalid-term"
 docs = "A group child of an instance the result creates"
 findings = ["GEN2-R3"]
+
+[limit.optional-group-computation-child]
+code = "krs::analysis::collection-entry"
+docs = "A record whose child's entry is a computation's items is lowered as its children's own cells, and is not supported yet where the group must be one term"
+findings = ["TWIN-7"]
 
 [limit.optional-group-defaults]
 code = "krs::analysis::invalid-term"

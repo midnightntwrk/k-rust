@@ -174,6 +174,102 @@ pub fn case_k(additions: &[String], tag: &str) -> String {
     text
 }
 
+/// Whether two recorded K texts ([`case_k`]), a child twin's read at its twin's place and its
+/// twin's, are one K ([`krs_test_support::class_matrix::child_twins`]): equal as recorded, or
+/// after the rules below, each applied to both sides, then K3's reading of a variable used once
+/// as `_` ([`once_used_as_anonymous`]) and the renaming:
+///
+/// - a computation cell's explicit rest, `<c> A ~> T:K => B ~> T:K </c>`, is its frame, `<c> A
+///   => B ... </c>`, where `T` occurs nowhere else, and `<c> A ~> T:K </c>` is `<c> A ... </c>`
+///   where it occurs once, at any computation cell, as K3's own normalization reads `k`'s: a
+///   readable record writes a computation child's kept rest as the rest variable, a `cells!`
+///   record as the frame, and both say that the rest is kept unchanged;
+/// - a map of one entry built over the empty map, `.Map [ K <- V ]`, is `K |-> V` (the language
+///   reference: "one entry is `K |-> V`, which is `.Map [ K <- V ]` whatever `K` is");
+/// - a map written over the rest `R` its subject binds beside the same key, `K |-> A R => R [ K
+///   <- B ]`, is `K |-> A R => K |-> B R`: `R` holds no entry of `K`, which the subject's join
+///   took out, so the update is the join;
+/// - a cell's unit beside its frame, `<c> .Map ... </c>` (`.K`, `.List`, `.Set` alike), and its
+///   frame alone, `<c> ... </c>`, match every content of the cell, as `_` does;
+/// - an anonymous variable of a list, map or set cell's own sort at its content's edge, `<c>
+///   _:List ..`, constrains nothing `_` does not: the cell's content has that sort.
+#[must_use]
+pub fn twin_equal(child: &str, twin: &str) -> bool {
+    child == twin || twin_normal(child) == twin_normal(twin)
+}
+
+/// A recorded K text under [`twin_equal`]'s rules, renamed again.
+fn twin_normal(text: &str) -> String {
+    let original = text;
+    let mut text = original.to_owned();
+    let all = tokens(original);
+    let occurrences = |name: &str| all.iter().filter(|token| **token == name).count();
+    for variable in variables(&all) {
+        let rest = format!(" ~> {variable}:K");
+        if occurrences(variable) == 2 && text.matches(&rest).count() == 2 {
+            if let Some(at) = text.find(&format!("{rest} => ")) {
+                text.replace_range(at..at + rest.len(), "");
+                if let Some(close) = text.find(&format!("{rest} </")) {
+                    text.replace_range(close..close + rest.len(), " ...");
+                }
+            }
+        } else if occurrences(variable) == 1
+            && let Some(close) = text.find(&format!("{rest} </"))
+        {
+            text.replace_range(close..close + rest.len(), " ...");
+        }
+    }
+    let mut text = map_updates(&text);
+    for unit in [".K", ".Map", ".List", ".Set"] {
+        text = text.replace(&format!("> {unit} ... </"), "> _ </");
+    }
+    let mut text = once_used_as_anonymous(&text.replace("> ... </", "> _ </"));
+    for sort in ["List", "Map", "Set"] {
+        text = text
+            .replace(&format!("> _:{sort} "), "> _ ")
+            .replace(&format!(" _:{sort} </"), " _ </");
+    }
+    renamed(&text)
+}
+
+/// `text` with each one-entry update `M [ K <- V ]` read as a join where [`twin_equal`] says it
+/// is one: over `.Map`, and over a rest `R` written beside `K |-> ` on the rewrite's left.
+fn map_updates(text: &str) -> String {
+    let mut out = text.to_owned();
+    let mut from = 0;
+    while let Some(found) = out[from..].find(" [ ") {
+        let open = from + found;
+        let base_start = out[..open].rfind(' ').map_or(0, |space| space + 1);
+        let base = out[base_start..open].to_owned();
+        let Some(close) = out[open..].find(" ]").map(|close| open + close) else {
+            break;
+        };
+        let inner = out[open + 3..close].to_owned();
+        let Some((key, value)) = inner.split_once(" <- ") else {
+            from = close;
+            continue;
+        };
+        let joined = if base == ".Map" {
+            Some(format!("{key} |-> {value}"))
+        } else if out[..base_start].contains(&format!("{key} |-> ")) && base.ends_with(":Map") {
+            let rest = base.split(':').next().unwrap_or_default();
+            out[..base_start]
+                .contains(&format!(" {rest}:Map"))
+                .then(|| format!("{key} |-> {value} {base}"))
+        } else {
+            None
+        };
+        match joined {
+            Some(joined) => {
+                out.replace_range(base_start..close + 2, &joined);
+                from = base_start + joined.len();
+            }
+            None => from = close,
+        }
+    }
+    out
+}
+
 /// The tokens of a sentence: runs of identifier characters, and every other character alone.
 fn tokens(text: &str) -> Vec<&str> {
     let mut tokens = Vec::new();

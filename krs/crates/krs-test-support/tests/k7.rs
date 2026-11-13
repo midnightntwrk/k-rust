@@ -203,6 +203,7 @@ const STATUSES: &[&str] = &[
     "1558 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "4 no driver: the sentence cannot take both attributes, and is refused",
     "162 no driver: the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
+    "467 no driver: the twin family's base has no driver commands to set its cells up, and a claim needs a prover; the relation compares a child's K with its twin's instead",
     "28 no value: a built record holding `..` outside a cell's entry, refused wherever it stands, so no run reads it",
     "7 no value: a cell's value, which the generator's ground terms do not write",
     "122 no value: a matching-logic predicate, which only a prover reads",

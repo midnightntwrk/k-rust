@@ -311,7 +311,12 @@ fn check_1l_every_limit_is_said_and_decides_cell_entry_cases() {
             continue;
         };
         *decided.entry(limit).or_default() += 1;
-        if !entries.contains(id.as_str()) {
+        // A child twin of a stated difference is refused by the limit the reference states for
+        // its place (`class_matrix::child_twins::stated`), which no cell entry of the principles
+        // reads: its twin, not the principles, is what it departs from.
+        let stated = class_matrix::child_twins::generated(id)
+            .is_some_and(|generated| generated.stated.is_some());
+        if !entries.contains(id.as_str()) && !stated {
             failures.push(format!(
                 "{id}: the limit class {limit} decides a case that is no cell entry, which the \
                  principles do not judge"

@@ -210,6 +210,13 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::NotationLocal, 1_134),
             (Family::TermsLocalBlock, 1_764),
             (Family::NotationLocalBlock, 945),
+            // TWINORACLE (`class_matrix::child_twins`): each row's spelling in each form it is
+            // written in, at the 4 child places and once at the top level (a readable
+            // computation's twin is the `cells!` one, and two `cells!` rows whose children are
+            // one twin, `[Cmd::Go(), ..]` and `k::k![Cmd::Go(), ..]`, share it): 27 readable rows
+            // at 4 places and the 21 not of the computation at the top, and 34 `cells!` rows in a
+            // rule and in a claim at 4 places with their 33 twins.
+            (Family::ChildTwins, 27 * 4 + 21 + 2 * (34 * 4 + 33)),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -314,6 +321,21 @@ fn assert_placed(source: &str, placed: &Placed<'_>) {
             other => other.text().replace("TAG", &case.tag()),
         };
         assert_eq!(written, spelled, "{}", case.id);
+    } else if case.family == Family::ChildTwins && case.construct.contains(" => ") {
+        // A child twin written on both sides: its spelling runs from the subject's entry of its
+        // cell to the result's, which write the construct's two sides in order.
+        let (subject, result) = case
+            .construct
+            .split_once(" => ")
+            .expect("a construct of both sides");
+        let at = written
+            .find(subject)
+            .unwrap_or_else(|| panic!("{}: {written:?} does not write {subject:?}", case.id));
+        assert!(
+            written[at + subject.len()..].contains(result),
+            "{}: {written:?} does not write {result:?} after {subject:?}",
+            case.id
+        );
     } else {
         assert_eq!(written, case.construct, "{}", case.id);
     }

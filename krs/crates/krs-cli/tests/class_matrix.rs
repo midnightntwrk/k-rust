@@ -90,7 +90,8 @@ use krs_test_support::class_matrix::pending::{
     TWIN, case_of, test_of,
 };
 use krs_test_support::class_matrix::table::{
-    Expected, Glob, Resolution, Said, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
+    Accepted, Expected, Glob, Resolution, Said, TERM_ACCEPTS_FILE, Table, TableError,
+    in_term_accepts,
 };
 use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
@@ -362,9 +363,11 @@ fn table_miss(
     match expected {
         Expected::Accept(_) if observed.refused() => Some("the table accepts the case".to_owned()),
         Expected::Accept(accepted)
-            if let Some(lint) = spec()
-                .table
-                .lint_deviation(accepted, observed, &placed.entry) =>
+            if let Some(lint) = spec().table.lint_deviation(
+                &owed(&placed.case.id, accepted),
+                observed,
+                &placed.entry,
+            ) =>
         {
             Some(lint.miss())
         }
@@ -422,6 +425,17 @@ fn first_difference(recorded: &str, emitted: &str) -> String {
     }
 }
 
+/// The accept entry whose lint the case `id` owes: `accepted`, but for a child twin where its
+/// record adds a constraint of its own, which owes no lint of its twin's entry
+/// ([`class_matrix::child_twins::owes_twin_lint`]).
+fn owed(id: &str, accepted: &Accepted) -> Accepted {
+    let mut owed = accepted.clone();
+    if !class_matrix::child_twins::owes_twin_lint(id) {
+        owed.lint = None;
+    }
+    owed
+}
+
 /// K2's signature of a judged case: what it did ([`signature`]); for an accepted case whose
 /// warnings depart from the lint its row owes, either way, that departure
 /// (`Table::lint_deviation`); and for an accepted case whose K is not the table's record (`k`, the
@@ -440,14 +454,15 @@ fn k2_signature(
         }
         _ => false,
     };
-    let lint = match resolution.expected.get(&judged.id) {
-        Some(Expected::Accept(accepted)) => {
-            spec()
-                .table
-                .lint_deviation(accepted, &judged.observed, &placed.entry)
-        }
+    let owes = match resolution.expected.get(&judged.id) {
+        Some(Expected::Accept(accepted)) => Some(owed(&judged.id, accepted)),
         _ => None,
     };
+    let lint = owes.as_ref().and_then(|accepted| {
+        spec()
+            .table
+            .lint_deviation(accepted, &judged.observed, &placed.entry)
+    });
     if let Some(lint) = lint {
         lint.signature()
     } else if moved {
@@ -1318,10 +1333,12 @@ fn accepted_ks(
             resolution.expected.get(&judged.id),
             Some(Expected::Refuse { .. })
         );
-        // A case through a local has its direct case's entry, and no K of its own to record.
+        // A case through a local has its direct case's entry, and a child twin its twin's, and
+        // neither has K of its own to record.
         if recording
             && !refusal
             && by_id[judged.id.as_str()].through.is_none()
+            && class_matrix::child_twins::twin_of(&judged.id).is_none()
             && let Some(k) = k
         {
             recorded.insert(judged.id.clone(), k.clone());
@@ -1341,21 +1358,13 @@ fn accepted_ks(
 /// as emitted where no block reads so.
 fn own_k(case: &Case, additions: &[String]) -> String {
     let tag = case.tag();
+    if let Some(k) = twin_k(case, additions) {
+        return k;
+    }
     let Some(through) = case.through.as_ref().filter(|through| through.reduced()) else {
         return case_k(additions, &tag);
     };
-    let direct = RECORDED
-        .lock()
-        .expect("the recorded K is not poisoned")
-        .get(&through.direct)
-        .cloned()
-        .or_else(|| {
-            spec()
-                .table
-                .accept
-                .get(&through.direct)
-                .and_then(|accepted| accepted.k.clone())
-        });
+    let direct = recorded_k(&through.direct);
     let readings = class_matrix::through::reductions(additions)
         .iter()
         .map(|reduced| case_k(reduced, &tag))
@@ -1366,6 +1375,42 @@ fn own_k(case: &Case, additions: &[String]) -> String {
         .or_else(|| readings.first())
         .cloned()
         .unwrap_or_else(|| case_k(additions, &tag))
+}
+
+/// The K this run recorded for the case `id`, else the table's.
+fn recorded_k(id: &str) -> Option<String> {
+    RECORDED
+        .lock()
+        .expect("the recorded K is not poisoned")
+        .get(id)
+        .cloned()
+        .or_else(|| {
+            spec()
+                .table
+                .accept
+                .get(id)
+                .and_then(|accepted| accepted.k.clone())
+        })
+}
+
+/// A child twin's K as the table compares it ([`class_matrix::child_twins`]): its sentences read
+/// at its twin's place ([`class_matrix::child_twins::projection`]), recorded as [`case_k`]
+/// records a K; the twin's K itself (this run's, else the table's) where the two are one K under
+/// [`closure::twin_equal`]. `None` for every other case.
+fn twin_k(case: &Case, additions: &[String]) -> Option<String> {
+    let twin = class_matrix::child_twins::twin_of(&case.id)?;
+    let generated = class_matrix::child_twins::generated(&case.id)?;
+    let (child, top) = generated.cells.as_ref()?;
+    let tag = case.tag();
+    let mine = class_matrix::child_twins::projection(additions, child, top).map_or_else(
+        || case_k(additions, &tag),
+        |projected| case_k(&projected, &tag),
+    );
+    let theirs = recorded_k(twin);
+    Some(match theirs {
+        Some(theirs) if closure::twin_equal(&mine, &theirs) => theirs,
+        _ => mine,
+    })
 }
 
 /// Whether the table compares a case's K: not for a case through a local whose K differs from its
@@ -1538,8 +1583,10 @@ fn shard(name: &str, families: &[Family]) {
                     .push(format!("{}: accepted, but its K is unknown", judged.id));
             }
         }
+        // A child twin's K is its twin's, recorded once the twin is accepted.
         if let (Some(Expected::Accept(entry)), Some(_), false) = (expected, &k, recording)
             && entry.k.is_none()
+            && class_matrix::child_twins::twin_of(&judged.id).is_none()
         {
             shard.failures.push(format!(
                 "{}: accepted, but expected.toml records no K for it; run scripts/krs-class.sh --record",
@@ -1607,7 +1654,7 @@ fn readable() {
 #[test]
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn cells() {
-    shard("cells", &[Family::Cells]);
+    shard("cells", &[Family::Cells, Family::ChildTwins]);
 }
 
 #[test]

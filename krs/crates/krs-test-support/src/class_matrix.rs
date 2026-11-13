@@ -85,6 +85,7 @@ pub mod advice;
 pub mod attributes;
 mod cells;
 pub mod cells_oracle;
+pub mod child_twins;
 mod config_drivers;
 pub use config_drivers::{Extent, Part, Reading};
 pub mod entry_cases;
@@ -130,6 +131,7 @@ pub const FRONT_SHARDS: [&[Family]; 5] = [
         Family::ReadableRun,
         Family::CellsRun,
         Family::TermsLocalBlock,
+        Family::ChildTwins,
     ],
     &[
         Family::Notation,
@@ -192,11 +194,15 @@ pub enum Family {
     /// The notation family's cases of depth 1 through a local whose value is a block, as
     /// [`Family::TermsLocalBlock`] is the term family's.
     NotationLocalBlock,
+    /// Each spelling of an instance's or a group record's child beside its twin, the same
+    /// spelling at a top-level cell of the same kind and sort ([`child_twins`], on
+    /// [`Base::ChildTwins`]): a child case is expected what its twin is.
+    ChildTwins,
 }
 
 impl Family {
     /// Every family, in ID order.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Readable,
         Self::Claim,
         Self::Cells,
@@ -213,6 +219,7 @@ impl Family {
         Self::NotationLocal,
         Self::TermsLocalBlock,
         Self::NotationLocalBlock,
+        Self::ChildTwins,
     ];
 
     /// The first segment of the IDs of this family's cases.
@@ -235,6 +242,7 @@ impl Family {
             Self::NotationLocal => "notation-local",
             Self::TermsLocalBlock => "terms-local-block",
             Self::NotationLocalBlock => "notation-local-block",
+            Self::ChildTwins => "child-twins",
         }
     }
 
@@ -310,11 +318,14 @@ pub enum Base {
     /// An optional group and a List collection, each with a cell of every stack the cells
     /// oracle's sweep names, the path sweep's ([`sweep::paths`], [`Family::SweepPaths`]).
     SweepPaths,
+    /// A child of every kind at the top level, in a List and a Map collection's instance, in a
+    /// fixed group and in a `?` group ([`child_twins`], [`Family::ChildTwins`]).
+    ChildTwins,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
@@ -328,6 +339,7 @@ impl Base {
         Self::Kinds,
         Self::Sweep,
         Self::SweepPaths,
+        Self::ChildTwins,
     ];
 
     /// The base's own source, with no case: its default initializer and no command.
@@ -357,6 +369,7 @@ impl Base {
             Self::Kinds => kinds::base(),
             Self::Sweep => sweep::base(),
             Self::SweepPaths => sweep::paths::base(),
+            Self::ChildTwins => child_twins::base(),
         }
     }
 }
@@ -912,6 +925,7 @@ pub fn cases() -> Vec<Case> {
     sweep::cases(&existing, &mut cases);
     sweep::paths::cases(&mut cases);
     terms::cases(&mut cases);
+    child_twins::cases(&mut cases);
     cases.sort_by(|left, right| left.id.cmp(&right.id));
     for shard in FRONT_SHARDS {
         let count = cases

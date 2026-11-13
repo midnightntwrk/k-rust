@@ -374,3 +374,214 @@ kind = "k8"
 # S5.3 part 5: the path sweep's reds (shard `sweep-paths`): a red takes its root twin's finding (the root sweep's case of the same
 # form, side, stack and spelling, pending with the same deviation), and every other
 # readable or claim red S5-S1's (the readable route's entry naming a cell below a marked ancestor, S5.2's).
+
+# TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
+# and its twin triaged by meaning (TWIN-1 .. TWIN-10, findings.toml; the progress log ranks them).
+
+["child-twins/cells-claim/result/group-child/k/[..tail]"]
+finding = "TWIN-1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["child-twins/cells-claim/result/list-child/k/[..tail]"]
+finding = "TWIN-3"
+deviation = "krs::analysis::collection-entry @ spelling"
+
+["child-twins/cells-claim/result/map-child/k/[..tail]"]
+finding = "TWIN-3"
+deviation = "krs::analysis::collection-entry @ spelling"
+
+["child-twins/cells-claim/result/top/k/k::configuration::KCell(..tail)"]
+finding = "TWIN-1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["child-twins/cells-claim/subject/group-child/set/k::set![y, ..]"]
+finding = "TWIN-4"
+deviation = "krs::syntax::invalid-state-macro @ entry"
+
+["child-twins/cells-claim/subject/opt-child/set/k::set![y, ..]"]
+finding = "TWIN-4"
+deviation = "krs::syntax::invalid-state-macro @ entry"
+
+["child-twins/cells-claim/subject/top/int/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/cells-claim/subject/top/map/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/cells-claim/subject/top/set/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/cells/result/group-child/k/[..tail]"]
+finding = "TWIN-1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["child-twins/cells/result/list-child/k/[..tail]"]
+finding = "TWIN-3"
+deviation = "krs::analysis::collection-entry @ spelling"
+
+["child-twins/cells/result/map-child/k/[..tail]"]
+finding = "TWIN-3"
+deviation = "krs::analysis::collection-entry @ spelling"
+
+["child-twins/cells/result/top/k/k::configuration::KCell(..tail)"]
+finding = "TWIN-1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["child-twins/cells/subject/group-child/set/k::set![y, ..]"]
+finding = "TWIN-4"
+deviation = "krs::syntax::invalid-state-macro @ entry"
+
+["child-twins/cells/subject/opt-child/set/k::set![y, ..]"]
+finding = "TWIN-4"
+deviation = "krs::syntax::invalid-state-macro @ entry"
+
+["child-twins/cells/subject/top/int/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/cells/subject/top/map/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/cells/subject/top/set/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/readable/result/top/map/{ 0 -> x }"]
+finding = "TWIN-2"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/group-child/set/{ y, .. }"]
+finding = "TWIN-5"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/list-child/set/{ y, .. }"]
+finding = "TWIN-5"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/map-child/set/{ y, .. }"]
+finding = "TWIN-5"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/opt-child/int/[..]"]
+finding = "TWIN-8"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/readable/subject/opt-child/k/[..]"]
+finding = "TWIN-8"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/readable/subject/opt-child/k/[Go()]"]
+finding = "TWIN-8"
+deviation = "krs::analysis::invalid-list-notation @ spelling"
+
+["child-twins/readable/subject/opt-child/list/[..]"]
+finding = "TWIN-7"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/readable/subject/opt-child/map/[..]"]
+finding = "TWIN-8"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/readable/subject/opt-child/set/[..]"]
+finding = "TWIN-8"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["child-twins/readable/subject/opt-child/set/{ y, .. }"]
+finding = "TWIN-5"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/top/map/{ 0 -> v }"]
+finding = "TWIN-2"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["k3/child-twins/readable/both/list-child/list/[..] => [1, ..]"]
+finding = "TWIN-9"
+deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
+
+["k3/child-twins/readable/both/map-child/list/[..] => [1, ..]"]
+finding = "TWIN-9"
+deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
+
+["k3/child-twins/readable/both/opt-child/list/[y, rest @ ..] => [..rest, y]"]
+finding = "TWIN-10"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/result/opt-child/int/x"]
+finding = "TWIN-10"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/result/opt-child/list/[x, ..ELS]"]
+finding = "TWIN-10"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/result/opt-child/list/[x]"]
+finding = "TWIN-10"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/result/opt-child/map/{ 0 -> x }"]
+finding = "TWIN-10"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/subject/list-child/list/[..]"]
+finding = "TWIN-9"
+deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
+
+["k3/child-twins/readable/subject/map-child/list/[..]"]
+finding = "TWIN-9"
+deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
+
+["k8/child-twins/cells-claim/subject/top/int/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/cells-claim/subject/top/map/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/cells-claim/subject/top/set/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/cells/subject/top/int/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/cells/subject/top/map/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/cells/subject/top/set/k::configuration::Cell([..])"]
+finding = "TWIN-6"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/readable/both/opt-child/k/[..] => [Hold(), ..]"]
+finding = "TWIN-8"
+deviation = "nested-anonymous-rest advises none, and its refusal advises `_`"
+
+["k8/child-twins/readable/both/opt-child/list/[..] => [1, ..]"]
+finding = "TWIN-8"
+deviation = "nested-anonymous-rest advises none, and its refusal advises `_`"
+
+["k8/child-twins/readable/subject/opt-child/int/[..]"]
+finding = "TWIN-8"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/readable/subject/opt-child/k/[..]"]
+finding = "TWIN-8"
+deviation = "optional-group-computation-child advises none, and its refusal advises `_`"
+
+["k8/child-twins/readable/subject/opt-child/list/[..]"]
+finding = "TWIN-7"
+deviation = "refused where the table accepts, advising `_`"
+
+["k8/child-twins/readable/subject/opt-child/map/[..]"]
+finding = "TWIN-8"
+deviation = "bracket-reading advises none, and its refusal advises `_`"
+
+["k8/child-twins/readable/subject/opt-child/set/[..]"]
+finding = "TWIN-8"
+deviation = "bracket-reading advises none, and its refusal advises `_`"

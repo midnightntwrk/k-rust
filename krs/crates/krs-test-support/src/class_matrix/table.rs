@@ -53,6 +53,11 @@
 //! exactly what its direct case is, accepted with its accept entry or refused with its class at
 //! its site: no entry names it, and an accept entry that does is a table error.
 //!
+//! **Child twins.** A child case of the twin family ([`child_twins`]) whose twin relation holds
+//! is expected exactly what its twin is ([`child_twins::twin_of`]), as a case through a local is
+//! its direct case's: no entry names it, and an accept entry that does is a table error. A child
+//! of a stated difference ([`child_twins::stated`]) has entries of its own.
+//!
 //! **Resolution.** A case is decided by the most specific entry that covers it: an accept
 //! entry covers its one ID, and a refusal rule the IDs its glob matches. One entry is more
 //! specific than another when the cases it covers are a strict subset of the other's, over the
@@ -91,7 +96,7 @@ use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
 use super::invariants::{Observed, Severity};
 use super::oracle::{Class as OracleClass, Outcome, Stage};
-use super::{Case, Family, Placed, through};
+use super::{Case, Family, Placed, child_twins, through};
 
 /// The file beside `expected.toml` that holds the accept entries of the families the oracle
 /// judges: the term families and the attribute axis.
@@ -106,6 +111,12 @@ pub fn in_term_accepts(id: &str) -> bool {
         || id.starts_with("import/")
         || id.starts_with("notation/")
         || id.starts_with("attrs/")
+}
+
+/// The case whose expectation the case `id` takes: a case through a local's direct case
+/// ([`through::direct`]), or a child twin's twin ([`child_twins::twin_of`]).
+fn derived_from(id: &str) -> Option<String> {
+    through::direct(id).or_else(|| child_twins::twin_of(id).map(str::to_owned))
 }
 
 /// The case of the machine base that the run family's case `id` is the twin of
@@ -790,13 +801,14 @@ impl Table {
         }
 
         let mut expected = BTreeMap::new();
-        // A case through a local is expected what its direct case is, once that is decided.
+        // A case through a local is expected what its direct case is, and a child twin what its
+        // twin is, once that is decided.
         let derived = ids
             .iter()
-            .filter_map(|id| Some((*id, through::direct(id)?)))
+            .filter_map(|id| Some((*id, derived_from(id)?)))
             .collect::<Vec<_>>();
         for id in ids {
-            if through::direct(id).is_some() {
+            if derived_from(id).is_some() {
                 continue;
             }
             let decided = match outcomes[id] {
@@ -832,7 +844,8 @@ impl Table {
     }
 
     /// Expect of each case through a local, `(ID, its direct case's ID)`, what its direct case is
-    /// expected ([`through`]); a case whose direct case is not decided is uncovered.
+    /// expected ([`through`]), and of each child twin what its twin is ([`child_twins`]); a case
+    /// whose direct case or twin is not decided is uncovered.
     fn derive(
         derived: Vec<(&str, String)>,
         expected: &mut BTreeMap<String, Expected<'_>>,
@@ -998,10 +1011,10 @@ impl Table {
 
     fn check_accepts(&self, known: &BTreeSet<&str>, errors: &mut Vec<TableError>) {
         for (id, accepted) in &self.accept {
-            if through::direct(id).is_some() {
+            if derived_from(id).is_some() {
                 errors.push(TableError::UnknownCase {
                     owner: "an accept entry (a case through a local is expected what its direct \
-                            case is)"
+                            case is, a child twin what its twin is)"
                         .to_owned(),
                     id: id.clone(),
                 });
