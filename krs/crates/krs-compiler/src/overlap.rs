@@ -3503,6 +3503,9 @@ fn render_alternative(term: &SemanticTerm) -> String {
     }
 }
 
+mod end_lints;
+pub use end_lints::end_warnings;
+
 #[cfg(test)]
 mod int_fact_tests;
 #[cfg(test)]

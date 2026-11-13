@@ -1025,7 +1025,24 @@ A constructor's end is the item named by the constructor's name in snake case, i
 An end is a statement about states and adds no condition to any rule: the definition's transitions are the same with and without it.
 So an end is declared where no rule applies: a state at which an end holds and a rule applies is not where the run is over.
 A refusal is stated, never inferred: a state where no rule applies and no end holds is in no class.
-A definition refuses some of its inputs by an end that holds at its initial state: the initializer writes an item that holds the inputs at the head of the computation cell, one rule replaces the item by the loaded state where the inputs are accepted, and `#[k::end(refused)]` on the item's constructor declares the state where they are not.
+A definition refuses some of its inputs by an end that holds at its initial state: the initializer writes an item that holds the inputs at the head of the computation cell, one rule replaces the item by the loaded state where the inputs are accepted, and a `#[k::end(refused)]` `fn` over the item, whose `#[k::requires]` says that the inputs are not accepted, declares the state where they are not.
+The shorthand on the item's constructor would hold at every initial state, the accepted ones included, where the rule applies.
+
+`krs check` warns where the patterns alone show an end to hold at a state that is not an end.
+`krs::analysis::end-not-terminal` reports an end shown to hold at a state where a rule applies, in three cases.
+The end has no condition and its pattern matches every state the rule's left side matches: the end then holds wherever the rule applies, whatever the rule's condition is.
+The rule has no condition and its left side matches every state the end's pattern matches: a rule then applies wherever the end holds.
+Neither has a condition and the two patterns have a common instance, which is a state of both.
+The first case is every constructor's end whose constructor a rule takes at the head of the main computation cell: the shorthand holds whatever the other cells hold, so it holds where that rule applies.
+Such an end is declared on a `fn` whose `#[k::requires]` is false where the rule applies, in the package that holds the rule; for a group's open item (`busRead ( addr )` above) that is the containing definition, which knows which reads it answers.
+`krs::analysis::end-classes-overlap` reports a `finished` and a `refused` end shown to hold at one state: one has no condition and its pattern matches every state of the other, or neither has a condition and their patterns have a common instance.
+`krs::analysis::end-catch-all` reports an `owise` rule, or a rule at a priority after the default, whose subject's head in the main computation cell is a binder and whose result is a state of a `refused` end that has no condition and reads that cell alone.
+Every head the definition has no rule for is then refused, a forgotten one like one refused on purpose, and no run ends at it outside the declared ends.
+A cell group's `owise` rule for its open item, which [a library must not write](#rules-for-a-cell-group), hides such gaps in the same way: it answers the item in every definition that has no rule for it.
+The three are warnings, and they judge no condition: a pair in which the end and the rule both have one, or both ends have one, is silent, whether the conditions separate them or not.
+A pattern is read only where matching it is syntactic (variables, tokens, free constructors, a computation's items and its rest), so a map, list or set pattern, a function's application or a whole group cell makes its pair silent, and the rules read are the transitions, not heating and cooling steps or `anywhere` rules.
+A definition without these warnings is therefore not shown to declare its ends only where no rule applies.
+An end's condition that applies a function declared `total, assumed = ".."` rests on that assumption, as every sentence that applies the function does.
 
 Each end is emitted as a K function of one argument, the whole configuration.
 The function `end<Name>`, where `<Name>` is the item's name in upper camel case, is total and of sort `Bool`: `syntax Bool ::= "endHalt" "(" GeneratedTopCell ")" [symbol(endHalt), function, total]`.

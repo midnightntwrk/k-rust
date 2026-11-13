@@ -323,7 +323,7 @@ impl Ends<'_> {
 
 /// The end function `rule` is a lowered equation of: the function its head applies, where the
 /// rule is in the function's module under one of the names the end's lowering gives.
-fn own_function<'r>(
+pub(crate) fn own_function<'r>(
     rule: &'r SemanticRule,
     ends: &BTreeMap<&StableItemId, EndMark<'_>>,
 ) -> Option<&'r StableItemId> {
