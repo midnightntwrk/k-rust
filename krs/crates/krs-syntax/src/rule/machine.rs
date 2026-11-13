@@ -1337,6 +1337,9 @@ fn parse_machine_pattern_record(
         let value = if let Some(error) = pattern_items_value(&content, looks_up, faults) {
             skip_value(&content)?;
             MachinePatternCell::Refused(Box::new(error), Vec::new())
+        } else if let Some(error) = braces_of_no_instances(&content, looks_up) {
+            skip_value(&content)?;
+            MachinePatternCell::Refused(Box::new(error), Vec::new())
         } else if let Some(state) = parse_readable_pattern_state(&content, looks_up, faults)? {
             MachinePatternCell::State(Box::new(state))
         } else if content.peek(syn::token::Bracket)
@@ -1407,6 +1410,33 @@ fn parse_machine_pattern_record(
         }
     }
     Ok(cells)
+}
+
+/// The instance reader's refusal of a subject value in braces that the entry reader reads as
+/// instance braces but whose items are no instances (`{ 1 }`, `{ n + 1 }`), or `None` for any
+/// other value. Whether braces fit the cell at all is its kind's question (on a cell that is no
+/// collection, `instances-on-plain-cell`), which the collector answers first from the same
+/// spelling, as it does for a record's child ([`instance_braces`]): the cell is neither read nor
+/// written, the refusal carried ([`read_with_pairing_deferred`]).
+fn braces_of_no_instances(content: ParseStream<'_>, looks_up: bool) -> Option<crate::SyntaxError> {
+    let value = value_tokens(content);
+    let trees = value.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Group(group)] = trees.as_slice() else {
+        return None;
+    };
+    if group.delimiter() != proc_macro2::Delimiter::Brace || contains_top_level_arrow(group) {
+        return None;
+    }
+    let reading = crate::cell_entry::EntryReading::new(crate::cell_entry::EntryForm::Readable, &[]);
+    if !matches!(
+        reading.value(value),
+        Ok(crate::cell_entry::EntrySpelling::Braces(_))
+    ) {
+        return None;
+    }
+    parse_readable_instances_reading(group, StateMacroContext::Pattern, looks_up, None)
+        .err()
+        .map(syntax_error)
 }
 
 /// Reads a machine-rule map read `{ k1 -> v1, .., kn -> vn, .. }`: its
