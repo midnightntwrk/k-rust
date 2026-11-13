@@ -1,0 +1,25 @@
+{
+ "collections": {
+  "SortMap": {
+   "concat": "Lbl'Unds'Map'Unds'",
+   "element": "Lbl'UndsPipe'-'-GT-Unds'",
+   "kind": "map",
+   "unit": "Lbl'Stop'Map"
+  }
+ },
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortMap": 12,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lbla'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map": 1,
+  "Lblb'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map": 3,
+  "Lblc'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map": 4,
+  "Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map": 5,
+  "Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map": 6,
+  "Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map": 2
+ }
+}

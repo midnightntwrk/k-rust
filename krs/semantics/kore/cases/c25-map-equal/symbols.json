@@ -1,0 +1,22 @@
+{
+ "collections": {
+  "SortMap": {
+   "concat": "Lbl'Unds'Map'Unds'",
+   "element": "Lbl'UndsPipe'-'-GT-Unds'",
+   "kind": "map",
+   "unit": "Lbl'Stop'Map"
+  }
+ },
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortMap": 12,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lblgo'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map'Unds'Map": 1,
+  "Lblp'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map'Unds'Map": 2,
+  "Lblsame'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map": 3
+ }
+}
