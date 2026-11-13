@@ -487,8 +487,9 @@ k::rules! {
 /// patterns. Nothing else reaches a Set collection inside an instance or a group record: a group
 /// record's child is that child cell's entry, so instance braces there are the collection's
 /// entry, which a group record does not name yet (a stated limit, `collection-entry`); inside an
-/// instance record the group child holding the collection is a term, where instances are not Rust
-/// syntax; and a single value there is refused. The nested collection named at the record's
+/// instance record the group child holding the collection is the group's term, which names no
+/// collection's instances (`collection-entry`, at the braces); and a single value there is
+/// refused. The nested collection named at the record's
 /// level, beside the top `k`, is a step of one thread that also matches the one `k`, admitted as
 /// a rule whose cells lie in one thread and outside every instance; so the last rule is refused
 /// only for overlapping `peek`, whose pattern it refines.
@@ -521,7 +522,7 @@ fn a_map_literal_in_a_nested_set_collections_instance_is_the_map_it_builds() {
     .map(|item| check_error_in(target.path(), NESTED, item));
     expect_test::expect![[r#"
         [
-            "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
+            "error[krs::analysis::collection-entry]: the instance child `pouches` is written as a record of the group `Pouches`, which is the group's term, one term naming every child, and it writes the child `pouch` in braces as a collection's instances; a term names no collection's instances, as an instance record does not name a `?` or `*` child yet, and braces naming no entry are no map either",
             "error[krs::analysis::collection-entry]: the cell `pouch` is a Set collection of `Pouch` instances (`multiplicity = \"*\"`), so its entry is a list of its instances, each an instance record, not one value: no single cell has the content a value would name; write its entry as its instances, `{ Pouch { .. }, .. }`",
             "error[krs::analysis::collection-entry]: the child `bag` of `Sacks` is a `?` or `*` cell, whose entry a group record does not name yet, as an instance record does not name a `?` or `*` child yet",
             "error[krs::analysis::overlapping-rule-heads]: rules `bad` and `peek` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`.",
