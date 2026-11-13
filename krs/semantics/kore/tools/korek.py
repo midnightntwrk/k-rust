@@ -409,7 +409,7 @@ class Encoder:
 
     @staticmethod
     def req(p):
-        """\\equals{Bool,_}(R, true) -> R; \\top -> None"""
+        """A requires or ensures: \\equals{Bool,_}(R, true) -> R; \\top -> None"""
         if p[0] == 'app' and p[1] == '\\top':
             return None
         if p[0] == 'app' and p[1] == '\\equals' and p[3][1] == ('app', '\\dv', (('SortBool', ()),), (('str', 'true'),)):
@@ -427,16 +427,18 @@ class Encoder:
         # \rewrites(\and(LHS, REQ), \and(RHS, \top))
         _, _, _, (left, right) = ax
         lhs, req = left[3]
-        rhs, top = right[3]
-        if top[1] != '\\top':
-            raise Unsupported('ensures')
+        rhs, ens = right[3]
         self.vars = {}
         prio, owise = self.priority(attrs)
         r = self.req(req)
+        e = self.req(ens)
         self.in_lhs = True
         left = self.term(self.cell(lhs))
         self.in_lhs = False
-        enc = f'rl({prio}, {str(owise).lower()}, {left}, {self.term(r) if r else "bv(true)"}, {self.term(self.cell(rhs))}, '
+        right = self.term(self.cell(rhs))
+        if e:
+            right = f'en({right}, {self.term(e)})'
+        enc = f'rl({prio}, {str(owise).lower()}, {left}, {self.term(r) if r else "bv(true)"}, {right}, '
         return enc
 
     def equation(self, ax, attrs):
@@ -588,7 +590,17 @@ def coll_elems(p, sort, csyms):
 def constraint(p, csyms=None):
     if p[1] == '\\ceil':
         return f'defined({canon(p[3][0], csyms)})'
+    if p[1] == '\\equals':
+        a, b = (canon(x, csyms) for x in p[3])
+        return f'{a}={b}'
+    if p[1] == '\\not':
+        return f'not({constraint(p[3][0], csyms)})'
     return str(p)[:200]
+
+
+def is_result(c):
+    """\\equals(VarResult, CONFIG): the configuration of a search result"""
+    return c[1] == '\\equals' and c[3][0][0] == 'var'
 
 
 def disjuncts(p):
@@ -613,8 +625,8 @@ def cmd_ref(syms, outfile):
             d = d[3][1]
         cond = ''
         if d[1] == '\\and':  # \and(CONSTRAINT, \equals(VarResult, CONFIG)): kept with its constraint
-            cond = ' if ' + ' and '.join(constraint(c, csyms) for c in d[3] if c[1] != '\\equals')
-            d = [c for c in d[3] if c[1] == '\\equals'][0][3][1]
+            cond = ' if ' + ' and '.join(constraint(c, csyms) for c in d[3] if not is_result(c))
+            d = [c for c in d[3] if is_result(c)][0][3][1]
         res.append(canon(config_of(d[3][0]), csyms) + cond)
     return sorted(set(res))
 

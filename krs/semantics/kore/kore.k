@@ -20,6 +20,9 @@
 //     whose result is undefined still blocks the rules of larger priority;
 //   - a configuration is final when no rule applies to it; one to which rules apply but all
 //     with undefined results has no successor and is not final (the path is undefined);
+//   - a rule's ensures is part of its result: r ensures E is r where E evaluates to true and
+//     undefined (an empty result) otherwise, so a rule whose ensures is false has applied and
+//     blocks the rules of larger priority as one with an undefined right side does;
 //   - matching is syntactic up to injections: inj{A,B}(P) matches inj{C,B}(V) where C = A, with P
 //     against V, or C < A in the reflexive-transitive closure of the stated subsorts, with P
 //     against inj{C,A}(V); a variable seen twice must be bound to equal values; an as-pattern
@@ -60,6 +63,7 @@ module KORE-SYNTAX
                                        // and element symbols from parts: elements, and terms of
                                        // the collection's sort
                 | co(Kind, Int, Ts)    // a collection value: its elements, canonical (below)
+                | en(Term, Term)       // a rule's right side and its ensures
                 | kv(Term, Term)       // the element K |-> V of a map
                 | el(Term)             // the element of a set or a list
   syntax Kind ::= "map" | "set" | "list"
@@ -162,6 +166,11 @@ module KORE
   rule [ev-kv]: eval(D, kv(A, V)) => mkKv(eval(D, A), eval(D, V))
   rule [ev-el]: eval(D, el(X)) => mkEl(eval(D, X))
   rule [ev-val]: eval(_, co(K, C, Es)) => co(K, C, Es)
+  rule [ev-en]: eval(D, en(T, E)) => ensure(eval(D, E), eval(D, T))
+
+  syntax Term ::= ensure(Term, Term) [function]
+  rule [ensure-holds]: ensure(bv(true), T) => T
+  rule [ensure-fails]: ensure(_, _) => bot [owise]
 
   syntax Ts ::= evalTs(Def, Ts) [function]
   rule [evs-nil]: evalTs(_, .Ts) => .Ts
@@ -323,6 +332,7 @@ module KORE
   rule [inst-col]: inst(cb(K, C, Ts), B) => cb(K, C, instTs(Ts, B))
   rule [inst-kv]: inst(kv(T, U), B) => kv(inst(T, B), inst(U, B))
   rule [inst-el]: inst(el(T), B) => el(inst(T, B))
+  rule [inst-en]: inst(en(T, E), B) => en(inst(T, B), inst(E, B))
   syntax Ts ::= instTs(Ts, Bind) [function]
   rule [insts-nil]: instTs(.Ts, _) => .Ts
   rule [insts-cons]: instTs(T ; Ts, B) => inst(T, B) ; instTs(Ts, B)

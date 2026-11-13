@@ -142,3 +142,42 @@ The llvm backend aborts on the division by zero in an operand of ==K. KEQUAL.eq 
 of its two arguments, total on defined ones; an undefined argument makes the application \
 undefined, so the rule that builds r(...) has no successor and the rule of the same priority \
 gives the final configuration ok(0)."""
+
+[[difference]]
+case = "c42-total-no-equation"
+backend = "haskell"
+reason = """
+even is declared total and no equation applies to even(3): the definition states that even(3) \
+has a value, not which. The haskell backend splits the search on it and gives yes(3) under the \
+condition even(3) = true and no(3) under its negation. kore.k decides a requires on its ground \
+value; an application that no equation evaluates is not the value true, so the requires does \
+not hold and the [owise] rule gives no(3). kore.k's results carry no conditions (as for c11), so \
+it keeps the one branch its reading decides; the haskell backend's two conditional results \
+cover every value even(3) may have."""
+
+[[difference]]
+case = "c42-total-no-equation"
+backend = "llvm"
+reason = """
+The llvm backend aborts (Called finish_rewriting with no output file specified) on even(3), \
+which no equation of even applies to, as on c11; kore.k keeps the application, as the entry for \
+the haskell backend says."""
+
+[[difference]]
+case = "c43-ensures"
+backend = "llvm"
+reason = """
+The llvm backend does not evaluate the ensures: it steps a(0) to b(0) although 0 >Int 0 is \
+false. A rule l => r requires P ensures E is the axiom l and P implies next (r and E = true), so \
+where E is false the rule's result is empty: the rule has applied, a(0) has no successor and is \
+not final (docs/compatibility.md, "Trivial rule results"). The haskell backend's result is \
+kore.k's, b(1) alone."""
+
+[[difference]]
+case = "c44-ensures-priority"
+backend = "llvm"
+reason = """
+As for c43, the llvm backend does not evaluate the ensures and steps a(0) to b(0). The rule \
+whose ensures is false has applied with an empty result, so the rule of larger priority number \
+that would give c(0) does not apply (docs/compatibility.md, "Trivial rule results"); the \
+haskell backend gives b(1) alone, as kore.k does, so neither backend applies that rule."""
