@@ -907,7 +907,10 @@ pub(super) fn with_present_groups(
 }
 
 /// How many times the rule's terms read or bind the variable `name`.
-fn variable_occurrences(rule: &krs_ir::DescriptorConfigurationRule, name: &str) -> usize {
+pub(crate) fn variable_occurrences(
+    rule: &krs_ir::DescriptorConfigurationRule,
+    name: &str,
+) -> usize {
     fn walk(value: &serde_json::Value, name: &str) -> usize {
         match value {
             serde_json::Value::Object(object) => {

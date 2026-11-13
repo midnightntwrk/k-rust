@@ -39,6 +39,7 @@ mod package;
 mod patterns;
 mod raw_k;
 mod record_updates;
+pub(crate) use cell_states::variable_occurrences;
 pub(crate) use record_updates::structured_rule_long_form;
 mod elaborate;
 mod references;

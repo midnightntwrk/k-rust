@@ -376,25 +376,5 @@ kind = "k8"
 # readable or claim red S5-S1's (the readable route's entry naming a cell below a marked ancestor, S5.2's).
 
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
-# and its twin triaged by meaning (TWIN-1 .. TWIN-10, findings.toml; the progress log ranks them).
-
-["k3/child-twins/readable/both/opt-child/list/[y, rest @ ..] => [..rest, y]"]
-finding = "TWIN-10"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/result/opt-child/int/x"]
-finding = "TWIN-10"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/result/opt-child/list/[x, ..ELS]"]
-finding = "TWIN-10"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/result/opt-child/list/[x]"]
-finding = "TWIN-10"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/result/opt-child/map/{ 0 -> x }"]
-finding = "TWIN-10"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+# and its twin triaged by meaning (TWIN-1 .. TWIN-10); TWINFIX resolved every one, so none is pending.
 

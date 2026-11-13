@@ -2464,6 +2464,8 @@ fn render_rule(
     bundle: &krs_ir::DescriptorBundle,
     descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
+    let kept = without_kept_computations(printed, descriptor_index);
+    let printed = kept.as_ref().unwrap_or(printed);
     let mut parameters = Vec::new();
     let mut parameter_types = BTreeMap::new();
     for binding in &printed.bindings {
@@ -2974,6 +2976,99 @@ struct CellRendering<'a> {
     /// The fresh names of those rests, once the sentence's names are known ([`render_rule`]);
     /// empty on the first print, whose rests print by a reserved spelling only to be counted.
     list_rest_names: Vec<Ident>,
+}
+
+/// `printed` with each computation child of a present `?` group that the rule only keeps left to
+/// the records' `..`, where it has one: the elaboration names every child of a present group's
+/// record, the children a readable record's `..` keeps by a binder the subject binds and the
+/// result writes back at the same child, and a binder is no entry of a computation child in a
+/// `k::fragment!` (`krs::analysis::cell-wrapper`), whose brackets would be the `?` group's
+/// computation items, not supported yet. A child the subject binds whole and the result writes
+/// back as it was, with the binder read nowhere else, is what an open record keeps, so the records
+/// leave it to `..` and the binder is declared no more. `None` where the rule keeps none so.
+fn without_kept_computations(
+    printed: &krs_ir::DescriptorConfigurationRule,
+    index: &DescriptorIndex<'_>,
+) -> Option<krs_ir::DescriptorConfigurationRule> {
+    use krs_ir::ProtocolRuleStateTerm as State;
+    let mut rule = printed.clone();
+    let mut dropped = BTreeSet::new();
+    let subject = &mut rule.subject.cells;
+    for after in &mut rule.result.as_mut()?.cells {
+        let Some(before) = subject
+            .iter_mut()
+            .find(|before| before.field.cell == after.field.cell)
+        else {
+            continue;
+        };
+        let (State::Present { value: before }, State::Present { value: after }) =
+            (&mut before.value, &mut after.value)
+        else {
+            continue;
+        };
+        let (
+            State::Group(DescriptorTerm::Cell {
+                declaration,
+                fields: before_fields,
+                open: before_open,
+                ..
+            }),
+            State::Group(DescriptorTerm::Cell {
+                fields: after_fields,
+                open: after_open,
+                update: None,
+                ..
+            }),
+        ) = (&mut **before, &mut **after)
+        else {
+            continue;
+        };
+        let Ok(group) = index.cell(declaration) else {
+            continue;
+        };
+        let variable = |field: &krs_ir::DescriptorCellTermField| match &*field.value {
+            DescriptorTerm::Variable { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        let kept = group
+            .fields
+            .iter()
+            .filter(|child| {
+                matches!(
+                    child.content,
+                    krs_ir::ProtocolCellContent::Leaf {
+                        wrapper: krs_ir::CellWrapper::KCell,
+                        ..
+                    }
+                )
+            })
+            .filter_map(|child| {
+                let written = |fields: &[krs_ir::DescriptorCellTermField]| {
+                    fields
+                        .iter()
+                        .find(|field| field.field.as_str() == child.rust_field)
+                        .and_then(variable)
+                };
+                let name = written(before_fields)?;
+                (written(after_fields).as_ref() == Some(&name)
+                    && crate::semantic::variable_occurrences(printed, &name) == 2)
+                    .then(|| (child.rust_field.clone(), name))
+            })
+            .collect::<Vec<_>>();
+        for (child, name) in kept {
+            before_fields.retain(|field| field.field.as_str() != child);
+            after_fields.retain(|field| field.field.as_str() != child);
+            *before_open = true;
+            *after_open = true;
+            dropped.insert(name);
+        }
+    }
+    if dropped.is_empty() {
+        return None;
+    }
+    rule.bindings
+        .retain(|binding| !dropped.contains(&binding.name));
+    Some(rule)
 }
 
 /// The subject and result entries of `printed`'s cells, each printed by [`render_rule_cell`].

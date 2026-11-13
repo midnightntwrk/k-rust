@@ -37,8 +37,3 @@ owner = "S5"
 kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`); since INITDIAG an initializer value is judged by its cell's kind, and since INITREC its group record update `G { a: 0, ..base }` too (the R6 limit only on a group of `G` or a `*` template of one), an alias in it answers `invalid-pattern-as` beside rustc's parse error, and a `cells!` result instance record's child the term reader refuses (`T { tk: [x, ..], ..me }`) waits for the record's own judgement. Left: K8 advice that follows a subject's `Some([..])`"
 
-["TWIN-10"]
-owner = "S5"
-kind = "bug"
-what = "the source `krs expand` prints for a readable result that writes a `?` group's child (`og: Some(Og { ol: [x], .. })`, `on: x`, `ol: [..rest, y]` over a subject naming the group) is refused (`krs::analysis::cell-wrapper` at the item), so K3 cannot read it back; the case itself is accepted with its twin's K"
-
