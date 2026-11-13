@@ -39,6 +39,109 @@ pub(crate) fn record_term(record: &Record) -> Option<DescriptorTerm> {
     record.group_term()
 }
 
+/// A readable rule with each record written as the entry of a leaf cell, a constructor's record
+/// the macro read as a group's because a field writes a map in braces naming every entry
+/// (`cur: Load { m: { 0 -> v } }`), read as the constructor's term it is, each such field the map
+/// it names: a leaf holds a term of its sort, braces naming every entry denote the map exactly
+/// those entries (in a pattern the map pattern `0 |-> V`, in a result the map built), and a
+/// constructor's field holds a term, so the record means `Load { m: k::map![0 -> v] }`, as that
+/// spelling does. A record with a field no term spells (a map with a rest, a computation's items,
+/// instance braces) is left as it is, refused on the leaf as before
+/// ([`super::cell_states::record_on_leaf`]). `None` where the rule has no such record.
+///
+/// # Errors
+///
+/// A cell the declarations lack.
+pub(super) fn with_leaf_constructor_records(
+    rule: &krs_ir::DescriptorHeadRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<krs_ir::DescriptorHeadRule>, DescriptorLoweringError> {
+    let mut rewritten = rule.clone();
+    let mut changed = false;
+    for extra in &mut rewritten.extras {
+        let krs_ir::ProtocolHeadRuleExtra::RewriteState {
+            cell,
+            before,
+            after,
+            ..
+        } = extra
+        else {
+            continue;
+        };
+        let declared = require_cell_field(&cell.cell, declarations)?;
+        if !matches!(declared.content, ProtocolCellContent::Leaf { .. }) {
+            continue;
+        }
+        for (state, subject) in
+            std::iter::once((before, true)).chain(after.iter_mut().map(|after| (after, false)))
+        {
+            let State::Record(record) = &*state else {
+                continue;
+            };
+            if let Some(term) = constructor_record_term(record, subject) {
+                *state = State::Term(term);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed.then_some(rewritten))
+}
+
+/// The constructor's term a record is whose head names a constructor (`Load { .. }`) and each of
+/// whose fields is a term or a map naming every entry, that map written as the term it is on the
+/// subject's side if `subject` ([`super::cell_states::map_term`]): the head's application with
+/// those named fields, open where the record ends in `..`. `None` for any other record.
+fn constructor_record_term(record: &Record, subject: bool) -> Option<DescriptorTerm> {
+    let DescriptorTerm::Application {
+        head_class,
+        reference,
+        path_key,
+        arguments,
+        instance,
+        update: None,
+        ..
+    } = &record.head
+    else {
+        return None;
+    };
+    if !matches!(arguments, krs_ir::Arguments::Positional(values) if values.is_empty()) {
+        return None;
+    }
+    let mut held = Vec::new();
+    let fields = record
+        .fields
+        .iter()
+        .map(|field| {
+            let value = match &field.value {
+                State::Term(term) | State::Group(term) => term.clone(),
+                State::Map(krs_ir::ProtocolRuleMap {
+                    body:
+                        krs_ir::ProtocolRuleMapBody::Items {
+                            remainder: krs_ir::ProtocolRuleFrame::Exact,
+                            ..
+                        },
+                    ..
+                }) => super::cell_states::map_term(&field.value, subject, &mut held)?,
+                _ => return None,
+            };
+            Some(krs_ir::NamedTermArgument {
+                key: field.key.clone(),
+                field: krs_ir::ProductionFieldId::new(field.field.clone()).ok()?,
+                value: Box::new(value),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    held.is_empty().then(|| DescriptorTerm::Application {
+        head_class: head_class.clone(),
+        reference: reference.clone(),
+        path_key: path_key.clone(),
+        arguments: krs_ir::Arguments::named(fields),
+        instance: instance.clone(),
+        update: None,
+        open: matches!(record.rest, krs_ir::ProtocolRecordRest::Open),
+    })
+}
+
 /// `rule` with each computation child that a group record or an instance record writes in
 /// brackets read as that child's K sequence (ruling R4). A record's child is its cell's entry,
 /// read by the child's declared kind, and brackets on a computation cell are its items wherever

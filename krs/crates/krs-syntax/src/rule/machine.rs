@@ -518,6 +518,103 @@ fn contains_top_level_arrow(group: &proc_macro2::Group) -> bool {
     })
 }
 
+/// Whether `group` holds `->` at its top level: braces so are map notation, `{ k -> v, .. }`.
+fn holds_map_arrow(group: &proc_macro2::Group) -> bool {
+    let trees = group.stream().into_iter().collect::<Vec<_>>();
+    trees.windows(2).any(|window| {
+        matches!(&window[0], TokenTree::Punct(first) if first.as_char() == '-')
+            && matches!(&window[1], TokenTree::Punct(second) if second.as_char() == '>')
+    })
+}
+
+/// `tokens`, the items of a computation's or a list's brackets, with each map written in braces
+/// inside them, `{ k -> v }`, `{ k -> v, r @ .. }`, `{ k -> v, ..m }` or `{ k -> v, .. }`, written
+/// as the literal `k::map![..]` holding the same entries and rest, at any depth: an item, a list's
+/// element and a constructor's argument or field are terms, where braces holding `->` are no
+/// block but the map they name, as the literal there is. So each means what the literal means in
+/// that term: in a pattern the map pattern, in a result the map it builds, and with an anonymous
+/// `..` the literal's refusal. The literal carries the braces' span.
+fn map_braces_as_literals(tokens: TokenStream) -> TokenStream {
+    tokens
+        .into_iter()
+        .flat_map(|tree| match tree {
+            TokenTree::Group(group) => {
+                let inner = map_braces_as_literals(group.stream());
+                if group.delimiter() == proc_macro2::Delimiter::Brace && holds_map_arrow(&group) {
+                    let span = group.span();
+                    let mut entries =
+                        proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, inner);
+                    entries.set_span(span);
+                    quote_spanned!(span=> k::map!#entries)
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                } else {
+                    let mut rebuilt = proc_macro2::Group::new(group.delimiter(), inner);
+                    rebuilt.set_span(group.span());
+                    vec![TokenTree::Group(rebuilt)]
+                }
+            }
+            tree => vec![tree],
+        })
+        .collect()
+}
+
+/// The brackets `group` with the maps its items write in braces read as literals
+/// ([`map_braces_as_literals`]).
+fn items_with_map_literals(group: &proc_macro2::Group) -> proc_macro2::Group {
+    let mut rebuilt =
+        proc_macro2::Group::new(group.delimiter(), map_braces_as_literals(group.stream()));
+    rebuilt.set_span(group.span());
+    rebuilt
+}
+
+/// Where inside `tokens`, a result's items, a map holding entries stands whose rest is an
+/// anonymous `..`: braces `{ k -> v, .. }` or the literal `map![k -> v, ..]`. Below a cell's
+/// content root no cell's map is there for that `..` to keep, and a built map's rest is the map
+/// its entries are written over ([`anonymous_rest_in_map`]). `None` where there is none.
+fn anonymous_rest_map(tokens: &TokenStream) -> Option<proc_macro2::Span> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let ends_in_dots = |group: &proc_macro2::Group| {
+        holds_map_arrow(group) && top_level_items(group.stream()).last().is_some_and(is_dots)
+    };
+    trees.iter().enumerate().find_map(|(index, tree)| {
+        let TokenTree::Group(group) = tree else {
+            return None;
+        };
+        let literal = group.delimiter() == proc_macro2::Delimiter::Bracket
+            && index >= 2
+            && matches!(&trees[index - 1], TokenTree::Punct(bang) if bang.as_char() == '!')
+            && matches!(&trees[index - 2], TokenTree::Ident(name) if name == "map");
+        let braces = group.delimiter() == proc_macro2::Delimiter::Brace;
+        if (literal || braces) && ends_in_dots(group) {
+            return Some(group.span());
+        }
+        anonymous_rest_map(&group.stream())
+    })
+}
+
+/// The refusal of a map with an anonymous `..` written below the content root of the cell
+/// `cell`, in a list's element, a constructor's record or a term a result builds: no cell's map is
+/// there for the `..` to keep (`krs::syntax::invalid-expression-notation`, the readable form
+/// step's text, with the advice the term walker gives the literal).
+fn anonymous_rest_in_map(cell: &Ident, span: proc_macro2::Span) -> crate::SyntaxError {
+    let reason = crate::cell_entries::Refusal::AnonymousRestInMapLiteral.reason(
+        crate::cell_entry::EntryForm::Readable,
+        &cell.unraw().to_string(),
+        &crate::cell_entries::EntryKind::default(),
+        None,
+    );
+    crate::SyntaxError::new(
+        crate::SyntaxErrorKind::InvalidExpressionNotation { reason },
+        span,
+    )
+    .with_help(ANONYMOUS_REST_HELP)
+}
+
+/// What a term and a pattern write instead of a map with an anonymous `..` below a content root:
+/// the advice the term walker gives the same literal in any term.
+const ANONYMOUS_REST_HELP: &str = "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a cell's map where it is the cell's content with `map![k -> v, ..]` or `{ k -> v, .. }`, and a map in a term with `map![k -> v, ..]`";
+
 /// Parses a readable instance list `{ .. }` or `[ .. ]` (KF-023): records
 /// `[label @] Decl { child: value, .., }`, items that are one name or `_`
 /// (the whole instance `x @ Decl { .. }`, [`InstanceItem::whole`]), and one
@@ -882,6 +979,15 @@ fn parse_readable_child(
     if let [TokenTree::Group(group)] = trees.as_slice()
         && group.delimiter() == proc_macro2::Delimiter::Bracket
     {
+        // The child's items are terms: a result's map with an anonymous `..` keeps no cell's map
+        // there, and a map in braces is the literal ([`items_with_map_literals`]).
+        if context == StateMacroContext::Expression
+            && let Some(span) = anonymous_rest_map(&group.stream())
+        {
+            return Err(anonymous_rest_in_map(name, span).into());
+        }
+        let group = &items_with_map_literals(group);
+        let tokens = TokenStream::from(TokenTree::Group(group.clone()));
         let chunks = top_level_items(group.stream());
         // An instance child is a cell, so its brackets mean what they mean at a cell of its
         // kind outside every instance. A pattern's rest before its last item (a back, `[.., x]`
@@ -1943,8 +2049,9 @@ fn read_result_presence(
             crate::SyntaxError::from,
         )?);
     }
-    if let Some(map) =
-        inside.and_then(|inside| result_map_read(&inside.stream()).or_else(|| rest_over(&inside)))
+    if let Some(map) = inside
+        .as_ref()
+        .and_then(|inside| result_map_read(&inside.stream()).or_else(|| rest_over(inside)))
     {
         let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
             crate::cell_entry::EntryForm::Readable,
@@ -2526,9 +2633,7 @@ fn readable_form_step(
             // What a term and a pattern write instead: the advice the term walker gives the same
             // literal in any term.
             let error = if located.refusal == Refusal::AnonymousRestInMapLiteral {
-                error.with_help(
-                    "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a cell's map where it is the cell's content with `map![k -> v, ..]` or `{ k -> v, .. }`, and a map in a term with `map![k -> v, ..]`",
-                )
+                error.with_help(ANONYMOUS_REST_HELP)
             } else {
                 error
             };
@@ -2902,6 +3007,16 @@ impl BracketReadings {
         // computation's or a list's.
         let names_nothing = is_dots(&group.stream())
             && (item_less_kept(group, result) || instances == InstanceReading::Records);
+        // Read as items or elements, the value's maps in braces are literals
+        // ([`items_with_map_literals`]); read as instances, their records' children are cells.
+        let terms = items_with_map_literals(group);
+        let result_terms = match result {
+            Some(MachineResultCell::Bracket(result)) => {
+                Some(MachineResultCell::Bracket(items_with_map_literals(result)))
+            }
+            _ => result.cloned(),
+        };
+        let (group, result) = (&terms, result_terms.as_ref());
         // A computation cell the result leaves out is only read.
         let computation = !names_nothing
             && bracket_prefix(group).is_ok()
@@ -3285,18 +3400,24 @@ fn read_brackets(
     for (cell, pattern) in subject_cells {
         let pattern = match pattern {
             MachinePatternCell::Bracket(group) if is_computation(cell) => {
-                MachinePatternCell::KItems(Box::new(bracket_prefix(group)?))
+                MachinePatternCell::KItems(Box::new(bracket_prefix(&items_with_map_literals(
+                    group,
+                ))?))
             }
-            MachinePatternCell::Bracket(group) if is_elements(cell) => match list_pattern(group) {
-                Ok(pattern) => MachinePatternCell::List(Box::new(pattern)),
-                // `[rest @ ..]`, which names no element, or brackets of another list mistake: a
-                // list's notation, which the cell's kind answers before
-                // ([`read_with_pairing_deferred`]).
-                Err(ParseError::Structured(error)) if defer_pairing && is_list_notation(&error) => {
-                    MachinePatternCell::Refused(Box::new(error), list_binders(group))
+            MachinePatternCell::Bracket(group) if is_elements(cell) => {
+                match list_pattern(&items_with_map_literals(group)) {
+                    Ok(pattern) => MachinePatternCell::List(Box::new(pattern)),
+                    // `[rest @ ..]`, which names no element, or brackets of another list mistake: a
+                    // list's notation, which the cell's kind answers before
+                    // ([`read_with_pairing_deferred`]).
+                    Err(ParseError::Structured(error))
+                        if defer_pairing && is_list_notation(&error) =>
+                    {
+                        MachinePatternCell::Refused(Box::new(error), list_binders(group))
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
-            },
+            }
             MachinePatternCell::Bracket(group) => MachinePatternCell::State(Box::new(
                 StateTerm::Instances(parse_readable_instances(group, StateMacroContext::Pattern)?),
             )),
@@ -3306,6 +3427,23 @@ fn read_brackets(
     }
     let mut result = Vec::with_capacity(result_cells.len());
     for (cell, value) in result_cells {
+        // A result's items, a list's elements or a computation's, are terms: a map with an
+        // anonymous `..` there keeps no cell's map ([`anonymous_rest_in_map`]), and a map in
+        // braces is the literal ([`items_with_map_literals`]).
+        if let MachineResultCell::Bracket(group) = value
+            && !is_list(cell)
+            && !(defer_pairing && matched_by_state(cell))
+            && let Some(span) = anonymous_rest_map(&group.stream())
+        {
+            return Err(anonymous_rest_in_map(cell, span).into());
+        }
+        let literals = match value {
+            MachineResultCell::Bracket(group) if !is_list(cell) => {
+                Some(MachineResultCell::Bracket(items_with_map_literals(group)))
+            }
+            _ => None,
+        };
+        let value = literals.as_ref().unwrap_or(value);
         let value = match value {
             MachineResultCell::Bracket(group) if is_elements(cell) => match list_result(group) {
                 Ok(list) => MachineResultCell::List(Box::new(list)),
