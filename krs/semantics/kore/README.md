@@ -68,6 +68,39 @@ The reference runs are cached in `expected.json` by the SHA-256 of `def.k` and `
 A case costs about 15 to 80 s of reference runs (two kompiles, two searches; an llvm search that fails takes up to a minute), each under a 120 s timeout and a 12 GiB memory scope.
 Keep the object search finite: on a cycle the haskell backend's search does not stop, and only the timeout ends it.
 
+## Cases
+
+18 cases, each a small object definition for one point of the reading above.
+"haskell" is the number of final configurations of the haskell backend's search, the expected result; "llvm" is the llvm backend's result against it.
+
+| case | what it tests | haskell | llvm |
+| --- | --- | --- | --- |
+| c01-fn-prio | equations of three priorities, an `[owise]` equation, failing `requires` | 1 | same |
+| c02-rule-prio | rules of several priorities: a rule whose `requires` fails does not block a larger priority | 1 | same |
+| c03-nondet | rules of one priority give several successors; paths meet again and end in several final configurations | 4 | same |
+| c04-subsort | the subsort chain `Int < Num < Val < Exp` and `Bool < Val`: matching through the transitive closure | 1 | same |
+| c05-hooks | the Int and Bool hooks of the fragment, on negative operands too | 1 | same |
+| c06-nonlinear | a variable seen twice in an equation's and a rule's left side | 1 | same |
+| c07-strict-args | a function's argument is evaluated before its equations are matched | 1 | same |
+| c08-undef-rhs-blocks | a rule that applies with an undefined right side has no successor and blocks a larger priority | 0 | error |
+| c09-undef-requires | an undefined `requires` is not true: the rule does not apply | 1 | error |
+| c10-strict-ite | `#if` is strict in its three arguments: an undefined branch makes it undefined | 0 | 1 final |
+| c11-fn-no-equation | an application of a partial function that no equation applies to | 1 | error |
+| c12-undef-init | an undefined initial term has no final configuration | 0 | error |
+| c13-inj-bool | composed injections of a function's result; an undefined result under an injection; Bool literals and a Bool-sorted pattern against injected values | 3 | error |
+| c14-fn-undef-requires | an equation whose `requires` is undefined does not apply; the `[owise]` one does | 1 | error |
+| c15-nonlinear-rule | a variable seen twice in a rule's left side does not match distinct values | 1 | same |
+| c16-bool-pattern | a Bool domain value in a left side matches only itself | 1 | same |
+| c17-init-function | the initial term applies a function, evaluated before the first step | 1 | same |
+| c18-div-signs | `/Int` truncates toward zero and `%Int` takes the sign of the dividend | 1 | same |
+
+The expected result is the haskell backend's, because its search gives a result on every case; the llvm backend's results are kept as a second reference: both backends give final configurations on 12 cases and agree on 11 of them (all but c10), and the llvm backend fails on the other 6.
+The backends disagree on 7 cases, recorded in each `expected.json`:
+
+- c08, c09, c12, c13, c14: the llvm backend aborts on a division by zero (`[hook_INT_tdiv]: Division by zero`), where KORE makes `X /Int 0` undefined (`\bottom`): no successor, a `requires` that is not true, an initial configuration that is `\bottom`.
+- c10: the llvm backend evaluates `#if true #then 1 #else 10 /Int 0 #fi` lazily and steps to `b(1)`; the hook `KEQUAL.ite` is a function of its three arguments, so an undefined argument makes it undefined, and the haskell backend has no final configuration.
+- c11: the llvm backend aborts (`Called finish_rewriting with no output file specified`) on `half(3)`, which no equation of the partial function `half` applies to; the haskell backend returns `b(half(3))` under the condition `\ceil(half(3))`.
+
 ## Why K and not KRS
 
 The other packages of `krs/semantics` are KRS crates whose K is emitted by `krs`.
@@ -84,5 +117,5 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition, the encoder and the case builder.
-Next: the cases with their reference results, the kink corpus, and the command that reruns the cases.
+Done: the definition, the encoder and the case builder, and 18 cases with their reference results.
+Next: the kink corpus, and the command that reruns the cases.

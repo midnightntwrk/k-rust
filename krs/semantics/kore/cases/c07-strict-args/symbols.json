@@ -1,0 +1,16 @@
+{
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lblf'LParUndsRParUnds'CASE-SYNTAX'Unds'Int'Unds'K2": 3,
+  "Lblg'LParUndsRParUnds'CASE-SYNTAX'Unds'K2'Unds'Int": 2,
+  "Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 1,
+  "Lblkk'LParRParUnds'CASE-SYNTAX'Unds'K2": 5,
+  "Lblmm'LParRParUnds'CASE-SYNTAX'Unds'K2": 6,
+  "Lblres'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 4
+ }
+}
