@@ -410,11 +410,23 @@ fn render_term_with_binders<'t>(
         }
         // `name @ pattern` is K's `( PATTERN #as Name:Sort )`, always
         // parenthesised (X13).
+        // A computation of several items is parenthesised inside it: K's `#as` binds tighter than
+        // `~>`, so `( a ~> b #as X:K )` would alias `b` alone.
         DefinitionTermKind::As { alias, pattern } => {
+            let sequence = matches!(
+                pattern.kind(),
+                DefinitionTermKind::KSequence { items, .. } if items.len() > 1
+            );
             output.push("( ");
+            if sequence {
+                output.push("( ");
+            }
             output.append(render_term_with_binders(
                 pattern, context, false, names, within,
             )?);
+            if sequence {
+                output.push(" )");
+            }
             output.push(" #as ");
             output.push(names.name(alias).ok_or_else(|| {
                 EmitError::InvalidReference(format!(

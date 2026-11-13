@@ -3420,6 +3420,12 @@ impl StructuredTermBuilder<'_> {
                     if let Some(sequence) =
                         self.child_sequence(owner, declared, &field.value, subject)? =>
                 {
+                    if let DescriptorTerm::As { name, .. } = field.value.as_ref() {
+                        self.binding_constraints
+                            .entry(name.clone())
+                            .or_default()
+                            .insert(SemanticSortRef::k_sequence());
+                    }
                     for item in &sequence.items {
                         let expected = matches!(item.value, DescriptorTerm::Wildcard { .. })
                             .then(|| self.k_item_sort.clone());
@@ -3612,6 +3618,12 @@ impl StructuredTermBuilder<'_> {
         subject: bool,
     ) -> Result<Option<krs_ir::ProtocolRuleKSequence<DescriptorTerm>>, DescriptorLoweringError>
     {
+        // A pattern the record's base alias binds whole (`me @ Th { tg: Tg { gk: [x], .. }, .. }`
+        // with `..me`) is `( [x] #as Hidden )`, the brackets under the alias.
+        let value = match value {
+            DescriptorTerm::As { pattern, .. } => pattern,
+            value => value,
+        };
         let Some(sequence) = super::group_records::computation_sequence(
             &krs_ir::ProtocolRuleStateTerm::Term(value.clone()),
             declared,
@@ -3635,6 +3647,34 @@ impl StructuredTermBuilder<'_> {
             }
             _ => Ok(None),
         }
+    }
+
+    /// The lowered K sequence `lowered` of a computation child written `value`, under the alias the
+    /// value names it by, `( items #as Name:K )`, when the value is `name @ [..]` (the hidden
+    /// binder a record's base alias gives a child it keeps, [`super::record_updates`]); the
+    /// sequence itself otherwise, or where the alias is a base only.
+    fn child_sequence_alias(
+        &self,
+        value: Option<&DescriptorTerm>,
+        lowered: SemanticTerm,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let Some(DescriptorTerm::As { key, name, .. }) = value else {
+            return Ok(lowered);
+        };
+        if self.record_updates.updates.is_dropped(name) {
+            return Ok(lowered);
+        }
+        let sort = self
+            .binding_sorts
+            .get(name)
+            .cloned()
+            .unwrap_or_else(SemanticSortRef::k_sequence);
+        Ok(SemanticTerm::pattern_as(
+            semantic_origin(self.descriptor, key.clone(), "term-as")?,
+            sort,
+            SemanticId::new(name.clone())?,
+            lowered,
+        ))
     }
 
     /// Lowers a computation child's K sequence written in brackets inside a cell term
@@ -3730,7 +3770,10 @@ impl StructuredTermBuilder<'_> {
                         None => None,
                     };
                     let content = match sequence {
-                        Some(sequence) => self.lower_child_sequence(&sequence, record.subject)?,
+                        Some(sequence) => {
+                            let lowered = self.lower_child_sequence(&sequence, record.subject)?;
+                            self.child_sequence_alias(value, lowered)?
+                        }
                         None => {
                             self.lower_record_field(value, &field_id, Some(&content_sort), record)?
                         }
