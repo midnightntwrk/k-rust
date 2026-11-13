@@ -1464,8 +1464,11 @@ k::equations! {
     storage_warm_unlisted: (_, _, _) => false;
 }
 
+/// `accessed` with the slot `index` listed for `account`. It has no value where `account` has
+/// an entry that is no `Set`: there is no set to add the slot to. Only rules apply it, to a cell
+/// whose entries are sets.
 #[k::function(
-    total,
+    partial,
     syntax = "#kevmMarkStorageAccess({accessed}, {account}, {index})"
 )]
 pub fn MarkStorageAccess(
@@ -1475,7 +1478,7 @@ pub fn MarkStorageAccess(
 ) -> k::Term<Map<Int, Set<Int>>>;
 
 // An account's entry is read as a `Set` only where it is one, which the condition tests; an
-// account with no such entry gets the one slot.
+// account with no entry gets the one slot.
 k::equations! {
     for MarkStorageAccess;
     #[k::requires(map::in_keys(account, accessed) && k::is!(Set, map::get(accessed, account)))]
@@ -1485,7 +1488,7 @@ k::equations! {
                                       account,
                                       set::union(map::get(accessed, account), set::item(index)),
                                   );
-    #[k::equation(owise)]
+    #[k::requires(!map::in_keys(account, accessed))]
     mark_storage_access_unlisted: (accessed, account, index)
                                   => map::update(accessed, account, set::item(index));
 }

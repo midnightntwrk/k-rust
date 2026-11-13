@@ -190,7 +190,8 @@ Ordinary `constantKindZeroSized` operands resolve their `Ty` through the concret
 Structs, tuples, and function items materialize as empty variant-zero aggregates, while fixed zero-length arrays materialize as an empty `Range`, matching all four pinned `rt/data.md` rules.
 The function-item `TypeInfo` remains distinct from the existing zero-sized function call target: the former is an ordinary value operand, while the latter identifies a function-table entry during call setup.
 The shared typed Bytes surface now includes half-open `BYTES.substr` in descriptor protocol 34 and Definition IR schema 26; the K-Rust adapter targets the pinned `substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int` label directly.
-Missing type entries, incompatible terminal pointees, projected cast operands, allocation mutation and remaining allocation operations, other zero-sized TypeInfo constructors, and the opaque-cast and subtype projection kinds remain deferred.
+A type the table lacks has a stated value in `getTyOf`, `#sizeOf`, and `#alignOf` ("Differences from the source definition" below), while a rule that reads the table itself still does not apply for one: `eval_size_of` and `eval_align_of`, whose condition and result read `map::get(types, ty)`, and the cast and decoding rules that read a target, field, or element entry the same way.
+Incompatible terminal pointees, projected cast operands, allocation mutation and remaining allocation operations, other zero-sized TypeInfo constructors, and the opaque-cast and subtype projection kinds remain deferred.
 
 ## Source mapping
 
@@ -245,6 +246,16 @@ Cases the port now states, which before had no value in the port:
 | `#sizeOf(types, info)` | `#sizeOf` (`rt/types.md`) | a pointer or a reference whose pointee the table holds no `TypeInfo` for | One `usize`. A pointer holds an address whatever it points to, and a length beside it only where its pointee is known to be unsized. The source gives the same for a pointee the table lacks (`#metadataSize` of `typeInfoVoidType` is `noMetadataSize`) and has no value for an entry of another sort. |
 | `#alignOf(types, info)` | `#alignOf` (`rt/types.md`) | an array whose element type the table holds no `TypeInfo` for | 0, the alignment the port gives a type with no layout. The source gives the same for an element the table lacks and has no value for an entry of another sort. |
 
+Rules the first row reaches.
+`eval_ptr_cast`, `eval_transmute`, and `eval_discriminant` pass `getTyOf` of the operand's place to `#lookupMaybeTy`.
+For a place whose projections dereference or index a type the table holds no `TypeInfo` for, `getTyOf` had no value before, so none of the three rules applied; it is now `TyUnknown`, `#lookupMaybeTy` of it is `typeInfoVoidType`, and each rule applies.
+The source's `rvalueCast` and `rvalueDiscriminant` rules (`rt/data.md`) apply there too, and pass `TyUnknown` on.
+What follows the step differs by rule:
+
+- `eval_ptr_cast`: every rule that finishes a pointer cast requires a pointer or reference type as the source's information, so none applies to `typeInfoVoidType`; execution stops after the operand is read where it stopped before it.
+- `eval_discriminant`: `finish_discriminant` requires an enum's information, so it does not apply either, and execution stops after the operand is read.
+- `eval_transmute`: `finish_transmute_identity` applies where the target's entry is itself `typeInfoVoidType` and the operand is a reference, a pointer, or an allocation reference, and stores the operand unchanged. This is a defect of the port, not a value it means to state: the rule is the transmute between one type and itself, and here the source type is not known to be the target's, only read as `typeInfoVoidType` because nothing is known of it. The source's three rules for that transmute compare `lookupTy` of the source type, which takes a `Ty`, so they do not apply to `TyUnknown`. The port reached the same rule before through every other way `getTyOf` gives `TyUnknown` (a dereference of a type that is no pointer, an index of one that is no array, a projection `getTyOf` has no equation for); the change adds the types the table lacks. It is not corrected here; a correction is to keep `finish_transmute_identity` from applying where the source's information is `typeInfoVoidType` (`#isVoidType`), since no reference or pointer has that type.
+
 A function the port declares `partial` and the source declares `total`:
 
 | Port function | Source sentence | Where it has no value | Why `partial` is the declaration |
@@ -257,8 +268,13 @@ A function the port declares `total` and leaves without a named value where the 
 |---|---|---|---|
 | `#mapRefOffset(values, offset)` | `#mapOffset` (`rt/data.md`) | a list that holds an item that is no `Value` | Nothing: it is `total` with `underspecified`, so it has some value there and no equation names it. The source returns the list unchanged, in an `owise` rule it marks "should not happen". The fields of an aggregate and the elements of a range are values, so no rule reaches it. Before, the port declared the function `partial`, which `#adjustRef`, a `total` function that applies it, contradicted. |
 
-This difference existed before that change and is not part of it; it is listed so that the tables above are not read as complete.
+These differences existed before that change and are not part of it; they are listed so that the tables above are not read as complete.
 `#truncateUnsigned` and `#truncateSigned` return the value unchanged at a width that is not positive, where the source's `truncate` gives 0.
+`#alignOf` of `str` is 1, where the source gives 4 (`rt/types.md`, "alignment of a Char"). The port's value is deliberate: a `str` is a sequence of bytes, each aligned to 1, and Rust's `align_of_val` of a `str` is 1.
+`#sizeOf` of a pointer or a reference to `str` is two `usize` (`#pointerWords`), where the source gives one: its `#metadataSizeAux` gives `dynamicSize(1)` only for an array without a length, so it sizes a `&str` as a thin pointer. The port's value is deliberate: a `&str` holds an address and a length, as a reference to a slice does, and Rust's `size_of::<&str>()` is two words.
+
+A limit the port shares with the source, which is no difference: `#sizeOf` and `#alignOf` of an array apply themselves to the element's entry, so neither terminates on a table in which an array type is, through array elements alone, an element of itself.
+Both definitions have the same equations there, and no Rust type has that shape; a pointer or a reference does not read its pointee's size, so a type that is recursive through one terminates.
 
 ## Unsupported shapes recorded before implementation
 
