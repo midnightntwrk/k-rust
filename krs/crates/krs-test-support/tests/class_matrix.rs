@@ -214,9 +214,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // written in, at the 4 child places and once at the top level (a readable
             // computation's twin is the `cells!` one, and two `cells!` rows whose children are
             // one twin, `[Cmd::Go(), ..]` and `k::k![Cmd::Go(), ..]`, share it): 27 readable rows
-            // at 4 places and the 21 not of the computation at the top, and 34 `cells!` rows in a
-            // rule and in a claim at 4 places with their 33 twins.
-            (Family::ChildTwins, 27 * 4 + 21 + 2 * (34 * 4 + 33)),
+            // at 4 places and the 21 not of the computation at the top, and 35 `cells!` rows in a
+            // rule and in a claim at 4 places with their 34 twins (TWINFIX: the `KSequence` leaf's
+            // saved remainder).
+            (Family::ChildTwins, 27 * 4 + 21 + 2 * (35 * 4 + 34)),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
