@@ -99,7 +99,7 @@ export const theory9: Lesson = {
         },
         {
           hl: { c: span(colls, '/-- **The collections.**', 'def ΓColls') },
-          notes: [note('c', at(colls, 'def ΓColls'), 'What the unit, element and concatenation of each collection are: a union of maps, a concatenation of lists. These axioms are stated by the core, not read from the K text.', 'ΓColls')],
+          notes: [note('c', at(colls, 'def ΓColls'), 'What the unit, element and concatenation of each collection are: a union of maps, a concatenation of lists; a set\'s element is not the empty set, is injective, and is a union only with its own member. These axioms are stated by the core, not read from the K text.', 'ΓColls')],
         },
       ],
     },

@@ -105,7 +105,7 @@ export const terms1: Lesson = {
         },
         {
           hl: { g: [at(ground, '| dv (s : Srt) (lit : Lit)')], w: [at(worked, `.dv ${int}`)] },
-          notes: [note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'A literal of a sort.', 'dv'), note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'Not settled: literals gain bytes and strings with canonical forms.', 'Lit'), note('w', at(worked, `.dv ${int}`), `\`Int\` is ${int}.`, `.dv ${int}`)],
+          notes: [note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'A literal of a sort: an Int, a Bool, a token\'s text, or a Float as its IEEE 754 encoding.', 'dv'), note('g', at(ground, '| dv (s : Srt) (lit : Lit)'), 'Not settled: bytes and strings gain canonical forms.', 'Lit'), note('w', at(worked, `.dv ${int}`), `\`Int\` is ${int}.`, `.dv ${int}`)],
         },
         {
           hl: { g: span(ground, '| map (s : Srt)', '| list (s : Srt)') },

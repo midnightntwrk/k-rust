@@ -48,7 +48,7 @@ const conditions: readonly [string, string, string][] = [
   ['collsOK', "the definition's collections are well formed and built by their own symbols", 'step'],
   ['patHeadsOK', 'every symbol a left side may apply is one matching reads', 'step'],
   ['namesApartK', 'no two symbols, and no two sorts, share a name', 'model · witness'],
-  ['LitsApart', 'no token or byte sort is Int or Bool, so a literal is told by its text', 'model'],
+  ['LitsApart', 'no token or byte sort is Int, Bool or Float, so a literal is told by its text', 'model'],
   ['sortsNumbered', 'every sort a value may have is a numbered sort', 'model · witness'],
   ['itesApart', 'symbols named like ite are named at a numbered sort, and apart by their sort', 'model · witness for the second half; the first not settled'],
   ['kindsApart', 'hooks and parameters are not constructors, nor parameters hooks', 'model · witness'],
@@ -96,7 +96,7 @@ export const wf11: Lesson = {
       frames: [
         {
           hl: { s: span(sorted, 'def sortedOK', 'c.rules.all c.ruleSorted') },
-          say: '`sortedOK` has three parts: the subsorts, every clause, every rule.',
+          say: '`sortedOK` has three parts: the subsorts, every clause, every rule. A token sort the definition declares has its literals as values and no constructors.',
         },
         {
           hl: { u: span(subsorts, 'def subsortsOK', 'nodup subs') },

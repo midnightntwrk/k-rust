@@ -1,21 +1,28 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec ab060581 (status of 2026-11-13): the goal and its scoreboard, coverage of K, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec 167fd26e (status of 2026-11-13): the goal and its scoreboard, coverage of K, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
 
-As of kcore-spec `ab060581`, status of 2026-11-13.
+As of kcore-spec `167fd26e`, status of 2026-11-13.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
 ## Changed since you last read
 
 Newest first.
 
+- The core grew, with no change of status: it is now about 3,340 lines in 639 declarations (63 new, 23 changed), and the two theorems' statements are unchanged. A Float literal is a value, its IEEE 754 encoding at K's format; 25 Float operations are computed as IEEE 754 defines them (round to nearest, ties to even) and 16 are left uninterpreted. A set element alone, `SetItem(P)`, is a pattern, and Γ has three set axioms beside the map and list ones. A token sort the definition declares has its literals as values and no constructors. Lessons [1](/lean/terms), [4](/lean/matching), [9](/lean/theory) and [11](/lean/well-formedness) gained a note or a line each.
+- The trusted part of Lean's core library grew from 229 to 280 declarations; the core now relies on 39 of its `Float.Model` declarations. No Mathlib.
+- In the kernel, `f2-examples/fltadd.k` steps `add(0.1, 0.2)` to the binary64 value `0x3FD3333333333334`.
+- mir as written is read, meets `coreOK`, and the kernel builds its package (218 s, 7.2 GB at peak), with 61 named facts. wasm still stops at its constructor overloads, which are being implemented.
+- Of the 381 corpus texts, 314 are now read with nothing refused and 298 meet `coreOK` (were 294 and 260).
+- Decision 8 now has evidence and a recommendation.
+- The tree moved to `167fd26e`. Every lesson now states that commit, and every fact shown as checked by Lean was checked again there; two of them changed only in their symbol numbers, since the new Float symbols renumber every definition's own.
 - The reader reads more of K, with no change to the core: several `[owise]` equations of one function, K's default configuration, projections in generated initializers, a cell sort below a user sort, `ensures` on a rewrite rule (as an extra `requires` condition where no rule of a larger priority overlaps the rule, refused otherwise), and `Int` declared again without a place. Of the 381 corpus texts, 294 are now read with nothing refused and 260 meet `coreOK` (were 193 and 158).
 - mir now stops only at K's FLOAT module. wasm stops at its constructor overloads.
 - New open decision 8: what a set pattern `SetItem(X) REST` matches.
-- In progress, not yet in the tree the course is written against: user token sorts, a set element alone as a pattern, the FLOAT module, and mir as written meeting `coreOK`. They will change parts of the core (literals, collection patterns and their axioms); the course will follow when that tree lands.
+- In progress, not yet in the tree the course is written against: user token sorts, a set element alone as a pattern, the FLOAT module, and mir as written meeting `coreOK`. They will change parts of the core (literals, collection patterns and their axioms); the course will follow when that tree lands. (They landed at `167fd26e`, above.)
 - The tree moved to `ab060581`. The core did not change, every lesson now states that commit, and every fact shown as checked by Lean was checked again there. Lesson 10's example of a definition with uninterpreted operations is now kryp's package, which uses K's KRYPTO hashes.
 - A second scoreboard, [Coverage of K](#coverage-of-k): how much of KORE, of what kompile emits, and of K's builtin library the reader handles, and how many of k-rust's 381 cached kompile outputs it reads.
 - One existing K claim, sum-spec, is proved on the imp package over its own step relation, for all paths, with its matching-logic consequence: the theory Γ entails that the initial configuration eventually reaches the final one. A second claim, sum-N, is proved too. imp's "used by a proof" is now ✓.
@@ -50,8 +57,8 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 | --- | --- | --- | --- | --- | --- |
 | imp | ✓ | ✓ | ✓ (none named) | ✓ | ✓ (sum-spec and sum-N) |
 | KEVM | ✓ | ✓ | 134 named; 9 look false of KEVM as written (below) | stated from the named facts | — |
-| wasm | — (stops at its constructor overloads; also needs user token sorts and Float, below) | — | — | — | — |
-| mir | all but K's FLOAT module | on an edited copy | — | — | — |
+| wasm | — (stops at its constructor overloads, below) | — | — | — | — |
+| mir | ✓ | ✓ | 61 named, open | stated from the named facts | — |
 | K in K | — | — | — | — | — |
 
 - **read**: every sentence of kompile's own KORE for the definition is read, ignored as having no meaning for the semantics, or refused with a reason.
@@ -79,8 +86,8 @@ Some operations, such as those on Bytes and String and the KRYPTO hashes, have n
 
 wasm and mir, from kompile's own texts. Both are refused as written, and every number past the first refusal is of an edited copy, not of the definition.
 
-- **mir** is now refused only for K's FLOAT module: the library has no Float domain. Its rule with `ensures` is read, since no rule of a larger priority overlaps it, and so are its several `[owise]` equations. On an earlier copy with the Float operations read as parameters (and, before those two were read, the `ensures` rule and the extra `[owise]` equations removed), `coreOK` holds and the kernel builds the package (173 s, 7.2 GB at peak), with 61 named facts. Three of them are false as written: three functions declared `[total]` that have no equation.
-- **wasm** stops at the overload axioms kompile writes between list sorts one below another: six of its list symbols are declared total and injective but not constructors, and the text identifies some of their terms with others. After that it needs user token sorts with literals and a Float domain, since it puts Float below one of its own sorts and writes Float literals. Int declared again and several `[owise]` equations, two of the four reader features it needed, are now read.
+- **mir** as written is read, with nothing refused, and meets `coreOK`; the kernel builds its package (218 s, 7.2 GB at peak, standard axioms). 61 facts are left to the author: termination 14, totality 36, agreement 11. Among the totality facts are three functions declared `[total]` that have no equation, which are false as written.
+- **wasm** stops at the overload axioms kompile writes between list sorts one below another: six of its list symbols are declared total and injective but not constructors, and the text identifies some of their terms with others. That is being implemented. Behind it, one projection equation is missing, and 7 rules use a function as a map key.
 - Neither showed a problem of kernel cost.
 
 ## Coverage of K
@@ -103,11 +110,13 @@ For this project K is a finite thing, at three levels: the KORE language (its se
 
 The table above is of `57f851ec`; the reader has since read several of its "not handled" rows, and a new table will follow.
 
-**The corpus**: k-rust's 381 cached kompile outputs, of 62 definitions (KEVM is not among them). At `ab060581`, 294 texts are read with nothing refused, and 260 meet `coreOK` (at `57f851ec`: 193 and 158). The reader stops at a text's first fault, so the texts it stops early hide whatever lies behind that fault.
+**The corpus**: k-rust's 381 cached kompile outputs, of 62 definitions (KEVM is not among them). At `167fd26e`, 314 texts are read with nothing refused, and 298 meet `coreOK` (at `ab060581`: 294 and 260; at `57f851ec`: 193 and 158). The reader stops at a text's first fault, so the texts it stops early hide whatever lies behind that fault.
 
 At `57f851ec` the largest gaps, by texts affected, were: definitions with no `configuration` declaration, for which kompile supplies K's default configuration (128 texts); K's FLOAT module (14); a projection in a generated initializer (14); a function symbol in a rule's left side (8); K's K-REFLECTION module (7); the stdin and stdout stream rules (7); and 35 texts read but failing `coreOK` on sorting.
 
-At `ab060581` the default configuration and the projections in generated initializers are read. Of the 31 texts stopped by a rule with `ensures`, mir's 8 now stop at FLOAT, 13 meet `coreOK`, and 10 are refused because a rule of a larger priority overlaps it. FLOAT, user token sorts and set patterns are being worked on (see the change list).
+At `ab060581` the default configuration and the projections in generated initializers are read. Of the 31 texts stopped by a rule with `ensures`, mir's 8 now stop at FLOAT, 13 meet `coreOK`, and 10 are refused because a rule of a larger priority overlaps it. FLOAT, user token sorts and a set element alone are read at `167fd26e`.
+
+The remaining faults, largest first: constructor overloads (19 texts, being implemented); a set pattern that joins two sets (16, decision 8); an `ensures` on a rule that would change which rules it blocks (10, refused on purpose); a function symbol in a rule's left side (8).
 
 ## The core, layer by layer
 
@@ -116,23 +125,23 @@ Everything else (every proof, the generator, the executable evaluator) is checke
 
 | # | Layer | What it says | Status |
 | --- | --- | --- | --- |
-| 1 | Terms | what a configuration is: ground terms, patterns with variables, sorts and symbols as numbers | settled, except literals: they gain bytes and strings with canonical forms |
+| 1 | Terms | what a configuration is: ground terms, patterns with variables, sorts and symbols as numbers | settled, except literals: bytes and strings gain canonical forms (a Float literal, its IEEE 754 encoding, is settled) |
 | 2 | Signature | a definition as a Lean value: sorts, constructors, subsorts, functions as clauses with priorities, rules with priorities, collections | settled, except the library of builtin sorts and symbols (it becomes a list of hook domains) and sort parameters (read by a special case for `ite`) |
 | 3 | Values | which ground terms are values of which sort; configurations as well-sorted terms of the top sort | settled |
-| 4 | Matching | when a pattern matches a value under a substitution, including map, set and list patterns | settled |
-| 5 | Evaluation | function evaluation as a relation: a clause applies where every clause of a smaller priority fails; the order of clauses means nothing | settled, except the builtin operations on Bool and Int (hook domains) and whether Bool operations are strict (decision 1 below) |
+| 4 | Matching | when a pattern matches a value under a substitution, including map and list patterns and the set patterns `.Set` and `SetItem(P)` alone | settled, except a set pattern that joins two sets (decision 8) |
+| 5 | Evaluation | function evaluation as a relation: a clause applies where every clause of a smaller priority fails; the order of clauses means nothing | settled, except the builtin operations (hook domains: Bool, Int, and Float, of which 25 operations are computed as IEEE 754 defines them and 16 are left uninterpreted) and whether Bool operations are strict (decision 1 below) |
 | 6 | Step | one step: a rule whose left side matches, whose condition is true, whose right side has a value, and no rule of a smaller priority applies | settled |
 | 7 | What functions must do | four statements about evaluation the theorems assume: every function has a result, every `[total]` one a value, clauses of one priority agree, matches of one clause agree | settled |
 | 8 | Matching logic | patterns, models and entailment, as much as the statements use | settled |
-| 9 | The theory Γ | the theory a definition denotes, built from the Lean value: sorts, constructors, collections, function equations, rule axioms | settled, except the axioms of the builtin domains |
+| 9 | The theory Γ | the theory a definition denotes, built from the Lean value: sorts, constructors, collections (four map axioms, five list axioms, three set axioms), function equations, rule axioms | settled, except the axioms of the builtin domains |
 | 10 | Sound and Complete | every step is entailed by the theory, which has a model; every successor the theory forces is a step; the two theorems, with their two hypotheses | settled |
 | 11 | Well-formedness | the check on the semantics both theorems assume: well-sorted subsorts, clauses and rules, the conditions the theory needs to have a model, and names apart | settled, except the first half of one naming condition (every symbol named like `ite` is named at a numbered sort) |
 
 ## What you trust
 
-1. Lean's kernel and its three standard axioms.
+1. Lean's kernel, its three standard axioms, and the 280 declarations of Lean's core library the definitions rely on (39 of them its `Float.Model`; no Mathlib).
 2. The definitions the theorems are stated with: the step relation, evaluation, matching, the theory Γ and its step closure, the check on the semantics (`coreOK`), the four statements about functions (`FnHyp`), and entailment in matching logic. Reading the course is reviewing them.
-3. The builtin domains: the Bool and Int operations as defined in Lean. Bytes, String and the others are parameters with no interpretation.
+3. The builtin domains: the Bool, Int and 25 Float operations as defined in Lean. Bytes, String and the others are parameters with no interpretation.
 4. The reader of a KORE file, for a definition read without the tie: that the Lean definition it produces is the one the text describes. With the tie, the kernel checks that printing the definition back gives the text, up to the order of its sentences.
 5. kompile's translation from K to KORE. Nothing here speaks about the K source.
 
@@ -149,4 +158,8 @@ Each is a question you can answer by replying.
 5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed (and implemented): `ensures C` on a function equation is read as an extra `requires` condition, when all of the function's equations have one priority; otherwise the function is refused. Under that restriction the two readings agree wherever the text is consistent. Such a definition cannot be tied to its text. KEVM's one case meets the restriction. Agree? (A rewrite rule's `ensures` is now read the same way, where no rule of a larger priority overlaps the rule, and refused otherwise.)
 6. **A `[total]` function that no equation covers at some arguments.** The kernel reads a function as what its equations say, so such a declaration is false and the definition cannot meet `FnHyp`. K's own theory instead says the function has some unspecified value there. Keep the strict reading, which means KEVM needs four small fixes, or read such a function as unspecified outside its equations? (Recommended: keep the strict reading.)
 7. **KEVM as written.** Two pairs of its equations contradict each other, so no reading can prove it sound as written. Proposed: the KEVM row of the scoreboard counts as met for KEVM plus a short reviewed list of fixes (about nine equations), each listed on this page with its reason, and you decide whether to report them to KEVM's authors. Agree?
-8. **What a set pattern `SetItem(X) REST` matches.** kompile's text states that joining sets is idempotent and does not require the two parts to be disjoint. So against a set that contains `X` the pattern matches twice: once with `REST` the set without `X`, and once with `REST` the whole set. Reading the two parts as disjoint gives one match, but contradicts the text's own idempotence axiom. 16 corpus texts have such a pattern. Which reading?
+8. **What a set pattern `SetItem(X) REST` matches.** kompile's text states that joining sets is idempotent and does not require the two parts to be disjoint. So against a set that contains `X` the pattern matches twice: once with `REST` the set without `X`, and once with `REST` the whole set. Reading the two parts as disjoint gives one match, but contradicts the text's own idempotence axiom. 16 corpus texts have such a pattern.
+
+   The evidence: K's own sources contradict themselves on sets. The one `idem` attribute states the union reading; the prose of `domains.md` ("nilpotent"), the definition of `|Set` and a definedness rule state the disjoint one. Both backends match disjointly, one match per member (evidence only). Real definitions rely on disjointness: KEVM never joins a set where the element may be present, and the corpus's member-removal and cell-set update rules depend on `REST` lacking the element.
+
+   Recommended: read joining as a partial, disjoint concatenation, as for maps. Agree?

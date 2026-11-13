@@ -1,7 +1,7 @@
 'use client'
 
 // Core lesson 4: matching. `PatVal c σ p v`, the relation saying the pattern p denotes the value v
-// under σ, including map and list patterns; and well-sorted substitutions. Every Lean pane is
+// under σ, including map, list and set patterns; and well-sorted substitutions. Every Lean pane is
 // kcore-spec's text at the manifest's commit, as are kimp's KORE axiom and colls-list.k; the
 // matches shown are theorems of the example packages, checked by Lean (docs-gen/lean_checks.py).
 
@@ -154,7 +154,10 @@ export const matching4: Lesson = {
       frames: [
         {
           hl: { p: span(patVal, '| coll {f : Sym}', 'PatVal c σ (.app f ps) v', at(patVal, '| coll {f : Sym}') - 1), w: [...span(workedList, 'example : PatVal c [(1, ival 1)', 'pop_matches'), ...span(workedList, 'example : PatVal c [(1, list [iv 1])', 'drop_matches')] },
-          notes: [note('p', at(patVal, '| coll {f : Sym}'), 'A list symbol denotes the list it builds from the values of its parts.', 'coll')],
+          notes: [
+            note('p', at(patVal, '| coll {f : Sym}'), 'A list symbol denotes the list it builds from the values of its parts, and so do a set\'s `.Set` and `SetItem(P)` alone.', 'coll'),
+            note('p', at(patVal, '| coll {f : Sym}'), 'Not settled: a set pattern that joins two sets, such as `SetItem(X) REST`, is not matched yet (disjoint or union).'),
+          ],
         },
       ],
     },
