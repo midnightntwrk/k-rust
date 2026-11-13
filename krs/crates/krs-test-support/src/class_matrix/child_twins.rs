@@ -42,13 +42,11 @@ use std::sync::LazyLock;
 use super::k7::{K7, SkipKind};
 use super::{Base, BaseText, Case, CaseSpec, Command, Family, ItemBuilder, Packaging, Side};
 
-/// A child's kind, by its declaration: the computation (`KSequence`) and leaves of the builtin
-/// `List`, `Map`, `Set` and `Int`.
-///
-/// No leaf of sort `KSequence` (`k::configuration::Cell<KSequence>`, where a remainder is saved
-/// whole, `Cell(tail)`): a declaration holding one writes every leaf with its wrapper, and the
-/// source `krs expand` prints for a base declared so is refused (`krs::analysis::cell-wrapper`,
-/// outside every case), which would make every case's K3 red (TWINORACLE's progress log).
+/// A child's kind, by its declaration: the computation (`KSequence`), leaves of the builtin
+/// `List`, `Map`, `Set` and `Int`, and a leaf of sort `KSequence`
+/// (`k::configuration::Cell<KSequence>`), where a remainder is saved whole (`Cell(tail)`). A
+/// declaration holding that leaf writes every leaf with its wrapper, so the base does
+/// ([`base`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     /// A computation cell.
@@ -61,16 +59,19 @@ pub enum Kind {
     Set,
     /// An `Int` leaf.
     Int,
+    /// A leaf of sort `KSequence`, which holds one term of that sort.
+    SequenceLeaf,
 }
 
 impl Kind {
     /// Every kind, in declaration order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Computation,
         Self::List,
         Self::Map,
         Self::Set,
         Self::Int,
+        Self::SequenceLeaf,
     ];
 
     /// The kind's ID segment.
@@ -82,6 +83,7 @@ impl Kind {
             Self::Map => "map",
             Self::Set => "set",
             Self::Int => "int",
+            Self::SequenceLeaf => "k-leaf",
         }
     }
 
@@ -93,17 +95,20 @@ impl Kind {
             Self::Map => "m",
             Self::Set => "e",
             Self::Int => "n",
+            Self::SequenceLeaf => "q",
         }
     }
 
-    /// The child's declared type.
+    /// The child's declared type, with its wrapper: a declaration holding a leaf of sort
+    /// `KSequence` writes every leaf so.
     const fn type_name(self) -> &'static str {
         match self {
-            Self::Computation => "KSequence",
-            Self::List => "List",
-            Self::Map => "Map",
-            Self::Set => "Set",
-            Self::Int => "Int",
+            Self::Computation => "k::configuration::KCell<KSequence>",
+            Self::List => "k::configuration::Cell<List>",
+            Self::Map => "k::configuration::Cell<Map>",
+            Self::Set => "k::configuration::Cell<Set>",
+            Self::Int => "k::configuration::Cell<Int>",
+            Self::SequenceLeaf => "k::configuration::Cell<KSequence>",
         }
     }
 
@@ -115,6 +120,7 @@ impl Kind {
             Self::Map => "k::map![]",
             Self::Set => "set::empty()",
             Self::Int => "0",
+            Self::SequenceLeaf => "k::k![]",
         }
     }
 }
@@ -267,7 +273,8 @@ const fn moving(mut row: Row) -> Row {
 /// The family's rows: for each kind, the spellings the CHILDSEQ, CHILDKIND and CHILDLEFT lanes
 /// probed by hand (brackets with `..` at either end and `[..]`, named rests, map braces with
 /// `..` and a named rest, `k::k![..]` and `k::map![..]`, a constant after `..`, a remainder written
-/// into another kind), and the brackets a kind refuses.
+/// into another kind, a remainder saved whole into a leaf of sort `KSequence`), and the brackets a
+/// kind refuses.
 pub const ROWS: &[Row] = &[
     // The computation.
     row(
@@ -390,6 +397,8 @@ pub const ROWS: &[Row] = &[
     bound(row(Kind::Int, ["y", "-"], ["y", "-"]), &[("y", INT)]),
     taking(row(Kind::Int, ["-", "x"], ["-", "x"]), &["x"]),
     row(Kind::Int, ["[..]", "-"], ["[..]", "-"]),
+    // A leaf of sort `KSequence`: the computation's remainder saved into it whole (A1).
+    moving(row(Kind::SequenceLeaf, NONE, ["-", "tail"])),
 ];
 
 impl Row {
@@ -843,6 +852,8 @@ fn renamed_element(text: &str, element: &Element, name: &str) -> String {
 
 /// The family's base: the computation `k`, the twins at the top level, and a child of every kind
 /// in a List collection's instance, a Map collection's instance, a fixed group and a `?` group.
+/// Every leaf is declared with its wrapper, as a declaration holding a leaf of sort `KSequence`
+/// must write them.
 pub(super) fn base() -> BaseText {
     BaseText {
         before_commands: BEFORE_COMMANDS,
@@ -876,7 +887,7 @@ pub enum Cmd {
 fn children(place: Place) -> String {
     let mut out = String::new();
     if place == Place::MapChild {
-        out.push_str("    #[k::cell]\n    pub aid: Int,\n");
+        out.push_str("    #[k::cell]\n    pub aid: k::configuration::Cell<Int>,\n");
     }
     for kind in Kind::ALL {
         let _ = write!(
@@ -922,7 +933,7 @@ static AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
          #[k::cell(multiplicity = \"*\", cell_type = \"Map\", nested)]\n    pub acct: A,\n}\n\n",
     );
     out.push_str(
-        "#[k::configuration]\npub struct Machine {\n    #[k::cell]\n    pub k: KSequence,\n",
+        "#[k::configuration]\npub struct Machine {\n    #[k::cell]\n    pub k: k::configuration::KCell<KSequence>,\n",
     );
     out.push_str(&children(Place::Top));
     out.push_str(

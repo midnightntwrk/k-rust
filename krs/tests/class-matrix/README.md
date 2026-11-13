@@ -195,13 +195,14 @@ group record's child, is a cell, read by its declared kind as if it were written
 (the language reference's "Each child of a record there is that child cell's entry" and "An
 instance child is a cell"). So each spelling of a child means what the same spelling means at a
 top-level cell of the child's kind and sort, its *twin*. The family `child-twins/..` (base
-`Base::ChildTwins`: the computation `k`, the twins `tk tl tm te tn` at the top level, and a child of
-every kind in a List collection's instance `queue.job` of `J`, a Map collection's `bank.acct` of `A`
+`Base::ChildTwins`: the computation `k`, the twins `tk tl tm te tn tq` at the top level, and a child
+of every kind in a List collection's instance `queue.job` of `J`, a Map collection's `bank.acct` of `A`
 keyed by `aid`, the fixed group `gg` of `Gg` and the `?` group `og` of `Og`) writes each row of
-`child_twins::ROWS` (the computation, `List`, `Map`, `Set` and `Int`: brackets with `..` at either
-end and `[..]`, named rests, map braces with `..` and a named rest, `k::k![..]` and `k::map![..]`, a
-constant after `..`, a remainder written into another kind, and brackets on kinds they denote
-nothing in) at each place, in a readable rule, a `cells!` rule and a `cells!` claim, on the subject,
+`child_twins::ROWS` (the computation, `List`, `Map`, `Set`, `Int` and a `KSequence` leaf: brackets
+with `..` at either end and `[..]`, named rests, map braces with `..` and a named rest, `k::k![..]`
+and `k::map![..]`, a constant after `..`, a remainder written into another kind, the remainder saved
+whole into the `KSequence` leaf, and brackets on kinds they denote nothing in) at each place, in a
+readable rule, a `cells!` rule and a `cells!` claim, on the subject,
 the result or both, and once at the top level. IDs are `child-twins/FORM/SIDE/PLACE/KIND/SPELLING`,
 `child-twins/cells/both/map-child/list/[_, ..] => [x, ..]`; a twin's PLACE is `top`, and its
 `cells!` spelling wraps the content (`k::configuration::Cell([_, ..])`, a computation's items in
@@ -237,12 +238,14 @@ computation cell per rule (`computation-brackets-per-rule`), while a record's co
 the documentation states, the relation does not apply and the child has entries of its own
 (`child_twins::stated`, each predicate with its reason): a `?` group's computation child, not
 supported yet in a rule, and a group record child's kept result rest (`nested-anonymous-rest`).
-There is no leaf of sort `KSequence`: a declaration holding one writes every leaf with its wrapper,
-and the source `krs expand` prints for such a base is refused (`krs::analysis::cell-wrapper`), which
-would turn every case's K3 red. The family runs in the `cells` shard and the first shard of the fast
-tier: 467 cases (2026-11-13, 8 workers, kept scratch: alone 205 package builds and 63 s, K6 12
-checks; the whole `cells` shard went from 632 cases to 1,099, 813 builds and 288 s under a load of
-25 to 100 from other work).
+A leaf of sort `KSequence` (`tq`, `Cell<KSequence>`) holds the computation's remainder saved whole
+(`tq: Cell(tail)`, a child's `jq: tail`); a declaration holding one writes every leaf with its
+wrapper, so the base declares every leaf so (TWINFIX: `krs expand` prints such a base's initializer
+by each cell's declared kind, `Cell::new(k::k![])` for that leaf). The family runs in the `cells`
+shard and the first shard of the fast tier: 477 cases (TWINFIX, 2026-11-13, 6 workers, kept
+scratch: alone 151 package builds and 199 s under a load of about 45, K6 12 checks; TWINORACLE's
+467 took 205 builds and 63 s warm, and the whole `cells` shard went from 632 cases to 1,099, 813
+builds and 288 s under a load of 25 to 100 from other work).
 
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:

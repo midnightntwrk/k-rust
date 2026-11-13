@@ -8166,6 +8166,15 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
+[accept."child-twins/cells-claim/result/top/k-leaf/k::configuration::Cell(tail)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ~> V0:K => .K </k>
+<tq> _ => V0:K </tq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 [accept."child-twins/cells-claim/result/top/list/k::configuration::Cell([x, ..ELS])"]
 k = """
 claim [case-TAG]:
@@ -8355,6 +8364,15 @@ rule [case-TAG]:
 <tn> _ => V0:Int </tn>
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."child-twins/cells/result/top/k-leaf/k::configuration::Cell(tail)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ~> V0:K => .K </k>
+<tq> _ => V0:K </tq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."child-twins/cells/result/top/list/k::configuration::Cell([x, ..ELS])"]
