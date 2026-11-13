@@ -25,7 +25,18 @@
 //     \and(P, V) matches what P matches and binds V to it;
 //   - inj{A,B}(inj{C,A}(V)) is inj{C,B}(V);
 //   - hooks are strict: an undefined operand makes the operation undefined; /Int and %Int are
-//     undefined on a zero divisor.
+//     undefined on a zero divisor;
+//   - a Map is a finite map, a Set a finite set, a List a finite sequence; a value of each is
+//     canonical (a map's entries ordered by key and a set's elements by value, without
+//     repetition), so that equal collections are equal terms. Map and Set concatenation are
+//     partial: defined on disjoint keys (elements), undefined where they overlap; List
+//     concatenation is total, associative and not commutative. A missing key makes a lookup
+//     undefined;
+//   - a collection pattern of elements and at most one frame variable matches every split of
+//     its subject: each element pattern any element (for a List: the element at its position),
+//     the frame the rest. Matching therefore gives a set of substitutions; a rewrite rule gives
+//     one result per substitution whose requires holds, and an equation the result of one such
+//     substitution (on a consistent definition they agree).
 
 module KORE-SYNTAX
   imports INT-SYNTAX
@@ -39,6 +50,13 @@ module KORE-SYNTAX
                 | as(Term, Int)        // \and(P, V) in a left side: P, its value also bound to V
                 | hk(Int, Ts)          // a hooked symbol, by operation code
                 | "bot"                // \bottom{S}()
+                | cb(Kind, Int, Ts)    // a collection of sort Int built by its concatenation, unit
+                                       // and element symbols from parts: elements, and terms of
+                                       // the collection's sort
+                | co(Kind, Int, Ts)    // a collection value: its elements, canonical (below)
+                | kv(Term, Term)       // the element K |-> V of a map
+                | el(Term)             // the element of a set or a list
+  syntax Kind ::= "map" | "set" | "list"
   syntax Ts ::= ".Ts" | Term ";" Ts
 
   syntax Subs ::= ".Subs" | sub(Int, Int, Subs)                       // subsort{A, B}: A < B
@@ -93,18 +111,19 @@ module KORE
   rule [prio-owise]: prio(_, true) => 200
   rule [prio-given]: prio(P, false) => P
 
-  syntax Res ::= fire(Def, Term, Term, Term, Term) [function]
+  // the results of a rule: one for each substitution of its left side whose requires holds
+  syntax Ts ::= fire(Def, Term, Term, Term, Term) [function]
   rule [fire]: fire(D, L, R, Rhs, T) => fireM(D, R, Rhs, match(L, T, .Bind, subsOf(D)))
-  syntax Res ::= fireM(Def, Term, Term, MRes) [function]
-  rule [fire-nomatch]: fireM(_, _, _, fail) => none
-  rule [fire-holds]: fireM(D, R, Rhs, ok(B)) => some(eval(D, inst(Rhs, B)))
+  syntax Ts ::= fireM(Def, Term, Term, Ms) [function]
+  rule [fire-nomatch]: fireM(_, _, _, .Ms) => .Ts
+  rule [fire-holds]: fireM(D, R, Rhs, m(B, Ms)) => eval(D, inst(Rhs, B)) ; fireM(D, R, Rhs, Ms)
     requires eval(D, inst(R, B)) ==K bv(true)
-  rule [fire-refuted]: fireM(D, R, _, ok(B)) => none
+  rule [fire-refuted]: fireM(D, R, Rhs, m(B, Ms)) => fireM(D, R, Rhs, Ms)
     requires eval(D, inst(R, B)) =/=K bv(true)
 
-  syntax Cands ::= addCand(Int, Res, Cands) [function]
-  rule [add-none]: addCand(_, none, Cs) => Cs
-  rule [add-some]: addCand(P, some(T), Cs) => cand(P, T, Cs)
+  syntax Cands ::= addCand(Int, Ts, Cands) [function]
+  rule [add-none]: addCand(_, .Ts, Cs) => Cs
+  rule [add-some]: addCand(P, T ; Ts, Cs) => cand(P, T, addCand(P, Ts, Cs))
 
   syntax Step ::= pick(Cands) [function]
   rule [pick-none]: pick(.Cands) => stuck
@@ -131,6 +150,10 @@ module KORE
   rule [ev-inj]: eval(D, ij(A, B, T)) => mkInj(A, B, eval(D, T))
   rule [ev-app]: eval(D, ap(F, As)) => apply(D, F, evalTs(D, As))
   rule [ev-hook]: eval(D, hk(O, As)) => strictHook(O, evalTs(D, As))
+  rule [ev-col]: eval(D, cb(K, C, Ps)) => colOf(K, C, evalTs(D, Ps))
+  rule [ev-kv]: eval(D, kv(A, V)) => mkKv(eval(D, A), eval(D, V))
+  rule [ev-el]: eval(D, el(X)) => mkEl(eval(D, X))
+  rule [ev-val]: eval(_, co(K, C, Es)) => co(K, C, Es)
 
   syntax Ts ::= evalTs(Def, Ts) [function]
   rule [evs-nil]: evalTs(_, .Ts) => .Ts
@@ -177,50 +200,97 @@ module KORE
 
   syntax Res ::= tryCl(Def, Ts, Term, Term, Ts) [function]
   rule [try]: tryCl(D, Ps, Req, Rhs, As) => tryM(D, Req, Rhs, matchTs(Ps, As, .Bind, subsOf(D)))
-  syntax Res ::= tryM(Def, Term, Term, MRes) [function]
-  rule [try-nomatch]: tryM(_, _, _, fail) => none
-  rule [try-holds]: tryM(D, Req, Rhs, ok(B)) => some(eval(D, inst(Rhs, B)))
+  // the first substitution whose requires holds gives the equation's result
+  syntax Res ::= tryM(Def, Term, Term, Ms) [function]
+  rule [try-nomatch]: tryM(_, _, _, .Ms) => none
+  rule [try-holds]: tryM(D, Req, Rhs, m(B, _)) => some(eval(D, inst(Rhs, B)))
     requires eval(D, inst(Req, B)) ==K bv(true)
-  rule [try-refuted]: tryM(D, Req, _, ok(B)) => none
+  rule [try-refuted]: tryM(D, Req, Rhs, m(B, Ms)) => tryM(D, Req, Rhs, Ms)
     requires eval(D, inst(Req, B)) =/=K bv(true)
 
   syntax Subs ::= subsOf(Def) [function]
   rule [subs-of]: subsOf(def(S, _, _)) => S
 
   // ---------------------------------------------------------------- matching
+  // matching gives every substitution, in order; none when the pattern does not match
   syntax Bind ::= ".Bind" | bind(Int, Term, Bind)
-  syntax MRes ::= "fail" | ok(Bind)
+  syntax Ms ::= ".Ms" | m(Bind, Ms)
 
-  syntax MRes ::= match(Term, Term, Bind, Subs) [function]
+  syntax Ms ::= match(Term, Term, Bind, Subs) [function]
   rule [m-var]: match(vr(X), T, B, _) => bindVar(X, T, B, look(X, B))
-  rule [m-int]: match(iv(I), iv(J), B, _) => ok(B) requires I ==Int J
-  rule [m-bool]: match(bv(X), bv(Y), B, _) => ok(B) requires X ==Bool Y
+  rule [m-int]: match(iv(I), iv(J), B, _) => m(B, .Ms) requires I ==Int J
+  rule [m-bool]: match(bv(X), bv(Y), B, _) => m(B, .Ms) requires X ==Bool Y
   rule [m-app]: match(ap(F, Ps), ap(G, Ts), B, S) => matchTs(Ps, Ts, B, S) requires F ==Int G
   rule [m-inj-same]: match(ij(A, _, P), ij(C, _, T), B, S) => match(P, T, B, S) requires A ==Int C
   rule [m-inj-sub]: match(ij(A, _, P), ij(C, _, T), B, S) => match(P, ij(C, A, T), B, S)
     requires A =/=Int C andBool leq(C, A, S)
   rule [m-as]: match(as(P, X), T, B, S) => bindAfter(X, T, match(P, T, B, S))
-  rule [m-fail]: match(_, _, _, _) => fail [owise]
-  syntax MRes ::= bindAfter(Int, Term, MRes) [function]
-  rule [as-fail]: bindAfter(_, _, fail) => fail
-  rule [as-bind]: bindAfter(X, T, ok(B)) => bindVar(X, T, B, look(X, B))
+  rule [m-col]: match(cb(K, C, Ps), co(_, _, Es), B, S) => matchCol(K, C, Ps, Es, B, S)
+  rule [m-kv]: match(kv(P, Q), kv(A, V), B, S) => matchTs(P ; Q ; .Ts, A ; V ; .Ts, B, S)
+  rule [m-el]: match(el(P), el(X), B, S) => match(P, X, B, S)
+  rule [m-fail]: match(_, _, _, _) => .Ms [owise]
+  syntax Ms ::= bindAfter(Int, Term, Ms) [function]
+  rule [as-fail]: bindAfter(_, _, .Ms) => .Ms
+  rule [as-bind]: bindAfter(X, T, m(B, Ms)) => cat(bindVar(X, T, B, look(X, B)), bindAfter(X, T, Ms))
 
-  syntax MRes ::= matchTs(Ts, Ts, Bind, Subs) [function]
-  rule [ms-nil]: matchTs(.Ts, .Ts, B, _) => ok(B)
+  syntax Ms ::= matchTs(Ts, Ts, Bind, Subs) [function]
+  rule [ms-nil]: matchTs(.Ts, .Ts, B, _) => m(B, .Ms)
   rule [ms-cons]: matchTs(P ; Ps, T ; Ts, B, S) => matchK(match(P, T, B, S), Ps, Ts, S)
-  syntax MRes ::= matchK(MRes, Ts, Ts, Subs) [function]
-  rule [mk-fail]: matchK(fail, _, _, _) => fail
-  rule [mk-ok]: matchK(ok(B), Ps, Ts, S) => matchTs(Ps, Ts, B, S)
+  syntax Ms ::= matchK(Ms, Ts, Ts, Subs) [function]
+  rule [mk-fail]: matchK(.Ms, _, _, _) => .Ms
+  rule [mk-ok]: matchK(m(B, Ms), Ps, Ts, S) => cat(matchTs(Ps, Ts, B, S), matchK(Ms, Ps, Ts, S))
+
+  syntax Ms ::= cat(Ms, Ms) [function]
+  rule [cat-nil]: cat(.Ms, Ns) => Ns
+  rule [cat-cons]: cat(m(B, Ms), Ns) => m(B, cat(Ms, Ns))
+
+  // A collection pattern's parts against a value's elements. The encoder puts a Map or Set
+  // pattern's element patterns before its one frame. An element pattern of a Map or Set takes
+  // each element in turn (every split); a List's takes the element at its position, and a
+  // List's frame followed by more parts takes each prefix in turn. A last frame takes the rest.
+  syntax Ms ::= matchCol(Kind, Int, Ts, Ts, Bind, Subs) [function]
+  rule [mc-done]: matchCol(_, _, .Ts, .Ts, B, _) => m(B, .Ms)
+  rule [mc-choose]: matchCol(K, C, P ; Ps, Es, B, S) => choose(K, C, P, Ps, .Ts, Es, B, S)
+    requires isElem(P) andBool K =/=K list
+  rule [mc-head]: matchCol(list, C, P ; Ps, E ; Es, B, S) => rest(list, C, Ps, Es, match(P, E, B, S), S)
+    requires isElem(P)
+  rule [mc-frame]: matchCol(K, C, F ; .Ts, Es, B, S) => match(F, co(K, C, Es), B, S)
+    requires notBool isElem(F)
+  rule [mc-split]: matchCol(list, C, F ; P ; Ps, Es, B, S) => split(C, F, P ; Ps, .Ts, Es, B, S)
+    requires notBool isElem(F)
+  rule [mc-fail]: matchCol(_, _, _, _, _, _) => .Ms [owise]
+
+  syntax Ms ::= choose(Kind, Int, Term, Ts, Ts, Ts, Bind, Subs) [function]
+  rule [ch-nil]: choose(_, _, _, _, _, .Ts, _, _) => .Ms
+  rule [ch-cons]: choose(K, C, P, Ps, Pre, E ; Post, B, S)
+    => cat(rest(K, C, Ps, app(Pre, Post), match(P, E, B, S), S), choose(K, C, P, Ps, app(Pre, E ; .Ts), Post, B, S))
+
+  syntax Ms ::= split(Int, Term, Ts, Ts, Ts, Bind, Subs) [function]
+  rule [sp-here]: split(C, F, Ps, Pre, Post, B, S)
+    => cat(rest(list, C, Ps, Post, match(F, co(list, C, Pre), B, S), S), splitOn(C, F, Ps, Pre, Post, B, S))
+  syntax Ms ::= splitOn(Int, Term, Ts, Ts, Ts, Bind, Subs) [function]
+  rule [sp-end]: splitOn(_, _, _, _, .Ts, _, _) => .Ms
+  rule [sp-next]: splitOn(C, F, Ps, Pre, E ; Post, B, S) => split(C, F, Ps, app(Pre, E ; .Ts), Post, B, S)
+
+  // the remaining parts against the remaining elements, under each substitution so far
+  syntax Ms ::= rest(Kind, Int, Ts, Ts, Ms, Subs) [function]
+  rule [rest-nil]: rest(_, _, _, _, .Ms, _) => .Ms
+  rule [rest-cons]: rest(K, C, Ps, Es, m(B, Ms), S) => cat(matchCol(K, C, Ps, Es, B, S), rest(K, C, Ps, Es, Ms, S))
+
+  syntax Bool ::= isElem(Term) [function]
+  rule [elem-kv]: isElem(kv(_, _)) => true
+  rule [elem-el]: isElem(el(_)) => true
+  rule [elem-not]: isElem(_) => false [owise]
 
   syntax Res ::= look(Int, Bind) [function]
   rule [look-nil]: look(_, .Bind) => none
   rule [look-hit]: look(X, bind(Y, T, _)) => some(T) requires X ==Int Y
   rule [look-miss]: look(X, bind(Y, _, B)) => look(X, B) requires X =/=Int Y
 
-  syntax MRes ::= bindVar(Int, Term, Bind, Res) [function]
-  rule [bind-new]: bindVar(X, T, B, none) => ok(bind(X, T, B))
-  rule [bind-same]: bindVar(_, T, B, some(U)) => ok(B) requires T ==K U
-  rule [bind-clash]: bindVar(_, T, _, some(U)) => fail requires T =/=K U
+  syntax Ms ::= bindVar(Int, Term, Bind, Res) [function]
+  rule [bind-new]: bindVar(X, T, B, none) => m(bind(X, T, B), .Ms)
+  rule [bind-same]: bindVar(_, T, B, some(U)) => m(B, .Ms) requires T ==K U
+  rule [bind-clash]: bindVar(_, T, _, some(U)) => .Ms requires T =/=K U
 
   // A < B in the reflexive-transitive closure of the stated subsorts
   syntax Bool ::= leq(Int, Int, Subs) [function]
@@ -240,15 +310,89 @@ module KORE
   rule [inst-inj]: inst(ij(A, C, T), B) => ij(A, C, inst(T, B))
   rule [inst-int]: inst(iv(I), _) => iv(I)
   rule [inst-bool]: inst(bv(X), _) => bv(X)
+  rule [inst-col]: inst(cb(K, C, Ts), B) => cb(K, C, instTs(Ts, B))
+  rule [inst-kv]: inst(kv(T, U), B) => kv(inst(T, B), inst(U, B))
+  rule [inst-el]: inst(el(T), B) => el(inst(T, B))
   syntax Ts ::= instTs(Ts, Bind) [function]
   rule [insts-nil]: instTs(.Ts, _) => .Ts
   rule [insts-cons]: instTs(T ; Ts, B) => inst(T, B) ; instTs(Ts, B)
   syntax Term ::= valOf(Res) [function]
   rule [val-of]: valOf(some(T)) => T
 
+  // ---------------------------------------------------------------- collections
+  // A value co(K, C, Es) is canonical: a map's entries kv(A, V) ordered by key and a set's
+  // elements el(X) ordered by value, by `cmp`, without two of one key (value); a list's elements
+  // el(X) in order. A construction cb(K, C, Ps) adds its parts' elements to the empty value one
+  // by one: for a Map or a Set an element whose key (value) is already there makes the whole
+  // undefined, since concatenation is defined only on disjoint collections.
+  syntax Term ::= mkKv(Term, Term) [function]
+  rule [kv-bot]: mkKv(A, V) => bot requires hasBot(A ; V ; .Ts)
+  rule [kv-def]: mkKv(A, V) => kv(A, V) requires notBool hasBot(A ; V ; .Ts)
+  syntax Term ::= mkEl(Term) [function]
+  rule [el-bot]: mkEl(bot) => bot
+  rule [el-def]: mkEl(X) => el(X) [owise]
+
+  syntax Term ::= colOf(Kind, Int, Ts) [function]
+  rule [col-bot]: colOf(_, _, Ps) => bot requires hasBot(Ps)
+  rule [col-def]: colOf(K, C, Ps) => join(co(K, C, .Ts), Ps) requires notBool hasBot(Ps)
+
+  // a part is an element or a value of the collection's sort, whose elements it contributes
+  syntax Term ::= join(Term, Ts) [function]
+  rule [join-nil]: join(V, .Ts) => V
+  rule [join-bot]: join(bot, _ ; _) => bot
+  rule [join-col]: join(co(K, C, Es), co(_, _, Fs) ; Ps) => join(co(K, C, Es), app(Fs, Ps))
+  rule [join-list]: join(co(list, C, Es), E ; Ps) => join(co(list, C, app(Es, E ; .Ts)), Ps)
+    requires isElem(E)
+  rule [join-elem]: join(co(K, C, Es), E ; Ps) => join(mkCol(K, C, insE(K, E, Es)), Ps)
+    requires isElem(E) andBool K =/=K list
+
+  syntax Term ::= mkCol(Kind, Int, Ts) [function]
+  rule [mkcol-bot]: mkCol(_, _, Es) => bot requires hasBot(Es)
+  rule [mkcol-def]: mkCol(K, C, Es) => co(K, C, Es) requires notBool hasBot(Es)
+
+  // insert an element by its key; bot marks an element whose key is already there
+  syntax Ts ::= insE(Kind, Term, Ts) [function]
+  rule [inse-nil]: insE(_, E, .Ts) => E ; .Ts
+  rule [inse-before]: insE(_, E, F ; Fs) => E ; F ; Fs requires ckey(E, F) <Int 0
+  rule [inse-overlap]: insE(_, E, F ; Fs) => bot ; F ; Fs requires ckey(E, F) ==Int 0
+  rule [inse-after]: insE(K, E, F ; Fs) => F ; insE(K, E, Fs) requires ckey(E, F) >Int 0
+
+  // insert or replace an element by its key (Map update, Set union)
+  syntax Ts ::= putE(Term, Ts) [function]
+  rule [pute-nil]: putE(E, .Ts) => E ; .Ts
+  rule [pute-before]: putE(E, F ; Fs) => E ; F ; Fs requires ckey(E, F) <Int 0
+  rule [pute-replace]: putE(E, F ; Fs) => E ; Fs requires ckey(E, F) ==Int 0
+  rule [pute-after]: putE(E, F ; Fs) => F ; putE(E, Fs) requires ckey(E, F) >Int 0
+
+  // remove the element of a key, if there is one
+  syntax Ts ::= delE(Term, Ts) [function]
+  rule [dele-nil]: delE(_, .Ts) => .Ts
+  rule [dele-hit]: delE(E, F ; Fs) => Fs requires ckey(E, F) ==Int 0
+  rule [dele-miss]: delE(E, F ; Fs) => F ; delE(E, Fs) requires ckey(E, F) =/=Int 0
+
+  // the value of a key, or the given default when the key is missing
+  syntax Term ::= valueOr(Term, Term, Ts) [function]
+  rule [at-missing]: valueOr(_, V, .Ts) => V
+  rule [at-hit]: valueOr(A, _, kv(A2, V) ; _) => V requires cmp(A, A2) ==Int 0
+  rule [at-miss]: valueOr(A, V, kv(A2, _) ; Es) => valueOr(A, V, Es) requires cmp(A, A2) =/=Int 0
+
+  syntax Bool ::= hasKey(Term, Ts) [function]
+  rule [haskey-nil]: hasKey(_, .Ts) => false
+  rule [haskey-cons]: hasKey(E, F ; Fs) => ckey(E, F) ==Int 0 orBool hasKey(E, Fs)
+
+  syntax Int ::= len(Ts) [function]
+  rule [len-nil]: len(.Ts) => 0
+  rule [len-cons]: len(_ ; Ts) => 1 +Int len(Ts)
+
+  syntax Ts ::= app(Ts, Ts) [function]
+  rule [app-nil]: app(.Ts, Us) => Us
+  rule [app-cons]: app(T ; Ts, Us) => T ; app(Ts, Us)
+
   // ---------------------------------------------------------------- hooks
   // 1 +Int, 2 -Int, 3 *Int, 4 /Int, 5 %Int, 10 <Int, 11 <=Int, 12 >Int, 13 >=Int, 14 ==Int,
-  // 15 =/=Int, 20 andBool, 21 orBool, 22 notBool, 30 #if_#then_#else_#fi
+  // 15 =/=Int, 20 andBool, 21 orBool, 22 notBool, 30 #if_#then_#else_#fi,
+  // 40 Map:lookup, 41 Map:lookupOrDefault, 42 Map:update, 43 _[_<-undef], 44 _in_keys(_),
+  // 45 sizeMap, 50 Set:in, 51 size(Set), 52 |Set, 60 sizeList
   syntax Term ::= strictHook(Int, Ts) [function]
   rule [hook-bot]: strictHook(_, As) => bot requires hasBot(As)
   rule [hook-def]: strictHook(O, As) => hookOp(O, As) requires notBool hasBot(As)
@@ -270,7 +414,21 @@ module KORE
   rule [op-not]: hookOp(22, bv(X) ; .Ts) => bv(notBool X)
   rule [op-ite-then]: hookOp(30, bv(C) ; T ; _ ; .Ts) => T requires C
   rule [op-ite-else]: hookOp(30, bv(C) ; _ ; E ; .Ts) => E requires notBool C
+  rule [op-lookup]: hookOp(40, co(map, _, Es) ; A ; .Ts) => valueOr(A, bot, Es)
+  rule [op-lookup-or]: hookOp(41, co(map, _, Es) ; A ; V ; .Ts) => valueOr(A, V, Es)
+  rule [op-update]: hookOp(42, co(map, C, Es) ; A ; V ; .Ts) => co(map, C, putE(kv(A, V), Es))
+  rule [op-remove]: hookOp(43, co(map, C, Es) ; A ; .Ts) => co(map, C, delE(kv(A, A), Es))
+  rule [op-in-keys]: hookOp(44, A ; co(map, _, Es) ; .Ts) => bv(hasKey(kv(A, A), Es))
+  rule [op-size-map]: hookOp(45, co(map, _, Es) ; .Ts) => iv(len(Es))
+  rule [op-set-in]: hookOp(50, X ; co(set, _, Es) ; .Ts) => bv(hasKey(el(X), Es))
+  rule [op-size-set]: hookOp(51, co(set, _, Es) ; .Ts) => iv(len(Es))
+  rule [op-union]: hookOp(52, co(set, C, Es) ; co(set, _, Fs) ; .Ts) => co(set, C, union(Es, Fs))
+  rule [op-size-list]: hookOp(60, co(list, _, Es) ; .Ts) => iv(len(Es))
   rule [op-undef]: hookOp(_, _) => bot [owise]
+
+  syntax Ts ::= union(Ts, Ts) [function]
+  rule [union-nil]: union(Es, .Ts) => Es
+  rule [union-cons]: union(Es, F ; Fs) => union(putE(F, Es), Fs)
 
   // ---------------------------------------------------------------- a total order on values
   syntax Int ::= cmp(Term, Term) [function]
@@ -278,6 +436,9 @@ module KORE
   rule [cmp-bool]: cmp(bv(X), bv(Y)) => cmpI(b2i(X), b2i(Y))
   rule [cmp-app]: cmp(ap(F, As), ap(G, Bs)) => lex(cmpI(F, G), cmpTs(As, Bs))
   rule [cmp-inj]: cmp(ij(A, B, T), ij(C, E, U)) => lex(cmpI(A, C), lex(cmpI(B, E), cmp(T, U)))
+  rule [cmp-col]: cmp(co(_, C, Es), co(_, D, Fs)) => lex(cmpI(C, D), cmpTs(Es, Fs))
+  rule [cmp-kv]: cmp(kv(A, V), kv(B, W)) => lex(cmp(A, B), cmp(V, W))
+  rule [cmp-el]: cmp(el(X), el(Y)) => cmp(X, Y)
   rule [cmp-tag]: cmp(T, U) => cmpI(tag(T), tag(U)) [owise]
   syntax Int ::= cmpTs(Ts, Ts) [function]
   rule [cmps-nil]: cmpTs(.Ts, .Ts) => 0
@@ -299,7 +460,13 @@ module KORE
   rule [tag-bool]: tag(bv(_)) => 1
   rule [tag-app]: tag(ap(_, _)) => 2
   rule [tag-inj]: tag(ij(_, _, _)) => 3
-  rule [tag-other]: tag(_) => 4 [owise]
+  rule [tag-col]: tag(co(_, _, _)) => 4
+  rule [tag-other]: tag(_) => 5 [owise]
+
+  // the order of a collection's elements: a map entry by its key, a set element by its value
+  syntax Int ::= ckey(Term, Term) [function]
+  rule [ckey-kv]: ckey(kv(A, _), kv(B, _)) => cmp(A, B)
+  rule [ckey-el]: ckey(el(X), el(Y)) => cmp(X, Y)
 
   syntax Ts ::= insert(Term, Ts) [function]
   rule [ins-nil]: insert(T, .Ts) => T ; .Ts
