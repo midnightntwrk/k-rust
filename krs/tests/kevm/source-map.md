@@ -112,7 +112,9 @@ the pinned `jumpi.false` rule.
 
 KRS checks that every equation of a `total` function has a value under its conditions, and the port was changed where that check refused a function.
 This section records each place where that change makes the port say something the source sentence it follows does not say; the source checkout is unchanged.
-A function whose declaration alone changed (`total, assumed = "reason"`, with its equations as they were) is not listed: `#kevmChop`, `#kevmSignedShiftRight`, `#kevmByte`, `#kevmSignExtend`, `#kevmSignExtendByte`, `#kevmEcrecOutput`, `#kevmEcrecRecoverable`, `#kevmBn128PointBytes`, `#kevmEcPairingPrecompileOutput`, and `#kevmPrepareStaticCall`.
+A function whose equations are as they were is not listed.
+Six of them state no `assumed`, since the check reads their divisors, shift amounts, and exponents with the ranges of the operands: `#kevmChop`, `#kevmSignedShiftRight`, `#kevmByte`, `#kevmSignExtend`, `#kevmSignExtendByte`, and `#kevmEcrecRecoverable`.
+Four are `total, assumed = "reason"`, each applying a `partial` function inside the domain where it has a value: `#kevmEcrecOutput`, `#kevmBn128PointBytes`, `#kevmEcPairingPrecompileOutput`, and `#kevmPrepareStaticCall`.
 
 Cases the port now states, which before had no value in the port; the source states each of them with the same value:
 

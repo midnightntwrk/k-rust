@@ -5100,6 +5100,11 @@ k::rules! {
         ],
     };
 
+    /// A transmute between one type and itself keeps the value. That needs the two types known
+    /// to be the same: `typeInfoVoidType` here stands for a type the table lacks or a projection
+    /// with no type, not for a type a reference, a pointer or an allocation reference can have,
+    /// so two of them are not one known type.
+    #[k::requires(!IsVoidType { info })]
     finish_transmute_identity: {
         k: [
             Continue {
