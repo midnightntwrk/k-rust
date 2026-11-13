@@ -462,10 +462,16 @@ pub enum SyntaxErrorKind {
     },
     /// A computation child of a group written inside an instance record, written as its items
     /// with a remainder (`jh: Hh { hk: [x, rest @ ..], .. }`): the instance record's group child
-    /// is the group's term, which holds no computation's items yet, a stated limitation whose code
+    /// is the group's term, which holds no binder of a computation's remainder yet, a stated limitation whose code
     /// is the compiler's for the same limit at a present `?` group.
     InstanceGroupComputation {
         /// The refusal's reason, naming the group child and its computation child.
+        reason: String,
+    },
+    /// Two sibling fields of a cell declaration give one K cell name: the author's collision,
+    /// with the code the configuration's lowering gives two cells of one name anywhere.
+    DuplicateCellName {
+        /// The refusal's reason, naming both fields and the cell.
         reason: String,
     },
     /// A function's `smtlib` or `smt_hook` metadata was malformed (KF-044).
@@ -632,6 +638,7 @@ impl SyntaxErrorKind {
             Self::InstanceChildMultiplicity { .. } | Self::InstanceGroupComputation { .. } => {
                 codes::analysis::COLLECTION_ENTRY
             }
+            Self::DuplicateCellName { .. } => codes::analysis::DUPLICATE_CELL_NAME,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidSkippedOperand { .. } => codes::syntax::INVALID_SKIPPED_OPERAND,
@@ -994,7 +1001,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::RuleChangesNoCell { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason }
             | SyntaxErrorKind::InstanceChildMultiplicity { reason }
-            | SyntaxErrorKind::InstanceGroupComputation { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InstanceGroupComputation { reason }
+            | SyntaxErrorKind::DuplicateCellName { reason } => formatter.write_str(reason),
         }
     }
 }

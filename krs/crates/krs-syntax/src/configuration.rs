@@ -357,14 +357,29 @@ impl ConfigurationDeclaration {
                 PlainReading::Inferred
             };
             let parsed = parse_cell_field(field.clone(), reading)?;
+            // Two sibling cells of one K name are the author's collision, told as the lowering
+            // tells two cells of one name anywhere in the configuration, naming both fields.
             if !emitted_names.insert(parsed.emitted_name.clone()) {
-                return Err(unsupported_field(
-                    "two sibling fields cannot emit the same cell name",
+                let first = cells
+                    .iter()
+                    .find(|cell: &&FixedCellField| cell.emitted_name == parsed.emitted_name)
+                    .map(|cell| cell.name.unraw().to_string())
+                    .unwrap_or_default();
+                let owner = item.ident.unraw();
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateCellName {
+                        reason: format!(
+                            "cells `{owner}::{first}` and `{owner}::{}` both have the K cell name `{}`; a configuration names each of its cells once",
+                            parsed.name.unraw(),
+                            parsed.emitted_name
+                        ),
+                    },
                     parsed
                         .attribute
                         .name()
                         .map_or_else(|| parsed.name.span(), syn::LitStr::span),
-                ));
+                )
+                .with_help("rename one of the two cells with `#[k::cell(name = \"..\")]`"));
             }
             cells.push(parsed);
         }

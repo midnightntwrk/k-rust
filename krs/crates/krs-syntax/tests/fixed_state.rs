@@ -265,8 +265,8 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
         ),
         (
             r#"struct Duplicate { #[k::cell(name = "same")] a: Cell<Map>, #[k::cell(name = "same")] b: Cell<Map> }"#,
-            SyntaxErrorKind::UnsupportedConfigurationField {
-                reason: "two sibling fields cannot emit the same cell name",
+            SyntaxErrorKind::DuplicateCellName {
+                reason: "cells `Duplicate::a` and `Duplicate::b` both have the K cell name `same`; a configuration names each of its cells once".into(),
             },
         ),
         (

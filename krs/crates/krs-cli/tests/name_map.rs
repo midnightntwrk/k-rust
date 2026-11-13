@@ -1010,3 +1010,36 @@ fn an_item_named_in_krs_s_generated_namespace_is_refused() {
         variant: error[krs::policy::reserved-name]: the item `__krs_Go` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 17:5)
         sort: error[krs::policy::reserved-name]: the item `__KrsS` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 49:5)"#]].assert_eq(&table);
 }
+
+/// Two sibling cells of one K name are the author's collision, refused as two cells of one name
+/// anywhere in the configuration are (`krs::analysis::duplicate-cell-name`), naming both fields
+/// and the cell, at the second (LEFTS item 8): a field named as its sibling, and a group's
+/// field; a cousin's is the lowering's own refusal.
+#[test]
+fn sibling_cells_of_one_name_are_the_author_s_collision() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        (
+            "sibling",
+            with_cells(&[("(name = \"acc\")", "acc2", "Int", "0")]),
+        ),
+        (
+            "sibling-field-name",
+            with_cells(&[("(name = \"acc2\")", "acc1", "Int", "0"), ("", "acc2", "Int", "0")]),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, library)| {
+            format!(
+                "{name}: {}",
+                check_located(target.path(), temporary.path(), name, library)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        sibling: error[krs::analysis::duplicate-cell-name]: cells `Machine::acc` and `Machine::acc2` both have the K cell name `acc`; a configuration names each of its cells once (at 25:22)
+        sibling-field-name: error[krs::analysis::duplicate-cell-name]: cells `Machine::acc1` and `Machine::acc2` both have the K cell name `acc2`; a configuration names each of its cells once (at 28:9)"#]].assert_eq(&table);
+}
