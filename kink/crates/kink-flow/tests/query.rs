@@ -1478,7 +1478,7 @@ fn a_stopped_no_needs_every_count_of_undecided_solver_answers_zero() {
         &dir.join("PATTERNS.toml"),
         cache("stop"),
     );
-    assert_eq!(document["version"], 12, "{document:#}");
+    assert_eq!(document["version"], 13, "{document:#}");
     assert_eq!(
         document["stop"],
         json!({"before": [], "after": ["UNDECIDED.step"], "count": 1}),

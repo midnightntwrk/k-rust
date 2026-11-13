@@ -968,8 +968,8 @@ enum Definition {
         ends: BTreeSet<Pattern>,
         /// The words of the ends, each once.
         words: BTreeSet<&'static str>,
-        /// Where an end is of a declared `refused` class (its summary's `declared`,
-        /// `crate::evidence`, "Declared ends"), the first such end's item and reason, as a
+        /// Where every end is of a declared `refused` class (its summary's `declared`,
+        /// `crate::evidence`, "Declared ends"), the first end's item and reason, as a
         /// `definition-refused` verdict's detail states them.
         refused: Option<String>,
     },
@@ -1050,24 +1050,36 @@ fn definition_side(
             })
             .unwrap_or_default()
     };
-    // The first end the definition declares refused, in the order of the record's ends.
-    let refused = row.row["ends"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|summary| summary["declared"] == "refused")
-        .map(|summary| {
-            format!(
-                "the definition refuses the program, at its declared end `{}`: `{}`",
-                summary["declared_by"].as_str().unwrap_or_default(),
-                summary["reason_text"].as_str().unwrap_or_default()
-            )
-        });
+    let refused = refused_detail(
+        row.row["ends"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default(),
+    );
     Definition::Ends {
         ends,
         words,
         refused,
     }
+}
+
+/// The detail of a `definition-refused` verdict on a program whose baseline ends are `summaries`
+/// (a program row's `ends`), or `None` where the definition does not refuse it.
+/// The definition refuses the program only where every end it states is refused: where it also
+/// states another end, an answer is compared with that end as before, since a refusal on one path
+/// does not answer for another. The detail names the first end, in the record's order.
+fn refused_detail(summaries: &[Value]) -> Option<String> {
+    let first = summaries.first()?;
+    summaries
+        .iter()
+        .all(|summary| summary["declared"] == "refused")
+        .then(|| {
+            format!(
+                "the definition refuses the program, at its declared end `{}`: `{}`",
+                first["declared_by"].as_str().unwrap_or_default(),
+                first["reason_text"].as_str().unwrap_or_default()
+            )
+        })
 }
 
 /// `views`, the rows of `implementation`'s views on a program whose definition ends at a declared
@@ -3221,6 +3233,24 @@ fn trace_difference_text(difference: &Value) -> String {
 mod tests {
     use super::*;
     use crate::manifest::ManifestFile;
+
+    #[test]
+    fn the_definition_refuses_a_program_only_where_every_end_is_refused() {
+        let refused =
+            json!({"declared": "refused", "declared_by": "crate::trap", "reason_text": "7"});
+        let finished = json!({"declared": "finished", "declared_by": "crate::halt"});
+        let normal = json!({"class": "normal"});
+        assert_eq!(
+            refused_detail(std::slice::from_ref(&refused)).as_deref(),
+            Some("the definition refuses the program, at its declared end `crate::trap`: `7`")
+        );
+        assert!(refused_detail(&[refused.clone(), refused.clone()]).is_some());
+        // A refusal on one path does not answer for another the definition also states.
+        assert_eq!(refused_detail(&[refused.clone(), finished]), None);
+        // A definition that declares no end has no `declared`.
+        assert_eq!(refused_detail(&[normal]), None);
+        assert_eq!(refused_detail(&[]), None);
+    }
 
     const HEAD: &str = "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\n\n";
 

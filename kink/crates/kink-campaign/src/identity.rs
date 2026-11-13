@@ -317,7 +317,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 48] = [
+pub const OUTSIDE_IDENTITY: [Outside; 49] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -597,6 +597,15 @@ pub const OUTSIDE_IDENTITY: [Outside; 48] = [
                  digest; the record holds the implementation's stdout, which every build reads \
                  again by the protocol and compares again with the definition's ends, so it holds \
                  nothing kink's build decides",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "DEFINITION_TRACE_VERSION",
+        reason: "the definition trace record's format and meaning (compare.rs TraceKey): its \
+                 reader requires it in the record's key, which also holds the program's result \
+                 key (`kink_build` and the whole identity) and the channels asked, and checks the \
+                 record's digest under that key (memo.rs read); a record whose values are not of \
+                 the recorded run is answered by a value run",
     },
     Outside {
         krate: "kink-flow",
