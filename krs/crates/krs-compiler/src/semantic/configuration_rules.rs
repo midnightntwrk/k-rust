@@ -129,7 +129,7 @@ impl<'a> StateRuleTerms<'a> {
 
     /// Judges the computation sequences the pattern matches, once all of it is lowered: each must
     /// split every computation it matches in one way, so that the pattern fixes what each of its
-    /// parts binds, and must not match items at the computation's back
+    /// parts binds, and must not match items from the computation's end, which the target does not
     /// ([`MatchedSequence::judge`]), given the binders fixed elsewhere ([`Self::fixed_binders`]).
     fn judge_sequences(&self) -> Result<(), DescriptorLoweringError> {
         (0..self.matched_sequences.len()).try_for_each(|judged| {
@@ -3930,9 +3930,11 @@ impl MatchedSequence {
     ///   what they bind: refused, naming them.
     /// - Otherwise the parts split every matched computation one way. In a closed sequence a part
     ///   whose length its front does not fix matches the rest of the computation when it is last
-    ///   (`KCell(Cmd::Make { x }, b)` is `make(X) ~> B:K`, as `b @ ..` is); followed by an item,
-    ///   it matches that item at the computation's back, which a computation read from its front
-    ///   never is, as an item after its rest is not
+    ///   (`KCell(Cmd::Make { x }, b)` is `make(X) ~> B:K`, as `b @ ..` is). Followed by an item,
+    ///   it matches the computations that end with the items after it, `B` the items before them
+    ///   (`KCell(b, Cmd::Make { x })` is `B:K ~> make(X)`, the computations whose last item is
+    ///   `make(X)`): a well defined match, from the computation's end, which the target does not
+    ///   perform, since it matches a computation from its front; a stated limit
     ///   ([`DescriptorLoweringError::ComputationBackItem`]).
     fn judge(
         &self,
@@ -3976,7 +3978,7 @@ impl MatchedSequence {
             return Ok(());
         };
         Err(DescriptorLoweringError::ComputationBackItem {
-            reason: "the closed computation pattern has an item after a part of sort `K`, and it matches the items after that part at the computation's back: a computation is read from its front, where its next step is".to_owned(),
+            reason: "not supported: a computation matched from its end: the closed computation pattern has an item after a part of sort `K` whose length its front does not fix, so it matches the computations that end with the items after that part, and the target matches a computation from its front only; when the part is one item, declare its binder at an item sort (`KItem`, or a sort below it)".to_owned(),
             range: key_range(descriptor, &self.item_keys[back]).map(Box::new),
             item: Some(Box::new(descriptor.id().clone())),
         })

@@ -1032,8 +1032,9 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
-    /// A matched computation with an item after a part of sort `K`, a sequence of any length
-    /// that ends a computation as its rest does: the computation is read from its front.
+    /// A closed matched computation with an item after a part of sort `K` whose length its front
+    /// does not fix: it matches the computations that end with the items after that part, a match
+    /// from the computation's end that the target does not perform (a stated limit).
     ComputationBackItem {
         /// Stable reason naming the parts.
         reason: String,
