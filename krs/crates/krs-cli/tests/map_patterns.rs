@@ -484,13 +484,14 @@ k::rules! {
 /// the collection is nested. A rule for the instance of another collection (`for Thread`)
 /// names its nested Set collection `pouch` as its own cell: the literal `map![n -> 1]` is the
 /// update a guard equates, the K `map::update` written out has and the literal had before map
-/// patterns. Nothing else reaches a Set collection inside an instance or a group record: an
-/// instance's child and a group record's child is a term, a map, a computation or a presence,
-/// never a list of instances, so the instances written there are not Rust syntax and a single
-/// value there is refused. The nested collection named at the record's level, beside the top
-/// `k`, is a step of one thread that also matches the one `k`, admitted as a rule whose cells lie
-/// in one thread and outside every instance; so the last rule is refused only for overlapping
-/// `peek`, whose pattern it refines.
+/// patterns. Nothing else reaches a Set collection inside an instance or a group record: a group
+/// record's child is that child cell's entry, so instance braces there are the collection's
+/// entry, which a group record does not name yet (a stated limit, `collection-entry`); inside an
+/// instance record the group child holding the collection is a term, where instances are not Rust
+/// syntax; and a single value there is refused. The nested collection named at the record's
+/// level, beside the top `k`, is a step of one thread that also matches the one `k`, admitted as
+/// a rule whose cells lie in one thread and outside every instance; so the last rule is refused
+/// only for overlapping `peek`, whose pattern it refines.
 #[test]
 fn a_map_literal_in_a_nested_set_collections_instance_is_the_map_it_builds() {
     let target = shared_fixture_target();
@@ -522,7 +523,7 @@ fn a_map_literal_in_a_nested_set_collections_instance_is_the_map_it_builds() {
         [
             "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
             "error[krs::analysis::collection-entry]: the cell `pouch` is a Set collection of `Pouch` instances (`multiplicity = \"*\"`), so its entry is a list of its instances, each an instance record, not one value: no single cell has the content a value would name; write its entry as its instances, `{ Pouch { .. }, .. }`",
-            "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
+            "error[krs::analysis::collection-entry]: the child `bag` of `Sacks` is a `?` or `*` cell, whose entry a group record does not name yet, as an instance record does not name a `?` or `*` child yet",
             "error[krs::analysis::overlapping-rule-heads]: rules `bad` and `peek` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`.",
         ]
     "#]]
