@@ -9330,8 +9330,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 # TWINWIDE: a readable alias over a Map cell's braces is the alias over the map they read, the K of
-# the `cells!` twin `Cell(b @ k::map![0 -> v, ..])`; refused today, so accepted without K and pending
-# (BACKMAP-2-1), and its children are expected accepted too.
+# the `cells!` twin `Cell(b @ k::map![0 -> v, ..])` (BACKMAP), and its children are its twins.
 [accept."child-twins/readable/subject/top/map/b @ { 0 -> v, .. }"]
 k = """
 rule [case-TAG]:
