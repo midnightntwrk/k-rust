@@ -2745,7 +2745,18 @@ fn parse_entry_value(
                 Some(rest) => StateTerm::Term(state_term_tokens(rest, context)?),
                 None => match kept_rest_term(&leaf, context)? {
                     Some(kept) => StateTerm::Term(kept),
-                    None => parse_state_term(leaf, context)?,
+                    None => match item_less_leaf(&leaf, context) {
+                        // A pattern's `[..]` names no element of a list, the notation's own
+                        // refusal, which is the entry's only where the leaf holds a list: on
+                        // another leaf brackets denote nothing, the leaf's kind's class, which
+                        // the collector says first. So the fault waits for the entry's judgement,
+                        // read as the `_` it would match; it binds no name.
+                        Some((wildcard, fault)) => {
+                            faults.carry(fault, true)?;
+                            StateTerm::Term(state_term_tokens(wildcard, context)?)
+                        }
+                        None => parse_state_term(leaf, context)?,
+                    },
                 },
             }
         }
@@ -3296,6 +3307,32 @@ fn remainder_sequence(
         Some(TokenRange::for_tokens(tokens)?),
     )
     .map(Some)
+}
+
+/// A pattern leaf's content that is brackets holding their anonymous rest alone, `[..]`: the `_`
+/// it would match and the list notation's refusal of it, which names no element. `None` for any
+/// other content and outside a pattern.
+fn item_less_leaf(
+    leaf: &TokenStream,
+    context: StateMacroContext,
+) -> Option<(TokenStream, SyntaxError)> {
+    if context != StateMacroContext::Pattern {
+        return None;
+    }
+    let trees = leaf.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Group(group)] = trees.as_slice() else {
+        return None;
+    };
+    let inside = group.stream().into_iter().collect::<Vec<_>>();
+    let dots = matches!(inside.as_slice(), [TokenTree::Punct(first), TokenTree::Punct(second)]
+        if first.as_char() == '.' && first.spacing() == proc_macro2::Spacing::Joint
+            && second.as_char() == '.');
+    if group.delimiter() != Delimiter::Bracket || !dots {
+        return None;
+    }
+    let fault = parse_state_term(leaf.clone(), context).err()?;
+    let span = group.span();
+    Some((quote::quote_spanned!(span=> _), fault))
 }
 
 /// The sequence a pattern's brackets holding their anonymous rest alone, `[..]`, spell: no item

@@ -378,30 +378,6 @@ kind = "k8"
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
 # and its twin triaged by meaning (TWIN-1 .. TWIN-10, findings.toml; the progress log ranks them).
 
-["child-twins/cells-claim/subject/top/int/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/cells-claim/subject/top/map/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/cells-claim/subject/top/set/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/cells/subject/top/int/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/cells/subject/top/map/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/cells/subject/top/set/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
 ["k3/child-twins/readable/both/list-child/list/[..] => [1, ..]"]
 finding = "TWIN-9"
 deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
@@ -437,28 +413,4 @@ deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-nota
 ["k3/child-twins/readable/subject/map-child/list/[..]"]
 finding = "TWIN-9"
 deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
-
-["k8/child-twins/cells-claim/subject/top/int/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/cells-claim/subject/top/map/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/cells-claim/subject/top/set/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/cells/subject/top/int/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/cells/subject/top/map/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/cells/subject/top/set/k::configuration::Cell([..])"]
-finding = "TWIN-6"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
 

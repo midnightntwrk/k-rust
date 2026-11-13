@@ -42,11 +42,6 @@ owner = "S5"
 kind = "bug"
 what = "the source `krs expand` prints for a readable result that writes a `?` group's child (`og: Some(Og { ol: [x], .. })`, `on: x`, `ol: [..rest, y]` over a subject naming the group) is refused (`krs::analysis::cell-wrapper` at the item), so K3 cannot read it back; the case itself is accepted with its twin's K"
 
-["TWIN-6"]
-owner = "S5"
-kind = "diagnostic"
-what = "a `cells!` top-level `Int`, `Map` or `Set` cell written `Cell([..])` is refused with the list's text, \"`[..]` names no element: the first matches any list, so write `_`\", false of a cell that is no list, where every child of those kinds says `bracket-reading` (brackets denote nothing there); the kind is the truer first mistake"
-
 ["TWIN-9"]
 owner = "S5"
 kind = "bug"
