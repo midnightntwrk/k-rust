@@ -65,7 +65,7 @@ pub use mutant_theory::{
     MutantTheory, TheoryChanges, TheoryCheckError, TheoryRefusal, rule_sentence_key,
 };
 pub use never_cools::never_cooling_warnings;
-pub use overlap::end_warnings;
+pub use overlap::{end_warnings, holder_preempts_warnings};
 pub use rederivation::{
     IndexedProduction, KLabelIndex, Rederivation, RederivationError, RederiveFailure, Rederived,
     Site,

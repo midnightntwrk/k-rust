@@ -436,6 +436,20 @@ The rules a library writes for its group are rules of every definition whose con
 They are the meaning of the group's cells: a definition that held `Core` without `inc` would hold another machine under the same cell identities, and a claim, a test or a mutation result about `Core` would silently be about that other machine.
 Priority is no way to replace one of them: K orders every rule of a definition by priority, across modules, so a containing definition's `priority = N` rule, with `N` below a library rule's priority (50 by default), is tried before that rule in every state where it matches, and pre-empts every library rule it overlaps there, not one chosen rule.
 Such a rule is accepted, and a definition that writes it holds another machine under the same cell identities, as one without `inc` would.
+Whether a holder may act before its group at all is an open design question, so `krs check` makes each such pair visible with a warning, `krs::analysis::holder-preempts-group`, and emits the definition as it would without it.
+It names the holder's rule and the group's, the group and the package that declares it, at the holder's rule:
+
+```text
+warning[krs::analysis::holder-preempts-group]: the rule `double` of package `small`, at priority 10, pre-empts the rule `inc` of the cell group `Core` of package `lib`, at the default priority 50: the two can apply to one configuration, and a rule is tried only where no rule of a more urgent priority applies, so in this definition `inc` does not apply where `double` does
+```
+
+A pair is reported when the group's rule is a transition of the package that declares the group, every cell of which lies inside the group, and the other rule is a transition of a package whose declarations hold the group (the configuration's, or a group's around it), at a more urgent priority, and the two overlap as the [overlap check](#intended-nondeterminism) decides for two rules at one priority: their patterns unify and their guards are not shown apart.
+Two rules of one package are not a pair, since one author orders both.
+A holder's rule at a later priority than the group's is tried only where the group's rule failed, which is the order the group's rules have in any definition, and a group's rule at a more urgent priority than a holder's acts before the holder, which the holder's author reads in the library it holds; neither is reported.
+Neither is a group's `owise` rule, which states that it applies where no other rule does.
+Two rules whose cells are disjoint commute, so the group's rule still applies once the holder's has, and are not reported either; a holder's rule that applies forever delays it forever, which the warning does not judge.
+The rules read are the transitions the overlap check reads, so a heating or cooling step, an `anywhere` rule, an equation and a `raw_k!` sentence are outside the warning.
+To act beside the group without changing what it means, the holder's rule takes no priority and a guard that keeps it apart from the group's rule; where the holder must decide such a state itself, the group's author leaves the state to it as an open item.
 What the group leaves to its environment is an open item instead: a computation item that the group's rules produce on the group's computation cell and never consume, such as a bus read `Bus::Read { addr }` or a step boundary where interrupts are checked.
 Each containing definition resolves it with rules for its own configuration, whose readable records name the group's cells flat beside its own (`k`, `acc` and `mem`) and whose `k::cells!` patterns name them through the group's struct (`lib::Core::k:`), and a definition that resolves none ends stuck at the item, so the missing answer is visible in every run that reaches it.
 The item's production must be `pub`, with `internal` when it is not program syntax, for a dependent's rules to name it, since K hides a production that is not `pub` from every importing module ([the module pair](#program-syntax-and-the-module-pair)).

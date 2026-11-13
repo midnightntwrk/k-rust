@@ -89,6 +89,7 @@ The following questions remain recorded rather than answered by this tour:
 - whether `{ .. }` in a cell position means only a tail map pattern or an all-framed cell record;
 - the style rule for naming cross-family precedence groups;
 - whether a future const-style configuration initializer should complement `#[k::init]`;
+- whether a definition that holds a cell group may write a rule that acts before one of the group's rules (`krs::analysis::holder-preempts-group` reports each such rule, see [rules for a cell group](/reference/language#rules-for-a-cell-group));
 - aligned-column versus fixed-gutter trailing comments (aligned is only the provisional default); and
 - the documentation style for individual readable rule clauses.
 

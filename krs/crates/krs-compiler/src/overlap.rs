@@ -3505,6 +3505,8 @@ fn render_alternative(term: &SemanticTerm) -> String {
 
 mod end_lints;
 pub use end_lints::end_warnings;
+mod holder_lints;
+pub use holder_lints::holder_preempts_warnings;
 
 #[cfg(test)]
 mod int_fact_tests;
