@@ -2970,11 +2970,14 @@ impl Semantics {
         // Two sides are compared on what both state of the declared class: each part every end
         // of both sides states, as an expectation is compared on what it states. So an end
         // document that states no class is compared with a run's end on its halt and its cells.
+        // Only a `stuck` end has a declared class; an end at another halt differs from every
+        // `stuck` end at its halt, so it narrows nothing.
         let compared = left
             .ends
             .ends
             .iter()
             .chain(&right.ends.ends)
+            .filter(|end| end.class.halt == Halt::Stuck)
             .fold(ClassParts::ALL, |compared, end| {
                 compared.and(self.class_parts(end))
             });
