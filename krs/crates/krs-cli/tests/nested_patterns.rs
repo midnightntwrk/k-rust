@@ -2483,18 +2483,19 @@ fn records_cells(subject: &str) -> String {
 /// and the spelling its refusal starts at.
 fn record_witnesses() -> Vec<(&'static str, String, &'static str)> {
     vec![
-        // On a leaf that is no `KItem` the table answers first: a group's cell term is no term of
-        // the leaf's sort, whatever its children. A `KItem` leaf holds a cell term, so there the
-        // record's map child is the mistake (`leaf-kitem`).
+        // A record whose map child holds an anonymous `..` is refused at that `..`, on any leaf:
+        // the record is a term there, below the leaf's content root, where the `..` keeps no
+        // cell's map, in braces as in the literal `map![1 -> v, ..]`, before the record's sort is
+        // judged (`leaf-list`, `leaf-kitem`).
         (
             "leaf-list",
             records_rule("stack: Mg { mm: { 1 -> v, .. }, .. }", ""),
-            "Mg {",
+            "..",
         ),
         (
             "leaf-kitem",
             records_rule("slot: Mg { mm: { 1 -> v, .. }, .. }", ""),
-            "Mg {",
+            "..",
         ),
         (
             "foreign-cell",
@@ -2560,12 +2561,11 @@ fn record_witnesses() -> Vec<(&'static str, String, &'static str)> {
 }
 
 /// A record's mistakes each have one refusal, whichever spelling or position reads the record:
-/// a record on a leaf is refused at the record (the table's sort refusal on a leaf that is no
-/// `KItem`, and on a `KItem` leaf the record's map child, which no term spells); a record of
-/// another struct is a term of another cell sort than its cell's, at
-/// the cell, at a group child, through an alias, and beside a map child; a field that names no
-/// child is told before how many children the record names; and a call of another sort than a
-/// typed Map cell's is a term of another sort, not an untyped map.
+/// a record on a leaf whose map child holds an anonymous `..` is refused at that `..`, which
+/// keeps no cell's map there, on every leaf; a record of another struct is a term of another cell
+/// sort than its cell's, at the cell, at a group child, through an alias, and beside a map child;
+/// a field that names no child is told before how many children the record names; and a call of
+/// another sort than a typed Map cell's is a term of another sort, not an untyped map.
 #[test]
 fn a_records_mistake_has_one_refusal_on_every_route() {
     let target = shared_fixture_target();
@@ -2589,8 +2589,8 @@ fn a_records_mistake_has_one_refusal_on_every_route() {
     }
     expect_test::expect![[r#"
         [
-            "leaf-list: error[krs::analysis::invalid-term]: the cell `stack` holds a `List` leaf, and the entry gives it a `Mg` record, the `Mg` group's cell term, whose sort is not below the leaf's: a group's cell sort is below `KItem` only, so a leaf holds a group's record only where its sort is `KItem`",
-            "leaf-kitem: error[krs::analysis::invalid-term]: `slot` is a leaf cell, whose content is a term, and this record writes a child as a map's entries or a map read (`{ k -> v, .. }`, `k::map![..]`), which no term spells, so it is no term: such a child is the entry of its own cell, which only the group's cell holds",
+            "leaf-list: error[krs::syntax::invalid-expression-notation]: the entry of the cell `stack` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
+            "leaf-kitem: error[krs::syntax::invalid-expression-notation]: the entry of the cell `slot` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
             "foreign-cell: error[krs::analysis::invalid-term]: the record names `Gw`, and `fpu` holds `Fpu`",
             "foreign-cell-cells: error[krs::analysis::invalid-term]: the record names `Gw`, and `fpu` holds `Fpu`",
             "foreign-child: error[krs::analysis::invalid-term]: the record names `Fpu`, and `mg` holds `Gw`",

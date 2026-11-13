@@ -1046,7 +1046,7 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 34, width 10",
             ),
             (
-                "error[krs::syntax::invalid-expression-notation]: the entry of the cell `stack` holds `map![..]` with an anonymous `..` below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
+                "error[krs::syntax::invalid-expression-notation]: the entry of the cell `stack` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
                 "column 49, width 1",
             ),
             (

@@ -380,11 +380,11 @@ impl Refusal {
                 "the initial value of the cell `{cell}` holds a rest (`..`), but an initializer's value is complete: it has no subject whose rest the `..` could keep, so it lists every item"
             ),
             // A readable `map![k -> v, ..]` at a cell's content root is the cell's map read, its
-            // braces' meaning; below every root, in a list's element, a constructor's record or a
-            // term a result builds, no cell's map is there for its `..` to keep, in either
-            // spelling.
+            // braces' meaning; below every root, in a list's element, a record written as a term
+            // (a constructor's, or a group's at a leaf, its cell term) or a term a result builds,
+            // no cell's map is there for its `..` to keep, in either spelling.
             Self::AnonymousRestInMapLiteral if form.is_readable() => format!(
-                "the entry of the cell `{cell}` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{{ k -> v, .. }}`) below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{{ k -> v, .. }}`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)"
+                "the entry of the cell `{cell}` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{{ k -> v, .. }}`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{{ k -> v, .. }}`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)"
             ),
             Self::AnonymousRestInMapLiteral => format!(
                 "the entry of the cell `{cell}` builds `k::map![..]` with an anonymous `..`, which names no map: a built map's rest is the map its entries are written over (`k::map![k -> v, ..m]`), and keeping the entries a subject's `..` matched is a frame write no route lowers yet (a stated limitation), so a rule names that rest in its subject (`k::map![k -> v, rest @ ..]`) and builds the map over it (`k::map![k -> w, ..rest]`)"
