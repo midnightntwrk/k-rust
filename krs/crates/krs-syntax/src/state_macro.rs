@@ -3445,10 +3445,25 @@ fn parse_instance_child(
     if kept && let Some(kept) = kept_rest_term(&tokens, context)? {
         return Ok(StateTerm::Term(kept));
     }
+    // A child written as a group's record (`G { .. }`, `k::fragment![G { .. }]`) is the group's
+    // term, whose fields keep no rest: an anonymous `..` there says a record field's text.
+    let record = qualified_macro_payload(&tokens).is_some_and(|(name, _)| name == "fragment")
+        || matches!(tokens.clone().into_iter().last(), Some(TokenTree::Group(body))
+            if body.delimiter() == Delimiter::Brace);
+    let in_record = |error: SyntaxError| {
+        if record {
+            crate::list_notation::anonymous_rest_in(
+                error,
+                crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+            )
+        } else {
+            error
+        }
+    };
     Ok(StateTerm::Term(if keys {
-        state_key_tokens(tokens, context)?
+        state_key_tokens(tokens, context).map_err(in_record)?
     } else {
-        state_term_tokens(tokens, context)?
+        state_term_tokens(tokens, context).map_err(in_record)?
     }))
 }
 

@@ -948,7 +948,7 @@ fn parse_readable_instance(
         // a record at a cell's position is ([`RecordPresences`]).
         let read = RecordPresences::of(&value, context)
             .map_or_else(|| value.clone(), |presences| presences.read);
-        let state = parse_readable_child(name, read, context, braced, faults)?;
+        let state = parse_readable_instance_child(name, read, context, braced, faults)?;
         fields.push(InstanceField::new(name.clone(), state));
     }
     Ok(InstanceItem::new(range, label, owner, fields, rest)?)
@@ -1013,6 +1013,29 @@ fn nested_instances_in_group_term(
             );
         }
         nested_instances_in_group_term(name, &value, context)
+    })
+}
+
+/// [`parse_readable_child`] for an instance record's child: a child written as a group's record is
+/// the group's term, whose fields keep no rest, so an anonymous `..` there says a record field's
+/// text, as at a group record's own place.
+fn parse_readable_instance_child(
+    name: &Ident,
+    tokens: TokenStream,
+    context: StateMacroContext,
+    braced: bool,
+    faults: ChildFaults<'_>,
+) -> Result<StateTerm, ParseError> {
+    let record = matches!(tokens.clone().into_iter().last(), Some(TokenTree::Group(body))
+        if body.delimiter() == proc_macro2::Delimiter::Brace);
+    parse_readable_child(name, tokens, context, braced, faults).map_err(|error| match error {
+        ParseError::Structured(error) if record => {
+            ParseError::Structured(crate::list_notation::anonymous_rest_in(
+                error,
+                crate::list_notation::GROUP_CHILD_ANONYMOUS_REST,
+            ))
+        }
+        error => error,
     })
 }
 
