@@ -31,6 +31,13 @@
 //! the case's one point of interest. A result over a subject that leaves the child in the
 //! record's `..` is twinned with a result over a top-level cell the subject does not name.
 //!
+//! **TWINWIDE.** The family also writes `_`, a bare binder and an alias at each kind; each kind's
+//! representative rows ([`Reach::Core`]) at a `?` leaf's present content (`Some(..)`), a Set
+//! collection's instance child and a group child inside a List instance's child
+//! ([`Place::widened`]); and the sentences [`Form::writes`] places: a readable claim, a context, a
+//! context alias and a function context (at the top and a fixed group's child named through its
+//! struct, [`Place::GroupPath`]), and a single-body rule's rewrite of a cell's whole content.
+//!
 //! **Stated differences** ([`stated`]): where the child genuinely cannot mean what its twin
 //! means, by a limit the documentation or a refusal states, the relation does not apply, and the
 //! child case has an entry of its own. Each is a predicate with its reason.
@@ -138,17 +145,37 @@ pub enum Place {
     GroupChild,
     /// A child of the `?` group `og` (`Og`), present on the side that writes it.
     OptChild,
+    /// The present content of a top-level `?` leaf (`pl`), `Some(..)` around the spelling
+    /// (TWINWIDE): "`Some(..)` holds the present cell's content as a record's entry does".
+    OptLeaf,
+    /// A child of `club.memb`'s instances (`E`, a Set collection) (TWINWIDE).
+    SetChild,
+    /// A child of the fixed group `jh` (`Hh`) inside a List collection's instance (TWINWIDE).
+    NestedChild,
+    /// A child of the fixed group `gg` named through the group's struct, `crate::Gg::gl:`, as
+    /// a context alias and a function context read it (TWINWIDE).
+    GroupPath,
 }
 
 impl Place {
     /// Every place, the twins' first.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 9] = [
         Self::Top,
         Self::ListChild,
         Self::MapChild,
         Self::GroupChild,
         Self::OptChild,
+        Self::OptLeaf,
+        Self::SetChild,
+        Self::NestedChild,
+        Self::GroupPath,
     ];
+
+    /// Whether the place is one TWINWIDE added, where only the rows of [`Reach::Core`] are
+    /// written, in a readable and a `cells!` rule.
+    const fn widened(self) -> bool {
+        matches!(self, Self::OptLeaf | Self::SetChild | Self::NestedChild)
+    }
 
     /// The place's ID segment.
     #[must_use]
@@ -159,6 +186,10 @@ impl Place {
             Self::MapChild => "map-child",
             Self::GroupChild => "group-child",
             Self::OptChild => "opt-child",
+            Self::OptLeaf => "opt-leaf",
+            Self::SetChild => "set-child",
+            Self::NestedChild => "nested-child",
+            Self::GroupPath => "group-path",
         }
     }
 
@@ -168,19 +199,24 @@ impl Place {
             Self::Top => "t",
             Self::ListChild => "j",
             Self::MapChild => "a",
-            Self::GroupChild => "g",
+            Self::GroupChild | Self::GroupPath => "g",
             Self::OptChild => "o",
+            Self::OptLeaf => "p",
+            Self::SetChild => "s",
+            Self::NestedChild => "h",
         }
     }
 
     /// The group whose children the place's cells are.
     const fn group(self) -> &'static str {
         match self {
-            Self::Top => "Machine",
+            Self::Top | Self::OptLeaf => "Machine",
             Self::ListChild => "J",
             Self::MapChild => "A",
-            Self::GroupChild => "Gg",
+            Self::GroupChild | Self::GroupPath => "Gg",
             Self::OptChild => "Og",
+            Self::SetChild => "E",
+            Self::NestedChild => "Hh",
         }
     }
 }
@@ -200,11 +236,30 @@ pub enum Form {
     Cells,
     /// A `#[k::claim]` fn over `k::cells!` records.
     CellsClaim,
+    /// A readable claim of `k::claims!` (TWINWIDE).
+    ReadableClaim,
+    /// A `#[k::context]` fn over a `k::cells!` pattern, which keeps every cell it names.
+    Context,
+    /// A `#[k::context_alias]` fn over a `k::cells!` pattern.
+    ContextAlias,
+    /// An `#[k::equation]` whose function context is a `k::cells!` pattern.
+    FunctionContext,
+    /// A single-body `#[k::rule]` fn: one `k::cells!` subject whose `k::rewrite!` marks the change.
+    SingleBody,
 }
 
 impl Form {
     /// Every form.
-    pub const ALL: [Self; 3] = [Self::Readable, Self::Cells, Self::CellsClaim];
+    pub const ALL: [Self; 8] = [
+        Self::Readable,
+        Self::Cells,
+        Self::CellsClaim,
+        Self::ReadableClaim,
+        Self::Context,
+        Self::ContextAlias,
+        Self::FunctionContext,
+        Self::SingleBody,
+    ];
 
     /// The form's ID segment.
     #[must_use]
@@ -213,6 +268,61 @@ impl Form {
             Self::Readable => "readable",
             Self::Cells => "cells",
             Self::CellsClaim => "cells-claim",
+            Self::ReadableClaim => "readable-claim",
+            Self::Context => "context",
+            Self::ContextAlias => "context-alias",
+            Self::FunctionContext => "function-context",
+            Self::SingleBody => "single-body",
+        }
+    }
+
+    /// Whether the form is readable: its children are written as their twins are.
+    const fn readable(self) -> bool {
+        matches!(self, Self::Readable | Self::ReadableClaim)
+    }
+
+    /// Whether the form is a kept sentence, whose pattern keeps every cell it names: a
+    /// context, a context alias or a function context.
+    const fn kept(self) -> bool {
+        matches!(
+            self,
+            Self::Context | Self::ContextAlias | Self::FunctionContext
+        )
+    }
+
+    /// Whether the form writes a child at `place` (TWINWIDE): a readable claim at the places
+    /// TWINORACLE wrote; a context at those too, which matches as a rule's subject does; a
+    /// context alias and a function context only where they read a fixed leaf, at the top and
+    /// a fixed group's child named through the group's struct (`language.mdx`: they "read fixed
+    /// leaf cells only", and a group cell's entry, a `?` cell's `Some(..)` or a collection's
+    /// instance list there "is not supported yet"); a single-body rule where a rewrite is a
+    /// cell's whole content ("a leaf of any sort, inside a group .. too, an optional cell's
+    /// present content .. and a matched collection instance's child"), and at a `?` group's
+    /// child, the stated limit [`SINGLE_BODY_OPTIONAL_GROUP`]; the rule forms everywhere but the
+    /// group path.
+    const fn writes(self, place: Place) -> bool {
+        match self {
+            Self::ReadableClaim | Self::Context => matches!(
+                place,
+                Place::Top
+                    | Place::ListChild
+                    | Place::MapChild
+                    | Place::GroupChild
+                    | Place::OptChild
+            ),
+            Self::ContextAlias | Self::FunctionContext => {
+                matches!(place, Place::Top | Place::GroupPath)
+            }
+            Self::SingleBody => matches!(
+                place,
+                Place::Top
+                    | Place::ListChild
+                    | Place::MapChild
+                    | Place::GroupChild
+                    | Place::OptChild
+                    | Place::OptLeaf
+            ),
+            Self::Readable | Self::Cells | Self::CellsClaim => !matches!(place, Place::GroupPath),
         }
     }
 }
@@ -236,12 +346,36 @@ pub struct Row {
     pub args: &'static [&'static str],
     /// Whether the rule moves `k`'s remainder `tail` into the child.
     pub moves_rest: bool,
+    /// Whether the spelling is the whole entry rather than a content (`_`, a binder), so its twin
+    /// writes it as written, in the child's own form, unwrapped: on the computation, which spells
+    /// its content as items, a bare `_` or binder is the entry's own mistake at the top as in a
+    /// record (`cell-wrapper`: "a value where the computation's .. wrapper is missing").
+    pub bare: bool,
+    /// The readable rule's binder declarations (`where b: KSequence`), empty for none.
+    pub declares: &'static str,
+    /// Where the row is written ([`Reach`]).
+    pub reach: Reach,
+}
+
+/// Where a row is written.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reach {
+    /// At TWINORACLE's places, in a readable rule, a `cells!` rule and a `cells!` claim.
+    Standard,
+    /// There, and as one of each kind's representative spellings (a subject, a result, both
+    /// sides, `_`) at the places and in the sentences TWINWIDE added.
+    Core,
+    /// A single-body rule's rewrite (its `cells!` subject a `k::rewrite!`), in that form only.
+    SingleBody,
 }
 
 const NONE: [&str; 2] = ["-", "-"];
 const ITEM: &str = "k::KItem";
 const LIST: &str = "k::Term<k::builtin::List>";
 const INT: &str = "k::Term<k::builtin::Int>";
+const MAP: &str = "k::Term<k::builtin::Map>";
+const SET: &str = "k::Term<k::builtin::Set>";
+const SEQUENCE: &str = "k::builtin::KSequence";
 
 const fn row(kind: Kind, readable: [&'static str; 2], cells: [&'static str; 2]) -> Row {
     Row {
@@ -251,7 +385,36 @@ const fn row(kind: Kind, readable: [&'static str; 2], cells: [&'static str; 2]) 
         params: &[],
         args: &[],
         moves_rest: false,
+        bare: false,
+        declares: "",
+        reach: Reach::Standard,
     }
+}
+
+const fn single(cells: &'static str) -> Row {
+    let mut row = row(Kind::Int, NONE, [cells, "-"]);
+    row.reach = Reach::SingleBody;
+    row
+}
+
+const fn of(mut row: Row, kind: Kind) -> Row {
+    row.kind = kind;
+    row
+}
+
+const fn core(mut row: Row) -> Row {
+    row.reach = Reach::Core;
+    row
+}
+
+const fn bare(mut row: Row) -> Row {
+    row.bare = true;
+    row
+}
+
+const fn declaring(mut row: Row, declares: &'static str) -> Row {
+    row.declares = declares;
+    row
 }
 
 const fn bound(mut row: Row, params: &'static [(&'static str, &'static str)]) -> Row {
@@ -276,11 +439,11 @@ const fn moving(mut row: Row) -> Row {
 /// kind refuses.
 pub const ROWS: &[Row] = &[
     // The computation.
-    row(
+    core(row(
         Kind::Computation,
         ["[Go(), ..]", "[Hold(), ..]"],
         ["[Cmd::Go(), ..]", "[Cmd::Hold(), ..]"],
-    ),
+    )),
     row(Kind::Computation, ["[..]", "-"], ["[..]", "-"]),
     row(
         Kind::Computation,
@@ -306,22 +469,22 @@ pub const ROWS: &[Row] = &[
         NONE,
         ["k::k![Cmd::Go(), ..]", "k::k![Cmd::Hold(), ..]"],
     ),
-    row(
+    core(row(
         Kind::Computation,
         NONE,
         ["[Cmd::Go(), rest @ ..]", "[Cmd::Hold(), ..rest]"],
-    ),
+    )),
     row(Kind::Computation, NONE, ["-", "[Cmd::Hold(), ..zz]"]),
     moving(row(Kind::Computation, NONE, ["-", "[..tail]"])),
     // The builtin `List`.
-    bound(
+    core(bound(
         row(Kind::List, ["[y, ..]", "-"], ["[y, ..]", "-"]),
         &[("y", ITEM)],
-    ),
-    taking(
+    )),
+    core(taking(
         row(Kind::List, ["[_, ..]", "[x, ..]"], ["[_, ..]", "[x, ..]"]),
         &["x"],
-    ),
+    )),
     row(Kind::List, ["[..]", "-"], ["[..]", "-"]),
     row(Kind::List, ["[..]", "[1, ..]"], ["[..]", "[1, ..]"]),
     bound(
@@ -340,7 +503,7 @@ pub const ROWS: &[Row] = &[
         ),
         &[("y", ITEM), ("rest", LIST)],
     ),
-    taking(row(Kind::List, ["-", "[x]"], ["-", "[x]"]), &["x"]),
+    core(taking(row(Kind::List, ["-", "[x]"], ["-", "[x]"]), &["x"])),
     bound(
         row(Kind::List, ["[y, ..]", "[]"], ["[y, ..]", "[]"]),
         &[("y", ITEM)],
@@ -351,22 +514,22 @@ pub const ROWS: &[Row] = &[
     ),
     moving(row(Kind::List, NONE, ["-", "[1, ..tail]"])),
     // The builtin `Map`.
-    bound(
+    core(bound(
         row(
             Kind::Map,
             ["{ 0 -> v, .. }", "-"],
             ["k::map![0 -> v, ..]", "-"],
         ),
         &[("v", ITEM)],
-    ),
+    )),
     bound(
         row(Kind::Map, ["{ 0 -> v }", "-"], ["k::map![0 -> v]", "-"]),
         &[("v", ITEM)],
     ),
-    taking(
+    core(taking(
         row(Kind::Map, ["-", "{ 0 -> x }"], ["-", "k::map![0 -> x]"]),
         &["x"],
-    ),
+    )),
     taking(
         bound(
             row(
@@ -390,27 +553,127 @@ pub const ROWS: &[Row] = &[
         row(Kind::Set, ["{ y, .. }", "-"], ["k::set![y, ..]", "-"]),
         &[("y", ITEM)],
     ),
-    taking(row(Kind::Set, NONE, ["-", "k::set![x]"]), &["x"]),
+    core(taking(row(Kind::Set, NONE, ["-", "k::set![x]"]), &["x"])),
     row(Kind::Set, ["[..]", "-"], ["[..]", "-"]),
     // An `Int` leaf.
-    bound(row(Kind::Int, ["y", "-"], ["y", "-"]), &[("y", INT)]),
-    taking(row(Kind::Int, ["-", "x"], ["-", "x"]), &["x"]),
+    core(bound(row(Kind::Int, ["y", "-"], ["y", "-"]), &[("y", INT)])),
+    core(taking(row(Kind::Int, ["-", "x"], ["-", "x"]), &["x"])),
     row(Kind::Int, ["[..]", "-"], ["[..]", "-"]),
     // A leaf of sort `KSequence`: the computation's remainder saved into it whole (A1).
-    moving(row(Kind::SequenceLeaf, NONE, ["-", "tail"])),
+    core(moving(row(Kind::SequenceLeaf, NONE, ["-", "tail"]))),
+    // TWINWIDE step 1: the whole content `_`, a bare binder and an alias at each kind
+    // (`language.mdx`: a record's child is "a binder, `_`, a term of its sort, .." read "exactly
+    // as if the child were written as its own cell"). On the computation, `_` and a binder are
+    // the entry, twinned with the same bare entry at the top ([`Row::bare`]).
+    core(bare(row(Kind::Computation, ["_", "-"], ["_", "-"]))),
+    bare(bound(
+        row(Kind::Computation, ["b", "-"], ["b", "-"]),
+        &[("b", SEQUENCE)],
+    )),
+    core(row(Kind::List, ["_", "-"], ["_", "-"])),
+    bound(row(Kind::List, ["b", "-"], ["b", "-"]), &[("b", LIST)]),
+    bound(
+        row(Kind::List, ["b @ [y, ..]", "-"], ["b @ [y, ..]", "-"]),
+        &[("b", LIST), ("y", ITEM)],
+    ),
+    core(row(Kind::Map, ["_", "-"], ["_", "-"])),
+    bound(row(Kind::Map, ["b", "-"], ["b", "-"]), &[("b", MAP)]),
+    bound(
+        row(
+            Kind::Map,
+            ["b @ { 0 -> v, .. }", "-"],
+            ["b @ k::map![0 -> v, ..]", "-"],
+        ),
+        &[("b", MAP), ("v", ITEM)],
+    ),
+    core(row(Kind::Set, ["_", "-"], ["_", "-"])),
+    bound(row(Kind::Set, ["b", "-"], ["b", "-"]), &[("b", SET)]),
+    core(row(Kind::Int, ["_", "-"], ["_", "-"])),
+    bound(
+        row(Kind::Int, ["b @ 0", "-"], ["b @ 0", "-"]),
+        &[("b", INT)],
+    ),
+    core(row(Kind::SequenceLeaf, ["_", "-"], ["_", "-"])),
+    bound(
+        row(Kind::SequenceLeaf, ["b", "-"], ["b", "-"]),
+        &[("b", SEQUENCE)],
+    ),
+    // TWINWIDE step 3: a single-body rule's rewrite of a cell's whole content, at each kind
+    // whose content one rewrite writes ("A rewrite that is a cell's whole content .. changes the
+    // content from what its left side matches to what its right side writes").
+    taking(bound(single("k::rewrite!(y => x)"), &[("y", INT)]), &["x"]),
+    taking(of(single("k::rewrite!(_ => [x])"), Kind::List), &["x"]),
+    taking(
+        of(single("k::rewrite!(_ => k::map![0 -> x])"), Kind::Map),
+        &["x"],
+    ),
+    taking(
+        of(single("k::rewrite!(_ => k::set![x])"), Kind::Set),
+        &["x"],
+    ),
+    of(single("k::rewrite!(_ => ())"), Kind::SequenceLeaf),
+    // TWINWIDE step 4 (after KSEQSPLITS): a matched computation whose parts are binders of sort
+    // `K`. `b, ..` and `b, c, ..` have two parts of unknown length, so a computation splits
+    // between them in more than one way; `Keep { body: b }, b, ..` has one, since `keep(b)`
+    // fixes `b`. Their twins are the `KCell(..)` spellings.
+    declaring(
+        bound(
+            row(Kind::Computation, ["[b, ..]", "-"], ["[b, ..]", "-"]),
+            &[("b", SEQUENCE)],
+        ),
+        "b: KSequence",
+    ),
+    declaring(
+        bound(
+            row(Kind::Computation, ["[b, c, ..]", "-"], ["[b, c, ..]", "-"]),
+            &[("b", SEQUENCE), ("c", SEQUENCE)],
+        ),
+        "b: KSequence, c: KSequence",
+    ),
+    // The refusal's advice: a binder declared at an item sort has a known length, so `i, ..`
+    // splits one way.
+    declaring(
+        bound(
+            row(Kind::Computation, ["[i, ..]", "-"], ["[i, ..]", "-"]),
+            &[("i", ITEM)],
+        ),
+        "i: k::KItem",
+    ),
+    declaring(
+        bound(
+            row(
+                Kind::Computation,
+                ["[Keep { body: b }, b, ..]", "-"],
+                ["[Cmd::Keep { body: b }, b, ..]", "-"],
+            ),
+            &[("b", SEQUENCE)],
+        ),
+        "b: KSequence",
+    ),
 ];
 
 impl Row {
     /// The row's subject and result in `form`, `None` where a side does not write the child;
     /// `None` where the form does not write the row.
     fn texts(&self, form: Form) -> Option<[Option<&'static str>; 2]> {
-        let texts = match form {
-            Form::Readable => self.readable,
-            Form::Cells | Form::CellsClaim => self.cells,
+        let texts = if form.readable() {
+            self.readable
+        } else {
+            self.cells
         };
         let side = |text: &'static str| (text != "-").then_some(text);
         let texts = [side(texts[0]), side(texts[1])];
-        (texts != [None, None]).then_some(texts)
+        let written = match form {
+            Form::SingleBody => self.reach == Reach::SingleBody,
+            _ if self.reach == Reach::SingleBody => false,
+            Form::ReadableClaim => self.reach == Reach::Core,
+            // A kept sentence has no result: it writes a core row's subject.
+            Form::Context | Form::ContextAlias | Form::FunctionContext => {
+                self.reach == Reach::Core && texts[1].is_none() && !self.moves_rest
+            }
+            Form::Readable | Form::Cells | Form::CellsClaim => true,
+        };
+        (written && texts != [None, None]).then_some(texts)
     }
 }
 
@@ -456,11 +719,13 @@ pub fn cells_twin(kind: Kind, text: &str) -> String {
 /// supported yet"), while "a group record's computation child is no second cell of the record
 /// but an entry of the group's record, so its brackets are its items beside `k`'s" (the same
 /// paragraph), as an instance's are: the cell whose items the child's brackets are is the
-/// `cells!` cell `KCell(..)`, which writes them.
+/// `cells!` cell `KCell(..)`, which writes them. A bare entry ([`Row::bare`]) brackets nothing,
+/// and is twinned in its own form.
 #[must_use]
-pub const fn twin_form(form: Form, kind: Kind) -> Form {
-    match (form, kind) {
-        (Form::Readable, Kind::Computation) => Form::Cells,
+pub const fn twin_form(form: Form, row: &Row) -> Form {
+    match (form, row.kind, row.bare) {
+        (Form::Readable, Kind::Computation, false) => Form::Cells,
+        (Form::ReadableClaim, Kind::Computation, false) => Form::CellsClaim,
         _ => form,
     }
 }
@@ -469,17 +734,37 @@ pub const fn twin_form(form: Form, kind: Kind) -> Form {
 /// where the child cannot mean what its twin means, by a limit the documentation or a refusal
 /// states. `None` where the relation holds.
 #[must_use]
-pub fn stated(place: Place, kind: Kind, texts: [Option<&str>; 2]) -> Option<&'static str> {
-    let group_record = matches!(place, Place::GroupChild | Place::OptChild);
+pub fn stated(
+    form: Form,
+    place: Place,
+    row: &Row,
+    texts: [Option<&str>; 2],
+) -> Option<&'static str> {
+    let kind = row.kind;
+    let group_record = matches!(
+        place,
+        Place::GroupChild | Place::OptChild | Place::NestedChild
+    );
     let result_keeps_rest = texts[1].is_some_and(|result| {
         let brackets = result.starts_with('[') || result.starts_with("k::k![");
         brackets && (result.contains(", ..]") || result == "[..]" || result.starts_with("[..,"))
     });
-    if place == Place::OptChild && kind == Kind::Computation {
+    // A bare entry on the computation is the entry's own mistake, told before any limit of the
+    // place, as its twin's is.
+    if place == Place::OptChild && kind == Kind::Computation && !row.bare {
         return Some(OPTIONAL_GROUP_COMPUTATION);
     }
     if group_record && result_keeps_rest && matches!(kind, Kind::Computation | Kind::List) {
         return Some(GROUP_CHILD_RESULT_REST);
+    }
+    if place == Place::NestedChild && kind == Kind::Computation && !row.bare {
+        return Some(INSTANCE_GROUP_COMPUTATION);
+    }
+    if place == Place::OptLeaf && form.readable() && result_keeps_rest {
+        return Some(OPTIONAL_LEAF_RESULT_REST);
+    }
+    if place == Place::OptChild && form == Form::SingleBody {
+        return Some(SINGLE_BODY_OPTIONAL_GROUP);
     }
     None
 }
@@ -496,6 +781,25 @@ pub const OPTIONAL_GROUP_COMPUTATION: &str = "a `?` group's computation child is
 /// child (`H { hl: [x, ..], hb: 0 }`) or inside `Some([..])` .., a result's `..` is not supported
 /// yet"; `list_notation::GROUP_CHILD_ANONYMOUS_REST`). A top-level cell's brackets keep the rest.
 pub const GROUP_CHILD_RESULT_REST: &str = "a group record's child keeps no rest in a result: a result's `..` there is not supported yet (language.mdx, an anonymous `..` keeps a rest only in a cell of the record itself and in an instance's child; list_notation.rs GROUP_CHILD_ANONYMOUS_REST)";
+
+/// A computation child of a group inside an instance record is not supported yet in a rule: an
+/// instance record's group child is "the group's term", and "a record whose child's entry is a
+/// computation's items is lowered as its children's own cells, and is not supported yet where the
+/// group must be one term" (`language.mdx`; CHILDKIND's C6: a named computation rest one level
+/// down). A top-level computation cell has no such limit.
+pub const INSTANCE_GROUP_COMPUTATION: &str = "a computation child of a group inside an instance record is not supported yet in a rule: the record is the group's term, which holds no computation's items (language.mdx, a record whose child's entry is a computation's items is not supported yet where the group must be one term; CHILDKIND C6)";
+
+/// A readable `?` leaf's `Some([..])` keeps no rest in a result: "inside `Some([..])` .. a
+/// result's `..` is not supported yet" (`language.mdx`, the paragraph on where an anonymous `..`
+/// keeps a rest), but over the subject's own `Some([..])`. A top-level list cell's brackets keep
+/// the rest, and so does the `cells!` `Some(Cell([..]))`, whose brackets are the cell's own.
+pub const OPTIONAL_LEAF_RESULT_REST: &str = "a readable `?` leaf's `Some([..])` keeps no rest in a result: a result's `..` inside `Some([..])` is not supported yet (language.mdx, an anonymous `..` keeps a rest only in a cell of the record itself and in an instance's child)";
+
+/// A single-body rule's rewrite of a `?` group's child is a rewrite below the root of the
+/// optional cell's present content, which "has no lowering yet (`krs::analysis::optional-presence`
+/// ..): rewrite that content whole, or write the rule with a result" (`language.mdx`, local
+/// rewrites). A top-level cell's whole content, and a `?` leaf's present content, are rewritten.
+pub const SINGLE_BODY_OPTIONAL_GROUP: &str = "a single-body rule's rewrite of a `?` group's child stands below the root of the optional cell's present content, which has no lowering yet (language.mdx, local rewrites: krs::analysis::optional-presence)";
 
 /// One case of the family, and what it is judged by.
 #[derive(Clone, Debug)]
@@ -530,11 +834,34 @@ fn id(form: Form, place: Place, kind: Kind, texts: [Option<&str>; 2]) -> String 
 fn twin_texts(form: Form, row: &Row) -> Option<[Option<String>; 2]> {
     let texts = row.texts(form)?;
     Some(texts.map(|text| {
-        text.map(|text| match form {
-            Form::Readable => text.to_owned(),
-            Form::Cells | Form::CellsClaim => cells_twin(row.kind, text),
+        text.map(|text| {
+            if form.readable() || row.bare {
+                text.to_owned()
+            } else {
+                cells_twin(row.kind, text)
+            }
         })
     }))
+}
+
+/// A child's texts as its place writes them: a `?` leaf's present content in `Some(..)`, as
+/// its twin's content (a `cells!` leaf's in `Cell(..)`: "`omap: Some(k::configuration::Cell(map![k
+/// -> v, ..]))`"); a group path's wrapped as its twin's, but a bare entry ([`Row::bare`]); every
+/// other place's as the row writes them.
+fn place_texts(
+    form: Form,
+    place: Place,
+    row: &Row,
+    texts: [Option<&str>; 2],
+) -> [Option<String>; 2] {
+    texts.map(|text| {
+        text.map(|text| match place {
+            Place::OptLeaf if form.readable() => format!("Some({text})"),
+            Place::OptLeaf => format!("Some({})", cells_twin(row.kind, text)),
+            Place::GroupPath if !row.bare => cells_twin(row.kind, text),
+            _ => text.to_owned(),
+        })
+    })
 }
 
 /// Every case of the family, in generation order.
@@ -548,8 +875,16 @@ pub static GENERATED: LazyLock<Vec<Generated>> = LazyLock::new(|| {
             let Some(texts) = row.texts(form) else {
                 continue;
             };
-            let twin_form = twin_form(form, row.kind);
+            let twin_form = twin_form(form, row);
             for place in Place::ALL {
+                if !form.writes(place)
+                    || (place.widened()
+                        && matches!(form, Form::Readable | Form::Cells | Form::CellsClaim)
+                        && (row.reach != Reach::Core || form == Form::CellsClaim))
+                    || (place == Place::OptLeaf && row.kind == Kind::Computation)
+                {
+                    continue;
+                }
                 if place == Place::Top {
                     if twin_form != form {
                         continue;
@@ -568,7 +903,7 @@ pub static GENERATED: LazyLock<Vec<Generated>> = LazyLock::new(|| {
                     });
                     continue;
                 }
-                let stated = stated(place, row.kind, texts);
+                let stated = stated(form, place, row, texts);
                 let twin = if stated.is_some() {
                     None
                 } else {
@@ -581,8 +916,9 @@ pub static GENERATED: LazyLock<Vec<Generated>> = LazyLock::new(|| {
                         )
                     })
                 };
+                let shown = place_texts(form, place, row, texts);
                 out.push(Generated {
-                    case: render(form, place, row, texts),
+                    case: render(form, place, row, [shown[0].as_deref(), shown[1].as_deref()]),
                     twin,
                     stated,
                     cells: Some((cell(place, row.kind), cell(Place::Top, row.kind))),
@@ -623,7 +959,7 @@ pub fn twin_of(id: &str) -> Option<&'static str> {
 #[must_use]
 pub fn owes_twin_lint(id: &str) -> bool {
     TWINS.get(id).is_none_or(|generated| {
-        generated.twin.is_none() || matches!(generated.place, Place::GroupChild)
+        generated.twin.is_none() || matches!(generated.place, Place::GroupChild | Place::GroupPath)
     })
 }
 
@@ -880,9 +1216,11 @@ const ELS: List = list::item(5);
 pub enum Cmd {
     #[k::syntax("go")] Go(),
     #[k::syntax("hold")] Hold(),
+    #[k::syntax("keep({body})")] Keep { body: KSequence },
 "#;
 
-/// The children of `place`'s group (a Map collection's instance's key `aid` first).
+/// The children of `place`'s group (a Map collection's instance's key `aid` first, a List
+/// collection's instance's group `jh` last).
 fn children(place: Place) -> String {
     let mut out = String::new();
     if place == Place::MapChild {
@@ -896,8 +1234,20 @@ fn children(place: Place) -> String {
             kind.type_name()
         );
     }
+    if place == Place::ListChild {
+        out.push_str("    #[k::cell(nested)]\n    pub jh: Hh,\n");
+    }
     out
 }
+
+/// The kinds of the top-level `?` leaves: every kind but the computation.
+const OPTIONAL_LEAVES: [Kind; 5] = [
+    Kind::List,
+    Kind::Map,
+    Kind::Set,
+    Kind::Int,
+    Kind::SequenceLeaf,
+];
 
 /// The record of `place`'s group with every child at its base value.
 fn default_record(place: Place) -> String {
@@ -907,6 +1257,9 @@ fn default_record(place: Place) -> String {
     }
     for kind in Kind::ALL {
         fields.push(format!("{}: {}", cell(place, kind), kind.default()));
+    }
+    if place == Place::ListChild {
+        fields.push(format!("jh: {}", default_record(Place::NestedChild)));
     }
     format!("{} {{ {} }}", place.group(), fields.join(", "))
 }
@@ -918,6 +1271,8 @@ static AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
         Place::MapChild,
         Place::GroupChild,
         Place::OptChild,
+        Place::SetChild,
+        Place::NestedChild,
     ] {
         let _ = write!(
             out,
@@ -929,12 +1284,22 @@ static AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
     out.push_str(
         "#[k::cell]\npub struct Queue {\n    #[k::cell(multiplicity = \"*\", cell_type = \"List\", \
          nested)]\n    pub job: J,\n}\n\n#[k::cell]\npub struct Bank {\n    \
-         #[k::cell(multiplicity = \"*\", cell_type = \"Map\", nested)]\n    pub acct: A,\n}\n\n",
+         #[k::cell(multiplicity = \"*\", cell_type = \"Map\", nested)]\n    pub acct: A,\n}\n\n#[k::cell]\npub struct Club {\n    \
+         #[k::cell(multiplicity = \"*\", cell_type = \"Set\", nested)]\n    pub memb: E,\n}\n\n",
     );
     out.push_str(
         "#[k::configuration]\npub struct Machine {\n    #[k::cell]\n    pub k: k::configuration::KCell<KSequence>,\n",
     );
     out.push_str(&children(Place::Top));
+    for kind in OPTIONAL_LEAVES {
+        let _ = write!(
+            out,
+            "    #[k::cell(multiplicity = \"?\")]\n    pub {}: Option<{}>,\n",
+            cell(Place::OptLeaf, kind),
+            kind.type_name()
+        );
+    }
+    out.push_str("    #[k::cell(nested)]\n    pub club: Club,\n");
     out.push_str(
         "    #[k::cell(nested)]\n    pub queue: Queue,\n    #[k::cell(nested)]\n    pub bank: Bank,\n    \
          #[k::cell(nested)]\n    pub gg: Gg,\n    #[k::cell(multiplicity = \"?\", nested)]\n    \
@@ -955,13 +1320,22 @@ static INITIALIZER: LazyLock<String> = LazyLock::new(|| {
             kind.default()
         );
     }
+    for kind in OPTIONAL_LEAVES {
+        let _ = writeln!(
+            out,
+            "            {}: k::absent!({}),",
+            cell(Place::OptLeaf, kind),
+            kind.default()
+        );
+    }
     let _ = writeln!(
         out,
-        "            queue: Queue {{ job: {} }},\n            bank: Bank {{ acct: {} }},\n            gg: {},\n            og: k::absent!({}),",
+        "            queue: Queue {{ job: {} }},\n            bank: Bank {{ acct: {} }},\n            gg: {},\n            og: k::absent!({}),\n            club: Club {{ memb: {} }},",
         default_record(Place::ListChild),
         default_record(Place::MapChild),
         default_record(Place::GroupChild),
         default_record(Place::OptChild),
+        default_record(Place::SetChild),
     );
     out.push_str("        }\n    }\n}\n");
     out
@@ -979,7 +1353,7 @@ fn entry(
     subject: bool,
     labelled: bool,
 ) -> Option<(String, String)> {
-    let cells = form != Form::Readable;
+    let cells = !form.readable();
     let name = cell(place, kind);
     let field = content.map_or_else(String::new, |_| format!("{name}: {{}}, "));
     let fragment = |record: String| {
@@ -994,19 +1368,38 @@ fn entry(
             content?;
             return Some((format!("{name}: "), String::new()));
         }
-        Place::ListChild | Place::MapChild => {
+        Place::OptLeaf => match (content, cells) {
+            (Some(_), _) => format!("{name}: {{}}"),
+            (None, false) => format!("{name}: Some(_)"),
+            (None, true) => format!("{name}: Some(k::configuration::Cell(_))"),
+        },
+        Place::ListChild | Place::MapChild | Place::SetChild | Place::NestedChild => {
             let (key, open, close) = match (place, cells) {
-                (Place::ListChild, false) => ("job", "[", ", ..]"),
-                (Place::ListChild, true) => ("crate::Queue::job", "[", ", ..]"),
-                (_, false) => ("acct", "{ ", ", .. }"),
-                (_, true) => ("crate::Bank::acct", "{ ", ", .. }"),
+                (Place::ListChild | Place::NestedChild, false) => ("job", "[", ", ..]"),
+                (Place::ListChild | Place::NestedChild, true) => {
+                    ("crate::Queue::job", "[", ", ..]")
+                }
+                (Place::MapChild, false) => ("acct", "{ ", ", .. }"),
+                (Place::MapChild, true) => ("crate::Bank::acct", "{ ", ", .. }"),
+                (_, false) => ("memb", "{ ", ", .. }"),
+                (_, true) => ("crate::Club::memb", "{ ", ", .. }"),
+            };
+            let (group, field) = if place == Place::NestedChild {
+                let holder = if cells { "crate::Hh" } else { "Hh" };
+                let field = content.map_or_else(String::new, |_| {
+                    format!("jh: {holder} {{ {name}: {{}}, .. }}, ")
+                });
+                (Place::ListChild.group(), field)
+            } else {
+                (place.group(), field)
             };
             let label = if subject && labelled { "me @ " } else { "" };
             let rest = if subject { ".." } else { "..me" };
-            let record = fragment(format!("{} {{ {field}{rest} }}", place.group()));
+            let record = fragment(format!("{group} {{ {field}{rest} }}"));
             format!("{key}: {open}{label}{record}{close}")
         }
         Place::GroupChild => format!("gg: {}", fragment(format!("Gg {{ {field}.. }}"))),
+        Place::GroupPath => format!("crate::Gg::{name}: {{}}"),
         Place::OptChild => format!("og: Some({})", fragment(format!("Og {{ {field}.. }}"))),
     };
     Some(whole.split_once("{}").map_or_else(
@@ -1033,6 +1426,99 @@ fn push_entry(
     (start..item.text.len(), child_start..child_end)
 }
 
+/// Push a `cells!` fn's parameters: the command's arguments and the row's binders.
+fn push_parameters(item: &mut ItemBuilder, row: &Row) {
+    for arg in row.args {
+        item.push(&format!("    {arg}: {INT},\n"));
+    }
+    for (name, ty) in row.params {
+        item.push(&format!("    {name}: {ty},\n"));
+    }
+}
+
+/// Push the head of a kept sentence's or a single-body rule's fn, up to its `k::cells!`
+/// pattern's entries: a context whose hole is the command's own `Int` argument, so it heats
+/// nothing a program runs and is judged for its pattern alone; a context alias framing `here`;
+/// an equation of a function of its own, so that its function context makes no other function of
+/// the base one of the configuration; a single-body rule rewriting the command away.
+fn kept_head(item: &mut ItemBuilder, form: Form, row: &Row, tag: &str, command: &str, args: &str) {
+    match form {
+        Form::Context => {
+            item.push(&format!(
+                "#[k::context(hole = h)]\nfn case_{tag}(\n    h: k::Term<k::builtin::Int>,\n"
+            ));
+            push_parameters(item, row);
+            item.push(&format!(
+                "    k::cells! {{ k: k::configuration::KCell(crate::Cmd::{command} {{ a: h }}, ..)"
+            ));
+        }
+        Form::ContextAlias => {
+            item.push(&format!(
+                "#[k::context_alias(name = case_{tag}, here = site)]\nfn case_{tag}(\n"
+            ));
+            push_parameters(item, row);
+            item.push("    k::cells! { k: k::configuration::KCell(site, tail @ ..)");
+        }
+        Form::FunctionContext => {
+            item.push(&format!(
+                "#[k::function(partial, sort = Int, syntax = \"probe{tag}({{a}})\")]\n\
+                 pub struct Probe{tag} {{\n    pub a: k::Term<k::KItem>,\n}}\n\n\
+                 #[k::equation]\nfn case_{tag}(\n    a: k::Term<k::KItem>,\n"
+            ));
+            push_parameters(item, row);
+            item.push(&format!(
+                "    k::term![Probe{tag}(a)]: k::Term<k::builtin::Int>,\n    k::cells! {{ "
+            ));
+        }
+        _ => {
+            item.push(&format!(
+                "#[k::rule(label = \"case-{tag}\")]\npub fn case_{tag}(\n"
+            ));
+            push_parameters(item, row);
+            item.push(&format!(
+                "    k::cells! {{ k: k::configuration::KCell(k::rewrite!(crate::Cmd::{command}({args}) \
+                 => ()), ..)"
+            ));
+        }
+    }
+}
+
+/// The end of a kept sentence's or a single-body rule's fn, after its pattern's entries.
+const fn kept_tail(form: Form) -> &'static str {
+    match form {
+        Form::ContextAlias => ", state @ .. }: crate::Machine,\n) {\n}\n",
+        Form::FunctionContext => {
+            ", .. }: crate::Machine,\n) -> k::Term<k::builtin::Int> {\n    0\n}\n"
+        }
+        Form::Context => ", .. }: crate::Machine,\n) {\n}\n",
+        _ => ", .. }: crate::Machine,\n) {}\n",
+    }
+}
+
+/// A case's written entries, each with its child's text where it writes the child.
+type Ranges = Vec<(std::ops::Range<usize>, Option<std::ops::Range<usize>>)>;
+
+/// The ranges of a case's entry and spelling: the entry runs over the cell's entries on both
+/// sides; the spelling is the child's text, or, where both sides write it, from the subject's
+/// child to the result's.
+fn entry_and_spelling(ranges: &Ranges) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+    let entry = ranges
+        .first()
+        .map(|first| first.0.start)
+        .unwrap_or_default()
+        ..ranges.last().map(|last| last.0.end).unwrap_or_default();
+    let children = ranges
+        .iter()
+        .filter_map(|(_, child)| child.clone())
+        .collect::<Vec<_>>();
+    let spelling = match children.as_slice() {
+        [child] => child.clone(),
+        [first, .., last] => first.start..last.end,
+        [] => entry.clone(),
+    };
+    (entry, spelling)
+}
+
 /// The case of `row` at `place` in `form`, whose child texts are `texts` (a twin's wrapped).
 fn render(form: Form, place: Place, row: &Row, texts: [Option<&str>; 2]) -> Case {
     let spec = CaseSpec {
@@ -1052,7 +1538,12 @@ fn render(form: Form, place: Place, row: &Row, texts: [Option<&str>; 2]) -> Case
         ],
         construct: construct(texts),
     };
-    let command = Command::for_case(&spec.id(), row.args.len());
+    let arity = if form == Form::Context {
+        1
+    } else {
+        row.args.len()
+    };
+    let command = Command::for_case(&spec.id(), arity);
     let args = row.args.join(", ");
     let labelled = texts[1].is_some();
     // The subject writes the cell where it writes the child, or where a child's result updates
@@ -1062,37 +1553,48 @@ fn render(form: Form, place: Place, row: &Row, texts: [Option<&str>; 2]) -> Case
     let result =
         texts[1].and_then(|text| entry(form, place, row.kind, Some(text), false, labelled));
     let mut item = ItemBuilder::new();
-    let mut ranges = Vec::new();
+    let mut ranges = Ranges::new();
     let mut write =
         |item: &mut ItemBuilder, entry: Option<(String, String)>, text: Option<&str>| {
             if let Some(entry) = entry {
-                item.push(", ");
+                if !item.text.ends_with("{ ") {
+                    item.push(", ");
+                }
                 let (entry, child) = push_entry(item, entry, text);
                 ranges.push((entry, text.map(|_| child)));
             }
         };
-    if form == Form::Readable {
-        let tag = spec.tag();
-        item.push("k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    ")
-            .push(&format!("case_{tag}: {{ k: [{}({args}), ..]", command.name));
+    let tag = spec.tag();
+    if form.kept() || form == Form::SingleBody {
+        kept_head(&mut item, form, row, &tag, &command.name, &args);
+        write(&mut item, subject, texts[0]);
+        item.push(kept_tail(form));
+    } else if form.readable() {
+        let (block, attribute) = if form == Form::ReadableClaim {
+            ("k::claims!", "#[k::claim(all_paths)]\n    ")
+        } else {
+            ("k::rules!", "")
+        };
+        item.push(&format!(
+            "{block} {{\n    for Machine;\n    use Cmd::*;\n\n    {attribute}case_{tag}: {{ k: [{}({args}), ..]",
+            command.name
+        ));
         write(&mut item, subject, texts[0]);
         item.push(" } => { k: [..]");
         write(&mut item, result, texts[1]);
-        item.push(" };\n}\n");
+        item.push(" }");
+        if !row.declares.is_empty() {
+            item.push(&format!(" where {}", row.declares));
+        }
+        item.push(";\n}\n");
     } else {
-        let tag = spec.tag();
         let marker = if form == Form::CellsClaim {
             format!("#[k::claim(all_paths, label = \"case-{tag}\")]")
         } else {
             format!("#[k::rule(label = \"case-{tag}\")]")
         };
         item.push(&format!("{marker}\npub fn case_{tag}(\n"));
-        for arg in row.args {
-            item.push(&format!("    {arg}: {INT},\n"));
-        }
-        for (name, ty) in row.params {
-            item.push(&format!("    {name}: {ty},\n"));
-        }
+        push_parameters(&mut item, row);
         item.push(&format!(
             "    k::cells! {{ k: k::configuration::KCell(crate::Cmd::{}({args}), tail @ ..)",
             command.name
@@ -1107,22 +1609,7 @@ fn render(form: Form, place: Place, row: &Row, texts: [Option<&str>; 2]) -> Case
         write(&mut item, result, texts[1]);
         item.push(", ..state }\n}\n");
     }
-    // The entry runs over the cell's entries on both sides; the spelling is the child's text,
-    // or, where both sides write it, from the subject's child to the result's.
-    let entry = ranges
-        .first()
-        .map(|first| first.0.start)
-        .unwrap_or_default()
-        ..ranges.last().map(|last| last.0.end).unwrap_or_default();
-    let children = ranges
-        .iter()
-        .filter_map(|(_, child)| child.clone())
-        .collect::<Vec<_>>();
-    let spelling = match children.as_slice() {
-        [child] => child.clone(),
-        [first, .., last] => first.start..last.end,
-        [] => entry.clone(),
-    };
+    let (entry, spelling) = entry_and_spelling(&ranges);
     item.entry = Some(entry);
     item.spelling = Some(spelling);
     let mut case = spec.finish(Packaging::Shared(command), &item);

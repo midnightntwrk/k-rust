@@ -378,3 +378,48 @@ kind = "k8"
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
 # and its twin triaged by meaning (TWIN-1 .. TWIN-10); TWINFIX resolved every one, so none is pending.
 
+# TWINWIDE: the widened family's reds, each triaged by meaning (progress log): a readable alias over a
+# Map cell's braces (BACKMAP item 2.1), a readable `?` leaf's `Some({ 0 -> x })` in a result (TWW-1),
+# the print of a readable result writing a group's child inside an instance (TWW-2), and C6's limit
+# told as a signature error outside the case (TWW-3).
+
+["child-twins/readable/subject/top/map/b @ { 0 -> v, .. }"]
+finding = "BACKMAP-2-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/list-child/map/b @ { 0 -> v, .. }"]
+finding = "BACKMAP-2-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/map-child/map/b @ { 0 -> v, .. }"]
+finding = "BACKMAP-2-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/group-child/map/b @ { 0 -> v, .. }"]
+finding = "BACKMAP-2-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/subject/opt-child/map/b @ { 0 -> v, .. }"]
+finding = "BACKMAP-2-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["child-twins/readable/result/opt-leaf/map/Some({ 0 -> x })"]
+finding = "TWW-1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["k3/child-twins/readable/result/nested-child/int/x"]
+finding = "TWW-2"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/result/nested-child/list/[x]"]
+finding = "TWW-2"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["k3/child-twins/readable/result/nested-child/map/{ 0 -> x }"]
+finding = "TWW-2"
+deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+
+["child-twins/cells/both/nested-child/k/[Cmd::Go(), rest @ ..] => [Cmd::Hold(), ..rest]"]
+finding = "TWW-3"
+deviation = "krs::syntax::unsupported-rule-signature @ item"
+

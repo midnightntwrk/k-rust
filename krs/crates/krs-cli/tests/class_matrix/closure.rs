@@ -192,7 +192,12 @@ pub fn case_k(additions: &[String], tag: &str) -> String {
 /// - a cell's unit beside its frame, `<c> .Map ... </c>` (`.K`, `.List`, `.Set` alike), and its
 ///   frame alone, `<c> ... </c>`, match every content of the cell, as `_` does;
 /// - an anonymous variable of a list, map or set cell's own sort at its content's edge, `<c>
-///   _:List ..`, constrains nothing `_` does not: the cell's content has that sort.
+///   _:List ..`, constrains nothing `_` does not: the cell's content has that sort;
+/// - a cell whose whole content is one parenthesized rewrite, `<c> (A => B) </c>`, is `<c> A => B
+///   </c>`, only where the parentheses hold the whole content and a rewrite at their top level:
+///   parentheses group and denote nothing, so both are the rewrite of the cell's content (a
+///   single-body rule's `k::rewrite!` in a group's record is printed in them, at a top-level
+///   cell without).
 #[must_use]
 pub fn twin_equal(child: &str, twin: &str) -> bool {
     child == twin || twin_normal(child) == twin_normal(twin)
@@ -219,7 +224,7 @@ fn twin_normal(text: &str) -> String {
             text.replace_range(close..close + rest.len(), " ...");
         }
     }
-    let mut text = map_updates(&text);
+    let mut text = map_updates(&content_rewrites(&text));
     for unit in [".K", ".Map", ".List", ".Set"] {
         text = text.replace(&format!("> {unit} ... </"), "> _ </");
     }
@@ -230,6 +235,56 @@ fn twin_normal(text: &str) -> String {
             .replace(&format!(" _:{sort} </"), " _ </");
     }
     renamed(&text)
+}
+
+/// `text` with the parentheses of each cell's whole content that is one rewrite taken away, as
+/// [`twin_equal`] says: `<c> (A => B) </c>` is `<c> A => B </c>`.
+fn content_rewrites(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(found) = rest.find("> (") {
+        let open = found + 2;
+        out.push_str(&rest[..open]);
+        let after = &rest[open..];
+        // The tag the parenthesis follows opens a cell: `<name>`, no closing tag.
+        let tag_start = rest[..=found].rfind('<');
+        let opens_cell = tag_start.is_some_and(|start| {
+            let name = &rest[start + 1..found];
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        });
+        let mut depth = 0usize;
+        let mut close = None;
+        let mut rewrite = false;
+        for (index, character) in after.char_indices() {
+            match character {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(index);
+                        break;
+                    }
+                }
+                '=' if depth == 1 && after[index..].starts_with("=> ") => rewrite = true,
+                _ => {}
+            }
+        }
+        match close {
+            Some(close) if opens_cell && rewrite && after[close + 1..].starts_with(" </") => {
+                out.push_str(&after[1..close]);
+                rest = &after[close + 1..];
+            }
+            _ => {
+                out.push('(');
+                rest = &after[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// `text` with each one-entry update `M [ K <- V ]` read as a join where [`twin_equal`] says it
@@ -532,6 +587,24 @@ mod tests {
         assert_eq!(
             normalize("<k> c ( X:Int ) => .K ... </k> <tk> Y:KItem ~> T:K => X:Int ~> T:K </tk>"),
             "<k> c ( V0:Int ) => .K ... </k> <tk> _:KItem ~> V1:K => V0:Int ~> V1:K </tk>"
+        );
+    }
+
+    /// A cell's whole content that is one parenthesized rewrite is that rewrite; parentheses
+    /// that hold part of the content, or no rewrite at their top level, are kept.
+    #[test]
+    fn a_whole_content_rewrite_in_parentheses_is_the_rewrite() {
+        assert!(twin_equal(
+            "<k> c </k>\n<tn> (V1:Int => V0:Int) </tn>",
+            "<k> c </k>\n<tn> V1:Int => V0:Int </tn>"
+        ));
+        assert_eq!(
+            content_rewrites("<tl> (_ => ListItem(V0:Int)) </tl> <k> (c => .K) ... </k>"),
+            "<tl> _ => ListItem(V0:Int) </tl> <k> (c => .K) ... </k>"
+        );
+        assert_eq!(
+            content_rewrites("<tn> (f ( X => Y )) </tn> <tm> (A) => B </tm>"),
+            "<tn> (f ( X => Y )) </tn> <tm> (A) => B </tm>"
         );
     }
 

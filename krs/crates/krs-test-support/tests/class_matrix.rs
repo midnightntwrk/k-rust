@@ -216,8 +216,28 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // one twin, `[Cmd::Go(), ..]` and `k::k![Cmd::Go(), ..]`, share it): 27 readable rows
             // at 4 places and the 21 not of the computation at the top, and 35 `cells!` rows in a
             // rule and in a claim at 4 places with their 34 twins (TWINFIX: the `KSequence` leaf's
-            // saved remainder).
-            (Family::ChildTwins, 27 * 4 + 21 + 2 * (35 * 4 + 34)),
+            // saved remainder). TWINWIDE: 45 readable rows at those 4 places, the 14 core ones at
+            // the nested group's and the Set instance's child and 12 at a `?` leaf, and 35 twins;
+            // 53 `cells!` rows in a rule and a claim at the 4 places with their 52 twins, and the 17
+            // core ones at the nested and Set children and 14 at a `?` leaf, in a rule; 14 readable
+            // claims at the 4 places and 13 twins; 9 core subjects in a context at the 4 places and
+            // the top, and in a context alias and a function context at the top and the group path;
+            // 5 single-body rewrites at the top, the 4 places and a `?` leaf.
+            (
+                Family::ChildTwins,
+                45 * 4
+                    + 14 * 2
+                    + 12
+                    + 35
+                    + 2 * (53 * 4 + 52)
+                    + 17 * 2
+                    + 14
+                    + 14 * 4
+                    + 13
+                    + 9 * 5
+                    + 2 * 9 * 2
+                    + 5 * 6,
+            ),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {

@@ -241,7 +241,39 @@ supported yet in a rule, and a group record child's kept result rest (`nested-an
 A leaf of sort `KSequence` (`tq`, `Cell<KSequence>`) holds the computation's remainder saved whole
 (`tq: Cell(tail)`, a child's `jq: tail`); a declaration holding one writes every leaf with its
 wrapper, so the base declares every leaf so (TWINFIX: `krs expand` prints such a base's initializer
-by each cell's declared kind, `Cell::new(k::k![])` for that leaf). The family runs in the `cells`
+by each cell's declared kind, `Cell::new(k::k![])` for that leaf).
+
+TWINWIDE widened the family in four steps. *Spellings:* `_` and a bare binder `b` at every kind,
+and an alias (`b @ [y, ..]`, `b @ { 0 -> v, .. }`, `b @ 0`). *Places* (`Place::widened`, each kind's
+representative rows only, `Reach::Core`, in a readable and a `cells!` rule): a top-level `?` leaf's
+present content (`pl: Some([y, ..])`, the `cells!` `pl: Some(k::configuration::Cell([y, ..]))`,
+"`Some(..)` holds the present cell's content as a record's entry does"; a row that writes only the
+result matches `Some(_)`), a Set collection's instance child (`club.memb` of `E`) and a group child
+inside a List instance's child (`jh: Hh { hl: .., .. }` in `J`). *Sentences* (`Form::writes`): a
+readable claim at TWINORACLE's places; a `#[k::context]` there too, and a context alias and a
+function context at the top and at a fixed group's child named through its struct
+(`crate::Gg::gl:`, `Place::GroupPath`), the only child they read ("A context alias and an
+equation's function context read fixed leaf cells only"), each on a core row's subject; and a
+single-body rule's rewrite of a cell's whole content (`jn: k::rewrite!(y => x)`, twinned with
+`tn: k::configuration::Cell(k::rewrite!(y => x))`) at the top, an instance's, a group's and a `?`
+group's child and a `?` leaf's present content. *Computation rows after KSEQSPLITS:* `[b, ..]`,
+`[b, c, ..]` and `[Keep { body: b }, b, ..]` with `b: KSequence` (readable `where b: KSequence`).
+On the computation a bare `_` or binder is the entry, not a content (`Row::bare`): its twin is the
+same bare entry at the top (`tk: _`), which the table refuses `cell-wrapper` as it does the
+computation cell's (P3c). TWINWIDE's stated differences: a group inside an instance record keeps no
+result rest in its child (`nested-anonymous-rest`, as a group record's child) and holds no
+computation's items (`instance-group-computation-child`, the reference's "not supported yet where
+the group must be one term", CHILDKIND's C6); a readable `?` leaf's `Some([..])` keeps no result
+rest (`nested-anonymous-rest`, "inside `Some([..])` .. a result's `..` is not supported yet"); a
+single-body rewrite of a `?` group's child stands below the root of the optional cell's present
+content, which "has no lowering yet" (`rewrite-below-present-root`). New twins' classes:
+`computation-split` (KSEQSPLITS: `KCell(b, ..)` with `b: KSequence` splits in more than one way;
+its advised case is `[i, ..]` with `i: KItem`). `closure::twin_equal` gained one rule: a cell
+whose whole content is one parenthesized rewrite, `<c> (A => B) </c>`, is `<c> A => B </c>`, only
+where the parentheses hold the whole content and a rewrite at their top level (parentheses group
+and denote nothing; a single-body rewrite in a group's record is printed in them).
+
+The family runs in the `cells`
 shard and the first shard of the fast tier: 477 cases (TWINFIX, 2026-11-13, 6 workers, kept
 scratch: alone 151 package builds and 199 s under a load of about 45, K6 12 checks; TWINORACLE's
 467 took 205 builds and 63 s warm, and the whole `cells` shard went from 632 cases to 1,099, 813
