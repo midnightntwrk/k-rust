@@ -1124,7 +1124,7 @@ fn several_rests_are_refused_where_they_mean_nothing() {
         ),
         (
             "k::patterns! { for spec::Machine; use spec::StepOp::*; p: { k: [.., Fetch(), ..] }; }",
-            "error[krs::collect::invalid-configuration]: the entry of the computation cell `k` has an item after its rest: a computation is read from its front",
+            "error[krs::collect::invalid-configuration]: the entry of the computation cell `k` has an item after its rest: not supported: a pattern the target matches is matched from the computation's front",
         ),
     ] {
         let temporary = temp_dir();

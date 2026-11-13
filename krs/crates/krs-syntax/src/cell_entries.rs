@@ -507,7 +507,7 @@ impl Refusal {
                 crate::positions::Class::OpenRecordOutsidePattern.summary()
             ),
             Self::ComputationBackItem => format!(
-                "the entry of the computation cell `{cell}` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it"
+                "the entry of the computation cell `{cell}` has an item after its rest: not supported: a pattern the target matches is matched from the computation's front, one item at a time, so a rest before an item is a match from the computation's end, which the target does not perform; and a result, or a claim's subject, that writes items after the rest has no lowering yet; the rest (`..`) ends the computation's items"
             ),
             Self::ConsListBackItem => format!(
                 "the cell `{cell}` holds a cons list, which is matched and built from its front, so its back is no constructor pattern: `..` only ends its brackets, after the elements before the rest"
@@ -1480,8 +1480,10 @@ impl Admission<'_> {
             self.path.push(REST);
             return Err(Refusal::ContinuationInReadable);
         }
-        // The computation is read from its front, where the next step is, in every form: `..`
-        // ends it and no item follows (E1).
+        // Items after the rest mean something on every side (`[.., x]` matches the computations
+        // that end in `x`; a result's `[.., x]` puts `x` after the kept rest), but no form has
+        // them: a pattern the target matches is matched from the computation's front, so not from
+        // its end, and neither a result nor a claim's subject has a lowering for them yet (E1).
         if !seq.back().is_empty() {
             self.path.push(seq.items.len() - seq.back().len());
             return Err(Refusal::ComputationBackItem);
