@@ -1987,14 +1987,15 @@ pub(crate) fn qualified_label(stored: &str, module: &str) -> String {
 }
 
 /// The labels an unknown anchor may have meant, for its refusal, compared by last component (the
-/// text after the last `.` or `-`): a rule label is near when its last component contains the
-/// anchor's, shares a word of three or more characters with it (words are separated by `_`), or
-/// is within a third of the anchor's length in edits of single characters (at least one). A
-/// renamed item keeps most of its words (`plus_succ` to `plus_step`), and a misspelt anchor is a
-/// few edits away. They are listed containing first, then by edit distance, then in byte order,
-/// at most five; with none, the text says so, so that the refusal's next step can always point at
-/// the detail.
-fn near_labels(authored: &[Authored<'_>], anchor: &str) -> String {
+/// text after the last `.` or `-`): a rule label is near when its last component is the anchor's
+/// up to case and `_` (a respelling, `plusZero` to `plus_zero`), contains the anchor's, shares a
+/// word of three or more characters with it (words are separated by `_`), or is within a third of
+/// the anchor's length in edits of single characters (at least one). A moved item keeps its last
+/// component (`nat--plus_zero` to `nat--arith--plus_zero`), a renamed item keeps most of its words
+/// (`plus_succ` to `plus_step`), and a misspelt anchor is a few edits away. They are listed
+/// respellings first, then containing, then by edit distance, then in byte order, at most five;
+/// with none, the text says so, so that the refusal's next step can always point at the detail.
+fn near_labels<'a>(labels: impl IntoIterator<Item = &'a str>, anchor: &str) -> String {
     let last_component = |text: &'_ str| -> String {
         text.rsplit(['.', '-'])
             .find(|part| !part.is_empty())
@@ -2008,33 +2009,41 @@ fn near_labels(authored: &[Authored<'_>], anchor: &str) -> String {
             .map(str::to_owned)
             .collect()
     };
+    let folded = |text: &str| -> String {
+        text.chars()
+            .filter(|c| *c != '_')
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
     let anchor_words = words(&last);
+    let anchor_folded = folded(&last);
     let limit = (last.chars().count() / 3).max(1);
-    let mut near = authored
-        .iter()
-        .filter(|a| a.is_rule())
-        .filter_map(Authored::label)
+    let mut near = labels
+        .into_iter()
         .collect::<BTreeSet<_>>()
         .into_iter()
         .filter_map(|label| {
             let component = last_component(label);
             let distance = edit_distance(&component, &last);
+            let respelt = folded(&component) == anchor_folded;
             let contains = component.contains(last.as_str());
             let shares = !words(&component).is_disjoint(&anchor_words);
-            (contains || shares || distance <= limit).then_some((!contains, distance, label))
+            (respelt || contains || shares || distance <= limit)
+                .then_some((!respelt, !contains, distance, label))
         })
         .collect::<Vec<_>>();
     near.sort_unstable();
     if near.is_empty() {
         return format!(
-            "; no label contains {last:?}, shares a word with it or is within {limit} edit{} of it",
+            "; no label is {last:?} up to case and `_`, contains it, shares a word with it or is \
+             within {limit} edit{} of it",
             if limit == 1 { "" } else { "s" }
         );
     }
     let shown = near
         .iter()
         .take(5)
-        .map(|(_, _, label)| *label)
+        .map(|(_, _, _, label)| *label)
         .collect::<Vec<_>>()
         .join(", ");
     let more = near.len().saturating_sub(5);
@@ -2063,6 +2072,153 @@ fn edit_distance(left: &str, right: &str) -> usize {
         previous = current;
     }
     previous[right.len()]
+}
+
+/// The most characters of a rule's text a `find-not-found` refusal quotes ([`excerpt`]).
+pub(crate) const EXCERPT_CHARS: usize = 400;
+
+/// The largest search for the text nearest a `find` ([`nearest_text`]), in cells of its table
+/// (characters of `find` times characters searched): 16 million cells, well under a second,
+/// cover a `find` of a hundred characters in a file of 160,000. A larger search is not made,
+/// and the refusal says so, so that a refusal costs little whatever the sizes.
+pub(crate) const NEAREST_TEXT_CELLS: usize = 16_000_000;
+
+/// The text nearest a `find` that does not occur ([`nearest_text`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct NearestText {
+    /// The byte range of the text in the searched string.
+    pub(crate) range: Range<usize>,
+    /// Its edit distance from `find`, in single-character insertions, deletions and
+    /// substitutions.
+    pub(crate) distance: usize,
+}
+
+/// The substring of `haystack` with the least edit distance from `needle` (single-character
+/// insertions, deletions and substitutions, over characters), and that distance: the
+/// approximate-substring form of [`edit_distance`], where the substring may start and end
+/// anywhere at no cost. Of equally near substrings it is one whose length in characters is
+/// nearest `needle`'s (`x + 2` rather than `x + ` for `x + 1`), and of those the one that ends
+/// first; at each end the table keeps one start, reached by matching or substituting a character
+/// before skipping one of `needle`, before skipping one of `haystack`. The answer is a function
+/// of the two texts. `None` when either is empty or the search would take more than
+/// [`NEAREST_TEXT_CELLS`] cells.
+pub(crate) fn nearest_text(haystack: &str, needle: &str) -> Option<NearestText> {
+    let needle = needle.chars().collect::<Vec<_>>();
+    // The byte offset of each character of `haystack`, and its length.
+    let offsets = haystack
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain([haystack.len()])
+        .collect::<Vec<_>>();
+    let cells = needle.len().checked_mul(offsets.len() - 1)?;
+    if needle.is_empty() || haystack.is_empty() || cells > NEAREST_TEXT_CELLS {
+        return None;
+    }
+    // `cost[i]` is the least distance of `needle[..i]` from a substring of `haystack` that ends
+    // at the current character, and `start[i]` the index of that substring's first character.
+    let mut cost = (0..=needle.len()).collect::<Vec<_>>();
+    let mut start = vec![0; needle.len() + 1];
+    let mut next_cost = Vec::with_capacity(needle.len() + 1);
+    let mut next_start = Vec::with_capacity(needle.len() + 1);
+    // The best substring's (distance, length gap) and character range.
+    let mut best: Option<((usize, usize), Range<usize>)> = None;
+    for (index, character) in haystack.chars().enumerate() {
+        let end = index + 1;
+        next_cost.clear();
+        next_start.clear();
+        next_cost.push(0);
+        next_start.push(end);
+        for (i, wanted) in needle.iter().enumerate() {
+            let mut cell = (cost[i] + usize::from(*wanted != character), start[i]);
+            if next_cost[i] + 1 < cell.0 {
+                cell = (next_cost[i] + 1, next_start[i]);
+            }
+            if cost[i + 1] + 1 < cell.0 {
+                cell = (cost[i + 1] + 1, start[i + 1]);
+            }
+            next_cost.push(cell.0);
+            next_start.push(cell.1);
+        }
+        std::mem::swap(&mut cost, &mut next_cost);
+        std::mem::swap(&mut start, &mut next_start);
+        let from = start[needle.len()];
+        let key = (cost[needle.len()], (end - from).abs_diff(needle.len()));
+        if best.as_ref().is_none_or(|(best, _)| key < *best) {
+            best = Some((key, from..end));
+        }
+    }
+    best.map(|((distance, _), range)| NearestText {
+        range: offsets[range.start]..offsets[range.end],
+        distance,
+    })
+}
+
+/// `text` as a refusal quotes it (`{:?}`, so a quoted text is one line, and a TOML basic string
+/// holds it as printed when it has no control character but tab, carriage return and line feed): whole when it has at most [`EXCERPT_CHARS`] characters, else that many
+/// characters from the start of the line holding the byte `focus`, marked `...` where cut.
+pub(crate) fn excerpt(text: &str, focus: usize) -> String {
+    if text.chars().count() <= EXCERPT_CHARS {
+        return format!("{text:?}");
+    }
+    let from = text[..focus].rfind('\n').map_or(0, |newline| newline + 1);
+    let to = text[from..]
+        .char_indices()
+        .nth(EXCERPT_CHARS)
+        .map_or(text.len(), |(offset, _)| from + offset);
+    format!(
+        "{}{:?}{}",
+        if from > 0 { "..." } else { "" },
+        &text[from..to],
+        if to < text.len() { "..." } else { "" }
+    )
+}
+
+/// What a `find-not-found` refusal adds to its detail so that the edit is re-anchored in one
+/// look: the text of `scope` (a byte range of the K view `text` of `file`) nearest `find`
+/// ([`nearest_text`]) with its line, when its distance is within a third of `find`'s length in
+/// characters (at least one) and below that length (some character of `find` is kept), the rule
+/// that [`near_labels`] applies to labels; and, for the addressed rule's text (`rule`), that text
+/// ([`excerpt`], from the nearest text's line when it is long). It suggests and changes nothing:
+/// a respelled text need not be the text the mutation meant, so the author chooses.
+fn find_hint(text: &str, scope: Range<usize>, find: &str, file: &str, rule: bool) -> String {
+    let what = if rule { "the rule" } else { file };
+    let searched = &text[scope.clone()];
+    let length = find.chars().count();
+    let limit = (length / 3).max(1);
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+    let nearest = nearest_text(searched, find);
+    let searched_whole = nearest.is_some();
+    let close = nearest.filter(|near| near.distance <= limit && near.distance < length);
+    let mut hint = match (&close, searched_whole) {
+        (Some(near), _) => {
+            let line = |offset: usize| 1 + text[..scope.start + offset].matches('\n').count();
+            let (first, last) = (line(near.range.start), line(near.range.end));
+            format!(
+                "; nearest text, {} edit{} from find, at {file}:{first}{}: {:?}",
+                near.distance,
+                plural(near.distance),
+                if last > first {
+                    format!("-{last}")
+                } else {
+                    String::new()
+                },
+                &searched[near.range.clone()]
+            )
+        }
+        (None, true) => format!(
+            "; no text of {what} is within {limit} edit{} of find",
+            plural(limit)
+        ),
+        (None, false) => format!("; {what} is too long to search for the text nearest find"),
+    };
+    if rule {
+        let focus = close.map_or(0, |near| near.range.start);
+        hint.push_str(&format!(
+            "; the rule's text now: {}",
+            excerpt(searched, focus)
+        ));
+    }
+    hint
 }
 
 /// The edits addressed to one rule.
@@ -2124,7 +2280,13 @@ fn address(
                         format!(
                             "no rule is labelled {label:?}, and no label ends with it as a whole \
                              component{}",
-                            near_labels(authored, label)
+                            near_labels(
+                                authored
+                                    .iter()
+                                    .filter(|a| a.is_rule())
+                                    .filter_map(Authored::label),
+                                label
+                            )
                         ),
                     ));
                 }
@@ -2295,7 +2457,11 @@ fn address(
                 [] => {
                     return Err(invalid(
                         InvalidReason::FindNotFound,
-                        format!("{find:?} does not occur in {}", rule.describe()),
+                        format!(
+                            "{find:?} does not occur in {}{}",
+                            rule.describe(),
+                            find_hint(text, span, find, &file, true)
+                        ),
                     ));
                 }
                 several => {
@@ -2317,7 +2483,10 @@ fn address(
                 [] => {
                     return Err(invalid(
                         InvalidReason::FindNotFound,
-                        format!("{find:?} does not occur in {file}"),
+                        format!(
+                            "{find:?} does not occur in {file}{}",
+                            find_hint(text, 0..text.len(), find, &file, false)
+                        ),
                     ));
                 }
                 several => {
@@ -2550,4 +2719,120 @@ fn compare(
         }
     }
     Ok(replaced)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The nearest text is the substring fewest edits away, as long as `find` where that ties,
+    /// and its line is the view's.
+    #[test]
+    fn the_nearest_text_is_the_fewest_edits_away() {
+        let rule = "rule [add]: I1:Int + I2:Int => I1 -Int I2";
+        let near = nearest_text(rule, "I1 /Int I2").unwrap();
+        assert_eq!(
+            (&rule[near.range.clone()], near.distance),
+            ("I1 -Int I2", 1)
+        );
+        // `x + ` is one deletion from `x + 1`, as `x + 2` is one substitution; the length
+        // decides.
+        let near = nearest_text("y => x + 2", "x + 1").unwrap();
+        assert_eq!(&"y => x + 2"[near.range], "x + 2");
+        // Equally near and as long: the first.
+        let near = nearest_text("ab ab", "ac").unwrap();
+        assert_eq!((near.range, near.distance), (0..2, 1));
+        // Characters, not bytes: a multi-byte character is one edit.
+        let near = nearest_text("f(é) => 1", "f(e)").unwrap();
+        assert_eq!(
+            ("f(é) => 1"[near.range.clone()].to_owned(), near.distance),
+            ("f(é)".to_owned(), 1)
+        );
+        // A respelled call inside a longer line.
+        let line = "rule plus_zero(N) => N [label(nat--plus_zero)]";
+        let near = nearest_text(line, "plusZero(N)").unwrap();
+        assert_eq!(
+            (&line[near.range.clone()], near.distance),
+            ("plus_zero(N)", 2)
+        );
+        assert_eq!(nearest_text("", "a"), None);
+        assert_eq!(nearest_text("a", ""), None);
+        let long = "a".repeat(NEAREST_TEXT_CELLS / 2 + 1);
+        assert_eq!(nearest_text(&long, "ab"), None);
+        assert!(nearest_text(&long[1..], "ab").is_some());
+    }
+
+    #[test]
+    fn a_long_rule_is_quoted_from_the_line_of_the_nearest_text() {
+        assert_eq!(excerpt("a \"b\"\nc", 0), "\"a \\\"b\\\"\\nc\"");
+        let first = "x".repeat(EXCERPT_CHARS);
+        let text = format!("{first}\nrule y\n{first}");
+        // From the line of the focus, cut after EXCERPT_CHARS characters.
+        let quoted = excerpt(&text, EXCERPT_CHARS + 3);
+        assert!(quoted.starts_with("...\"rule y\\n"), "{quoted}");
+        assert!(quoted.ends_with("\"..."), "{quoted}");
+        assert_eq!(
+            quoted.len(),
+            "...\"\"...".len() + EXCERPT_CHARS + 1,
+            "{quoted}"
+        );
+        // From the start without a focus.
+        assert!(excerpt(&text, 0).starts_with("\"xxx"));
+    }
+
+    #[test]
+    fn a_find_not_found_names_the_nearest_text_and_the_rule_now() {
+        let text = "module M\n  rule [add]: I1:Int + I2:Int\n    => I1 -Int I2\nendmodule\n";
+        let span = text.find("rule").unwrap()..text.find("\nendmodule").unwrap();
+        assert_eq!(
+            find_hint(text, span.clone(), "I1 +Int I2", "m.k", true),
+            "; nearest text, 1 edit from find, at m.k:3: \"I1 -Int I2\"; the rule's text now: \
+             \"rule [add]: I1:Int + I2:Int\\n    => I1 -Int I2\""
+        );
+        // Across lines, the lines are a range.
+        assert_eq!(
+            find_hint(text, span.clone(), "I1:Int + I2:Int => I1", "m.k", false),
+            "; nearest text, 4 edits from find, at m.k:2-3: \"I1:Int + I2:Int\\n    => I1\""
+        );
+        // Farther than a third of find's length, nothing is named.
+        assert_eq!(
+            find_hint(text, span.clone(), "maxInt ( A , B )", "m.k", true),
+            "; no text of the rule is within 5 edits of find; the rule's text now: \
+             \"rule [add]: I1:Int + I2:Int\\n    => I1 -Int I2\""
+        );
+        assert_eq!(
+            find_hint(text, 0..text.len(), "zzz", "m.k", false),
+            "; no text of m.k is within 1 edit of find"
+        );
+    }
+
+    #[test]
+    fn near_labels_name_respellings_moves_and_misspellings() {
+        let labels = [
+            "nat--plus_zero",
+            "nat--arith--plus_succ",
+            "nat--times_zero",
+            "nat--evalBinaryOpWithCarry",
+        ];
+        // A respelling: equal up to case and `_`; `plusZero` is one word, so `times_zero`
+        // shares none with it.
+        assert_eq!(
+            near_labels(labels, "nat--plusZero"),
+            "; near labels: nat--plus_zero"
+        );
+        assert_eq!(
+            near_labels(labels, "eval_binary_op_with_carry"),
+            "; near labels: nat--evalBinaryOpWithCarry"
+        );
+        // A moved item keeps its last component.
+        assert_eq!(
+            near_labels(labels, "nat--plus_succ"),
+            "; near labels: nat--arith--plus_succ, nat--plus_zero"
+        );
+        assert_eq!(
+            near_labels(labels, "unrelated"),
+            "; no label is \"unrelated\" up to case and `_`, contains it, shares a word with it \
+             or is within 3 edits of it"
+        );
+    }
 }

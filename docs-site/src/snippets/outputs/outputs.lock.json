@@ -57,7 +57,7 @@
   },
   "mutation-testing-check-refused": {
     "inputs": "14150ad7d8fe7f7ff69573d5b53259bd42464de16b742dfcc68956e468ff733c",
-    "output": "f7ceae2dc4e932e5488d2d09581605a7c67680de08dcfdb872862f2d96011edc"
+    "output": "96c0507de162f13aa7d3222162e47129ed2bf0d7da20f6d0438b310e39d0a9a3"
   },
   "mutation-testing-coverage": {
     "inputs": "94e8879d896d3f3d0c2ff0b6ac268688021cb5a2d5b46d0041e11b89cc76560a",
@@ -85,7 +85,7 @@
   },
   "mutation-testing-run-refused": {
     "inputs": "2c7d578feee75bbb1e99aa63a182ab347d3d91833416d1c00bee73c0b2b41b99",
-    "output": "1f6b9b7a9ab221b5452b12cd5b059d7e6eb8c40c4335e4d32059f7e11efad6eb"
+    "output": "96af4210976f3148e622329afacee01fa7459f0a8a8375b87d71922bbe526e60"
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",

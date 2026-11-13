@@ -24,7 +24,7 @@ $ krs kink --package story-plus --definition main check --corpus guide --mutatio
     "outcome": "refused",
     "refusals": [
       {
-        "detail": "\"s ( plus ( N:Nat , M:Nat ) )\" does not occur in nat--plus_succ (definition.k:39)",
+        "detail": "\"s ( plus ( N:Nat , M:Nat ) )\" does not occur in nat--plus_succ (definition.k:39); nearest text, 2 edits from find, at definition.k:39: \"s ( plus ( M:Nat , N:Nat ) )\"; the rule's text now: \"rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) ) [label(nat--plus_succ)]\"",
         "edit": 0,
         "next": "the rule's text changed or `find` is misspelt: copy `find` from the rule's current K text, or drop the mutation if what it changed is gone",
         "reason": "find-not-found",

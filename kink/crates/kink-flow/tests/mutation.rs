@@ -781,8 +781,8 @@ fn every_invalid_mutation_reason_on_calc() {
     assert_eq!(
         invalid.to_string(),
         "edit[0]: unknown-label: no rule is labelled \"div\", and no label ends with it as a \
-         whole component; no label contains \"div\", shares a word with it or is within 1 edit \
-         of it"
+         whole component; no label is \"div\" up to case and `_`, contains it, shares a word with \
+         it or is within 1 edit of it"
     );
     // A near label is one a misspelling or a rename leaves close: `mull` is one edit from `mul`.
     let invalid = spec

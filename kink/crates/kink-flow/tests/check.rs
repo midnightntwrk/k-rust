@@ -910,6 +910,68 @@ fn the_binary_checks_a_mutations_directory() {
     }
 }
 
+/// A source edit that changes no behaviour (a rule's variables respelled, a label renamed) leaves
+/// authored mutations stale: `run` refuses them, exit 2, and its rendering (the lock's text)
+/// keeps each refusal's reason alone, while the detail names what the K says now, so that each
+/// edit is re-anchored in one look.
+#[test]
+fn a_stale_mutation_names_the_current_text_and_the_near_labels() {
+    let dir = calc_copy("reanchor");
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &dir.join("calc.k"),
+        &CALC_K
+            .replace(
+                "rule [add]: I1:Int + I2:Int => I1 +Int I2",
+                "rule [add]: X1:Int + X2:Int => X1 +Int X2",
+            )
+            .replace("rule [mul]:", "rule [multiply]:"),
+    );
+    let mutations = dir.join("stale.toml");
+    write(
+        &mutations,
+        &[
+            one_edit("respelled", ARITH),
+            one_edit(
+                "renamed",
+                "  rule = \"mul\"\n  find = \"I1 *Int I2\"\n  replace = \"I1 +Int I2\"",
+            ),
+        ]
+        .concat(),
+    );
+    let (code, stdout, stderr) = binary(&[
+        "run".as_ref(),
+        manifest.as_os_str(),
+        mutations.as_os_str(),
+        "--output".as_ref(),
+        "verdicts".as_ref(),
+    ]);
+    assert_eq!(code, Some(EXIT_UNASKED.into()), "{stdout}{stderr}");
+    assert!(
+        stdout.ends_with(
+            "[[run.mutation]]\nid = \"respelled\"\nstatus = \"invalid-mutation\"\n\
+             reason = \"find-not-found\"\n\n[[run.mutation]]\nid = \"renamed\"\n\
+             status = \"invalid-mutation\"\nreason = \"unknown-label\"\n"
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains(
+            "mutation respelled: invalid-mutation find-not-found: \"I1 +Int I2\" does not occur \
+             in CALC.add (calc.k:21); nearest text, 2 edits from find, at calc.k:21: \
+             \"X1 +Int X2\"; the rule's text now: \"rule [add]: X1:Int + X2:Int => X1 +Int X2\"\n"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "mutation renamed: invalid-mutation unknown-label: no rule is labelled \"mul\", and \
+             no label ends with it as a whole component; near labels: CALC.multiply\n"
+        ),
+        "{stderr}"
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // CF-02: definition exclusions at admission, their cause chains, and `check`'s rule that it
 // fails when a program cannot be judged on the baseline.

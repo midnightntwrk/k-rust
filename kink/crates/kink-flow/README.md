@@ -1429,13 +1429,13 @@ a reason and a detail; it is never compiled. `check --mutations` gives each reas
 | --- | --- |
 | `unknown-file` | `file` is not a source file of the specification. |
 | `file-required` | The specification reads several files and the edit names neither `file` nor `rule`. |
-| `unknown-label` | No rule has the label, and no label ends with it as whole components: the rule was renamed or removed (a stale anchor), or the anchor is misspelt. The detail names the near labels, at most five, by the last component of the label: one that contains the anchor's, shares a word of three or more characters with it (words are separated by `_`), or is within a third of its length, and at least one, in single-character edits; or it says that none is near. |
+| `unknown-label` | No rule has the label, and no label ends with it as whole components: the rule was renamed, moved or removed (a stale anchor), or the anchor is misspelt. The detail names the near labels, at most five, by the last component of the label: one that is the anchor's up to case and `_` (a respelling, `plusZero` to `plus_zero`), contains the anchor's (a moved item keeps its last component), shares a word of three or more characters with it (words are separated by `_`), or is within a third of its length, and at least one, in single-character edits; respellings first, then containing, then by edit distance; or it says that none is near. |
 | `ambiguous-label` | The anchor names several rules, as their label or as a suffix of their labels' components; write more of the label: more of its components, or the module-qualified label the detail gives for each. |
 | `line-outside-rules` | No sentence covers the line. |
 | `line-ambiguous` | Several rules share the line; address one by `rule`. |
 | `address-mismatch` | `rule`, `line` and `file` name different rules. |
 | `non-rule-sentence` | The edit addresses a syntax declaration, configuration or other non-rule sentence. |
-| `find-not-found` | `find` does not occur where the edit looks. |
+| `find-not-found` | `find` does not occur where the edit looks. The detail says what is there now (see below). |
 | `find-ambiguous` | `find` occurs more than once there; make it longer. |
 | `edit-outside-rule` | `find` occurs in the file but not inside the addressed rule (or inside no rule). |
 | `overlapping-edits` | Two edits of one rule overlap, or a deleted rule is also edited. |
@@ -1450,6 +1450,18 @@ a reason and a detail; it is never compiled. `check --mutations` gives each reas
 | `edited-rule-too-deep` | An edited rule is too deep for kink: its patch's document would nest deeper than kink-patch `MAX_JSON_DEPTH` (two JSON levels per term level: terms about 300,000 levels deep in a release build, 64,000 in the unoptimized test build), so the mutation has no encoding and no identity. This is kink's limit, not a fault of the mutation. A patch holds each edited rule whole, so the detail gives the rule's depth as a whole and the specification's rule's: when the specification's rule alone is already past the limit, it says that no mutation that keeps the rule's deep part can be judged in this build (target other rules, or replace the deep part by a shallow one; re-pin L1-4); otherwise a mutation that keeps the whole rule within about half the limit in term levels is judged (re-pin L1-3-tail). Below the limit a rule's depth decides nothing: its typing and its patch's encoding run on a stack sized from that depth, on any thread (re-pin L1-3-fix-2; before, a rule about 230,000 terms deep aborted the whole run in typing). |
 | `host-stack-refused` (status `error`) | The host refused the native stack that encoding the mutation's patch needs: the system would not map a stack segment of the size the patch's depth needs (an address-space limit such as `ulimit -v`, or memory it will not commit). It is the host's limit, neither a fault of the mutation nor a verdict, so the row is `error`, not `invalid-mutation`; rerun where the host grants the stack. Only a deep patch needs a segment: the segment is sized from the patch's own document depth (re-pin L1-3-tail; at L1-3-fix-2 every patch more than 48 term levels deep took a segment sized for `MAX_JSON_DEPTH`, 768 MB in release, and a refusal was reported as `patch-rejected`). |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does not resolve); not expected on rules k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1): a mutant is valid when it compiles, so compilation decides, and kink-patch records the edited rules' errors in compilation's typing view (`SentenceTyper::for_compilation` with `typing_in`) as the row's `typing_diagnostics`. k-rust documents that view's errors as errors compilation stops at, but at 501f18b9 it refuses shapes compilation accepts: a local function with a variable in a cell with children (`CellCompletion`), and a rule `a(X) => b(X)` whose sorts `A` and `B` have a second common supersort in the main module (a non-unique least upper bound). At the pin 8f8ad57c5 that view types the second shape (k-rust KINK-21/1), so its rows carry no typing diagnostic; the first remains. |
+
+A stale anchor is a broken input, and kink does not re-anchor it: a respelled text need not be the text the mutation meant, so the author chooses.
+The detail of a stale anchor is written so that the choice takes one look.
+An `unknown-label` detail names the near labels, as above.
+A `find-not-found` detail names the text nearest `find` in the addressed rule (with neither `rule` nor `line`, in the file):
+the substring fewest single-character edits away, of equally near ones one as long as `find` and then the first,
+with its `file:line` (or lines), when it is within a third of `find`'s length in edits (at least one) and keeps some character of `find`;
+otherwise it says that no text is that near.
+For an addressed rule it then quotes the rule's text now, whole up to 400 characters, else 400 characters from the line of the nearest text, marked `...` where cut.
+Each text is quoted as Rust's `{:?}` prints it, which a TOML basic string holds as printed when the text has no control character but tab, carriage return and line feed, so it can be copied into `find`.
+A search longer than 16 million cells (characters of `find` times characters searched) is not made, and the detail says so.
+The detail is the document's free text: a lock and the `verdicts` rendering keep the reason alone, so neither changes with it.
 
 ## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--full] [--lock FILE [--locked]] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output json|verdicts]`
 
