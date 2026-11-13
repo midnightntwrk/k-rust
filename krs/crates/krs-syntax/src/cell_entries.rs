@@ -1510,8 +1510,13 @@ impl Admission<'_> {
             .iter()
             .enumerate()
             .try_for_each(|(step, (name, value))| {
-                let child = group.child(name).map_or(&[][..], |kind| &kind.layers[..]);
-                self.within(step, |admission| admission.kind(child, value, false))
+                // A field that names no child of the group is the record's own mistake, which
+                // the lowering tells from the struct's children ("has no child"); its value is
+                // no child's content and no term, so nothing here judges it before that.
+                let Some(kind) = group.child(name) else {
+                    return Ok(());
+                };
+                self.within(step, |admission| admission.kind(&kind.layers, value, false))
             });
         self.child = child;
         children?;

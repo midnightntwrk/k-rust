@@ -6279,12 +6279,12 @@ pub fn go(
             ],
             [
                 "instance-record-list-holder",
-                "error[krs::syntax::rust-syntax]: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`",
-                "--> smt/src/lib.rs: `{ 0 -> v, .. },`",
+                "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `thread`: a record names its struct's own children, each as that child's entry, and `thread` is the List collection `thread` inside `Core`, whose entry a record does not name yet; a sentence's own record names a cell at any depth by its name, so name `thread` there, beside `Core`'s other cells, as a rule for `Core` does",
+                "--> smt/src/lib.rs: `thread: [Thread`",
             ],
             [
                 "configuration-list-holder",
-                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <threads> <thread> <tenv> 0 |-> V:Int ... </tenv> ... </thread> ... </threads> ... </core>",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <threads> <thread> <tenv> 0 |-> V:Int _ </tenv> ... </thread> ... </threads> ... </core>",
             ],
             [
                 "instance-record-two-levels",
