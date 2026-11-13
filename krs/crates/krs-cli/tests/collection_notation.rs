@@ -996,7 +996,9 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
         [
             "env: map![n -> 1, ..env0]",
             "seen: set![n, 1]",
-            "env: map![n -> v, ..]",
+            // At the cell's content `env: map![n -> v, ..]` is the cell's map read; as a list's
+            // element its `..` keeps no cell's map.
+            "stack: [map![n -> v, ..], ..]",
             "seen: set![n, ..]",
         ]
         .map(rule),
@@ -1044,8 +1046,8 @@ read: {{ k: [Visit(n), ..], {cells} }} => {{ k: [..] }}; }}"
                 "column 34, width 10",
             ),
             (
-                "error[krs::syntax::invalid-expression-notation]: the entry of the cell `env` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
-                "column 46, width 1",
+                "error[krs::syntax::invalid-expression-notation]: the entry of the cell `stack` holds `map![..]` with an anonymous `..` below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)",
+                "column 49, width 1",
             ),
             (
                 "error[krs::syntax::invalid-expression-notation]: in a term, `set![..]` is a literal, and its rest is the set its elements join, `set![x, ..s]`; an anonymous `..` names no set. A pattern matches a set's elements with `set::concat(set::item(x), rest)`",

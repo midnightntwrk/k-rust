@@ -734,7 +734,7 @@ fn a_map_read_in_an_instance_or_present_group_record_is_its_twin_s() {
             ),
         ),
     ];
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         read-og: rule [go]: <k> go => .K ... </k> <og> <om> 0 |-> V:KItem _ </om> <ov> _ </ov> </og> <out> _ => ListItem(V:KItem) </out>
         read-og-twin: rule [go]: <k> go => .K ... </k> <og> <om> 0 |-> V:Int _ </om> <ov> _ </ov> </og> <out> _ => ListItem(V:Int) </out>
         read-inst: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> 0 |-> V:KItem _ </gm> <ga> _ </ga> </tg> ... </th> <out> _ => ListItem(V:KItem) </out>
@@ -747,10 +747,10 @@ fn a_map_read_in_an_instance_or_present_group_record_is_its_twin_s() {
         write-og-twin: rule [go]: <k> go => .K ... </k> (<og> <om> _ </om> <ov> OgOv:Int </ov> </og> => <og> <om> .Map [ 0 <- 1 ] </om> <ov> OgOv:Int </ov> </og>)
         write-inst: rule [go]: <k> go => .K ... </k> <th> (<tg> <gm> _ </gm> <ga> MeTgGa:Int </ga> </tg> => <tg> <gm> .Map [ 0 <- 1 ] </gm> <ga> MeTgGa:Int </ga> </tg>) ... </th>
         write-inst-twin: rule [go]: <k> go => .K ... </k> <th> (<tg> <gm> _ </gm> <ga> MeTgGa:Int </ga> </tg> => <tg> <gm> .Map [ 0 <- 1 ] </gm> <ga> MeTgGa:Int </ga> </tg>) ... </th>
-        read-in-result: error[krs::syntax::rust-syntax]: the entry of the cell `gm` writes braces holding a rest in a result (`{ k -> v, .. }`, `{ k -> v, ..m }`): a readable record's braces holding a rest are a map read, a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
+        read-in-result: error[krs::syntax::rust-syntax]: the entry of the cell `gm` writes a map read in a result, braces holding a rest (`{ k -> v, .. }`, `{ k -> v, ..m }`) or the cell's `map![k -> v, ..]`, which reads as those braces: a readable record's map read is a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
         named: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> 0 |-> V:KItem R:Map </gm> <ga> _ </ga> </tg> ... </th> <out> _ => ListItem(V:KItem) </out>
         named-twin: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> 0 |-> V:Int R:Map </gm> <ga> _ </ga> </tg> ... </th> <out> _ => ListItem(V:Int) </out>
-        named-top: rule [go]: <k> go => .K ... </k> <gg> <hm> 0 |-> V:KItem R:Map </hm> <ha> _ </ha> <hk> _ </hk> </gg> <out> _ => ListItem(V:KItem) </out>"]].assert_eq(&table(&rows));
+        named-top: rule [go]: <k> go => .K ... </k> <gg> <hm> 0 |-> V:KItem R:Map </hm> <ha> _ </ha> <hk> _ </hk> </gg> <out> _ => ListItem(V:KItem) </out>"#]].assert_eq(&table(&rows));
 }
 
 /// Rules writing and reading a map in an instance's group record and reading one in a `?` group's
@@ -799,8 +799,8 @@ fn a_map_read_in_a_present_group_and_an_instance_group_runs() {
 ///   `k-result-brackets`; `k-fragment`, `k-fragment-result`, beside `k-fragment-twin`).
 /// - A pattern child's `[..]` is its whole content (`any-computation`, beside `any-computation-twin`;
 ///   a list child's is refused as its twin's is, `any-list`, `any-list-twin`).
-/// - A readable `map![k -> v, ..]` is a literal (NT-19), whose `..` names no map, at a group
-///   record's child as at its top cell: refused alike (`map-pattern`, `map-pattern-present`,
+/// - A readable `map![k -> v, ..]` at a cell's content is the cell's map read (MAPROOT), at a group
+///   record's child as at its top cell, with the braces' K (`map-pattern`, `map-pattern-present`,
 ///   `map-pattern-instance-group`, `map-pattern-instance`, `map-pattern-cell`), beside the braces that
 ///   read the map (`map-braces`).
 /// - A subject that names its rest is told to put it back (`named-rest-kept`).
@@ -1112,7 +1112,7 @@ fn every_spelling_of_a_child_means_its_twin() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         remainder-list: error[krs::syntax::invalid-list-notation]: `..rest` in the list cell `ll` writes `rest`, which the subject binds as the rest of a computation (`rest @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
         remainder-list-whole: error[krs::syntax::invalid-list-notation]: the list cell `ll` is written `rest`, which the subject binds as the rest of a computation (`rest @ ..`), and a list cell holds a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
         remainder-list-child: error[krs::syntax::invalid-list-notation]: `..rest` in the list child `tl` writes `rest`, which the subject binds as the rest of a computation (`rest @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
@@ -1141,13 +1141,13 @@ fn every_spelling_of_a_child_means_its_twin() {
         any-computation-twin: rule [go]: <k> go => .K ... </k> <aux> .K => hold ... </aux>
         any-list: error[krs::syntax::invalid-list-notation]: `[..]` names no element of the list child `tl`, as `Cell([..])` names none at a list cell: it would match any list, so write `_` to match the list whole, or a binder `rest` declared at the list's sort to write it again (`[a, ..rest]`)
         any-list-twin: error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, or a binder `rest` to write the list again (`[a, ..rest]`), and the second is the binder `rest` itself
-        map-pattern: error[krs::syntax::invalid-expression-notation]: the entry of the cell `gg` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
-        map-pattern-present: error[krs::syntax::invalid-expression-notation]: the entry of the cell `og` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
-        map-pattern-instance-group: error[krs::syntax::invalid-expression-notation]: the entry of the cell `th` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
-        map-pattern-instance: error[krs::syntax::invalid-expression-notation]: the entry of the cell `th` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
-        map-pattern-cell: error[krs::syntax::invalid-expression-notation]: the entry of the cell `env` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        map-pattern: rule [go]: <k> go => .K ... </k> <hm> 0 |-> V:KItem ... </hm> <out> _ => ListItem(V:KItem) </out>
+        map-pattern-present: claim [go]: <k> go => .K ... </k> <og> <om> 0 |-> V:KItem _ </om> <ov> _ </ov> </og> <out> _ => ListItem(V:KItem) </out>
+        map-pattern-instance-group: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> 0 |-> V:KItem _ </gm> <ga> _ </ga> </tg> ... </th> <out> _ => ListItem(V:KItem) </out>
+        map-pattern-instance: rule [go]: <k> go => .K ... </k> <th> <tm> 0 |-> V:KItem ... </tm> ... </th> <out> _ => ListItem(V:KItem) </out>
+        map-pattern-cell: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem ... </env> <out> _ => ListItem(V:KItem) </out>
         map-braces: rule [go]: <k> go => .K ... </k> <hm> 0 |-> V:KItem ... </hm> <out> _ => ListItem(V:KItem) </out>
-        named-rest-kept: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; the subject names the rest `r` (`r @ ..`), which leaves the result's `..` nothing to keep: put `r` back to keep it (`[x, ..r]`), or write the list without `..` to drop it, or to move it where `r` is written elsewhere"]].assert_eq(&table);
+        named-rest-kept: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; the subject names the rest `r` (`r @ ..`), which leaves the result's `..` nothing to keep: put `r` back to keep it (`[x, ..r]`), or write the list without `..` to drop it, or to move it where `r` is written elsewhere"#]].assert_eq(&table);
 }
 
 /// CHILDLEFT round 2, each row beside its twin:
@@ -1159,9 +1159,9 @@ fn every_spelling_of_a_child_means_its_twin() {
 ///   (`group-any-twin`);
 /// - an instance rest bound nowhere is an unbound name (`unbound-instances`);
 /// - a map's rest written whole into a list cell is the remainder refusal (`map-rest-whole-list`);
-/// - a readable `map![..]` with an anonymous rest is a literal at a group record's child as at its top
-///   cell (`group-map-literal`, `cell-map-literal`), and a `cells!` instance child's built
-///   `k::map![..]` says what its `..` names (`built-map-literal`);
+/// - a readable `map![..]` with an anonymous rest at a group record's child, as at its top cell, is
+///   the cell's map read (`group-map-literal`, `cell-map-literal`; MAPROOT), and a `cells!` instance
+///   child's built `k::map![..]` says what its `..` names (`built-map-literal`);
 /// - a remainder written as a list's rest below a content's root or in a condition is the remainder
 ///   refusal (`remainder-nested-list`, `remainder-condition`);
 /// - a constant after `..` is no rest (`constant-rest`), and stands as an item (`constant-item`);
@@ -1348,7 +1348,7 @@ fn round_two_spellings_mean_their_twins() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         flat-read: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem R:Map </env> <out> _ => ListItem(V:KItem) </out>
         flat-read-twin: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:Int R:Map </env> <out> _ => ListItem(V:Int) </out>
         flat-moved: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem R:Map </env> <hm> _ => R:Map </hm>
@@ -1357,20 +1357,20 @@ fn round_two_spellings_mean_their_twins() {
         flat-whole-twin: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:Int R:Map => R:Map </env>
         flat-over: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem R:Map => R:Map [ 0 <- 1 ] </env>
         flat-over-twin: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:Int R:Map => 0 |-> 1 R:Map </env>
-        flat-braces-result: error[krs::syntax::rust-syntax]: the entry of the cell `env` writes braces holding a rest in a result (`{ k -> v, .. }`, `{ k -> v, ..m }`): a readable record's braces holding a rest are a map read, a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
+        flat-braces-result: error[krs::syntax::rust-syntax]: the entry of the cell `env` writes a map read in a result, braces holding a rest (`{ k -> v, .. }`, `{ k -> v, ..m }`) or the cell's `map![k -> v, ..]`, which reads as those braces: a readable record's map read is a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
         group-any: rule [go]: <k> go => .K ... </k> <gg> <hm> _ </hm> <ha> _ </ha> <hk> _ </hk> <hl> _ </hl> </gg> <out> _ => ListItem(1) </out>
         group-any-twin: rule [go]: <k> go => .K ... </k> <hk> .K ... </hk> <out> _ => ListItem(1) </out>
         unbound-instances: error[krs::expand::unbound-name]: `zz` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one
         map-rest-whole-list: error[krs::syntax::invalid-list-notation]: the list cell `ll` is written `r`, which the subject binds as the rest of a map (`r @ ..`), and a list cell holds a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
-        group-map-literal: error[krs::syntax::invalid-expression-notation]: the entry of the cell `gg` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
-        cell-map-literal: error[krs::syntax::invalid-expression-notation]: the entry of the cell `env` holds `map![..]` with an anonymous `..`: in a readable record `map![..]` is a literal, a term, whose `..` names no map; a readable record's map read is its braces, `{ k -> v, .. }`, and a result's map is a term, the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        group-map-literal: rule [go]: <k> go => .K ... </k> <hm> 0 |-> V:KItem ... </hm> <out> _ => ListItem(V:KItem) </out>
+        cell-map-literal: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem ... </env> <out> _ => ListItem(V:KItem) </out>
         built-map-literal: error[krs::syntax::invalid-expression-notation]: the entry of the cell `th` builds `k::map![..]` with an anonymous `..`, which names no map: a built map's rest is the map its entries are written over (`k::map![k -> v, ..m]`), and keeping the entries a subject's `..` matched is a frame write no route lowers yet (a stated limitation), so a rule names that rest in its subject (`k::map![k -> v, rest @ ..]`) and builds the map over it (`k::map![k -> w, ..rest]`)
         remainder-nested-list: error[krs::syntax::invalid-list-notation]: `..rest` in a list inside the cell `out` writes `rest`, which the subject binds as the rest of a computation (`rest @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
         remainder-condition: error[krs::syntax::invalid-list-notation]: `..rest` in a list in the condition writes `rest`, which the subject binds as the rest of a computation (`rest @ ..`), and a list's rest is a list: a remainder is written back only into a cell of its own kind; write the list's elements, or name a list's rest in the subject (`[x, rest @ ..]`, with `rest` declared at the list's sort) and write that
         constant-rest: error[krs::expand::unbound-name]: `PRELUDE` after `..` is no name this sentence binds: a computation's or a map's rest writes back a remainder or a term binder its subject binds, and a constant is neither; a K-sorted constant stands as an item (`KCell(x, PRELUDE)`)
         constant-item: rule [go]: <k> go => .K ... </k> <aux> .K => hold ~> hold </aux>
         term-macro-subject: error[krs::syntax::rust-syntax]: not supported yet: a result group record whose child is a map entry, over a subject written as a term macro (`k::term![..]`); write the subject's group as its record (`g: G { .. }`) or a record of its children
-        negative-subject: rule [go]: <k> go => .K ... </k> <ha> -1 </ha> <hm> _ => 0 |-> 1 </hm>"]].assert_eq(&table);
+        negative-subject: rule [go]: <k> go => .K ... </k> <ha> -1 </ha> <hm> _ => 0 |-> 1 </hm>"#]].assert_eq(&table);
 }
 
 /// A wrapper-style configuration with a `Cell<KSequence>` leaf `saved`, and two map leaves.
@@ -1454,4 +1454,137 @@ fn a_remainder_is_a_term_of_its_sort_at_a_leaf_of_that_sort() {
     expect_test::expect![[r"
         saved: rule [go]: <k> go ~> Tail:K => .K </k> <saved> _ => Tail:K </saved>
         map-leaf: rule [go]: <k> go => .K ... </k> <env> 0 |-> _ R:Map => 0 |-> 1 </env> <env2> _ => R:Map </env2>"]].assert_eq(&table);
+}
+
+/// [`SOURCE`] with a `?` Map cell `omap` and an `Int` cell `tn` at the top.
+fn map_root_source() -> String {
+    let source = SOURCE
+        .replace(
+            "    #[k::cell]\n    pub env: Map,\n",
+            "    #[k::cell]\n    pub env: Map,\n    #[k::cell(multiplicity = \"?\")]\n    pub omap: Option<Map>,\n    #[k::cell]\n    pub tn: Int,\n",
+        )
+        .replace(
+            "env: k::map![],",
+            "env: k::map![],\n            omap: k::absent!(k::map![]),\n            tn: 0,",
+        );
+    assert!(
+        [
+            "pub omap: Option<Map>",
+            "omap: k::absent!",
+            "pub tn: Int",
+            "tn: 0,"
+        ]
+        .iter()
+        .all(|part| source.contains(part)),
+        "the source has `omap` and `tn`"
+    );
+    source
+}
+
+/// MAPROOT: a readable `map![k -> v, ..]` where it is a cell's content is the cell's map read, as
+/// its braces `{ k -> v, .. }` are, with their K and their judgements: at a top cell (`top`, beside
+/// `top-braces` and its `cells!` twin), in `Some(..)` (`opt`), at an instance's child (`instance`),
+/// at a fixed group record's child (`fixed`, beside `fixed-braces`) and at a present group's child
+/// (`present`); off a map it is map notation there (`non-map`), without its `?` cell's presence the
+/// presence is missing (`no-presence`), in a result it is the map read in a result (`result`,
+/// `opt-result`, `fixed-result`). Below every content root, as a list's element (`element`,
+/// `element-result`) or a constructor's argument in a result (`argument-result`), its `..` keeps no
+/// cell's map. TOP-BRACE-ONE: a top cell's braces whose items are no instances, `tn: { 1 }`, are
+/// instances on a plain cell (`top-one`), as a child's are (`child-one`).
+#[test]
+fn a_readable_map_literal_at_a_content_root_is_the_cells_map_read() {
+    let source = map_root_source();
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let go = "k: [Go(), ..]";
+    let kept = "k: [..]";
+    let subject = |entry: &str| {
+        readable(&format!(
+            "go: {{ {go}, {entry}, out: _ }} => {{ {kept}, out: [v] }};"
+        ))
+    };
+    let result = |entry: &str, written: &str| {
+        readable(&format!(
+            "go: {{ {go}, {entry} }} => {{ {kept}, {written} }};"
+        ))
+    };
+    let rows = [
+        ("top", subject("env: map![0 -> v, ..]")),
+        ("top-braces", subject("env: { 0 -> v, .. }")),
+        (
+            "top-twin",
+            cells(
+                "v: Int,\n    ",
+                &format!(
+                    "k: {KC}KCell(Cmd::Go(), ..), env: {KC}Cell(k::map![0 -> v, ..]), out: {KC}Cell(_)"
+                ),
+                &format!("k: {KC}KCell(..), out: {KC}Cell([v])"),
+            ),
+        ),
+        ("opt", subject("omap: Some(map![0 -> v, ..])")),
+        (
+            "instance",
+            subject("th: { me @ Th { tm: map![0 -> v, ..], .. }, .. }"),
+        ),
+        ("fixed", subject("gg: Gg { hm: map![0 -> v, ..], .. }")),
+        ("fixed-braces", subject("gg: Gg { hm: { 0 -> v, .. }, .. }")),
+        (
+            "present",
+            subject("og: Some(Og { om: map![0 -> v, ..], .. })"),
+        ),
+        ("non-map", subject("ll: map![0 -> v, ..]")),
+        ("no-presence", subject("omap: map![0 -> v, ..]")),
+        ("result", result("env: _", "env: map![0 -> 1, ..]")),
+        (
+            "opt-result",
+            result("omap: Some(_)", "omap: Some(map![0 -> 1, ..])"),
+        ),
+        (
+            "fixed-result",
+            result("gg: Gg { .. }", "gg: Gg { hm: map![0 -> 1, ..], .. }"),
+        ),
+        ("element", subject("ll: [map![0 -> v, ..], ..]")),
+        ("element-result", result("ll: _", "ll: [map![0 -> 1, ..]]")),
+        (
+            "argument-result",
+            result("out: _", "out: [map::size(map![0 -> 1, ..])]"),
+        ),
+        (
+            "top-one",
+            readable(&format!("go: {{ {go}, tn: {{ 1 }} }} => {{ {kept} }};")),
+        ),
+        (
+            "child-one",
+            readable(&format!(
+                "go: {{ {go}, gg: Gg {{ ha: {{ 1 }}, .. }} }} => {{ {kept} }};"
+            )),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, sentences)| {
+            let manifest = package_with(temporary.path(), name, &source, sentences);
+            format!("{name}: {}", emitted(target.path(), &manifest))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        top: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem ... </env> <out> _ => ListItem(V:KItem) </out>
+        top-braces: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem ... </env> <out> _ => ListItem(V:KItem) </out>
+        top-twin: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:Int ... </env> <out> _ => ListItem(V:Int) </out>
+        opt: rule [go]: <k> go => .K ... </k> <omap> 0 |-> V:KItem ... </omap> <out> _ => ListItem(V:KItem) </out>
+        instance: rule [go]: <k> go => .K ... </k> <th> <tm> 0 |-> V:KItem ... </tm> ... </th> <out> _ => ListItem(V:KItem) </out>
+        fixed: rule [go]: <k> go => .K ... </k> <hm> 0 |-> V:KItem ... </hm> <out> _ => ListItem(V:KItem) </out>
+        fixed-braces: rule [go]: <k> go => .K ... </k> <hm> 0 |-> V:KItem ... </hm> <out> _ => ListItem(V:KItem) </out>
+        present: rule [go]: <k> go => .K ... </k> <og> <om> 0 |-> V:KItem _ </om> <ov> _ </ov> </og> <out> _ => ListItem(V:KItem) </out>
+        non-map: error[krs::analysis::invalid-term]: the cell `ll` holds a `List` leaf, not a map: map notation (`{ k -> v, .. }`, `map![..]`) denotes the entries of a cell whose sort is the builtin `Map`
+        no-presence: error[krs::analysis::optional-presence]: the cell `omap` is optional (`multiplicity = "?"`), so its entry states whether it is there: `Some(..)` holds its content when it is, and `None` stands for its absence; write its entry inside `Some(..)`, or as `None` for its absence
+        result: error[krs::syntax::rust-syntax]: the entry of the cell `env` writes a map read in a result, braces holding a rest (`{ k -> v, .. }`, `{ k -> v, ..m }`) or the cell's `map![k -> v, ..]`, which reads as those braces: a readable record's map read is a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
+        opt-result: error[krs::syntax::rust-syntax]: the entry of the cell `omap` writes a map read in a result, braces holding a rest (`{ k -> v, .. }`, `{ k -> v, ..m }`) or the cell's `map![k -> v, ..]`, which reads as those braces: a readable record's map read is a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
+        fixed-result: error[krs::syntax::rust-syntax]: the entry of the cell `hm` writes a map read in a result, braces holding a rest (`{ k -> v, .. }`, `{ k -> v, ..m }`) or the cell's `map![k -> v, ..]`, which reads as those braces: a readable record's map read is a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{ k -> v }`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)
+        element: error[krs::syntax::invalid-expression-notation]: the entry of the cell `ll` holds `map![..]` with an anonymous `..` below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        element-result: error[krs::syntax::invalid-expression-notation]: the entry of the cell `ll` holds `map![..]` with an anonymous `..` below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        argument-result: error[krs::syntax::invalid-expression-notation]: the entry of the cell `out` holds `map![..]` with an anonymous `..` below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        top-one: error[krs::analysis::collection-entry]: the cell `tn` holds a leaf of sort `Int`, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = "*", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`
+        child-one: error[krs::analysis::collection-entry]: the cell `ha` holds a leaf, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = "*", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"#]].assert_eq(&table);
 }
