@@ -122,3 +122,14 @@ solution for a List pattern with elements on both sides of the frame. List conca
 associative, so ListItem(X) L ListItem(Y) matches every list of at least two elements, with X \
 the first, Y the last and L the middle; kore.k gives r(1, 4, ListItem(2) ListItem(3)), as the \
 llvm backend does."""
+
+[[difference]]
+case = "c36-cell-key-twice"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the second new(1, _), which adds an instance of the key <id>(1) to a \
+cell collection that has one ([hook_MAP_concat]: Duplicate keys in map concatenation). The \
+collection's sort AcctCellMap has the MAP hooks, and Map concatenation is defined only on maps \
+of disjoint keys (docs/compatibility.md, "Map concatenation binds each key once"), so that \
+rule's result is undefined and the path has no final configuration; the other path gives the \
+two final configurations of pick, which the haskell backend gives too."""

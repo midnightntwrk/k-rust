@@ -1,0 +1,19 @@
+{
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lbl'-LT-'acc'-GT-'": 5,
+  "Lbl'-LT-'cnt'-GT-'": 8,
+  "Lbl'-LT-'k'-GT-'": 4,
+  "Lbl'-LT-'t'-GT-'": 6,
+  "Lbldone'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 9,
+  "Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 1,
+  "Lblstep'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 7,
+  "dotk": 2,
+  "kseq": 3
+ }
+}

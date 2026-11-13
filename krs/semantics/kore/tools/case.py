@@ -157,9 +157,8 @@ def build(case, runner, refresh, versions):
              '--backend', 'haskell', '-o', hs])
         write_json(stamp, key)
     runner.must([runner.tool('kast'), pgm, '-d', hs, '--output', 'kore'], out=os.path.join(case, 'pgm.kore'))
-    pgm_sort = re.search(r'\$PGM:(\w+)', open(defk).read()).group(1)
     syms = os.path.join(case, 'symbols.json')
-    korek.cmd_encode(kompiled, os.path.join(case, 'pgm.kore'), os.path.join(case, 'kore.pgm'), syms, pgm_sort)
+    korek.cmd_encode(kompiled, os.path.join(case, 'pgm.kore'), os.path.join(case, 'kore.pgm'), syms)
     if old is not None and old.get('inputs') == key and not refresh:
         return cid, old, times
     exp = {'inputs': key, 'reference': versions, 'backends': {}}

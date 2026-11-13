@@ -2,7 +2,7 @@
 """KORE text reader, the encoder of an object definition for kore.k, and the decoders that put
 kore.k's result and the reference backends' results in one canonical form.
 
-  korek.py encode DEF.kompile.KORE PGM.KORE OUT.pgm SYMBOLS.json PGM-SORT
+  korek.py encode DEF.kompile.KORE PGM.KORE OUT.pgm SYMBOLS.json
       DEF.kompile.KORE: kompile's definition.kore of the object definition; PGM.KORE: the initial
       term as KORE (kast --output kore); writes kore.k's program and the numbering of symbols and
       sorts.
@@ -15,8 +15,12 @@ KRUN-OUTPUT is `krun --search --output kore` on the object definition; KORE-K-OU
 The encoder is mechanical: it reads the axioms whose Source is the object definition's file
 (rewrite rules and function equations), the stated subsort axioms except those into KItem and K
 and those between generated cell sorts, and the declarations of the symbols the axioms apply.
-The configuration's cell structure (<generatedTop>(<k>(kseq(inj{S,KItem}(X), dotk())), DotVar))
-is stripped to the item inj{S,KItem}(X) the single cell holds.
+A configuration of the one cell <k> (<generatedTop>(<k>(kseq(inj{S,KItem}(X), dotk())), DotVar))
+is stripped to the item inj{S,KItem}(X) the cell holds; a configuration of several cells to its top
+cell (<generatedTop>(<T>(...), DotVar) -> <T>(...)), every cell an application of its constructor
+and the <k> cell's content a K sequence (kseq, dotk). The initial configuration is the value of
+the definition's topCellInitializer at the program: kompile's initializer equations unfolded, and
+the projection of the configuration variable $PGM read as the program, stripped the same way.
 """
 import json
 import re
@@ -202,16 +206,29 @@ def unseq(x):
     return x
 
 
+def config_of(top):
+    """The configuration a backend's <generatedTop>(TOP, COUNTER) holds: the item of a one-cell
+    configuration (TOP = <k>(kseq(I, dotk()))), else the top cell TOP itself."""
+    if top[0] == 'app' and top[1].startswith("Lbl'-LT-'"):
+        args = top[3]
+        if len(args) == 1 and args[0][0] == 'app' and args[0][1] == 'kseq':
+            return unseq(args[0])
+        return top
+    raise Unsupported(f'configuration shape {str(top)[:200]}')
+
+
 class Unsupported(Exception):
     pass
 
 
 class Encoder:
-    def __init__(self, modules, source):
+    def __init__(self, modules, source, top_init=None):
         self.decls = {}
         self.subsorts = []
         self.axioms = []
         self.source = source
+        self.top_init = top_init
+        self.initializers = {}
         for _, sents in modules:
             for kind, data, attrs in sents:
                 if kind in ('symbol', 'hooked-symbol'):
@@ -222,6 +239,10 @@ class Encoder:
                     src = attrs.get(SOURCE, '')
                     if src == f'Source({source})':
                         self.axioms.append((data, attrs))
+                    elif data[1] == '\\implies' and data[3][1][1] == '\\equals':
+                        head = data[3][1][3][0]
+                        if head[0] == 'app' and re.match(r"Lblinit\w*Cell$", head[1]):
+                            self.initializers.setdefault(head[1], []).append(data)
         self.sorts = dict(FIXED_SORTS)
         self.syms = {}
         self.vars = {}
@@ -327,12 +348,52 @@ class Encoder:
         return out
 
     def cell(self, p):
-        """<generatedTop>(<C>(X), DotVar) -> X"""
-        if p[0] == 'app' and p[1] == "Lbl'-LT-'generatedTop'-GT-'":
-            inner = p[3][0]
-            if inner[0] == 'app' and inner[1].startswith("Lbl'-LT-'") and len(inner[3]) == 1 and p[3][1][0] == 'var':
-                return unseq(inner[3][0])
+        """<generatedTop>(TOP, DotVar) -> config_of(TOP)"""
+        if p[0] == 'app' and p[1] == "Lbl'-LT-'generatedTop'-GT-'" and p[3][1][0] == 'var':
+            return config_of(p[3][0])
         raise Unsupported(f'configuration shape {str(p)[:200]}')
+
+    def unfold(self, p, env, init):
+        """The initial configuration: an application of an initializer replaced by its equation's
+        right side (kompile writes one equation for each, of variable arguments and no requires),
+        the projection of $PGM's lookup in the initial map replaced by the program `init`."""
+        if p[0] == 'var':
+            if p[1] not in env:
+                raise Unsupported(f'initializer variable {p[1]}')
+            return env[p[1]]
+        if p[0] != 'app':
+            return p
+        _, name, sorts, args = p
+        if (name.startswith("Lblproject'Coln'") and len(args) == 1 and args[0][1] == 'kseq'
+                and args[0][3][0][1] == "LblMap'Coln'lookup"
+                and args[0][3][0][3][1] == ('app', 'inj', (('SortKConfigVar', ()), ('SortKItem', ())),
+                                            (('app', '\\dv', (('SortKConfigVar', ()),), (('str', '$PGM'),)),))):
+            return init
+        if name in self.initializers:
+            eqs = self.initializers[name]
+            if len(eqs) != 1:
+                raise Unsupported(f'initializer {name} of {len(eqs)} equations')
+            _, _, _, (pre, concl) = eqs[0]
+            lhs, (rhs, _) = concl[3][0], concl[3][1][3]
+            binds, a = {}, pre[3][1]
+            while a[1] == '\\and':
+                i, a = a[3]
+                binds[i[3][0][1]] = i[3][1][1]
+            inner = {}
+            for x, v in zip(lhs[3], args):
+                inner[binds.get(x[1], x[1])] = self.unfold(v, env, init)
+            return self.unfold(rhs, inner, init)
+        return ('app', name, sorts, tuple(self.unfold(a, env, init) for a in args))
+
+    def initial(self, init):
+        """The encoded initial configuration: for one cell <k>, inj{S,KItem}(PGM), the item the
+        initializer places in it."""
+        if self.top_init is None:
+            raise Unsupported('a definition without a topCellInitializer')
+        top = self.unfold(('app', self.top_init, (), (('var', 'Init', None),)), {'Init': None}, init)
+        if top[1] != "Lbl'-LT-'generatedTop'-GT-'":
+            raise Unsupported(f'initial configuration {str(top)[:200]}')
+        return self.term(config_of(top[3][0]))
 
     @staticmethod
     def req(p):
@@ -406,7 +467,7 @@ class Encoder:
         ps = ' ; '.join(pat_terms) + ' ; .Ts' if pat_terms else '.Ts'
         return fname, f'cl({prio}, {str(owise).lower()}, {ps}, {self.term(r) if r else "bv(true)"}, {self.term(rhs)}, '
 
-    def encode(self, init, pgm_sort):
+    def encode(self, init):
         rules, fns = [], {}
         for ax, attrs in self.axioms:
             if ax[1] == '\\rewrites':
@@ -417,9 +478,7 @@ class Encoder:
             else:
                 raise Unsupported(f'axiom {ax[1]}')
         self.vars = {}
-        # the cell holds the initial term injected into KItem, as the configuration's initializer
-        # places $PGM (kseq(inj{S,KItem}($PGM), dotk()))
-        t = f'ij({self.sort(("Sort" + pgm_sort, ()))}, {self.sort(("SortKItem", ()))}, {self.term(init)})'
+        t = self.initial(init)
         # the stated subsorts, but those into KItem and K and those of the generated configuration
         # cells, which no term of the single cell reaches
         def kept(a, b):
@@ -435,13 +494,15 @@ class Encoder:
         return f'pgm(def({sub_enc}, {fn_enc}, {rule_enc}), {t})\n'
 
 
-def cmd_encode(defn, pgm, out, syms, pgm_sort):
+def cmd_encode(defn, pgm, out, syms):
     text = open(defn).read()
     mods = read_definition(text)
-    src = re.search(r'Source\{\}\("Source\(([^)]*)\)"\)', text.split('\n', 1)[0]).group(1)
-    e = Encoder(mods, src)
+    head = text.split('\n', 1)[0]
+    src = re.search(r'Source\{\}\("Source\(([^)]*)\)"\)', head).group(1)
+    top = re.search(r'topCellInitializer\{\}\((\S+?)\{\}\(\)\)', head)
+    e = Encoder(mods, src, top.group(1) if top else None)
     init = read_pattern(open(pgm).read())
-    prog = e.encode(init, pgm_sort)
+    prog = e.encode(init)
     open(out, 'w').write(prog)
     out = {'symbols': e.syms, 'sorts': e.sorts}
     colls = e.collections()
@@ -534,7 +595,7 @@ def cmd_ref(syms, outfile):
         if d[1] == '\\and':  # \and(CONSTRAINT, \equals(VarResult, CONFIG)): kept with its constraint
             cond = ' if ' + ' and '.join(constraint(c, csyms) for c in d[3] if c[1] != '\\equals')
             d = [c for c in d[3] if c[1] == '\\equals'][0][3][1]
-        res.append(canon(unseq(d[3][0][3][0]), csyms) + cond)
+        res.append(canon(config_of(d[3][0]), csyms) + cond)
     return sorted(set(res))
 
 
