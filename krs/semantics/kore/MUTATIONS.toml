@@ -431,6 +431,28 @@ misunderstanding = "an as-pattern's variable is bound afresh even when the left 
   find = "cat(bindVar(X, T, B, look(X, B)),"
   replace = "cat(bindVar(X, T, B, none),"
 
+# --- ensures --------------------------------------------------------------------------------
+
+[[mutation]]
+id = "ensures-ignored"
+misunderstanding = "a rule's ensures is not evaluated: the rule gives its right side whatever the ensures is"
+  [[mutation.edit]]
+  rule = "KORE.ev-en"
+  find = "=> ensure(eval(D, E), eval(D, T))"
+  replace = "=> eval(D, T)"
+
+[[mutation]]
+id = "ensures-false-not-applied"
+misunderstanding = "a rule whose ensures is false has not applied, as one whose requires is false: it gives no result and does not block the rules of larger priority, and a configuration to which only such rules apply is final"
+  [[mutation.edit]]
+  rule = "KORE.ensure-fails"
+  find = "=> bot"
+  replace = "=> vr(-1)"
+  [[mutation.edit]]
+  rule = "KORE.add-some"
+  find = "=> cand(P, T, addCand(P, Ts, Cs))"
+  replace = "=> #if T ==K vr(-1) #then addCand(P, Ts, Cs) #else cand(P, T, addCand(P, Ts, Cs)) #fi"
+
 # --- collections: matching -----------------------------------------------------------------
 
 [[mutation]]

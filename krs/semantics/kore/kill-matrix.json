@@ -74,7 +74,9 @@
    "c28-set-overlap",
    "c32-elem-strict",
    "c36-cell-key-twice",
-   "c38-keq-strict"
+   "c38-keq-strict",
+   "c43-ensures",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": []
@@ -138,6 +140,22 @@
   "status": "killed",
   "undecided": []
  },
+ "ensures-false-not-applied": {
+  "killed_by": [
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "ensures-ignored": {
+  "killed_by": [
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
  "fn-first-applicable": {
   "killed_by": [
    "c01-fn-prio",
@@ -187,7 +205,8 @@
    "c01-fn-prio",
    "c11-fn-no-equation",
    "c14-fn-undef-requires",
-   "c24-map-fn-pattern"
+   "c24-map-fn-pattern",
+   "c42-total-no-equation"
   ],
   "status": "killed",
   "undecided": []
@@ -363,7 +382,10 @@
    "c31-list-concat",
    "c36-cell-key-twice",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c41-total-requires",
+   "c43-ensures",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": []
@@ -386,7 +408,8 @@
    "c17-init-function",
    "c24-map-fn-pattern",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c41-total-requires"
   ],
   "status": "killed",
   "undecided": []
@@ -399,7 +422,8 @@
    "c17-init-function",
    "c24-map-fn-pattern",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c41-total-requires"
   ],
   "status": "killed",
   "undecided": []
@@ -408,7 +432,8 @@
   "killed_by": [
    "c01-fn-prio",
    "c02-rule-prio",
-   "c08-undef-rhs-blocks"
+   "c08-undef-rhs-blocks",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": [
@@ -418,7 +443,8 @@
  "rule-owise-ignored": {
   "killed_by": [
    "c02-rule-prio",
-   "c17-init-function"
+   "c17-init-function",
+   "c41-total-requires"
   ],
   "status": "killed",
   "undecided": []
@@ -427,7 +453,9 @@
   "killed_by": [
    "c02-rule-prio",
    "c08-undef-rhs-blocks",
-   "c17-init-function"
+   "c17-init-function",
+   "c41-total-requires",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": [
@@ -438,7 +466,9 @@
   "killed_by": [
    "c02-rule-prio",
    "c08-undef-rhs-blocks",
-   "c17-init-function"
+   "c17-init-function",
+   "c41-total-requires",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": [
@@ -449,7 +479,9 @@
   "killed_by": [
    "c02-rule-prio",
    "c09-undef-requires",
-   "c20-map-key-fixed"
+   "c20-map-key-fixed",
+   "c41-total-requires",
+   "c42-total-no-equation"
   ],
   "status": "killed",
   "undecided": [
@@ -490,14 +522,17 @@
    "c37-keq",
    "c38-keq-strict",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c43-ensures",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": []
  },
  "rule-undefined-requires-holds": {
   "killed_by": [
-   "c09-undef-requires"
+   "c09-undef-requires",
+   "c42-total-no-equation"
   ],
   "status": "killed",
   "undecided": []
@@ -568,7 +603,8 @@
    "c14-fn-undef-requires",
    "c23-map-lookup-missing",
    "c26-map-strict",
-   "c38-keq-strict"
+   "c38-keq-strict",
+   "c42-total-no-equation"
   ],
   "status": "killed",
   "undecided": [
@@ -595,7 +631,10 @@
    "c36-cell-key-twice",
    "c37-keq",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c41-total-requires",
+   "c43-ensures",
+   "c44-ensures-priority"
   ]
  },
  "tdiv-as-ediv": {
@@ -655,7 +694,9 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
-   "c36-cell-key-twice"
+   "c36-cell-key-twice",
+   "c43-ensures",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": []
@@ -663,7 +704,9 @@
  "undefined-step-is-final": {
   "killed_by": [
    "c08-undef-rhs-blocks",
-   "c10-strict-ite"
+   "c10-strict-ite",
+   "c43-ensures",
+   "c44-ensures-priority"
   ],
   "status": "killed",
   "undecided": [
@@ -671,7 +714,8 @@
    "c13-inj-bool",
    "c20-map-key-fixed",
    "c30-list-positions",
-   "c36-cell-key-twice"
+   "c36-cell-key-twice",
+   "c41-total-requires"
   ]
  }
 }

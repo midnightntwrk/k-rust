@@ -235,6 +235,16 @@ status = "killed"
 killer = "cases/c40-as-patterns/kore.pgm"
 
 [[run.mutation]]
+id = "ensures-ignored"
+status = "killed"
+killer = "cases/c43-ensures/kore.pgm"
+
+[[run.mutation]]
+id = "ensures-false-not-applied"
+status = "killed"
+killer = "cases/c43-ensures/kore.pgm"
+
+[[run.mutation]]
 id = "subst-first-only"
 status = "killed"
 killer = "cases/c19-map-choice/kore.pgm"
