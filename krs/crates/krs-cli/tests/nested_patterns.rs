@@ -6551,14 +6551,14 @@ fn a_value_below_k_stands_at_a_k_place_as_its_one_item_sequence() {
 /// is not one item has unknown length, and so has a rest, unless another occurrence fixes the
 /// binder. A rewrite or an alias that matches one item is one item, beside items too. In a closed
 /// computation one such part after the items matches the rest of the computation
-/// (`KCell(Cmd::Make { x }, b)`), one split, as `b @ ..` does; followed by items it matches them
-/// at the computation's back, which the computation, read from its front, gets as an item after
-/// its rest does (`krs::collect::invalid-configuration`). Two or more parts of unknown length split
+/// (`KCell(Cmd::Make { x }, b)`), one split, as `b @ ..` does; anywhere else, before an item or a
+/// rest, the target, which matches a rule's computation from its front, matches no such part
+/// (KTAIL, `krs::collect::invalid-configuration`). Two or more parts of unknown length split
 /// some computation in more than one way, so the pattern does not determine what they bind: they
 /// are refused, naming them, whatever else the pattern holds (`KCell(b, ..)`, `KCell(b, c, ..)`,
 /// `KCell(b, c)`, which were admitted, `KCell(k::rewrite!(b => t), ..)`), on the `cells!` and
-/// readable routes, and `KCell(Cmd::Keep { body: b }, b, ..)`, whose `b` the field fixes, is
-/// admitted; a closed `KCell(k::rewrite!(b => t))` is its last part. An alias nested in a field
+/// readable routes, and `KCell(Cmd::Keep { body: b }, b, ..)`, whose `b` the field fixes, splits
+/// one way but is refused for its place; a closed `KCell(k::rewrite!(b => t))` is its last part. An alias nested in a field
 /// (`Keep { body: b @ Make { x } }`) is no computation item and is admitted. An alias declared `K`
 /// that names one item is one item, which no route writes as an item yet: it is refused, located,
 /// rather than reaching the native stage.
@@ -6599,7 +6599,7 @@ fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() 
         let manifest = library_package(temporary.path(), &format!("k-part-{}", name.replace('/', "-")), &source);
         format!("{name}: {}", sentences_or_error(target.path(), &manifest, "probe"))
     });
-    expect_test::expect![[r"
+    expect_test::expect![[r#"
         last: passed: rule [probe]: <k> make ( X:Int ) ~> B:K </k> <acc> _ => 1 </acc>
         last-rewritten: passed: rule [probe]: <k> make ( X:Int ) ~> (B:K => make ( 1 )) </k> <acc> _ => 1 </acc>
         one-item-rewrite: passed: rule [probe]: <k> make ( X:Int ) ~> (keep ( B:K ) => B:K) ... </k> <acc> _ => 1 </acc>
@@ -6610,15 +6610,15 @@ fn a_part_of_sort_k_in_a_matched_computation_matches_its_rest_after_its_items() 
         rewrite-unknown/beside-item: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `k::rewrite!(b => ..)` and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 109:44
         nested-alias: passed: rule [probe]: <k> keep ( ( make ( X:Int ) #as B:K ) ) ~> Rest:K => keep ( B:K ) ~> Rest:K </k>
         nested-alias/at-item-sort: passed: rule [probe]: <k> keep ( ( make ( X:Int ) #as B:KItem ) ) ~> Rest:K => keep ( B:KItem ) ~> Rest:K </k>
-        back-item: error[krs::collect::invalid-configuration]: not supported: a computation matched from its end: the closed computation pattern has an item after a part of sort `K` whose length its front does not fix, so it matches the computations that end with the items after that part, and the target matches a computation from its front only; when the part is one item, declare its binder at an item sort (`KItem`, or a sort below it) @ 109:47
+        back-item: error[krs::collect::invalid-configuration]: not supported: a part of sort `K` matched before the end of a computation: `b` stands before the item at position 2, and the target matches a computation from its front, one item at a time, so a part of unknown item count stands in a pattern only as the computation's last part, its rest, even where another occurrence fixes it; match it at the end of the computation, or declare its binder at an item sort (`KItem`, or a sort below it) when it is one item @ 109:44
         item-after/open: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b` and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 109:44
-        item-after/readable: passed: rule [probe]: <k> keep ( B:K ) ~> B:K ~> make ( X:Int ) => .K ... </k>
+        item-after/readable: error[krs::collect::invalid-configuration]: not supported: a part of sort `K` matched before the end of a computation: `b` stands before the item at position 3, and the target matches a computation from its front, one item at a time, so a part of unknown item count stands in a pattern only as the computation's last part, its rest, even where another occurrence fixes it; match it at the end of the computation, or declare its binder at an item sort (`KItem`, or a sort below it) when it is one item @ 108:36
         rest-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b` and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 109:44
-        rest-after/fixed-length: passed: rule [probe]: <k> keep ( B:K ) ~> B:K ... </k> <acc> _ => 1 </acc>
+        rest-after/fixed-length: error[krs::collect::invalid-configuration]: not supported: a part of sort `K` matched before the end of a computation: `b` stands before the rest, and the target matches a computation from its front, one item at a time, so a part of unknown item count stands in a pattern only as the computation's last part, its rest, even where another occurrence fixes it; match it at the end of the computation, or declare its binder at an item sort (`KItem`, or a sort below it) when it is one item @ 108:67
         two-after: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b` and `c`: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 110:44
         unknown-only/two-parts: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b`, `c`, and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 109:44
         unknown-only/one-part: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b` and the rest: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 108:44
-        unknown-only/closed: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b` and `c`: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 109:44"]].assert_eq(&rows.join("\n"));
+        unknown-only/closed: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-NESTED::probe (rule): the computation pattern has several parts of unknown length, `b` and `c`: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place @ 109:44"#]].assert_eq(&rows.join("\n"));
 }
 
 /// ITEMSORTS round 2, Q5: K's maps, lists and sets hold items, and a `KSequence` is a
