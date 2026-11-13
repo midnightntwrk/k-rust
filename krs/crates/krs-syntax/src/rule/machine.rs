@@ -253,7 +253,7 @@ fn holds_entry_child(tokens: &TokenStream) -> bool {
                         [TokenTree::Group(group)]
                             if group.delimiter() == proc_macro2::Delimiter::Bracket
                                 && is_dots(&group.stream()))
-                        || instance_braces(&value, StateMacroContext::Pattern).is_some()
+                        || instance_braces(&value).is_some()
                 }
                 _ => false,
             }
@@ -261,22 +261,19 @@ fn holds_entry_child(tokens: &TokenStream) -> bool {
 }
 
 /// The braces of a record value spelled as an instance list, `{ y, .. }` or `{ Obj { .. }, .. }`:
-/// one braced group holding no top-level arrow (a map read or literal holds one), and in a
-/// result no term (a block `{ let p = t; r }` is one). `None` for any other value.
-fn instance_braces(tokens: &TokenStream, context: StateMacroContext) -> Option<proc_macro2::Group> {
+/// one braced group holding no top-level arrow (a map read or literal holds one) that is no term
+/// (a block `{ let p = t; r }` is one, on either side, which its position judges). `None` for any
+/// other value.
+fn instance_braces(tokens: &TokenStream) -> Option<proc_macro2::Group> {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let [TokenTree::Group(group)] = trees.as_slice() else {
         return None;
     };
-    let term = || {
-        context == StateMacroContext::Expression
-            && crate::term::parse_term_expression
-                .parse2(tokens.clone())
-                .is_ok()
-    };
     (group.delimiter() == proc_macro2::Delimiter::Brace
         && !contains_top_level_arrow(group)
-        && !term())
+        && crate::term::parse_term_expression
+            .parse2(tokens.clone())
+            .is_err())
     .then(|| group.clone())
 }
 
@@ -897,7 +894,7 @@ fn parse_readable_child(
     // Braces holding no arrow are an instance list, as at a cell (`te: { y, .. }`): the child is
     // a cell, whose kind judges them, so on a child that is no collection the collector says so
     // (`instances-on-plain-cell`) from the same spelling.
-    if let Some(group) = instance_braces(&tokens, context) {
+    if let Some(group) = instance_braces(&tokens) {
         return Ok(StateTerm::Instances(parse_readable_instances_reading(
             &group, context, false, faults,
         )?));
@@ -1941,8 +1938,7 @@ fn readable_record(
         }
         _ => false,
     };
-    let braces =
-        |value: &[TokenTree]| instance_braces(&value.iter().cloned().collect(), reading).is_some();
+    let braces = |value: &[TokenTree]| instance_braces(&value.iter().cloned().collect()).is_some();
     let items = top_level_items(body.stream());
     let maps = items.iter().any(|item| {
         let trees = item.clone().into_iter().collect::<Vec<_>>();
