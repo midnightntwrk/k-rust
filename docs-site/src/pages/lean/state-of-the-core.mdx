@@ -16,7 +16,7 @@ Newest first.
 - **Status change.** Literals are settled: String and Bytes literals are values in every definition. [Lesson 1](/lean/terms) lost its "not settled" line.
 - **Status change.** Joining two sets is defined on disjoint sets only, and a set pattern that joins two sets is matched: `SetItem(X) REST` matches a set holding `X` once. This is decision 8's recommended reading; Γ now has four set axioms, as for maps.
 - 35 String and Bytes operations are now computed, besides Bool, Int and Float. Not settled: whether an operation the library declares total but describes on part of its arguments, such as `substrString`, has no value there or an undetermined one.
-- The core is now about 3,876 lines in 757 declarations, of about 61,600 in the library; the growth is the String and Bytes operations and the overloading symbols. The two theorems' statements did not change.
+- The core is now about 3,876 lines in 757 declarations, of about 61,600 in the library; the growth is the String and Bytes operations and the overloading symbols. It relies on 287 declarations of Lean's core library (was 280). The two theorems' statements did not change.
 - Of the 381 corpus texts, 343 are now read with nothing refused and meet `coreOK` (were 314 read and 298 meeting `coreOK`). kompile's wasm as written is read and meets `coreOK` by the compiled check, not yet in the kernel, with 1,047 named facts: not a finished package. KEVM's named facts are now 94 (were 134).
 - Outside the core: an executable step for map, set and list patterns is proved to list exactly `Step`'s successors (`KCore.CExec.step_iff`). The tests are now `test/integration.sh` and `test/release.sh`. The judge, the L1 packages, syn30 and syn100 are retired, and so is every tie but peano's: peano is the only package whose definition the kernel ties to its KORE text.
 - The tree moved to `82f6879b`. Every lesson now states that commit, and every fact shown as checked by Lean was checked again there, unchanged.
@@ -147,7 +147,7 @@ Everything else (every proof, the generator, the executable evaluator) is checke
 
 ## What you trust
 
-1. Lean's kernel, its three standard axioms, and the declarations of Lean's core library the definitions rely on (280 at `167fd26e`, 39 of them its `Float.Model`; no Mathlib).
+1. Lean's kernel, its three standard axioms, and the declarations of Lean's core library the definitions rely on (287 declarations of Init, Std and Lean, 39 of them its `Float.Model`; no Mathlib).
 2. The definitions the theorems are stated with: the step relation, evaluation, matching, the theory Γ and its step closure, the check on the semantics (`coreOK`), the four statements about functions (`FnHyp`), and entailment in matching logic. Reading the course is reviewing them.
 3. The builtin domains: the Bool and Int operations, 25 Float operations and 35 String and Bytes operations, as defined in Lean. The other operations are parameters with no interpretation.
 4. The reader of a KORE file, for a definition read without the tie: that the Lean definition it produces is the one the text describes. With the tie, the kernel checks that printing the definition back gives the text, up to the order of its sentences. Only peano is tied now.
