@@ -394,6 +394,7 @@ fn push_function_invocations(
         .map_err(source_syntax)?
         .anchors()
         .to_vec();
+    reserved_item_name(&item_struct.ident)?;
     output.push(with_visibility(
         parsed_invocation(
             ProvenanceRole::ConstructorSort,
@@ -445,6 +446,7 @@ fn collect_struct_constructors(
             .map_err(source_syntax)?
             .anchors()
             .to_vec();
+        reserved_item_name(&item_struct.ident)?;
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,
@@ -753,6 +755,7 @@ fn collect_enum_invocations(
             .variant_provenance(variant)
             .map_err(source_syntax)?;
         let constructor_anchors = variant.constructor_provenance().map_err(source_syntax)?;
+        reserved_item_name(variant.name())?;
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,
@@ -1436,6 +1439,36 @@ fn with_visibility(
     invocation
 }
 
+/// The prefix of the names KRS generates, compared in ASCII lowercase: the namespace the lesson
+/// policy reserves too (`krs::policy::reserved-name`).
+const GENERATED_NAME_PREFIX: &str = "__krs";
+
+/// Whether `name` is in the namespace of the names KRS generates ([`GENERATED_NAME_PREFIX`]).
+fn is_generated_name(name: &str) -> bool {
+    name.to_ascii_lowercase().starts_with(GENERATED_NAME_PREFIX)
+}
+
+/// The refusal of an authored item named `name` in the namespace of the names KRS generates.
+fn reserved_name_error(name: &str) -> CollectionError {
+    CollectionError::new(
+        CollectionErrorKind::ReservedName,
+        format!(
+            "the item `{name}` is named in the namespace `{GENERATED_NAME_PREFIX}..`, which is reserved for the names KRS generates; give the item another name"
+        ),
+    )
+}
+
+/// The refusal, at the identifier, of a constructor named in the namespace of the names KRS
+/// generates, whose descriptor anchors only its attribute ([`parsed_invocation`] refuses every
+/// other item at its primary anchor).
+fn reserved_item_name(ident: &syn::Ident) -> Result<(), CollectionError> {
+    let name = syn::ext::IdentExt::unraw(ident).to_string();
+    if is_generated_name(&name) {
+        return Err(reserved_name_error(&name).with_span(ident.span()));
+    }
+    Ok(())
+}
+
 fn parsed_invocation(
     primary_role: ProvenanceRole,
     item_name: String,
@@ -1443,7 +1476,6 @@ fn parsed_invocation(
     payload: ParsedInvocationPayload,
 ) -> Result<ParsedInvocation, CollectionError> {
     let primary = primary_role.key(0);
-    let parsed = parsed_anchor_map(anchors)?;
     // An item is named by its identifier, as the macro names it: a raw identifier's `r#` is no
     // part of the name (`r#Wrap` is `Wrap`).
     let item_name = if let Some(identifier) = item_name.strip_prefix("r#") {
@@ -1451,6 +1483,23 @@ fn parsed_invocation(
     } else {
         item_name
     };
+    // KRS names the items it generates `__krs..` (`__krs_grammar_..`, `__KrsEnumVariant_..`, the
+    // generated production `__krs_generated_semantic_production`), and reads a name there as one
+    // it generated: an authored item named so would be taken for KRS's own.
+    if is_generated_name(&item_name) {
+        let mut error = reserved_name_error(&item_name);
+        if let Some(anchor) = anchors.iter().find(|anchor| anchor.key() == primary) {
+            error = error.with_input_range(
+                krs_ir::ByteRange::new(
+                    anchor.range().first().byte_range().start,
+                    anchor.range().last().byte_range().end,
+                )
+                .expect("ordered semantic token range"),
+            );
+        }
+        return Err(error);
+    }
+    let parsed = parsed_anchor_map(anchors)?;
     Ok(ParsedInvocation {
         primary,
         item_name,

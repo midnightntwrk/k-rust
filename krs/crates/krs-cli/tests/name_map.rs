@@ -969,3 +969,44 @@ fn a_cell_takes_every_name_k_spells_unless_its_sort_is_taken() {
         digit: error[krs::analysis::invalid-emitted-name]: cell name "1x" is not canonical K syntax (at 26:9)
         underscore: error[krs::analysis::invalid-emitted-name]: cell name "my_cell" is not canonical K syntax (at 26:9)"#]].assert_eq(&table);
 }
+
+/// KRS names what it generates `__krs..` and reads a name there as its own (the generated
+/// production is `__krs_generated_semantic_production`), so an authored item named there is
+/// refused at its identifier, the namespace the lesson policy reserves (LEFTS item 7): a struct
+/// constructor, a variant and a sort.
+#[test]
+fn an_item_named_in_krs_s_generated_namespace_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rows = [
+        (
+            "struct",
+            library(
+                &[],
+                "\n#[k::constructor(sort = Stmt, syntax = \"inc({n})\")]\n#[allow(non_camel_case_types)]\npub struct __krs_generated_semantic_production {\n    pub n: Term<Int>,\n}\n",
+            ),
+        ),
+        (
+            "variant",
+            library(
+                &[("    Skip(),\n", "    Skip(),\n    #[k::syntax(\"kgo\")]\n    #[allow(non_camel_case_types)]\n    __krs_Go(),\n")],
+                "",
+            ),
+        ),
+        ("sort", library(&[], &sort("__KrsS"))),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, library)| {
+            format!(
+                "{name}: {}",
+                check_located(target.path(), temporary.path(), name, library)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        struct: error[krs::policy::reserved-name]: the item `__krs_generated_semantic_production` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 50:12)
+        variant: error[krs::policy::reserved-name]: the item `__krs_Go` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 17:5)
+        sort: error[krs::policy::reserved-name]: the item `__KrsS` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 49:5)"#]].assert_eq(&table);
+}
