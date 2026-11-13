@@ -2544,11 +2544,7 @@ pub enum ReturnValue {
     Returned { value: MirValue },
 }
 
-#[k::function(
-    total,
-    assumed = "the equation that divides requires width > 0, so the divisor 1 << width is a positive power of two; the check does not bound a shift",
-    syntax = "#truncateUnsigned({value}, {width})"
-)]
+#[k::function(total, syntax = "#truncateUnsigned({value}, {width})")]
 pub fn TruncateUnsigned(value: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int>;
 
 #[k::function(total, syntax = "#truncateSigned({value}, {width})")]

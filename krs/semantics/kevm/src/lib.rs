@@ -365,11 +365,7 @@ pub const POW256: Int =
 pub const POW255: Int =
     0x8000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 
-#[k::function(
-    total,
-    assumed = "the divisor is the constant 2^256, which is not zero; the check reads a literal divisor only within 128 bits",
-    syntax = "#kevmChop({value})"
-)]
+#[k::function(total, syntax = "#kevmChop({value})")]
 pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
     int::rem_euclid(value, POW256)
 }
@@ -476,11 +472,7 @@ pub fn WordShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> 
     }
 }
 
-#[k::function(
-    total,
-    assumed = "the branch that shifts is reached only where the first test failed, so shift >= 0; the check does not read the negation of `value < 0 || shift < 0`",
-    syntax = "#kevmSignedShiftRight({value}, {shift})"
-)]
+#[k::function(total, syntax = "#kevmSignedShiftRight({value}, {shift})")]
 pub fn WordSignedShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term<Int> {
     if value < 0 || shift < 0 {
         0
@@ -493,11 +485,7 @@ pub fn WordSignedShiftRight(value: k::Term<Int>, shift: k::Term<Int>) -> k::Term
     }
 }
 
-#[k::function(
-    total,
-    assumed = "0 <= index < 32 in the branch that shifts, so the amount 8 * (31 - index) is at least 0; the check does not bound a product",
-    syntax = "#kevmByte({index}, {value})"
-)]
+#[k::function(total, syntax = "#kevmByte({index}, {value})")]
 pub fn WordByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     if index >= 0 && index < 32 {
         int::rem_euclid(value >> (8 * (31 - index)), 256)
@@ -506,11 +494,7 @@ pub fn WordByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     }
 }
 
-#[k::function(
-    total,
-    assumed = "0 <= index < 32 in the branches that shift, so the amount 8 * (index + 1) is at least 8; the check does not bound a product, nor read the negation of `index < 0 || index >= 32`",
-    syntax = "#kevmSignExtend({index}, {value})"
-)]
+#[k::function(total, syntax = "#kevmSignExtend({index}, {value})")]
 pub fn WordSignExtend(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
     if index < 0 || index >= 32 {
         value
@@ -526,7 +510,6 @@ pub fn WordSignExtend(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> 
 #[k::function(
     total,
     underspecified = "a byte position is never negative: WordSignExtend reads it only for 0 <= index < 32",
-    assumed = "the equation requires index >= 0, so the amount 8 * index is at least 0; the check does not bound a product",
     syntax = "#kevmSignExtendByte({index}, {value})"
 )]
 pub fn SignExtendByte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
@@ -745,11 +728,7 @@ pub const SECP256K1_P: Int =
 /// (R the point with x-coordinate r and the parity v selects, e the hash), and then the recovered
 /// point is the point at infinity, which is no public key. `plugin/krypto.md` gives no value for
 /// that input; `EcrecOutput`'s length test maps the hook's empty result to the EVM's empty output.
-#[k::function(
-    total,
-    assumed = "the exponent (p - 1) / 2 and the modulus p of `int::pow_mod` are positive constants; the check reads a literal only within 128 bits and does not fold the exponent",
-    syntax = "#kevmEcrecRecoverable({v}, {r}, {s})"
-)]
+#[k::function(total, syntax = "#kevmEcrecRecoverable({v}, {r}, {s})")]
 pub fn EcrecRecoverable(v: k::Term<Int>, r: k::Term<Int>, s: k::Term<Int>) -> k::Term<Bool> {
     (v == 27 || v == 28)
         && 0 < r
