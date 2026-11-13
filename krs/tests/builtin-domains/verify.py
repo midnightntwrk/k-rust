@@ -74,7 +74,9 @@ operation, and a corpus of programs that apply them to concrete values:
   subject) and `sort-test-project-k` (a projection into `K`) pin their
   `krs::analysis::invalid-sort-test` errors, and `sort-test-trivial` pins the
   `krs::analysis::trivial-sort-test` warnings of an identity projection and of
-  `k::is!(K, ..)`;
+  `k::is!(K, ..)`. The rule macro itself refuses `sort-test-matched`, so its
+  crate does not compile: it is the negative fixture `fixtures/sort-test-matched`,
+  outside the workspace whose packages `gates.sh lint` compiles;
 - `raw-k` and `raw-hook`: the raw K escapes (KF-037) in packages that set
   `allow-raw-k = true`. A `raw_k!` rule `double` runs natively and on Java K's
   LLVM backend; the quoted hook `KRYPTO.keccak256` runs natively and on Java
@@ -132,6 +134,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -151,6 +154,7 @@ from support.tools import target_environment, z3_environment  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "Cargo.toml"
+FIXTURES = HERE / "fixtures"
 PINS = HERE / "pins.json"
 
 
@@ -913,11 +917,27 @@ def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
         raise GateError(f"{fixture.package}: krs expand reports {expanded}, expected {definition}")
 
 
+def materialize(name: str, workspace: Path) -> Path:
+    """Copy one negative fixture into the workspace with the facade path filled in."""
+
+    destination = workspace / "fixtures" / name
+    shutil.copytree(FIXTURES / name, destination)
+    facade = json.dumps(str((ROOT / "crates" / "krs").resolve()))
+    for template in sorted(destination.rglob("Cargo.toml.in")):
+        manifest = template.read_text(encoding="utf-8").replace("@KRS_CRATE_PATH@", facade)
+        template.with_name("Cargo.toml").write_text(manifest, encoding="utf-8")
+        template.unlink()
+    return destination / "Cargo.toml"
+
+
 def sort_test_diagnostics(harness: FixtureGate) -> None:
     """Pin the sort-test errors and the trivial-sort-test warnings (KF-013)."""
 
-    for name in ("sort-test-matched", "sort-test-project-k"):
-        lines = harness.diagnostic(name, Fixture(MANIFEST, f"krs-builtin-{name}")).splitlines()
+    for name, manifest in (
+        ("sort-test-matched", materialize("sort-test-matched", harness.workspace)),
+        ("sort-test-project-k", MANIFEST),
+    ):
+        lines = harness.diagnostic(name, Fixture(manifest, f"krs-builtin-{name}")).splitlines()
         if not lines[0].startswith("error[krs::analysis::invalid-sort-test]: "):
             raise GateError(f"{name}: expected krs::analysis::invalid-sort-test, got {lines[0]}")
     fixture = Fixture(MANIFEST, "krs-builtin-sort-test-trivial")
