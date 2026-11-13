@@ -253,27 +253,35 @@ fn holds_entry_child(tokens: &TokenStream) -> bool {
                         [TokenTree::Group(group)]
                             if group.delimiter() == proc_macro2::Delimiter::Bracket
                                 && is_dots(&group.stream()))
-                        || instance_braces(&value).is_some()
+                        || instance_braces(&value, StateMacroContext::Pattern).is_some()
                 }
                 _ => false,
             }
         })
 }
 
-/// The braces of a record value spelled as an instance list, `{ y, .. }` or `{ Obj { .. }, .. }`:
-/// one braced group holding no top-level arrow (a map read or literal holds one) that is no term
-/// (a block `{ let p = t; r }` is one, on either side, which its position judges). `None` for any
-/// other value.
-fn instance_braces(tokens: &TokenStream) -> Option<proc_macro2::Group> {
+/// The braces of a record value spelled as an instance list, `{ y, .. }`, `{ .. }` or
+/// `{ Obj { .. }, .. }`: what the entry reader reads as instance braces, as a cell's braces are
+/// read ([`braced_instances`]), so braces denote an instance list by their items, whether or not
+/// they would also parse as a block (`{ .. }` is a block holding a range, `{ Obj { .. } }` one
+/// holding a struct expression). Braces holding a top-level arrow are map notation, and braces
+/// holding a statement (`{ let p = t; r }`) are a block, which its position judges. Braces whose
+/// items no instance reading takes (`{ n + 1 }`) stay the term they are, whose entry the
+/// collector judges by the cell's kind, as at a cell ([`braced_instances`]). `None` for any other
+/// value.
+fn instance_braces(tokens: &TokenStream, context: StateMacroContext) -> Option<proc_macro2::Group> {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let [TokenTree::Group(group)] = trees.as_slice() else {
         return None;
     };
-    (group.delimiter() == proc_macro2::Delimiter::Brace
-        && !contains_top_level_arrow(group)
-        && crate::term::parse_term_expression
-            .parse2(tokens.clone())
-            .is_err())
+    if group.delimiter() != proc_macro2::Delimiter::Brace || contains_top_level_arrow(group) {
+        return None;
+    }
+    let reading = crate::cell_entry::EntryReading::new(crate::cell_entry::EntryForm::Readable, &[]);
+    (matches!(
+        reading.value(tokens.clone()),
+        Ok(crate::cell_entry::EntrySpelling::Braces(_))
+    ) && parse_readable_instances_reading(group, context, false, None).is_ok())
     .then(|| group.clone())
 }
 
@@ -898,7 +906,7 @@ fn parse_readable_child(
     // Braces holding no arrow are an instance list, as at a cell (`te: { y, .. }`): the child is
     // a cell, whose kind judges them, so on a child that is no collection the collector says so
     // (`instances-on-plain-cell`) from the same spelling.
-    if let Some(group) = instance_braces(&tokens) {
+    if let Some(group) = instance_braces(&tokens, context) {
         return Ok(StateTerm::Instances(parse_readable_instances_reading(
             &group, context, false, faults,
         )?));
@@ -1946,7 +1954,8 @@ fn readable_record(
         }
         _ => false,
     };
-    let braces = |value: &[TokenTree]| instance_braces(&value.iter().cloned().collect()).is_some();
+    let braces =
+        |value: &[TokenTree]| instance_braces(&value.iter().cloned().collect(), reading).is_some();
     let items = top_level_items(body.stream());
     let maps = items.iter().any(|item| {
         let trees = item.clone().into_iter().collect::<Vec<_>>();
