@@ -170,9 +170,14 @@ fn parse_readable_pattern_state(
             if let Some(map) = braced_map_entries(&tokens, StateMacroContext::Pattern)? {
                 return Ok(Some(StateTerm::Present(Box::new(StateTerm::Map(map)))));
             }
-            // An alias over braces is the alias of the map pattern they denote, as at a map
-            // cell's own entry ([`named_rest_record`]).
-            if let Some(term) = aliased_map_braces(&tokens) {
+            // Braces naming the map's rest (`{ k -> v, r @ .. }`) or every entry (`{ k -> v }`),
+            // and an alias over braces, are the map pattern they denote, as at a map cell's own
+            // entry ([`named_rest_record`]).
+            let named = match tokens.clone().into_iter().collect::<Vec<_>>().as_slice() {
+                [TokenTree::Group(map)] => named_map_pattern(map).or_else(|| exact_map(&tokens)),
+                _ => None,
+            };
+            if let Some(term) = named.or_else(|| aliased_map_braces(&tokens)) {
                 return Ok(Some(StateTerm::Present(Box::new(StateTerm::Term(
                     TermExpression::parse_pattern_tokens(term)?,
                 )))));
