@@ -746,7 +746,7 @@ fn explicit_forms(operator: BuiltinOperator) -> String {
     prose_list(&forms, "or")
 }
 
-fn prose_list(items: &[String], conjunction: &str) -> String {
+pub(super) fn prose_list(items: &[String], conjunction: &str) -> String {
     match items {
         [] => String::new(),
         [only] => only.clone(),

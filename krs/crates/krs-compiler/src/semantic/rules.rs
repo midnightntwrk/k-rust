@@ -1858,8 +1858,15 @@ pub(super) fn lower_structured_rule_descriptor(
                 },
                 &typing,
                 &builder.binding_sorts,
-                builder.wildcards.len(),
-                std::mem::take(&mut subject_guards),
+                super::configuration_rules::EquationSubject {
+                    binders: {
+                        let mut binders = BTreeSet::new();
+                        super::configuration_rules::matched_binders(&subject, &mut binders);
+                        binders
+                    },
+                    wildcard_ordinal: builder.wildcards.len(),
+                    guards: std::mem::take(&mut subject_guards),
+                },
             )
         })
         .transpose()?;

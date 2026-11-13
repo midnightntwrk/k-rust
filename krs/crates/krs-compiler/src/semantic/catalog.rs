@@ -269,7 +269,7 @@ pub(super) struct DeclarationCatalog<'a> {
 /// `K` in a pattern) is a sequence that K's `~>` splices into the sequence: the sequence's items
 /// then have sort `K`, and every other item injects into `KItem`. Where a matched computation
 /// may hold such a part is judged where the pattern's parts are known
-/// (`StateRuleTerms::matched_parts`).
+/// (`StateRuleTerms::judge_sequences`).
 /// Every sort but `K` is a `KItem`, so items of unrelated sorts, such as an
 /// `Int` value followed by a frame, have the common sort `KItem`; only when
 /// they have no one most-specific common sort at all (a definition without

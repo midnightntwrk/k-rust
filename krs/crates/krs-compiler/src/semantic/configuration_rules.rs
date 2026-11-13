@@ -84,6 +84,15 @@ struct StateRuleTerms<'a> {
     /// The guards of the instances and the keys the pattern looks up, which
     /// the sentence's condition must hold: [`Self::finish`] hands them back.
     guards: super::set_instances::SentenceGuards,
+    /// The computation sequences the pattern matches, judged together once the whole pattern is
+    /// lowered ([`Self::judge_sequences`]).
+    matched_sequences: Vec<MatchedSequence>,
+    /// The binders the pattern matches outside every matched computation's items, each fixed by
+    /// its place ([`Self::judge_sequences`]).
+    outside_binders: BTreeSet<SemanticId>,
+    /// The entry whose state is being lowered, where an error about it that names no narrower
+    /// node is located.
+    entry_key: Option<ProvenanceKey>,
 }
 
 impl<'a> StateRuleTerms<'a> {
@@ -112,6 +121,43 @@ impl<'a> StateRuleTerms<'a> {
             sequence_item: None,
             k_item: false,
             guards: super::set_instances::SentenceGuards::default(),
+            matched_sequences: Vec::new(),
+            outside_binders: BTreeSet::new(),
+            entry_key: None,
+        }
+    }
+
+    /// Judges the computation sequences the pattern matches, once all of it is lowered: each must
+    /// split every computation it matches in one way, so that the pattern fixes what each of its
+    /// parts binds, and must not match items at the computation's back
+    /// ([`MatchedSequence::judge`]), given the binders fixed elsewhere ([`Self::fixed_binders`]).
+    fn judge_sequences(&self) -> Result<(), DescriptorLoweringError> {
+        (0..self.matched_sequences.len()).try_for_each(|judged| {
+            self.matched_sequences[judged].judge(
+                self.descriptor,
+                &self.fixed_binders(judged, Placed::Ends),
+                &self.fixed_binders(judged, Placed::Front),
+            )
+        })
+    }
+
+    /// The binders the pattern fixes, for judging the matched computation at `judged`, whose own
+    /// items fix binders where `own` places them. A part's length is known when it is one item
+    /// or a binder another occurrence fixes; an occurrence fixes its binders where its place in
+    /// the pattern does not depend on a part of unknown length: outside every matched
+    /// computation's items, in a computation's items before its first such part and, when it is
+    /// closed, after its last one, and anywhere in a computation that splits one way.
+    fn fixed_binders(&self, judged: usize, own: Placed) -> BTreeSet<SemanticId> {
+        let mut fixed = self.outside_binders.clone();
+        loop {
+            let before = fixed.len();
+            for (index, sequence) in self.matched_sequences.iter().enumerate() {
+                let placed = if index == judged { own } else { Placed::Whole };
+                sequence.fix_binders(&mut fixed, placed);
+            }
+            if fixed.len() == before {
+                return fixed;
+            }
         }
     }
 
@@ -213,6 +259,9 @@ impl<'a> StateRuleTerms<'a> {
         };
         self.wildcard_ordinal += builder.wildcards.len();
         self.variables.append(&mut builder.wildcards);
+        if subject && !self.k_item {
+            matched_binders(&lowered, &mut self.outside_binders);
+        }
         if let Some(guards) = builder.instance_guards.take() {
             let guards = guards.into_guards();
             self.variables.extend(
@@ -345,13 +394,15 @@ impl<'a> StateRuleTerms<'a> {
         subject: bool,
         base: Option<&MapBase<'_>>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        self.entry_state_term(state, declared_sort, binding_sorts, subject, base)
-            .map_err(|error| {
-                error.within(
-                    self.descriptor.id(),
-                    key_range(self.descriptor, entry_key).as_ref(),
-                )
-            })
+        let outer = self.entry_key.replace(entry_key.clone());
+        let lowered = self.entry_state_term(state, declared_sort, binding_sorts, subject, base);
+        self.entry_key = outer;
+        lowered.map_err(|error| {
+            error.within(
+                self.descriptor.id(),
+                key_range(self.descriptor, entry_key).as_ref(),
+            )
+        })
     }
 
     /// Lowers one cell's state term: an ordinary term, a K sequence, or a map.
@@ -437,7 +488,17 @@ impl<'a> StateRuleTerms<'a> {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 if subject {
-                    matched_parts(descriptor, sequence, &items)?;
+                    refuse_k_alias_item(descriptor, sequence, &items)?;
+                    self.matched_sequences.push(MatchedSequence {
+                        items: items.clone(),
+                        item_keys: sequence.items.iter().map(|item| item.key.clone()).collect(),
+                        rest: match &sequence.tail {
+                            ProtocolRuleFrame::Exact => None,
+                            _ => Some("the rest".to_owned()),
+                        },
+                        payload_key: sequence.payload_key.clone(),
+                        entry_key: self.entry_key.clone(),
+                    });
                 }
                 let item_sort = common_sequence_item_sort(&items, self.sort_parents);
                 Ok(SemanticTerm::k_sequence(
@@ -1723,6 +1784,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         &subject_sorts,
         &result_sorts,
     )?;
+    terms.judge_sequences()?;
     declare_moved_remainders(&mut terms.variables, &clauses);
     let unused_moved = moved_remainders_unused_by(&terms, &clauses);
     // A context's hole lies in the computation cell (KF-021).
@@ -2669,6 +2731,10 @@ fn context_alias_typing(
     walker.run(&roots)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One context alias's bindings, cells and judged pattern, lowered in order."
+)]
 pub(super) fn lower_context_alias_descriptor(
     descriptor: &Descriptor,
     alias: &krs_ir::DescriptorContextAlias,
@@ -2725,6 +2791,7 @@ pub(super) fn lower_context_alias_descriptor(
         .iter()
         .map(|pattern| lower_context_alias_cell(&mut terms, pattern, &binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
+    terms.judge_sequences()?;
     check_here_in_computation_cell(descriptor, declarations, alias, &cells)?;
     let variables = terms.finish_unconditioned("a context alias")?;
     let selected = alias
@@ -2814,19 +2881,28 @@ fn check_here_in_computation_cell(
     Ok(())
 }
 
+/// What an equation's subject leaves its function context.
+pub(super) struct EquationSubject {
+    /// The binders the subject matches, which it fixes.
+    pub(super) binders: BTreeSet<SemanticId>,
+    /// The number of the subject's wildcards, after which the context's are numbered.
+    pub(super) wildcard_ordinal: usize,
+    /// The subject's guards, which come before the context's.
+    pub(super) guards: super::set_instances::SentenceGuards,
+}
+
 /// Lowers an equation's function context (KF-025): its leaf cells as a
 /// one-sided pattern over the fixed configuration, whose term binders have
-/// the sorts in `binding_sorts`. Returns the context, its wildcards, which
-/// continue after the first `wildcard_ordinal` of the sentence, and the
-/// guards of the keys it looks up, which the equation's condition holds.
+/// the sorts in `binding_sorts`, after the equation's `subject`. Returns the
+/// context, its wildcards, which continue after the subject's, and the guards
+/// of the keys it looks up, which the equation's condition holds.
 pub(super) fn lower_function_context(
     descriptor: &Descriptor,
     context: &krs_ir::DescriptorFunctionContext,
     tables: StateRuleTables<'_>,
     collections: &CollectionTyping,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
-    wildcard_ordinal: usize,
-    guards: super::set_instances::SentenceGuards,
+    subject: EquationSubject,
 ) -> Result<
     (
         krs_ir_levels::SemanticFunctionContext,
@@ -2847,9 +2923,11 @@ pub(super) fn lower_function_context(
         "a function context reads the fixed configuration",
     )?;
     // The equation's subject's guards come first, and the context's are numbered after them.
+    // The binders the equation's subject matches are fixed there.
     let mut terms = StateRuleTerms {
-        wildcard_ordinal,
-        guards,
+        wildcard_ordinal: subject.wildcard_ordinal,
+        guards: subject.guards,
+        outside_binders: subject.binders,
         ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, collections)
     };
     let cells = context
@@ -2858,6 +2936,7 @@ pub(super) fn lower_function_context(
         .iter()
         .map(|cell| lower_function_context_cell(&mut terms, cell, binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
+    terms.judge_sequences()?;
     let selected = context
         .cells
         .cells
@@ -3843,80 +3922,224 @@ fn matches_one_item(term: &SemanticTerm) -> bool {
     }
 }
 
-/// Judges where the parts of a matched computation `sequence`, lowered as `items`, stand,
-/// beside its parts of unknown length: each part of sort `K` that is not one item, and a rest.
-/// - An alias of sort `K` naming one item is one item, which no route writes yet.
-/// - With no part of sort `K` there is nothing to judge.
-/// - A closed computation with one such part: as its last part, after the items, it matches
-///   the rest of the computation (`KCell(Cmd::Make { x }, b)` is `make(X) ~> B:K`, as `b @ ..`
-///   is); followed by items, the pattern matches those items at the computation's back, which
-///   a computation read from its front never is, as an item after its rest is not
-///   ([`DescriptorLoweringError::ComputationBackItem`]).
-/// - Otherwise the pattern has a part of sort `K` beside another part of unknown length (a
-///   rest, another `K` part). Patterns whose every part is a binder of unknown length
-///   (`KCell(b, ..)`, `KCell(b, c, ..)`) are admitted as they read; one that also holds an item,
-///   or a rewrite whose left side has unknown length (`KCell(k::rewrite!(b => t), ..)`), is not
-///   supported yet. Both are held as they were until those patterns are ruled on together.
-fn matched_parts(
+/// Refuses an alias of sort `K` that names one item as an item of a matched computation
+/// `sequence`, lowered as `items`: it matches one item, but no route writes a `K` alias as an
+/// item of a computation yet; at the item's sort it is one.
+fn refuse_k_alias_item(
     descriptor: &Descriptor,
     sequence: &krs_ir::ProtocolRuleKSequence<DescriptorTerm>,
     items: &[SemanticTerm],
 ) -> Result<(), DescriptorLoweringError> {
-    // An alias declared `K` that names one item matches one item, but no route writes a `K`
-    // alias as an item of a computation yet; at the item's sort it is one.
-    if let Some(index) = items.iter().position(|item| {
-        matches!(item.kind(), krs_ir_levels::SemanticTermKind::As { .. })
+    let Some(index) = items.iter().position(|item| {
+        matches!(item.kind(), IrTermKind::As { .. })
             && *item.sort() == SemanticSortRef::k_sequence()
             && matches_one_item(item)
-    }) {
-        return Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            "an alias of sort `K` that names one item of a matched computation is not supported yet; declare the alias at the item's sort (`k::KItem`, or a sort below it)",
-        )
-        .within(
-            descriptor.id(),
-            key_range(descriptor, &sequence.items[index].key).as_ref(),
-        ));
+    }) else {
+        return Ok(());
+    };
+    Err(DescriptorLoweringError::invalid_term(
+        descriptor.id(),
+        "an alias of sort `K` that names one item of a matched computation is not supported yet; declare the alias at the item's sort (`k::KItem`, or a sort below it)",
+    )
+    .within(
+        descriptor.id(),
+        key_range(descriptor, &sequence.items[index].key).as_ref(),
+    ))
+}
+
+/// A computation sequence a pattern matches, its items lowered, kept until the whole pattern is
+/// ([`StateRuleTerms::judge_sequences`]).
+struct MatchedSequence {
+    items: Vec<SemanticTerm>,
+    item_keys: Vec<ProvenanceKey>,
+    /// How an error names the rest after the items, `None` when the sequence is closed.
+    rest: Option<String>,
+    payload_key: ProvenanceKey,
+    entry_key: Option<ProvenanceKey>,
+}
+
+impl MatchedSequence {
+    /// The positions of the items whose length is unknown, given the binders `fixed` elsewhere
+    /// ([`known_length`]).
+    fn unknown_parts(&self, fixed: &BTreeSet<SemanticId>) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| !known_length(item, fixed))
+            .map(|(index, _)| index)
+            .collect()
     }
-    let parts = items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| !matches_one_item(item))
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    let closed = matches!(sequence.tail, krs_ir::ProtocolRuleFrame::Exact);
-    match parts.as_slice() {
-        [] => Ok(()),
-        [part] if closed => {
-            if *part + 1 == items.len() {
-                return Ok(());
+
+    /// Whether the parts of unknown length at `unknown` split every computation the sequence
+    /// matches in one way: there is at most one of them, the rest included; or the sequence is
+    /// closed and they are one binder written several times, whose length is then the
+    /// computation's less the items', shared among its occurrences.
+    fn splits_once(&self, unknown: &[usize]) -> bool {
+        match unknown {
+            [] => true,
+            [first, others @ ..] => {
+                self.rest.is_none()
+                    && others
+                        .iter()
+                        .all(|&other| same_binder(&self.items[*first], &self.items[other]))
             }
-            Err(DescriptorLoweringError::ComputationBackItem {
-                reason: "the closed computation pattern has an item after a part of sort `K`, and it matches the items after that part at the computation's back: a computation is read from its front, where its next step is".to_owned(),
-                range: key_range(descriptor, &sequence.items[*part + 1].key).map(Box::new),
-                item: Some(Box::new(descriptor.id().clone())),
-            })
         }
-        // Patterns of binders of unknown length only read as they did; a rewrite whose left side
-        // has unknown length is held with the rest.
-        _ if parts.len() == items.len()
-            && !parts.iter().any(|&index| {
-                matches!(
-                    items[index].kind(),
-                    krs_ir_levels::SemanticTermKind::Rewrite { .. }
-                )
-            }) =>
+    }
+
+    /// Adds to `fixed` the binders of the items whose place in a matched computation `placed`
+    /// determines.
+    fn fix_binders(&self, fixed: &mut BTreeSet<SemanticId>, placed: Placed) {
+        let unknown = self.unknown_parts(fixed);
+        let length = self.items.len();
+        let front = unknown.first().copied().unwrap_or(length);
+        let back = match (placed, &self.rest, unknown.last()) {
+            (Placed::Front, _, _) | (_, Some(_), _) | (_, None, None) => length,
+            (Placed::Whole, None, Some(_)) if self.splits_once(&unknown) => 0,
+            (_, None, Some(last)) => last + 1,
+        };
+        for item in self.items[..front]
+            .iter()
+            .chain(&self.items[back.max(front)..])
         {
-            Ok(())
+            matched_binders(item, fixed);
         }
-        _ => Err(DescriptorLoweringError::invalid_term(
-            descriptor.id(),
-            "a computation pattern with a `K` part beside another part of unknown length is not supported yet",
-        )
-        .within(
-            descriptor.id(),
-            key_range(descriptor, &sequence.payload_key).as_ref(),
-        )),
+    }
+
+    /// Judges the sequence's parts, given the binders the pattern fixes with this sequence's
+    /// items at both its ends, `ends`, and at its front only, `front`
+    /// ([`StateRuleTerms::fixed_binders`]).
+    /// - Two or more parts of unknown length, the rest included, split some matched computation
+    ///   in more than one way, each binding the parts differently, so the pattern does not fix
+    ///   what they bind: refused, naming them.
+    /// - Otherwise the parts split every matched computation one way. In a closed sequence a part
+    ///   whose length its front does not fix matches the rest of the computation when it is last
+    ///   (`KCell(Cmd::Make { x }, b)` is `make(X) ~> B:K`, as `b @ ..` is); followed by an item,
+    ///   it matches that item at the computation's back, which a computation read from its front
+    ///   never is, as an item after its rest is not
+    ///   ([`DescriptorLoweringError::ComputationBackItem`]).
+    fn judge(
+        &self,
+        descriptor: &Descriptor,
+        ends: &BTreeSet<SemanticId>,
+        front: &BTreeSet<SemanticId>,
+    ) -> Result<(), DescriptorLoweringError> {
+        let unknown = self.unknown_parts(ends);
+        if !self.splits_once(&unknown) {
+            let parts = unknown
+                .iter()
+                .map(|&index| part_name(&self.items[index], index))
+                .chain(self.rest.clone())
+                .collect::<Vec<_>>();
+            return Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!(
+                    "the computation pattern has several parts of unknown length, {}: a computation it matches can split between them in more than one way, each binding them differently, so the pattern does not determine what they match; give all of them but one a known length, by declaring a binder at an item sort (`KItem`, or a sort below it) or by matching one item in its place",
+                    super::operators::prose_list(&parts, "and"),
+                ),
+            )
+            .within(
+                descriptor.id(),
+                key_range(descriptor, &self.payload_key).as_ref(),
+            )
+            .within(
+                descriptor.id(),
+                self.entry_key
+                    .as_ref()
+                    .and_then(|key| key_range(descriptor, key))
+                    .as_ref(),
+            ));
+        }
+        if self.rest.is_some() {
+            return Ok(());
+        }
+        let unknown = self.unknown_parts(front);
+        let Some(back) = unknown.first().and_then(|&first| {
+            (first + 1..self.items.len()).find(|index| !unknown.contains(index))
+        }) else {
+            return Ok(());
+        };
+        Err(DescriptorLoweringError::ComputationBackItem {
+            reason: "the closed computation pattern has an item after a part of sort `K`, and it matches the items after that part at the computation's back: a computation is read from its front, where its next step is".to_owned(),
+            range: key_range(descriptor, &self.item_keys[back]).map(Box::new),
+            item: Some(Box::new(descriptor.id().clone())),
+        })
+    }
+}
+
+/// Where a matched computation's items fix their binders ([`MatchedSequence::fix_binders`]).
+#[derive(Clone, Copy)]
+enum Placed {
+    /// The items before its first part of unknown length.
+    Front,
+    /// Those, and in a closed computation the items after its last part of unknown length.
+    Ends,
+    /// Those, and every item of a computation that splits one way.
+    Whole,
+}
+
+/// Whether a lowered item of a matched computation has a known length, given the binders
+/// `fixed` elsewhere in the pattern: a term of a sort below `K` is one item, and so is the
+/// one-item sequence a `KItem` stands as at `K`; a rewrite has its left side's length, an alias
+/// its pattern's or its fixed alias's, a sequence its items' together, and any other term of
+/// sort `K`, a binder first, is known when the pattern fixes every binder in it.
+fn known_length(term: &SemanticTerm, fixed: &BTreeSet<SemanticId>) -> bool {
+    match term.kind() {
+        IrTermKind::Rewrite { from, .. } => known_length(from, fixed),
+        IrTermKind::As { alias, pattern } => fixed.contains(alias) || known_length(pattern, fixed),
+        IrTermKind::KSequence { items, .. } => items.iter().all(|item| known_length(item, fixed)),
+        IrTermKind::Or { alternatives } => alternatives
+            .iter()
+            .all(|alternative| known_length(alternative, fixed)),
+        _ if *term.sort() != SemanticSortRef::k_sequence() => true,
+        _ => {
+            let mut binders = BTreeSet::new();
+            matched_binders(term, &mut binders);
+            binders.is_subset(fixed)
+        }
+    }
+}
+
+/// Whether two items are the same binder.
+fn same_binder(left: &SemanticTerm, right: &SemanticTerm) -> bool {
+    matches!(
+        (left.kind(), right.kind()),
+        (IrTermKind::Variable { variable: left }, IrTermKind::Variable { variable: right })
+            if left == right
+    )
+}
+
+/// How an error names the item of unknown length at `index` of a matched computation.
+fn part_name(term: &SemanticTerm, index: usize) -> String {
+    match term.kind() {
+        IrTermKind::Variable { variable } => format!("`{variable}`"),
+        IrTermKind::Rewrite { from, .. } => match from.kind() {
+            IrTermKind::Variable { variable } => format!("`k::rewrite!({variable} => ..)`"),
+            _ => format!("the item at position {}", index + 1),
+        },
+        IrTermKind::As { alias, .. } => format!("the alias `{alias}`"),
+        _ => format!("the item at position {}", index + 1),
+    }
+}
+
+/// Adds to `binders` the binders `term` matches: its variables and aliases, except on a
+/// rewrite's right side, which writes, and in a test or a `let`, which matches nothing of the
+/// subject.
+pub(super) fn matched_binders(term: &SemanticTerm, binders: &mut BTreeSet<SemanticId>) {
+    match term.kind() {
+        IrTermKind::Variable { variable } => {
+            binders.insert(variable.clone());
+        }
+        IrTermKind::Rewrite { from, .. } => matched_binders(from, binders),
+        IrTermKind::As { alias, pattern } => {
+            binders.insert(alias.clone());
+            matched_binders(pattern, binders);
+        }
+        IrTermKind::Matches { .. } | IrTermKind::Let { .. } => {}
+        _ => {
+            for child in term.children() {
+                matched_binders(child, binders);
+            }
+        }
     }
 }
 
