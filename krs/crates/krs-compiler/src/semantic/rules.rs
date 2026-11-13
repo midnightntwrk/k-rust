@@ -1365,10 +1365,10 @@ fn default_item_binders(
 }
 
 /// The items of the computation children that the instances of `state`, an entry of the
-/// collection `field`, or a present group's term there, write in brackets, in authored order. An instance's computation child is a
-/// computation, as the computation cell is, so each item is one item of it; brackets on a list
-/// child are that list's elements instead, which its leaf's sort types
-/// ([`infer_readable_state`]).
+/// collection `field`, or a present group's term there, write in brackets, in authored order. An
+/// instance's computation child is a computation, as the computation cell is, so each item is one
+/// item of it; brackets on a list child are that list's elements instead, which its leaf's sort
+/// types ([`infer_readable_state`]).
 fn instance_computation_items(
     state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
     field: &krs_ir::DescriptorCellField,

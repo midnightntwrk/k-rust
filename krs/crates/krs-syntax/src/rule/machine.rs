@@ -171,10 +171,10 @@ fn parse_readable_pattern_state(
                 return Ok(Some(StateTerm::Present(Box::new(StateTerm::Map(map)))));
             }
             // A present group's record whose child is brackets holding their rest alone, `[..]`,
-            // is the record of its children's entries, as a group record at a cell's position
-            // is ([`readable_record`]): each child is that child cell's entry, which its kind
-            // reads, so a list child's `[..]` is its whole list and a computation child's its
-            // items.
+            // or instance braces, is the record of its children's entries, as a group record at
+            // a cell's position is ([`readable_record`]): each child is that child cell's entry,
+            // which its kind reads, so a list child's `[..]` is its whole list and a computation
+            // child's its items.
             if holds_entry_child(&tokens) {
                 let record = crate::parse::structured_with(
                     tokens.clone(),
