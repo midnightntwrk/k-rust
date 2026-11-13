@@ -2944,7 +2944,10 @@ fn a_readable_map_literal_at_a_content_root_is_its_map_read() {
         (subject(&map, "{ y -> x, .. }"), admit),
         (subject(&optional_map, "Some(map![y -> x, ..])"), admit),
         (subject(&group, "B { m: map![y -> x, ..], .. }"), admit),
-        (subject(&keyed, "{ A { m: map![y -> x, ..], .. }, .. }"), admit),
+        (
+            subject(&keyed, "{ A { m: map![y -> x, ..], .. }, .. }"),
+            admit,
+        ),
         (
             subject(&list, "map![y -> x, ..]"),
             Outcome::Refuse("map-notation-at-non-map"),

@@ -1858,10 +1858,9 @@ fn read_result_presence(
             None,
         );
         skip_value(content)?;
-        return Ok(MachineResultCell::Refused(Box::new(crate::SyntaxError::new(
-            crate::SyntaxErrorKind::RustSyntax(reason),
-            map.span(),
-        ))));
+        return Ok(MachineResultCell::Refused(Box::new(
+            crate::SyntaxError::new(crate::SyntaxErrorKind::RustSyntax(reason), map.span()),
+        )));
     }
     let fork = content.fork();
     match parse_readable_result_state(&fork, StateFamily::Optional) {

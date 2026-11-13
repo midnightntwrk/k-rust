@@ -69,8 +69,7 @@ const RESULT_LINE_UP: &str =
 /// An anonymous `..` in a map literal.
 const ANONYMOUS_REST: &str = "a map literal's rest is the map its entries are written over, and an anonymous `..` names none";
 /// A map read in a result: braces holding a rest, or a cell's `map![k -> v, ..]`.
-const MAP_READ_RESULT: &str =
-    "a map read is a pattern, and a result keeping the entries it does not name is a frame write no route lowers yet";
+const MAP_READ_RESULT: &str = "a map read is a pattern, and a result keeping the entries it does not name is a frame write no route lowers yet";
 
 /// What K7 runs a case on: its plan, and its counter runs or why it has none.
 pub(super) struct Plans {
