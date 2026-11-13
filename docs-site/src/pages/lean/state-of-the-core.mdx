@@ -1,6 +1,6 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec 57f851ec (status of 2026-11-13): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec 57f851ec (status of 2026-11-13): the goal and its scoreboard, coverage of K, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
@@ -12,6 +12,10 @@ This is the only page of the Lean course that changes as the work moves; the les
 
 Newest first.
 
+- A second scoreboard, [Coverage of K](#coverage-of-k): how much of KORE, of what kompile emits, and of K's builtin library the reader handles, and how many of k-rust's 381 cached kompile outputs it reads.
+- One existing K claim, sum-spec, is proved on the imp package over its own step relation, for all paths, with its matching-logic consequence: the theory Γ entails that the initial configuration eventually reaches the final one. A second claim, sum-N, is proved too. imp's "used by a proof" is now ✓.
+- Packages now carry readable term builders and a `fire` step for proofs, which took the sum-spec proof from 364 to 124 lines. Nine of the regenerated packages have not been kernel-checked since that change; they will be at the next wave end.
+- Full validation now runs once per wave of work, not after every change.
 - Definitions with uninterpreted operations (Bytes, String, hashing) now mean something at each interpretation H of them, and a generated package states soundness and completeness for every H that gives a value wherever the text declares the operation total. [Lesson 10](/lean/sound-and-complete) gained a paragraph on it. For KEVM this discharged 18 of the 57 totality facts that called such an operation; the other 39 call an operation the text does not declare total, or fail for another reason too.
 - KEVM: the facts left under `FnHyp` are now 134, each with its place in KEVM's source: termination 37, totality 80, agreement 17 functions, matches 0. Work on deciders for KEVM stops here; the remaining facts are for proof search, later.
 - wasm and mir were measured for the first time. Both are refused as written (see the goal).
@@ -39,7 +43,7 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 
 | Definition | read | well-formed | obligations | sound and complete | used by a proof |
 | --- | --- | --- | --- | --- | --- |
-| imp | ✓ | ✓ | ✓ (none named) | ✓ | — |
+| imp | ✓ | ✓ | ✓ (none named) | ✓ | ✓ (sum-spec and sum-N) |
 | KEVM | ✓ | ✓ | 134 named; 9 look false of KEVM as written (below) | stated from the named facts | — |
 | wasm | — (needs four reader features and Float, below) | — | — | — | — |
 | mir | all but three kinds of sentence | on an edited copy | — | — | — |
@@ -74,7 +78,37 @@ wasm and mir, measured 2026-11-13 from kompile's own texts. Both are refused as 
 - **wasm** needs four reader features first: the overload axioms kompile writes between constructors of list sorts one below another, user token sorts with literals, recognising Int's library module when the text declares `Int` again, and several `[owise]` equations per function. It also needs a Float domain, since it puts Float below one of its own sorts and writes Float literals.
 - Shared by both: no Float domain, several `[owise]` equations of one function, and `ensures` on a rule. Neither showed a problem of kernel cost.
 
-Next: one existing proof about an IMP program is being rebuilt on the imp package, for the "used by a proof" column.
+## Coverage of K
+
+As of 2026-11-13.
+
+For this project K is a finite thing, at three levels: the KORE language (its sentence kinds, pattern constructors and attributes), the sentence shapes kompile 7.1.337 emits, and the hooks of K's builtin modules. The frontend's constructs (strictness, contexts, cells, macros) are compiled away by kompile and never reach the reader. Coverage is complete when every row is read, inert, or refused by a recorded decision.
+
+| Part | rows | read | inert | refused by decision | parameter only | not handled |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| KORE: sentences, patterns, attributes | 66 | 38 | 13 | 4 | 0 | 11 |
+| kompile's sentence shapes | 58 | 24 | 11 | 7 | 3 | 13 |
+| builtin hooks | 317 | 66 | 0 | 50 | 97 | 104 |
+
+- **read**: the reader turns it into part of the definition, and the kernel gives it its meaning.
+- **inert**: classified and accounted for, with no meaning in the semantics.
+- **refused by decision**: refused with a reason, and a recorded decision says it is refused on purpose.
+- **parameter only**: the symbol is read and applied but has no interpretation in Lean, like Bytes and String; the theorems hold for every interpretation.
+- **not handled**: refused or left unaccounted for, with no recorded decision.
+
+**The corpus**: k-rust's 381 cached kompile outputs, of 62 definitions (KEVM is not among them). 193 texts are read with nothing refused, and 158 meet `coreOK`. The reader stops at a text's first fault, so the 175 texts it stops early hide whatever lies behind that fault.
+
+The largest gaps, by texts affected:
+
+- definitions with no `configuration` declaration, for which kompile supplies K's default configuration: 128 texts;
+- K's FLOAT module: 14;
+- a projection in a generated initializer: 14;
+- a function symbol in a rule's left side: 8;
+- K's K-REFLECTION module: 7;
+- the stdin and stdout stream rules: 7;
+- and 35 texts that are read but fail `coreOK` on sorting.
+
+Work on the first three and on the sorting failures is running, together with wasm and mir.
 
 ## The core, layer by layer
 
