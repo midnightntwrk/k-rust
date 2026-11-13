@@ -1025,6 +1025,7 @@ A constructor's end is the item named by the constructor's name in snake case, i
 An end is a statement about states and adds no condition to any rule: the definition's transitions are the same with and without it.
 So an end is declared where no rule applies: a state at which an end holds and a rule applies is not where the run is over.
 A refusal is stated, never inferred: a state where no rule applies and no end holds is in no class.
+`krs run` evaluates the declared ends where a run ends with no rule to apply, and reports the class of the end, or that it is in none ([run, search, and prove](/reference/workflow#run-search-and-prove)).
 A definition refuses some of its inputs by an end that holds at its initial state: the initializer writes an item that holds the inputs at the head of the computation cell, one rule replaces the item by the loaded state where the inputs are accepted, and a `#[k::end(refused)]` `fn` over the item, whose `#[k::requires]` says that the inputs are not accepted, declares the state where they are not.
 The shorthand on the item's constructor would hold at every initial state, the accepted ones included, where the rule applies.
 
@@ -2209,7 +2210,7 @@ Each command compiles the selected definition with the k-rust backend linked int
 
 A run ends `stuck` when no rule applies; K has no separate finished state, so a program is finished when `<k>` holds only `.K`.
 Proof verdicts are k-rust's `proven`, `disproved`, `failed`, `indeterminate`, `depth-bound`, and `breadth-bound`; `trusted` for a [trusted claim](/verification/reachability-claims#trusted-claims), which is assumed without proof; `crashed` for a claim whose proof process ended abnormally; and `timeout` for a claim whose proof `--claim-timeout` cancelled ([proving a batch of claims](/verification/reachability-claims#proving-a-batch-of-claims)).
-`--output json` prints a report whose configurations are KAST JSON, as `krun --output json` prints them: a `krs-exec/7` report for `krs run`, whose stop rule and coverage rows name their KRS item as a stop names it (`crate::boundary`, `lang::step`), which may end `stop-undecided` and count its `arrivals` under a stop condition, and which lists the stop rules it went on past (`passed_stops`), a `krs-exec/1` report for `krs search`, and a `krs-exec/2` report for `krs prove`, the version that has the `crashed` and `timeout` verdicts and names the solver the claims were proved with (`solver`).
+`--output json` prints a report whose configurations are KAST JSON, as `krun --output json` prints them: a `krs-exec/7` report for `krs run` (`krs-exec/8` for a definition that declares ends, which reports the class of its end as `end`), whose stop rule and coverage rows name their KRS item as a stop names it (`crate::boundary`, `lang::step`), which may end `stop-undecided` and count its `arrivals` under a stop condition, and which lists the stop rules it went on past (`passed_stops`), a `krs-exec/1` report for `krs search`, and a `krs-exec/2` report for `krs prove`, the version that has the `crashed` and `timeout` verdicts and names the solver the claims were proved with (`solver`).
 `krs prove --output jsonl` prints a `krs-exec/2` record per claim as its proof ends, then a summary line.
 
 ### Printing through the grammar

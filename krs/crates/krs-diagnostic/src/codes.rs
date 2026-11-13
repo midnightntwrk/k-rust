@@ -547,6 +547,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         RESULT: "krs::exec::result" [Internal] => "The backend returned a result KRS cannot read.",
         CASE: "krs::exec::case" => "A case document is no case document or has no case of the requested name, or its expectation is no partial end of the definition or does not state a cell it is compared on.",
         UNDECIDED: "krs::exec::undecided" => "A run reaches several states under conditions over terms that may have values, which it cannot decide, so it has no one path; `krs search` prints each.",
+        END_CLASSES_OVERLAP: "krs::exec::end-classes-overlap" => "A run ended, where no rule applies, at a state where a declared `finished` end and a declared `refused` end both hold, so the definition contradicts itself.",
         STAGE_CACHE: "krs::exec::stage-cache" [Environment] => "The compiled-stage cache directory lies inside the input's Cargo workspace, so it is not used.",
     }
 }

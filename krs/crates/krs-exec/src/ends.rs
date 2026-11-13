@@ -52,6 +52,21 @@
 //!   label of its rules that does. So two packages' items at one path are two classes, and the
 //!   name a document writes reads back as the item.
 //!   A stopped end whose class names no item has no end document.
+//! - `class`, `end` and `reason` state the declared class of a `stuck` end of a definition that
+//!   declares ends ([`crate::declared_ends`]): `class` is `finished`, `refused`, or `none` for a
+//!   state outside every declared end; `end` names the declared end that holds by its item
+//!   (`crate::machine::unmapped_read`, `core::trap`); `reason` is a refused end's reason, a
+//!   document at the declared result type of the end's reason function.
+//!   [`Semantics::end_document`] writes `class` for every `stuck` end of such a definition, with
+//!   `end` where an end holds and `reason` where it is refused.
+//!   A document may state any of the three, and each it states narrows the ends that meet it as
+//!   an expectation ("Results", below): `halt = "stuck"` alone is met by an end of any class.
+//!   The three are refused with another halt, whose state is not known to be one no rule
+//!   applies to and so has no class, and in a definition that declares no end; an `end` or a
+//!   `reason` that disagrees with a stated `class` or `end` is refused too.
+//!   A `reason` is read at the type of the stated `end`'s reason, or, with no `end`, at the one
+//!   type the definition's refused ends share; where they do not share one, the document states
+//!   the `end`.
 //! - `cells` nests by group field as [`crate::StateView`] paths do (`cpu.regs` is
 //!   `cells.cpu.regs`; TOML dotted keys give it); a leaf cell holds its value's document at the
 //!   cell's declared type; an optional cell is `[]` (absent) or `[content]`; a repeated cell is
@@ -111,7 +126,8 @@
 //!
 //! - An expectation (one end `x`, usually partial) against a run's ends `E`
 //!   ([`Semantics::check_expectation`]) is met when every end of `E` agrees with `x` on the class
-//!   and the compared cells: the expectation states what the definition computes for the case,
+//!   (on its halt and stop rule, and on each of the declared `class`, `end` and `reason` that `x`
+//!   states) and the compared cells: the expectation states what the definition computes for the case,
 //!   and one disagreeing end of a nondeterministic definition is a result it can produce. The
 //!   first disagreeing end in the order of the canonical text of the projected end documents is
 //!   reported, so the report is a function of the set of ends, not of the order a producer gave
@@ -196,6 +212,7 @@ use krs_ir::{CellCollectionType, CellMultiplicity};
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as Json};
 
+use crate::declared_ends::{DeclaredClass, EndReason};
 use crate::encode::{EncodeError, canonical_text, encode, field_position};
 use crate::inputs::{InputFiles, InputType, NoFiles, decode_value_in, input_type};
 use crate::report::{Halt, RunReport, SearchReport};
@@ -238,6 +255,47 @@ pub struct EndClass {
     /// ([`crate::Stop::rule`]) or whose rule's item no name selects alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<String>,
+    /// What is stated of the declared class of a `stuck` end
+    /// ([module documentation](crate::ends#end-documents)): all of it for the end of a run of a
+    /// definition that declares ends, and what the document states for an end read from one.
+    /// `None` for an end with another halt, for an end of a definition that declares none, and
+    /// for a document that states none of it.
+    #[serde(flatten)]
+    pub declared: Option<DeclaredEnd>,
+}
+
+/// What an end states of its declared class ([`EndClass::declared`]): each part is `None` where
+/// it is not stated.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct DeclaredEnd {
+    /// The class; `none` for a state outside every declared end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub class: Option<DeclaredClass>,
+    /// The declared end that holds, by its item; an end of class `none` has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    /// A refused end's reason.
+    #[serde(flatten)]
+    pub reason: Option<EndReason>,
+}
+
+impl DeclaredEnd {
+    /// The parts of `actual`, an end's whole statement (`None` for an end with none), that
+    /// `stated` states: what an expectation that states `stated` compares of the end.
+    fn narrowed(actual: Option<&Self>, stated: Option<&Self>) -> Option<Self> {
+        let stated = stated?;
+        Some(Self {
+            class: stated.class.and(actual.and_then(|actual| actual.class)),
+            end: stated
+                .end
+                .as_ref()
+                .and(actual.and_then(|actual| actual.end.clone())),
+            reason: stated
+                .reason
+                .as_ref()
+                .and(actual.and_then(|actual| actual.reason.clone())),
+        })
+    }
 }
 
 /// The content of one cell of an end.
@@ -934,8 +992,26 @@ impl Semantics {
                         }
                     )
                 });
+            // A declared end left undecided likewise: which, why, and whether a budget decides.
+            let end_undecided = report
+                .end_undecided
+                .as_ref()
+                .map_or_else(String::new, |undecided| {
+                    format!(
+                        ": after {} step{} no rule applies, and whether the declared end `{}` holds is undecided ({}); {}",
+                        report.steps,
+                        if report.steps == 1 { "" } else { "s" },
+                        undecided.item,
+                        undecided.reason,
+                        if undecided.budget_spent {
+                            "a larger budget of polls (`--view-budget`) can decide it"
+                        } else {
+                            "a larger budget of polls does not decide it"
+                        }
+                    )
+                });
             return Ok(Ends::none(format!(
-                "the run halted `{}`, which is no end of the definition{undecided}",
+                "the run halted `{}`, which is no end of the definition{undecided}{end_undecided}",
                 halt.as_str()
             )));
         }
@@ -948,7 +1024,16 @@ impl Semantics {
                     .and_then(|rule| self.rules.class_name(&rule.rule_id))
             })
             .flatten();
-        let class = EndClass { halt, rule };
+        let declared = report.end.as_ref().map(|end| DeclaredEnd {
+            class: Some(end.class),
+            end: end.item.clone(),
+            reason: end.reason.clone(),
+        });
+        let class = EndClass {
+            halt,
+            rule,
+            declared,
+        };
         if halt == Halt::Undefined {
             return Ok(Ends::one(End {
                 class,
@@ -1006,12 +1091,17 @@ impl Semantics {
                         class: EndClass {
                             halt: Halt::Undefined,
                             rule: None,
+                            declared: None,
                         },
                         cells: EndCells::default(),
                     }),
                     View::State(state) if !state.constraints().is_empty() => constrained = true,
                     View::State(state) => ends.push(End {
-                        class: EndClass { halt, rule: None },
+                        class: EndClass {
+                            halt,
+                            rule: None,
+                            declared: None,
+                        },
                         cells: self.read_state(state.term())?,
                     }),
                 }
@@ -1253,13 +1343,24 @@ impl Semantics {
                 "an end document is a table of `halt`, `rule` and `cells`".to_owned(),
             ));
         };
-        if let Some(key) = object
-            .keys()
-            .find(|key| !matches!(key.as_str(), "halt" | "rule" | "cells"))
-        {
+        // A definition that declares no end keeps the keys it had, and their refusal.
+        let declares = !self.ends.is_empty();
+        if let Some(key) = object.keys().find(|key| match key.as_str() {
+            "halt" | "rule" | "cells" => false,
+            "class" | "end" | "reason" => !declares,
+            _ => true,
+        }) {
             return Err(refuse(
                 key,
-                "an end document holds `halt`, `rule` and `cells` only".to_owned(),
+                if declares {
+                    "an end document holds `halt`, `rule`, `class`, `end`, `reason` and `cells` only".to_owned()
+                } else if matches!(key.as_str(), "class" | "end" | "reason") {
+                    format!(
+                        "an end document holds `halt`, `rule` and `cells` only: `{key}` states the declared class of an end, and the definition declares no end (`#[k::end(..)]`)"
+                    )
+                } else {
+                    "an end document holds `halt`, `rule` and `cells` only".to_owned()
+                },
             ));
         }
         let words = [
@@ -1326,9 +1427,151 @@ impl Semantics {
             }
         };
         Ok(End {
-            class: EndClass { halt, rule },
+            class: EndClass {
+                halt,
+                rule,
+                declared: self.read_declared(object, halt, from, files)?,
+            },
             cells,
         })
+    }
+
+    /// The type a document's `reason` is read at: the declared result type of the reason of
+    /// `end`, the end the document states, or with none the one type the definition's refused
+    /// ends share ([module documentation](crate::ends#end-documents)); else why it has none.
+    fn reason_type(
+        &self,
+        end: Option<&crate::declared_ends::Declared>,
+    ) -> Result<InputType, String> {
+        if let Some(end) = end {
+            let Some((_, ty)) = &end.reason else {
+                return Err(format!(
+                    "`{}` is a finished end, and only a refused end has a reason",
+                    end.item
+                ));
+            };
+            return ty.clone().ok_or_else(|| {
+                format!(
+                    "the reason of `{}` is of a sort with no KRS declaration, so it has no document",
+                    end.item
+                )
+            });
+        }
+        let mut types = self
+            .ends
+            .iter()
+            .filter_map(|end| end.reason.as_ref())
+            .map(|(_, ty)| ty);
+        let Some(first) = types.next() else {
+            return Err(
+                "the definition declares no refused end, so no end has a reason".to_owned(),
+            );
+        };
+        match first {
+            Some(ty) if types.all(|other| other.as_ref() == Some(ty)) => Ok(ty.clone()),
+            _ => Err("the definition's refused ends do not share one reason type with a KRS declaration, so the reason is read at the type of the end the document states: state `end`".to_owned()),
+        }
+    }
+
+    /// What an end document states of its end's declared class
+    /// ([module documentation](crate::ends#end-documents)); `None` where it states none of it.
+    fn read_declared(
+        &self,
+        object: &JsonMap<String, Json>,
+        halt: Halt,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
+    ) -> Result<Option<DeclaredEnd>, EndError> {
+        let refuse = |position: &str, message: String| EndError::Document {
+            position: position.to_owned(),
+            message,
+        };
+        let stated = ["class", "end", "reason"].map(|key| object.get(key));
+        let [class, end, reason] = stated;
+        if stated.iter().all(Option::is_none) {
+            return Ok(None);
+        }
+        if halt != Halt::Stuck {
+            let key = ["class", "end", "reason"]
+                .into_iter()
+                .find(|key| object.contains_key(*key))
+                .unwrap_or("class");
+            return Err(refuse(
+                key,
+                format!(
+                    "only a `stuck` end has a declared class: a `{}` end is not a state no rule applies to",
+                    halt.as_str()
+                ),
+            ));
+        }
+        let class = match class {
+            None => None,
+            Some(Json::String(word)) => Some(DeclaredClass::named(word).ok_or_else(|| {
+                refuse(
+                    "class",
+                    format!("`{word}` is no class of an end; an end is finished, refused, or none"),
+                )
+            })?),
+            Some(_) => {
+                return Err(refuse(
+                    "class",
+                    "the class is a string: finished, refused, or none".to_owned(),
+                ));
+            }
+        };
+        let end = match end {
+            None => None,
+            Some(Json::String(item)) => Some(self.ends.get(item).ok_or_else(|| {
+                refuse(
+                    "end",
+                    format!(
+                        "`{item}` is no declared end of the definition; its declared ends are {}",
+                        self.ends.listed()
+                    ),
+                )
+            })?),
+            Some(_) => {
+                return Err(refuse(
+                    "end",
+                    "the end is a declared end's item, a string".to_owned(),
+                ));
+            }
+        };
+        if let (Some(class), Some(end)) = (class, end)
+            && class != DeclaredClass::of(end.class)
+        {
+            return Err(refuse(
+                "end",
+                format!(
+                    "`{}` is a `{}` end, and the document states the class `{}`",
+                    end.item,
+                    end.class.word(),
+                    class.as_str()
+                ),
+            ));
+        }
+        let reason = match reason {
+            None => None,
+            Some(document) => {
+                if class.is_some_and(|class| class != DeclaredClass::Refused) {
+                    return Err(refuse(
+                        "reason",
+                        "only a refused end has a reason".to_owned(),
+                    ));
+                }
+                let ty = self
+                    .reason_type(end)
+                    .map_err(|message| refuse("reason", message))?;
+                let value = decode_value_in(&self.values, files, from, document, &ty)
+                    .map_err(|error| refuse("reason", error.to_string()))?;
+                Some(self.end_reason(value, Some(&ty), None))
+            }
+        };
+        Ok(Some(DeclaredEnd {
+            class,
+            end: end.map(|end| end.item.clone()),
+            reason,
+        }))
     }
 
     fn read_document_cells(
@@ -1500,6 +1743,40 @@ impl<'s> Lens<'s> {
                 position: "rule".to_owned(),
                 message: "a stopped end names the stop rule's KRS item, and this end's class names none: the run did not name the rule it stopped at, or no name selects that rule's item alone".to_owned(),
             });
+        }
+        if let Some(declared) = &end.class.declared {
+            if let Some(class) = declared.class {
+                object.insert("class".to_owned(), Json::String(class.as_str().to_owned()));
+            }
+            if let Some(item) = &declared.end {
+                object.insert("end".to_owned(), Json::String(item.clone()));
+            }
+            match declared
+                .reason
+                .as_ref()
+                .map(|reason| (reason, &reason.document))
+            {
+                None => {}
+                Some((_, Some(document))) => {
+                    object.insert("reason".to_owned(), document.clone());
+                }
+                Some((reason, None)) if strict => {
+                    return Err(EndError::Document {
+                        position: "reason".to_owned(),
+                        message: format!(
+                            "the reason `{}` has a part with no document at the type of the end's reason",
+                            reason.text
+                        ),
+                    });
+                }
+                // For ordering only, as a cell's value with no document is written.
+                Some((reason, None)) => {
+                    object.insert(
+                        "reason".to_owned(),
+                        tagged("$kore", Json::String(reason.text.clone())),
+                    );
+                }
+            }
         }
         if end.class.halt != Halt::Undefined || !end.cells.is_empty() {
             let cells = self
@@ -2515,7 +2792,13 @@ impl Semantics {
         let selection = self.viewed_selection(comparison)?;
         let lens = self.lens(&comparison.views);
         let x = lens.project(&selection, expected_end, expected.name)?;
-        let projected = lens.projected(&selection, actual)?;
+        let mut projected = lens.projected(&selection, actual)?;
+        // The expectation compares what it states of the declared class, as it compares the
+        // cells it states: each end keeps the parts of its own that the expectation states.
+        for (_, end) in &mut projected {
+            end.class.declared =
+                DeclaredEnd::narrowed(end.class.declared.as_ref(), x.class.declared.as_ref());
+        }
         if let Some(reason) = Lens::unnamed_stop(expected).or_else(|| Lens::unnamed_stop(actual)) {
             return Ok(Compared::Inconclusive(reason));
         }
@@ -2635,7 +2918,7 @@ fn k_shown((text, rendering): (String, &'static str), position: String) -> Shown
 
 #[cfg(test)]
 mod tests {
-    use super::{VALUE_CAP, cut};
+    use super::{DeclaredClass, DeclaredEnd, VALUE_CAP, cut};
 
     fn shown(text: &str) -> String {
         text.to_owned()
@@ -2674,5 +2957,42 @@ mod tests {
         };
         assert_eq!(text.chars().count(), VALUE_CAP);
         assert_eq!(short, "y");
+    }
+
+    fn declared(class: DeclaredClass, item: Option<&str>) -> DeclaredEnd {
+        DeclaredEnd {
+            class: Some(class),
+            end: item.map(str::to_owned),
+            reason: None,
+        }
+    }
+
+    /// An expectation compares the parts of the declared class it states: an end keeps those
+    /// parts of its own, so an expectation that states none compares none, and one that states
+    /// a part an end lacks differs from it there.
+    #[test]
+    fn an_end_is_narrowed_to_what_an_expectation_states() {
+        let actual = declared(DeclaredClass::Refused, Some("crate::trap"));
+        assert_eq!(DeclaredEnd::narrowed(Some(&actual), None), None);
+        let class = DeclaredEnd {
+            class: Some(DeclaredClass::Refused),
+            ..DeclaredEnd::default()
+        };
+        assert_eq!(
+            DeclaredEnd::narrowed(Some(&actual), Some(&class)),
+            Some(class.clone())
+        );
+        let other = DeclaredEnd {
+            end: Some("crate::halt".to_owned()),
+            ..DeclaredEnd::default()
+        };
+        assert_ne!(
+            DeclaredEnd::narrowed(Some(&actual), Some(&other)),
+            Some(other.clone())
+        );
+        // A gap has no end, and an end of another halt states nothing.
+        let gap = declared(DeclaredClass::None, None);
+        assert_ne!(DeclaredEnd::narrowed(Some(&gap), Some(&other)), Some(other));
+        assert_ne!(DeclaredEnd::narrowed(None, Some(&class)), Some(class));
     }
 }

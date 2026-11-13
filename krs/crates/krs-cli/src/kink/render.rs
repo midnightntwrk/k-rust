@@ -642,6 +642,7 @@ fn checked_expectation(
     let stuck = EndClass {
         halt: Halt::Stuck,
         rule: None,
+        declared: None,
     };
     // The class each end is read with, and how the halt is checked.
     let (class, halt) = match (expected.halt, stop) {
@@ -849,6 +850,7 @@ fn difference(
     let stuck = EndClass {
         halt: Halt::Stuck,
         rule: None,
+        declared: None,
     };
     let baseline = Ends {
         ends: read_ends(semantics, baseline, &stuck, &unstated)?,
@@ -960,6 +962,7 @@ mod tests {
             class: EndClass {
                 halt: Halt::Stuck,
                 rule: None,
+                declared: None,
             },
             value: None,
         }
@@ -1038,6 +1041,7 @@ mod tests {
                 class: EndClass {
                     halt: Halt::Stuck,
                     rule: None,
+                    declared: None,
                 },
                 cells: krs_exec::EndCells::default(),
             },

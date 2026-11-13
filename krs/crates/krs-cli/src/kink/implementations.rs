@@ -107,6 +107,7 @@ const fn stuck() -> EndClass {
     EndClass {
         halt: Halt::Stuck,
         rule: None,
+        declared: None,
     }
 }
 

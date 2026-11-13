@@ -16,12 +16,12 @@ use std::path::{Path, PathBuf};
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     BackendOptions, Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue,
-    Coverage, CoverageOptions, Difference, DifferenceAt, EndError, EndKast, EndPattern, Ends,
-    ExecError, Expectation, Halt, InputError, InputFiles, ObservationSpec, Observations, Observers,
-    PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport, ProveOptions, RUN_REPORT_SCHEMA,
-    ReadBack, Rendered, RunOptions, RunReport, SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions,
-    Semantics, Side, SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion,
-    Term, Verdict, canonical_text, json_document, open_values,
+    Coverage, CoverageOptions, DeclaredClass, Difference, DifferenceAt, EndError, EndKast,
+    EndPattern, Ends, ExecError, Expectation, Halt, InputError, InputFiles, ObservationSpec,
+    Observations, Observers, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
+    ProveOptions, ReadBack, Rendered, RunOptions, RunReport, SEARCH_REPORT_SCHEMA, SearchMode,
+    SearchOptions, Semantics, Side, SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt,
+    StopCriterion, Term, Verdict, canonical_text, json_document, open_values, run_report_schema,
 };
 use krs_ir::measure::{Measurement, Timings};
 use krs_ir_levels::DefinitionIr;
@@ -1232,7 +1232,8 @@ fn run(
         // A run that cannot decide which of several states it reaches has no one end, so it has
         // none to compare: the verdict is inconclusive, not a refusal of the case.
         (Err(error @ ExecError::Undecided { .. }), Some(case), Some(expectation)) => {
-            return undecided_case(case, expectation, &error, request.output);
+            let schema = run_report_schema(semantics.declares_ends());
+            return undecided_case(case, expectation, &error, request.output, schema);
         }
         (Err(error), _, _) => return Err(error.into()),
     };
@@ -1262,16 +1263,15 @@ fn run(
         }
     }
     let color = request.color.enabled();
+    let schema = run_report_schema(semantics.declares_ends());
     let end = (request.output == TermOutput::End)
         .then(|| end_line(semantics, &report))
         .transpose()?;
     let printed = match (request.output, &checked) {
-        (TermOutput::Json, Some(checked)) => json_line(
-            &json!({"schema": RUN_REPORT_SCHEMA, "run": report, "expectation": checked.document()}),
-        )?,
-        (TermOutput::Json, None) => {
-            json_line(&json!({"schema": RUN_REPORT_SCHEMA, "run": report}))?
+        (TermOutput::Json, Some(checked)) => {
+            json_line(&json!({"schema": schema, "run": report, "expectation": checked.document()}))?
         }
+        (TermOutput::Json, None) => json_line(&json!({"schema": schema, "run": report}))?,
         // A declaration with no channel records nothing, and its document has no channel.
         (TermOutput::Observations, _) => json_line(&report.observations.as_ref().map_or_else(
             || Observations::default().document(),
@@ -1295,10 +1295,11 @@ fn run(
         main_cell_head(semantics, &report.state, request.output, &mut stderr)?
     };
     let stops = stops_passed(semantics, &report, &stop);
+    let (word, class) = declared_end_words(&report);
     let _ = write!(
         stderr,
-        "krs run: {} after {} step{}{stops}{head}",
-        status_word(report.halt.as_str(), smt),
+        "krs run: {} after {} step{}{stops}{class}{head}",
+        status_word(word, smt),
         report.steps,
         if report.steps == 1 { "" } else { "s" }
     );
@@ -1315,7 +1316,12 @@ fn run(
             exit_status::join(checked.exit_code(), status)
         })
     } else {
-        run_status(checked.as_ref(), report.halt, report.exit_code)
+        run_status(
+            checked.as_ref(),
+            report.halt,
+            report.exit_code,
+            DeclaredOutcome::of(semantics, &report),
+        )
     };
     Ok(run_outcome(
         report.stdout.as_deref(),
@@ -1400,13 +1406,90 @@ fn end_line(semantics: &Semantics, report: &RunReport) -> Result<EndLine, Failur
     })
 }
 
+/// The status line's word for how a run ended and its clause naming the declared end, for a run
+/// of a definition that declares ends ([`RunReport::end`], [`RunReport::end_undecided`]).
+///
+/// A run that ended at a declared end is named by the end's class, `finished` or `refused`, in
+/// place of `stuck`, with the end's item and a refused end's reason; one that ended where no rule
+/// applies and no declared end holds stays `stuck`, at no declared end.
+/// Every other run, and every run of a definition that declares no end, keeps its halt word and
+/// has no clause.
+fn declared_end_words(report: &RunReport) -> (&'static str, String) {
+    if let Some(undecided) = &report.end_undecided {
+        return (
+            report.halt.as_str(),
+            format!(
+                ", undecided whether the declared end `{}` holds: {}; {}",
+                undecided.item,
+                undecided.reason,
+                if undecided.budget_spent {
+                    "a larger --view-budget can decide it"
+                } else {
+                    "a larger --view-budget does not decide it"
+                }
+            ),
+        );
+    }
+    let Some(end) = &report.end else {
+        return (report.halt.as_str(), String::new());
+    };
+    let item = end.item.as_deref().unwrap_or_default();
+    match (end.class, &end.reason) {
+        (DeclaredClass::None, _) => (report.halt.as_str(), ", at no declared end".to_owned()),
+        (class, Some(reason)) => (class.as_str(), format!(", at `{item}`: `{}`", reason.text)),
+        (class, None) => (class.as_str(), format!(", at `{item}`")),
+    }
+}
+
+/// What a definition that declares ends says of a run that completed, which decides the run's
+/// exit status where no expectation does ([`run_status`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DeclaredOutcome {
+    /// The definition declares no end, or the run ended at a step bound or a stop, or at a
+    /// declared `finished` end: the status is the one a run has without declared ends.
+    Unchanged,
+    /// The run ended at a declared `refused` end: an outcome the definition declares, so the
+    /// answer is yes, whatever the exit cell holds.
+    Refused,
+    /// The run ended in no declared end, where the definition declares some: at a state no rule
+    /// applies to and no declared end holds at, or `undefined`, at no state. The definition does
+    /// not account for the end, which is a finding.
+    Undeclared,
+}
+
+impl DeclaredOutcome {
+    fn of(semantics: &Semantics, report: &RunReport) -> Self {
+        match (&report.end, report.halt) {
+            (Some(end), _) => match end.class {
+                DeclaredClass::Finished => Self::Unchanged,
+                DeclaredClass::Refused => Self::Refused,
+                DeclaredClass::None => Self::Undeclared,
+            },
+            (None, Halt::Undefined) if semantics.declares_ends() => Self::Undeclared,
+            (None, _) => Self::Unchanged,
+        }
+    }
+}
+
 /// The exit status of a run that ended ([`exit_status`]): its expectation's verdict when it has
 /// one; else, for a completed run, the exit cell's value when the definition declares one (the
 /// program's own status, which shares the numbers of krs's) and yes when it does not; no answer
 /// for an inconclusive halt.
-fn run_status(checked: Option<&Checked>, halt: Halt, exit_code: Option<i64>) -> i32 {
+///
+/// In a definition that declares ends, a completed run that ended at a `refused` end answers
+/// yes, and one that ended in no declared end (`declared`, [`DeclaredOutcome`]) is a finding.
+fn run_status(
+    checked: Option<&Checked>,
+    halt: Halt,
+    exit_code: Option<i64>,
+    declared: DeclaredOutcome,
+) -> i32 {
     match (checked, exit_code) {
         (Some(checked), _) => checked.exit_code(),
+        (None, _) if halt.is_complete() && declared == DeclaredOutcome::Refused => exit_status::YES,
+        (None, _) if halt.is_complete() && declared == DeclaredOutcome::Undeclared => {
+            exit_status::NO
+        }
         // The low 8 bits, which the OS keeps.
         (None, Some(code)) if halt.is_complete() => i32::from(code.to_le_bytes()[0]),
         (None, _) if halt.is_complete() => exit_status::YES,
@@ -1487,6 +1570,19 @@ fn searchable(case: &SelectedCase, mode: SearchMode) -> Result<(), Failure> {
     Ok(())
 }
 
+/// Refuses a searched case whose expectation states the declared class of its end (`class`,
+/// `end` or `reason`): a search does not evaluate the declared ends at its final states, so
+/// none of them has a declared class for the expectation to be compared on.
+fn states_no_declared_class(case: &SelectedCase, expectation: &Expectation) -> Result<(), Failure> {
+    if expectation.end.class.declared.is_some() {
+        return Err(Failure::Usage(format!(
+            "the case `{}` expects a declared class of its end (`class`, `end` or `reason`), which krs search does not evaluate at its final states; run the case with krs run",
+            case.id()
+        )));
+    }
+    Ok(())
+}
+
 fn search(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
@@ -1513,6 +1609,9 @@ fn search(
         max_solutions: request.max_solutions,
         trace: request.trace,
     };
+    if let (Some(case), Some(expectation)) = (&case, &expectation) {
+        states_no_declared_class(case, expectation)?;
+    }
     let report = semantics.search(&state, options)?;
     let checked = match (&case, &mut expectation) {
         (Some(case), Some(expectation)) => {
@@ -1697,10 +1796,11 @@ fn undecided_case(
     expectation: &Expectation,
     error: &ExecError,
     output: TermOutput,
+    schema: &str,
 ) -> Result<CommandOutcome, Failure> {
     let checked = Checked::undecided(case, expectation, error);
     let stdout = if output == TermOutput::Json {
-        json_line(&json!({"schema": RUN_REPORT_SCHEMA, "expectation": checked.document()}))?
+        json_line(&json!({"schema": schema, "expectation": checked.document()}))?
     } else {
         String::new()
     };
@@ -1879,9 +1979,24 @@ pub(super) fn write_difference(output: &mut String, head: &str, difference: &Dif
             rendered_text(right.value.as_ref()),
         ]
     } else {
-        let class = |class: &krs_exec::EndClass| match &class.rule {
-            Some(rule) => format!("{} at `{rule}`", class.halt.as_str()),
-            None => class.halt.as_str().to_owned(),
+        let class = |class: &krs_exec::EndClass| {
+            let mut text = match &class.rule {
+                Some(rule) => format!("{} at `{rule}`", class.halt.as_str()),
+                None => class.halt.as_str().to_owned(),
+            };
+            // What the side states of its end's declared class, each part it states.
+            if let Some(declared) = &class.declared {
+                if let Some(word) = declared.class {
+                    let _ = write!(text, ", class {}", word.as_str());
+                }
+                if let Some(item) = &declared.end {
+                    let _ = write!(text, ", at `{item}`");
+                }
+                if let Some(reason) = &declared.reason {
+                    let _ = write!(text, ", reason `{}`", reason.text);
+                }
+            }
+            text
         };
         let _ = writeln!(output, "{head} at the end's halt");
         [class(&left.class), class(&right.class)]
@@ -2587,6 +2702,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,
         ExecError::Undecided(_) => codes::exec::UNDECIDED,
+        ExecError::EndClassesOverlap { .. } => codes::exec::END_CLASSES_OVERLAP,
         ExecError::Case(_) => codes::exec::CASE,
     }
 }
@@ -2606,7 +2722,7 @@ mod tests {
     /// inconclusive halt is no answer, whatever its exit cell holds.
     #[test]
     fn a_run_s_halt_gives_its_status() {
-        use super::{exit_status, run_status};
+        use super::{DeclaredOutcome, exit_status, run_status};
         use krs_exec::Halt;
         for halt in [
             Halt::Stuck,
@@ -2614,11 +2730,25 @@ mod tests {
             Halt::Undefined,
             Halt::Stopped,
         ] {
-            assert_eq!(run_status(None, halt, None), exit_status::YES, "{halt:?}");
-            assert_eq!(run_status(None, halt, Some(7)), 7, "{halt:?}");
+            assert_eq!(
+                run_status(None, halt, None, DeclaredOutcome::Unchanged),
+                exit_status::YES,
+                "{halt:?}"
+            );
+            assert_eq!(
+                run_status(None, halt, Some(7), DeclaredOutcome::Unchanged),
+                7,
+                "{halt:?}"
+            );
         }
-        assert_eq!(run_status(None, Halt::Stuck, Some(259)), 3);
-        assert_eq!(run_status(None, Halt::Stuck, Some(-1)), 255);
+        assert_eq!(
+            run_status(None, Halt::Stuck, Some(259), DeclaredOutcome::Unchanged),
+            3
+        );
+        assert_eq!(
+            run_status(None, Halt::Stuck, Some(-1), DeclaredOutcome::Unchanged),
+            255
+        );
         for halt in [
             Halt::Indeterminate,
             Halt::UnsupportedHook,
@@ -2627,12 +2757,12 @@ mod tests {
             Halt::Interrupted,
         ] {
             assert_eq!(
-                run_status(None, halt, None),
+                run_status(None, halt, None, DeclaredOutcome::Unchanged),
                 exit_status::UNANSWERED,
                 "{halt:?}"
             );
             assert_eq!(
-                run_status(None, halt, Some(0)),
+                run_status(None, halt, Some(0), DeclaredOutcome::Unchanged),
                 exit_status::UNANSWERED,
                 "{halt:?}"
             );

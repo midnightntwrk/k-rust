@@ -1307,6 +1307,7 @@ fn a_stopped_end_names_a_rewrite_rule_of_the_definition() {
             EndClass {
                 halt: Halt::Stopped,
                 rule: Some("crate::finish".to_owned()),
+                declared: None,
             }
         );
         assert_eq!(end.value("k"), Some(&Value::seq([done(semantics, 3)])));
@@ -1420,6 +1421,7 @@ fn a_stopped_end_names_a_dependency_item_its_spelling_does_not_name_alone() {
                     EndClass {
                         halt: Halt::Stopped,
                         rule: Some("org_krs_exec_ends--finish".to_owned()),
+                        declared: None,
                     }
                 );
                 let document = semantics.end_document(end).unwrap();
@@ -1476,6 +1478,7 @@ fn an_undefined_end_has_no_cells() {
             class: EndClass {
                 halt: Halt::Undefined,
                 rule: None,
+                declared: None,
             },
             cells: EndCells::default(),
         };
@@ -1558,6 +1561,7 @@ fn a_search_classifies_its_ends_by_its_bound_and_reads_bottom_and_constraints() 
                 class: EndClass {
                     halt: Halt::Undefined,
                     rule: None,
+                    declared: None,
                 },
                 cells: EndCells::default(),
             })

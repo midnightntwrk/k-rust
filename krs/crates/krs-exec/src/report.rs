@@ -59,6 +59,29 @@ use crate::ExecError;
 /// `krs-exec/7`.
 pub const RUN_REPORT_SCHEMA: &str = "krs-exec/7";
 
+/// The schema name a serialized run envelope carries for a definition that declares ends
+/// ([`crate::Semantics::declares_ends`], [`run_report_schema`]).
+///
+/// A run of such a definition that ends where no rule applies reports the declared class of its
+/// end (`end`, [`RunReport::end`]), and a state outside every declared end is a gap, which is no
+/// completed result of the definition.
+/// A `krs-exec/7` reader knows `halt: "stuck"` as a completed run and would take a gap for one,
+/// and it does not know the halt `end-undecided` ([`Halt::EndUndecided`]), so every run document
+/// of a declaring definition is a format of its own version.
+/// A definition that declares no end keeps [`RUN_REPORT_SCHEMA`], and its documents their bytes.
+pub const RUN_REPORT_SCHEMA_DECLARED_ENDS: &str = "krs-exec/8";
+
+/// The schema name of a run document of a definition that declares ends (`declares_ends`) or
+/// none: [`RUN_REPORT_SCHEMA_DECLARED_ENDS`] or [`RUN_REPORT_SCHEMA`].
+#[must_use]
+pub const fn run_report_schema(declares_ends: bool) -> &'static str {
+    if declares_ends {
+        RUN_REPORT_SCHEMA_DECLARED_ENDS
+    } else {
+        RUN_REPORT_SCHEMA
+    }
+}
+
 /// The schema name a serialized search envelope carries (`krs search`; [report
 /// versions](crate#report-versions)).
 ///
@@ -441,6 +464,11 @@ pub enum Halt {
     /// evaluation spent its budget, met another stop, or ended short of a value after the
     /// solver answered `Unknown`, so whether the run ends there is not known.
     StopUndecided,
+    /// No rule applies, and whether a declared end holds at the state was left undecided
+    /// ([`crate::declared_ends`], [`RunReport::end_undecided`]): the evaluation of an end's
+    /// function spent its budget, met another stop, or ended short of a value, so the class of
+    /// the end is not known. Only a run of a definition that declares ends halts so.
+    EndUndecided,
 }
 
 impl Halt {
@@ -479,6 +507,7 @@ impl Halt {
             Self::Stopped => "stopped",
             Self::Interrupted => "interrupted",
             Self::StopUndecided => "stop-undecided",
+            Self::EndUndecided => "end-undecided",
         }
     }
 
@@ -815,6 +844,16 @@ pub struct RunReport {
     /// declaration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub observations: Option<crate::Observations>,
+    /// The declared class of the run's end ([`crate::declared_ends`]): `Some` exactly when the
+    /// definition declares ends and the run ended where no rule applies ([`Halt::Stuck`]).
+    /// A run a step bound or a stop ended has none, since its last state is not known to be one
+    /// no rule applies to; omitted then, and always for a definition that declares no end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<crate::RunEnd>,
+    /// Which declared end was left undecided, and why, when one was ([`Halt::EndUndecided`]);
+    /// omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_undecided: Option<crate::EndUndecided>,
     /// The state a later run goes on from, when it is not `state`'s own pattern
     /// ([`Self::resume`]).
     #[serde(skip)]

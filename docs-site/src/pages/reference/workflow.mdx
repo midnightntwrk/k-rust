@@ -265,6 +265,16 @@ An end with no end document is refused with exit 2 and the reason.
 A cell holding a part the typed encoding has no document for (an unevaluated application) is refused at its position (``the end has no end document: `cells.status`: ...``).
 A stopped end whose class names no stop rule is refused at `rule`: the run names the rule it stopped after only where its `--stop-after` names select one rule or it keeps its `--trace`, and the class names a rule only by a name that selects its item alone.
 A state under a constraint is refused as such, since no position holds the constraint.
+In a definition that declares ends ([declared ends](/reference/language#declared-ends)), a run that ends where no rule applies evaluates each declared end's function at that state and reports the class of the end.
+The status line names the class in place of `stuck`, with the end's item and a refused end's reason: ``finished after 1 step, at `crate::drained`; <k> is empty``, or ``refused after 0 steps, at `crate::too_big`: `12`; <k> starts with `quit 12` ``.
+A state at which no rule applies and no declared end holds is a gap, which the definition does not account for: ``stuck after 0 steps, at no declared end; <k> starts with `rest` ``, and the run exits 1.
+`--output json` keeps `halt` as `stuck` and reports the class beside it as `end`: its `class` (`finished`, `refused` or `none`), the `item` of the first declared end that holds, in the order of `ends.json`, and for a refused end its `reason`, a document at the declared result type of the end's reason, and its `reason_text`.
+Every run document of such a definition is `krs-exec/8`; a definition that declares no end keeps `krs-exec/7`, its status lines and its statuses.
+`--output end` writes the same as `class`, `end` and `reason`, with `class` for every `stuck` end.
+The classes are evaluated only where no rule applies: a run that ends at its depth bound or at a stop has no class, since its last state is not known to be one the definition stops at, whatever a declared end's function would say of it.
+A declared end that holds at the initial state is an end after 0 steps, which is how a definition refuses an input.
+A state at which a `finished` end and a `refused` end both hold contradicts the definition, and the run is refused with exit 2 (`krs::exec::end-classes-overlap`), naming both ends.
+An end whose evaluation spends `--view-budget`'s polls, or ends short of `true` or `false`, leaves the class unknown: the run ends `end-undecided`, which is inconclusive (exit 3), and the status line and `end_undecided` in `--output json` (`item`, `reason`, `budget_spent`) name the end and why.
 The exit status of `run`, `search` and `prove` says what the caller does next ([exit status](#exit-status)).
 A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, `--output json` reports it as `stdout` instead, and `--output end` writes it to standard error, before its own lines ([console I/O](/reference/language#console-io-and-the-exit-cell)).
 Such a cell holds the stream's descriptor and buffer, which are no values of its `List` type, so `--output end` refuses the end of such a definition at that cell.
@@ -288,6 +298,8 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
 
 - `run` exits 0 when the run ends stuck, at the depth bound, undefined or stopped, 3 when it ends at an inconclusive halt (`indeterminate`, `timeout`, `interrupted`, `unsupported-hook`, `simplification-error`) or reaches several states under conditions it cannot decide (it has no one path), and 2 on any failure.
   When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run instead exits with that cell's final value, the program's own status (the OS keeps its low 8 bits), which shares the numbers above: a caller that must tell the program's status from krs's reads `--output json`.
+  In a definition that declares ends, a run that ends at a `finished` end exits as above, one that ends at a `refused` end exits 0 whatever the exit cell holds, since the refusal is an outcome the definition declares, and one that ends in no declared end, at a state where no rule applies and no declared end holds or `undefined`, exits 1; a run that ends `end-undecided` exits 3.
+  A caller that must tell a refused end from a finished one reads the status line, `--output json` or `--output end`.
   With an expectation (`--case`), the run exits by its verdict instead, 0 met, 1 unmet and 3 inconclusive, and a refused case or expectation exits 2.
   A run that reaches its depth bound or exhausts another budget under an expectation is inconclusive (3), since it is not known to have ended: it takes no step from the state at the bound, so the definition may go on from there and end otherwise, and a state at the bound that has no successor is inconclusive too.
   With `--output end`, an end with no end document exits 2 whatever the run's own status: the end it was asked for cannot be written.
@@ -357,6 +369,9 @@ The count is the case's, beside its rules, since where a run is observed depends
 In a document of named cases, a case's own `run` table replaces the document's `run` whole, stop rules and `stop_when` included: a case that gives only `stop_count` names no stop rule, and is refused for it.
 Its `expect` table states the end: the halt, the stop rule for `stopped`, named as `run` names it, and the cells by Rust field path, each value in the encoding below at the cell's declared type.
 It must state every cell it is compared on: by default every cell that is not unobservable, which `compare` may narrow to the cells it names.
+In a definition that declares ends, a `stuck` end may also state its declared class: `class` (`finished`, `refused`, or `none` for a state outside every declared end), `end` (the declared end's item, such as `crate::machine::unmapped_read`) and `reason` (a refused end's reason, at the type of the stated `end`'s reason, or at the one type the definition's refused ends share).
+Each of the three narrows the expectation only when stated, so `halt = "stuck"` alone is met by an end of any class, and `class = "none"` states a deliberate gap.
+`krs run --case` compares them; `krs search` does not evaluate declared ends and refuses a case that states one.
 The halt is never `depth-bound`, which is refused: an expectation states what the definition computes, and the state after N steps is no fact about the definition, since the depth counts compiled steps; a case that expects the state at a point of its run stops the run at a rule the author wrote and counts its arrivals there, and expects that stop:
 
 ```toml

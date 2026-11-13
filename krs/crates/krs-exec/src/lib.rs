@@ -16,7 +16,7 @@
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/7` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/7` for a run ([`RUN_REPORT_SCHEMA`]; `krs-exec/8` for a definition that declares ends, [`RUN_REPORT_SCHEMA_DECLARED_ENDS`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 //!
 //! # Features
@@ -40,6 +40,7 @@ pub mod condition;
 mod configuration;
 mod console;
 mod decided;
+pub mod declared_ends;
 mod encode;
 pub mod ends;
 pub mod inputs;
@@ -94,6 +95,7 @@ pub use condition::{
     ArrivalObservation, ConditionOracle, ObservationError, ObservedState, ResolvedCondition,
 };
 pub use configuration::Configuration;
+pub use declared_ends::{DeclaredClass, EndReason, EndUndecided, RunEnd};
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use ends::{
     CellInfo, Compared, Comparison, DIFFERENCE_FORMAT, Difference, DifferenceAt, DifferenceSide,
@@ -108,8 +110,10 @@ pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT, SmtBudget,
 };
 use k_rust::backend::{
-    BackendErrorKind, InProcess, Probe, ProbeDecision, ProbeRules, StopCondition, StopSide,
+    BackendErrorKind, InProcess, Probe, ProbeDecision, ProbeRules, StepTimeoutMode, StopCondition,
+    StopSide,
 };
+use k_rust::k_rust_backend::stop::{with_operation_record, with_poll_budget};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
@@ -125,9 +129,9 @@ pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
     NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, PassedStop, ProofLeaf, ProofReport,
-    RUN_REPORT_SCHEMA, RuleKind, RunReport, SEARCH_REPORT_SCHEMA, SearchReport, Solution,
-    SolverBuild, SolverReport, SourceSpan, Step, StepOrigin, Stop, StopAt, Term, Undecided,
-    Verdict,
+    RUN_REPORT_SCHEMA, RUN_REPORT_SCHEMA_DECLARED_ENDS, RuleKind, RunReport, SEARCH_REPORT_SCHEMA,
+    SearchReport, Solution, SolverBuild, SolverReport, SourceSpan, Step, StepOrigin, Stop, StopAt,
+    Term, Undecided, Verdict, run_report_schema,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -841,6 +845,17 @@ pub enum ExecError {
     /// A run reaches several states under conditions over terms that may have values, which it
     /// cannot decide (`one_path`); the message names them.
     Undecided(String),
+    /// A run ended, where no rule applies, at a state at which declared ends of both classes
+    /// hold ([`declared_ends`]): an end is finished or refused, so the definition contradicts
+    /// itself there.
+    EndClassesOverlap {
+        /// The first `finished` end that holds, by its item.
+        finished: String,
+        /// The first `refused` end that holds, by its item.
+        refused: String,
+        /// The run's steps to the state.
+        steps: u64,
+    },
     /// A configuration value that is no term of the definition, or not of its variable's sort.
     Value {
         /// The variable, without `$`.
@@ -916,6 +931,15 @@ impl fmt::Display for ExecError {
             | Self::Case(message) => {
                 formatter.write_str(message)
             }
+            Self::EndClassesOverlap {
+                finished,
+                refused,
+                steps,
+            } => write!(
+                formatter,
+                "after {steps} step{} the run ended where no rule applies, at a state where the declared ends `{finished}` (finished) and `{refused}` (refused) both hold; an end is of one class, so the definition contradicts itself: state the two ends so that no state is in both",
+                if *steps == 1 { "" } else { "s" }
+            ),
             Self::StopCondition {
                 rule,
                 steps,
@@ -1293,6 +1317,10 @@ impl From<BackendError> for ExecError {
     }
 }
 
+/// Why an evaluation of a declared end's function stopped, or what may explain a result short
+/// of a value, and whether it spent its budget of polls (`Semantics::apply_end`).
+type Short = (String, bool);
+
 /// The prints [`Semantics::unparse_program`] chooses among, by whether they reverse aliases and
 /// how they spell user lists: through the aliases, unreversed, and unreversed in K's spelling.
 const PROGRAM_PRINTS: [(bool, ListSpelling); 3] = [
@@ -1326,6 +1354,8 @@ pub struct Semantics {
     /// The rules and equations of `backend`'s definition, by `UNIQUE_ID`.
     rules: rules::Rules,
     console: console::ConsoleCells,
+    /// The ends the definition declares ([`declared_ends`]).
+    ends: declared_ends::DeclaredEnds,
     /// The author spec modules (KF-041), by name.
     spec_modules: Vec<String>,
     /// The Definition IR, kept to compile a spec module's proof definition on demand.
@@ -1466,6 +1496,7 @@ impl Semantics {
         })?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
+        let ends = declared_ends::DeclaredEnds::of(definition, &values);
         let mut origins = origin::Origins::new(sources);
         let claims = claims::catalog(
             &definition_kore,
@@ -1499,6 +1530,7 @@ impl Semantics {
             origins,
             rules,
             console,
+            ends,
             spec_modules,
             spec_definition,
             spec_provers: BTreeMap::new(),
@@ -2001,13 +2033,21 @@ impl Semantics {
         };
         let (views, observer) = expectation_views(&mut end_document)
             .map_err(|(position, message)| refuse(&position, message))?;
-        if let Some(key) = end_document
-            .keys()
-            .find(|key| !matches!(key.as_str(), "halt" | "rule" | "cells"))
-        {
+        // The declared class of the end is the end document's to read and to refuse
+        // ([`Self::read_end_in`]).
+        if let Some(key) = end_document.keys().find(|key| {
+            !matches!(
+                key.as_str(),
+                "halt" | "rule" | "cells" | "class" | "end" | "reason"
+            )
+        }) {
             return Err(refuse(
                 key,
-                "an expected end holds `halt`, `rule`, `cells`, `compare`, `views` and `observer` only",
+                if self.ends.is_empty() {
+                    "an expected end holds `halt`, `rule`, `cells`, `compare`, `views` and `observer` only"
+                } else {
+                    "an expected end holds `halt`, `rule`, `class`, `end`, `reason`, `cells`, `compare`, `views` and `observer` only"
+                },
             ));
         }
         if end_document.get("halt").and_then(serde_json::Value::as_str)
@@ -3174,6 +3214,23 @@ impl Semantics {
             })
             .collect();
         let halt = Halt::from_backend(leaf.reason);
+        let reached = match leaf.state {
+            LeafState::Held(held) if options.end_kast == EndKast::WhenRead => {
+                Term::unbuilt(held, Arc::clone(&self.sort_hooks))
+            }
+            state => self.end_term(state.into_kore(), options.end_kast)?,
+        };
+        // The declared ends are asked only where no rule applies: a state a bound or a stop
+        // ended the run at is not known to be one, so it has no class.
+        let taken_steps = leaf.depth.saturating_add(u64::from(taken.is_some()));
+        let (halt, end, end_undecided) = if halt == Halt::Stuck && !self.ends.is_empty() {
+            match self.declared_end(&reached, taken_steps, options.condition_budget)? {
+                Ok(end) => (halt, Some(end), None),
+                Err(undecided) => (Halt::EndUndecided, None, Some(undecided)),
+            }
+        } else {
+            (halt, None, None)
+        };
         // The one path ends at the arrival the condition was last left undecided at.
         let undecided = oracle
             .and_then(|oracle| oracle.undecided.take())
@@ -3188,12 +3245,6 @@ impl Semantics {
                 budget_spent: undecided.budget_spent,
             });
         let observations = probe.map(|probe| self.observed(probe, halt));
-        let reached = match leaf.state {
-            LeafState::Held(held) if options.end_kast == EndKast::WhenRead => {
-                Term::unbuilt(held, Arc::clone(&self.sort_hooks))
-            }
-            state => self.end_term(state.into_kore(), options.end_kast)?,
-        };
         let stdout = if self.console.stdout {
             match reached.held() {
                 Some(held) => console::stdout_buffer_held(held),
@@ -3210,7 +3261,7 @@ impl Semantics {
         let (state, resume) = self.reported(reached, proposal, options.end_kast)?;
         Ok(RunReport {
             halt,
-            steps: leaf.depth.saturating_add(u64::from(taken.is_some())),
+            steps: taken_steps,
             state,
             trace,
             stdout,
@@ -3226,8 +3277,251 @@ impl Semantics {
             undecided,
             passed_stops,
             observations,
+            end,
+            end_undecided,
             resume,
         })
+    }
+
+    /// Whether the definition declares ends (`#[k::end(..)]`, [`declared_ends`]): its runs
+    /// report the class of an end where no rule applies ([`RunReport::end`]), and its run
+    /// documents are [`RUN_REPORT_SCHEMA_DECLARED_ENDS`].
+    #[must_use]
+    pub fn declares_ends(&self) -> bool {
+        !self.ends.is_empty()
+    }
+
+    /// The declared class of `state`, a state no rule applies to, `steps` steps into its run
+    /// ([module documentation](declared_ends#the-class-of-an-end)); or the declared end left
+    /// undecided, each evaluation bounded by `budget` polls when there is one.
+    ///
+    /// Each declared end costs one simplification, and the reason of the one that holds one
+    /// more. A state the backend holds is given to it as it holds it
+    /// (`Backend::apply_to_held`), so an end built for no other reading stays unbuilt.
+    fn declared_end(
+        &mut self,
+        state: &Term,
+        steps: u64,
+        budget: Option<u64>,
+    ) -> Result<Result<RunEnd, EndUndecided>, ExecError> {
+        let declared = self.ends.clone();
+        let mut held: Vec<&declared_ends::Declared> = Vec::new();
+        let mut undecided = None;
+        for end in declared.iter() {
+            match self.apply_end(&end.holds, state, budget)? {
+                Ok((value, short)) => match declared_ends::bool_value(&value) {
+                    Some(true) => held.push(end),
+                    Some(false) => {}
+                    None => {
+                        undecided.get_or_insert_with(|| {
+                            let (cause, budget_spent) =
+                                short.unwrap_or_else(|| (String::new(), false));
+                            EndUndecided {
+                                item: end.item.clone(),
+                                reason: format!(
+                                    "the evaluation of whether it holds ended short of `true` or `false`, at `{}`{cause}",
+                                    self.pattern_text(&value)
+                                ),
+                                budget_spent,
+                            }
+                        });
+                    }
+                },
+                Err((reason, budget_spent)) => {
+                    undecided.get_or_insert_with(|| EndUndecided {
+                        item: end.item.clone(),
+                        reason: format!("the evaluation of whether it holds {reason}"),
+                        budget_spent,
+                    });
+                }
+            }
+        }
+        if let Some(undecided) = undecided {
+            return Ok(Err(undecided));
+        }
+        let of = |class| held.iter().find(|end| end.class == class);
+        if let (Some(finished), Some(refused)) = (
+            of(krs_ir::EndClass::Finished),
+            of(krs_ir::EndClass::Refused),
+        ) {
+            return Err(ExecError::EndClassesOverlap {
+                finished: finished.item.clone(),
+                refused: refused.item.clone(),
+                steps,
+            });
+        }
+        let Some(end) = held.first() else {
+            return Ok(Ok(RunEnd {
+                class: DeclaredClass::None,
+                item: None,
+                reason: None,
+            }));
+        };
+        let reason = match &end.reason {
+            None => None,
+            Some((symbol, ty)) => {
+                let unvalued = |reason: String, budget_spent| EndUndecided {
+                    item: end.item.clone(),
+                    reason: format!("it holds, and the evaluation of its reason {reason}"),
+                    budget_spent,
+                };
+                match self.apply_end(symbol, state, budget)? {
+                    Err((reason, budget_spent)) => return Ok(Err(unvalued(reason, budget_spent))),
+                    Ok((value, short)) if declared_ends::applies(&value, symbol) => {
+                        let (cause, budget_spent) = short.unwrap_or_else(|| (String::new(), false));
+                        return Ok(Err(unvalued(
+                            format!(
+                                "ended short of a value: no equation of the reason applied{cause}"
+                            ),
+                            budget_spent,
+                        )));
+                    }
+                    Ok((value, _)) => Some(self.end_reason_of(&value, ty.as_ref())?),
+                }
+            }
+        };
+        Ok(Ok(RunEnd {
+            class: DeclaredClass::of(end.class),
+            item: Some(end.item.clone()),
+            reason,
+        }))
+    }
+
+    /// The function `symbol` of the configuration applied to `state` and simplified, under
+    /// `budget` polls when there is one; or why the simplification did not end, and whether it
+    /// spent the budget.
+    ///
+    /// Beside a result, what may explain one short of a value, with the same flag: work the
+    /// simplification dismissed when it spent the budget or its stack, or `Unknown` answers of
+    /// the solver, none of which changes a value that was reached
+    /// ([`crate::views`], "Evaluation").
+    ///
+    /// A state the backend holds whose pattern is its configuration is applied as it is held;
+    /// any other is applied at its configuration
+    /// ([module documentation](declared_ends#the-class-of-an-end)).
+    fn apply_end(
+        &mut self,
+        symbol: &str,
+        state: &Term,
+        budget: Option<u64>,
+    ) -> Result<Result<(Pattern, Option<Short>), Short>, ExecError> {
+        let request = match state.held() {
+            Some(held) if console::exit_code_of_whole(held) => None,
+            _ => Some(
+                declared_ends::application(symbol, state.kore()).ok_or_else(|| {
+                    ExecError::Result(
+                        "a run that ended where no rule applies ended in a state that is no configuration, so its declared ends have nothing to be evaluated at".to_owned(),
+                    )
+                })?,
+            ),
+        };
+        let backend = &mut self.backend;
+        let ((simplified, record), operation) = with_operation_record(|| {
+            with_poll_budget(
+                budget.unwrap_or(u64::MAX),
+                StepTimeoutMode::Manual(std::time::Duration::ZERO),
+                || match (&request, state.held()) {
+                    (None, Some(held)) => {
+                        backend.apply_to_held(None, symbol, held, Admission::Unverified)
+                    }
+                    (Some(request), _) => {
+                        backend.simplify_kore(None, request, Admission::Unverified)
+                    }
+                    (None, None) => unreachable!("a state with no request is held"),
+                },
+            )
+        });
+        let spent = budget.filter(|_| record.budget_exhausted);
+        match simplified {
+            Ok(simplified) => {
+                let short = if let Some(budget) = spent {
+                    Some((format!(": it spent its budget of {budget} polls"), true))
+                } else if record.stack_exhausted {
+                    Some((
+                        ": it ran out of the simplifier's native stack".to_owned(),
+                        false,
+                    ))
+                } else if operation.unknown_answers > 0 {
+                    Some((
+                        format!(
+                            ": the solver answered `Unknown` to {} of its queries",
+                            operation.unknown_answers
+                        ),
+                        false,
+                    ))
+                } else {
+                    None
+                };
+                Ok(Ok((simplified, short)))
+            }
+            Err(_) if spent.is_some() => Ok(Err((
+                format!(
+                    "stopped before it ended (it spent its budget of {} polls)",
+                    spent.unwrap_or_default()
+                ),
+                true,
+            ))),
+            Err(_) if record.stack_exhausted => Ok(Err((
+                "stopped before it ended (it ran out of the simplifier's native stack)".to_owned(),
+                false,
+            ))),
+            Err(error) if error.stop_cause().is_some() => {
+                Ok(Err((format!("stopped before it ended ({error})"), false)))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// `pattern` as K text, or as KORE where the printer warns, its Floats as `krun` prints
+    /// them.
+    fn pattern_text(&self, pattern: &Pattern) -> String {
+        let floats = self.unparser.llvm_floats(pattern);
+        let pattern = floats.as_ref().unwrap_or(pattern);
+        let printed = self.unparser.print_kore(
+            pattern,
+            &krs_unparse::Options::new(krs_unparse::Mode::Pretty),
+        );
+        if printed.warnings.is_empty() {
+            printed.text
+        } else {
+            pattern.to_string()
+        }
+    }
+
+    /// The reason `pattern` is, the value a reason function of result type `ty` gave.
+    fn end_reason_of(
+        &self,
+        pattern: &Pattern,
+        ty: Option<&inputs::InputType>,
+    ) -> Result<EndReason, ExecError> {
+        let value = self.values.decode(pattern).map_err(|error| {
+            ExecError::Result(format!(
+                "the reason of a refused end is no term of the definition: {error}"
+            ))
+        })?;
+        Ok(self.end_reason(value, ty, Some(pattern)))
+    }
+
+    /// The reason whose value is `value`, written at `ty` where the reason function declares a
+    /// type, and printed from `pattern` where the caller has the value's pattern.
+    pub(crate) fn end_reason(
+        &self,
+        value: Value,
+        ty: Option<&inputs::InputType>,
+        pattern: Option<&Pattern>,
+    ) -> EndReason {
+        let untyped = inputs::InputType::untyped();
+        let document = encode(&self.values, &value, ty.unwrap_or(&untyped)).ok();
+        let text = match (pattern, self.values.encode(&value)) {
+            (Some(pattern), _) => self.pattern_text(pattern),
+            (None, Ok(pattern)) => self.pattern_text(&pattern),
+            (None, Err(error)) => error.to_string(),
+        };
+        EndReason {
+            value,
+            document,
+            text,
+        }
     }
 
     /// A run's reported state, its Floats as krun prints them ([`Self::krun_floats`]), and the
