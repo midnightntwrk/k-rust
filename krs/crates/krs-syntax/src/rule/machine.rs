@@ -170,6 +170,13 @@ fn parse_readable_pattern_state(
             if let Some(map) = braced_map_entries(&tokens, StateMacroContext::Pattern)? {
                 return Ok(Some(StateTerm::Present(Box::new(StateTerm::Map(map)))));
             }
+            // An alias over braces is the alias of the map pattern they denote, as at a map
+            // cell's own entry ([`named_rest_record`]).
+            if let Some(term) = aliased_map_braces(&tokens) {
+                return Ok(Some(StateTerm::Present(Box::new(StateTerm::Term(
+                    TermExpression::parse_pattern_tokens(term)?,
+                )))));
+            }
             // A present group's record whose child is brackets holding their rest alone, `[..]`,
             // or instance braces, is the record of its children's entries, as a group record at
             // a cell's position is ([`readable_record`]): each child is that child cell's entry,
@@ -843,6 +850,13 @@ fn parse_readable_child(
     // A map cell's entries, all of them, `{ k -> v }`: the map the child holds, on either side,
     // as a `cells!` instance writes `map![k -> v]`; naming its rest (`rest @ ..`), the map pattern
     // those braces denote, as its top cell's twin is ([`named_rest_record`]).
+    // An alias over braces is the alias of the map pattern they denote, as at its top cell's twin
+    // ([`named_rest_record`]).
+    if context == StateMacroContext::Pattern
+        && let Some(aliased) = aliased_map_braces(&tokens)
+    {
+        return Ok(StateTerm::Term(read(aliased)?));
+    }
     if let [TokenTree::Group(group)] = trees.as_slice()
         && group.delimiter() == proc_macro2::Delimiter::Brace
         && contains_top_level_arrow(group)
@@ -1077,6 +1091,11 @@ fn record_maps_as_terms(
                     path.chain([TokenTree::Group(entries)])
                         .collect::<TokenStream>(),
                 )
+            }
+            _ if context == StateMacroContext::Pattern
+                && let Some(aliased) = aliased_map_braces(&value) =>
+            {
+                Some(aliased)
             }
             _ => record_maps_as_terms(&value, context)?,
         };
@@ -2167,6 +2186,7 @@ fn named_rest_record(content: ParseStream<'_>) -> Result<Option<MachinePatternCe
     let term = match trees.as_slice() {
         [TokenTree::Group(map)] if let Some(term) = named_map_pattern(map) => term,
         [TokenTree::Group(_)] if let Some(term) = exact_map(&value) => term,
+        _ if let Some(term) = aliased_map_braces(&value) => term,
         [owner @ .., TokenTree::Group(body)]
             if body.delimiter() == proc_macro2::Delimiter::Brace && !owner.is_empty() =>
         {
@@ -2195,6 +2215,13 @@ fn named_rest_record(content: ParseStream<'_>) -> Result<Option<MachinePatternCe
                         TokenTree::Punct(colon),
                         TokenTree::Group(map),
                     ] if colon.as_char() == ':' && named_map(map) => {
+                        named = true;
+                        stream.extend(item);
+                    }
+                    [TokenTree::Ident(_), TokenTree::Punct(colon), value @ ..]
+                        if colon.as_char() == ':'
+                            && aliased_map_braces(&value.iter().cloned().collect()).is_some() =>
+                    {
                         named = true;
                         stream.extend(item);
                     }
@@ -2272,6 +2299,30 @@ fn exact_map(tokens: &TokenStream) -> Option<TokenStream> {
     let mut entries = proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, map.stream());
     entries.set_span(span);
     Some(quote_spanned!(span=> k::map!#entries))
+}
+
+/// The map pattern an alias over a map cell's braces denotes, `m @ { k -> v, .. }` (or naming
+/// its rest, `r @ ..`, or every entry): the braces are the cell's map, those entries and, with a
+/// rest, its others, and the alias names that whole map, so the value is the alias of the map
+/// pattern they denote, `m @ k::map![k -> v, ..]`, as the alias over the cell's literal,
+/// `m @ map![k -> v, ..]`, is. `None` for any other value.
+fn aliased_map_braces(tokens: &TokenStream) -> Option<TokenStream> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Ident(alias), TokenTree::Punct(at), TokenTree::Group(map)] = trees.as_slice()
+    else {
+        return None;
+    };
+    if at.as_char() != '@'
+        || map.delimiter() != proc_macro2::Delimiter::Brace
+        || !contains_top_level_arrow(map)
+    {
+        return None;
+    }
+    let span = map.span();
+    let mut entries = proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, map.stream());
+    entries.set_span(span);
+    let map = quote_spanned!(span=> k::map!#entries);
+    Some(quote!(#alias #at #map))
 }
 
 /// The value a readable record `record` writes for the cell `cell`, as written: the tokens after
