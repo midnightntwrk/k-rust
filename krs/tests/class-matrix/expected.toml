@@ -771,6 +771,12 @@ doc = "a matched computation with two or more parts of unknown length (a `..` re
 # The refusal advises declaring a binder at an item sort (`KItem`): `[i, ..]` with `i: KItem`.
 advice = "child-twins/{form}/subject/list-child/k/[i, ..]"
 
+[class.computation-k-part-place]
+code = "krs::collect::invalid-configuration"
+doc = "a part of sort `K` of unknown item count matched before the end of a computation, before an item or a rest, in a sentence the target matches (a rule, a context, a context alias, a function context), even where another occurrence fixes it (`KCell(Keep { body: b }, b, ..)`): the target matches a computation from its front, one item at a time, and the emitted K would match the part with an `append` on the pattern's side, which never matches (KTAIL, a stated limit); a claim's subject keeps it"
+# The refusal advises declaring the binder at an item sort when it is one item: `[i, ..]` with `i: KItem`.
+advice = "child-twins/{form}/subject/list-child/k/[i, ..]"
+
 [class.instance-group-computation-child]
 code = "krs::analysis::collection-entry"
 doc = "a computation child of a group inside an instance record, in a rule: an instance record's group child is the group's term, and a record whose child's entry is a computation's items is lowered as its children's own cells, so it is not supported yet where the group must be one term; a mistake the sentence makes around it (a result's anonymous `..`, a bare entry on the computation) is told first (TWINWIDE, CHILDKIND C6)"
@@ -7692,6 +7698,13 @@ match = 'child-twins/{cells,cells-claim}/subject/top/k/{k::configuration::KCell(
 class = "computation-split"
 at = "spelling"
 
+# KTAIL: `Keep { body: b }, b, ..` splits one way, but `b` stands before the rest, where the target
+# matches no part of sort `K`: refused in a rule, kept in a claim.
+[[refuse]]
+match = 'child-twins/{readable,cells}/subject/{top,list-child,map-child,group-child}/k/{[Keep \{ body: b \}\, b\, ..],[Cmd::Keep \{ body: b \}\, b\, ..],k::configuration::KCell(Cmd::Keep \{ body: b \}\, b\, ..)}'
+class = "computation-k-part-place"
+at = "spelling"
+
 [[refuse]]
 match = 'child-twins/{readable,cells}/both/nested-child/{k,list}/*\, ..]'
 class = "nested-anonymous-rest"
@@ -8677,15 +8690,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-[accept."child-twins/cells/subject/top/k/k::configuration::KCell(Cmd::Keep { body: b }, b, ..)"]
-k = """
-rule [case-TAG]:
-<k> cTAG => .K ... </k>
-<tk> keep ( V0:K ) ~> V0:K ... </tk>
-
-syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
-"""
-
 [accept."child-twins/cells/subject/top/k/k::configuration::KCell(i, ..)"]
 k = """
 rule [case-TAG]:
@@ -9329,6 +9333,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 # the `cells!` twin `Cell(b @ k::map![0 -> v, ..])`; refused today, so accepted without K and pending
 # (BACKMAP-2-1), and its children are expected accepted too.
 [accept."child-twins/readable/subject/top/map/b @ { 0 -> v, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> ( 0 |-> V0:KItem _ #as V1:Map ) </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."child-twins/readable/subject/top/map/b"]
 k = """

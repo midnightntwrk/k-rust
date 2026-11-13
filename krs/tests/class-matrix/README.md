@@ -268,7 +268,9 @@ rest (`nested-anonymous-rest`, "inside `Some([..])` .. a result's `..` is not su
 single-body rewrite of a `?` group's child stands below the root of the optional cell's present
 content, which "has no lowering yet" (`rewrite-below-present-root`). New twins' classes:
 `computation-split` (KSEQSPLITS: `KCell(b, ..)` with `b: KSequence` splits in more than one way;
-its advised case is `[i, ..]` with `i: KItem`). `closure::twin_equal` gained one rule: a cell
+its advised case is `[i, ..]` with `i: KItem`), and `computation-k-part-place` (KTAIL:
+`[Keep { body: b }, b, ..]` splits one way, but `b` stands before the rest, which the target does
+not match in a rule; the claims keep it). `closure::twin_equal` gained one rule: a cell
 whose whole content is one parenthesized rewrite, `<c> (A => B) </c>`, is `<c> A => B </c>`, only
 where the parentheses hold the whole content and a rewrite at their top level (parentheses group
 and denote nothing; a single-body rewrite in a group's record is printed in them).
