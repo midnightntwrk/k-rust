@@ -146,10 +146,11 @@ the outcomes must agree:
   below 3), typed by the group. `end-small` holds the group beside a memory and adds
   `unmapped_read`, a fn typed by its configuration with a condition and the address as its
   reason, and `#[k::end(refused)]` on the enum variant `guarded ( addr )`; `end-board` holds
-  it beside a timer and adds `#[k::end(refused)]` on the struct constructor
+  it beside a timer and adds `refused_rom`, a fn over the struct constructor
   `boot ( rom , pgm )`, the item its computation starts with, which the rule `accept` consumes
-  only when the ROM number is not negative: an input the board does not accept is at a
-  `refused` end after no step. Each end is emitted as a total function of the whole
+  only when the ROM number is not negative: the fn's condition is the negation of the rule's,
+  since the item alone is also where the rule applies, so an input the board does not accept
+  is at a `refused` end after no step and an accepted one is at none. Each end is emitted as a total function of the whole
   configuration, `syntax Bool ::= "endHalt" "(" GeneratedTopCell ")" [.., function, total]`,
   with one equation per clause whose result is `true`, the function applied to
   `<generatedTop> .. ... </generatedTop>` with the cells the clause reads, and an `owise`
@@ -620,7 +621,7 @@ def end_values(holds: tuple[str, ...], true: tuple[str, ...], reasons: tuple[tup
 
 
 END_SMALL_HOLDS = (*END_CORE_HOLDS, "endUnmappedRead", "endGuarded")
-END_BOARD_HOLDS = (*END_CORE_HOLDS, "endBoot")
+END_BOARD_HOLDS = (*END_CORE_HOLDS, "endRefusedRom")
 # Each program of `Small`: the whole computation cell it ends with, its other cells, and the
 # ends that hold there. `mapped` reads the address the memory maps; `unmapped` and `guarded` read
 # addresses it does not, the second the guarded one, at which a rule applies.
@@ -648,8 +649,10 @@ END_SMALL_PROGRAMS = tuple(
         ),
     )
 )
-# Each program of `Board` with its ROM number. `refused-input` is at the end `boot` at its
-# initial state: no step ran, and the timer and the counters hold what the initializer wrote.
+# Each program of `Board` with its ROM number. `refused-input` is at the end `refused_rom` at
+# its initial state: no step ran, and the timer and the counters hold what the initializer
+# wrote. The other programs have a ROM number `accept` takes, and `refused_rom` is false at each
+# one's final state.
 # `gap` is stuck at a read the board has no memory to answer, where no end holds.
 END_BOARD_PROGRAMS = tuple(
     Program(
@@ -660,7 +663,7 @@ END_BOARD_PROGRAMS = tuple(
         (
             "refused-input", "-1", "inc ; done", "boot ( -1 , inc ; done )",
             (("pc", "0"), ("acc", "0"), ("timer", "0")),
-            ("endBoot",), (("endBootReason", "Start", "boot ( -1 , inc ; done )"),),
+            ("endRefusedRom",), (("endRefusedRomReason", "Start", "boot ( -1 , inc ; done )"),),
         ),
         (
             "accepted", "5", "inc ; halt ; done", "halt ~> done",
@@ -690,7 +693,7 @@ END_OWN_ENDS = {
         ("refused", "crate::unmapped_read", "clause", "endUnmappedRead", ("endUnmappedReadReason", "Int")),
     ),
     "krs-configuration-cells-end-board": (
-        ("refused", "crate::boot", "constructor", "endBoot", ("endBootReason", "Start")),
+        ("refused", "crate::refused_rom", "clause", "endRefusedRom", ("endRefusedRomReason", "Start")),
     ),
 }
 # What the emitted K writes for an end: its total function of the configuration, its clause
@@ -714,17 +717,18 @@ END_K = (
     "    ... </generatedTop> ) => Acc:Int\n"
     "    requires 3 <=Int Acc:Int [label(krs_end_core--overflow_reason)]\n",
 )
-# What `krs expand` prints for `#[k::end(refused)]` on the struct constructor `Boot`: the
-# reference form, typed by the configuration, naming the group's computation cell.
+# What `krs expand` prints for the end `refused_rom`: the fn as written, with its condition,
+# typed by the configuration and naming the group's computation cell.
 END_BOARD_EXPANSION = (
     "#[k::end(refused)]\n"
-    "pub fn boot(\n"
-    "    rom: k::Term<Int>,\n"
-    "    pgm: k::Term<end_core::Prog>,\n"
+    "#[k::requires(int::lt(rom, 0))]\n"
+    "fn refused_rom(\n"
+    "    rom: Term<Int>,\n"
+    "    pgm: Term<end_core::Prog>,\n"
     "    k::cells! {\n"
-    "        ::end_core::Core::k : k::configuration::KCell(Boot { rom, pgm }, ..), ..\n"
-    "    }: crate::Board,\n"
-    ") -> k::Term<Start> {\n"
+    "        end_core::Core::k : k::configuration::KCell(Boot { rom, pgm }, ..), ..\n"
+    "    }: Board,\n"
+    ") -> Term<Start> {\n"
     "    Boot { rom, pgm }\n"
     "}\n"
 )
@@ -1126,7 +1130,7 @@ def verify_ends(harness: FixtureGate) -> None:
         harness.check(fixture)
         expansion = harness.expand(fixture)
         if fixture is END_BOARD and END_BOARD_EXPANSION not in expansion:
-            raise GateError(f"{fixture.package}: krs expand does not print the constructor's end as its fn:\n{expansion}")
+            raise GateError(f"{fixture.package}: krs expand does not print the end `refused_rom` with its condition:\n{expansion}")
         if "#[k::end(refused)]\npub struct" in expansion or "#[k::end(refused)]\n    #[k::syntax" in expansion:
             raise GateError(f"{fixture.package}: krs expand left an end on a constructor:\n{expansion}")
         emitted = harness.emit(fixture)

@@ -18,7 +18,7 @@
     "krs-configuration-cells-group-boot-board": "2eaedf69e56786268170a71c1af94ee94379a8dcb0bf73d26a49303e6628a4a1",
     "krs-configuration-cells-group-slot": "31ca3d11ed3bce3af0a8ab7d5d247e05ea1d72e5b70ba3bceba82c8933bb5e7e",
     "krs-configuration-cells-end-small": "bf28918582edf89cf3cb73f60ce9075d0a4b97314cad67df4786e81d758cd809",
-    "krs-configuration-cells-end-board": "cc62e1cb3dacadfc0c3e7a95861145e5838336b3b4323c4a137275f176966276"
+    "krs-configuration-cells-end-board": "22003187df9302af41f3f9ecdf5b96bcf0fbd367c346f2ceb440c6347b3ae4ff"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -73,7 +73,7 @@
       "definition.k": "b18bcc3c1d63a39ac9f51096e2aff33e4686635d49b339b5d1f16a9ce41404f7"
     },
     "krs-configuration-cells-end-board": {
-      "definition.k": "47e25ddf356950771d6e7297b9b385053a5be66e11a5e8ead24396db07192e5c"
+      "definition.k": "8b42650114dcdc5796bb29a2f80a81e324255830ec0da99c6fa30b13d8e289c1"
     }
   },
   "reference_sha256": {
@@ -94,7 +94,7 @@
     "krs-configuration-cells-group-boot-board": "b2d6b61d61b39889250375795bcf79bc61bb574ee4fc7e98a1bf4ea975563e10",
     "krs-configuration-cells-group-slot": "e54c4050c664b7b76a9feb3e0b3c0509c7a191158deff3abdc45967a4e74f3ee",
     "krs-configuration-cells-end-small": "1e4268dc69a6eab940b0a7d5e5a35d8d436f2aae21cda6ff85d4cc6cfc00ca01",
-    "krs-configuration-cells-end-board": "890246cb9c734b0d9d7561d3aaa67d70a630645376d8800ed0950a87d10f8c60"
+    "krs-configuration-cells-end-board": "148964dd0192655632c593d75796be08c27d6c8697ca454dc7c48df8963f3580"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -767,8 +767,8 @@
           "endTrap": "false",
           "endDrained": "false",
           "endOverflow": "false",
-          "endBoot": "true",
-          "endBootReason": "boot ( -1 , inc ; done )"
+          "endRefusedRom": "true",
+          "endRefusedRomReason": "boot ( -1 , inc ; done )"
         }
       },
       "accepted": {
@@ -784,7 +784,7 @@
           "endTrap": "false",
           "endDrained": "false",
           "endOverflow": "false",
-          "endBoot": "false"
+          "endRefusedRom": "false"
         }
       },
       "trap": {
@@ -800,7 +800,7 @@
           "endTrap": "true",
           "endDrained": "false",
           "endOverflow": "false",
-          "endBoot": "false",
+          "endRefusedRom": "false",
           "endTrapReason": "trap ( 2 )"
         }
       },
@@ -817,7 +817,7 @@
           "endTrap": "false",
           "endDrained": "false",
           "endOverflow": "false",
-          "endBoot": "false"
+          "endRefusedRom": "false"
         }
       }
     }
