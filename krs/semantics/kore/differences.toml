@@ -130,7 +130,8 @@ reason = """
 The llvm backend aborts on the second new(1, _), which adds an instance of the key <id>(1) to a \
 cell collection that has one ([hook_MAP_concat]: Duplicate keys in map concatenation). The \
 collection's sort AcctCellMap has the MAP hooks, and Map concatenation is defined only on maps \
-of disjoint keys (docs/compatibility.md, "Map concatenation binds each key once"), so that \
+of disjoint keys (K's MAP module states the concatenation of maps with a common key to be \
+#False), so that \
 rule's result is undefined and the path has no final configuration; the other path gives the \
 two final configurations of pick, which the haskell backend gives too."""
 
@@ -170,7 +171,8 @@ reason = """
 The llvm backend does not evaluate the ensures: it steps a(0) to b(0) although 0 >Int 0 is \
 false. A rule l => r requires P ensures E is the axiom l and P implies next (r and E = true), so \
 where E is false the rule's result is empty: the rule has applied, a(0) has no successor and is \
-not final (docs/compatibility.md, "Trivial rule results"). The haskell backend's result is \
+not final (the K manual, "Rule Structure": the ensures may make the term undefined, and the \
+backend applies the rule anyway). The haskell backend's result is \
 kore.k's, b(1) alone."""
 
 [[difference]]
@@ -179,5 +181,7 @@ backend = "llvm"
 reason = """
 As for c43, the llvm backend does not evaluate the ensures and steps a(0) to b(0). The rule \
 whose ensures is false has applied with an empty result, so the rule of larger priority number \
-that would give c(0) does not apply (docs/compatibility.md, "Trivial rule results"); the \
+that would give c(0) does not apply; K's text does not state this beyond the manual's owise \
+wording (a rule of larger priority applies when the others have been tried and failed), so it \
+is kore.k's reading, recorded against both backends; the \
 haskell backend gives b(1) alone, as kore.k does, so neither backend applies that rule."""
