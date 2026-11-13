@@ -1468,45 +1468,81 @@ fn an_item_less_instance_list_matches_every_collection() {
         for-th-computation: rule [go]: <th> <tk> .K => go ... </tk> ... </th>"]].assert_eq(&lines.join("\n"));
 }
 
+/// The headline of `krs check`'s first error on a package of `library` and the line and column it
+/// points at (`at L:C`).
+fn located_refusal(name: &str, library: &str) -> String {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = library_package(temporary.path(), name, library);
+    let (success, stderr, _) = krs(target.path(), &manifest, "check", &[]);
+    assert!(!success, "the package is refused");
+    let mut lines = stderr.lines().skip_while(|line| !line.starts_with("error"));
+    let headline = lines
+        .next()
+        .unwrap_or_else(|| panic!("no error:\n{stderr}"));
+    let at = lines
+        .next()
+        .and_then(|line| line.rsplit_once("lib.rs:"))
+        .map_or("unlocated", |(_, at)| at);
+    format!("{headline} (at {at})")
+}
+
 /// Round 4, the printer: the print names a `[..]` subject's kept rest where it makes it, on a
-/// second print once the sentence's names are known, so nothing printed is renamed, not even an
-/// item spelled like the first print's reserved placeholder (a constructor `__krs_list_rest_0`,
-/// which krs admits).
+/// second print once the sentence's names are known, so nothing printed is renamed. No authored
+/// item can be spelled like the first print's reserved placeholder: a name in the namespace KRS
+/// generates its names in (`__krs_list_rest_0`) is refused at the item (LEFTS item 7), so a
+/// generated name never captures an author's by construction. An item spelled near it outside
+/// that namespace (`krs_list_rest_0`) is printed as written beside the rest the print names.
 #[test]
 fn a_named_rest_renames_no_item() {
-    let preamble = PREAMBLE.replace(
+    let reserved = PREAMBLE.replace(
         "#[k::syntax(\"go\")] Go(),",
         "#[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"odd\")] __krs_list_rest_0(),",
     );
     assert!(
-        preamble.contains("__krs_list_rest_0()"),
+        reserved.contains("__krs_list_rest_0()"),
         "the preamble declares the item"
+    );
+    expect_test::expect!["error[krs::policy::reserved-name]: the item `__krs_list_rest_0` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 15:25)"].assert_eq(&located_refusal(
+        "seq-printer-reserved",
+        &format!(
+            "{reserved}{}",
+            readable(
+                "go: { k: [__krs_list_rest_0(), ..], ll: [..] } => { k: [..], ll: [Go(), ..] };",
+                false,
+            )
+        ),
+    ));
+    let preamble = PREAMBLE.replace(
+        "#[k::syntax(\"go\")] Go(),",
+        "#[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"odd\")] #[allow(non_camel_case_types)] krs_list_rest_0(),",
     );
     let (readable_k, print, printed_k) = printed_twin(
         "printer",
         &format!(
             "{preamble}{}",
             readable(
-                "go: { k: [__krs_list_rest_0(), ..], ll: [..] } => { k: [..], ll: [Go(), ..] };",
+                "go: { k: [krs_list_rest_0(), ..], ll: [..] } => { k: [..], ll: [Go(), ..] };",
                 false,
             )
         ),
     );
     expect_test::expect![[r"
         rule [go]: <k> odd => .K ... </k> <ll> Krs_RestLl:List => ListItem(go) Krs_RestLl:List </ll>
-        pub fn go( rest: k::Term<k::builtin::List>, k::cells! { k : k::configuration::KCell(crate ::Cmd::__krs_list_rest_0(), ..), ll : k::configuration::Cell(rest), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ll : k::configuration::Cell([crate ::Cmd::Go(), ..rest]), ..state } }
+        pub fn go( rest: k::Term<k::builtin::List>, k::cells! { k : k::configuration::KCell(crate ::Cmd::krs_list_rest_0(), ..), ll : k::configuration::Cell(rest), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ll : k::configuration::Cell([crate ::Cmd::Go(), ..rest]), ..state } }
         rule [go]: <k> odd => .K ... </k> <ll> Rest:List => ListItem(go) Rest:List </ll>"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
-    assert!(print.contains("Cmd::__krs_list_rest_0()"), "{print}");
+    assert!(print.contains("Cmd::krs_list_rest_0()"), "{print}");
     assert_eq!(readable_k.replace("Krs_RestLl", "Rest"), printed_k);
 }
 
 /// Round 5, the printer: a sorted wildcard (a map read's value `_` narrowed to `Int`, printed as the
-/// binder `_int`) is printed by its name where it
-/// is printed, so nothing printed is renamed, not even a constructor spelled like the wildcard's
-/// reserved id (`__krs_wildcard_0`, which krs admits).
+/// binder `_int`) is printed by its name where it is printed, so nothing printed is renamed. No
+/// authored item can be spelled like the wildcard's reserved id: `__krs_wildcard_0` is in the
+/// namespace KRS generates its names in and is refused at the item (LEFTS item 7). An item
+/// spelled near it outside that namespace (`krs_wildcard_0`) is printed as written.
 #[test]
 fn a_sorted_wildcard_renames_no_item() {
-    let preamble = PREAMBLE
+    let with_env = PREAMBLE
         .replace("List, Set, list, set}", "List, Map, Set, list, set}")
         .replace(
             "    #[k::cell]\n    pub out: List,\n",
@@ -1515,27 +1551,38 @@ fn a_sorted_wildcard_renames_no_item() {
         .replace(
             "out: list::empty(),",
             "out: list::empty(),\n            env: k::map![],",
-        )
-        .replace(
-            "#[k::syntax(\"go\")] Go(),",
-            "#[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"odd\")] __krs_wildcard_0(),",
         );
-    assert!(preamble.contains("pub env: Map") && preamble.contains("__krs_wildcard_0()"));
+    let item = |name: &str| {
+        with_env.replace(
+            "#[k::syntax(\"go\")] Go(),",
+            &format!(
+                "#[k::syntax(\"go\")] Go(),\n    #[k::syntax(\"odd\")] #[allow(non_camel_case_types)] {name}(),"
+            ),
+        )
+    };
+    let rule = |name: &str| {
+        readable(
+            &format!(
+                "go: {{ k: [{name}(), ..], env: {{ 0 -> _, .. }} }} => {{ k: [..] }} where _: Int;"
+            ),
+            false,
+        )
+    };
+    let reserved = item("__krs_wildcard_0");
+    assert!(reserved.contains("pub env: Map") && reserved.contains("__krs_wildcard_0()"));
+    expect_test::expect!["error[krs::policy::reserved-name]: the item `__krs_wildcard_0` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 15:56)"].assert_eq(&located_refusal(
+        "seq-wildcard-reserved",
+        &format!("{reserved}{}", rule("__krs_wildcard_0")),
+    ));
     let (readable_k, print, printed_k) = printed_twin(
         "wildcard",
-        &format!(
-            "{preamble}{}",
-            readable(
-                "go: { k: [__krs_wildcard_0(), ..], env: { 0 -> _, .. } } => { k: [..] } where _: Int;",
-                false,
-            )
-        ),
+        &format!("{}{}", item("krs_wildcard_0"), rule("krs_wildcard_0")),
     );
     expect_test::expect![[r"
         rule [go]: <k> odd => .K ... </k> <env> 0 |-> _:Int ... </env>
-        pub fn go( _int: k::Term<k::builtin::Int>, k::cells! { k : k::configuration::KCell(crate ::Cmd::__krs_wildcard_0(), ..), env : k::configuration::Cell(map![0 -> _int, ..]), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ..state } }
+        pub fn go( _int: k::Term<k::builtin::Int>, k::cells! { k : k::configuration::KCell(crate ::Cmd::krs_wildcard_0(), ..), env : k::configuration::Cell(map![0 -> _int, ..]), state @ .. }: crate::Machine, ) -> crate::Machine { k::cells! { k : k::configuration::KCell(..), ..state } }
         rule [go]: <k> odd => .K ... </k> <env> 0 |-> _Int:Int ... </env>"]].assert_eq(&format!("{readable_k}\n{print}\n{printed_k}"));
-    assert!(print.contains("Cmd::__krs_wildcard_0()"), "{print}");
+    assert!(print.contains("Cmd::krs_wildcard_0()"), "{print}");
     assert!(print.contains("_int: k::Term<k::builtin::Int>"), "{print}");
     // The wildcard's binder reads back as a K variable used once, `_Int`, the readable `_`.
     assert_eq!(readable_k.replace("_:Int", "_Int:Int"), printed_k);
