@@ -14,7 +14,15 @@
    "c13-inj-bool",
    "c14-fn-undef-requires",
    "c17-init-function",
-   "c18-div-signs"
+   "c18-div-signs",
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c23-map-lookup-missing",
+   "c24-map-fn-pattern",
+   "c25-map-equal",
+   "c26-map-strict"
   ],
   "status": "killed",
   "undecided": []
@@ -30,14 +38,44 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
-   "c13-inj-bool"
+   "c13-inj-bool",
+   "c21-map-concat",
+   "c23-map-lookup-missing",
+   "c26-map-strict"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-first-split-only": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-pattern-open": {
+  "killed_by": [
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-unordered": {
+  "killed_by": [
+   "c21-map-concat",
+   "c25-map-equal",
+   "c26-map-strict"
   ],
   "status": "killed",
   "undecided": []
  },
  "dv-any-value": {
   "killed_by": [
-   "c07-strict-args"
+   "c07-strict-args",
+   "c20-map-key-fixed"
   ],
   "status": "killed",
   "undecided": []
@@ -45,7 +83,15 @@
  "fn-first-applicable": {
   "killed_by": [
    "c01-fn-prio",
-   "c07-strict-args"
+   "c07-strict-args",
+   "c24-map-fn-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-first-subst-only": {
+  "killed_by": [
+   "c24-map-fn-pattern"
   ],
   "status": "killed",
   "undecided": []
@@ -57,7 +103,8 @@
  },
  "fn-owise-ignored": {
   "killed_by": [
-   "c07-strict-args"
+   "c07-strict-args",
+   "c24-map-fn-pattern"
   ],
   "status": "killed",
   "undecided": []
@@ -65,7 +112,8 @@
  "fn-priority-reversed": {
   "killed_by": [
    "c01-fn-prio",
-   "c07-strict-args"
+   "c07-strict-args",
+   "c24-map-fn-pattern"
   ],
   "status": "killed",
   "undecided": []
@@ -74,7 +122,8 @@
   "killed_by": [
    "c01-fn-prio",
    "c11-fn-no-equation",
-   "c14-fn-undef-requires"
+   "c14-fn-undef-requires",
+   "c24-map-fn-pattern"
   ],
   "status": "killed",
   "undecided": []
@@ -86,18 +135,29 @@
   "status": "killed",
   "undecided": []
  },
+ "frame-dropped": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
  "hook-undefined-is-zero": {
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
-   "c12-undef-init"
+   "c12-undef-init",
+   "c26-map-strict"
   ],
   "status": "killed",
   "undecided": []
  },
  "init-unevaluated": {
   "killed_by": [
-   "c17-init-function"
+   "c17-init-function",
+   "c19-map-choice"
   ],
   "status": "killed",
   "undecided": []
@@ -123,6 +183,34 @@
   "status": "killed",
   "undecided": []
  },
+ "map-concat-overrides": {
+  "killed_by": [
+   "c21-map-concat"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-duplicate-keys": {
+  "killed_by": [
+   "c21-map-concat"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-lookup-missing-defined": {
+  "killed_by": [
+   "c23-map-lookup-missing"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-update-duplicates": {
+  "killed_by": [
+   "c22-map-hooks"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
  "no-equation-undefined": {
   "killed_by": [
    "c11-fn-no-equation"
@@ -133,14 +221,18 @@
  "nondeterminism-first-match": {
   "killed_by": [
    "c03-nondet",
-   "c13-inj-bool"
+   "c13-inj-bool",
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c21-map-concat"
   ],
   "status": "killed",
   "undecided": []
  },
  "nonlinear-ignored": {
   "killed_by": [
-   "c15-nonlinear-rule"
+   "c15-nonlinear-rule",
+   "c20-map-key-fixed"
   ],
   "status": "killed",
   "undecided": []
@@ -149,7 +241,8 @@
   "killed_by": [
    "c02-rule-prio",
    "c07-strict-args",
-   "c17-init-function"
+   "c17-init-function",
+   "c24-map-fn-pattern"
   ],
   "status": "killed",
   "undecided": []
@@ -159,7 +252,8 @@
    "c01-fn-prio",
    "c02-rule-prio",
    "c07-strict-args",
-   "c17-init-function"
+   "c17-init-function",
+   "c24-map-fn-pattern"
   ],
   "status": "killed",
   "undecided": []
@@ -208,7 +302,8 @@
  "rule-requires-ignored": {
   "killed_by": [
    "c02-rule-prio",
-   "c09-undef-requires"
+   "c09-undef-requires",
+   "c20-map-key-fixed"
   ],
   "status": "killed",
   "undecided": [
@@ -228,7 +323,14 @@
    "c10-strict-ite",
    "c13-inj-bool",
    "c14-fn-undef-requires",
-   "c18-div-signs"
+   "c18-div-signs",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c23-map-lookup-missing",
+   "c24-map-fn-pattern",
+   "c25-map-equal",
+   "c26-map-strict"
   ],
   "status": "killed",
   "undecided": []
@@ -268,13 +370,23 @@
   "status": "killed",
   "undecided": []
  },
+ "subst-first-only": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
  "symbol-unchecked": {
   "killed_by": [
    "c02-rule-prio",
    "c07-strict-args",
    "c09-undef-requires",
    "c13-inj-bool",
-   "c14-fn-undef-requires"
+   "c14-fn-undef-requires",
+   "c23-map-lookup-missing",
+   "c26-map-strict"
   ],
   "status": "killed",
   "undecided": [
@@ -285,7 +397,12 @@
    "c11-fn-no-equation",
    "c15-nonlinear-rule",
    "c17-init-function",
-   "c18-div-signs"
+   "c18-div-signs",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c24-map-fn-pattern",
+   "c25-map-equal"
   ]
  },
  "tdiv-as-ediv": {
@@ -306,7 +423,10 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
-   "c13-inj-bool"
+   "c13-inj-bool",
+   "c21-map-concat",
+   "c23-map-lookup-missing",
+   "c26-map-strict"
   ],
   "status": "killed",
   "undecided": [
@@ -336,7 +456,8 @@
   "status": "killed",
   "undecided": [
    "c03-nondet",
-   "c13-inj-bool"
+   "c13-inj-bool",
+   "c20-map-key-fixed"
   ]
  }
 }

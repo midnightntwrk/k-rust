@@ -269,8 +269,8 @@ id = "rule-rhs-unevaluated"
 misunderstanding = "a rewrite rule's right side is a configuration as built: its function applications are not evaluated"
   [[mutation.edit]]
   rule = "KORE.fire-holds"
-  find = "some(eval(D, inst(Rhs, B)))"
-  replace = "some(inst(Rhs, B))"
+  find = "=> eval(D, inst(Rhs, B)) ;"
+  replace = "=> inst(Rhs, B) ;"
 
 [[mutation]]
 id = "undefined-arg-passed"
@@ -354,8 +354,8 @@ id = "undefined-result-does-not-block"
 misunderstanding = "a rule whose result is undefined does not apply, so it does not block rules of larger priority"
   [[mutation.edit]]
   rule = "KORE.add-some"
-  find = "=> cand(P, T, Cs)"
-  replace = "=> #if T ==K bot #then Cs #else cand(P, T, Cs) #fi"
+  find = "=> cand(P, T, addCand(P, Ts, Cs))"
+  replace = "=> #if T ==K bot #then addCand(P, Ts, Cs) #else cand(P, T, addCand(P, Ts, Cs)) #fi"
 
 [[mutation]]
 id = "bottom-is-configuration"
@@ -376,3 +376,91 @@ misunderstanding = "an undefined initial term is itself a final configuration"
   rule = "KORE.init-bot"
   find = "done(.Ts)"
   replace = "done(bot ; .Ts)"
+
+# --- collections: matching -----------------------------------------------------------------
+
+[[mutation]]
+id = "subst-first-only"
+misunderstanding = "a rewrite rule gives one successor, from the first substitution of its left side whose requires holds, instead of one for each such substitution"
+  [[mutation.edit]]
+  rule = "KORE.fire-holds"
+  find = "; fireM(D, R, Rhs, Ms)"
+  replace = "; .Ts"
+
+[[mutation]]
+id = "fn-first-subst-only"
+misunderstanding = "an equation is tried with the first substitution of its argument patterns only: when that substitution's requires fails, the equation does not apply"
+  [[mutation.edit]]
+  rule = "KORE.try-refuted"
+  find = "=> tryM(D, Req, Rhs, Ms)"
+  replace = "=> none"
+
+[[mutation]]
+id = "frame-dropped"
+misunderstanding = "the frame variable of a collection pattern is dropped: the pattern matches whatever elements are left, and the frame is bound to the empty collection"
+  [[mutation.edit]]
+  rule = "KORE.mc-frame"
+  find = "match(F, co(K, C, Es), B, S)"
+  replace = "match(F, co(K, C, .Ts), B, S)"
+
+[[mutation]]
+id = "col-pattern-open"
+misunderstanding = "a collection pattern without a frame variable matches a collection that has more elements than its element patterns, as if it had a frame"
+  [[mutation.edit]]
+  rule = "KORE.mc-done"
+  find = "matchCol(_, _, .Ts, .Ts, B, _)"
+  replace = "matchCol(_, _, .Ts, _, B, _)"
+
+[[mutation]]
+id = "col-first-split-only"
+misunderstanding = "an element pattern of a Map or Set pattern is matched against the first element only: only the first split of the subject is tried"
+  [[mutation.edit]]
+  rule = "KORE.ch-cons"
+  find = ", choose(K, C, P, Ps, app(Pre, E ; .Ts), Post, B, S))"
+  replace = ", .Ms)"
+
+# --- collections: values and Map hooks -----------------------------------------------------
+
+[[mutation]]
+id = "map-duplicate-keys"
+misunderstanding = "Map concatenation is total: maps with a common key concatenate to a map holding both entries of that key"
+  [[mutation.edit]]
+  rule = "KORE.inse-overlap"
+  find = "insE(_, E, F ; Fs) => bot ; F ; Fs"
+  replace = "insE(K, E, F ; Fs) => #if K ==K map #then E ; F ; Fs #else bot ; F ; Fs #fi"
+
+[[mutation]]
+id = "map-concat-overrides"
+misunderstanding = "Map concatenation is a right-biased union: of two entries with one key, the right-hand one is kept"
+  [[mutation.edit]]
+  rule = "KORE.inse-overlap"
+  find = "insE(_, E, F ; Fs) => bot ; F ; Fs"
+  replace = "insE(K, E, F ; Fs) => #if K ==K map #then E ; Fs #else bot ; F ; Fs #fi"
+
+[[mutation]]
+id = "col-unordered"
+misunderstanding = "a collection value keeps its elements in the order they were added, so that the one map built in two orders gives two different values"
+  [[mutation.edit]]
+  rule = "KORE.inse-before"
+  find = "insE(_, E, F ; Fs) => E ; F ; Fs"
+  replace = "insE(K, E, F ; Fs) => F ; insE(K, E, Fs)"
+
+[[mutation]]
+id = "map-lookup-missing-defined"
+misunderstanding = "a lookup of a missing key is not undefined: the application stays as it is, as an application of a function no equation applies to does"
+  [[mutation.edit]]
+  rule = "KORE.op-lookup"
+  find = "=> valueOr(A, bot, Es)"
+  replace = "=> valueOr(A, hk(40, co(map, C, Es) ; A ; .Ts), Es)"
+  [[mutation.edit]]
+  rule = "KORE.op-lookup"
+  find = "co(map, _, Es)"
+  replace = "co(map, C, Es)"
+
+[[mutation]]
+id = "map-update-duplicates"
+misunderstanding = "a Map update of a present key adds a second entry for it instead of replacing its value"
+  [[mutation.edit]]
+  rule = "KORE.pute-replace"
+  find = "=> E ; Fs"
+  replace = "=> E ; F ; Fs"
