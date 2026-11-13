@@ -646,6 +646,7 @@ impl<'a> Expansion<'a> {
         let semantic_rules = &self.semantic_rules;
         let source = file.source;
         let module_uses = Bindings::of_items(&authored);
+        let leaves = OtherThanComputation::of_items(&authored)?;
         let mut rendered_names = BTreeSet::new();
         let mut needs_map_macro = false;
         let mut items = Vec::new();
@@ -739,7 +740,7 @@ impl<'a> Expansion<'a> {
                 Vec::new()
             };
             if let syn::Item::Impl(item_impl) = &mut item {
-                materialize_initializers(item_impl)?;
+                materialize_initializers(item_impl, &leaves)?;
             }
             let syn::Item::Macro(invocation) = &item else {
                 // The grammar an enum's family declares stands under the enum's conditions.
@@ -2158,7 +2159,63 @@ fn materialize_configuration_wrappers(
     Ok(())
 }
 
-fn materialize_initializers(item: &mut syn::ItemImpl) -> Result<(), ReferenceExpansionError> {
+/// The cells of each `#[k::cell]` or `#[k::configuration]` struct of a module that are no
+/// computation cell, by the struct's name: a leaf of sort `KSequence` declared
+/// `Cell<KSequence>` holds one term of that sort, which its initializer writes in
+/// `Cell::new(..)`, while the computation cell's items go in `KCell::new(..)`. The declaration
+/// decides which a field is, not the spelling of its initial value (`k::k![..]` writes a
+/// `KSequence` term in either).
+struct OtherThanComputation(BTreeMap<String, BTreeSet<String>>);
+
+impl OtherThanComputation {
+    fn of_items(items: &[syn::Item]) -> Result<Self, ReferenceExpansionError> {
+        let mut structs = BTreeMap::new();
+        for item in items {
+            let syn::Item::Struct(item) = item else {
+                continue;
+            };
+            if !has_attribute(&item.attrs, "configuration") && !has_attribute(&item.attrs, "cell") {
+                continue;
+            }
+            let declaration =
+                krs_syntax::ConfigurationDeclaration::parse_tokens(item.to_token_stream())
+                    .map_err(ReferenceExpansionError::KrsSyntax)?;
+            structs.insert(
+                item.ident.unraw().to_string(),
+                declaration
+                    .cells()
+                    .iter()
+                    .filter(|cell| !cell.is_computation_cell())
+                    .map(|cell| cell.name().unraw().to_string())
+                    .collect(),
+            );
+        }
+        Ok(Self(structs))
+    }
+
+    /// Whether the struct `owner` declares `cell` as no computation cell.
+    fn contains(&self, owner: Option<&str>, cell: &Ident) -> bool {
+        owner
+            .and_then(|owner| self.0.get(owner))
+            .is_some_and(|cells| cells.contains(&cell.unraw().to_string()))
+    }
+}
+
+/// The name of the struct a path or type names, its last segment.
+fn last_segment(path: &syn::Path) -> Option<String> {
+    path.segments
+        .last()
+        .map(|segment| segment.ident.unraw().to_string())
+}
+
+fn materialize_initializers(
+    item: &mut syn::ItemImpl,
+    leaves: &OtherThanComputation,
+) -> Result<(), ReferenceExpansionError> {
+    let owner = match &*item.self_ty {
+        syn::Type::Path(path) => last_segment(&path.path),
+        _ => None,
+    };
     let mut contains_initializer = false;
     for impl_item in &mut item.items {
         let syn::ImplItem::Fn(method) = impl_item else {
@@ -2201,7 +2258,7 @@ fn materialize_initializers(item: &mut syn::ItemImpl) -> Result<(), ReferenceExp
                 "a fixed initializer must contain exactly one struct expression",
             )));
         };
-        materialize_initializer_cells(body, initializer.cells())?;
+        materialize_initializer_cells(body, initializer.cells(), owner.as_deref(), leaves)?;
     }
     if contains_initializer && !item.attrs.iter().any(is_initializer_lint_allow) {
         item.attrs.push(syn::parse_quote!(
@@ -2214,6 +2271,8 @@ fn materialize_initializers(item: &mut syn::ItemImpl) -> Result<(), ReferenceExp
 fn materialize_initializer_cells(
     body: &mut syn::ExprStruct,
     cells: &[krs_syntax::FixedCellInitializer],
+    owner: Option<&str>,
+    leaves: &OtherThanComputation,
 ) -> Result<(), ReferenceExpansionError> {
     for cell in cells {
         let field = body
@@ -2246,7 +2305,7 @@ fn materialize_initializer_cells(
                 ..
             } => {
                 let value = expression.clone();
-                *expression = if *computation {
+                *expression = if *computation && !leaves.contains(owner, cell.name()) {
                     syn::parse_quote!(k::configuration::KCell::new(#value))
                 } else {
                     syn::parse_quote!(k::configuration::Cell::new(#value))
@@ -2261,14 +2320,22 @@ fn materialize_initializer_cells(
                 ..
             }
             | krs_syntax::InitializerCellContent::Leaf { neutral: true, .. } => {}
-            krs_syntax::InitializerCellContent::Nested { children, .. } => {
+            krs_syntax::InitializerCellContent::Nested {
+                constructor,
+                children,
+            } => {
                 let syn::Expr::Struct(nested) = expression else {
                     return Err(ReferenceExpansionError::GeneratedRust(syn::Error::new(
                         expression.span(),
                         "a nested fixed-cell initializer must be a struct expression",
                     )));
                 };
-                materialize_initializer_cells(nested, children)?;
+                materialize_initializer_cells(
+                    nested,
+                    children,
+                    last_segment(constructor).as_deref(),
+                    leaves,
+                )?;
             }
         }
         if let Some(template) = absent_template {
