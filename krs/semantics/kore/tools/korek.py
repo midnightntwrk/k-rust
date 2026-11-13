@@ -190,6 +190,7 @@ def collection_hook(attrs):
     lib, op = h.split('.', 1)
     return (KINDS[lib], op) if lib in KINDS and op in ROLES else None
 FIXED_SORTS = {'SortInt': 1, 'SortBool': 2}
+SOURCE = "org'Stop'kframework'Stop'attributes'Stop'Source"
 
 
 def unseq(x):
@@ -218,7 +219,7 @@ class Encoder:
                 elif kind == 'axiom':
                     if 'subsort' in attrs:
                         self.subsorts.append(attrs['subsort'])
-                    src = attrs.get("org'Stop'kframework'Stop'attributes'Stop'Source", '')
+                    src = attrs.get(SOURCE, '')
                     if src == f'Source({source})':
                         self.axioms.append((data, attrs))
         self.sorts = dict(FIXED_SORTS)
@@ -278,6 +279,9 @@ class Encoder:
             if h not in HOOKS:
                 raise Unsupported(f'hook {h} of {name}')
             return f'hk({HOOKS[h]}, {ts})'
+        if 'function' in attrs and 'constructor' not in attrs and attrs.get(SOURCE) != f'Source({self.source})':
+            # its equations, if any, are in K's own modules, which the encoding leaves out
+            raise Unsupported(f'function {name} declared outside the object definition')
         if 'constructor' in attrs or 'function' in attrs:
             return f'ap({self.sym(name)}, {ts})'
         raise Unsupported(f'symbol {name} is neither constructor nor function')

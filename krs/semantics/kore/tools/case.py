@@ -116,7 +116,8 @@ def error_class(text):
         return ' '.join(re.sub(r'\S*/(\S+)', r'\1', s).split())
 
     found = []
-    for pattern in (r'\[hook_[A-Za-z_]+\][^\n]*', r'what\(\):[^\n]*', r'\[Error\][^\n]*'):
+    for pattern in (r'\[hook_[A-Za-z_]+\][^\n]*', r'what\(\):[^\n]*', r'Error \([A-Za-z]+\)',
+                    r'Unable to instantiate semantic rule[^\n]*', r'\[Error\][^\n]*'):
         m = re.search(pattern, text)
         if m and not any(f in unpath(m.group(0)) for f in found):
             found.append(unpath(m.group(0)))

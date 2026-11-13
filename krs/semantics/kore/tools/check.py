@@ -5,12 +5,14 @@
 
 kore.k is kompiled once with `krust kcompile` (cached in the build directory by the SHA-256 of
 kore.k and of the krust executable); each case's kore.pgm is run with `krust krun --sort Pgm`,
-and its result, decoded with the case's symbols.json (tools/korek.py korek), is compared with the
-haskell backend's finals in the case's expected.json. No K reference tool runs: expected.json is
-the cached reference result, which tools/case.py computes.
+and its result, decoded with the case's symbols.json (tools/korek.py korek), is compared with each
+backend's result in the case's expected.json (its finals; a backend's error differs from every
+result). No K reference tool runs: expected.json is the cached reference result, which
+tools/case.py computes.
 
-A case passes when the finals are equal, or when it is listed in differences.toml and they still
-differ (so an entry cannot outlive its difference). A case whose def.k or pgm no longer has the
+A case passes when, for each backend, kore.k's finals equal the backend's result and
+differences.toml lists no difference of the case from that backend, or they differ and it lists
+one (so an entry cannot outlive its difference). A case whose def.k or pgm no longer has the
 SHA-256 its expected.json was computed from fails as stale: rebuild it with tools/case.py.
 Exit 0 when every case passes, 1 otherwise, 2 when no krust executable is found.
 
@@ -78,7 +80,6 @@ def check(case, exe, kc, differences):
     inputs = {'def.k': sha(os.path.join(case, 'def.k')), 'pgm': sha(os.path.join(case, 'pgm'))}
     if exp.get('inputs') != inputs:
         return False, f'{cid}: FAIL stale: def.k or pgm changed since expected.json; run tools/case.py {cid}', 0
-    expected = exp['backends']['haskell'].get('finals')
     out = os.path.join(BUILD, f'{cid}.kore-k.out')
     start = time.monotonic()
     r = subprocess.run([exe, 'krun', '--definition', kc, '--sort', 'Pgm', os.path.join(case, 'kore.pgm')],
@@ -90,26 +91,34 @@ def check(case, exe, kc, differences):
         finals = korek.cmd_korek(os.path.join(case, 'symbols.json'), out)
     except Exception as err:  # noqa: BLE001 - reported as this case's failure
         return False, f'{cid}: FAIL no result from kore.k ({err}; exit {r.returncode}: {r.stderr[-300:]})', ms
-    equal = finals == expected
-    if cid in differences:
-        if equal:
-            return False, f'{cid}: FAIL listed in differences.toml but now equal to the haskell backend', ms
-        return True, f'{cid}: differs as listed ({ms} ms) kore.k={json.dumps(finals)} haskell={json.dumps(expected)}', ms
-    if equal:
-        return True, f'{cid}: ok ({ms} ms) {len(finals)} final(s)', ms
-    return False, f'{cid}: FAIL kore.k={json.dumps(finals)} haskell={json.dumps(expected)}', ms
+    bad, listed = [], []
+    for backend, res in sorted(exp['backends'].items()):
+        equal = finals == res.get('finals')
+        shown = json.dumps(res['finals']) if 'finals' in res else 'error: ' + res.get('error', '')
+        if (cid, backend) in differences:
+            if equal:
+                bad.append(f'listed in differences.toml but now equal to the {backend} backend')
+            else:
+                listed.append(backend)
+        elif not equal:
+            bad.append(f'{backend}={shown}')
+    if bad:
+        return False, f'{cid}: FAIL kore.k={json.dumps(finals)} ' + '; '.join(bad), ms
+    if listed:
+        return True, f'{cid}: ok ({ms} ms) {len(finals)} final(s); differs as listed from {", ".join(listed)}', ms
+    return True, f'{cid}: ok ({ms} ms) {len(finals)} final(s)', ms
 
 
 def main(args):
     with open(os.path.join(PACKAGE, 'differences.toml'), 'rb') as f:
-        differences = {d['case']: d['reason'] for d in tomllib.load(f).get('difference', [])}
+        differences = {(d['case'], d['backend']): d['reason'] for d in tomllib.load(f).get('difference', [])}
     root = os.path.join(PACKAGE, 'cases')
     if args:
         cases = [a if os.path.isabs(a) or os.path.exists(a) else os.path.join(PACKAGE, a) for a in args]
     else:
         cases = [os.path.join(root, d) for d in sorted(os.listdir(root)) if os.path.isdir(os.path.join(root, d))]
     cases = [os.path.abspath(c) for c in cases]
-    unknown = sorted(set(differences) - {os.path.basename(c) for c in cases}) if not args else []
+    unknown = sorted({c for c, _ in differences} - {os.path.basename(c) for c in cases}) if not args else []
     exe = krust()
     kc, kompile_ms = kompiled(exe)
     passed, total_ms = 0, 0
