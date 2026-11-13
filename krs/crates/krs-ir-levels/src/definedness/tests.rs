@@ -1050,3 +1050,200 @@ fn a_result_reports_untested_operations_applications_and_names_a_let_binds() {
     assert_eq!(found[0], "(100 /Int Y) needs (Y =/=Int 0)");
     assert!(found[1].contains(":=K P:KItem"), "{found:?}");
 }
+
+/// A result's shift, written `1 <<Int amount`, and what is not shown of it under `facts`.
+fn shift_by(amount: SemanticTerm, facts: &[&SemanticTerm]) -> Vec<String> {
+    not_shown(
+        &apply(
+            BuiltinOperation::IntShiftLeft,
+            int(),
+            vec![lit("1"), amount],
+        ),
+        facts,
+    )
+}
+
+fn int_op(operation: BuiltinOperation, left: SemanticTerm, right: SemanticTerm) -> SemanticTerm {
+    apply(operation, int(), vec![left, right])
+}
+
+fn compare(operation: BuiltinOperation, left: SemanticTerm, right: SemanticTerm) -> SemanticTerm {
+    apply(operation, bool_sort(), vec![left, right])
+}
+
+/// 2^256, a literal beyond 128 bits.
+const POW256: &str =
+    "115792089237316195423570985008687907853269984665640564039457584007913129639936";
+
+#[test]
+fn a_result_s_construct_is_shown_by_the_range_of_its_operand() {
+    let b = || var("B", int());
+    let n = || var("N", int());
+    // A conjunction with a mask that is not negative is between 0 and the mask.
+    let masked = |mask: &str| int_op(BuiltinOperation::IntBitAnd, b(), lit(mask));
+    assert_eq!(shift_by(masked("7"), &[]), [""; 0]);
+    assert_eq!(
+        shift_by(masked("-8"), &[]),
+        ["(1 <<Int (B &Int -8)) needs (0 <=Int (B &Int -8))"]
+    );
+    // A Euclidean remainder is never negative; a truncating one has its dividend's sign.
+    let rem = |operation, divisor: SemanticTerm| int_op(operation, b(), divisor);
+    assert_eq!(
+        shift_by(rem(BuiltinOperation::IntMod, lit("8")), &[]),
+        [""; 0]
+    );
+    let truncating = shift_by(rem(BuiltinOperation::IntTMod, lit("8")), &[]);
+    assert_eq!(truncating.len(), 1, "{truncating:?}");
+    let natural = compare(BuiltinOperation::IntGreaterEqual, b(), lit("0"));
+    assert_eq!(
+        shift_by(rem(BuiltinOperation::IntTMod, lit("8")), &[&natural]),
+        [""; 0]
+    );
+    // The remainder's own divisor is still the equation's to state: a name may be zero.
+    assert_eq!(
+        shift_by(rem(BuiltinOperation::IntMod, n()), &[]),
+        ["(B modInt N) needs (N =/=Int 0)"]
+    );
+    // A remainder below a literal bounds an index: `0 <= B % 8 < 8`, and not `< 7`.
+    let within = |limit: &str| {
+        let pad = apply(
+            BuiltinOperation::BytesPadRight,
+            builtin_sort(BuiltinSort::Bytes),
+            vec![
+                var("S", builtin_sort(BuiltinSort::Bytes)),
+                lit("0"),
+                int_op(
+                    BuiltinOperation::IntAdd,
+                    rem(BuiltinOperation::IntMod, lit("8")),
+                    lit(limit),
+                ),
+            ],
+        );
+        not_shown(&pad, &[]).len()
+    };
+    assert_eq!(within("248"), 0);
+    assert_eq!(within("249"), 1);
+}
+
+#[test]
+fn a_range_is_computed_through_sums_products_shifts_and_quotients() {
+    let i = || var("I", int());
+    let w = || var("W", int());
+    let low = compare(BuiltinOperation::IntGreaterEqual, i(), lit("0"));
+    let high = compare(BuiltinOperation::IntLess, i(), lit("32"));
+    // `8 * (31 - I)` with `0 <= I < 32` is between 0 and 248.
+    let amount = int_op(
+        BuiltinOperation::IntMul,
+        lit("8"),
+        int_op(BuiltinOperation::IntSub, lit("31"), i()),
+    );
+    assert_eq!(shift_by(amount.clone(), &[&low, &high]), [""; 0]);
+    // Without the upper bound the difference may be negative.
+    assert_eq!(shift_by(amount, &[&low]).len(), 1);
+    // A product of two numbers that are not negative is not negative, whatever their size.
+    let product = int_op(BuiltinOperation::IntMul, lit("8"), i());
+    assert_eq!(shift_by(product.clone(), &[&low]), [""; 0]);
+    assert_eq!(shift_by(product, &[]).len(), 1);
+    // A product with a factor of unknown sign is not bounded by the other's bound.
+    assert_eq!(
+        shift_by(int_op(BuiltinOperation::IntMul, w(), i()), &[&low]).len(),
+        1
+    );
+    // A shift of a positive number is positive wherever it has a value, so it divides; the
+    // shift's own amount is another requirement, which `W > 0` states.
+    let power = || int_op(BuiltinOperation::IntShiftLeft, lit("1"), w());
+    let remainder = int_op(BuiltinOperation::IntMod, var("V", int()), power());
+    assert_eq!(
+        not_shown(&remainder, &[]),
+        ["(1 <<Int W) needs (0 <=Int W)"]
+    );
+    let positive = compare(BuiltinOperation::IntGreater, w(), lit("0"));
+    assert_eq!(not_shown(&remainder, &[&positive]), [""; 0]);
+    // A shift of a number that may be zero may be zero.
+    let zero_shift = int_op(
+        BuiltinOperation::IntMod,
+        var("V", int()),
+        int_op(BuiltinOperation::IntShiftLeft, i(), w()),
+    );
+    assert_eq!(not_shown(&zero_shift, &[&positive, &low]).len(), 1);
+    // The least of two numbers is at least the lesser lower end.
+    let least = |other: &str| int_op(BuiltinOperation::IntMin, i(), lit(other));
+    assert_eq!(shift_by(least("5"), &[&low]), [""; 0]);
+    assert_eq!(shift_by(least("-1"), &[&low]).len(), 1);
+    assert_eq!(
+        shift_by(int_op(BuiltinOperation::IntMax, w(), lit("0")), &[]),
+        [""; 0]
+    );
+}
+
+#[test]
+fn a_literal_beyond_128_bits_is_read_by_its_sign() {
+    let v = || var("V", int());
+    // It is not zero, so it divides.
+    let chopped = int_op(BuiltinOperation::IntMod, v(), lit(POW256));
+    assert_eq!(not_shown(&chopped, &[]), [""; 0]);
+    // What is computed from it keeps the end that is known: `(2^256 - 1) / 2` is positive.
+    let half = int_op(
+        BuiltinOperation::IntTDiv,
+        int_op(BuiltinOperation::IntSub, lit(POW256), lit("1")),
+        lit("2"),
+    );
+    let power = apply(
+        BuiltinOperation::IntPowMod,
+        int(),
+        vec![v(), half, lit(POW256)],
+    );
+    assert_eq!(not_shown(&power, &[]), [""; 0]);
+    // A difference of two such literals has no known sign.
+    let difference = int_op(BuiltinOperation::IntSub, lit(POW256), lit(POW256));
+    let by_difference = not_shown(&int_op(BuiltinOperation::IntMod, v(), difference), &[]);
+    assert_eq!(by_difference.len(), 1, "{by_difference:?}");
+    // A negative one is below every `i128`, so no shift amount.
+    let negative = format!("-{POW256}");
+    assert_eq!(shift_by(lit(&negative), &[]).len(), 1);
+    assert_eq!(
+        not_shown(&int_op(BuiltinOperation::IntMod, v(), lit(&negative)), &[]),
+        [""; 0]
+    );
+}
+
+#[test]
+fn a_negated_disjunction_states_the_negation_of_each_operand() {
+    let s = || var("S", int());
+    let v = || var("V", int());
+    let negative = |term: SemanticTerm| compare(BuiltinOperation::IntLess, term, lit("0"));
+    let not = |term: SemanticTerm| apply(BuiltinOperation::BoolNot, bool_sort(), vec![term]);
+    for either in [BuiltinOperation::BoolOr, BuiltinOperation::BoolOrElse] {
+        let neither = not(apply(
+            either,
+            bool_sort(),
+            vec![negative(v()), negative(s())],
+        ));
+        assert_eq!(shift_by(s(), &[&neither]), [""; 0]);
+    }
+    // A negated conjunction states neither negation, and a disjunction that holds neither
+    // operand.
+    let not_both = not(apply(
+        BuiltinOperation::BoolAnd,
+        bool_sort(),
+        vec![negative(v()), negative(s())],
+    ));
+    assert_eq!(shift_by(s(), &[&not_both]).len(), 1);
+    let natural = |term: SemanticTerm| compare(BuiltinOperation::IntGreaterEqual, term, lit("0"));
+    let either = apply(
+        BuiltinOperation::BoolOr,
+        bool_sort(),
+        vec![natural(v()), natural(s())],
+    );
+    assert_eq!(shift_by(s(), &[&either]).len(), 1);
+}
+
+/// A condition is guarded as before: the ranges a result is read with decide no test of a
+/// condition, so no guarded condition's text depends on them.
+#[test]
+fn a_condition_s_test_is_not_decided_by_a_range() {
+    let masked = int_op(BuiltinOperation::IntBitAnd, var("B", int()), lit("7"));
+    let shift = int_op(BuiltinOperation::IntShiftLeft, lit("1"), masked);
+    let condition = compare(BuiltinOperation::IntGreater, shift, lit("0"));
+    assert_eq!(check(&rule(Some(condition), None)), Some(Place::Condition));
+}

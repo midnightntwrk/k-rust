@@ -960,11 +960,16 @@ An `if` block is two equations, whose conditions are its test and the test's neg
 The element sort of a typed collection is not a fact the check reads: a read projected to `V` needs `k::is!(V, ..)` of the read, and so does `get_or`.
 A function the result applies must be declared `total`.
 
+For a test over integers, the check also computes the range of each operand from the condition and from the result's own terms.
+From the condition it reads a comparison of a term with a literal, its negation, and each operand of a disjunction that failed: after `if index < 0 || index >= 32 { .. }`, the `else` branches know `0 <= index` and `index < 32`.
+From the terms it reads a sum, a difference and a product of ranges (`8 * (31 - index)` is between 0 and 248 there); a shift left of a number that is not negative, which is at least that number (`1 << w` is no zero divisor); a quotient of a number that is not negative by a positive one; a Euclidean remainder, which is never negative and is below its divisor's absolute value; a truncating remainder (`%`), which has its dividend's sign; `a & b`, which is between 0 and an operand that is not negative (`b & 7`); `int::min` and `int::max`; and a literal of any size, which beyond 128 bits is read by its sign alone.
+These ranges are read for a result only: a condition is guarded with the same tests as before.
+
 A result that is not shown to have a value is `error[krs::analysis::total-without-value]` at the construct or the application.
 The ways out are to state the domain in the equation's condition and give the remaining arguments an equation (`#[k::equation(owise)]`); to use a form that has a value everywhere; to declare the function `partial`; or to write `#[k::function(total, assumed = "reason")]`.
 
 The check is sound and incomplete.
-It refuses a result that has a value by a fact it does not read: a range it does not compute (`1 << (b & 7)`), a divisor that is a constant beyond 128 bits, a condition that applies a function, an invariant of the states a definition reaches.
+It refuses a result that has a value by a fact it does not read: a range that relates two names (`bytes::substr(c, 0, int::min(bytes::length(c), n))`, whose end is at most the length), an application of a `partial` function inside that function's domain, what an `owise` equation knows from the equations before it, a condition that applies a function, an invariant of the states a definition reaches.
 `assumed` is for those: the function is then `total` on the author's word, with the reason written beside it, and it is recorded on the production in the Definition IR.
 `assumed` on a function the check accepts is a warning (`krs::analysis::stale-assumed`).
 Recursion is not judged: a recursive application is an application of a `total` function, so for a function in a call cycle the check shows totality given that the calls terminate.

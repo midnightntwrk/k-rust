@@ -15,7 +15,7 @@ use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, te
 /// `{functions}` are the functions under test, `{read}` the application `keep` drops.
 const MACHINE: &str = r#"
 use k::KResult;
-use k::builtin::{Bool, Int, KSequence, List, Map, String, kequal, string};
+use k::builtin::{Bool, Int, KSequence, List, Map, String, int, kequal, string};
 
 k::sorts! {
     Stmt: k::KItem;
@@ -464,6 +464,135 @@ pub fn Text(m: k::Term<Map<Int, Int>>) -> k::Term<String>;
             "at `pub fn F(m: k::Term<Map<Int, Int>>) -> k::Term<Int> { Truth(k::matches!(k::project!(Int, AsItem(m)), 1)) }`",
             "error[krs::analysis::total-without-value]: `F` is declared `total`, but this equation's result is not shown to have a value wherever the equation applies: this `string::to_int` is partial, and KRS has no test of its domain that a condition could state (defined on a decimal integer's text only, which no builtin tests)",
             "at `pub fn F(m: k::Term<Map<Int, Int>>) -> k::Term<Int> { string::to_int(Text(m)) }`",
+        ]
+    "#]].assert_debug_eq(&reported);
+}
+
+/// Results whose constructs have a value by the range of an operand, which the check computes
+/// from the equation's condition and the result's own terms.
+const RANGES: &str = r"
+#[k::constant]
+pub const POW256: Int =
+    0x1_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+
+/// A divisor that is a literal beyond 128 bits is not zero.
+#[k::function(total, internal)]
+pub fn Chop(value: k::Term<Int>) -> k::Term<Int> {
+    int::rem_euclid(value, POW256)
+}
+
+/// An exponent computed from such a literal keeps its sign.
+#[k::function(total, internal)]
+pub fn Power(value: k::Term<Int>) -> k::Term<Int> {
+    int::pow_mod(value, (POW256 - 1) / 2, POW256)
+}
+
+/// A mask that is not negative bounds the amount, and so does a Euclidean remainder.
+#[k::function(total, internal)]
+pub fn Bit(b: k::Term<Int>) -> k::Term<Int> {
+    (1 << (b & 7)) + (1 << int::rem_euclid(b, 8))
+}
+
+/// A product of bounded factors: `0 <= index < 32` gives `0 <= 8 * (31 - index)`.
+#[k::function(total, internal)]
+pub fn Byte(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+    if index >= 0 && index < 32 {
+        int::rem_euclid(value >> (8 * (31 - index)), 256)
+    } else {
+        0
+    }
+}
+
+/// The branches after a disjunction that failed know the negation of each operand.
+#[k::function(total, internal)]
+pub fn Extend(index: k::Term<Int>, value: k::Term<Int>) -> k::Term<Int> {
+    if index < 0 || index >= 32 {
+        value
+    } else if value < 128 {
+        Chop(((1 << (8 * (index + 1))) - 1) & value)
+    } else {
+        value >> index
+    }
+}
+
+/// A shift of 1 is positive wherever it has a value, so it divides.
+#[k::function(total, internal)]
+pub fn Truncate(value: k::Term<Int>, width: k::Term<Int>) -> k::Term<Int>;
+
+k::equations! {
+    for Truncate;
+    #[k::requires(width <= 0)]
+    truncate_nonpositive: (value, width) => value;
+    #[k::requires(width > 0)]
+    truncate_positive:    (value, width) => int::rem_euclid(value, 1 << width);
+}
+
+/// The least of an index and a bound that is not negative is no negative amount.
+#[k::function(total, internal)]
+pub fn Capped(b: k::Term<Int>) -> k::Term<Int> {
+    if b >= 0 { 1 << int::min(b, 64) } else { 0 }
+}
+";
+
+/// A range the check computes shows a construct's value: a mask or a remainder as a shift's
+/// amount, a product of bounded factors, a literal beyond 128 bits as a divisor, the branches
+/// after a disjunction that failed. A range that does not show it is refused as before: a mask
+/// that is negative, a divisor that is a name, a factor bounded on one side only, the branch
+/// after a conjunction that failed.
+#[test]
+fn a_range_shows_a_value_and_a_near_miss_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "ranges", RANGES, "Chop(m.len())");
+    let (success, lines) = checked(target.path(), &manifest);
+    assert!(success, "{lines:#?}");
+    assert_eq!(lines, [""; 0]);
+    let cases = [
+        (
+            "mask",
+            "pub fn F(b: k::Term<Int>) -> k::Term<Int> { 1 << (b & -8) }",
+        ),
+        (
+            "divisor",
+            "pub fn F(b: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(100, b) }",
+        ),
+        (
+            "remainder",
+            "pub fn F(b: k::Term<Int>) -> k::Term<Int> { 1 << (b % 8) }",
+        ),
+        (
+            "factor",
+            "pub fn F(b: k::Term<Int>) -> k::Term<Int> { if b >= 0 { 1 << (8 * (31 - b)) } else { 0 } }",
+        ),
+        (
+            "conjunction",
+            "pub fn F(b: k::Term<Int>) -> k::Term<Int> { if b < 0 && b < 8 { 0 } else { 1 << b } }",
+        ),
+    ];
+    let mut reported = Vec::new();
+    for (name, function) in cases {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &format!("#[k::function(total, internal)]\n{function}\n"),
+            "F(m.len())",
+        );
+        let (success, lines) = checked(target.path(), &manifest);
+        assert!(!success, "{name}: {lines:#?}");
+        reported.extend(lines);
+    }
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::total-without-value]: `F` is declared `total`, but this equation's result is not shown to have a value wherever the equation applies: this `int::shift_left` has a value only where 0 <= operand 2, which the equation's condition does not state",
+            "at `pub fn F(b: k::Term<Int>) -> k::Term<Int> { 1 << (b & -8) }`",
+            "error[krs::analysis::total-without-value]: `F` is declared `total`, but this equation's result is not shown to have a value wherever the equation applies: this `int::rem_euclid` has a value only where operand 2 != 0, which the equation's condition does not state",
+            "at `pub fn F(b: k::Term<Int>) -> k::Term<Int> { int::rem_euclid(100, b) }`",
+            "error[krs::analysis::total-without-value]: `F` is declared `total`, but this equation's result is not shown to have a value wherever the equation applies: this `int::shift_left` has a value only where 0 <= operand 2, which the equation's condition does not state",
+            "at `pub fn F(b: k::Term<Int>) -> k::Term<Int> { 1 << (b % 8) }`",
+            "error[krs::analysis::total-without-value]: `F` is declared `total`, but this equation's result is not shown to have a value wherever the equation applies: this `int::shift_left` has a value only where 0 <= operand 2, which the equation's condition does not state",
+            "at `pub fn F(b: k::Term<Int>) -> k::Term<Int> { if b >= 0 { 1 << (8 * (31 - b)) } else { 0 } }`",
+            "error[krs::analysis::total-without-value]: `F` is declared `total`, but this equation's result is not shown to have a value wherever the equation applies: this `int::shift_left` has a value only where 0 <= operand 2, which the equation's condition does not state",
+            "at `pub fn F(b: k::Term<Int>) -> k::Term<Int> { if b < 0 && b < 8 { 0 } else { 1 << b } }`",
         ]
     "#]].assert_debug_eq(&reported);
 }

@@ -14,7 +14,10 @@
 //! - a partial construct ([`krs_ir_levels::definedness`]: a sort projection, a collection read
 //!   KRS projects to its position's sort, a builtin operation outside the domain the catalog
 //!   states, a `let` whose pattern may not match) needs each of its tests among the conjuncts of
-//!   the equation's condition, or decided by the bounds those conjuncts state. The condition is
+//!   the equation's condition, or decided by the bounds those conjuncts state and the ranges
+//!   the result's own terms have (`Requirement::shown_in_result`: sums, products, shifts,
+//!   quotients, remainders, masks, literals of any size, and each operand of a disjunction that
+//!   failed). The condition is
 //!   read after the guarding pass, so a construct the condition itself evaluates counts as
 //!   tested: the equation applies only where it has a value. An `if` block is two equations,
 //!   whose conditions are its test and the test's negation, so its test guards its branches;
@@ -27,9 +30,11 @@
 //!
 //! The check is sound and incomplete: it never accepts a result that has no value at an argument
 //! the equation applies to (given the callees' declarations), and it refuses results that have a
-//! value everywhere by a fact it does not read (a range it does not compute, such as `1 << (b &
-//! 7)`; a condition that applies a function; the element sort of a typed collection, which no
-//! invariant establishes yet; what an `owise` equation knows from the equations before it).
+//! value everywhere by a fact it does not read (a range that relates two names, such as an end
+//! `int::min(bytes::length(c), n)` of a substring of `c`; an application of a `partial` function
+//! inside its domain; a condition that applies a function; the element sort of a typed
+//! collection, which no invariant establishes yet; what an `owise` equation knows from the
+//! equations before it).
 //! Recursion is not judged: a recursive call is an application of a `total` function like any
 //! other, so for a function in a call cycle the check shows totality given termination.
 //!

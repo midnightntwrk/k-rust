@@ -596,6 +596,26 @@ impl<'a> Requirement<'a> {
         Bounds::of(facts).decide(fact, construct) == Some(true)
     }
 
+    /// Whether `facts`, the conjuncts that hold where a sentence's result is built, show this
+    /// requirement of a construct of that result: one of them is its test, or, for a domain fact
+    /// over Ints, the ranges of its operands decide it ([`Bounds::of_result`]).
+    ///
+    /// This reads more than [`Self::established_by`] does, and only a result is read with it.
+    /// The guarding pass states a test in a condition wherever `established_by` does not show
+    /// it, so what that method reads decides the text of every guarded condition.
+    /// A result is not guarded: nothing is emitted from this answer, which only says whether a
+    /// `total` function is accepted.
+    #[must_use]
+    pub fn shown_in_result(&self, facts: &[&SemanticTerm], sorts: &Sorts) -> bool {
+        if facts.iter().any(|fact| self.holds_by(fact, sorts)) {
+            return true;
+        }
+        let Self::Domain { fact, construct } = *self else {
+            return false;
+        };
+        Bounds::of_result(facts).decide(fact, construct) == Some(true)
+    }
+
     /// Whether `fact` is this requirement's test, up to origins and wildcard names.
     #[must_use]
     pub fn holds_by(&self, fact: &SemanticTerm, sorts: &Sorts) -> bool {
@@ -816,9 +836,14 @@ impl Facts<'_, '_> {
 
 /// The bounds that conjuncts state of Int terms by constants: `x <op> c`, `c <op> x` and their
 /// negations, `x` read as a base term plus a constant (`w -Int 1` is `w` and `-1`).
+///
+/// With `ranges` set ([`Bounds::of_result`]) the bounds are also read below a negated
+/// disjunction, and the interval of a term is also computed from the intervals of its operands
+/// ([`Bounds::computed`]).
 #[derive(Default)]
 struct Bounds<'t> {
     bounds: Vec<(&'t SemanticTerm, Interval)>,
+    ranges: bool,
 }
 
 /// An interval of Ints with optional ends, and values it excludes.
@@ -869,10 +894,148 @@ impl Interval {
         }
     }
 
+    /// The interval with these ends and no excluded value.
+    const fn between(low: Option<i128>, high: Option<i128>) -> Self {
+        Self {
+            low,
+            high,
+            excluded: Vec::new(),
+        }
+    }
+
+    /// Whether every value is at least `bound`.
+    fn is_at_least(&self, bound: i128) -> bool {
+        self.low.is_some_and(|low| low >= bound)
+    }
+
+    /// The largest absolute value, where both ends are known.
+    fn magnitude(&self) -> Option<i128> {
+        let (low, high) = (self.low?.checked_abs()?, self.high?.checked_abs()?);
+        Some(low.max(high))
+    }
+
     fn excludes_zero(&self) -> bool {
         self.low.is_some_and(|low| low > 0)
             || self.high.is_some_and(|high| high < 0)
             || self.excluded.contains(&0)
+    }
+
+    /// The interval of `operation` applied to a number in `a` and one in `b`
+    /// ([`Bounds::computed`] states each rule).
+    fn of_operation(operation: BuiltinOperation, a: &Self, b: &Self) -> Option<Self> {
+        let both =
+            |left: Option<i128>, right: Option<i128>, with: fn(i128, i128) -> Option<i128>| {
+                left.zip(right).and_then(|(left, right)| with(left, right))
+            };
+        let magnitude_below = |divisor: &Self| {
+            divisor
+                .magnitude()
+                .and_then(|magnitude| magnitude.checked_sub(1))
+        };
+        Some(match operation {
+            BuiltinOperation::IntAdd => Self::between(
+                both(a.low, b.low, i128::checked_add),
+                both(a.high, b.high, i128::checked_add),
+            ),
+            BuiltinOperation::IntSub => Self::between(
+                both(a.low, b.high, i128::checked_sub),
+                both(a.high, b.low, i128::checked_sub),
+            ),
+            BuiltinOperation::IntMul => return a.product(b),
+            BuiltinOperation::IntShiftLeft if a.is_at_least(0) => a.shifted_left(b),
+            BuiltinOperation::IntTDiv | BuiltinOperation::IntEDiv
+                if a.is_at_least(0) && b.is_at_least(1) =>
+            {
+                Self::between(
+                    Some(both(a.low, b.high, i128::checked_div).unwrap_or(0)),
+                    both(a.high, b.low, i128::checked_div),
+                )
+            }
+            BuiltinOperation::IntMod => Self::between(Some(0), magnitude_below(b)),
+            BuiltinOperation::IntTMod => {
+                let below = magnitude_below(b);
+                if a.is_at_least(0) {
+                    Self::between(Some(0), below)
+                } else if a.high.is_some_and(|high| high <= 0) {
+                    Self::between(below.map(|below| -below), Some(0))
+                } else {
+                    Self::between(below.map(|below| -below), below)
+                }
+            }
+            BuiltinOperation::IntBitAnd => {
+                let high = match (a.is_at_least(0), b.is_at_least(0)) {
+                    (true, true) => match (a.high, b.high) {
+                        (Some(ah), Some(bh)) => Some(ah.min(bh)),
+                        (ah, bh) => ah.or(bh),
+                    },
+                    (true, false) => a.high,
+                    (false, true) => b.high,
+                    (false, false) => return None,
+                };
+                Self::between(Some(0), high)
+            }
+            BuiltinOperation::IntMin => Self::between(
+                both(a.low, b.low, |a, b| Some(a.min(b))),
+                match (a.high, b.high) {
+                    (Some(ah), Some(bh)) => Some(ah.min(bh)),
+                    (ah, bh) => ah.or(bh),
+                },
+            ),
+            BuiltinOperation::IntMax => Self::between(
+                match (a.low, b.low) {
+                    (Some(al), Some(bl)) => Some(al.max(bl)),
+                    (al, bl) => al.or(bl),
+                },
+                both(a.high, b.high, |a, b| Some(a.max(b))),
+            ),
+            _ => return None,
+        })
+    }
+
+    /// The interval of a product of a number in `self` and one in `b`.
+    fn product(&self, b: &Self) -> Option<Self> {
+        let a = self;
+        Some(match (a.low, a.high, b.low, b.high) {
+            (Some(al), Some(ah), Some(bl), Some(bh)) => {
+                let products = [
+                    al.checked_mul(bl)?,
+                    al.checked_mul(bh)?,
+                    ah.checked_mul(bl)?,
+                    ah.checked_mul(bh)?,
+                ];
+                Self::between(
+                    products.iter().copied().min(),
+                    products.iter().copied().max(),
+                )
+            }
+            (Some(al), _, Some(bl), _) if al >= 0 && bl >= 0 => {
+                Self::at_least(al.saturating_mul(bl))
+            }
+            _ => return None,
+        })
+    }
+
+    /// The interval of `a << b` for `a` in `self`, which is not negative.
+    fn shifted_left(&self, b: &Self) -> Self {
+        let power = |amount: i128| {
+            u32::try_from(amount)
+                .ok()
+                .filter(|amount| *amount < 127)
+                .map(|amount| 1_i128 << amount)
+        };
+        let low = self.low.map(|al| {
+            let least = b.low.unwrap_or(0).max(0);
+            match power(least) {
+                Some(power) => al.saturating_mul(power),
+                None if al == 0 => 0,
+                None => i128::MAX,
+            }
+        });
+        let high = self
+            .high
+            .zip(b.high.and_then(power))
+            .and_then(|(ah, power)| ah.checked_mul(power));
+        Self::between(low, high)
     }
 }
 
@@ -886,6 +1049,32 @@ fn int_literal(term: &SemanticTerm) -> Option<i128> {
         }
         _ => None,
     }
+}
+
+/// The interval of an Int literal beyond 128 bits, which [`int_literal`] does not read.
+///
+/// A decimal numeral that does not fit `i128` is above `i128::MAX` when it has no sign and below
+/// `i128::MIN` when it has one.
+/// So the half-line from that end holds its value, and it holds no zero.
+fn wide_literal(term: &SemanticTerm) -> Option<Interval> {
+    let IrTermKind::Token { value } = term.kind() else {
+        return None;
+    };
+    if *term.sort() != SemanticSortRef::Builtin(BuiltinSort::Int) || value.parse::<i128>().is_ok() {
+        return None;
+    }
+    let (negative, digits) = match value.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, value.as_str()),
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(if negative {
+        Interval::between(None, Some(i128::MIN))
+    } else {
+        Interval::at_least(i128::MAX)
+    })
 }
 
 /// `term` as a base term and a constant offset: `t +Int c`, `t -Int c`, `c +Int t`.
@@ -929,6 +1118,19 @@ impl<'t> Bounds<'t> {
         bounds
     }
 
+    /// The bounds `facts` state where a sentence's result is built, with the ranges the result's
+    /// own terms have ([`Self::computed`]).
+    fn of_result(facts: &[&'t SemanticTerm]) -> Self {
+        let mut bounds = Self {
+            ranges: true,
+            ..Self::default()
+        };
+        for fact in facts {
+            bounds.read(fact, true);
+        }
+        bounds
+    }
+
     /// Records what `fact` states when it holds (`positive`) or fails.
     fn read(&mut self, fact: &'t SemanticTerm, positive: bool) {
         let IrTermKind::Application {
@@ -939,6 +1141,26 @@ impl<'t> Bounds<'t> {
         else {
             return;
         };
+        // A disjunction that fails has a value, which is `false`, so each operand has a value
+        // and fails: KRS reads an operand's definedness as part of the value of `||` and `!`.
+        // A conjunction that holds has each operand hold, which a negation above it reaches.
+        if self.ranges
+            && matches!(
+                (operation, positive),
+                (
+                    BuiltinOperation::BoolOr | BuiltinOperation::BoolOrElse,
+                    false
+                ) | (
+                    BuiltinOperation::BoolAnd | BuiltinOperation::BoolAndThen,
+                    true
+                )
+            )
+        {
+            for operand in arguments {
+                self.read(operand, positive);
+            }
+            return;
+        }
         if *operation == BuiltinOperation::BoolNot {
             if let [operand] = arguments.as_slice() {
                 self.read(operand, !positive);
@@ -1008,8 +1230,66 @@ impl<'t> Bounds<'t> {
         }
     }
 
-    /// The interval an Int term is known to lie in.
+    /// The interval an Int term is known to lie in, wherever the term has a value.
     fn interval(&self, term: &SemanticTerm) -> Interval {
+        let mut interval = self.stated(term);
+        if self.ranges
+            && let Some(computed) = self.computed(term)
+        {
+            interval.meet(&computed);
+        }
+        interval
+    }
+
+    /// The interval of `term` computed from the intervals of its operands, for the operations
+    /// whose value is bounded by a rule of integer arithmetic that needs no other fact.
+    ///
+    /// Each interval states where the value lies wherever the term has a value, and an end that
+    /// is not known, or not representable in 128 bits, is absent, which states nothing.
+    /// A lower end that overflows upward saturates instead: the value is above the saturated end
+    /// too.
+    /// With `a` in `[al, ah]` and `b` in `[bl, bh]`:
+    ///
+    /// - a literal beyond 128 bits is beyond that end of `i128` ([`wide_literal`]);
+    /// - `a + b` is in `[al + bl, ah + bh]`, and `a - b` in `[al - bh, ah - bl]`;
+    /// - `a * b` is between the least and the greatest of the four products of the ends, since a
+    ///   product is linear in each factor; with `al >= 0` and `bl >= 0` and an upper end
+    ///   missing, it is at least `al * bl`;
+    /// - `a << b` is `a * 2^b`, and has a value only where `b >= 0`: with `al >= 0` it is at
+    ///   least `al * 2^max(bl, 0)`, and at most `ah * 2^bh`;
+    /// - `a / b`, truncating or Euclidean, is the floor of the quotient where `a >= 0` and
+    ///   `b >= 1`, which grows with `a` and shrinks with `b`: with `al >= 0` and `bl >= 1` it is
+    ///   in `[al / bh, ah / bl]`, and at least 0;
+    /// - the Euclidean remainder `a modInt b` is in `[0, |b| - 1]` for every `a`;
+    /// - the truncating remainder `a % b` has the sign of `a` and is below `|b|` in absolute
+    ///   value;
+    /// - `a & b` keeps only bits set in both, and a number that is not negative has no sign bit:
+    ///   with `bl >= 0` the result is in `[0, bh]` whatever `a` is, and likewise from `a`;
+    /// - `min(a, b)` is at most each operand and at least the lesser lower end, and `max(a, b)`
+    ///   is the mirror image.
+    ///
+    /// Any other term, and any case not listed (a product or a shift of a number that may be
+    /// negative, a division by one that may not be positive), has no computed interval.
+    fn computed(&self, term: &SemanticTerm) -> Option<Interval> {
+        if let Some(literal) = wide_literal(term) {
+            return Some(literal);
+        }
+        let IrTermKind::Application {
+            application: ApplicationRef::Builtin(operation),
+            arguments,
+            ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        let [left, right] = arguments.as_slice() else {
+            return None;
+        };
+        Interval::of_operation(*operation, &self.interval(left), &self.interval(right))
+    }
+
+    /// The interval the conjuncts state of `term`, read as a base term plus a constant.
+    fn stated(&self, term: &SemanticTerm) -> Interval {
         if let Some(value) = int_literal(term) {
             return Interval::exactly(value);
         }
@@ -1811,7 +2091,8 @@ pub enum NotShown<'r, 'a> {
 /// value, the sentence applied and its result has none. So a sentence whose result must have a
 /// value wherever it applies (an equation of a function declared `total`) states each
 /// construct's test in its condition, and `facts` are that condition's conjuncts. A requirement
-/// is shown as [`Requirement::established_by`] shows it for a condition's later conjunct. A
+/// is shown by its test among `facts`, or by the ranges of its operands
+/// ([`Requirement::shown_in_result`]). A
 /// construct below a `let` whose test would read a name the `let` binds by a pattern is not
 /// shown: no condition of the sentence reads that name. `kequal::ite`, `&&` and `||` are
 /// operations like any other here: each keeps the definedness of every operand, evaluated or not.
@@ -1875,7 +2156,8 @@ impl ResultWalk<'_, '_, '_> {
             {
                 continue;
             }
-            if reads_any(&requirement, bound) || !requirement.established_by(self.facts, self.sorts)
+            if reads_any(&requirement, bound)
+                || !requirement.shown_in_result(self.facts, self.sorts)
             {
                 (self.visit)(term, NotShown::Requirement(&requirement));
             }
