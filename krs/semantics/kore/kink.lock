@@ -259,6 +259,31 @@ id = "map-update-duplicates"
 status = "killed"
 killer = "cases/c22-map-hooks/kore.pgm"
 
+[[run.mutation]]
+id = "set-idempotent"
+status = "killed"
+killer = "cases/c28-set-overlap/kore.pgm"
+
+[[run.mutation]]
+id = "set-union-partial"
+status = "killed"
+killer = "cases/c28-set-overlap/kore.pgm"
+
+[[run.mutation]]
+id = "list-match-commutative"
+status = "killed"
+killer = "cases/c30-list-positions/kore.pgm"
+
+[[run.mutation]]
+id = "list-split-at-head"
+status = "killed"
+killer = "cases/c30-list-positions/kore.pgm"
+
+[[run.mutation]]
+id = "list-as-set"
+status = "killed"
+killer = "cases/c30-list-positions/kore.pgm"
+
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # next run tries each flip's `killer` first, a run without --locked rewrites this section, and
@@ -281,27 +306,6 @@ work_factor = 4
 # unchecked: a check did not decide); `undecided`, those the records cannot decide.
 [coverage.rules]
 open = [
-  "rule:KORE.ev-el",
-  "rule:KORE.m-el",
-  "rule:KORE.mc-head",
-  "rule:KORE.mc-split",
-  "rule:KORE.sp-here",
-  "rule:KORE.sp-end",
-  "rule:KORE.sp-next",
-  "rule:KORE.elem-el",
-  "rule:KORE.inst-el",
-  "rule:KORE.el-bot",
-  "rule:KORE.el-def",
-  "rule:KORE.join-list",
-  "rule:KORE.pute-nil",
-  "rule:KORE.op-set-in",
-  "rule:KORE.op-size-set",
-  "rule:KORE.op-union",
-  "rule:KORE.op-size-list",
-  "rule:KORE.union-nil",
-  "rule:KORE.union-cons",
-  "rule:KORE.cmp-el",
-  "rule:KORE.ckey-el",
 ]
 argued = [
   { id = "rule:KORE.tag-other", standing = "text" },
@@ -310,14 +314,6 @@ argued = [
 
 [coverage.requirements]
 open = [
-  "requirement:KORE.mc-choose:K:Kind ~> .K =/=K ( list ~> .K ):false",
-  "requirement:KORE.mc-head:held",
-  "requirement:KORE.mc-head:refuted",
-  "requirement:KORE.mc-split:held",
-  "requirement:KORE.mc-split:refuted",
-  "requirement:KORE.join-list:held",
-  "requirement:KORE.join-list:refuted",
-  "requirement:KORE.join-elem:K:Kind ~> .K =/=K ( list ~> .K ):false",
 ]
 argued = [
   { id = "requirement:KORE.ins-dup:held", standing = "text" },
@@ -325,9 +321,6 @@ argued = [
 
 [coverage.syntax]
 open = [
-  "syntax:el(_)_KORE-SYNTAX_Term_Term",
-  "syntax:set_KORE-SYNTAX_Kind",
-  "syntax:list_KORE-SYNTAX_Kind",
 ]
 argued = [
 ]

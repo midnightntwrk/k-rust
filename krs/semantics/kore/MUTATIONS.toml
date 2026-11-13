@@ -464,3 +464,48 @@ misunderstanding = "a Map update of a present key adds a second entry for it ins
   rule = "KORE.pute-replace"
   find = "=> E ; Fs"
   replace = "=> E ; F ; Fs"
+
+# --- collections: Set and List -------------------------------------------------------------
+
+[[mutation]]
+id = "set-idempotent"
+misunderstanding = "Set concatenation is idempotent: sets with a common element concatenate to their union"
+  [[mutation.edit]]
+  rule = "KORE.inse-overlap"
+  find = "insE(_, E, F ; Fs) => bot ; F ; Fs"
+  replace = "insE(K, E, F ; Fs) => #if K ==K set #then F ; Fs #else bot ; F ; Fs #fi"
+
+[[mutation]]
+id = "set-union-partial"
+misunderstanding = "the union |Set is read as the concatenation of sets: undefined on a common element"
+  [[mutation.edit]]
+  rule = "KORE.op-union"
+  find = "=> co(set, C, union(Es, Fs))"
+  replace = "=> join(co(set, C, Es), Fs)"
+
+[[mutation]]
+id = "list-match-commutative"
+misunderstanding = "a List pattern is matched as a Set pattern is: an element pattern takes any element of the list, not the one at its position"
+  [[mutation.edit]]
+  rule = "KORE.mc-choose"
+  find = "requires isElem(P) andBool K =/=K list"
+  replace = "requires isElem(P)"
+  [[mutation.edit]]
+  rule = "KORE.mc-head"
+  delete = true
+
+[[mutation]]
+id = "list-split-at-head"
+misunderstanding = "a List frame followed by more patterns is split off at the head only: it takes the empty prefix, and the patterns after it the whole list"
+  [[mutation.edit]]
+  rule = "KORE.sp-next"
+  find = "=> split(C, F, Ps, app(Pre, E ; .Ts), Post, B, S)"
+  replace = "=> .Ms"
+
+[[mutation]]
+id = "list-as-set"
+misunderstanding = "List concatenation is read as Set concatenation: commutative, its elements ordered by value, undefined on a repeated element"
+  [[mutation.edit]]
+  rule = "KORE.join-list"
+  find = "=> join(co(list, C, app(Es, E ; .Ts)), Ps)"
+  replace = "=> join(mkCol(list, C, insE(list, E, Es)), Ps)"

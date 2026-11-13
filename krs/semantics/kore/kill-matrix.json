@@ -22,7 +22,14 @@
    "c23-map-lookup-missing",
    "c24-map-fn-pattern",
    "c25-map-equal",
-   "c26-map-strict"
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c29-set-hooks",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c32-elem-strict",
+   "c33-list-middle-frame"
   ],
   "status": "killed",
   "undecided": []
@@ -41,7 +48,9 @@
    "c13-inj-bool",
    "c21-map-concat",
    "c23-map-lookup-missing",
-   "c26-map-strict"
+   "c26-map-strict",
+   "c28-set-overlap",
+   "c32-elem-strict"
   ],
   "status": "killed",
   "undecided": []
@@ -50,7 +59,8 @@
   "killed_by": [
    "c19-map-choice",
    "c20-map-key-fixed",
-   "c24-map-fn-pattern"
+   "c24-map-fn-pattern",
+   "c27-set-choice"
   ],
   "status": "killed",
   "undecided": []
@@ -58,7 +68,9 @@
  "col-pattern-open": {
   "killed_by": [
    "c20-map-key-fixed",
-   "c24-map-fn-pattern"
+   "c24-map-fn-pattern",
+   "c30-list-positions",
+   "c33-list-middle-frame"
   ],
   "status": "killed",
   "undecided": []
@@ -67,7 +79,9 @@
   "killed_by": [
    "c21-map-concat",
    "c25-map-equal",
-   "c26-map-strict"
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap"
   ],
   "status": "killed",
   "undecided": []
@@ -139,7 +153,9 @@
   "killed_by": [
    "c19-map-choice",
    "c20-map-key-fixed",
-   "c24-map-fn-pattern"
+   "c24-map-fn-pattern",
+   "c27-set-choice",
+   "c30-list-positions"
   ],
   "status": "killed",
   "undecided": []
@@ -149,7 +165,8 @@
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
    "c12-undef-init",
-   "c26-map-strict"
+   "c26-map-strict",
+   "c32-elem-strict"
   ],
   "status": "killed",
   "undecided": []
@@ -157,7 +174,9 @@
  "init-unevaluated": {
   "killed_by": [
    "c17-init-function",
-   "c19-map-choice"
+   "c19-map-choice",
+   "c27-set-choice",
+   "c33-list-middle-frame"
   ],
   "status": "killed",
   "undecided": []
@@ -179,6 +198,30 @@
  "ite-lazy": {
   "killed_by": [
    "c10-strict-ite"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "list-as-set": {
+  "killed_by": [
+   "c30-list-positions",
+   "c31-list-concat"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "list-match-commutative": {
+  "killed_by": [
+   "c30-list-positions",
+   "c33-list-middle-frame"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "list-split-at-head": {
+  "killed_by": [
+   "c30-list-positions",
+   "c33-list-middle-frame"
   ],
   "status": "killed",
   "undecided": []
@@ -206,7 +249,9 @@
  },
  "map-update-duplicates": {
   "killed_by": [
-   "c22-map-hooks"
+   "c22-map-hooks",
+   "c28-set-overlap",
+   "c29-set-hooks"
   ],
   "status": "killed",
   "undecided": []
@@ -224,7 +269,11 @@
    "c13-inj-bool",
    "c19-map-choice",
    "c20-map-key-fixed",
-   "c21-map-concat"
+   "c21-map-concat",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c30-list-positions",
+   "c31-list-concat"
   ],
   "status": "killed",
   "undecided": []
@@ -232,7 +281,8 @@
  "nonlinear-ignored": {
   "killed_by": [
    "c15-nonlinear-rule",
-   "c20-map-key-fixed"
+   "c20-map-key-fixed",
+   "c31-list-concat"
   ],
   "status": "killed",
   "undecided": []
@@ -330,7 +380,13 @@
    "c23-map-lookup-missing",
    "c24-map-fn-pattern",
    "c25-map-equal",
-   "c26-map-strict"
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c29-set-hooks",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c32-elem-strict"
   ],
   "status": "killed",
   "undecided": []
@@ -338,6 +394,21 @@
  "rule-undefined-requires-holds": {
   "killed_by": [
    "c09-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "set-idempotent": {
+  "killed_by": [
+   "c28-set-overlap"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "set-union-partial": {
+  "killed_by": [
+   "c28-set-overlap",
+   "c29-set-hooks"
   ],
   "status": "killed",
   "undecided": []
@@ -373,7 +444,8 @@
  "subst-first-only": {
   "killed_by": [
    "c19-map-choice",
-   "c20-map-key-fixed"
+   "c20-map-key-fixed",
+   "c27-set-choice"
   ],
   "status": "killed",
   "undecided": []
@@ -402,7 +474,12 @@
    "c21-map-concat",
    "c22-map-hooks",
    "c24-map-fn-pattern",
-   "c25-map-equal"
+   "c25-map-equal",
+   "c28-set-overlap",
+   "c29-set-hooks",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c32-elem-strict"
   ]
  },
  "tdiv-as-ediv": {
@@ -426,7 +503,9 @@
    "c13-inj-bool",
    "c21-map-concat",
    "c23-map-lookup-missing",
-   "c26-map-strict"
+   "c26-map-strict",
+   "c28-set-overlap",
+   "c32-elem-strict"
   ],
   "status": "killed",
   "undecided": [
@@ -457,7 +536,8 @@
   "undecided": [
    "c03-nondet",
    "c13-inj-bool",
-   "c20-map-key-fixed"
+   "c20-map-key-fixed",
+   "c30-list-positions"
   ]
  }
 }
