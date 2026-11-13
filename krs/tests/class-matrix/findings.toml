@@ -42,7 +42,3 @@ owner = "S5"
 kind = "bug"
 what = "the source `krs expand` prints for a readable result that writes a `?` group's child (`og: Some(Og { ol: [x], .. })`, `on: x`, `ol: [..rest, y]` over a subject naming the group) is refused (`krs::analysis::cell-wrapper` at the item), so K3 cannot read it back; the case itself is accepted with its twin's K"
 
-["TWIN-9"]
-owner = "S5"
-kind = "bug"
-what = "the source `krs expand` prints for a readable List or Map instance's list child written `[..]` (`job: [J { jl: [..], .. }, ..]`, and `[..] => [1, ..]` over it) is refused (`krs::syntax::invalid-list-notation`, unlocated): the print writes the child's item-less brackets in `cells!` form, which names no element there, so K3 cannot read it back; the case itself is accepted with its twin's K"

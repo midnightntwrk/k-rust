@@ -3502,6 +3502,16 @@ fn render_instance(
             // brackets, whose rest is the tail the elaborated rule names.
             State::Term(term) if rendering.brackets.instance_children.contains(&field.key) => {
                 let list = list_brackets(term, &mut BTreeSet::new());
+                // Brackets holding only a rest the elaboration names (a pattern's `[..]` is the
+                // child's whole list, its tail) are that list: `cells!` writes it as the term,
+                // since `[r @ ..]` and `[..r]` alone name no element.
+                if let (true, krs_ir::ProtocolHeadRuleListRest::Term(rest)) =
+                    (list.items.is_empty() && list.back.is_empty(), &list.rest)
+                {
+                    let rest = render_term(rest, pattern, package, bundle)?;
+                    fields.push(quote!(#name: #rest));
+                    continue;
+                }
                 let rest = match &list.rest {
                     krs_ir::ProtocolHeadRuleListRest::Exact => None,
                     krs_ir::ProtocolHeadRuleListRest::Term(rest) => {

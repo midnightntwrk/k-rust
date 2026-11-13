@@ -378,14 +378,6 @@ kind = "k8"
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
 # and its twin triaged by meaning (TWIN-1 .. TWIN-10, findings.toml; the progress log ranks them).
 
-["k3/child-twins/readable/both/list-child/list/[..] => [1, ..]"]
-finding = "TWIN-9"
-deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
-
-["k3/child-twins/readable/both/map-child/list/[..] => [1, ..]"]
-finding = "TWIN-9"
-deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
-
 ["k3/child-twins/readable/both/opt-child/list/[y, rest @ ..] => [..rest, y]"]
 finding = "TWIN-10"
 deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
@@ -405,12 +397,4 @@ deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
 ["k3/child-twins/readable/result/opt-child/map/{ 0 -> x }"]
 finding = "TWIN-10"
 deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/subject/list-child/list/[..]"]
-finding = "TWIN-9"
-deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
-
-["k3/child-twins/readable/subject/map-child/list/[..]"]
-finding = "TWIN-9"
-deviation = "printed surface refused: krs expand: krs::syntax::invalid-list-notation @ unlocated"
 
