@@ -774,6 +774,10 @@ fn parse_readable_instance(
 /// spelling as a cell entry's are, is the state the collector judges and
 /// refuses as not lowered yet once it admits it
 /// ([`crate::INSTANCE_CHILD_MULTIPLICITY`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "One reading per spelling of a child, tried in the order the spellings overlap."
+)]
 fn parse_readable_child(
     name: &Ident,
     tokens: TokenStream,
@@ -1906,6 +1910,10 @@ fn read_result_record(content: ParseStream<'_>) -> Result<MachineResultCell, Par
 /// is consumed. Whether `Group` names the cell's group or a constructor is its path's question,
 /// which the collector answers from the record's head; a constructor's field holds no map entry.
 /// `None`, consuming nothing, for any other value, read as a term.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Which children make a record of entries and how each is read are one pass."
+)]
 fn readable_record(
     content: ParseStream<'_>,
     reading: StateMacroContext,

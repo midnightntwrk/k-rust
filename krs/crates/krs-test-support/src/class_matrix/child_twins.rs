@@ -115,12 +115,11 @@ impl Kind {
     /// The base initializer's value of a cell of the kind.
     const fn default(self) -> &'static str {
         match self {
-            Self::Computation => "k::k![]",
             Self::List => "list::empty()",
             Self::Map => "k::map![]",
             Self::Set => "set::empty()",
             Self::Int => "0",
-            Self::SequenceLeaf => "k::k![]",
+            Self::Computation | Self::SequenceLeaf => "k::k![]",
         }
     }
 }

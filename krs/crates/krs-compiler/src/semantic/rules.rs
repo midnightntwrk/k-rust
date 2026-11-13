@@ -1449,6 +1449,29 @@ pub(super) fn head_item_sort<'a>(
 
 /// Infers the terms of a readable optional or collection state (KF-023) at
 /// its cell's sort, an instance child's at the child's sort.
+/// [`infer_readable_state`] of a term or group state `term` of the cell `field`, of sort `sort`,
+/// on the subject's side if `subject`: a group term read as the record of its children's entries
+/// where a computation child is written in brackets or a result's `..` leaves a child unnamed, as
+/// at a fixed group's entry; any other term against the cell's sort.
+fn infer_readable_term(
+    builder: &mut StructuredTermBuilder<'_>,
+    declarations: &DescriptorIndex<'_>,
+    field: &krs_ir::DescriptorCellField,
+    term: &DescriptorTerm,
+    (sort, subject): (&SemanticSortRef, bool),
+) -> Result<(), DescriptorLoweringError> {
+    if let Some(record) = super::group_records::bracketed_record(term, field, declarations) {
+        return infer_readable_record(builder, declarations, field, &record, subject);
+    }
+    match (!subject)
+        .then(|| super::group_records::kept_record(term, field, declarations))
+        .flatten()
+    {
+        Some(record) => infer_readable_record(builder, declarations, field, &record, false),
+        None => builder.infer(term, Some(sort), subject),
+    }
+}
+
 fn infer_readable_state(
     builder: &mut StructuredTermBuilder<'_>,
     declarations: &DescriptorIndex<'_>,
@@ -1500,20 +1523,7 @@ fn infer_readable_state(
         // children's entries, that child's its K sequence (R4), as at a fixed group's entry
         // ([`super::group_records::bracketed_record`]): a present group's `Some(G { .. })` too.
         State::Term(term) | State::Group(term) => {
-            if let Some(record) = super::group_records::bracketed_record(term, field, declarations)
-            {
-                infer_readable_record(builder, declarations, field, &record, subject)?;
-            } else {
-                match (!subject)
-                    .then(|| super::group_records::kept_record(term, field, declarations))
-                    .flatten()
-                {
-                    Some(record) => {
-                        infer_readable_record(builder, declarations, field, &record, false)?;
-                    }
-                    None => builder.infer(term, Some(&sort), subject)?,
-                }
-            }
+            infer_readable_term(builder, declarations, field, term, (&sort, subject))?;
         }
         State::KSequence(sequence) => infer_readable_items(builder, &sort, sequence, subject)?,
         State::Record(record) => {
