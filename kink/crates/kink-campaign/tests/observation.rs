@@ -1015,8 +1015,11 @@ fn a_baseline_log_that_is_rewritten_refuses_the_campaign() {
 /// lemma shows to have no instance, so k-rust refutes the configuration's own definedness facts
 /// and gives one `Vacuous` leaf, whose state is the configuration with no `\bottom` added and its
 /// log's item 20. The probe is told that the path ended there and reads 20 against the baseline's
-/// 1, but no model of the mutant has an instance of that state, so no path of it reads that log:
-/// the difference is not decided, and the mutant is `unknown`, never killed.
+/// 1, but no model of the mutant has an instance of that state, so no path of it reads that log.
+/// The mutant has no start (the runner's `no_start`):
+/// an end undefined after 0 steps, which closes the log by UNDEF at 0.
+/// The baseline's item 1 there distinguishes, and the 20 read at the vacuous leaf is no element:
+/// the mutant is killed by its missing start, never by what its vacuous leaf holds.
 #[test]
 fn a_vacuous_leaf_kills_nothing_by_what_it_holds() {
     on_a_big_stack(|| {
@@ -1048,13 +1051,10 @@ fn a_vacuous_leaf_kills_nothing_by_what_it_holds() {
         assert!(record.prefix);
         assert_eq!(record.channels[0].horizon(), Some(3));
         let verdict = verdict(&run);
-        assert_eq!(verdict.outcome, OracleOutcome::Unknown, "{verdict:?}");
-        let cause = verdict.cause.unwrap();
-        assert!(
-            cause.contains("differs at 0 where the path ended"),
-            "{cause}"
-        );
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert_eq!(verdict.outcome, OracleOutcome::Distinguish, "{verdict:?}");
+        assert_eq!(verdict.position, position("out", 0, true), "{verdict:?}");
+        assert_eq!(verdict.element, Some(Element::Undefined), "{verdict:?}");
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
     });
 }
 

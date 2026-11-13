@@ -2507,7 +2507,8 @@ endmodule
         // a record's coverage holds that depth and its bindings the syntax paths. v25, because a
         // record's guards hold the untried entries of every matching equation of the deciding
         // group. v26, because a comparable record holds its baseline run's polls (FB45-KINK).
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v26");
+        // v27, because a mutant's run decided to have no start is an end undefined after 0 steps.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v27");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

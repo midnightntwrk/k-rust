@@ -556,10 +556,18 @@ fn the_identity_is_an_object_of_its_components() {
     // where its path returns to an earlier state with nothing new observed, so one written under
     // v1 differs too. T8: v3 compares a run that splits by its channels' prefix sets where v2
     // opened every channel at the first branch, so one written under v2 differs as well.
+    // v4 closes every channel of a mutant's run with no start by UNDEF at 0,
+    // so one written under v3 differs too.
     assert_eq!(identity["observation"], kink_campaign::OBSERVATION_VERSION);
     assert_eq!(
         kink_campaign::OBSERVATION_VERSION,
-        "kink-campaign/observation/v3"
+        "kink-campaign/observation/v4"
+    );
+    let mut opened_at_no_start = identity.clone();
+    opened_at_no_start["observation"] = json!("kink-campaign/observation/v3");
+    assert_eq!(
+        identity_difference(&opened_at_no_start).as_deref(),
+        Some("observation")
     );
     let mut one_path = identity.clone();
     one_path["observation"] = json!("kink-campaign/observation/v2");

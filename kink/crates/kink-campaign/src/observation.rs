@@ -286,7 +286,11 @@ use k_rust::definition::configuration::CellMultiplicity;
 /// probe follows every path of a run, and a run that splits is compared by its channels' prefix
 /// sets (module documentation, "Several paths"), where v2 opened every channel at the first
 /// branch; a run that never splits is compared as under v2.
-pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v3";
+/// v4: a mutant's run decided to have no start (the runner's `no_start`)
+/// closes every channel by UNDEF at 0 and keeps nothing its probe read at its vacuous leaf
+/// ([`Comparison::without_start`]),
+/// where v3 left its channels open, the run's end undecided.
+pub const OBSERVATION_VERSION: &str = "kink-campaign/observation/v4";
 
 /// The domain of a prefix's chain ([`ChannelSets`]).
 const CHAIN_DOMAIN: &str = "kink-campaign/observation/chain/v1";
@@ -1697,6 +1701,42 @@ pub struct Comparison {
     /// The facts of every leaf of the run ([`LeafFacts::every`]).
     pub(crate) every: LeafFacts,
     pub verdict: Option<ObservationVerdict>,
+}
+
+impl Comparison {
+    /// The comparison of a mutant's run decided to have no start
+    /// (the runner's `no_start`: its initial configuration has no instance).
+    /// The run reaches no configuration,
+    /// so no point of it is an event and no log is read:
+    /// what the probe read at its `Vacuous` leaf was read of a state with no instance,
+    /// and none of it is kept.
+    /// Every channel is empty and the run's one path ended before any step,
+    /// an end undefined after 0 steps, which [`judge`] reads as UNDEF at 0 on every channel.
+    /// That end is decided with no state to show real,
+    /// so the run's facts are settled:
+    /// no element of it rests on a state, and its UNDEF rests on k-rust's decision alone.
+    pub(crate) fn without_start(&mut self) {
+        let channels = self
+            .trace
+            .channels
+            .iter()
+            .map(|channel| ChannelTrace {
+                cells: vec![None; channel.cells.len()],
+                ..ChannelTrace::default()
+            })
+            .collect();
+        *self.trace = Trace {
+            channels,
+            ended: true,
+            ..Trace::default()
+        };
+        let settled = LeafFacts {
+            real: true,
+            clean: true,
+        };
+        self.leaf = Some(settled);
+        self.every = settled;
+    }
 }
 
 /// What a run reports of its observations ([`crate::RunNotes::observation`]).

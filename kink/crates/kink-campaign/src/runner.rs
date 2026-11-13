@@ -54,6 +54,10 @@
 //!   ([`pattern_side`]). kink-native's bridge still completes the leaf on the terms of a stuck
 //!   leaf, its term a terminal value (TV-01): no state slot reads that term, so the check costs
 //!   completeness (a side `Unknown`) where the term is no value, never a kill.
+//!   A mutant's run of a ground test whose initial configuration k-rust decided to have no value
+//!   (every leaf `Vacuous` at depth 0) computes no start, an end undefined after 0 steps,
+//!   and is compared as such an end is: the empty set in every state slot ([`no_start`]).
+//!   A baseline's such run stays a failed side: it computes no expected result.
 //! - Every compared end is data under both definitions (fz26 KINK-OVERLOAD-VALUE; kink-native
 //!   [`data_ends`]): a run's terminals are judged under its own definition and facts when the
 //!   run is judged, and each side's terminals ([`TestEvidence::ends`]), pattern bindings and
@@ -190,9 +194,9 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, leaf_keys, open_applications,
-    open_symbols, paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
-    work_bound_stuck_terminals,
+    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, diagnosed, leaf_keys,
+    open_applications, open_symbols, paths_from_execution_existing, tree_from_steps,
+    validate_test_initial_state, work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
@@ -378,6 +382,8 @@ pub struct TestEvidence {
     /// Whether a complete path of the run is an undefined step (kink27 R1-UNDEF): a state value
     /// with no [`Self::ends`] is then the value of a run whose every path takes one, not a value
     /// whose ends were omitted ([`judge_across`], review N2).
+    /// Also set on a mutant's run decided to have no start,
+    /// an end undefined after 0 steps ([`no_start`]).
     pub undefined_steps: bool,
     /// The states of the run's one-sided terminals (re-pin L1-2, [`OneSided`]) that its pair kept
     /// ([`RunCache::one_sided`] after [`judge_across`]: the clean, ground, stuck terminals of a
@@ -3944,6 +3950,7 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
 /// terminals it was projected from, and a producer that omits them cannot be judged. A side whose
 /// every complete path is an undefined step has no ends and is judged: each of its state slots is
 /// the empty set ([`TestEvidence::undefined_steps`], kink27 R1-UNDEF).
+/// So is a mutant's side with no start ([`no_start`]).
 ///
 /// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
 /// end judged under it not data. A failure to reach a definition does too. A host's refusal of a
@@ -4593,6 +4600,8 @@ impl Runtime {
 
     /// [`Runtime::run_bounded`] of a mutant's run, whose observation probe compares its channels
     /// with the baseline's record `against` ([`RunOptions::observe`]).
+    /// A run decided to have no start has the sides of an end undefined after 0 steps
+    /// ([`no_start`]).
     fn run_compared(
         &mut self,
         campaign: &Campaign<'_>,
@@ -4600,7 +4609,8 @@ impl Runtime {
         bounds: RunBounds,
         against: Option<&BaselineRecord>,
     ) -> (TestEvidence, RunCache) {
-        let (evidence, executed) = self.run_keeping(campaign, test, bounds, against);
+        let (mut evidence, executed) = self.run_keeping(campaign, test, bounds, against);
+        no_start(test, &executed, &mut evidence);
         (evidence, executed.cache)
     }
 
@@ -5564,6 +5574,76 @@ const fn collection_stop_side(stop: CollectionStop) -> Option<OracleSide> {
         | CollectionStop::ResourceLimit
         | CollectionStop::SolverUnknown
         | CollectionStop::BackendLimit => Some(OracleSide::Unknown),
+    }
+}
+
+/// Reads a mutant's run `executed` of `test`, judged into `evidence`, as a run with no start
+/// where k-rust decided that the test's initial configuration has no value on the mutant.
+///
+/// A run's state at depth 0 is the initial configuration
+/// with its function applications evaluated by the definition's equations
+/// and restricted to its defined instances (k-rust E3),
+/// so a `Vacuous` leaf at depth 0 is the initial configuration itself having no instance.
+/// Where every leaf of a ground test's run is one, with no diagnostic,
+/// and the run did not time out,
+/// the mutant computes no start from the test:
+/// its outcome is undefinedness before any step, an end undefined after 0 steps.
+/// That is a fact of the mutant's definition, as an undefined step later in a run is,
+/// and it is compared as such an end is.
+/// Undefinedness is no configuration, so the run has no end,
+/// and each state slot is the empty set of ends ([`state_side`], module documentation),
+/// which a baseline end distinguishes.
+/// [`TestEvidence::undefined_steps`] says so to the pairing,
+/// whose observation slot closes every channel with UNDEF where the run's end is determined.
+/// The run reaches no configuration, so its observation reads nothing:
+/// its comparison keeps none of what the probe read at the vacuous leaf
+/// ([`Comparison::without_start`]).
+/// The bridge discards a leaf with no instance,
+/// so [`state_side`] reads such a run as one with no path, `Error`.
+/// Only those sides are read again,
+/// and only of a run judged into sides (no exclusion, judged by the decider),
+/// so an excluded run stays no evidence.
+///
+/// Anything short of that decision keeps its sides:
+/// a run that failed or timed out,
+/// a leaf of another halt
+/// (an application no equation reduces, which leaves the start's value open,
+/// a solver's unknown, a backend limit),
+/// a diagnosed leaf,
+/// or a test with a free variable (read only ground, a fail-closed narrowing).
+/// Only a mutant's run is read so ([`Runtime::run_compared`]):
+/// a baseline whose start has no value computes no expected result,
+/// so its run stays a failed side, which admission refuses
+/// (kink-flow `admit`, `initial-undefined`).
+fn no_start(test: &TestCase, executed: &Executed, evidence: &mut TestEvidence) {
+    let Ok(execution) = &executed.execution else {
+        return;
+    };
+    let leaves = execution.leaves();
+    let decided = test.initial_state.free_variables().is_empty()
+        && !execution.timed_out()
+        && !leaves.is_empty()
+        && leaves.iter().all(|leaf| {
+            leaf.halt == HaltClass::Vacuous && leaf.branch.depth == 0 && !diagnosed(leaf)
+        })
+        && !evidence.notes.unjudged;
+    let SideRun::Sides { sides } = &mut evidence.run else {
+        return;
+    };
+    if !decided {
+        return;
+    }
+    for (declaration, side) in test.oracles.iter().zip(sides) {
+        if let (Projection::State(projection), OracleSide::Error) =
+            (declaration.projection(), &side)
+            && let Some(value) = project(projection, &[])
+        {
+            *side = OracleSide::Normal(value);
+        }
+    }
+    evidence.undefined_steps = true;
+    if let Some(Observation::Compared(comparison)) = &mut evidence.notes.observation {
+        comparison.without_start();
     }
 }
 

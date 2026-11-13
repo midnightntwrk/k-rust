@@ -545,6 +545,14 @@ The bound is part of the rule: admission runs no step of a program, and a case w
 The refusal needs the run to be evidence: where the initial configuration is excluded (below) or the depth-0 run is (a contradicted `total` claim, ...), whether the start has a value depends on what the definition leaves open, and the program is admitted and reported as excluded instead.
 An input whose definedness the definition leaves open (a partial function applied outside its equations) is not refused either: its run reports what it finds.
 
+A mutant's initial configuration is not checked at admission: it is part of what the program observes of the mutant.
+Where the mutant's run of a program ends in vacuous leaves at depth 0 only (its start is decided to have no value, as `krs run` reports `undefined`), with no diagnostic and within the time bound,
+the mutant computes no start where the specification computes one.
+That is an end undefined after 0 steps, compared as a later undefined step is (kink-campaign runner `no_start`):
+every state slot holds no end (`exit-stop` `[]`, `whole-term` `final_configurations: 0`), which the baseline's end distinguishes,
+and every observation channel is closed by `undefined` at 0.
+Where the mutant's start is not decided to have no value (an application no equation reduces, a solver's unknown, a timeout, a backend failure), the program decides nothing, as before.
+
 Beside the data facts, admission reads the definition exclusions of the input backend's load, the facts the campaign runner reads for every run (kink-native `DefinitionExclusions`; kink's `trust.md`, "What a kill trusts"),
 and decides for each admitted program whether every run of it on the baseline is excluded before it runs a step:
 by the definition exclusion, which excludes every run on the specification, or by the exclusion of the program's initial configuration (it applies a hook whose value the definition leaves open, or it applies a function or operator whose value depends on the short-circuit reading and its depth-0 run, the normalization every run of the program starts with, lists a reading that counts against it).
@@ -725,7 +733,7 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<execution digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v25`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
+(result schema version `kink-flow/result/v27`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest, the budget, with `[stop]` the program's `stop`, its rules, its count and, under `[stop] when`, the condition's identity `when`, and, where a front end gives the syntax family's selection, `syntax`, its authored sorts and template binders), class and cause,
 the writer's specification digest `spec_digest` (outside the key: it only tells a reader that a record was written under other bytes),
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), whose whole-term (or `cells`) side holds the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), each end once: since v12 a comparable record does not repeat them in `final_configuration`, which holds the final state of each leaf of an `unknown` program's diagnostic run (`results::record_final_configuration` reads either), the rule
@@ -1793,7 +1801,7 @@ A mutation row is `{id, note, expect, expectation, digest, identity, removed_cla
 
 `slots` is an object keyed by oracle slot, `exit-stop` and `whole-term` (or `cells`, which has the shape of `whole-term`), each `{outcome}` (`agree`, `distinguish`, `timeout`, `unknown`, `incomparable`, `error`).
 A distinguishing slot also has `sides`: for `exit-stop`, each side's exit-stop kinds, for example `{"baseline": ["normal"], "mutant": []}`
-(the flow's classifier makes every ended run `normal`; an undefined step, a rule whose result is undefined such as a division by zero, is no end and has no kind, so a side whose every path takes one has `[]`, and an undefined path beside the same ends changes no kind);
+(the flow's classifier makes every ended run `normal`; an undefined step, a rule whose result is undefined such as a division by zero, is no end and has no kind, so a side whose every path takes one has `[]`, as has a mutant whose start is decided to have no value (`check`, above), and an undefined path beside the same ends changes no kind);
 for `whole-term`, each side's number of final configurations, `{"baseline": {"final_configurations": 1}, "mutant": {"final_configurations": 1, "kore": [{"text", "truncated"}]}}`
 (an undefined step's outcome is no configuration, so the configuration it is taken from is no final configuration, and a side whose every path takes one has `final_configurations: 0`; kink's `trust.md`, "What a kill trusts"),
 where `kore`, on the killing program's entry only, holds the mutant's final configurations as KORE text, each cut to 4000 characters (`truncated: true` when cut).
@@ -1817,7 +1825,7 @@ The nearest end is the one with the least cell distance (the number of leaf cell
 `path` is the first differing cell path from the top: the labels of the cells both ends hold, entering at each cell the first child in which they differ while it is the same cell on both sides,
 then, while both values are concrete maps or both are concrete lists, `[key]` for the first key (in term order) whose entry differs, or `[i]` for the first index (from 0) whose element differs.
 Each side's `value` is its content at the path (null for a map key that side lacks, or a list index past its end), `end` its end's `{head, class}` (as in a program's `ends`), `final_configurations` the size of its set and `classes` the classes of its ends.
-When a side has no end (every path an undefined step), its `end` and `value` are null, and the `path` is null too.
+When a side has no end (every path an undefined step, or a mutant with no start), its `end` and `value` are null, and the `path` is null too.
 A value is one line of K text printed by krs-unparse as `krs run` prints a configuration, aliases not reversed and maps sorted (`rendering: "k"`), or KORE text when the printer warns or the term has more than 100,000 nodes (`rendering: "kore"`, the reason in `note`); each is cut to 2000 characters (a head or map key to 200), and `truncated` says whether it was.
 The two values are cut around their first differing character, so the two texts shown differ: when they first differ at least 1000 characters in and one is longer than 2000, both show the 2000 characters from 1000 before that difference, and each value's `offset` is the number of characters cut before its `text` (0 otherwise).
 

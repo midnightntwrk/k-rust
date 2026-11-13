@@ -124,6 +124,10 @@ pub enum OracleSide {
 /// not complete, is a failed side (`Error`, `Timeout` or `Unknown`), never the empty set: the
 /// empty set is compared like any other value, so it claims that the run has no end, and a
 /// non-empty set against it distinguishes. kink-campaign's `state_side` supplies sides so.
+/// One run with no terminal has no end as a fact:
+/// a mutant's run of a ground test whose initial configuration k-rust decided to have no value,
+/// an end undefined after 0 steps,
+/// which the runner's `no_start` supplies as the empty set.
 pub fn compare_supplied(
     kind: OracleKind,
     crash_policy: CrashPolicy,

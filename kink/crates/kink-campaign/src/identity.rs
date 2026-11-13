@@ -173,7 +173,15 @@ use std::{path::Path, sync::OnceLock};
 /// baseline run (k-rust `polls`), outside the key and the run digest, from which kink-flow bounds
 /// every mutant's run of the program (`max(work_factor × P, P_max)`); a v25 record has none, so
 /// its program's mutants would have no bound.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v26";
+/// v27: a mutant's run of a ground test whose initial configuration k-rust decided to have no
+/// value (every leaf `Vacuous` at depth 0) counts as a comparable result:
+/// it computes no start, an end undefined after 0 steps,
+/// which every state slot compares as the empty set of ends,
+/// and the observation slot as channels closed by UNDEF at 0 (kink-campaign runner `no_start`),
+/// where v26 read it as a run with no path, the failed side `error`.
+/// A mutant that was `error` on such a program may now be `killed`;
+/// a baseline's record is unchanged, since a baseline with no start is still refused.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v27";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

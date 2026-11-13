@@ -1312,6 +1312,113 @@ misunderstanding = "a test mutation"
         );
     }
 
+    /// A mutant whose initial configuration is decided to have no value on a program,
+    /// where the baseline's has one,
+    /// is distinguished by that program.
+    /// The baseline computes a start and a run from it;
+    /// the mutant computes no start, an end undefined after 0 steps,
+    /// which every state slot compares as the empty set of ends,
+    /// as it compares a run whose every path takes an undefined step later.
+    /// The initializer applies `region`,
+    /// which the mutation `no-start` makes divide by zero on `go(0)`:
+    /// `zero` kills it, and `five`, on which the mutant agrees, does not.
+    /// Under an observation declaration the channel's slot distinguishes too:
+    /// the mutant's channel is closed by UNDEF at 0, where the baseline's holds an element.
+    /// Where the mutant's start is not decided to have no value
+    /// (`open-start`: no equation of `region` applies to `go(0)`,
+    /// so the definition leaves its value open),
+    /// the program decides nothing and the mutation stays `unknown`.
+    #[test]
+    #[ignore = "kink"]
+    fn a_mutant_with_no_start_is_killed_by_the_program() {
+        let definition = r"module START-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= go(Int) [symbol(go)]
+                | done(Int) [symbol(done)]
+endmodule
+
+module START
+  imports START-SYNTAX
+  imports INT
+  imports BOOL
+  syntax Int ::= region(Prog) [function, symbol(region)]
+  configuration <k> $PGM:Prog </k> <size> region($PGM:Prog) </size>
+  rule [big]: region(go(I)) => 100 /Int I requires I =/=Int 0
+  rule [small]: region(go(I)) => I requires I ==Int 0
+  rule [run]: <k> go(I) => done(I) </k>
+endmodule
+";
+        let mutations = r#"[[mutation]]
+id = "no-start"
+misunderstanding = "a test mutation"
+  [[mutation.edit]]
+  rule = "small"
+  find = "=> I"
+  replace = "=> 100 /Int I"
+
+[[mutation]]
+id = "open-start"
+misunderstanding = "a test mutation"
+  [[mutation.edit]]
+  rule = "small"
+  find = "I ==Int 0"
+  replace = "false"
+"#;
+        let observe = "[[observe.point]]\nname = \"boundary\"\nafter = [\"START.run\"]\n\
+                       stutter = \"count\"\ncells = [\"size\"]\n\n";
+        for (name, declaration) in [("no-start", ""), ("no-start-observed", observe)] {
+            let dir = scratch(name);
+            fs::write(dir.join("start.k"), definition).unwrap();
+            fs::write(
+                dir.join("FLOW.toml"),
+                format!(
+                    "[spec]\nentry = \"start.k\"\nmain_module = \"START\"\n\
+                     syntax_module = \"START-SYNTAX\"\n\n{declaration}\
+                     [[program]]\nid = \"five\"\ntext = \"go(5)\"\n\n\
+                     [[program]]\nid = \"zero\"\ntext = \"go(0)\"\n"
+                ),
+            )
+            .unwrap();
+            fs::write(dir.join("MUTATIONS.toml"), mutations).unwrap();
+            let manifest = dir.join("FLOW.toml");
+            let (document, _) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
+            let row = mutation(&document, "no-start");
+            assert_eq!(
+                (row["status"].as_str(), row["killer"].as_str()),
+                (Some("killed"), Some("zero")),
+                "{document:#}"
+            );
+            let slots = &row["executed"][0]["slots"];
+            assert_eq!(slots["exit-stop"]["sides"]["mutant"], json!([]), "{row:#}");
+            assert_eq!(
+                slots["whole-term"]["sides"]["mutant"]["final_configurations"], 0,
+                "{row:#}"
+            );
+            for slot in ["exit-stop", "whole-term"] {
+                assert_eq!(slots[slot]["outcome"], "distinguish", "{row:#}");
+            }
+            // The baseline's channel holds `size` after the step at 0; the mutant has no step.
+            if !declaration.is_empty() {
+                assert_eq!(slots["observations"]["outcome"], "distinguish", "{row:#}");
+                assert_eq!(
+                    slots["observations"]["position"],
+                    json!({"channel": "boundary", "index": 0, "at_end": true}),
+                    "{row:#}"
+                );
+            }
+            let row = mutation(&document, "open-start");
+            assert_eq!(row["status"].as_str(), Some("unknown"), "{document:#}");
+            assert_eq!(
+                executed(&document, "open-start"),
+                [
+                    ("zero".to_owned(), "unknown".to_owned(), false),
+                    ("five".to_owned(), "agree".to_owned(), false),
+                ],
+                "{row:#}"
+            );
+        }
+    }
+
     #[test]
     #[ignore = "kink"]
     fn a_program_id_with_a_colon_and_the_count_mismatch_have_their_reasons() {
