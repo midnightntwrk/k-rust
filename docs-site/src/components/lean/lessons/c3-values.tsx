@@ -40,6 +40,10 @@ export const values3: Lesson = {
           hl: { v: span(sortOf, '| .ctor f ts =>', '| none => none'), w: span(workedCtor, 'c.sortOf z =', 'c.sortOf (run') },
           notes: [note('v', at(sortOf, 'if sortsOf ts == some k.args'), "A constructor's arguments must have exactly its argument sorts. Then the tree has its result sort.", 'sortsOf ts == some k.args')],
         },
+        {
+          hl: { v: span(sortOf, '| none => match c.lookupOvl f with', 'c.uncovered f ts') },
+          notes: [note('v', at(sortOf, 'c.uncovered f ts'), "An overloading symbol's application (lesson 2) is a value only where no overload covers its arguments. Where one does, the value is the overloaded symbol's, injected: so each value is written one way.", 'c.uncovered f ts')],
+        },
       ],
     },
     {

@@ -1,7 +1,8 @@
 'use client'
 
 // Core lesson 2: the signature. A definition as one Lean value, `Semantics`: constructors,
-// subsorts, functions as clauses with priorities, rules with priorities, collections. Every Lean
+// subsorts, functions as clauses with priorities, rules with priorities, collections, overloading
+// symbols. Every Lean
 // pane is kcore-spec's text at the manifest's commit; peano's constructors and `pred` are checked
 // by Lean (docs-gen/lean_checks.py).
 
@@ -14,6 +15,7 @@ const ctorSig = slice(coreFile('KcoreSpec/FixedSignature.lean'), '/-- A construc
 const fnClause = slice(coreLean, '/-- A clause `f(p₁, …, pₙ) = rhs', '  total : Bool := false')
 const rule = slice(coreLean, '/-- A rewrite rule `lhs => rhs', '  prio : Nat')
 const colls = slice(coreLean, '/-- A collection sort:', '   ⟨Srt.list, .list')
+const ovlSig = slice(coreLean, '/-- An overloading symbol: a symbol of K', '  over : List Sym')
 const prioK = coreFile('f2-examples/prio.k')
 const fprioK = slice(coreFile('f2-examples/fprio.k'), 'syntax Int ::= pr(Int)', "rule [op-one]")
 
@@ -45,6 +47,10 @@ export const signature2: Lesson = {
         {
           hl: { s: [at(sem, 'pgmSort : Srt'), at(sem, 'sortNames : List String'), at(sem, 'symNames : List String')] },
           notes: [note('s', at(sem, 'pgmSort : Srt'), 'The sort of the program the configuration starts from.', 'pgmSort'), note('s', at(sem, 'symNames : List String'), 'Names, for printing. Nothing that decides or steps reads them.', 'symNames')],
+        },
+        {
+          hl: { s: [at(sem, 'colls : List CollSig'), at(sem, 'ovls : List OvlSig')] },
+          notes: [note('s', at(sem, 'colls : List CollSig'), 'Its own collection sorts…', 'colls'), note('s', at(sem, 'ovls : List OvlSig'), '…and its overloading symbols: the last scene of this lesson.', 'ovls')],
         },
         {
           hl: { s: [at(sem, 'lib : Lib'), at(sem, 'params : List ParamSig'), at(sem, 'hooks : HookParams')] },
@@ -162,6 +168,22 @@ export const signature2: Lesson = {
           hl: { c: span(colls, 'def builtinColls', '   ⟨Srt.list, .list') },
           notes: [note('c', at(colls, 'def builtinColls'), "The library's `Map`, `Set` and `List`. A definition adds its own in `colls`.")],
           say: 'Lesson 4 matches patterns against collections.',
+        },
+      ],
+    },
+    {
+      id: 'g7',
+      title: 'Overloading symbols',
+      panes: [{ id: 'o', label: 'KcoreSpec/Core.lean', source: ovlSig, lang: 'lean' }],
+      frames: [
+        {
+          hl: { o: span(ovlSig, '/-- An overloading symbol', 'overload covers v̄, otherwise') },
+          say: 'K lets one symbol be declared at several sorts, such as a list constructor at `Instrs` and again at `Stmts` above it. kompile writes one symbol per sort, and axioms saying they agree on injected arguments: `f(lift ā) = lift(g(ā))`.',
+        },
+        {
+          hl: { o: span(ovlSig, 'structure OvlSig where', '  over : List Sym') },
+          notes: [note('o', at(ovlSig, '  over : List Sym'), 'The symbols it overloads: constructors, or overloading symbols listed before it.', 'over')],
+          say: 'The symbol at the larger sorts is an overloading symbol: its signature, and the symbols it agrees with. Lessons 3, 4 and 5 say what its applications are.',
         },
       ],
     },

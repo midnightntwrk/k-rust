@@ -14,6 +14,7 @@ const gamma = slice(faithful, '/-- **The theory of a semantics**', 'ΓSig c ∪ 
 const noJunk = slice(coreFile('KcoreSpec/Kore/Gamma.lean'), '/-- Cons-NoJunk:', 'pat := inhOf (sortP N) ≡ .mu X')
 const domains = slice(faithful, '/-- **The domains.**', 'def ΓDomains (c : Semantics)')
 const colls = slice(faithful, '/-- **The collections.**', '∃ k ∈ c.allColls, φ ∈ collAxioms c k')
+const consItems = slice(faithful, "/-- The constructors' items, over `consSorts`", 'def consItemsK')
 const fns = slice(faithful, '/-- A clause\'s equation, `premise ∧ ¬ ⋁ lower', 'def ΓFns (c : Semantics)')
 const rules = slice(faithful, '/-- A rule\'s axiom with its priority read:', 'def ruleItems')
 const closure = slice(faithful, '/-- The step\'s closure axiom,', 'def Γstep (c : Semantics)')
@@ -86,6 +87,21 @@ export const theory9: Lesson = {
       ],
     },
     {
+      id: 'y2b',
+      title: 'Overloading symbols',
+      panes: [{ id: 'o', label: 'KcoreSpec/Faithful.lean', source: consItems, lang: 'lean' }],
+      frames: [
+        {
+          hl: { o: span(consItems, "/-- The constructors' items", 'def consItemsK') },
+          notes: [
+            note('o', at(consItems, 'and each overload equation'), 'Each overload is an equation: `f(lift ā) = lift(g(ā))`…', 'overload equation'),
+            note('o', at(consItems, 'arguments for a pair `distGuarded` names'), "…and an overloading symbol's applications are apart from the others only where no overload covers their arguments.", 'distGuarded'),
+          ],
+          say: 'Overloading symbols are generators of their sorts like constructors, with these two differences.',
+        },
+      ],
+    },
+    {
       id: 'y3',
       title: 'Domains and collections',
       panes: [
@@ -99,7 +115,7 @@ export const theory9: Lesson = {
         },
         {
           hl: { c: span(colls, '/-- **The collections.**', 'def ΓColls') },
-          notes: [note('c', at(colls, 'def ΓColls'), 'What the unit, element and concatenation of each collection are: a union of maps, a concatenation of lists; a set\'s element is not the empty set, is injective, and is a union only with its own member. These axioms are stated by the core, not read from the K text.', 'ΓColls')],
+          notes: [note('c', at(colls, 'def ΓColls'), 'What the unit, element and concatenation of each collection are: a union of maps with disjoint keys, a concatenation of lists, and a union of disjoint sets, with four axioms as for maps. These axioms are stated by the core, not read from the K text.', 'ΓColls')],
         },
       ],
     },

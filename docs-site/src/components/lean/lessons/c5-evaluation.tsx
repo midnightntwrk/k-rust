@@ -12,7 +12,7 @@ import { type Lesson, note } from '../lesson'
 const ev = coreFile('KcoreSpec/Evaluation.lean')
 const evalDef = slice(ev, '  /-- `Eval c f vs r`:', '(hnone : ∀ cl ∈ fn.clauses, Fails c vs cl) : Eval c f vs none')
 const fails = slice(ev, '  /-- `Fails c vs cl`:', '        ReqFails c σ cl')
-const evalTerm = slice(ev, '  /-- `EvalTerm c σ t r`:', '(hvs : allSome rs = none) (hp : c.isParam f = false) : EvalTerm c σ (.app f ts) none')
+const evalTerm = slice(ev, '  /-- `EvalTerm c σ t r`:', 'EvalTerm c σ (.app f ts) ((allSome rs).map (c.norm f))')
 const fprioK = slice(coreFile('f2-examples/fprio.k'), 'syntax Int ::= pr(Int)', 'rule [ag-sq]')
 const k = peanoK
 
@@ -160,6 +160,14 @@ export const evaluation5: Lesson = {
             note('t', at(evalTerm, '| hook {σ'), 'Not settled: hook domains.', 'hook'),
             note('t', at(evalTerm, '| param {σ'), 'Not settled: hook domains.', 'param'),
           ],
+        },
+        {
+          hl: { t: [at(evalTerm, '| hook {σ')] },
+          notes: [note('t', at(evalTerm, '| hook {σ'), 'Not settled: whether a builtin operation declared total but described on part of its arguments, such as `substrString`, has no value there or an undetermined one.', 'hook')],
+        },
+        {
+          hl: { t: span(evalTerm, '| ovl {σ', 'EvalTerm c σ (.app f ts) ((allSome rs).map (c.norm f))') },
+          notes: [note('t', at(evalTerm, 'EvalTerm c σ (.app f ts) ((allSome rs).map (c.norm f))'), 'An overloading symbol builds the value of its application, as matching reads it (lesson 4); undefined if an argument is.', 'c.norm f')],
         },
       ],
     },

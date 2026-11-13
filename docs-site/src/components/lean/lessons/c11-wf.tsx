@@ -3,7 +3,7 @@
 // Core lesson 11: well-formedness, the decidable check `coreOK` the theorems assume of a
 // semantics, which reads only what their proofs use: sortedOK (subsorts, clauses and rules well
 // sorted), faithCoreOK's twelve conditions as a table, a kernel-checked semantics whose theory has
-// no model because one condition fails, and the names apart. Every pane is kcore-spec's text at
+// no model because one condition fails, the names apart, and the overloading symbols. Every pane is kcore-spec's text at
 // the manifest's commit.
 
 import { type Source, coreCommit, coreFile, lineOf, slice, span } from '../data'
@@ -18,6 +18,7 @@ const apart = slice(tie, '/-- No user constructor or function is named like an i
 const wfLean = coreFile('KcoreSpec/DefinitionWf.lean')
 const subsorts = slice(wfLean, '/-- The declared subsorts form a strict partial order', '  nodup subs')
 const ids = slice(wfLean, "/-- The definition's own sorts and symbols are numbered as Core.lean says", '&& c.lib.ok)')
+const ovlsOK = slice(coreFile('KcoreSpec/FaithOK.lean'), '/-- **The overloading symbols are well formed**', '    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2)')
 const faith = slice(coreFile('KcoreSpec/FaithOK.lean'), '/-- **The decidable conditions of the theory that soundness and completeness read**', 'kindsApart c && ctorsOnce c && fnsApart c')
 const witness = coreFile('KcoreSpec/ModelKindsWitness.lean')
 const witnessDoc = slice(witness, '  KCore. A semantics that meets every condition of `coreOK` but `kindsApart`', 'The decidable facts are kernel')
@@ -81,8 +82,9 @@ export const wf11: Lesson = {
             note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'Subsorts, clauses and rules are well sorted.', 'c.sortedOK'),
             note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'The conditions the theory Γ needs to have a model.', 'c.faithCoreOK'),
             note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'Names and numbers apart.', 'c.hooksApart && c.predsApart && c.idsOK'),
+            note('c', at(coreOK, 'c.sortedOK && c.faithCoreOK'), 'The overloading symbols are well formed.', 'c.overloadsOK'),
           ],
-          say: 'Five conjuncts.',
+          say: 'Six conjuncts.',
         },
       ],
     },
@@ -191,6 +193,22 @@ export const wf11: Lesson = {
         {
           hl: { n: span(ids, 'def idsOK', '&& c.lib.ok)') },
           notes: [note('n', at(ids, 'def idsOK'), "The definition's own sorts and symbols are numbered in order, as lesson 1 showed for peano.", 'idsOK')],
+          say: "`idsOK` also lists each overloading symbol once. `ModelOvlTwiceWitness`, checked by the kernel, lists one twice and meets every other condition, and its theory has no model.",
+        },
+      ],
+    },
+    {
+      id: 'w9',
+      title: 'Overloading symbols',
+      panes: [{ id: 'o', label: 'KcoreSpec/FaithOK.lean', source: ovlsOK, lang: 'lean' }],
+      frames: [
+        {
+          hl: { o: span(ovlsOK, '/-- **The overloading symbols are well formed**', 'one symbol agree (`ovlCoherent`). Decidable on the data. -/') },
+          say: "Each overloading symbol (lesson 2) is declared once, plainly named, of a constructor sort; it overloads constructors or overloading symbols listed before it, at sorts at most its own; and any two of its overloads agree where both apply.",
+        },
+        {
+          hl: { o: [at(ovlsOK, '(iteSort? (c.symName o.sig.name)).isNone')] },
+          notes: [note('o', at(ovlsOK, '(iteSort? (c.symName o.sig.name)).isNone'), 'Not settled: that an overloading symbol is not named like `ite` at a sort. The proofs need it; no example shows it is needed in truth.', 'iteSort?')],
           say: "Every package proves its `coreOK` by evaluation, and a package can be generated from it alone. The larger check `wf` implies it and is what the tie to a KORE text uses; it is not part of the core.",
         },
       ],

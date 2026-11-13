@@ -74,6 +74,17 @@ export const matching4: Lesson = {
       ],
     },
     {
+      id: 'm2b',
+      title: 'Overloading symbols',
+      panes: [{ id: 'p', label: 'KcoreSpec/Evaluation.lean', source: patVal, lang: 'lean' }],
+      frames: [
+        {
+          hl: { p: span(patVal, '| ovl {f : Sym}', 'PatVal c σ (.app f ps) v', at(patVal, '| ovl {f : Sym}') - 1) },
+          notes: [note('p', at(patVal, '(hv : c.norm f vs = v)'), "An overloading symbol denotes the value of its application: the raw application where no overload covers the arguments, otherwise the overloaded symbol's value, injected (lesson 3).", 'c.norm f vs = v')],
+        },
+      ],
+    },
+    {
       id: 'm3',
       title: 'A map in a rule',
       panes: [
@@ -155,8 +166,8 @@ export const matching4: Lesson = {
         {
           hl: { p: span(patVal, '| coll {f : Sym}', 'PatVal c σ (.app f ps) v', at(patVal, '| coll {f : Sym}') - 1), w: [...span(workedList, 'example : PatVal c [(1, ival 1)', 'pop_matches'), ...span(workedList, 'example : PatVal c [(1, list [iv 1])', 'drop_matches')] },
           notes: [
-            note('p', at(patVal, '| coll {f : Sym}'), 'A list symbol denotes the list it builds from the values of its parts, and so do a set\'s `.Set` and `SetItem(P)` alone.', 'coll'),
-            note('p', at(patVal, '| coll {f : Sym}'), 'Not settled: a set pattern that joins two sets, such as `SetItem(X) REST`, is not matched yet (disjoint or union).'),
+            note('p', at(patVal, '| coll {f : Sym}'), 'A list or set symbol denotes the collection it builds from the values of its parts.', 'coll'),
+            note('p', at(patVal, '(hv : c.collVal f vs = some v)'), 'Joining two sets is defined only on disjoint sets, so `SetItem(X) REST` matches a set holding `X` once, with `REST` the rest.', 'collVal'),
           ],
         },
       ],
