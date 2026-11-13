@@ -1771,3 +1771,121 @@ fn the_map_braces_mean_what_the_literal_means() {
         record-item: error[krs::syntax::invalid-expression-notation]: the entry of the cell `k` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
         record-element: error[krs::syntax::invalid-expression-notation]: the entry of the cell `ll` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)"]].assert_eq(&table);
 }
+
+/// MAPITEM: map braces in a term mean the literal they spell, and entry-less braces in `Some(..)`
+/// are the present cell's instance braces.
+/// - A constructor's record written as a leaf's entry whose field is braces naming every entry is
+///   the constructor's term over that map, as `Load { m: map![0 -> v] }` is (`leaf-*`).
+/// - In a computation's item, a list's element and an instance's computation child, braces are the
+///   literal: naming every entry the map (`item-exact`, `element-exact`, `item-exact-result`),
+///   naming their rest the map pattern (`item-named`, `instance-named`), written over a rest the
+///   map built (`item-splice-result`); with an anonymous `..` in a result they keep no cell's map,
+///   one class and text for both spellings (`item-anonymous-result`, `item-anonymous-literal`), and
+///   in an instance's item the input's own mistake is told first, whether or not the result reads
+///   the value (`instance-anonymous-read`).
+/// - `Some({ .. })` is instance braces on the present cell, refused for its kind, as the cell's own
+///   `{ .. }` is (`opt-entry-less`, `opt-entry-less-result`).
+#[test]
+fn the_map_braces_in_a_term_mean_the_literal() {
+    let source = braces_source();
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let go = "k: [Go(), ..]";
+    let kept = "k: [..]";
+    let subject = |entry: &str| {
+        readable(&format!(
+            "go: {{ {go}, {entry}, out: _ }} => {{ {kept}, out: [v] }};"
+        ))
+    };
+    let result = |entry: &str, written: &str| {
+        readable(&format!(
+            "go: {{ {go}, {entry} }} => {{ {kept}, {written} }};"
+        ))
+    };
+    let rows = [
+        ("leaf", subject("cur: Load { m: { 0 -> v } }")),
+        ("leaf-literal", subject("cur: Load { m: map![0 -> v] }")),
+        (
+            "leaf-result",
+            result("cur: _", "cur: Load { m: { 0 -> 1 } }"),
+        ),
+        (
+            "item-exact",
+            readable(&format!(
+                "go: {{ k: [Load {{ m: {{ 0 -> v }} }}, ..], out: _ }} => {{ {kept}, out: [v] }};"
+            )),
+        ),
+        ("element-exact", subject("ll: [Load { m: { 0 -> v } }, ..]")),
+        (
+            "item-named",
+            readable(&format!(
+                "go: {{ k: [Load {{ m: {{ 0 -> v, r @ .. }} }}, ..], out: _ }} => {{ {kept}, out: [map::size(r)] }};"
+            )),
+        ),
+        (
+            "instance-named",
+            subject("th: { me @ Th { tk: [Load { m: { 0 -> v, r @ .. } }, ..], .. }, .. }"),
+        ),
+        (
+            "item-exact-result",
+            readable(&format!(
+                "go: {{ {go} }} => {{ k: [Load {{ m: {{ 0 -> 1 }} }}, ..] }};"
+            )),
+        ),
+        (
+            "item-splice-result",
+            readable(&format!(
+                "go: {{ {go}, env: {{ 0 -> v, r @ .. }} }} => {{ k: [Load {{ m: {{ 0 -> 1, ..r }} }}, ..] }};"
+            )),
+        ),
+        (
+            "item-anonymous-result",
+            readable(&format!(
+                "go: {{ {go} }} => {{ k: [Load {{ m: {{ 0 -> 1, .. }} }}, ..] }};"
+            )),
+        ),
+        (
+            "item-anonymous-literal",
+            readable(&format!(
+                "go: {{ {go} }} => {{ k: [Load {{ m: map![0 -> 1, ..] }}, ..] }};"
+            )),
+        ),
+        (
+            "instance-anonymous-read",
+            subject("th: { me @ Th { tk: [Load { m: { 0 -> v, .. } }, ..], .. }, .. }"),
+        ),
+        (
+            "opt-entry-less",
+            readable(&format!(
+                "go: {{ {go}, omap: Some({{ .. }}), out: _ }} => {{ {kept}, out: [1] }};"
+            )),
+        ),
+        (
+            "opt-entry-less-result",
+            result("omap: Some(_)", "omap: Some({ .. })"),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, sentences)| {
+            let manifest = package_with(temporary.path(), name, &source, sentences);
+            format!("{name}: {}", emitted(target.path(), &manifest))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        leaf: rule [go]: <k> go => .K ... </k> <cur> load ( 0 |-> V:KItem ) </cur> <out> _ => ListItem(V:KItem) </out>
+        leaf-literal: rule [go]: <k> go => .K ... </k> <cur> load ( 0 |-> V:KItem ) </cur> <out> _ => ListItem(V:KItem) </out>
+        leaf-result: rule [go]: <k> go => .K ... </k> <cur> _ => load ( .Map [ 0 <- 1 ] ) </cur>
+        item-exact: rule [go]: <k> load ( 0 |-> V:KItem ) => .K ... </k> <out> _ => ListItem(V:KItem) </out>
+        element-exact: rule [go]: <k> go => .K ... </k> <ll> ListItem(load ( 0 |-> V:KItem )) Krs_RestLl:List </ll> <out> _ => ListItem(V:KItem) </out>
+        item-named: rule [go]: <k> load ( 0 |-> V:KItem R:Map ) => .K ... </k> <out> _ => ListItem(size(R:Map)) </out>
+        instance-named: rule [go]: <k> go => .K ... </k> <th> <tk> load ( 0 |-> V:KItem R:Map ) ~> Tail0:K </tk> ... </th> <out> _ => ListItem(V:KItem) </out>
+        item-exact-result: rule [go]: <k> go => load ( .Map [ 0 <- 1 ] ) ... </k>
+        item-splice-result: rule [go]: <k> go => load ( R:Map [ 0 <- 1 ] ) ... </k> <env> 0 |-> V:KItem R:Map </env>
+        item-anonymous-result: error[krs::syntax::invalid-expression-notation]: the entry of the cell `k` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        item-anonymous-literal: error[krs::syntax::invalid-expression-notation]: the entry of the cell `k` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        instance-anonymous-read: error[krs::syntax::invalid-expression-notation]: the entry of the cell `th` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        opt-entry-less: error[krs::analysis::collection-entry]: the cell `omap` holds an optional `Map` leaf, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = "*", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`
+        opt-entry-less-result: error[krs::analysis::collection-entry]: the cell `omap` holds an optional `Map` leaf, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = "*", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"#]].assert_eq(&table);
+}

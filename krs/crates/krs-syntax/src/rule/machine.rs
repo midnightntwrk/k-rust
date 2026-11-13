@@ -182,6 +182,20 @@ fn parse_readable_pattern_state(
                     TermExpression::parse_pattern_tokens(term)?,
                 )))));
             }
+            // Braces holding no arrow are instance braces, as at the cell's own entry (`{ .. }`,
+            // `{ y, .. }`): the present cell's content, which its kind judges, so on a cell that
+            // holds no collection the collector says so (`instances-on-plain-cell`) from the same
+            // spelling ([`instance_braces`]).
+            if let Some(group) = instance_braces(&tokens, StateMacroContext::Pattern) {
+                return Ok(Some(StateTerm::Present(Box::new(StateTerm::Instances(
+                    parse_readable_instances_reading(
+                        &group,
+                        StateMacroContext::Pattern,
+                        looks_up,
+                        None,
+                    )?,
+                )))));
+            }
             // A present group's record whose child is brackets holding their rest alone, `[..]`,
             // or instance braces, is the record of its children's entries, as a group record at
             // a cell's position is ([`readable_record`]): each child is that child cell's entry,
@@ -2063,6 +2077,20 @@ fn read_result_presence(
         return Ok(MachineResultCell::Refused(Box::new(
             crate::SyntaxError::new(crate::SyntaxErrorKind::RustSyntax(reason), map.span()),
         )));
+    }
+    // Instance braces are the present cell's content as at its own entry, whose kind judges
+    // them ([`instance_braces`]).
+    if let Some(group) = inside
+        .as_ref()
+        .and_then(|inside| instance_braces(&inside.stream(), StateMacroContext::Expression))
+    {
+        skip_value(content)?;
+        return Ok(MachineResultCell::State(Box::new(StateTerm::Present(
+            Box::new(StateTerm::Instances(parse_readable_instances(
+                &group,
+                StateMacroContext::Expression,
+            )?)),
+        ))));
     }
     let fork = content.fork();
     match parse_readable_result_state(&fork, StateFamily::Optional) {
