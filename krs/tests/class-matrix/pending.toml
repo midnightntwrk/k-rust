@@ -434,30 +434,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 finding = "TWIN-5"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["child-twins/readable/subject/opt-child/int/[..]"]
-finding = "TWIN-8"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/readable/subject/opt-child/k/[..]"]
-finding = "TWIN-8"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/readable/subject/opt-child/k/[Go()]"]
-finding = "TWIN-8"
-deviation = "krs::analysis::invalid-list-notation @ spelling"
-
-["child-twins/readable/subject/opt-child/list/[..]"]
-finding = "TWIN-7"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/readable/subject/opt-child/map/[..]"]
-finding = "TWIN-8"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/readable/subject/opt-child/set/[..]"]
-finding = "TWIN-8"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
 ["child-twins/readable/subject/opt-child/set/{ y, .. }"]
 finding = "TWIN-5"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -526,30 +502,3 @@ deviation = "bracket-reading advises none, and its refusal advises `_`"
 finding = "TWIN-6"
 deviation = "bracket-reading advises none, and its refusal advises `_`"
 
-["k8/child-twins/readable/both/opt-child/k/[..] => [Hold(), ..]"]
-finding = "TWIN-8"
-deviation = "nested-anonymous-rest advises none, and its refusal advises `_`"
-
-["k8/child-twins/readable/both/opt-child/list/[..] => [1, ..]"]
-finding = "TWIN-8"
-deviation = "nested-anonymous-rest advises none, and its refusal advises `_`"
-
-["k8/child-twins/readable/subject/opt-child/int/[..]"]
-finding = "TWIN-8"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/readable/subject/opt-child/k/[..]"]
-finding = "TWIN-8"
-deviation = "optional-group-computation-child advises none, and its refusal advises `_`"
-
-["k8/child-twins/readable/subject/opt-child/list/[..]"]
-finding = "TWIN-7"
-deviation = "refused where the table accepts, advising `_`"
-
-["k8/child-twins/readable/subject/opt-child/map/[..]"]
-finding = "TWIN-8"
-deviation = "bracket-reading advises none, and its refusal advises `_`"
-
-["k8/child-twins/readable/subject/opt-child/set/[..]"]
-finding = "TWIN-8"
-deviation = "bracket-reading advises none, and its refusal advises `_`"

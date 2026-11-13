@@ -1365,7 +1365,7 @@ fn default_item_binders(
 }
 
 /// The items of the computation children that the instances of `state`, an entry of the
-/// collection `field`, write in brackets, in authored order. An instance's computation child is a
+/// collection `field`, or a present group's term there, write in brackets, in authored order. An instance's computation child is a
 /// computation, as the computation cell is, so each item is one item of it; brackets on a list
 /// child are that list's elements instead, which its leaf's sort types
 /// ([`infer_readable_state`]).
@@ -1377,6 +1377,11 @@ fn instance_computation_items(
     use krs_ir::ProtocolRuleStateTerm as State;
     match state {
         State::Present { value } => instance_computation_items(value, field, declarations),
+        State::Term(term) | State::Group(term) => {
+            super::group_records::bracketed_record(term, field, declarations)
+                .map(|record| super::group_records::computation_items(&record))
+                .unwrap_or_default()
+        }
         State::Instances(instances) => {
             let ProtocolCellContent::Nested { declaration } = &field.content else {
                 return Vec::new();
@@ -1491,13 +1496,25 @@ fn infer_readable_state(
         // A result's group record whose `..` leaves a child unnamed is the record of the
         // children it names, as at a fixed group's entry: the others are taken from the subject's
         // match of the same place ([`super::cell_states::with_implicit_bases_in_head_rule`]).
-        State::Term(term) | State::Group(term) => match (!subject)
-            .then(|| super::group_records::kept_record(term, field, declarations))
-            .flatten()
-        {
-            Some(record) => infer_readable_record(builder, declarations, field, &record, false)?,
-            None => builder.infer(term, Some(&sort), subject)?,
-        },
+        // A group term whose computation child is written in brackets is the record of its
+        // children's entries, that child's its K sequence (R4), as at a fixed group's entry
+        // ([`super::group_records::bracketed_record`]): a present group's `Some(G { .. })` too.
+        State::Term(term) | State::Group(term) => {
+            if let Some(record) = super::group_records::bracketed_record(term, field, declarations)
+            {
+                infer_readable_record(builder, declarations, field, &record, subject)?;
+            } else {
+                match (!subject)
+                    .then(|| super::group_records::kept_record(term, field, declarations))
+                    .flatten()
+                {
+                    Some(record) => {
+                        infer_readable_record(builder, declarations, field, &record, false)?;
+                    }
+                    None => builder.infer(term, Some(&sort), subject)?,
+                }
+            }
+        }
         State::KSequence(sequence) => infer_readable_items(builder, &sort, sequence, subject)?,
         State::Record(record) => {
             infer_readable_record(builder, declarations, field, record, subject)?;

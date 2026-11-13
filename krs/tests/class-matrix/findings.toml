@@ -62,16 +62,6 @@ owner = "S5"
 kind = "diagnostic"
 what = "a `cells!` top-level `Int`, `Map` or `Set` cell written `Cell([..])` is refused with the list's text, \"`[..]` names no element: the first matches any list, so write `_`\", false of a cell that is no list, where every child of those kinds says `bracket-reading` (brackets denote nothing there); the kind is the truer first mistake"
 
-["TWIN-7"]
-owner = "S5"
-kind = "feature"
-what = "a readable `?` group record reads its children as one term, so a list child's `[..]` (`og: Some(Og { ol: [..], .. })`) is refused \"`[..]` names no element\", where its twin `tl: [..]` is the entry `_` (accepted, `no-effect-entry`) and a fixed group's or an instance's list child is too"
-
-["TWIN-8"]
-owner = "S5"
-kind = "diagnostic"
-what = "the same term reading of a readable `?` group record gives `[..]` on an `Int`, `Map` or `Set` child the list's \"names no element\" (the twin and every other child: `bracket-reading`), and a computation child `[..]` or `[Go()]` \"names no element\" or \"list notation .. sort `K`\" (both false: the child is a computation cell, whose brackets are its items), where the limit is the `?` group computation child's (`optional-group-computation-child`, which the `cells!` children say)"
-
 ["TWIN-9"]
 owner = "S5"
 kind = "bug"

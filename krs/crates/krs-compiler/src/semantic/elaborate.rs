@@ -875,29 +875,52 @@ impl Elaborator<'_> {
             } => {
                 // `Some(..)` and `None` stay as written, so the `cells!` lowering judges them
                 // against the cell's multiplicity as it judges an authored entry.
+                let declared = require_cell_field(&field.cell, self.declarations)
+                    .map_err(|_| Unelaborated("a cell the declarations lack"))?;
                 let state = |state: &ProtocolRuleStateTerm<DescriptorTerm>| match state {
                     ProtocolRuleStateTerm::Absent => Ok(ProtocolRuleStateTerm::Absent),
                     // A group record of entries stays as written; the group's result term it
                     // pairs with is the group's entry, as a rewritten cell's is.
-                    ProtocolRuleStateTerm::Record(record) => {
-                        Ok(ProtocolRuleStateTerm::Record(record.clone()))
-                    }
+                    ProtocolRuleStateTerm::Record(record) => Ok(ProtocolRuleStateTerm::Record(
+                        item_less_children(record, declared, self.declarations),
+                    )),
                     ProtocolRuleStateTerm::Term(term) => content(field, term),
                     ProtocolRuleStateTerm::Present { value } => match &**value {
                         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
-                            let declared = require_cell_field(&field.cell, self.declarations)
-                                .map_err(|_| Unelaborated("a cell the declarations lack"))?;
                             Ok(ProtocolRuleStateTerm::Present {
                                 value: Box::new(
                                     if matches!(
                                         declared.content,
                                         ProtocolCellContent::Nested { .. }
                                     ) {
-                                        ProtocolRuleStateTerm::Group(term.clone())
+                                        // A present group's term is read as a fixed group's is
+                                        // ([`content`]): a computation child's brackets are its
+                                        // items, so the term is the record of its children's
+                                        // entries.
+                                        super::group_records::bracketed_record(
+                                            term,
+                                            declared,
+                                            self.declarations,
+                                        )
+                                        .map_or_else(
+                                            || ProtocolRuleStateTerm::Group(term.clone()),
+                                            ProtocolRuleStateTerm::Record,
+                                        )
                                     } else {
                                         ProtocolRuleStateTerm::Term(term.clone())
                                     },
                                 ),
+                            })
+                        }
+                        // A present group's record of entries, as a group record at a cell's
+                        // position ([`item_less_children`]).
+                        ProtocolRuleStateTerm::Record(record) => {
+                            Ok(ProtocolRuleStateTerm::Present {
+                                value: Box::new(ProtocolRuleStateTerm::Record(item_less_children(
+                                    record,
+                                    declared,
+                                    self.declarations,
+                                ))),
                             })
                         }
                         // A map read in `Some(..)` is the present map cell's entries, the
@@ -1308,6 +1331,50 @@ fn instances(
         .map(|after| side(after, false, &mut tails))
         .transpose()?;
     Ok((before, after))
+}
+
+/// `record`, a readable record of entries of the group cell `declared`, with each leaf child
+/// written as brackets holding their rest alone, `[..]`, read as that leaf's whole content, `_`:
+/// the macros read such a child as the item-less sequence, since they cannot see its kind, and on
+/// a list leaf `[..]` matches any list, as at the list's own cell (a readable `tl: [..]`). A
+/// computation child keeps its item-less sequence, the items its kind reads; a child of another
+/// kind refuses brackets before this ([`krs_syntax::cell_entries`]).
+fn item_less_children(
+    record: &krs_ir::ProtocolRuleRecord<DescriptorTerm>,
+    declared: &krs_ir::DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> krs_ir::ProtocolRuleRecord<DescriptorTerm> {
+    let mut record = record.clone();
+    let ProtocolCellContent::Nested { declaration } = &declared.content else {
+        return record;
+    };
+    let Ok(group) = declarations.cell(&declaration.declaration) else {
+        return record;
+    };
+    for field in &mut record.fields {
+        let ProtocolRuleStateTerm::KSequence(sequence) = &field.value else {
+            continue;
+        };
+        let leaf = group.fields.iter().any(|child| {
+            child.rust_field == field.field
+                && matches!(
+                    child.content,
+                    ProtocolCellContent::Leaf {
+                        wrapper: CellWrapper::Cell,
+                        ..
+                    }
+                )
+        });
+        if leaf
+            && sequence.items.is_empty()
+            && matches!(sequence.tail, ProtocolRuleFrame::Anonymous { .. })
+        {
+            field.value = ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
+                key: sequence.payload_key.clone(),
+            });
+        }
+    }
+    record
 }
 
 /// Whether `field`, a result instance's child of the struct whose children are `children`, is a
