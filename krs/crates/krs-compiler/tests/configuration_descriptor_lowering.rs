@@ -245,8 +245,12 @@ fn an_empty_map_in_a_non_map_rule_cell_is_reported_at_its_spelling() {
     );
 }
 
+/// A result that writes a cell the subject leaves out, over the remainder `tail` another cell's
+/// subject binds, writes the cell's whole new content (Q1's overwrite, `<env> _ => .. </env>`), so
+/// it is judged as an overwrite: here a computation's items on the Map leaf `env`, whose entry is
+/// `Cell(..)`, not the internal error a cell absent from the subject once was.
 #[test]
-fn result_only_cell_is_rejected_before_configuration_lowering() {
+fn result_only_cell_written_whole_is_judged_as_an_overwrite() {
     let mut bundle = bundle();
     let mut descriptors = bundle.descriptors.clone();
     let rule = descriptors
@@ -277,7 +281,7 @@ fn result_only_cell_is_rejected_before_configuration_lowering() {
     assert!(
         error
             .to_string()
-            .contains("result selects a fixed cell absent from the subject"),
+            .contains("`env` is a leaf cell: its entry is `k::configuration::Cell(..)`"),
         "unexpected error: {error}"
     );
 }

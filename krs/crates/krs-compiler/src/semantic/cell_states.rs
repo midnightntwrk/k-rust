@@ -3363,10 +3363,23 @@ fn reads_variable(cell: &DescriptorInitializerCell) -> bool {
     serde_json::to_value(&cell.content).is_ok_and(|value| walk(&value))
 }
 
+/// Whether a result's sequence or map that ends in `tail`, written at a cell or child the subject
+/// leaves out, is the cell's whole new content, so that the subject matches the old content by `_`
+/// (Q1's overwrite): it ends exactly, or in a remainder another entry of the subject binds
+/// (`KCell(x, ..tail)` with `tail` the computation's `tail @ ..`, `map![k -> v, ..r]`), which is a
+/// value the rule matched elsewhere, not a rest of this cell. An anonymous `..` keeps a rest of the
+/// cell itself, which nothing matched.
+pub(super) fn writes_whole_content(tail: &ProtocolRuleFrame) -> bool {
+    matches!(
+        tail,
+        ProtocolRuleFrame::Exact | ProtocolRuleFrame::Reuse { .. }
+    )
+}
+
 /// `subject` with each child `result` writes and `subject` does not name matched whole by `_`:
-/// a leaf, a group, or a computation the result writes exactly; `None` where `result` writes no
-/// such child. The child is the error where it is written otherwise: a rest kept from content the
-/// pattern never matched.
+/// a leaf, a group, or a computation the result writes whole ([`writes_whole_content`]); `None`
+/// where `result` writes no such child. The child is the error where it is written otherwise: a
+/// rest kept from content the pattern never matched.
 fn overwritten_children<'r>(
     subject: &ProtocolRuleInstance<DescriptorTerm>,
     result: &'r ProtocolRuleInstance<DescriptorTerm>,
@@ -3389,12 +3402,12 @@ fn overwritten_children<'r>(
         // The whole content is matched by `_`, so the result's content replaces all of it (P5,
         // P6): a computation matched by an anonymous tail would keep its rest framed.
         let value = match &field.value {
-            ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-                tail: ProtocolRuleFrame::Exact,
-                ..
-            })
-            | ProtocolRuleStateTerm::Term(_)
-            | ProtocolRuleStateTerm::Map(_) => ProtocolRuleStateTerm::Term(any),
+            ProtocolRuleStateTerm::KSequence(sequence) if writes_whole_content(&sequence.tail) => {
+                ProtocolRuleStateTerm::Term(any)
+            }
+            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_) => {
+                ProtocolRuleStateTerm::Term(any)
+            }
             ProtocolRuleStateTerm::Group(_) => ProtocolRuleStateTerm::Group(any),
             // A `?` or `*` child is refused where the instance's children are checked.
             ProtocolRuleStateTerm::KSequence(_) => return Err(field),

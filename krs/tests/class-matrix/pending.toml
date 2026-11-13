@@ -378,22 +378,6 @@ kind = "k8"
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
 # and its twin triaged by meaning (TWIN-1 .. TWIN-10, findings.toml; the progress log ranks them).
 
-["child-twins/cells-claim/result/group-child/k/[..tail]"]
-finding = "TWIN-1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["child-twins/cells-claim/result/list-child/k/[..tail]"]
-finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["child-twins/cells-claim/result/map-child/k/[..tail]"]
-finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["child-twins/cells-claim/result/top/k/k::configuration::KCell(..tail)"]
-finding = "TWIN-1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
 ["child-twins/cells-claim/subject/group-child/set/k::set![y, ..]"]
 finding = "TWIN-4"
 deviation = "krs::syntax::invalid-state-macro @ entry"
@@ -413,22 +397,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["child-twins/cells-claim/subject/top/set/k::configuration::Cell([..])"]
 finding = "TWIN-6"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["child-twins/cells/result/group-child/k/[..tail]"]
-finding = "TWIN-1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["child-twins/cells/result/list-child/k/[..tail]"]
-finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["child-twins/cells/result/map-child/k/[..tail]"]
-finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["child-twins/cells/result/top/k/k::configuration::KCell(..tail)"]
-finding = "TWIN-1"
-deviation = "krs::analysis::unsupported-shape @ item"
 
 ["child-twins/cells/subject/group-child/set/k::set![y, ..]"]
 finding = "TWIN-4"

@@ -2042,7 +2042,8 @@ fn names_below(
 /// A rule whose result writes a cell its subject does not match, with that cell's whole content
 /// matched by `_` in its subject: the result overwrites it (Q1), `<c> _ => v </c>`. That means
 /// one configuration where the cell exists once and the result keeps nothing of its content: a
-/// plain leaf, the computation or a map written exactly, or a group. The entry-admission table
+/// plain leaf, the computation or a map written whole (exactly, or over a remainder another entry
+/// matched), or a group. The entry-admission table
 /// refuses the rest first (an optional cell, whose presence the rule does not know; a rest kept
 /// from content the subject never matched; an instance list, whose instances the subject does
 /// not say), so the refusal below is a backstop. `None` where the result writes no such cell.
@@ -2072,27 +2073,21 @@ fn with_overwritten_cells(
         let any = DescriptorTerm::Wildcard {
             key: cell.field.key.clone(),
         };
-        // The subject matches the whole content with `_`: an exact result is the cell's whole
-        // new content (P5, P6), so nothing of the old content is kept. A computation matched
-        // by `KCell(..)` would leave its unwritten rest framed (`...`), which the exact result
-        // then keeps behind what it writes. A map without a rest (`Cell(map![k -> v])`, or
-        // empty) is likewise the leaf's whole new content.
+        // The subject matches the whole content with `_`: a result written whole is the cell's
+        // whole new content (P5, P6), so nothing of the old content is kept: exact, or over a
+        // remainder another entry matched (`KCell(..tail)`, `Cell(map![k -> v, ..r])`,
+        // [`super::cell_states::writes_whole_content`]). A computation matched by `KCell(..)`
+        // would leave its unwritten rest framed (`...`), which the result then keeps behind what
+        // it writes. A map without a rest (`Cell(map![k -> v])`, or empty) is likewise the
+        // leaf's whole new content.
+        let whole = super::cell_states::writes_whole_content;
         let value = match (&cell.value, &declared.content) {
+            (ProtocolRuleStateTerm::KSequence(sequence), _) if whole(&sequence.tail) => {
+                ProtocolRuleStateTerm::Term(any)
+            }
             (
-                ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-                    tail: ProtocolRuleFrame::Exact,
-                    ..
-                }),
-                _,
-            )
-            | (
                 ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
-                    body:
-                        krs_ir::ProtocolRuleMapBody::Empty { .. }
-                        | krs_ir::ProtocolRuleMapBody::Items {
-                            remainder: ProtocolRuleFrame::Exact,
-                            ..
-                        },
+                    body: krs_ir::ProtocolRuleMapBody::Empty { .. },
                     ..
                 }),
                 ProtocolCellContent::Leaf { .. },
@@ -2100,6 +2095,13 @@ fn with_overwritten_cells(
             | (ProtocolRuleStateTerm::Term(_), ProtocolCellContent::Leaf { .. }) => {
                 ProtocolRuleStateTerm::Term(any)
             }
+            (
+                ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
+                    body: krs_ir::ProtocolRuleMapBody::Items { remainder, .. },
+                    ..
+                }),
+                ProtocolCellContent::Leaf { .. },
+            ) if whole(remainder) => ProtocolRuleStateTerm::Term(any),
             (ProtocolRuleStateTerm::Group(_), ProtocolCellContent::Nested { .. }) => {
                 ProtocolRuleStateTerm::Group(any)
             }

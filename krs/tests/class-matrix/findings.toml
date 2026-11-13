@@ -37,11 +37,6 @@ owner = "S5"
 kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first. Since S0-9 (2026-11-08) the macro reads readable, claim and `cells!` values by their spelling and carries their notation faults until the cell's kind has answered (`CollectionErrorKind::DeferredSyntax`); since INITDIAG an initializer value is judged by its cell's kind, and since INITREC its group record update `G { a: 0, ..base }` too (the R6 limit only on a group of `G` or a `*` template of one), an alias in it answers `invalid-pattern-as` beside rustc's parse error, and a `cells!` result instance record's child the term reader refuses (`T { tk: [x, ..], ..me }`) waits for the record's own judgement. Left: K8 advice that follows a subject's `Some([..])`"
 
-["TWIN-1"]
-owner = "S5"
-kind = "bug"
-what = "a `cells!` result that writes the computation's remainder into a computation cell its subject leaves out, a top-level cell (`tk: KCell(..tail)`) or a fixed group's child (`gg: k::fragment![crate::Gg { gk: [..tail], .. }]`), is the internal `krs::analysis::unsupported-shape` \"the result selects a fixed cell absent from the subject\" outside the case; it means the overwrite `<tk> _ => Tail:K </tk>`, as `KCell(x)` there is accepted (`<prog> _ => V0:Int </prog>`)"
-
 ["TWIN-10"]
 owner = "S5"
 kind = "bug"
@@ -51,11 +46,6 @@ what = "the source `krs expand` prints for a readable result that writes a `?` g
 owner = "S5"
 kind = "feature"
 what = "a readable record's top-level Map cell refuses braces of exact entries, `tm: { 0 -> v }` in a subject (rust-syntax \"a machine-rule map pattern is `{ key -> value, .. }`\") and `tm: { 0 -> x }` in a result (map-read-in-result), where every record child of the same kind reads them as the map's entries (`0 |-> V`, `.Map [ 0 <- X ]`): one spelling, two readings"
-
-["TWIN-3"]
-owner = "S5"
-kind = "feature"
-what = "an instance child written with the computation's remainder in a result over an instance that leaves the child in its `..` (`[me @ k::fragment![crate::J { .. }], ..] => [k::fragment![crate::J { jk: [..tail], ..me }], ..]`) is refused `krs::analysis::collection-entry` \"the result keeps a rest of `jk`, which the pattern instance does not name\": `..tail` is `k`'s remainder, no rest of `jk`, and the twin means the overwrite"
 
 ["TWIN-4"]
 owner = "S5"

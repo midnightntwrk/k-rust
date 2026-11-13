@@ -8046,12 +8046,26 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
-# TWINORACLE: twins the product refuses where the spelling means something at its cell (findings
-# TWIN-1, TWIN-2); their K is recorded once they are accepted.
+# TWINORACLE: twins the product refused where the spelling means something at its cell (findings
+# TWIN-1, TWIN-2); their K is recorded once they are accepted (TWIN-1's by TWINFIX).
 
 [accept."child-twins/cells-claim/result/top/k/k::configuration::KCell(..tail)"]
+k = """
+claim [case-TAG]:
+<k> cTAG ~> V0:K => .K </k>
+<tk> _ => V0:K </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."child-twins/cells/result/top/k/k::configuration::KCell(..tail)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ~> V0:K => .K </k>
+<tk> _ => V0:K </tk>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."child-twins/readable/result/top/map/{ 0 -> x }"]
 
