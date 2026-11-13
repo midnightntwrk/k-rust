@@ -3424,6 +3424,12 @@ fn parse_instance_child(
     if let Some(sequence) = remainder_sequence(&tokens, context)? {
         return Ok(StateTerm::KSequence(sequence));
     }
+    // An instance's group child is the group's term, which holds no computation's items: a record
+    // of the group (a `k::fragment!`, or a record with a rest, which no constructor's record has)
+    // whose child is brackets with a remainder is that limit, at the brackets.
+    if kept && let Some(error) = group_computation_remainder(&tokens, context) {
+        return Err(error);
+    }
     // A pattern's brackets holding their rest alone, `[..]`, write no item: the child's whole
     // content, any content, as its cell's own `KCell(..)` matches it and a list cell's
     // `Cell([..])` refuses it as naming no element; the child's kind reads the sequence they
@@ -3443,6 +3449,79 @@ fn parse_instance_child(
     } else {
         state_term_tokens(tokens, context)?
     }))
+}
+
+/// The refusal of a group record written as an instance's child, `k::fragment![G { .. }]` or
+/// `G { .., .. }` (a constructor's record is written whole, so a record with a rest is a group's),
+/// whose child at any depth of such records is brackets ending in a remainder
+/// ([`remainder_sequence`]): a computation's items, which no term of the group holds yet, while
+/// the instance record's group child is the group's term (`krs::analysis::collection-entry`, the
+/// limit the compiler states for a present `?` group's computation child). `None` for any other
+/// value.
+fn group_computation_remainder(
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Option<SyntaxError> {
+    let (record, fragment) = match qualified_macro_payload(tokens) {
+        Some((name, payload)) if name == "fragment" => (payload, true),
+        Some(_) => return None,
+        None => (tokens.clone(), false),
+    };
+    let trees = record.clone().into_iter().collect::<Vec<_>>();
+    let (TokenTree::Group(body), owner) = trees.split_last()? else {
+        return None;
+    };
+    if body.delimiter() != Delimiter::Brace
+        || owner.is_empty()
+        || syn::parse2::<Path>(owner.iter().cloned().collect()).is_err()
+    {
+        return None;
+    }
+    let items = crate::parse::strip_trailing_comma(body.stream())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let items = items
+        .split(|tree| matches!(tree, TokenTree::Punct(comma) if comma.as_char() == ','))
+        .collect::<Vec<_>>();
+    let group = fragment
+        || items.last().is_some_and(|last| {
+            matches!(last, [TokenTree::Punct(first), TokenTree::Punct(second), ..]
+                if first.as_char() == '.' && first.spacing() == proc_macro2::Spacing::Joint
+                    && second.as_char() == '.')
+        });
+    if !group {
+        return None;
+    }
+    let holder = owner
+        .iter()
+        .rev()
+        .find_map(|tree| match tree {
+            TokenTree::Ident(ident) => Some(syn::ext::IdentExt::unraw(ident).to_string()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    items.iter().find_map(|item| {
+        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = item else {
+            return None;
+        };
+        if colon.as_char() != ':' || value.is_empty() {
+            return None;
+        }
+        let value = value.iter().cloned().collect::<TokenStream>();
+        if remainder_sequence(&value, context).is_ok_and(|sequence| sequence.is_some()) {
+            let span = value.clone().into_iter().next()?.span();
+            return Some(SyntaxError::new(
+                SyntaxErrorKind::InstanceGroupComputation {
+                    reason: format!(
+                        "not supported yet: the group `{holder}` written in an instance record is the group's term, one term naming every child, and its record writes the child `{}` as a computation's items with a remainder, which no term of the group holds yet",
+                        syn::ext::IdentExt::unraw(child)
+                    ),
+                },
+                span,
+            ));
+        }
+        group_computation_remainder(&value, context)
+    })
 }
 
 /// The path of the macro invocation `path::name!(..)` that `tokens` hold.

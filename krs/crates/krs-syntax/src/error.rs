@@ -460,6 +460,14 @@ pub enum SyntaxErrorKind {
         /// The refusal's reason, naming the child.
         reason: String,
     },
+    /// A computation child of a group written inside an instance record, written as its items
+    /// with a remainder (`jh: Hh { hk: [x, rest @ ..], .. }`): the instance record's group child
+    /// is the group's term, which holds no computation's items yet, a stated limitation whose code
+    /// is the compiler's for the same limit at a present `?` group.
+    InstanceGroupComputation {
+        /// The refusal's reason, naming the group child and its computation child.
+        reason: String,
+    },
     /// A function's `smtlib` or `smt_hook` metadata was malformed (KF-044).
     InvalidSmtMetadata {
         /// Complete explanation, naming the fix.
@@ -622,6 +630,7 @@ impl SyntaxErrorKind {
             Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
             Self::UnboundRemainder { .. } => codes::expand::UNBOUND_NAME,
             Self::InstanceChildMultiplicity { .. } => codes::analysis::COLLECTION_ENTRY,
+            Self::InstanceGroupComputation { .. } => codes::analysis::COLLECTION_ENTRY,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidSkippedOperand { .. } => codes::syntax::INVALID_SKIPPED_OPERAND,
@@ -983,7 +992,8 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::PatternHelper { reason }
             | SyntaxErrorKind::RuleChangesNoCell { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason }
-            | SyntaxErrorKind::InstanceChildMultiplicity { reason } => formatter.write_str(reason),
+            | SyntaxErrorKind::InstanceChildMultiplicity { reason }
+            | SyntaxErrorKind::InstanceGroupComputation { reason } => formatter.write_str(reason),
         }
     }
 }
