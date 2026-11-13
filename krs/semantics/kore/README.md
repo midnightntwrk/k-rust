@@ -34,6 +34,8 @@ The encoder stops with an error naming the construct when it meets one outside t
 | `kore.k` | The interpreter: module `KORE`, syntax module `KORE-SYNTAX`; 313 lines, 141 rules and equations (11 rewrite rules for the search, the rest equations of 44 functions). |
 | `tools/korek.py` | The KORE text reader; the encoder of kompile's `definition.kore` and the initial term's KORE into a program of `kore.k`; the decoders of `krun --search`'s and `kore.k`'s results into one canonical text. |
 | `tools/case.py` | Builds a case's encoded program and its reference expected result (needs K). |
+| `tools/check.py` | Runs `kore.k` on every case and compares its result with the expected one (needs only `krust`). |
+| `differences.toml` | The cases on which `kore.k`'s result differs from the haskell backend's, each with its reason. |
 | `cases/<id>/` | One case, below. |
 | `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 38 mutations of `kore.k`. |
 | `kink.lock` | kink-flow's verdict record of the corpus: each mutation's status and recorded killer, and the coverage verdicts. |
@@ -105,6 +107,23 @@ The backends disagree on 7 cases, recorded in each `expected.json`:
 - c10: the llvm backend evaluates `#if true #then 1 #else 10 /Int 0 #fi` lazily and steps to `b(1)`; the hook `KEQUAL.ite` is a function of its three arguments, so an undefined argument makes it undefined, and the haskell backend has no final configuration.
 - c11: the llvm backend aborts (`Called finish_rewriting with no output file specified`) on `half(3)`, which no equation of the partial function `half` applies to; the haskell backend returns `b(half(3))` under the condition `\ceil(half(3))`.
 
+## Rerunning the cases
+
+One command runs `kore.k` on every case and compares each result with the case's expected result; no K reference tool runs, since `expected.json` is the cached reference result.
+It needs a release `krust` (the repository's `k-rust` command-line tool) built from this tree:
+
+```sh
+with-z3-static-5.3.3 cargo +stable build --release -p k-rust --no-default-features --features cli --locked
+python3 tools/check.py                   # every case; or name cases: tools/check.py cases/<id> ...
+```
+
+`tools/check.py` takes `krust` from `$KRUST`, else `$CARGO_TARGET_DIR/release/krust`, else the repository's `target/release/krust`, and exits 2 when there is none.
+It kompiles `kore.k` once with `krust kcompile` (cached in its build directory by the SHA-256 of `kore.k` and of `krust`), runs each case's `kore.pgm` with `krust krun --sort Pgm`, decodes the result with the case's `symbols.json`, and compares it with the haskell backend's `finals`.
+A case passes when they are equal, or when `differences.toml` lists it and they still differ; a case whose `def.k` or `pgm` no longer has the SHA-256 its `expected.json` records fails as stale.
+It prints one line per case and a `PASS` or `FAIL` summary, and exits 0 only when every case passes.
+
+Measured in this tree: 18 of 18 cases pass, with c11 the one listed difference; each `krust krun` process takes 70 to 115 ms, the whole command about 2 s warm and 3 s with the `kcompile` (0.5 s).
+
 ## The kink corpus
 
 The corpus is a kink-flow corpus of a K definition, as `kink/examples/imp` is: `FLOW.toml` names `kore.k` and its modules, and its programs are the cases' `kore.pgm` (start sort `Pgm`).
@@ -156,6 +175,17 @@ Measured in this tree with kink-flow built from it (portable profile):
 
 The other six (c01, c02, c03, c05, c06, c08) each kill 2 to 10 mutations that another case also kills.
 
+## Next: collections
+
+Extending the fragment to `Map`, `Set` and `List` takes:
+
+- In `kore.k`: an encoded collection value with a canonical form (entries sorted by `cmp`, no duplicate keys or elements), so that equal collections are equal terms and `cmp` stays a total order; the collection hooks with their partiality (`_Map_` undefined on overlapping keys, lookup undefined on a missing key, `.Map`, `_|->_`, update, `in_keys`, size, and the same for `Set` and `List`); and AC matching of a collection pattern with a frame variable (`K |-> V M`), which tries every split of the subject and binds the frame to the rest. Matching then returns a set of substitutions instead of one, so `match`, `matchTs`, `fire` and `tryCl` work over lists of bindings, and a rule gives one candidate per substitution. `List` patterns are associative with a unit, not commutative: a frame in the middle splits the list at every position.
+- In the encoder: kompile's collection patterns (the `concat`, `unit` and `element` symbols with their attributes, such as `Lbl'Unds'Map'Unds'`), the collection sorts, and the hooked symbols' operation codes. In the decoders: the order in which each backend prints entries, normalized to the canonical order.
+- Cases and mutations: object definitions whose rules match maps, sets and lists with frames, and mutants that are wrong readings of AC matching (the frame dropped, only the first split tried, duplicate keys or elements admitted, `Set` idempotence ignored, `List` read as commutative), each killed by a case whose expected result comes from the haskell backend.
+- Cell collections (cells with multiplicity `*`) add their generated sorts and keys, and a configuration of more than one cell, which the encoder and `kore.k`'s single-cell configuration do not cover yet.
+
+This is of the order of `kore.k`'s present size again.
+
 ## Why K and not KRS
 
 The other packages of `krs/semantics` are KRS crates whose K is emitted by `krs`.
@@ -172,5 +202,8 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition, the encoder and the case builder, 18 cases with their reference results, and the kink corpus.
-Next: the command that reruns the cases.
+Done: the definition; the encoder and the case builder; 18 cases with their reference results; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which reruns the cases against the committed expected results.
+
+Not verified here: the reading of KORE is argued in `kore.k`'s header and checked only against the haskell backend on these 18 cases; the llvm backend's results are recorded, not relied on; no case exercises a definition outside the fragment, so the encoder's refusals are untested; kink's verdicts rest on k-rust's execution of `kore.k`, which is the same engine `tools/check.py` uses.
+
+Next: collections (above); a KRS port of `kore.k`, if wanted, as a unit of its own (above); and feeding the cases to a harness that runs other KORE implementations on `def.k` (kompiled) and `pgm.kore`, comparing with `expected.json`.

@@ -1,0 +1,13 @@
+# Cases on which kore.k's result differs from the haskell backend's expected result, each with
+# the reason it is not a defect of kore.k. tools/check.py passes a listed case only while the two
+# still differ, so an entry cannot outlive its difference.
+
+[[difference]]
+case = "c11-fn-no-equation"
+reason = """
+half is a partial function (not declared total) with no equation for 3, and the rule that \
+builds b(half(3)) applies. KORE does not fix the value of a partial function where no equation \
+applies. kore.k reads the application as a value that stays in the configuration, unconstrained; \
+the haskell backend keeps the same term under the condition \\ceil(half(3)), that is, the final \
+configuration exists if half(3) is defined. Both readings leave b(half(3)) as the one final \
+configuration; they differ only in the condition, which kore.k's results do not carry."""
