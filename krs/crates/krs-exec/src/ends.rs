@@ -61,6 +61,9 @@
 //!   `end` where an end holds and `reason` where it is refused.
 //!   A document may state any of the three, and each it states narrows the ends that meet it as
 //!   an expectation ("Results", below): `halt = "stuck"` alone is met by an end of any class.
+//!   A document also states a part its class or its `end` leaves no room for, as absent: `class
+//!   = "none"` states that the end has no declared end and no reason, and a finished `class` or
+//!   `end` that it has no reason; so the end document of a run states all three.
 //!   The three are refused with another halt, whose state is not known to be one no rule
 //!   applies to and so has no class, and in a definition that declares no end; an `end` or a
 //!   `reason` that disagrees with a stated `class` or `end` is refused too.
@@ -145,7 +148,14 @@
 //!   author wrote are that rule's steps, which the compilation does not change; the arrivals at
 //!   a context or a strict production are the heating and cooling steps the compilation
 //!   generates for it, which change with the compilation as the depth does.
-//! - Two sets of ends `L` and `R` ([`Semantics::compare_ends`]) are equal when their sets of projected
+//!   An end that ends where no rule applies and does not state a part of its declared class
+//!   that `x` states answers nothing there, and a caller refuses it as it refuses an end that
+//!   does not state a compared cell ([`Semantics::check_stated_class`]).
+//! - Two sets of ends `L` and `R` ([`Semantics::compare_ends`]) are compared on the parts of the
+//!   declared class that every end of both states, as an expectation is compared on what it
+//!   states: an end document that states only `halt = "stuck"` is compared with a run's end of
+//!   any class on its halt and cells, and two ends that both state their `class` differ where
+//!   the classes do. They are equal when their sets of projected
 //!   ends are. Otherwise the difference is between the first end of `R` outside `L` (in the order
 //!   of the canonical text of the projected end documents) and its nearest end of `L`, which
 //!   needs `L` complete for the end to be outside it; else the first end of `L` outside `R` and
@@ -281,21 +291,76 @@ pub struct DeclaredEnd {
 
 impl DeclaredEnd {
     /// The parts of `actual`, an end's whole statement (`None` for an end with none), that
-    /// `stated` states: what an expectation that states `stated` compares of the end.
-    fn narrowed(actual: Option<&Self>, stated: Option<&Self>) -> Option<Self> {
-        let stated = stated?;
+    /// `compared` names: what a comparison that compares those parts compares of the end.
+    /// `None` where it compares none, so that every end compared on nothing of its declared
+    /// class is alike there.
+    fn narrowed(actual: Option<&Self>, compared: ClassParts) -> Option<Self> {
+        if !compared.any() {
+            return None;
+        }
         Some(Self {
-            class: stated.class.and(actual.and_then(|actual| actual.class)),
-            end: stated
-                .end
-                .as_ref()
-                .and(actual.and_then(|actual| actual.end.clone())),
-            reason: stated
-                .reason
-                .as_ref()
-                .and(actual.and_then(|actual| actual.reason.clone())),
+            class: actual
+                .and_then(|actual| actual.class)
+                .filter(|_| compared.class),
+            end: actual
+                .and_then(|actual| actual.end.clone())
+                .filter(|_| compared.end),
+            reason: actual
+                .and_then(|actual| actual.reason.clone())
+                .filter(|_| compared.reason),
         })
     }
+}
+
+/// Which of the three parts of an end's declared class (`class`, `end`, `reason`) a comparison
+/// compares, or an end states ([module documentation](crate::ends#results)).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ClassParts {
+    class: bool,
+    end: bool,
+    reason: bool,
+}
+
+impl ClassParts {
+    /// The parts `declared` writes.
+    fn written(declared: Option<&DeclaredEnd>) -> Self {
+        declared.map_or_else(Self::default, |declared| Self {
+            class: declared.class.is_some(),
+            end: declared.end.is_some(),
+            reason: declared.reason.is_some(),
+        })
+    }
+
+    /// The parts both state.
+    const fn and(self, other: Self) -> Self {
+        Self {
+            class: self.class && other.class,
+            end: self.end && other.end,
+            reason: self.reason && other.reason,
+        }
+    }
+
+    const fn any(self) -> bool {
+        self.class || self.end || self.reason
+    }
+
+    /// The parts of `self` that `other` lacks, by their keys.
+    fn missing(self, other: Self) -> impl Iterator<Item = &'static str> {
+        [
+            ("class", self.class && !other.class),
+            ("end", self.end && !other.end),
+            ("reason", self.reason && !other.reason),
+        ]
+        .into_iter()
+        .filter_map(|(key, missing)| missing.then_some(key))
+    }
+
+    /// Every part.
+    const ALL: Self = Self {
+        class: true,
+        end: true,
+        reason: true,
+    };
 }
 
 /// The content of one cell of an end.
@@ -1470,6 +1535,66 @@ impl Semantics {
         match first {
             Some(ty) if types.all(|other| other.as_ref() == Some(ty)) => Ok(ty.clone()),
             _ => Err("the definition's refused ends do not share one reason type with a KRS declaration, so the reason is read at the type of the end the document states: state `end`".to_owned()),
+        }
+    }
+
+    /// The parts of its declared class `end` states ([module documentation](crate::ends#results)):
+    /// each part it writes, and each its class or its declared end leaves no room for, which it
+    /// states to be absent: an end of class `none` has no declared end and no reason, and a
+    /// finished end no reason.
+    /// So the end of a run of a definition that declares ends, which writes every part it has,
+    /// states all three where it ends where no rule applies, and an end that writes nothing of
+    /// its class states none.
+    fn class_parts(&self, end: &End) -> ClassParts {
+        let Some(declared) = &end.class.declared else {
+            return ClassParts::default();
+        };
+        let written = ClassParts::written(Some(declared));
+        let class = declared.class.or_else(|| {
+            declared
+                .end
+                .as_deref()
+                .and_then(|item| self.ends.get(item))
+                .map(|end| DeclaredClass::of(end.class))
+        });
+        ClassParts {
+            class: written.class,
+            end: written.end || class == Some(DeclaredClass::None),
+            reason: written.reason
+                || matches!(class, Some(DeclaredClass::Finished | DeclaredClass::None)),
+        }
+    }
+
+    /// Check that `end` states each part of its declared class that the expectation `expected`
+    /// states, as [`Self::check_stated`] checks its cells: an expectation is compared on what
+    /// it states, so an end that states nothing there answers nothing of it, and is refused.
+    /// An end that does not end where no rule applies has no class to state, and differs from
+    /// such an expectation at its halt instead. `side` names the end in a refusal.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EndError::Document`] at the first such part `end` does not state.
+    pub fn check_stated_class(
+        &self,
+        expected: &End,
+        end: &End,
+        side: &str,
+    ) -> Result<(), EndError> {
+        if end.class.halt != Halt::Stuck {
+            return Ok(());
+        }
+        let stated = self.class_parts(end);
+        match ClassParts::written(expected.class.declared.as_ref())
+            .missing(stated)
+            .next()
+        {
+            None => Ok(()),
+            Some(key) => Err(EndError::Document {
+                position: key.to_owned(),
+                message: format!(
+                    "the {side} end does not state `{key}`, which the expectation compares: an end checked against an expectation states each part of its declared class the expectation states, as it states each compared cell"
+                ),
+            }),
         }
     }
 
@@ -2684,20 +2809,23 @@ impl Lens<'_> {
             })
     }
 
-    /// A side's ends projected onto the selected cells, in the order of the canonical text of
-    /// their documents (ends with equal texts, which only values with no document can have, in
-    /// the order the producer gave them), each once.
+    /// A side's ends projected onto the selected cells and narrowed to the `compared` parts of
+    /// their declared class, in the order of the canonical text of their documents (ends with
+    /// equal texts, which only values with no document can have, in the order the producer gave
+    /// them), each once.
     fn projected(
         &self,
         selection: &[Selection],
         side: Side<'_>,
+        compared: ClassParts,
     ) -> Result<Vec<(String, End)>, EndError> {
         let mut ends = side
             .ends
             .ends
             .iter()
             .map(|end| {
-                let end = self.project(selection, end, side.name)?;
+                let mut end = self.project(selection, end, side.name)?;
+                end.class.declared = DeclaredEnd::narrowed(end.class.declared.as_ref(), compared);
                 Ok((canonical_text(&self.end_json(&end, false)?), end))
             })
             .collect::<Result<Vec<_>, EndError>>()?;
@@ -2792,13 +2920,10 @@ impl Semantics {
         let selection = self.viewed_selection(comparison)?;
         let lens = self.lens(&comparison.views);
         let x = lens.project(&selection, expected_end, expected.name)?;
-        let mut projected = lens.projected(&selection, actual)?;
         // The expectation compares what it states of the declared class, as it compares the
         // cells it states: each end keeps the parts of its own that the expectation states.
-        for (_, end) in &mut projected {
-            end.class.declared =
-                DeclaredEnd::narrowed(end.class.declared.as_ref(), x.class.declared.as_ref());
-        }
+        let compared = ClassParts::written(x.class.declared.as_ref());
+        let projected = lens.projected(&selection, actual, compared)?;
         if let Some(reason) = Lens::unnamed_stop(expected).or_else(|| Lens::unnamed_stop(actual)) {
             return Ok(Compared::Inconclusive(reason));
         }
@@ -2842,8 +2967,19 @@ impl Semantics {
     ) -> Result<Compared, EndError> {
         let selection = self.viewed_selection(comparison)?;
         let lens = self.lens(&comparison.views);
-        let left_ends = lens.projected(&selection, left)?;
-        let right_ends = lens.projected(&selection, right)?;
+        // Two sides are compared on what both state of the declared class: each part every end
+        // of both sides states, as an expectation is compared on what it states. So an end
+        // document that states no class is compared with a run's end on its halt and its cells.
+        let compared = left
+            .ends
+            .ends
+            .iter()
+            .chain(&right.ends.ends)
+            .fold(ClassParts::ALL, |compared, end| {
+                compared.and(self.class_parts(end))
+            });
+        let left_ends = lens.projected(&selection, left, compared)?;
+        let right_ends = lens.projected(&selection, right, compared)?;
         for (side, ends) in [(left, &left_ends), (right, &right_ends)] {
             if ends.is_empty() {
                 return Ok(Compared::Inconclusive(match &side.ends.incomplete {
@@ -2918,7 +3054,7 @@ fn k_shown((text, rendering): (String, &'static str), position: String) -> Shown
 
 #[cfg(test)]
 mod tests {
-    use super::{DeclaredClass, DeclaredEnd, VALUE_CAP, cut};
+    use super::{ClassParts, DeclaredClass, DeclaredEnd, VALUE_CAP, cut};
 
     fn shown(text: &str) -> String {
         text.to_owned()
@@ -2967,19 +3103,27 @@ mod tests {
         }
     }
 
+    /// The parts of the declared class an end writes.
+    fn written(declared: &DeclaredEnd) -> ClassParts {
+        ClassParts::written(Some(declared))
+    }
+
     /// An expectation compares the parts of the declared class it states: an end keeps those
     /// parts of its own, so an expectation that states none compares none, and one that states
     /// a part an end lacks differs from it there.
     #[test]
     fn an_end_is_narrowed_to_what_an_expectation_states() {
         let actual = declared(DeclaredClass::Refused, Some("crate::trap"));
-        assert_eq!(DeclaredEnd::narrowed(Some(&actual), None), None);
+        assert_eq!(
+            DeclaredEnd::narrowed(Some(&actual), ClassParts::default()),
+            None
+        );
         let class = DeclaredEnd {
             class: Some(DeclaredClass::Refused),
             ..DeclaredEnd::default()
         };
         assert_eq!(
-            DeclaredEnd::narrowed(Some(&actual), Some(&class)),
+            DeclaredEnd::narrowed(Some(&actual), written(&class)),
             Some(class.clone())
         );
         let other = DeclaredEnd {
@@ -2987,12 +3131,41 @@ mod tests {
             ..DeclaredEnd::default()
         };
         assert_ne!(
-            DeclaredEnd::narrowed(Some(&actual), Some(&other)),
+            DeclaredEnd::narrowed(Some(&actual), written(&other)),
             Some(other.clone())
         );
         // A gap has no end, and an end of another halt states nothing.
         let gap = declared(DeclaredClass::None, None);
-        assert_ne!(DeclaredEnd::narrowed(Some(&gap), Some(&other)), Some(other));
-        assert_ne!(DeclaredEnd::narrowed(None, Some(&class)), Some(class));
+        assert_ne!(
+            DeclaredEnd::narrowed(Some(&gap), written(&other)),
+            Some(other)
+        );
+        assert_ne!(DeclaredEnd::narrowed(None, written(&class)), Some(class));
+    }
+
+    /// Two sides compare the parts both state, and a part one side does not state is compared
+    /// on neither; what a part leaves missing is named by its key.
+    #[test]
+    fn two_statements_compare_the_parts_both_state() {
+        let class = ClassParts {
+            class: true,
+            ..ClassParts::default()
+        };
+        assert_eq!(ClassParts::ALL.and(class), class);
+        assert!(!ClassParts::default().and(class).any());
+        assert_eq!(
+            ClassParts::ALL.missing(class).collect::<Vec<_>>(),
+            ["end", "reason"]
+        );
+        assert_eq!(class.missing(ClassParts::ALL).next(), None);
+        let finished = declared(DeclaredClass::Finished, Some("crate::halt"));
+        let narrowed = DeclaredEnd::narrowed(Some(&finished), class);
+        assert_eq!(
+            narrowed,
+            Some(DeclaredEnd {
+                class: Some(DeclaredClass::Finished),
+                ..DeclaredEnd::default()
+            })
+        );
     }
 }

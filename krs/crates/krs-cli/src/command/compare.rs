@@ -53,10 +53,17 @@
 //! other. So a run side is followed again for its completeness only when the verdict rests on
 //! it, and the sides are compared again when it is incomplete; each side at most once.
 //!
+//! In a definition that declares ends, two sides are compared on what both state of the declared
+//! class of their ends (`class`, `end`, `reason`), each part where every end of both states it
+//! ([`Semantics::compare_ends`]): an end document that states only its halt is compared with a
+//! run's end of any class on its halt and cells.
+//!
 //! With `--expect CASE`, the case's `expect` table is the expected end, with the cells it is
 //! compared on, its views and its observer, and the one side given is checked against it as
 //! `krs run --case` checks a run's end ([`Semantics::check_expectation`]): `--compare`, `--view`
-//! and `--observer` do not apply, since the expectation states them.
+//! and `--observer` do not apply, since the expectation states them. An end document is refused
+//! where it does not state a compared cell, or, ending `stuck`, a part of the declared class the
+//! expectation states ([`Semantics::check_stated_class`]).
 //!
 //! The case of a case side is run, never checked: its own `expect` table is not part of the
 //! comparison.
@@ -1421,12 +1428,14 @@ impl Produced {
     }
 
     /// The end `document` of the side `file` states, refused unless it states every cell
-    /// `comparison` compares.
+    /// `comparison` compares and, checked against the expectation `expected`, each part of its
+    /// declared class the expectation states.
     fn end(
         semantics: &Semantics,
         name: &'static str,
         (file, document, base): (&SideFile, &Json, PathBuf),
         comparison: &Comparison,
+        expected: Option<&krs_exec::End>,
     ) -> Result<Self, Failure> {
         let mut files = CaseFiles { base };
         let end = semantics
@@ -1435,6 +1444,11 @@ impl Produced {
         semantics
             .check_stated(comparison, &end, name)
             .map_err(|error| refuse(file, &error.to_string()))?;
+        if let Some(expected) = expected {
+            semantics
+                .check_stated_class(expected, &end, name)
+                .map_err(|error| refuse(file, &error.to_string()))?;
+        }
         Ok(Self {
             name,
             source: Source::End(Ends::one(end)),
@@ -1647,7 +1661,14 @@ fn compare_sides(
             file,
             document,
             base,
-        } => Produced::end(semantics, name, (file, document, base.clone()), &comparison).map(Some),
+        } => Produced::end(
+            semantics,
+            name,
+            (file, document, base.clone()),
+            &comparison,
+            None,
+        )
+        .map(Some),
         SideDocument::Case(_) | SideDocument::Observations { .. } => Ok(None),
     };
     let left = read_end("left", &first)?;
@@ -1821,6 +1842,7 @@ fn check_expectation(
             "actual",
             (file, document, base.clone()),
             &expectation.comparison,
+            Some(&expectation.end),
         )?,
         SideDocument::Case(actual) => {
             Produced::run(runs, semantics, conditions, "actual", actual, timings)?

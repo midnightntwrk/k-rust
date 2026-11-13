@@ -11,6 +11,7 @@
 //! The classes are evaluated only where no rule applies: a state a step bound or a stop ended
 //! the run at has none, whatever a declared end's function would say of it.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use std::process::Output;
@@ -233,6 +234,46 @@ fn run_in(member: &str, package: &str, name: &str, program: &str, arguments: &[&
         .args(arguments)
         .output()
         .unwrap()
+}
+
+/// `krs VERB --package PACKAGE --definition main ARGUMENTS` in `member`, after writing each of
+/// `files` (a name and its text) there.
+fn krs_in(
+    member: &str,
+    package: &str,
+    verb: &str,
+    files: &[(&str, &str)],
+    arguments: &[&str],
+) -> Output {
+    let project = project();
+    let root = project.directory.path().join(member);
+    for (name, text) in files {
+        fs::write(root.join(name), text).unwrap();
+    }
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, project.target.path());
+    process
+        .current_dir(&root)
+        .arg(verb)
+        .args(["--package", package, "--definition", "main"])
+        .args(arguments)
+        .output()
+        .unwrap()
+}
+
+/// `krs VERB` on the definition that declares ends.
+fn krs(verb: &str, files: &[(&str, &str)], arguments: &[&str]) -> Output {
+    krs_in("declaring", DECLARING, verb, files, arguments)
+}
+
+/// A named case of the program `program`, its `expect` table `expect` when not empty.
+fn named_case(name: &str, program: &str, expect: &str) -> String {
+    let mut case =
+        format!("[[case]]\nname = \"{name}\"\ninputs.pgm = {{ \"$text\" = \"{program}\" }}\n");
+    if !expect.is_empty() {
+        let _ = writeln!(case, "expect = {{ {expect} }}");
+    }
+    case
 }
 
 /// `krs run` on the definition that declares ends.
@@ -760,4 +801,386 @@ fn a_definition_that_declares_no_end_says_what_it_said() {
         ),
         "{stderr}"
     );
+}
+
+/// `krs cases` answers a case of a declaring definition as `krs run` answers its run: a case that
+/// states no expectation and ends at a declared end, finished or refused, ran to an end; one that
+/// ends in no declared end, at a gap or `undefined`, is a finding; one whose end is left undecided
+/// is no answer; and an expectation's verdict replaces all of these.
+/// Each record names the class of its end as `krs run`'s status line does.
+#[test]
+fn a_batch_answers_each_case_as_krs_run_answers_its_run() {
+    let ended = [
+        named_case("finished", "quit 3", ""),
+        named_case("refused", "fault 7", ""),
+        named_case("refused-input", "quit 12", ""),
+    ]
+    .concat();
+    let output = krs(
+        "cases",
+        &[("ended.toml", &ended)],
+        &["ended.toml", "--jobs", "1"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        "ended.toml#finished: ran, finished after 1 step, at `crate::drained`\n\
+         ended.toml#refused: ran, refused after 1 step, at `crate::trap`: `trap 7`\n\
+         ended.toml#refused-input: ran, refused after 0 steps, at `crate::too_big`: `12`\n\
+         krs cases: 3 cases: 0 met, 0 unmet, 0 inconclusive, 0 refused, 3 ran (0 at no declared end)\n"
+    );
+    batch_of_every_end(&ended);
+}
+
+/// A batch of a case of each kind of end, `ended` and the others: a gap and an undefined end
+/// are findings, so the batch exits 1, and its records name each end's class.
+fn batch_of_every_end(ended: &str) {
+    let all = [
+        ended.to_owned(),
+        named_case("gap", "rest", ""),
+        named_case("undefined", "lose 1", ""),
+        named_case("undecided", "wait 1", ""),
+        named_case(
+            "gap-expected",
+            "rest",
+            "halt = \"stuck\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+        named_case(
+            "gap-stated",
+            "rest",
+            "halt = \"stuck\", class = \"none\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+        named_case(
+            "class-unmet",
+            "quit 12",
+            "halt = \"stuck\", class = \"finished\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+    ]
+    .concat();
+    let files = [("all.toml", all.as_str())];
+    let arguments = ["all.toml", "--jobs", "2", "--view-budget", "100"];
+    let output = krs("cases", &files, &arguments);
+    let stdout = text(&output.stdout);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    for line in [
+        "all.toml#gap: ran, stuck after 0 steps, at no declared end\n",
+        "all.toml#undefined: ran, undefined after 0 steps\n",
+        "all.toml#undecided: ran, end-undecided after 0 steps, undecided whether the declared end `crate::waited` holds: the evaluation of whether it holds stopped before it ended (it spent its budget of 100 polls); a larger --view-budget can decide it\n",
+        "all.toml#gap-expected: expectation met\n",
+        "all.toml#gap-stated: expectation met\n",
+        "krs cases: 9 cases: 2 met, 1 unmet, 0 inconclusive, 0 refused, 6 ran (2 at no declared end)\n",
+    ] {
+        assert!(stdout.contains(line), "{line}\n{stdout}");
+    }
+    assert!(
+        stdout.contains("expected: stuck, class finished\n  actual:   stuck, class refused\n"),
+        "{stdout}"
+    );
+    let mut json_arguments = arguments.to_vec();
+    json_arguments.extend(["--output", "json"]);
+    json_records_of_every_end(&files, &json_arguments);
+}
+
+/// The JSON records of [`batch_of_every_end`]'s batch: `krs-cases/5`, each carrying the class
+/// of its end as `krs run --output json` does, and a summary that counts `undeclared`.
+fn json_records_of_every_end(files: &[(&str, &str)], json_arguments: &[&str]) {
+    let output = krs("cases", files, json_arguments);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let records = text(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<Json>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        records
+            .iter()
+            .all(|record| record["schema"] == "krs-cases/5"),
+        "{records:?}"
+    );
+    let record = |name: &str| {
+        records
+            .iter()
+            .find(|record| record["case"] == format!("all.toml#{name}"))
+            .unwrap_or_else(|| panic!("{name}: {records:?}"))
+    };
+    assert_eq!(
+        record("finished")["end"],
+        json!({"class": "finished", "item": "crate::drained"})
+    );
+    assert_eq!(
+        record("refused-input")["end"],
+        json!({"class": "refused", "item": "crate::too_big", "reason": 12, "reason_text": "12"})
+    );
+    assert_eq!(record("gap")["verdict"], "ran");
+    assert_eq!(record("gap")["halt"], "stuck");
+    assert_eq!(record("gap")["end"], json!({"class": "none"}));
+    assert_eq!(record("undefined")["halt"], "undefined");
+    assert_eq!(record("undefined").get("end"), None);
+    assert_eq!(record("undecided")["halt"], "end-undecided");
+    assert_eq!(record("undecided").get("end"), None);
+    assert_eq!(
+        record("undecided")["end_undecided"]["item"],
+        "crate::waited"
+    );
+    assert_eq!(record("undecided")["end_undecided"]["budget_spent"], true);
+    assert_eq!(record("gap-expected")["verdict"], "met");
+    assert_eq!(record("gap-expected")["end"], json!({"class": "none"}));
+    assert_eq!(record("class-unmet")["verdict"], "unmet");
+    let summary = records.last().unwrap();
+    assert_eq!(
+        summary["summary"],
+        json!({"cases": 9, "met": 2, "unmet": 1, "inconclusive": 0, "refused": 0, "ran": 6, "undeclared": 2})
+    );
+    assert_eq!(summary["status"], 1);
+}
+
+/// An end left undecided is no answer, and ends of both classes at one state refuse the case,
+/// as they refuse the run.
+#[test]
+fn a_case_is_unanswered_at_an_undecided_end_and_refused_at_overlapping_ends() {
+    // An end left undecided, alone, is no answer.
+    let undecided = named_case("undecided", "wait 1", "");
+    let output = krs(
+        "cases",
+        &[("undecided.toml", &undecided)],
+        &["undecided.toml", "--view-budget", "100"],
+    );
+    assert_eq!(output.status.code(), Some(3), "{}", text(&output.stdout));
+
+    // Ends of both classes at one state refuse the case, as they refuse the run.
+    let both = named_case("both", "both", "");
+    let output = krs("cases", &[("both.toml", &both)], &["both.toml"]);
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stdout));
+    assert!(
+        text(&output.stdout).contains("both.toml#both: refused: after 0 steps the run ended where no rule applies, at a state where the declared ends `crate::both_finished` (finished) and `crate::both_refused` (refused) both hold"),
+        "{}",
+        text(&output.stdout)
+    );
+}
+
+/// A batch of the definition that declares no end keeps its version, its records and its summary.
+#[test]
+fn a_batch_of_a_definition_that_declares_no_end_says_what_it_said() {
+    let cases = [
+        named_case("rest", "rest", ""),
+        named_case("lose", "lose 1", ""),
+    ]
+    .concat();
+    let files = [("plain.toml", cases.as_str())];
+    let output = krs_in(
+        "plain",
+        PLAIN,
+        "cases",
+        &files,
+        &["plain.toml", "--jobs", "1"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        "plain.toml#rest: ran, stuck after 0 steps\n\
+         plain.toml#lose: ran, undefined after 0 steps\n\
+         krs cases: 2 cases: 0 met, 0 unmet, 0 inconclusive, 0 refused, 2 ran\n"
+    );
+    let output = krs_in(
+        "plain",
+        PLAIN,
+        "cases",
+        &files,
+        &["plain.toml", "--jobs", "1", "--output", "json"],
+    );
+    assert_eq!(
+        text(&output.stdout),
+        "{\"case\":\"plain.toml#rest\",\"halt\":\"stuck\",\"schema\":\"krs-cases/4\",\"steps\":0,\"verdict\":\"ran\"}\n\
+         {\"case\":\"plain.toml#lose\",\"halt\":\"undefined\",\"schema\":\"krs-cases/4\",\"steps\":0,\"verdict\":\"ran\"}\n\
+         {\"schema\":\"krs-cases/4\",\"status\":0,\"summary\":{\"cases\":2,\"inconclusive\":0,\"met\":0,\"ran\":2,\"refused\":0,\"unmet\":0}}\n"
+    );
+}
+
+/// `krs compare` compares two sides on what both state of the declared class, as an expectation
+/// is compared on what it states: an end document that states only its halt is compared with a
+/// run's end of any class on its halt and cells, and two ends that both state a class differ
+/// where the classes do.
+#[test]
+fn compare_narrows_the_declared_class_to_what_both_sides_state() {
+    let cases = [
+        named_case("refused", "quit 12", ""),
+        named_case("finished", "halt", ""),
+        named_case("gap", "rest", ""),
+    ]
+    .concat();
+    // Each document states its halt, its count, and the parts of the class shown.
+    let documents = [
+        ("stuck.json", json!({})),
+        ("class-refused.json", json!({"class": "refused"})),
+        ("class-finished.json", json!({"class": "finished"})),
+        ("end-too-big.json", json!({"end": "crate::too_big"})),
+        (
+            "reason-13.json",
+            json!({"end": "crate::too_big", "reason": 13}),
+        ),
+        ("class-none.json", json!({"class": "none"})),
+    ]
+    .map(|(name, mut document)| {
+        document["halt"] = json!("stuck");
+        document["cells"] = json!({"count": 0});
+        (name, document.to_string())
+    });
+    let mut files = documents
+        .iter()
+        .map(|(name, text)| (*name, text.as_str()))
+        .collect::<Vec<_>>();
+    files.push(("sides.toml", &cases));
+    let comparisons = [
+        // No class stated: compared on the halt and the cells alone.
+        ("stuck.json", "sides.toml#refused", 0, ""),
+        ("stuck.json", "sides.toml#finished", 0, ""),
+        ("stuck.json", "sides.toml#gap", 0, ""),
+        ("sides.toml#gap", "stuck.json", 0, ""),
+        ("stuck.json", "class-finished.json", 0, ""),
+        // A stated class is compared with the run's.
+        ("class-refused.json", "sides.toml#refused", 0, ""),
+        (
+            "class-finished.json",
+            "sides.toml#refused",
+            1,
+            "  left:  stuck, class finished\n  right: stuck, class refused, reason `12`\n",
+        ),
+        ("class-finished.json", "sides.toml#finished", 0, ""),
+        ("class-none.json", "sides.toml#gap", 0, ""),
+        (
+            "class-none.json",
+            "sides.toml#finished",
+            1,
+            "  left:  stuck, class none\n  right: stuck, class finished, at `crate::halted`\n",
+        ),
+        // A stated end and reason likewise.
+        ("end-too-big.json", "sides.toml#refused", 0, ""),
+        (
+            "reason-13.json",
+            "sides.toml#refused",
+            1,
+            "  left:  stuck, at `crate::too_big`, reason `13`\n  right: stuck, at `crate::too_big`, reason `12`\n",
+        ),
+        // Two documents that state different classes differ.
+        (
+            "class-refused.json",
+            "class-finished.json",
+            1,
+            "  left:  stuck, class refused\n  right: stuck, class finished\n",
+        ),
+        // One states its class, the other its end: compared on neither part.
+        ("class-finished.json", "end-too-big.json", 0, ""),
+        // Two runs of different classes differ.
+        (
+            "sides.toml#refused",
+            "sides.toml#finished",
+            1,
+            "  left:  stuck, class refused, at `crate::too_big`, reason `12`\n  right: stuck, class finished, at `crate::halted`\n",
+        ),
+    ];
+    for (left, right, code, shown) in comparisons {
+        let output = krs("compare", &files, &[left, right, "--compare", "count"]);
+        let stderr = text(&output.stderr);
+        let stdout = text(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{left} {right}: {stdout}{stderr}"
+        );
+        if code == 0 {
+            assert_eq!(stdout, "krs compare: equal\n", "{left} {right}: {stderr}");
+        } else {
+            assert!(
+                stdout.contains("at the end's halt") && stdout.contains(shown),
+                "{left} {right}: {stdout}{stderr}"
+            );
+        }
+    }
+}
+
+/// `krs compare --expect` checks an end against an expectation's class as `krs run --case` does,
+/// and refuses an end document that does not state a part of the class the expectation states,
+/// as it refuses one that does not state a compared cell.
+#[test]
+fn compare_checks_an_end_against_the_class_an_expectation_states() {
+    let expected = [
+        named_case(
+            "refused",
+            "quit 12",
+            "halt = \"stuck\", class = \"refused\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+        named_case(
+            "any",
+            "quit 12",
+            "halt = \"stuck\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+    ]
+    .concat();
+    let stuck = json!({"halt": "stuck", "cells": {"count": 0}}).to_string();
+    let finished = json!({"halt": "stuck", "class": "finished", "cells": {"count": 0}}).to_string();
+    let stopped =
+        json!({"halt": "stopped", "rule": "crate::fault", "cells": {"count": 0}}).to_string();
+    let files = [
+        ("expected.toml", expected.as_str()),
+        ("stuck.json", stuck.as_str()),
+        ("finished.json", finished.as_str()),
+        ("stopped.json", stopped.as_str()),
+    ];
+    let checks = [
+        ("expected.toml#any", "stuck.json", 0),
+        ("expected.toml#any", "finished.json", 0),
+        ("expected.toml#refused", "finished.json", 1),
+        ("expected.toml#refused", "expected.toml#any", 0),
+        // Another halt has no class to state, and differs at its halt.
+        ("expected.toml#refused", "stopped.json", 1),
+    ];
+    for (case, actual, code) in checks {
+        let output = krs("compare", &files, &["--expect", case, actual]);
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{case} {actual}: {}{}",
+            text(&output.stdout),
+            text(&output.stderr)
+        );
+    }
+    let output = krs(
+        "compare",
+        &files,
+        &["--expect", "expected.toml#refused", "stuck.json"],
+    );
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("the actual end does not state `class`, which the expectation compares"),
+        "{stderr}"
+    );
+}
+
+/// `krs search` does not evaluate the declared ends at its final states, so it refuses a case
+/// whose expectation states a declared class, and checks one that states only its halt.
+#[test]
+fn search_refuses_an_expectation_of_a_declared_class() {
+    let cases = [
+        named_case(
+            "class",
+            "quit 12",
+            "halt = \"stuck\", class = \"refused\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+        named_case(
+            "halt",
+            "quit 12",
+            "halt = \"stuck\", compare = [\"count\"], cells = { count = 0 }",
+        ),
+    ]
+    .concat();
+    let files = [("search.toml", cases.as_str())];
+    let output = krs("search", &files, &["--case", "search.toml#class"]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("expects a declared class of its end (`class`, `end` or `reason`), which krs search does not evaluate at its final states"),
+        "{stderr}"
+    );
+    let output = krs("search", &files, &["--case", "search.toml#halt"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
 }

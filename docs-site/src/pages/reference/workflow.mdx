@@ -307,6 +307,8 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
 - `search` exits 0 when its set of final states is complete or it stopped at `--max-solutions`, and 3 when some path was not decided; with an expectation, it exits by its verdict, as `run` does.
 - `prove` is a batch of its claims: a claim `proven` or `trusted` counts 0 (a `trusted` claim is assumed, never proven, and the summary line counts it separately), `disproved` or `failed` 1, `indeterminate`, `depth-bound`, `breadth-bound` or `timeout` 3, and `crashed` 2, since the process proving it failed and gave no answer; a failure of the batch itself, such as a definition with no claims, a `--claim` that names none, or a crash after the last claim, which leaves the batch's own checks and output unfinished, exits 2.
 - `cases` is a batch of its cases: `met` counts 0, `unmet` 1, `inconclusive` 3, `refused` 2, and `ran` 0, or 3 when the case's run has no end (it halted `indeterminate`, `timeout` or another inconclusive halt, or has no one path); its JSON summary's `status` is the exit status.
+  In a definition that declares ends, a `ran` case counts as `run` exits for its run: 0 at a `finished` or a `refused` end, 1 in no declared end (a state where no rule applies and no declared end holds, or `undefined`), since the definition does not account for that end, and 3 at `end-undecided`; a case whose run ends where ends of both classes hold is refused (2).
+  A case's expectation decides its count instead, as it decides `run`'s exit status.
 - `compare` exits 0 when the sides are equal (with `--expect`, when the expectation is met), 1 when they differ (unmet), 3 when the comparison is inconclusive, and 2 when a side or the comparison is refused.
   With `--pairs`, it is a batch of its pairs, each counting what it would exit alone, and a refused pair 2; its JSON summary's `status` is the exit status.
 
@@ -936,17 +938,21 @@ A case binds only the inputs it states, and its `run` table alone bounds and sto
 `--name PATTERN` runs only the named cases whose name PATTERN matches (`*` any text, `?` any one character), and a pattern that selects no case is a usage error.
 
 A case's record is printed as soon as the cases before it are, so a slow case holds back the records after it, never their runs.
-By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation, with the stop clause of `krs run`'s status line when its run has stop rules (``ran, stopped after 10 steps, before `crate::tick` (stop 1 of 1, where `AccOver` holds; 6 arrivals)``) (`ran:` and the reason when its run reaches several states under conditions it cannot decide, so has no end), or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
+By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation, with the stop clause of `krs run`'s status line when its run has stop rules (``ran, stopped after 10 steps, before `crate::tick` (stop 1 of 1, where `AccOver` holds; 6 arrivals)``) and, in a definition that declares ends, the class of its end as that line names it (``ran, refused after 0 steps, at `crate::too_big`: `12` ``, `ran, stuck after 0 steps, at no declared end`) (`ran:` and the reason when its run reaches several states under conditions it cannot decide, so has no end), or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
 A case refused because its expectation is a `depth-bound` end gets a one-line record, and the reason and what to state instead are printed once, before the count, naming every case refused for it: the text is the same for each such case, and a corpus migrated from depth bounds has many.
-A last line counts the verdicts.
-`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/4"`:
+A last line counts the verdicts, and in a definition that declares ends the `ran` cases that ended in no declared end (`3 ran (1 at no declared end)`).
+`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/4"` (`krs-cases/5` for a definition that declares ends, below):
 
 - a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/3`); `reason`, for `inconclusive` and `refused`, and for `ran` with no end; `stop`, `stops`, `arrivals`, `undecided` and `passed_stops`, as `krs run --output json` reports them, when the case's run has stop rules; and `views` and `observer`, when the expectation names them, whatever the verdict;
 - then the summary, `{"schema": "krs-cases/4", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
 
+In a definition that declares ends ([declared ends](/reference/language#declared-ends)), a record of a case whose run ended where no rule applies also has `end`, the class of its end as `krs run --output json` reports it (`class`, `item`, and a refused end's `reason` and `reason_text`), and a record of a case whose run ended `end-undecided` has `end_undecided` (`item`, `reason`, `budget_spent`); the summary also counts `undeclared`, the `ran` cases that ended in no declared end.
+Every record of such a definition is `krs-cases/5`, and a definition that declares no end keeps `krs-cases/4` and its records' bytes.
+
 Version 2 of the format reads differently from version 1 in two places, so it takes the next version: a case that states no expectation and whose run has no one path is `ran`, with its `reason` and no `halt`, where version 1 recorded it `refused`; and the summary's `status` is the exit status of the four actions ([exit status](#exit-status)), under which a refused case gives 2, where version 1 gave 1.
 Version 3 records a halt version 2 does not know, so it takes the next version: a case whose run's stop condition is left undecided at an arrival (`run.stop_when`) records the halt `stop-undecided`, and is `inconclusive`.
 Version 4 records the stops of a run with stop rules, which a version 3 reader would read, from their absence, as a run that passed none.
+Version 5 is the format of a definition that declares ends: a version 4 reader would read a case that ran to a state where no rule applies and no declared end holds as a case that ran to an end, and it does not know the halt `end-undecided`.
 
 `krs cases` exits as a batch of its cases ([exit status](#exit-status)).
 
@@ -962,7 +968,7 @@ krs compare --package my-semantics --definition main cases/boot.toml#rom observa
 
 `krs compare` compares two sides of the definition, the left and the right side: their ends, on the halt and on every leaf cell that is not unobservable, and their [declared observations](#compare-observations).
 Each side is a `.toml` or `.json` file, read by its keys:
-an end document (`halt`, `rule`, `cells`), written as [an expectation](#expectations) writes its end;
+an end document (`halt`, `rule`, `cells`, and `class`, `end` and `reason` in a definition that declares ends), written as [an expectation](#expectations) writes its end;
 an observation document (`schema`, `channels`), the `krs-observations/1` document `krs run --output observations` prints;
 or a case document, whose case is run as `krs run --case` runs it (its inputs, its `run` table and its `observe`), and whose run's end, and the observations its `observe` declares, are the side.
 `FILE#NAME` names a case of a document of named cases, as the case's id in `krs cases` does.
@@ -973,12 +979,16 @@ A run's end is its case's only end exactly where the run chose nowhere: no state
 Where it chose, the definition may end otherwise from the same inputs, so its side is incomplete.
 Two sides are *equal* when their ends are; they *differ* when one side has an end the other, complete, side does not; otherwise the comparison is *inconclusive*, as it is when a side has no end (its run halted `indeterminate`, `timeout` or another inconclusive halt).
 An end document that leaves out a cell the comparison compares is refused, naming the cell and its type, before any case is run.
+In a definition that declares ends, two sides are also compared on what both state of the declared class of their ends (`class`, `end` and `reason`): a part is compared where every end of both sides states it, as an expectation is compared on what it states.
+A run's end states all three where it ends where no rule applies, and an end document states those it writes, and those its `class` or its `end` leaves no room for (`class = "none"` has no end and no reason, a finished end no reason).
+So an end document that states only `halt = "stuck"` is compared with a run's end of any class on its halt and cells, and two ends that both state their `class` differ where the classes do.
 
 `--compare CELL,...` compares only the cells it names by declared path (a group names its leaves), and may be repeated; a cell it names may not be unobservable.
 `--view CELL=FUNCTION` compares a cell on the value of a function of one parameter at the cell's value on each side, as an expectation's `views` does, and may be repeated, one view per cell; the views are evaluated in the definition compared, or in the definition `--observer PACKAGE:DEFINITION` names, composed with the facets it declares and the `--dependency` facets its closure holds, within `--view-budget POLLS` polls each.
 
 `--expect CASE` checks the one side given against the expectation of CASE (`FILE` or `FILE#NAME`) on the cells, views and observer it names, as `krs run --case` checks its run's end, so `--compare`, `--view` and `--observer` do not apply.
 The side may be an end document: an end another implementation reached, checked against what the case expects.
+Such a document that ends `stuck` and does not state a part of the declared class the expectation states is refused, as one that leaves out a compared cell is: it answers nothing of that part.
 
 `krs compare` prints `krs compare: equal`, or the first difference as `krs run --case` prints an unmet expectation's: where the sides differ, each side's value labelled `left` and `right`, the other compared cells that differ, and the views it applied; with `--expect`, the lines of `krs run --case`.
 `--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/3`, the left side on its `left`) or `reason`, `observations` where a side states observations, and `views` and `observer` when views were applied.

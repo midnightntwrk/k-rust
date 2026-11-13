@@ -249,6 +249,32 @@ impl DeclaredEnds {
     }
 }
 
+/// Whether `definition` declares an end: whether [`crate::Semantics::declares_ends`] holds of
+/// it once loaded, read from the Definition IR alone, for a caller that decides the format of
+/// what it writes before it loads the definition.
+#[must_use]
+pub fn declares_ends(definition: &DefinitionIr) -> bool {
+    definition
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .any(|sentence| {
+            let DefinitionSentence::Production(production) = sentence else {
+                return false;
+            };
+            sentence.item().is_some()
+                && production.attributes().iter().any(|attribute| {
+                    matches!(
+                        attribute,
+                        ProductionAttribute::End {
+                            role: EndRole::Holds,
+                            ..
+                        }
+                    )
+                })
+        })
+}
+
 /// `symbol` applied to the configuration of `state`, a state's pattern: the pattern itself, or
 /// its one configuration conjunct where it carries constraints; `None` for any other pattern.
 pub(crate) fn application(symbol: &str, state: &Pattern) -> Option<Pattern> {

@@ -1415,9 +1415,23 @@ fn end_line(semantics: &Semantics, report: &RunReport) -> Result<EndLine, Failur
 /// Every other run, and every run of a definition that declares no end, keeps its halt word and
 /// has no clause.
 fn declared_end_words(report: &RunReport) -> (&'static str, String) {
-    if let Some(undecided) = &report.end_undecided {
+    declared_end_clause(
+        report.halt,
+        report.end.as_ref(),
+        report.end_undecided.as_ref(),
+    )
+}
+
+/// [`declared_end_words`] of a run that ended `halt`, at the declared end `end` or with
+/// `undecided` left undecided.
+pub(super) fn declared_end_clause(
+    halt: Halt,
+    end: Option<&krs_exec::RunEnd>,
+    undecided: Option<&krs_exec::EndUndecided>,
+) -> (&'static str, String) {
+    if let Some(undecided) = undecided {
         return (
-            report.halt.as_str(),
+            halt.as_str(),
             format!(
                 ", undecided whether the declared end `{}` holds: {}; {}",
                 undecided.item,
@@ -1430,12 +1444,12 @@ fn declared_end_words(report: &RunReport) -> (&'static str, String) {
             ),
         );
     }
-    let Some(end) = &report.end else {
-        return (report.halt.as_str(), String::new());
+    let Some(end) = end else {
+        return (halt.as_str(), String::new());
     };
     let item = end.item.as_deref().unwrap_or_default();
     match (end.class, &end.reason) {
-        (DeclaredClass::None, _) => (report.halt.as_str(), ", at no declared end".to_owned()),
+        (DeclaredClass::None, _) => (halt.as_str(), ", at no declared end".to_owned()),
         (class, Some(reason)) => (class.as_str(), format!(", at `{item}`: `{}`", reason.text)),
         (class, None) => (class.as_str(), format!(", at `{item}`")),
     }
@@ -1444,7 +1458,7 @@ fn declared_end_words(report: &RunReport) -> (&'static str, String) {
 /// What a definition that declares ends says of a run that completed, which decides the run's
 /// exit status where no expectation does ([`run_status`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DeclaredOutcome {
+pub(super) enum DeclaredOutcome {
     /// The definition declares no end, or the run ended at a step bound or a stop, or at a
     /// declared `finished` end: the status is the one a run has without declared ends.
     Unchanged,
@@ -1458,7 +1472,7 @@ enum DeclaredOutcome {
 }
 
 impl DeclaredOutcome {
-    fn of(semantics: &Semantics, report: &RunReport) -> Self {
+    pub(super) fn of(semantics: &Semantics, report: &RunReport) -> Self {
         match (&report.end, report.halt) {
             (Some(end), _) => match end.class {
                 DeclaredClass::Finished => Self::Unchanged,

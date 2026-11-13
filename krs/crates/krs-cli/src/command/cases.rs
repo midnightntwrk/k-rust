@@ -59,13 +59,39 @@ use crate::DiagnosticSources;
 /// version 3 reader would read a record without them as a run that passed no stop.
 pub const CASES_SCHEMA: &str = "krs-cases/4";
 
+/// The schema every record of `krs cases --output json` names for a definition that declares
+/// ends ([`krs_exec::declares_ends`], [`cases_schema`]).
+///
+/// A case of such a definition whose run ends where no rule applies records the declared class of
+/// its end (`end`), or the declared end left undecided (`end_undecided`, with the halt
+/// `end-undecided`), as `krs run --output json` reports them, and a case that states no
+/// expectation and ends in no declared end (a gap, or `undefined`) is a finding, which the
+/// summary counts as `undeclared`.
+/// A version 4 reader knows `ran` with the halt `stuck` as a case that ran to an end, and would
+/// take a gap for one, so every record of a declaring definition is a format of its own version,
+/// as its run documents are (`krs-exec/8`).
+/// A definition that declares no end keeps [`CASES_SCHEMA`], and its records their bytes.
+pub const CASES_SCHEMA_DECLARED_ENDS: &str = "krs-cases/5";
+
+/// The schema of the records of a definition that declares ends (`declares_ends`) or none:
+/// [`CASES_SCHEMA_DECLARED_ENDS`] or [`CASES_SCHEMA`].
+#[must_use]
+pub const fn cases_schema(declares_ends: bool) -> &'static str {
+    if declares_ends {
+        CASES_SCHEMA_DECLARED_ENDS
+    } else {
+        CASES_SCHEMA
+    }
+}
+
 /// How `krs cases` prints its records.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CasesOutput {
     /// A line per verdict, with an unmet expectation's difference below it.
     #[default]
     Human,
-    /// One [`CASES_SCHEMA`] JSON document per line.
+    /// One [`CASES_SCHEMA`] JSON document per line ([`CASES_SCHEMA_DECLARED_ENDS`] for a
+    /// definition that declares ends).
     Json,
 }
 
@@ -198,18 +224,39 @@ struct Record {
     /// The run's stops, when it has stop rules: the status line's clause `krs run` prints
     /// ([`exec::stops_passed`]) and the members `krs run --output json` reports.
     stops: Option<(String, serde_json::Map<String, serde_json::Value>)>,
+    /// In a definition that declares ends, the declared class of the run's end where it ended
+    /// where no rule applies ([`krs_exec::RunReport::end`]).
+    end: Option<krs_exec::RunEnd>,
+    /// In a definition that declares ends, the declared end left undecided where the run halted
+    /// `end-undecided` ([`krs_exec::RunReport::end_undecided`]).
+    end_undecided: Option<krs_exec::EndUndecided>,
+    /// Whether the run ended in no declared end of a definition that declares ends: at a state
+    /// where no rule applies and no declared end holds, or `undefined`, at no state
+    /// ([`exec::DeclaredOutcome::Undeclared`]).
+    undeclared: bool,
 }
 
 impl Record {
-    fn refused(id: String, reason: String) -> Self {
+    /// The record of `verdict`, with nothing else known.
+    const fn of(id: String, verdict: Verdict) -> Self {
         Self {
             id,
-            verdict: Verdict::Refused,
+            verdict,
             run: None,
             checked: None,
-            reason: Some(reason),
+            reason: None,
             written: (BTreeMap::new(), None),
             stops: None,
+            end: None,
+            end_undecided: None,
+            undeclared: false,
+        }
+    }
+
+    fn refused(id: String, reason: String) -> Self {
+        Self {
+            reason: Some(reason),
+            ..Self::of(id, Verdict::Refused)
         }
     }
 
@@ -229,11 +276,24 @@ impl Record {
         }
     }
 
+    /// Whether the record is a case that states no expectation and ran to no declared end of a
+    /// definition that declares ends, which counts as a finding in the status.
+    const fn undeclared(&self) -> bool {
+        matches!(self.verdict, Verdict::Ran) && self.undeclared
+    }
+
     /// The record's exit status ([`exit_status`]): yes for a met case or one that ran to an end,
     /// a finding for an unmet one, no answer for an inconclusive one or one that ran to no end,
     /// and the question not asked for a refused one.
+    ///
+    /// In a definition that declares ends, a case that states no expectation is answered as
+    /// `krs run` answers its run: an end of either declared class is an end, an end in no
+    /// declared class (a state where no rule applies and no declared end holds, or `undefined`)
+    /// is a finding, since the definition does not account for it, and an end left undecided is
+    /// no answer. An expectation's verdict replaces all of these, as it does for `krs run`.
     fn status(&self) -> i32 {
         match self.verdict {
+            Verdict::Ran if self.undeclared() => exit_status::NO,
             Verdict::Unmet => exit_status::NO,
             Verdict::Refused => exit_status::UNASKED,
             Verdict::Inconclusive | Verdict::Ran if self.inconclusive() => exit_status::UNANSWERED,
@@ -241,15 +301,21 @@ impl Record {
         }
     }
 
-    fn json(&self) -> serde_json::Value {
+    fn json(&self, schema: &str) -> serde_json::Value {
         let mut document = json!({
-            "schema": CASES_SCHEMA,
+            "schema": schema,
             "case": self.id,
             "verdict": self.verdict.as_str(),
         });
         if let Some((halt, steps)) = self.run {
             document["halt"] = json!(halt.as_str());
             document["steps"] = json!(steps);
+        }
+        if let Some(end) = &self.end {
+            document["end"] = json!(end);
+        }
+        if let Some(undecided) = &self.end_undecided {
+            document["end_undecided"] = json!(undecided);
         }
         if let Some(reason) = &self.reason {
             document["reason"] = json!(reason);
@@ -296,11 +362,13 @@ impl Record {
                 let _ = writeln!(text, "{}: refused: {reason}", self.id);
             }
             (None, Some((halt, steps)), None) => {
+                // The words of `krs run`'s status line, the declared end's included.
+                let (word, class) =
+                    exec::declared_end_clause(halt, self.end.as_ref(), self.end_undecided.as_ref());
                 let _ = writeln!(
                     text,
-                    "{}: ran, {} after {steps} step{}{}",
+                    "{}: ran, {word} after {steps} step{}{}{class}",
                     self.id,
-                    halt.as_str(),
                     if steps == 1 { "" } else { "s" },
                     self.stops
                         .as_ref()
@@ -323,8 +391,12 @@ struct Tally {
     inconclusive: usize,
     refused: usize,
     ran: usize,
+    /// The `ran` cases that ended in no declared end ([`Record::undeclared`]).
+    undeclared: usize,
     /// The [`exit_status::join`] of the records' statuses ([`Record::status`]).
     status: i32,
+    /// Whether the definition declares ends, which adds `undeclared` to the summary.
+    declares_ends: bool,
 }
 
 impl Tally {
@@ -335,6 +407,9 @@ impl Tally {
             Verdict::Inconclusive => self.inconclusive += 1,
             Verdict::Refused => self.refused += 1,
             Verdict::Ran => self.ran += 1,
+        }
+        if record.undeclared() {
+            self.undeclared += 1;
         }
         self.status = exit_status::join(self.status, record.status());
     }
@@ -350,8 +425,8 @@ impl Tally {
     }
 
     fn json(&self) -> serde_json::Value {
-        json!({
-            "schema": CASES_SCHEMA,
+        let mut document = json!({
+            "schema": cases_schema(self.declares_ends),
             "summary": {
                 "cases": self.cases(),
                 "met": self.met,
@@ -361,19 +436,28 @@ impl Tally {
                 "ran": self.ran,
             },
             "status": self.status(),
-        })
+        });
+        if self.declares_ends {
+            document["summary"]["undeclared"] = json!(self.undeclared);
+        }
+        document
     }
 
     fn human(&self) -> String {
         let cases = self.cases();
         format!(
-            "krs cases: {cases} case{}: {} met, {} unmet, {} inconclusive, {} refused, {} ran\n",
+            "krs cases: {cases} case{}: {} met, {} unmet, {} inconclusive, {} refused, {} ran{}\n",
             if cases == 1 { "" } else { "s" },
             self.met,
             self.unmet,
             self.inconclusive,
             self.refused,
-            self.ran
+            self.ran,
+            if self.declares_ends {
+                format!(" ({} at no declared end)", self.undeclared)
+            } else {
+                String::new()
+            }
         )
     }
 }
@@ -395,7 +479,9 @@ impl Printer {
         while let Some(record) = self.pending.remove(&self.next) {
             self.tally.count(&record);
             let text = match self.output {
-                CasesOutput::Json => format!("{}\n", record.json()),
+                CasesOutput::Json => {
+                    format!("{}\n", record.json(cases_schema(self.tally.declares_ends)))
+                }
                 CasesOutput::Human => match record.depth_bound_refusal() {
                     Some(refusal) => {
                         self.depth_bound.push(record.id.clone());
@@ -467,7 +553,10 @@ impl Batch<'_> {
             next: 0,
             pending: BTreeMap::new(),
             output: self.request.output,
-            tally: Tally::default(),
+            tally: Tally {
+                declares_ends: krs_exec::declares_ends(self.definition),
+                ..Tally::default()
+            },
             depth_bound: Vec::new(),
         };
         std::thread::scope(|scope| {
@@ -916,40 +1005,31 @@ fn run_case(
         (Err(error @ ExecError::Undecided { .. }), Some(expectation)) => {
             let checked = Checked::undecided(case, expectation, &error);
             return Ok(Record {
-                id: job.id.clone(),
-                verdict: Verdict::Inconclusive,
-                run: None,
                 checked: Some(checked),
-                reason: None,
-                written: (BTreeMap::new(), None),
-                stops: None,
+                ..Record::of(job.id.clone(), Verdict::Inconclusive)
             });
         }
         // Without an expectation, the case ran to no one end: no answer, as an inconclusive halt.
         (Err(error @ ExecError::Undecided { .. }), None) => {
             return Ok(Record {
-                id: job.id.clone(),
-                verdict: Verdict::Ran,
-                run: None,
-                checked: None,
                 reason: Some(format!("the run has no one end: {error}")),
-                written: (BTreeMap::new(), None),
-                stops: None,
+                ..Record::of(job.id.clone(), Verdict::Ran)
             });
         }
         (Err(error), _) => return Err(error.into()),
     };
     let run = Some((report.halt, report.steps));
     let stops = stops_of(semantics, &report, &options.stop);
+    let undeclared =
+        exec::DeclaredOutcome::of(semantics, &report) == exec::DeclaredOutcome::Undeclared;
     let Some(mut expectation) = expectation else {
         return Ok(Record {
-            id: job.id.clone(),
-            verdict: Verdict::Ran,
             run,
-            checked: None,
-            reason: None,
-            written: (BTreeMap::new(), None),
             stops,
+            end: report.end,
+            end_undecided: report.end_undecided,
+            undeclared,
+            ..Record::of(job.id.clone(), Verdict::Ran)
         });
     };
     let checked = exec::check_run(
@@ -971,13 +1051,13 @@ fn run_case(
         Compared::Inconclusive(_) => Verdict::Inconclusive,
     };
     Ok(Record {
-        id: job.id.clone(),
-        verdict,
         run,
         checked: Some(checked),
-        reason: None,
-        written: (BTreeMap::new(), None),
         stops,
+        end: report.end,
+        end_undecided: report.end_undecided,
+        undeclared,
+        ..Record::of(job.id.clone(), verdict)
     })
 }
 
@@ -1058,6 +1138,9 @@ mod tests {
             reason: None,
             written: (BTreeMap::new(), None),
             stops: None,
+            end: None,
+            end_undecided: None,
+            undeclared: false,
         };
         let mut tally = Tally::default();
         tally.count(&ran(Halt::Stuck));
@@ -1085,6 +1168,45 @@ mod tests {
         tally.count(&Record::refused("b.toml".to_owned(), "no".to_owned()));
         assert_eq!(tally.status(), 2);
         assert_eq!(tally.json()["status"], 2);
+    }
+
+    /// In a definition that declares ends, a case that states no expectation and ends in no
+    /// declared end is a finding, which the summary counts; an expectation's verdict replaces
+    /// it; and a definition that declares none keeps its version and its summary.
+    #[test]
+    fn a_ran_case_at_no_declared_end_is_a_finding() {
+        let ran = |verdict, undeclared| Record {
+            id: "a.toml#gap".to_owned(),
+            verdict,
+            run: Some((Halt::Stuck, 0)),
+            checked: None,
+            reason: None,
+            written: (BTreeMap::new(), None),
+            stops: None,
+            end: None,
+            end_undecided: None,
+            undeclared,
+        };
+        let mut tally = Tally {
+            declares_ends: true,
+            ..Tally::default()
+        };
+        tally.count(&ran(Verdict::Ran, false));
+        assert_eq!(tally.status(), 0);
+        assert_eq!(tally.json()["summary"]["undeclared"], 0);
+        tally.count(&ran(Verdict::Met, true));
+        assert_eq!(tally.status(), 0);
+        tally.count(&ran(Verdict::Ran, true));
+        assert_eq!(tally.status(), 1);
+        let summary = tally.json();
+        assert_eq!(summary["schema"], "krs-cases/5");
+        assert_eq!(summary["summary"]["undeclared"], 1);
+        assert_eq!(summary["summary"]["ran"], 2);
+        assert!(tally.human().ends_with(", 2 ran (1 at no declared end)\n"));
+        let plain = Tally::default();
+        assert_eq!(plain.json()["schema"], "krs-cases/4");
+        assert_eq!(plain.json()["summary"].get("undeclared"), None);
+        assert!(plain.human().ends_with(", 0 ran\n"));
     }
 
     #[test]

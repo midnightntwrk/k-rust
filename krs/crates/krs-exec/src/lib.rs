@@ -95,7 +95,7 @@ pub use condition::{
     ArrivalObservation, ConditionOracle, ObservationError, ObservedState, ResolvedCondition,
 };
 pub use configuration::Configuration;
-pub use declared_ends::{DeclaredClass, EndReason, EndUndecided, RunEnd};
+pub use declared_ends::{DeclaredClass, EndReason, EndUndecided, RunEnd, declares_ends};
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use ends::{
     CellInfo, Compared, Comparison, DIFFERENCE_FORMAT, Difference, DifferenceAt, DifferenceSide,
@@ -1497,6 +1497,7 @@ impl Semantics {
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
         let ends = declared_ends::DeclaredEnds::of(definition, &values);
+        debug_assert_eq!(declared_ends::declares_ends(definition), !ends.is_empty());
         let mut origins = origin::Origins::new(sources);
         let claims = claims::catalog(
             &definition_kore,
