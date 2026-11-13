@@ -1,0 +1,23 @@
+{
+ "backends": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Int'Unds'Set'Unds'Set'Unds'Set'Unds'Set(true,false,2,SortSet{inj{SortInt,SortKItem}(0),inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3),inj{SortInt,SortKItem}(9)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3)}))"
+   ]
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Int'Unds'Set'Unds'Set'Unds'Set'Unds'Set(true,false,2,SortSet{inj{SortInt,SortKItem}(0),inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3),inj{SortInt,SortKItem}(9)},SortSet{inj{SortInt,SortKItem}(1),inj{SortInt,SortKItem}(3)}))"
+   ]
+  }
+ },
+ "backends_agree": true,
+ "inputs": {
+  "def.k": "54477e7f75755a2fc25c9292fc0064c9e9332373b9f12cb04cc8758079e6197d",
+  "pgm": "b815071ffa4d438cd22806b559cc94e9c61e257c11b48c2b534bbf4c359ecf8a"
+ },
+ "reference": {
+  "haskell": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)",
+  "llvm": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+ }
+}

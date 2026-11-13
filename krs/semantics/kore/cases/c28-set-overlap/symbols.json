@@ -1,0 +1,21 @@
+{
+ "collections": {
+  "SortSet": {
+   "concat": "Lbl'Unds'Set'Unds'",
+   "element": "LblSetItem",
+   "kind": "set",
+   "unit": "Lbl'Stop'Set"
+  }
+ },
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortS": 10,
+  "SortSet": 12
+ },
+ "symbols": {
+  "Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Set": 1,
+  "Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Set": 2
+ }
+}
