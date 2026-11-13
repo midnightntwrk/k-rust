@@ -133,3 +133,12 @@ collection's sort AcctCellMap has the MAP hooks, and Map concatenation is define
 of disjoint keys (docs/compatibility.md, "Map concatenation binds each key once"), so that \
 rule's result is undefined and the path has no final configuration; the other path gives the \
 two final configurations of pick, which the haskell backend gives too."""
+
+[[difference]]
+case = "c38-keq-strict"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in an operand of ==K. KEQUAL.eq is a function \
+of its two arguments, total on defined ones; an undefined argument makes the application \
+undefined, so the rule that builds r(...) has no successor and the rule of the same priority \
+gives the final configuration ok(0)."""

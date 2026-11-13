@@ -5,7 +5,8 @@
 // The result is done(Fs): every configuration reachable from T that has no successor, sorted by
 // `cmp` and without repetition, which is what a search for all final configurations returns.
 // Symbols and sorts are numbers given by the encoder (tools/korek.py); hooked symbols of INT,
-// BOOL and KEQUAL are operation codes (`hookOp`).
+// BOOL, KEQUAL and the collections are operation codes (`hookOp`). A configuration of several
+// cells is the application of its top cell's constructor, a cell collection a Map.
 //
 // Reading of KORE implemented here:
 //   - a function application is evaluated innermost: arguments first; an undefined argument
@@ -26,6 +27,9 @@
 //   - inj{A,B}(inj{C,A}(V)) is inj{C,B}(V);
 //   - hooks are strict: an undefined operand makes the operation undefined; /Int and %Int are
 //     undefined on a zero divisor;
+//   - ==K and =/=K compare two values: equal values are equal terms, since a value's injections
+//     are composed and its collections canonical; a domain value of a token sort is a value of
+//     that sort, so tokens of two sorts with one text differ;
 //   - a Map is a finite map, a Set a finite set, a List a finite sequence; a value of each is
 //     canonical (a map's entries ordered by key and a set's elements by value, without
 //     repetition), so that equal collections are equal terms. Map and Set concatenation are
@@ -41,10 +45,12 @@
 module KORE-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
+  imports STRING-SYNTAX
 
   syntax Term ::= ap(Int, Ts)          // a symbol applied to arguments
                 | iv(Int)              // \dv{SortInt{}}
                 | bv(Bool)             // \dv{SortBool{}}
+                | tk(Int, String)      // \dv{S}(Text) of a token sort S
                 | ij(Int, Int, Term)   // inj{From, To}(T)
                 | vr(Int)              // a variable of an axiom
                 | as(Term, Int)        // \and(P, V) in a left side: P, its value also bound to V
@@ -71,6 +77,7 @@ module KORE
   imports KORE-SYNTAX
   imports INT
   imports BOOL
+  imports STRING
   imports K-EQUAL
 
   configuration <k> $PGM:Pgm </k>
@@ -147,6 +154,7 @@ module KORE
   syntax Term ::= eval(Def, Term) [function]
   rule [ev-int]: eval(_, iv(I)) => iv(I)
   rule [ev-bool]: eval(_, bv(B)) => bv(B)
+  rule [ev-tok]: eval(_, tk(S, X)) => tk(S, X)
   rule [ev-inj]: eval(D, ij(A, B, T)) => mkInj(A, B, eval(D, T))
   rule [ev-app]: eval(D, ap(F, As)) => apply(D, F, evalTs(D, As))
   rule [ev-hook]: eval(D, hk(O, As)) => strictHook(O, evalTs(D, As))
@@ -220,6 +228,7 @@ module KORE
   rule [m-var]: match(vr(X), T, B, _) => bindVar(X, T, B, look(X, B))
   rule [m-int]: match(iv(I), iv(J), B, _) => m(B, .Ms) requires I ==Int J
   rule [m-bool]: match(bv(X), bv(Y), B, _) => m(B, .Ms) requires X ==Bool Y
+  rule [m-tok]: match(tk(S, X), tk(T, Y), B, _) => m(B, .Ms) requires S ==Int T andBool X ==String Y
   rule [m-app]: match(ap(F, Ps), ap(G, Ts), B, S) => matchTs(Ps, Ts, B, S) requires F ==Int G
   rule [m-inj-same]: match(ij(A, _, P), ij(C, _, T), B, S) => match(P, T, B, S) requires A ==Int C
   rule [m-inj-sub]: match(ij(A, _, P), ij(C, _, T), B, S) => match(P, ij(C, A, T), B, S)
@@ -310,6 +319,7 @@ module KORE
   rule [inst-inj]: inst(ij(A, C, T), B) => ij(A, C, inst(T, B))
   rule [inst-int]: inst(iv(I), _) => iv(I)
   rule [inst-bool]: inst(bv(X), _) => bv(X)
+  rule [inst-tok]: inst(tk(S, X), _) => tk(S, X)
   rule [inst-col]: inst(cb(K, C, Ts), B) => cb(K, C, instTs(Ts, B))
   rule [inst-kv]: inst(kv(T, U), B) => kv(inst(T, B), inst(U, B))
   rule [inst-el]: inst(el(T), B) => el(inst(T, B))
@@ -392,7 +402,7 @@ module KORE
   // 1 +Int, 2 -Int, 3 *Int, 4 /Int, 5 %Int, 10 <Int, 11 <=Int, 12 >Int, 13 >=Int, 14 ==Int,
   // 15 =/=Int, 20 andBool, 21 orBool, 22 notBool, 30 #if_#then_#else_#fi,
   // 40 Map:lookup, 41 Map:lookupOrDefault, 42 Map:update, 43 _[_<-undef], 44 _in_keys(_),
-  // 45 sizeMap, 50 Set:in, 51 size(Set), 52 |Set, 60 sizeList
+  // 45 sizeMap, 50 Set:in, 51 size(Set), 52 |Set, 60 sizeList, 70 ==K, 71 =/=K
   syntax Term ::= strictHook(Int, Ts) [function]
   rule [hook-bot]: strictHook(_, As) => bot requires hasBot(As)
   rule [hook-def]: strictHook(O, As) => hookOp(O, As) requires notBool hasBot(As)
@@ -424,6 +434,8 @@ module KORE
   rule [op-size-set]: hookOp(51, co(set, _, Es) ; .Ts) => iv(len(Es))
   rule [op-union]: hookOp(52, co(set, C, Es) ; co(set, _, Fs) ; .Ts) => co(set, C, union(Es, Fs))
   rule [op-size-list]: hookOp(60, co(list, _, Es) ; .Ts) => iv(len(Es))
+  rule [op-keq]: hookOp(70, A ; B ; .Ts) => bv(cmp(A, B) ==Int 0)
+  rule [op-kne]: hookOp(71, A ; B ; .Ts) => bv(cmp(A, B) =/=Int 0)
   rule [op-undef]: hookOp(_, _) => bot [owise]
 
   syntax Ts ::= union(Ts, Ts) [function]
@@ -434,6 +446,7 @@ module KORE
   syntax Int ::= cmp(Term, Term) [function]
   rule [cmp-int]: cmp(iv(X), iv(Y)) => cmpI(X, Y)
   rule [cmp-bool]: cmp(bv(X), bv(Y)) => cmpI(b2i(X), b2i(Y))
+  rule [cmp-tok]: cmp(tk(S, X), tk(T, Y)) => lex(cmpI(S, T), cmpI(b2i(Y <String X), b2i(X <String Y)))
   rule [cmp-app]: cmp(ap(F, As), ap(G, Bs)) => lex(cmpI(F, G), cmpTs(As, Bs))
   rule [cmp-inj]: cmp(ij(A, B, T), ij(C, E, U)) => lex(cmpI(A, C), lex(cmpI(B, E), cmp(T, U)))
   rule [cmp-col]: cmp(co(_, C, Es), co(_, D, Fs)) => lex(cmpI(C, D), cmpTs(Es, Fs))
@@ -461,7 +474,8 @@ module KORE
   rule [tag-app]: tag(ap(_, _)) => 2
   rule [tag-inj]: tag(ij(_, _, _)) => 3
   rule [tag-col]: tag(co(_, _, _)) => 4
-  rule [tag-other]: tag(_) => 5 [owise]
+  rule [tag-tok]: tag(tk(_, _)) => 5
+  rule [tag-other]: tag(_) => 6 [owise]
 
   // the order of a collection's elements: a map entry by its key, a set element by its value
   syntax Int ::= ckey(Term, Term) [function]

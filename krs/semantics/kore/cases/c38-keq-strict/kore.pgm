@@ -1,0 +1,1 @@
+pgm(def(.Subs, .Fns, rl(50, false, ij(10, 11, ap(1, vr(0) ; .Ts)), bv(true), ij(10, 11, ap(2, vr(0) ; .Ts)), rl(50, false, ij(10, 11, ap(1, vr(0) ; .Ts)), bv(true), ij(10, 11, ap(5, hk(70, ap(4, ij(1, 11, hk(4, iv(10) ; vr(0) ; .Ts)) ; ap(3, .Ts) ; .Ts) ; ap(4, ij(1, 11, iv(1)) ; ap(3, .Ts) ; .Ts) ; .Ts) ; .Ts)), .Rules))), ij(10, 11, ap(1, iv(0) ; .Ts)))

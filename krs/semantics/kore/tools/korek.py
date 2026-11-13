@@ -180,7 +180,7 @@ HOOKS = {'INT.add': 1, 'INT.sub': 2, 'INT.mul': 3, 'INT.tdiv': 4, 'INT.tmod': 5,
          'BOOL.and': 20, 'BOOL.or': 21, 'BOOL.not': 22, 'KEQUAL.ite': 30,
          'MAP.lookup': 40, 'MAP.lookupOrDefault': 41, 'MAP.update': 42, 'MAP.remove': 43,
          'MAP.in_keys': 44, 'MAP.size': 45, 'SET.in': 50, 'SET.size': 51, 'SET.union': 52,
-         'LIST.size': 60}
+         'LIST.size': 60, 'KEQUAL.eq': 70, 'KEQUAL.ne': 71}
 # the constructors of a collection sort: its concatenation, unit and element symbols
 KINDS = {'MAP': 'map', 'SET': 'set', 'LIST': 'list'}
 ROLES = ('concat', 'unit', 'element')
@@ -228,21 +228,26 @@ class Encoder:
         self.axioms = []
         self.source = source
         self.top_init = top_init
-        self.initializers = {}
+        self.generated = {}
+        self.token_sorts = set()
         for _, sents in modules:
             for kind, data, attrs in sents:
                 if kind in ('symbol', 'hooked-symbol'):
                     self.decls[data[0]] = (data, attrs)
+                elif kind == 'sort' and 'hasDomainValues' in attrs:
+                    self.token_sorts.add(data)
                 elif kind == 'axiom':
                     if 'subsort' in attrs:
                         self.subsorts.append(attrs['subsort'])
                     src = attrs.get(SOURCE, '')
                     if src == f'Source({source})':
                         self.axioms.append((data, attrs))
-                    elif data[1] == '\\implies' and data[3][1][1] == '\\equals':
+                    elif not src and data[1] == '\\implies' and data[3][1][1] == '\\equals':
+                        # an equation kompile generates (initializers, sort predicates): no Source
                         head = data[3][1][3][0]
-                        if head[0] == 'app' and re.match(r"Lblinit\w*Cell$", head[1]):
-                            self.initializers.setdefault(head[1], []).append(data)
+                        if head[0] == 'app':
+                            self.generated.setdefault(head[1], []).append((data, attrs))
+        self.needed = []
         self.sorts = dict(FIXED_SORTS)
         self.syms = {}
         self.vars = {}
@@ -277,6 +282,8 @@ class Encoder:
                 return f'iv({v})'
             if s == 'SortBool':
                 return f'bv({v})'
+            if s in self.token_sorts and s not in FIXED_SORTS:
+                return f'tk({self.sort(sorts[0])}, {json.dumps(v)})'
             raise Unsupported(f'domain value of {s}')
         if name == 'inj':
             return f'ij({self.sort(sorts[0])}, {self.sort(sorts[1])}, {self.term(args[0])})'
@@ -301,8 +308,13 @@ class Encoder:
                 raise Unsupported(f'hook {h} of {name}')
             return f'hk({HOOKS[h]}, {ts})'
         if 'function' in attrs and 'constructor' not in attrs and attrs.get(SOURCE) != f'Source({self.source})':
-            # its equations, if any, are in K's own modules, which the encoding leaves out
-            raise Unsupported(f'function {name} declared outside the object definition')
+            if SOURCE in attrs or name not in self.generated:
+                # its equations, if any, are in K's own modules, which the encoding leaves out
+                raise Unsupported(f'function {name} declared outside the object definition')
+            # a function kompile generates for the object definition (a sort predicate isS):
+            # its equations are encoded with the object definition's
+            if name not in self.needed:
+                self.needed.append(name)
         if 'constructor' in attrs or 'function' in attrs:
             return f'ap({self.sym(name)}, {ts})'
         raise Unsupported(f'symbol {name} is neither constructor nor function')
@@ -369,11 +381,11 @@ class Encoder:
                 and args[0][3][0][3][1] == ('app', 'inj', (('SortKConfigVar', ()), ('SortKItem', ())),
                                             (('app', '\\dv', (('SortKConfigVar', ()),), (('str', '$PGM'),)),))):
             return init
-        if name in self.initializers:
-            eqs = self.initializers[name]
+        if re.match(r"Lblinit\w*Cell$", name) and name in self.generated:
+            eqs = self.generated[name]
             if len(eqs) != 1:
                 raise Unsupported(f'initializer {name} of {len(eqs)} equations')
-            _, _, _, (pre, concl) = eqs[0]
+            _, _, _, (pre, concl) = eqs[0][0]
             lhs, (rhs, _) = concl[3][0], concl[3][1][3]
             binds, a = {}, pre[3][1]
             while a[1] == '\\and':
@@ -477,6 +489,12 @@ class Encoder:
                 fns.setdefault(f, []).append(c)
             else:
                 raise Unsupported(f'axiom {ax[1]}')
+        done = 0
+        while done < len(self.needed):
+            for ax, attrs in self.generated[self.needed[done]]:
+                f, c = self.equation(ax, attrs)
+                fns.setdefault(f, []).append(c)
+            done += 1
         self.vars = {}
         t = self.initial(init)
         # the stated subsorts, but those into KItem and K and those of the generated configuration
@@ -540,7 +558,9 @@ def canon(p, csyms=None):
     if tag == 'app':
         _, name, sorts, args = p
         if name == '\\dv':
-            return args[0][1]
+            if sorts[0][0] in ('SortInt', 'SortBool'):
+                return args[0][1]
+            return f'#token({json.dumps(args[0][1])},{sorts[0][0]})'
         if name == 'inj':
             return f'inj{{{sorts[0][0]},{sorts[1][0]}}}({canon(args[0], csyms)})'
         if name in csyms:
@@ -621,6 +641,8 @@ def korek_value(t, rsym, rsort):
         return args[0][3][0][1]
     if name == "Lblbv'LParUndsRParUnds'KORE-SYNTAX'Unds'Term'Unds'Bool":
         return args[0][3][0][1]
+    if name == "Lbltk'LParUndsCommUndsRParUnds'KORE-SYNTAX'Unds'Term'Unds'Int'Unds'String":
+        return f'#token({json.dumps(args[1][3][0][1])},{rsort[int(args[0][3][0][1])]})'
     if name == "Lblij'LParUndsCommUndsCommUndsRParUnds'KORE-SYNTAX'Unds'Term'Unds'Int'Unds'Int'Unds'Term":
         a, b = int(args[0][3][0][1]), int(args[1][3][0][1])
         return f'inj{{{rsort[a]},{rsort[b]}}}({korek_value(args[2], rsym, rsort)})'
