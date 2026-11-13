@@ -2468,10 +2468,19 @@ fn render_rule(
     let printed = kept.as_ref().unwrap_or(printed);
     let mut parameters = Vec::new();
     let mut parameter_types = BTreeMap::new();
+    // The map terms a subject may write as a map's rest (`k::map![k -> v, r @ ..]`), where
+    // `cells!` reads them as the map's remainder, which no parameter declares.
+    let mut map_terms = BTreeSet::new();
     for binding in &printed.bindings {
         let krs_ir::ProtocolRuleBindingKind::Term { sort } = &binding.kind else {
             continue;
         };
+        if matches!(
+            sort.sort,
+            krs_ir::DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Map)
+        ) {
+            map_terms.insert(binding.name.clone());
+        }
         let name = rust_ident(&binding.name)?;
         let ty = render_binding_type(&sort.sort, package)?;
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
@@ -2690,7 +2699,16 @@ fn render_rule(
             .position(|binder| binder.unraw() == name)
             .unwrap_or(usize::MAX)
     };
-    let mut parameters = parameters;
+    // A map term the printed subject binds as a map's remainder (`Cell(k::map![k -> v, r @ ..])`)
+    // is no term binder of it, so a `cells!` rule declares no parameter for it, though the
+    // elaboration types it as the term of the map it is (a readable record's named map rest); the
+    // subject's term binders are those its reading lists ([`krs_syntax::cells_pattern_term_binders`]).
+    let mut parameters = parameters
+        .into_iter()
+        .filter(|(name, _)| {
+            !map_terms.contains(name) || order.iter().any(|binder| binder.unraw() == name)
+        })
+        .collect::<Vec<_>>();
     parameters.sort_by_key(|(name, _)| position(name));
     let parameters = parameters.into_iter().map(|(_, parameter)| parameter);
     // A `#[k::claim]` fn takes its helpers after the claim attribute, which

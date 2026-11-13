@@ -871,34 +871,53 @@ fn the_later_of_two_equal_keys_wins_at_run_time() {
     .assert_debug_eq(&runs);
 }
 
-/// A remainder an optional cell's or a collection instance's map moves, which
-/// the rule neither puts back nor uses, is an error at the rule, as in a
-/// plain cell: `env` restated unchanged drops it.
+/// A remainder an optional cell's or a collection instance's map moves, which the rule neither
+/// puts back nor uses, is a pattern binder the rule does not use, so the rule drops it, as in a
+/// plain cell (NAMED-REST-DROP): with `env` restated unchanged the map holds what the result
+/// writes, `map![a -> 1]`.
 #[test]
-fn a_moved_remainder_the_rule_drops_is_an_error() {
+fn a_moved_remainder_the_rule_drops_is_dropped() {
     let target = shared_fixture_target();
-    let errors =
-        [("OPTM", "e"), ("SLOTM", "e")].map(|replaced| check_error(target.path(), &[replaced]));
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "cellmaps",
+        &source(&[("OPTM", "e"), ("SLOTM", "e")]),
+    );
+    let output = temporary.path().join("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let lines = definition
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("<opt") || line.starts_with("<slots>"))
+        .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
-            (
-                "error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
-                "optm",
-            ),
-            (
-                "error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
-                "slotm",
-            ),
+            "<opt multiplicity=\"?\"> 1 |-> 1 </opt>",
+            "<slots> .Map </slots>",
+            "<slots> .Map [ A:Int <- 1 ] [ B:Int <- 2 ] </slots>",
+            "<opt> A:Int |-> V:Int Rest:Map => A:Int |-> 3 Rest:Map </opt>",
+            "<opt> A:Int |-> V:Int Rest:Map => Rest:Map [ B:Int <- V:Int ] </opt>",
+            "<opt> A:Int |-> V:Int Rest:Map => A:Int |-> 1 </opt>",
+            "<slots> A:Int |-> V:Int Rest:Map => A:Int |-> 5 Rest:Map </slots>",
+            "<slots> A:Int |-> V:Int Rest:Map => Rest:Map [ A:Int <- 1 ] [ B:Int <- V:Int ] </slots>",
+            "<slots> A:Int |-> V:Int Rest:Map => A:Int |-> 1 </slots>",
         ]
-    "#]].assert_debug_eq(&errors);
+    "#]].assert_debug_eq(&lines);
 }
 
 /// A map result over a subject's anonymous rest that writes no `..` is an
 /// error at the result's entry (`rest-mismatch`): at a cell's content root,
 /// K reads the omitted rest as kept and Rust reads it as dropped, so the
 /// spelling must say which (P6): `rest @ ..` and `..rest` to keep it, and
-/// `rest @ ..` read by a condition to drop it (a named rest the rule neither
-/// puts back nor uses, `_rest` too, is refused). Here `moved` is written with
+/// `rest @ ..` the result does not write to drop it. Here `moved` is written with
 /// the rest anonymous, `map![a -> 10, b -> v]` over `map![a -> v, ..]`.
 /// Keeping an anonymous map rest with `..` in a `cells!` result comes back
 /// with M3, which gives a map's `..` a result side; until then the rest is
@@ -919,7 +938,7 @@ fn a_map_result_over_an_anonymous_rest_without_dots_is_an_error() {
     let error = check_error_in(target.path(), &text);
     expect_test::expect![[r#"
         (
-            "error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused",
+            "error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it, writing the map without it (`map![k -> w]`)",
             "k::configuration::Cell(map![a -> 10, b -> v])",
         )
     "#]]

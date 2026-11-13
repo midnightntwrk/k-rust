@@ -1786,7 +1786,6 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?;
     terms.judge_sequences()?;
     declare_moved_remainders(&mut terms.variables, &clauses);
-    let unused_moved = moved_remainders_unused_by(&terms, &clauses);
     // A context's hole lies in the computation cell (KF-021).
     if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context
         && let Some(step) = &rule.evaluation
@@ -1886,7 +1885,6 @@ pub(super) fn lower_configuration_rule_descriptor(
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
-    let readable_route = terms.readable;
     let (variables, guards) = terms.finish();
     let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
     // A step of execution changes a cell and is not enabled everywhere, as a
@@ -1906,12 +1904,6 @@ pub(super) fn lower_configuration_rule_descriptor(
                 )?,
         )?;
     }
-    check_moved_remainders(
-        &unused_moved,
-        requires.as_ref(),
-        ensures.as_ref(),
-        readable_route,
-    )?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
@@ -3603,83 +3595,6 @@ fn declare_moved_remainders(
             ));
         }
     }
-}
-
-/// The moved remainders no result term uses, each with its family: the
-/// computation remainders a pattern ends in, and the map remainder of every
-/// clause that binds one on the left only, in any cell, plain, optional or a
-/// collection instance's child.
-fn moved_remainders_unused_by(
-    terms: &StateRuleTerms<'_>,
-    clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
-) -> Vec<(SemanticId, AssociativeStateFamily)> {
-    let moved_maps = clauses
-        .iter()
-        .flat_map(ConfigurationClause::parts)
-        .filter_map(|part| match part.frame() {
-            Some(CellContentFrame::MovedMapRemainder { binding, .. }) => {
-                Some((binding.clone(), AssociativeStateFamily::Map))
-            }
-            _ => None,
-        });
-    terms
-        .moved_remainders
-        .iter()
-        .map(|tail| (tail.clone(), AssociativeStateFamily::KSequence))
-        .chain(moved_maps)
-        .filter(|(rest, _)| {
-            !clauses
-                .iter()
-                .flat_map(ConfigurationClause::parts)
-                .filter_map(|part| part.post_term())
-                .any(|term| super::evaluation::mentions(term, rest))
-        })
-        .collect()
-}
-
-/// A moved remainder must be used: in a result term or a condition. A
-/// bound remainder the rule neither puts back nor uses would be dropped
-/// silently, so it keeps the frame-mismatch error. On the readable route (an elaborated
-/// readable rule, `readable`) only a record child's map read names a rest, and no readable
-/// result writes a map over it nor a readable condition reads it, so the advice names the
-/// spellings that change a map there and the `cells!` ones.
-fn check_moved_remainders(
-    unused: &[(SemanticId, AssociativeStateFamily)],
-    requires: Option<&SemanticCondition>,
-    ensures: Option<&SemanticCondition>,
-    readable: bool,
-) -> Result<(), DescriptorLoweringError> {
-    for (rest, family) in unused {
-        let used = requires
-            .into_iter()
-            .chain(ensures)
-            .flat_map(SemanticCondition::terms)
-            .any(|term| super::evaluation::mentions(term, rest));
-        if !used {
-            let rest_of = match family {
-                AssociativeStateFamily::KSequence => "rest of the computation",
-                AssociativeStateFamily::Map => "rest of the map",
-            };
-            let advice = if readable && *family == AssociativeStateFamily::Map {
-                format!(
-                    "a readable record names no rest a result can write or a condition can read, so a rule that changes the map matches it whole with a binder `m` and builds its new map from it (`map::update(m, k, w)`), and a `cells!` rule whose subject names the rest (`map![k -> v, {rest} @ ..]`) may put it back under other entries (`map![k -> w, ..{rest}]`), move it into another cell (`Cell({rest})`), or drop it where a condition reads it"
-                )
-            } else {
-                format!("put it back with `..{rest}`, or use it in a condition")
-            };
-            // A subject rest the result drops: the rest-mismatch mistake, whose code is the
-            // bracket notation's.
-            return Err(DescriptorLoweringError::CellCollection {
-                code: krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
-                reason: format!(
-                    "the subject names the {rest_of} `..{rest}`, and the result neither puts it back with `..{rest}` nor uses it, so the rule would drop it: {advice}"
-                ),
-                range: None,
-                item: None,
-            });
-        }
-    }
-    Ok(())
 }
 
 fn state_frames_compatible(subject: RuleStateFrame<'_>, result: RuleStateFrame<'_>) -> bool {

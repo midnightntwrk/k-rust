@@ -522,15 +522,16 @@ fn first_error(target: &Path, manifest: &Path) -> String {
         .to_owned()
 }
 
-/// A bound remainder the rule neither puts back nor uses, of the
-/// computation or of a map, the configuration remainder as a term, and a
-/// sequence literal at a `K` field are refused. One item at a `K` field is
-/// that field's one-item sequence (ITEMSORTS): a `KItem` is a `K`.
+/// The configuration remainder as a term and a sequence literal at a `K` field are refused. One
+/// item at a `K` field is that field's one-item sequence (ITEMSORTS): a `KItem` is a `K`. A bound
+/// remainder the rule neither puts back nor uses, of the computation or of a map, is an ordinary
+/// pattern binder the rule does not use, so the rule drops it (NAMED-REST-DROP): the cell holds
+/// what the result writes.
 #[test]
 fn remainders_the_rule_cannot_write_are_refused() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let cases = [
+    let dropped = [
         (
             "dropped",
             r#"
@@ -562,6 +563,35 @@ pub fn lost(
 }
 "#,
         ),
+    ];
+    let kept = dropped.map(|(name, rules)| {
+        let manifest = package(temporary.path(), name, &format!("{PREAMBLE}{rules}"));
+        let output = manifest.with_file_name("emitted");
+        let (success, _, stderr) = krs(
+            target.path(),
+            &manifest,
+            "emit-k",
+            &["--output", output.to_str().unwrap()],
+        );
+        assert!(success, "{name}: {stderr}");
+        let k = krs_test_support::without_source_comments(
+            &fs::read_to_string(output.join("definition.k")).unwrap(),
+        );
+        format!(
+            "{name}: {}",
+            rule(&k, "lost")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    });
+    expect_test::expect![[r#"
+        [
+            "dropped: rule [lost]: <k> drop ~> Tail:K => bump </k>",
+            "dropped-map: rule [lost]: <k> drop ~> Tail:K => .K ~> Tail:K </k> <env> 0 |-> V:Int Rest:Map => 1 |-> V:Int </env>",
+        ]
+    "#]].assert_debug_eq(&kept);
+    let cases = [
         (
             "state-term",
             r#"
@@ -591,8 +621,6 @@ k::rules! {
     });
     expect_test::expect![[r#"
         [
-            "dropped: error[krs::syntax::invalid-list-notation]: the subject names the rest of the computation `..tail`, and the result neither puts it back with `..tail` nor uses it, so the rule would drop it: put it back with `..tail`, or use it in a condition",
-            "dropped-map: error[krs::syntax::invalid-list-notation]: the subject names the rest of the map `..rest`, and the result neither puts it back with `..rest` nor uses it, so the rule would drop it: put it back with `..rest`, or use it in a condition",
             "state-term: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a result can write",
             "sequence-literal: error[krs::syntax::unsupported-term-expression]: unsupported term expression: macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands",
         ]
@@ -791,11 +819,11 @@ pub fn keep(
     expect_test::expect![[r#"
         [
             "rule-unnamed: rule [keep]: <k> keep => X:Int +Int 1 ... </k> <pc> X:Int </pc>",
-            "rule-exact: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused",
-            "rule-named: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; the subject names the rest `tail` (`tail @ ..`), which leaves the result's `..` nothing to keep: put `tail` back after other items (`KCell(y, ..tail)`), move it into another computation cell (`aux: KCell(..tail)`), or drop it where a condition reads it",
+            "rule-exact: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it, writing the cell without it (`KCell(y)`)",
+            "rule-named: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; the subject names the rest `tail` (`tail @ ..`), which leaves the result's `..` nothing to keep: put `tail` back after other items (`KCell(y, ..tail)`), move it into another computation cell (`aux: KCell(..tail)`), or drop it, writing the cell without it (`KCell(y)`)",
             "claim-unnamed: claim [keep]: <k> keep => X:Int +Int 1 ... </k> <pc> X:Int </pc>",
-            "claim-exact: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused",
-            "claim-named: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; the subject names the rest `tail` (`tail @ ..`), which leaves the result's `..` nothing to keep: put `tail` back after other items (`KCell(y, ..tail)`), move it into another computation cell (`aux: KCell(..tail)`), or drop it where a condition reads it",
+            "claim-exact: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it, writing the cell without it (`KCell(y)`)",
+            "claim-named: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; the subject names the rest `tail` (`tail @ ..`), which leaves the result's `..` nothing to keep: put `tail` back after other items (`KCell(y, ..tail)`), move it into another computation cell (`aux: KCell(..tail)`), or drop it, writing the cell without it (`KCell(y)`)",
         ]
     "#]].assert_debug_eq(&outcomes.collect::<Vec<_>>());
 }

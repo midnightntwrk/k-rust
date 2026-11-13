@@ -2377,15 +2377,15 @@ fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
     match (entry.layers, content) {
         // A readable record reads no `?` computation's items yet: its brackets there are read as
         // a list's.
-        ([Layer::Optional, ..], [Layer::Computation]) if form.is_readable() => "a readable record does not read the items of a `?` computation cell yet; a `cells!` rule writes them in `Some(KCell(..))`, where `..` on both sides keeps the rest and a subject that names it (`Some(KCell(x, rest @ ..))`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it where a condition reads it".to_owned(),
+        ([Layer::Optional, ..], [Layer::Computation]) if form.is_readable() => "a readable record does not read the items of a `?` computation cell yet; a `cells!` rule writes them in `Some(KCell(..))`, where `..` on both sides keeps the rest and a subject that names it (`Some(KCell(x, rest @ ..))`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it, writing the cell without it (`KCell(y)`)".to_owned(),
         (_, [Layer::Computation]) if form.is_readable() => format!(
-            "{keep}: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it where a condition reads it"
+            "{keep}: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it, writing the cell without it (`KCell(y)`)"
         ),
         (_, [Layer::Computation]) if let Some(name) = named => format!(
-            "the subject names the rest `{name}` (`{name} @ ..`), which leaves the result's `..` nothing to keep: put `{name}` back after other items (`KCell(y, ..{name})`), move it into another computation cell (`aux: KCell(..{name})`), or drop it where a condition reads it"
+            "the subject names the rest `{name}` (`{name} @ ..`), which leaves the result's `..` nothing to keep: put `{name}` back after other items (`KCell(y, ..{name})`), move it into another computation cell (`aux: KCell(..{name})`), or drop it, writing the cell without it (`KCell(y)`)"
         ),
         (_, [Layer::Computation]) => format!(
-            "{keep}, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused"
+            "{keep}, or name it in the subject (`KCell(x, rest @ ..)`) to put it back after other items (`KCell(y, ..rest)`), to move it into another computation cell (`aux: KCell(..rest)`), or to drop it, writing the cell without it (`KCell(y)`)"
         ),
         (_, [Layer::Leaf(Notation::List | Notation::Cons)]) if item_less => format!(
             "{keep}, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)"
@@ -2396,11 +2396,11 @@ fn rest_mismatch_advice(form: EntryForm, entry: &RefusedCell<'_>) -> String {
         (_, [Layer::Leaf(Notation::List | Notation::Cons)]) => {
             format!("{keep}, or name it in the subject (`rest @ ..`) to drop or move it")
         }
-        (_, [Layer::Leaf(Notation::Map)]) if form.is_readable() => "a readable record names no rest of a map that a result can write, so match the map whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it where a condition reads it".to_owned(),
+        (_, [Layer::Leaf(Notation::Map)]) if form.is_readable() => "a readable record names no rest of a map that a result can write, so match the map whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it, writing the map without it (`map![k -> w]`)".to_owned(),
         (_, [Layer::Leaf(Notation::Map)]) if let Some(name) = named => format!(
-            "the subject names the rest `{name}` (`{name} @ ..`): put `{name}` back under other entries (`map![k -> w, ..{name}]`), move it into another cell (`Cell({name})`), or drop it where a condition reads it"
+            "the subject names the rest `{name}` (`{name} @ ..`): put `{name}` back under other entries (`map![k -> w, ..{name}]`), move it into another cell (`Cell({name})`), or drop it, writing the map without it (`map![k -> w]`)"
         ),
-        (_, [Layer::Leaf(Notation::Map)]) => "name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it where a condition reads it: a named rest the rule neither puts back nor uses is refused".to_owned(),
+        (_, [Layer::Leaf(Notation::Map)]) => "name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it, writing the map without it (`map![k -> w]`)".to_owned(),
         (_, [Layer::Instances(_), ..]) => {
             format!("{keep}: a rule does not remove a collection's other instances yet")
         }
