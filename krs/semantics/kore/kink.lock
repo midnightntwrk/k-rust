@@ -260,6 +260,21 @@ status = "killed"
 killer = "cases/c22-map-hooks/kore.pgm"
 
 [[run.mutation]]
+id = "map-entry-by-position"
+status = "killed"
+killer = "cases/c19-map-choice/kore.pgm"
+
+[[run.mutation]]
+id = "col-frame-not-rebuilt"
+status = "killed"
+killer = "cases/c21-map-concat/kore.pgm"
+
+[[run.mutation]]
+id = "map-keyed-by-entry"
+status = "killed"
+killer = "cases/c21-map-concat/kore.pgm"
+
+[[run.mutation]]
 id = "set-idempotent"
 status = "killed"
 killer = "cases/c28-set-overlap/kore.pgm"

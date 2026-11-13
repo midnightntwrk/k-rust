@@ -29,7 +29,10 @@
    "c30-list-positions",
    "c31-list-concat",
    "c32-elem-strict",
-   "c33-list-middle-frame"
+   "c33-list-middle-frame",
+   "c34-cells-several",
+   "c35-cell-map",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -50,7 +53,8 @@
    "c23-map-lookup-missing",
    "c26-map-strict",
    "c28-set-overlap",
-   "c32-elem-strict"
+   "c32-elem-strict",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -60,7 +64,24 @@
    "c19-map-choice",
    "c20-map-key-fixed",
    "c24-map-fn-pattern",
-   "c27-set-choice"
+   "c27-set-choice",
+   "c35-cell-map",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-frame-not-rebuilt": {
+  "killed_by": [
+   "c21-map-concat",
+   "c25-map-equal",
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c35-cell-map",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -81,7 +102,8 @@
    "c25-map-equal",
    "c26-map-strict",
    "c27-set-choice",
-   "c28-set-overlap"
+   "c28-set-overlap",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -89,7 +111,8 @@
  "dv-any-value": {
   "killed_by": [
    "c07-strict-args",
-   "c20-map-key-fixed"
+   "c20-map-key-fixed",
+   "c34-cells-several"
   ],
   "status": "killed",
   "undecided": []
@@ -155,7 +178,8 @@
    "c20-map-key-fixed",
    "c24-map-fn-pattern",
    "c27-set-choice",
-   "c30-list-positions"
+   "c30-list-positions",
+   "c35-cell-map"
   ],
   "status": "killed",
   "undecided": []
@@ -228,14 +252,36 @@
  },
  "map-concat-overrides": {
   "killed_by": [
-   "c21-map-concat"
+   "c21-map-concat",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
  },
  "map-duplicate-keys": {
   "killed_by": [
-   "c21-map-concat"
+   "c21-map-concat",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-entry-by-position": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern",
+   "c35-cell-map",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-keyed-by-entry": {
+  "killed_by": [
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -273,7 +319,8 @@
    "c27-set-choice",
    "c28-set-overlap",
    "c30-list-positions",
-   "c31-list-concat"
+   "c31-list-concat",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -282,7 +329,8 @@
   "killed_by": [
    "c15-nonlinear-rule",
    "c20-map-key-fixed",
-   "c31-list-concat"
+   "c31-list-concat",
+   "c35-cell-map"
   ],
   "status": "killed",
   "undecided": []
@@ -357,7 +405,8 @@
   ],
   "status": "killed",
   "undecided": [
-   "c03-nondet"
+   "c03-nondet",
+   "c34-cells-several"
   ]
  },
  "rule-rhs-unevaluated": {
@@ -386,7 +435,10 @@
    "c29-set-hooks",
    "c30-list-positions",
    "c31-list-concat",
-   "c32-elem-strict"
+   "c32-elem-strict",
+   "c34-cells-several",
+   "c35-cell-map",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -445,7 +497,8 @@
   "killed_by": [
    "c19-map-choice",
    "c20-map-key-fixed",
-   "c27-set-choice"
+   "c27-set-choice",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -479,7 +532,10 @@
    "c29-set-hooks",
    "c30-list-positions",
    "c31-list-concat",
-   "c32-elem-strict"
+   "c32-elem-strict",
+   "c34-cells-several",
+   "c35-cell-map",
+   "c36-cell-key-twice"
   ]
  },
  "tdiv-as-ediv": {
@@ -505,7 +561,8 @@
    "c23-map-lookup-missing",
    "c26-map-strict",
    "c28-set-overlap",
-   "c32-elem-strict"
+   "c32-elem-strict",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": [
@@ -522,7 +579,8 @@
  "undefined-result-does-not-block": {
   "killed_by": [
    "c08-undef-rhs-blocks",
-   "c10-strict-ite"
+   "c10-strict-ite",
+   "c36-cell-key-twice"
   ],
   "status": "killed",
   "undecided": []
@@ -537,7 +595,8 @@
    "c03-nondet",
    "c13-inj-bool",
    "c20-map-key-fixed",
-   "c30-list-positions"
+   "c30-list-positions",
+   "c36-cell-key-twice"
   ]
  }
 }

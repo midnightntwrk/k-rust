@@ -20,15 +20,17 @@ The expected result of each case comes from the reference backends run on the ob
 - matching is syntactic up to injections: `inj{A,B}(P)` matches `inj{C,B}(V)` when `C = A` (`P` against `V`) or `C < A` in the reflexive-transitive closure of the stated subsorts (`P` against `inj{C,A}(V)`); a variable seen twice must be bound to equal values; an as-pattern `\and(P, V)` matches what `P` matches and binds `V` to it; `inj{A,B}(inj{C,A}(V))` is `inj{C,B}(V)`;
 - hooks are strict: an undefined operand makes the operation undefined; `/Int` and `%Int` are undefined on a zero divisor;
 - a `Map` is a finite map, a `Set` a finite set, a `List` a finite sequence, and a value of each is canonical (a map's entries ordered by key, a set's elements by value, no key or element twice), so that equal collections are equal terms; `_Map_` and `_Set_` are partial, defined on disjoint maps (sets) and undefined where keys (elements) overlap; `_List_` is total, associative and not commutative; a lookup of a missing key is undefined; a collection is strict in its elements;
-- a collection pattern of element patterns and at most one frame variable matches every split of its subject: for `Map` and `Set` each element pattern takes any element, for `List` the element at its position, and the frame the rest; matching gives a set of substitutions, a rewrite rule gives one result for each substitution whose `requires` holds, and an equation the result of the first such substitution (on a consistent definition every such substitution gives the same result).
+- a collection pattern of element patterns and at most one frame variable matches every split of its subject: for `Map` and `Set` each element pattern takes any element, for `List` the element at its position, and the frame the rest; matching gives a set of substitutions, a rewrite rule gives one result for each substitution whose `requires` holds, and an equation the result of the first such substitution (on a consistent definition every such substitution gives the same result);
+- a configuration is a term like any other: a cell is an application of its constructor, and a cell collection (`multiplicity="*"`, `type="Map"`) is a `Map` from its key cell to its instances, since kompile gives its sort the `MAP.concat`, `MAP.unit` and `MAP.element` hooks; so an instance is found by its key, the instances a rule does not mention are its frame, and two instances of one key are a concatenation of maps with a common key, undefined (`docs/compatibility.md`, "Map concatenation binds each key once").
 
 ### The fragment
 
 Covered: sorts, subsorts and injections, constructors, as-patterns, non-linear left sides, function equations with priorities, `requires` and `[owise]`, rewrite rules with priorities, `requires` and `[owise]`, the hooks `+Int -Int *Int /Int %Int <Int <=Int >Int >=Int ==Int =/=Int andBool orBool notBool #if_#then_#else_#fi`, and undefinedness propagating strictly.
+Configurations: one cell `<k>`, or several cells under a top cell, with cell collections of `type="Map"`.
 Collections: the sorts `Map`, `Set` and `List` with their concatenation, unit and element symbols (in terms and in patterns, with a frame variable), and the hooks `Map:lookup`, `Map:lookupOrDefault`, `Map:update`, `_[_<-undef]`, `_in_keys(_)`, `size(Map)`, `Set:in`, `size(Set)`, `|Set` and `size(List)`.
 
-Not covered: the other collection hooks (`keys`, `values`, `choice`, `-Map`, `-Set`, `intersectSet`, `List:get`, `List:set`, `range` and the rest); a `Map` or `Set` pattern with more than one frame; cell collections (cells of multiplicity `*`) and their generated map sorts; any hook outside the lists above; `ensures`; configurations of more than one cell (an object definition has the one cell `<k> $PGM:S </k>`); symbolic terms (an initial term is ground); conditions on results; projections such as `{M[K]}:>Int`, whose equations kompile writes in K's own modules (a case keeps a lookup's result in `KItem`).
-The encoder stops with an error naming the construct when it meets one outside the fragment that it recognizes: a hook outside the list, a domain value of another sort, a matching-logic connective in a term, an `ensures`, a configuration of another shape, a `Map` or `Set` pattern with two frames.
+Not covered: the other collection hooks (`keys`, `values`, `choice`, `-Map`, `-Set`, `intersectSet`, `List:get`, `List:set`, `range` and the rest); a `Map` or `Set` pattern with more than one frame; cell collections of `type="Set"` or `type="List"`, cells of multiplicity `?`, and a `<k>` cell holding more than one item; any hook outside the lists above; `ensures`; symbolic terms (an initial term is ground); conditions on results; projections such as `{M[K]}:>Int`, whose equations kompile writes in K's own modules (a case keeps a lookup's result in `KItem`).
+The encoder stops with an error naming the construct when it meets one outside the fragment that it recognizes: a hook outside the list, a domain value of another sort, a matching-logic connective in a term, an `ensures`, a configuration of another shape, an initializer that is not one equation of variable arguments, a `Map` or `Set` pattern with two frames.
 
 ## Layout
 
@@ -40,7 +42,7 @@ The encoder stops with an error naming the construct when it meets one outside t
 | `tools/check.py` | Runs `kore.k` on every case and compares its result with each backend's recorded result (needs only `krust`). |
 | `differences.toml` | Each difference of `kore.k`'s result from a backend's recorded result, by case and backend, with its reason. |
 | `cases/<id>/` | One case, below. |
-| `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 53 mutations of `kore.k`. |
+| `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 56 mutations of `kore.k`. |
 | `kink.lock` | kink-flow's verdict record of the corpus: each mutation's status and recorded killer, and the coverage verdicts. |
 | `kill-matrix.json` | For each mutation, its status, every case that kills it and the cases on which its run gave no comparable result. |
 | `tools/killmatrix.py` | Reduces `kink-flow run --full`'s JSON document to `kill-matrix.json`. |
@@ -49,11 +51,11 @@ The encoder stops with an error naming the construct when it meets one outside t
 
 | File | Content |
 | --- | --- |
-| `def.k` | The object definition: module `CASE`, syntax module `CASE-SYNTAX`, `configuration <k> $PGM:S </k>`, rewrite rules on the closed cell (`<k> L => R </k>`). Its first comment says what the case tests. |
+| `def.k` | The object definition: module `CASE`, syntax module `CASE-SYNTAX`, `configuration <k> $PGM:S </k>` (or a top cell holding `<k> $PGM:S </k>` and other cells), rewrite rules on the closed `<k>` cell (`<k> L => R </k>`). Its first comment says what the case tests. |
 | `pgm` | The initial term, in `CASE-SYNTAX`. |
-| `pgm.kore` | `kast pgm --output kore` against `def.k` kompiled for the haskell backend: the initial term of sort `S`. The initial configuration is `<generatedTop>(<k>(kseq(inj{S,KItem}(PGM), dotk())), <generatedCounter>(0))`. |
+| `pgm.kore` | `kast pgm --output kore` against `def.k` kompiled for the haskell backend: the initial term of sort `S`. The initial configuration is the value of kompile's `initGeneratedTopCell` at the map `$PGM \|-> PGM`: for the one cell `<k>`, `<generatedTop>(<k>(kseq(inj{S,KItem}(PGM), dotk())), <generatedCounter>(0))`; the encoder unfolds kompile's initializer equations to build it, and keeps the item `inj{S,KItem}(PGM)` of a one-cell configuration or the top cell of a configuration of several cells. |
 | `kore.pgm`, `symbols.json` | The encoded program for `kore.k` (start sort `Pgm`) and the encoder's numbering of symbols and sorts; for a case with collections, `collections` names each collection sort's kind and its concatenation, unit and element symbols. |
-| `expected.json` | The reference result. For each backend (`haskell`, and `llvm` kompiled with `--enable-search`), `finals`: the item `inj{S,KItem}(X)` the `<k>` cell holds in each final configuration of `krun --search`, as canonical text (`Lbl…(args)`, integers, `true`/`false`, `inj{SortA,SortB}(v)`; a collection as `SortMap{k|->v,…}` and `SortSet{x,…}` with its elements' texts sorted, `SortList[x,…]` in order, whatever order a backend prints them in; a result under a condition carries ` if defined(…)`), sorted; or `error`, the backend's failure without its temporary paths. `reference` names the K release and backend that produced each; `backends_agree`; `inputs`, the SHA-256 of `def.k` and `pgm` the results were computed from. |
+| `expected.json` | The reference result. For each backend (`haskell`, and `llvm` kompiled with `--enable-search`), `finals`: the item `inj{S,KItem}(X)` the `<k>` cell holds in each final configuration of `krun --search` (for a configuration of several cells, the top cell `Lbl'-LT-'t'-GT-'(…)`, whose `<k>` cell holds `kseq(item,dotk())`), as canonical text (`Lbl…(args)`, integers, `true`/`false`, `inj{SortA,SortB}(v)`; a collection as `SortMap{k|->v,…}` and `SortSet{x,…}` with its elements' texts sorted, `SortList[x,…]` in order, whatever order a backend prints them in; a result under a condition carries ` if defined(…)`), sorted; or `error`, the backend's failure without its temporary paths. `reference` names the K release and backend that produced each; `backends_agree`; `inputs`, the SHA-256 of `def.k` and `pgm` the results were computed from. |
 
 The kompiled object definition is not committed.
 `kompile` writes the absolute path of `def.k` and of K's own installation into the `Source` attributes of `definition.kore`, and a case's `definition.kore` is about 250 KB, almost all of it K's builtin modules.
@@ -79,7 +81,7 @@ Keep the object search finite: on a cycle the haskell backend's search does not 
 
 ## Cases
 
-33 cases, each a small object definition for one point of the reading above.
+36 cases, each a small object definition for one point of the reading above.
 "haskell" is the number of final configurations of the haskell backend's search; "llvm" is the llvm backend's result against it.
 
 | case | what it tests | haskell | llvm |
@@ -117,15 +119,18 @@ Keep the object search finite: on a cycle the haskell backend's search does not 
 | c31-list-concat | `_List_` is associative and not commutative; an element may occur twice; `size(List)` | 3 | same |
 | c32-elem-strict | a set or list with an undefined element is undefined | 1 | error |
 | c33-list-middle-frame | `ListItem(X) L ListItem(Y)`: elements on both sides of a frame | error | 1 final |
+| c34-cells-several | rules that read and rewrite cells besides `<k>`, a `requires` over another cell, the cells a rule does not mention kept, the cells' declared initial values | 1 | same |
+| c35-cell-map | a cell collection keyed by `<id>`: an instance added beside the others, the instance of a key removed, a child of one instance among three rewritten | 1 | same |
+| c36-cell-key-twice | an instance added under a key already present: undefined, no final configuration on that path; a rule matching any instance gives one successor each | 2 | error |
 
 Both results are kept in each `expected.json`, labelled with the K release and backend that produced them.
-Both backends give final configurations on 22 cases and agree on 20 of them (all but c10 and c28); the llvm backend fails on 10 cases and the haskell backend on 1 (c33).
-`kore.k`'s result equals every recorded result except the 14 that `differences.toml` lists, each with its reason:
+Both backends give final configurations on 24 cases and agree on 22 of them (all but c10 and c28); the llvm backend fails on 11 cases and the haskell backend on 1 (c33).
+`kore.k`'s result equals every recorded result except the 15 that `differences.toml` lists, each with its reason:
 
 - c08, c09, c12, c13, c14, c26, c32 (llvm): the llvm backend aborts on a division by zero (`[hook_INT_tdiv]: Division by zero`), where `X /Int 0` is undefined (`\bottom`): no successor, a `requires` that is not true, an initial configuration that is `\bottom`, a collection with an undefined element.
 - c10 (llvm): the llvm backend evaluates `#if true #then 1 #else 10 /Int 0 #fi` lazily and steps to `b(1)`; the hook `KEQUAL.ite` is a function of its three arguments, so an undefined argument makes it undefined.
 - c11 (haskell, llvm): `half(3)`, which no equation of the partial function `half` applies to; the haskell backend returns `b(half(3))` under the condition `\ceil(half(3))`, which `kore.k`'s results do not carry, and the llvm backend aborts (`Called finish_rewriting with no output file specified`).
-- c21, c23 (llvm): the llvm backend aborts on `_Map_` of maps with a common key (`Duplicate keys in map concatenation`) and on a lookup of a missing key (`Key not found for map lookup`); K's `MAP` module states both to be `#False`, so each rule has an undefined result.
+- c21, c23, c36 (llvm): the llvm backend aborts on `_Map_` of maps with a common key (`Duplicate keys in map concatenation`), in c36 the cell collection that gains a second instance of a key, and on a lookup of a missing key (`Key not found for map lookup`); K's `MAP` module states both to be `#False`, so each rule has an undefined result.
 - c28 (llvm): `S SetItem(1)` where `S` holds `1`. K's `SET` module declares `_Set_` idempotent (`idem`) and documents the concatenation of sets with a common element as `#False`; `kore.k` reads it as undefined, and the haskell backend's result is the same (that rule has no successor), while the llvm backend computes the union.
 - c33 (haskell): the haskell backend's search stops with `ErrorRewritesInstantiation`, its unifier finding no solution for a List pattern with elements on both sides of the frame; `kore.k` matches it by position, as the llvm backend does.
 
@@ -144,7 +149,7 @@ It kompiles `kore.k` once with `krust kcompile` (cached in its build directory b
 A case passes when, for each backend, the two are equal and `differences.toml` lists no difference of the case from that backend, or they differ and it lists one; a case whose `def.k` or `pgm` no longer has the SHA-256 its `expected.json` records fails as stale.
 It prints one line per case and a `PASS` or `FAIL` summary, and exits 0 only when every case passes.
 
-Measured in this tree: 33 of 33 cases pass, with 14 listed differences; each `krust krun` process takes 45 to 125 ms, the whole command about 2.5 s warm and 3 s with the `kcompile` (0.4 to 0.7 s).
+Measured in this tree: 36 of 36 cases pass, with 15 listed differences; each `krust krun` process takes 45 to 125 ms, the whole command about 2.5 s warm and 3 s with the `kcompile` (0.3 to 0.7 s).
 
 ## The kink corpus
 
@@ -172,15 +177,19 @@ Its caches are in `.kink-flow/`, which is not committed.
 
 Measured in this tree with kink-flow built from it (portable profile):
 
-- Coverage: 408 obligations covered (218 of 220 rules, 146 of 147 requirements, 44 of 44 syntax productions), 3 argued, 0 open, over 33 comparable cases.
+- Coverage: 408 obligations covered (218 of 220 rules, 146 of 147 requirements, 44 of 44 syntax productions), 3 argued, 0 open, over 36 comparable cases.
   The argued obligations are `rule:KORE.ins-dup` and its requirement `requirement:KORE.ins-dup:held` (no `insert` receives a configuration its list already holds: a configuration is inserted into `seen` only when it is not a member, and into the finals only when taken from the frontier, which holds each configuration once), and `rule:KORE.tag-other` (configurations are values; `vr`, `hk`, `as`, `cb` and `bot` never reach `cmp` under `kore.k`, and `kv` and `el` are compared only with their own kind, since a collection holds elements of one kind; the rule is kept so that a mutant that makes `bot` a configuration still compares it).
-- Mutations: 53, of which 52 are killed and 1 survives as expected: `fn-last-of-priority` (`expect = "survive"`).
+- Mutations: 56, of which 55 are killed and 1 survives as expected: `fn-last-of-priority` (`expect = "survive"`).
   Two equations of one priority that both apply with different values state that the function has two values, an inconsistent definition; on a consistent object definition the first and the last applicable equation of a priority agree, so no case kills it.
   The 15 mutations of collections are wrong readings of matching (`subst-first-only`, `fn-first-subst-only`, `frame-dropped`, `col-pattern-open`, `col-first-split-only`, `list-match-commutative`, `list-split-at-head`), of collection values (`map-duplicate-keys`, `map-concat-overrides`, `set-idempotent`, `list-as-set`, `col-unordered`) and of hooks (`map-lookup-missing-defined`, `map-update-duplicates`, `set-union-partial`).
   The 38 earlier mutations keep their verdicts (their killing cases only gain collection cases); two of them were re-anchored on the rules that now carry a list of results (`rule-rhs-unevaluated` on `fire-holds`, `undefined-result-does-not-block` on `add-some`).
-- Cost: `run --full` 32 s (host load about 20); `coverage` and `run --locked` about 1 s warm.
+  The 3 mutations of cell collections are wrong readings of a `Map` that a cell collection's rules tell apart: `map-entry-by-position` (an instance found only at its position, not by its key), `col-frame-not-rebuilt` (the instances a rule does not mention dropped from the collection it builds) and `map-keyed-by-entry` (two instances of one key kept when they differ).
+  The cell cases kill all three, and so do the plain `Map` cases: a cell collection needs no rule of its own in `kore.k`, so the cell cases are evidence that the encoder reads kompile's cells and initializers as terms and maps, not a sharper test of `kore.k`.
+  They also kill the earlier collection mutations `col-first-split-only`, `frame-dropped`, `map-duplicate-keys` and `map-concat-overrides`; since c36 shares the last two with c21, c21 no longer kills a mutation alone.
+  On c34 the mutant `rule-requires-ignored` descends through `step(-1)`, `step(-2)`, … and gives no comparable result within the budget; c03 kills it.
+- Cost: `coverage` and `run --locked` about 1 s warm.
 
-13 cases kill some mutation that no other case kills:
+12 cases kill some mutation that no other case kills:
 
 | case | mutations it alone kills |
 | --- | --- |
@@ -193,19 +202,19 @@ Measured in this tree with kink-flow built from it (portable profile):
 | c14-fn-undef-requires | fn-undefined-requires-holds |
 | c16-bool-pattern | bool-dv-any-value |
 | c18-div-signs | tdiv-as-ediv, tmod-as-emod |
-| c21-map-concat | map-concat-overrides, map-duplicate-keys |
 | c23-map-lookup-missing | map-lookup-missing-defined |
 | c24-map-fn-pattern | fn-first-subst-only |
 | c28-set-overlap | set-idempotent |
 
 c07, c15 and c17, which alone killed `dv-any-value`, `fn-owise-ignored`, `nonlinear-ignored` and `init-unevaluated` among the 18 cases, now share those kills with collection cases; the other cases each kill mutations that another case also kills.
 
-## Next: cells
+## Next
 
-The collections unit is done (above). What remains of K's configurations:
+Configurations of several cells and `Map` cell collections are done (above). What remains:
 
-- A configuration of more than one cell. The encoder strips `<generatedTop>(<k>(…), DotVar)` to the one item of the `<k>` cell; with several cells the encoded term becomes the cell tuple (each cell a constructor application, which `kore.k` already matches), and the decoders print each cell.
-- Cell collections (`multiplicity="*"`, `type="Map"`): kompile declares a generated sort such as `SortXCellMap` with its own concatenation, unit and element symbols (`_XCellMap_`, `.XCellMap`, `XCellMapItem`), keyed by the cell's first child (`XCellMapItem(<id>…</id>, <x>…</x>)`). They have the `MAP.concat`, `MAP.unit` and `MAP.element` hooks, so `kore.k` reads them as maps already; the work is in the encoder (the generated sorts, their subsorts, the cell's wrapping) and in cases whose rules match `<x> <id> K </id> … </x>` in a cell collection with a frame.
+- Equality and predicates: `==K` and `=/=K` across sorts and on collections, sort predicates `isS`, token sorts with literals, more shapes of `#as`.
+- `total` functions in a `requires`, and `ensures`.
+- Cell collections of `type="Set"` and `type="List"`, and cells of multiplicity `?`.
 - Other collection hooks as small definitions meet them (`keys`, `values`, `-Map`, `-Set`, `List:get` with its negative indices, `range`).
 
 ## Why K and not KRS
@@ -216,7 +225,7 @@ The other packages of `krs/semantics` are KRS crates whose K is emitted by `krs`
 - The definition: its 16 sorts as constructor enums whose syntax templates must reproduce exactly the program syntax the committed `kore.pgm` files are written in (`pgm(def(…), …)`, `T ; Ts`, `.Ts`, `bot`); the 209 equations of 65 functions as equation tables; the 11 rewrite rules of the search in `k::rules!`.
   Each sentence is judged by KRS's checks on the assembled definition (overlapping equations, catch-all rows that need `owise`, complementary guards of rules), which `kore.k` has never been put through; whatever they refuse is a change of the definition to be argued, not a transcription.
 - The corpus: `krs kink` reads a corpus in its own layout, `kink/` beside the crate's `Cargo.toml`: `kink/FLOW.toml` naming the package (`[spec] krs = { package = …, definition = … }`), the cases as program files that bind the `#[k::init]` parameter, `kink/mutations/<topic>.toml`, and a committed `kink/definition.k`.
-  The emitted K has KRS's module names, rule labels and spelling of each rule, so all 53 mutations are re-anchored (each edit's `rule` and `find`), the three argued obligations renamed, and the coverage and kill numbers re-measured.
+  The emitted K has KRS's module names, rule labels and spelling of each rule, so all 56 mutations are re-anchored (each edit's `rule` and `find`), the three argued obligations renamed, and the coverage and kill numbers re-measured.
 - The evidence that the port is the same definition: `krs run` of every case's `kore.pgm` gives the result `kore.k` gives, and the kill matrix is the same up to the renaming of mutations' anchors.
 
 By the size of the existing ports (the KWasm slice is 294 lines of Rust for 16 sentences), that is on the order of a thousand lines of Rust and a re-authored mutation list, a unit of its own.
@@ -224,8 +233,8 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition, with `Map`, `Set` and `List`; the encoder and the case builder; 33 cases with their reference results; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which reruns the cases against both backends' recorded results.
+Done: the definition, with `Map`, `Set` and `List`; the encoder and the case builder, with configurations of several cells and `Map` cell collections; 36 cases with their reference results; the kink corpus with this tree's coverage and kill matrix; and `tools/check.py`, which reruns the cases against both backends' recorded results.
 
-Not verified here: the reading of KORE is argued in `kore.k`'s header and checked only against the two backends on these 33 cases; no case exercises a definition outside the fragment, so the encoder's refusals are untested (it was rerun on every case, and every committed encoding is unchanged); a `Map` or `Set` value's canonical order is `cmp`'s, which the decoders replace by the order of the elements' texts, so the order itself is checked only through `kore.k`'s own equalities (c25); kink's verdicts rest on k-rust's execution of `kore.k`, which is the same engine `tools/check.py` uses.
+Not verified here: the reading of KORE is argued in `kore.k`'s header and checked only against the two backends on these 36 cases; no case exercises a definition outside the fragment, so the encoder's refusals are untested (it was rerun on every case, and every committed encoding is unchanged); a `Map` or `Set` value's canonical order is `cmp`'s, which the decoders replace by the order of the elements' texts, so the order itself is checked only through `kore.k`'s own equalities (c25); kink's verdicts rest on k-rust's execution of `kore.k`, which is the same engine `tools/check.py` uses.
 
-Next: cells (above); a KRS port of `kore.k`, if wanted, as a unit of its own (above); and feeding the cases to a harness that runs other KORE implementations on `def.k` (kompiled) and `pgm.kore`, comparing with `expected.json`.
+Next: equality and predicates, `total` and `ensures` (above); a KRS port of `kore.k`, if wanted, as a unit of its own (above); and feeding the cases to a harness that runs other KORE implementations on `def.k` (kompiled) and `pgm.kore`, comparing with `expected.json`.

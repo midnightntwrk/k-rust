@@ -465,6 +465,43 @@ misunderstanding = "a Map update of a present key adds a second entry for it ins
   find = "=> E ; Fs"
   replace = "=> E ; F ; Fs"
 
+# --- cell collections ----------------------------------------------------------------------
+# A cell collection (multiplicity="*", type="Map") is a Map keyed by its key cell; these are wrong
+# readings of a Map that a cell collection's rules tell apart: finding an instance, keeping the
+# instances a rule does not mention, and the uniqueness of keys.
+
+[[mutation]]
+id = "map-entry-by-position"
+misunderstanding = "an entry pattern of a Map pattern (an instance of a cell collection) takes the entry at its position, as a List's element pattern does, instead of any entry: the instance of a key is found only when it comes first"
+  [[mutation.edit]]
+  rule = "KORE.mc-choose"
+  find = "requires isElem(P) andBool K =/=K list"
+  replace = "requires isElem(P) andBool K ==K set"
+  [[mutation.edit]]
+  rule = "KORE.mc-head"
+  find = "matchCol(list, C, P ; Ps, E ; Es, B, S) => rest(list, C,"
+  replace = "matchCol(K, C, P ; Ps, E ; Es, B, S) => rest(K, C,"
+  [[mutation.edit]]
+  rule = "KORE.mc-head"
+  find = "requires isElem(P)"
+  replace = "requires isElem(P) andBool K =/=K set"
+
+[[mutation]]
+id = "col-frame-not-rebuilt"
+misunderstanding = "a collection built on a right side holds only the elements written there: a part of the collection's sort, such as the frame that holds the instances a rule does not mention, contributes nothing"
+  [[mutation.edit]]
+  rule = "KORE.join-col"
+  find = "=> join(co(K, C, Es), app(Fs, Ps))"
+  replace = "=> join(co(K, C, Es), Ps)"
+
+[[mutation]]
+id = "map-keyed-by-entry"
+misunderstanding = "Map entries (instances of a cell collection) are told apart by the whole entry and not by the key: two entries of one key with different values are both kept, and only two equal entries overlap"
+  [[mutation.edit]]
+  rule = "KORE.ckey-kv"
+  find = "ckey(kv(A, _), kv(B, _)) => cmp(A, B)"
+  replace = "ckey(kv(A, V), kv(B, W)) => cmp(kv(A, V), kv(B, W))"
+
 # --- collections: Set and List -------------------------------------------------------------
 
 [[mutation]]
