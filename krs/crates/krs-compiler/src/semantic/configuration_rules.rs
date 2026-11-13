@@ -129,14 +129,16 @@ impl<'a> StateRuleTerms<'a> {
 
     /// Judges the computation sequences the pattern matches, once all of it is lowered: each must
     /// split every computation it matches in one way, so that the pattern fixes what each of its
-    /// parts binds, and must not match items from the computation's end, which the target does not
-    /// ([`MatchedSequence::judge`]), given the binders fixed elsewhere ([`Self::fixed_binders`]).
-    fn judge_sequences(&self) -> Result<(), DescriptorLoweringError> {
+    /// parts binds, given the binders fixed elsewhere ([`Self::fixed_binders`]); and where the
+    /// target `matches` the pattern (every sentence but a claim, whose subject is a set of
+    /// configurations), a part of unknown item count must be the sequence's last
+    /// ([`MatchedSequence::judge`]).
+    fn judge_sequences(&self, matches: bool) -> Result<(), DescriptorLoweringError> {
         (0..self.matched_sequences.len()).try_for_each(|judged| {
             self.matched_sequences[judged].judge(
                 self.descriptor,
                 &self.fixed_binders(judged, Placed::Ends),
-                &self.fixed_binders(judged, Placed::Front),
+                matches,
             )
         })
     }
@@ -1784,7 +1786,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         &subject_sorts,
         &result_sorts,
     )?;
-    terms.judge_sequences()?;
+    terms.judge_sequences(rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Claim)?;
     declare_moved_remainders(&mut terms.variables, &clauses);
     // A context's hole lies in the computation cell (KF-021).
     if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context
@@ -2785,7 +2787,7 @@ pub(super) fn lower_context_alias_descriptor(
         .iter()
         .map(|pattern| lower_context_alias_cell(&mut terms, pattern, &binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
-    terms.judge_sequences()?;
+    terms.judge_sequences(true)?;
     check_here_in_computation_cell(descriptor, declarations, alias, &cells)?;
     let variables = terms.finish_unconditioned("a context alias")?;
     let selected = alias
@@ -2930,7 +2932,7 @@ pub(super) fn lower_function_context(
         .iter()
         .map(|cell| lower_function_context_cell(&mut terms, cell, binding_sorts))
         .collect::<Result<Vec<_>, _>>()?;
-    terms.judge_sequences()?;
+    terms.judge_sequences(true)?;
     let selected = context
         .cells
         .cells
@@ -3910,7 +3912,7 @@ impl MatchedSequence {
         let length = self.items.len();
         let front = unknown.first().copied().unwrap_or(length);
         let back = match (placed, &self.rest, unknown.last()) {
-            (Placed::Front, _, _) | (_, Some(_), _) | (_, None, None) => length,
+            (_, Some(_), _) | (_, None, None) => length,
             (Placed::Whole, None, Some(_)) if self.splits_once(&unknown) => 0,
             (_, None, Some(last)) => last + 1,
         };
@@ -3923,24 +3925,26 @@ impl MatchedSequence {
     }
 
     /// Judges the sequence's parts, given the binders the pattern fixes with this sequence's
-    /// items at both its ends, `ends`, and at its front only, `front`
-    /// ([`StateRuleTerms::fixed_binders`]).
+    /// items at both its ends, `ends` ([`StateRuleTerms::fixed_binders`]), and whether the target
+    /// `matches` the pattern.
     /// - Two or more parts of unknown length, the rest included, split some matched computation
     ///   in more than one way, each binding the parts differently, so the pattern does not fix
     ///   what they bind: refused, naming them.
-    /// - Otherwise the parts split every matched computation one way. In a closed sequence a part
-    ///   whose length its front does not fix matches the rest of the computation when it is last
-    ///   (`KCell(Cmd::Make { x }, b)` is `make(X) ~> B:K`, as `b @ ..` is). Followed by an item,
-    ///   it matches the computations that end with the items after it, `B` the items before them
-    ///   (`KCell(b, Cmd::Make { x })` is `B:K ~> make(X)`, the computations whose last item is
-    ///   `make(X)`): a well defined match, from the computation's end, which the target does not
-    ///   perform, since it matches a computation from its front; a stated limit
-    ///   ([`DescriptorLoweringError::ComputationBackItem`]).
+    /// - Otherwise the parts split every matched computation one way, and the pattern means one
+    ///   set of computations: `KCell(b, Cmd::Make { x })` the computations whose last item is
+    ///   `make(X)`, `KCell(Cmd::Keep { body: b }, b, ..)` those that start with `keep(B)` and then
+    ///   `B`. A claim states such a set, which the target proves over. A sentence the target
+    ///   matches (a rule, a context, a context alias, a function context) is matched from the
+    ///   computation's front, item by item: a part of sort `K` that is not one item stands in the
+    ///   emitted K before the end only as an `append` on the pattern's side, which the target
+    ///   never matches, even where another occurrence fixes the part. There such a part stands
+    ///   only as the closed sequence's last part, the rest; anywhere else it is a stated limit
+    ///   ([`DescriptorLoweringError::ComputationBackItem`]), at the part.
     fn judge(
         &self,
         descriptor: &Descriptor,
         ends: &BTreeSet<SemanticId>,
-        front: &BTreeSet<SemanticId>,
+        matches: bool,
     ) -> Result<(), DescriptorLoweringError> {
         let unknown = self.unknown_parts(ends);
         if !self.splits_once(&unknown) {
@@ -3968,18 +3972,26 @@ impl MatchedSequence {
                     .as_ref(),
             ));
         }
-        if self.rest.is_some() {
+        if !matches {
             return Ok(());
         }
-        let unknown = self.unknown_parts(front);
-        let Some(back) = unknown.first().and_then(|&first| {
-            (first + 1..self.items.len()).find(|index| !unknown.contains(index))
+        let last = self.items.len().saturating_sub(1);
+        let Some(index) = (0..self.items.len()).find(|&index| {
+            !matches_one_item(&self.items[index]) && (index < last || self.rest.is_some())
         }) else {
             return Ok(());
         };
+        let before = if index < last {
+            format!("the item at position {}", index + 2)
+        } else {
+            "the rest".to_owned()
+        };
         Err(DescriptorLoweringError::ComputationBackItem {
-            reason: "not supported: a computation matched from its end: the closed computation pattern has an item after a part of sort `K` whose length its front does not fix, so it matches the computations that end with the items after that part, and the target matches a computation from its front only; when the part is one item, declare its binder at an item sort (`KItem`, or a sort below it)".to_owned(),
-            range: key_range(descriptor, &self.item_keys[back]).map(Box::new),
+            reason: format!(
+                "not supported: a part of sort `K` matched before the end of a computation: {} stands before {before}, and the target matches a computation from its front, one item at a time, so a part of unknown item count stands in a pattern only as the computation's last part, its rest, even where another occurrence fixes it; match it at the end of the computation, or declare its binder at an item sort (`KItem`, or a sort below it) when it is one item",
+                part_name(&self.items[index], index),
+            ),
+            range: key_range(descriptor, &self.item_keys[index]).map(Box::new),
             item: Some(Box::new(descriptor.id().clone())),
         })
     }
@@ -3988,9 +4000,8 @@ impl MatchedSequence {
 /// Where a matched computation's items fix their binders ([`MatchedSequence::fix_binders`]).
 #[derive(Clone, Copy)]
 enum Placed {
-    /// The items before its first part of unknown length.
-    Front,
-    /// Those, and in a closed computation the items after its last part of unknown length.
+    /// The items before its first part of unknown length and, in a closed computation, the items
+    /// after its last one.
     Ends,
     /// Those, and every item of a computation that splits one way.
     Whole,
