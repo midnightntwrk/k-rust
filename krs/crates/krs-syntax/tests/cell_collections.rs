@@ -15,6 +15,30 @@ fn expression(source: &str) -> krs_syntax::CellsExpression {
     parse_cells_expression(krs_syntax::parse::tokens_from_source(source).unwrap()).unwrap()
 }
 
+/// The refusal a readable clause's subject braces carry where the entry reader reads them as
+/// instance braces and the instance reader does not take their items: the clause parses, and
+/// the collector judges the braces by the cell's kind first, raising this refusal only where the
+/// kind admits them (TOP-BRACE-ONE). Its kind, its text, and the columns its span covers.
+fn carried_braces_refusal(source: &str) -> (krs_syntax::SyntaxErrorKind, String, usize, usize) {
+    let block = krs_syntax::RuleBlock::parse_source(source)
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+    let refusal = block.clauses()[0]
+        .pairing_refusal()
+        .unwrap_or_else(|| panic!("{source}: no refusal carried"));
+    (
+        refusal.kind().clone(),
+        refusal.to_string(),
+        refusal.span().start().column,
+        refusal.span().end().column,
+    )
+}
+
+/// The columns of the first occurrence of `token` in `source`.
+fn columns(source: &str, token: &str) -> (usize, usize) {
+    let start = source.find(token).expect("the token occurs");
+    (start, start + token.len())
+}
+
 #[test]
 fn optional_entries_are_present_or_absent() {
     let subject = pattern("counter: Some(Cell(n)), mark: None, state @ ..");
@@ -491,19 +515,21 @@ fn a_shorthand_instance_child_is_the_child_bound_to_its_name() {
 }
 
 /// `_` is no field name: Rust's shorthand has none, and `_: v` would name no
-/// child, so a lone `_` is refused as a malformed child.
+/// child, so a lone `_` is refused as a malformed child, carried at the `_` until the cell's kind
+/// has admitted the braces ([`carried_braces_refusal`]).
 #[test]
 fn a_lone_wildcard_is_no_shorthand_instance_child() {
-    let error = krs_syntax::RuleBlock::parse_source(
-        "for Machine; read: { thread: { Thread { _, .. }, .. } } => { thread: { .. } };",
-    )
-    .unwrap_err();
+    let source = "for Machine; read: { thread: { Thread { _, .. }, .. } } => { thread: { .. } };";
+    let (kind, text, start, end) = carried_braces_refusal(source);
     assert!(
-        error
-            .to_string()
-            .contains("an instance child is `name: value`, or `name` for `name: name`"),
-        "{error}"
+        matches!(kind, krs_syntax::SyntaxErrorKind::InvalidStateMacro { .. }),
+        "{kind:?}"
     );
+    assert!(
+        text.contains("an instance child is `name: value`, or `name` for `name: name`"),
+        "{text}"
+    );
+    assert_eq!((start, end), columns(source, "_"), "{text}");
 }
 
 /// A whole-instance item: one record labelled `label` (or none), writing no child, with the rest
@@ -582,11 +608,29 @@ fn a_name_or_wildcard_item_is_the_whole_instance_it_labels() {
         "..x"
     ));
 
-    for source in [
-        "for Machine; read: { k: [Go(), ..], acct: { true, .. } } => { k: [..] };",
-        "for Machine; read: { k: [Go(), ..], acct: { 0, .. } } => { k: [..] };",
+    // A keyword or a literal item is no instance: the instance reader's refusal is carried at the
+    // item, and the cell's kind answers first (on a Set or Map collection, an item that is no
+    // instance record, name or `_` is `instance-list-shape`).
+    for (source, item) in [
+        (
+            "for Machine; read: { k: [Go(), ..], acct: { true, .. } } => { k: [..] };",
+            "true",
+        ),
+        (
+            "for Machine; read: { k: [Go(), ..], acct: { 0, .. } } => { k: [..] };",
+            "0",
+        ),
     ] {
-        krs_syntax::RuleBlock::parse_source(source).unwrap_err();
+        let (kind, text, start, end) = carried_braces_refusal(source);
+        assert!(
+            matches!(kind, krs_syntax::SyntaxErrorKind::InvalidStateMacro { .. }),
+            "{kind:?}"
+        );
+        assert!(
+            text.contains("a collection instance is a cell record"),
+            "{text}"
+        );
+        assert_eq!((start, end), columns(source, item), "{source}: {text}");
     }
 }
 
@@ -764,11 +808,22 @@ fn a_keyword_is_no_shorthand_instance_child() {
         "self", "Self", "true", "false", "crate", "super", "match", "let", "fn", "async",
     ] {
         let expected = format!("expected identifier, found keyword `{keyword}`");
-        let readable = krs_syntax::RuleBlock::parse_source(&format!(
+        // The readable braces carry the refusal at the keyword, for the cell's kind to answer
+        // first ([`carried_braces_refusal`]).
+        let source = format!(
             "for Machine; read: {{ k: [Go(), ..], account: {{ Account {{ {keyword}, .. }}, .. }} }} => {{ k: [..] }};"
-        ))
-        .unwrap_err();
-        assert!(readable.to_string().contains(&expected), "{readable}");
+        );
+        let (kind, text, start, end) = carried_braces_refusal(&source);
+        assert!(
+            matches!(kind, krs_syntax::SyntaxErrorKind::RustSyntax(_)),
+            "{kind:?}"
+        );
+        assert!(text.contains(&expected), "{text}");
+        let at = source
+            .find(&format!("Account {{ {keyword},"))
+            .expect("the keyword occurs")
+            + "Account { ".len();
+        assert_eq!((start, end), (at, at + keyword.len()), "{text}");
         let cells = parse_cells_pattern(
             krs_syntax::parse::tokens_from_source(&format!(
                 "Accounts::account: {{ Account {{ {keyword}, .. }}, rest @ .. }}, state @ .."
