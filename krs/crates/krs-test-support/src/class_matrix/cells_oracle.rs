@@ -906,6 +906,10 @@ pub fn collect_groups(layers: &[Layer], groups: &mut Vec<Group>) {
 /// position. `Cell(..)`'s argument is its leaf's content. Anywhere else, a list's element, a
 /// map's entry, a constructor's or a call's argument, a spelling is a term's part (P6: below a
 /// root, notation is a term's).
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag is an independent fact of where a spelling stands."
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Place {
     /// At a configuration position.

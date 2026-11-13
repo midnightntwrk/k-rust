@@ -1010,6 +1010,10 @@ fn a_result_presence_over_an_unmatched_cell_is_a_presence() {
 /// once the cell's kind admits both entries: a term or instances on a cell of another kind is
 /// that kind's class first.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of result spellings and the refusal each carries, its rows inline."
+)]
 fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
     for (source, expected) in [
         (

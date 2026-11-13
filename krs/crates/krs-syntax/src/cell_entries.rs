@@ -1113,6 +1113,10 @@ fn inner(spelling: &EntrySpelling) -> Vec<&EntrySpelling> {
     }
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Each flag is an independent fact of where the spelling being judged stands."
+)]
 struct Admission<'b> {
     form: EntryForm,
     side: EntrySide,
@@ -1317,8 +1321,7 @@ impl Admission<'_> {
                 self.within(0, |admission| admission.leaf(*notation, content))
             }
             (Layer::Instances(order), _) => self.instances(*order, below, spelling),
-            (Layer::Leaf(_), EntrySpelling::MapRead(map))
-            | (Layer::Leaf(_), EntrySpelling::MapLiteral(map))
+            (Layer::Leaf(_), EntrySpelling::MapRead(map) | EntrySpelling::MapLiteral(map))
                 if mark == Mark::Map && self.form.is_readable() =>
             {
                 // Both limitations are a map read's, braces holding a rest or the cell's

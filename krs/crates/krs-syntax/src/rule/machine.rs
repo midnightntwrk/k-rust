@@ -1364,20 +1364,8 @@ fn parse_machine_pattern_record(
             )?)
         } else if let Some(cell) = named_rest_record(&content)? {
             cell
-        } else if content.peek(syn::token::Brace) {
-            {
-                let (entries, rest, _) = parse_machine_map_pattern(&content)?;
-                MachinePatternCell::MapItems(entries, rest)
-            }
-        } else if let Some(braces) = rooted_map_braces(&value_tokens(&content)) {
-            // The cell's `map![k -> v, ..]` is its map read, as its braces `{ k -> v, .. }` are.
-            skip_value(&content)?;
-            let (entries, rest, _) = crate::parse::structured_with(
-                TokenTree::Group(braces).into(),
-                parse_machine_map_pattern,
-                crate::SyntaxError::from,
-            )?;
-            MachinePatternCell::MapItems(entries, rest)
+        } else if let Some(map) = machine_map_read(&content)? {
+            map
         } else if let Some(presences) = value_presences(&content, StateMacroContext::Pattern) {
             skip_value(&content)?;
             presences.carry(faults)?;
@@ -1410,6 +1398,25 @@ fn parse_machine_pattern_record(
         }
     }
     Ok(cells)
+}
+
+/// The map read a subject value spells at its cell, consumed: braces `{ k -> v, .. }`, or the cell's
+/// `map![k -> v, ..]`, which means those braces there ([`rooted_map_braces`]). `None`, consuming
+/// nothing, for any other value.
+fn machine_map_read(content: ParseStream<'_>) -> Result<Option<MachinePatternCell>, ParseError> {
+    let (entries, rest, _) = if content.peek(syn::token::Brace) {
+        parse_machine_map_pattern(content)?
+    } else if let Some(braces) = rooted_map_braces(&value_tokens(content)) {
+        skip_value(content)?;
+        crate::parse::structured_with(
+            TokenTree::Group(braces).into(),
+            parse_machine_map_pattern,
+            crate::SyntaxError::from,
+        )?
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(MachinePatternCell::MapItems(entries, rest)))
 }
 
 /// The instance reader's refusal of a subject value in braces that the entry reader reads as
