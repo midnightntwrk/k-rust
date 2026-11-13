@@ -77,7 +77,7 @@ Colours belong to terminals: `color = "magenta"` paints every terminal, and `col
 `#[k::function(total, memo, ...)]` gives a function K's `memo` hint, written as a bare flag after the totality in both layers: the Haskell backend may cache its results, while the LLVM backend and k-rust accept the hint and ignore it, so results never depend on it.
 `#[k::function(total, fresh_generator, ...)]` makes a total function of one Int field K's `freshGenerator` of its result sort, the function a [fresh binder](#fresh-values) of that sort draws from.
 `#[k::function(total, underspecified = "reason", ...)]` states that the function's equations leave some arguments without a value on purpose, which silences the [coverage lint](#coverage-of-total-functions); it is KRS-only, emits nothing to K, and is an error on a `partial` function (`krs::syntax::invalid-underspecified`).
-`#[k::function(total, assumed = "reason", ...)]` states that the function has a value on every argument for the reason given, and turns off the [check of its equations' results](#values-of-total-functions); it emits nothing to K, the function is `[function, total]` as a checked one is, and it is an error on a `partial` function (`krs::syntax::invalid-assumed`).
+`#[k::function(total, assumed = "reason", ...)]` states that the function has a value on every argument for the reason given, and turns off the [check of its equations' results](#values-of-total-functions); it emits nothing to K, the function is `[function, total]` as a checked one is, `symbols.json` states the function as [`assumed`](#the-totality-a-definition-states) with the reason, and it is an error on a `partial` function (`krs::syntax::invalid-assumed`).
 `#[k::function(.., skipped_operand = "reason")]` states that the function's values may depend on an operand that `&&`, `||` or `kequal::ite` does not evaluate, which silences the [skipped-operand warning](#skipped-operands) at the function's equations; it is KRS-only and emits nothing to K.
 Every configuration has exactly one `#[k::init]`, in an inherent `impl`: it is where the initial state is written, and no cell has a default value, since a cell's sort does not determine its initial content (a computation cell may start empty or with the program).
 Without one, including when a `cfg` removes it, `krs check` reports `krs::expand::missing-initializer` at the struct.
@@ -974,6 +974,28 @@ It refuses a result that has a value by a fact it does not read: a range that re
 `assumed` on a function the check accepts is a warning (`krs::analysis::stale-assumed`).
 Recursion is not judged: a recursive application is an application of a `total` function, so for a function in a call cycle the check shows totality given that the calls terminate.
 A hooked function, one with `smt_hook`, and one with no equation are not judged.
+
+#### The totality a definition states
+
+The emitted K writes `[function, total]` for a checked function, an assumed one and a hooked one alike, so the K does not say how far a totality was established.
+`symbols.json` says it: the row of each function carries `totality`, an object whose `state` is one of four words, and the row of anything else carries none.
+
+| `state` | The function | What a reader may rest on |
+| --- | --- | --- |
+| `checked` | is declared `total` and is defined by the definition's equations | each equation's result has a value wherever the equation applies, given the declarations of the functions it applies and that its calls terminate; a function with no equation has a value the definition does not name |
+| `assumed` | is declared `total, assumed = "reason"` | the author's word; `reason` holds it as written |
+| `hooked` | is declared `total` and is defined by a hook or by `smt_hook` | the operation the hook names, which KRS does not check here |
+| `partial` | is not declared `total` | nothing: an application may have no value |
+
+```json
+{"identity":{"identity_kind":"symbol","identity":"…"},"emitted_name":"at9","source_map_key":"…","symbol_kind":"production","totality":{"state":"assumed","reason":"the memory holds key 9 from its first state on"}}
+```
+
+An `assumed` totality is an unchecked premise of the definition: whatever uses the function as total rests on it.
+The `assumed` rows of `symbols.json` are the definition's list of those premises, and `krs_compiler::assumed_totals` gives the same list from the Definition IR, each entry with the function's item path (`crate::memory::At9`), its K symbol, the reason, and the file and byte range of its name in its declaration, ordered by package, module and name.
+The list is of the definition, not of one proof: it names every such premise the definition holds, whichever of them a proof uses.
+`stale-assumed` does not change the state: a function that states `assumed` is `assumed` until the key is removed.
+An `underspecified` function's uncovered arguments are not part of `totality`, which states only whether results have values.
 
 ### Declared ends
 

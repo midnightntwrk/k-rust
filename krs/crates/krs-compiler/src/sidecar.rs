@@ -13,23 +13,40 @@ use krs_ir_levels::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Version of the compiler-owned symbol/source sidecar encoding.
-const SIDECAR_SCHEMA_VERSION: u32 = 4;
+/// Version of the source sidecar encoding (`sources.json`).
+const SOURCE_SCHEMA_VERSION: u32 = 4;
+
+/// Version of the symbol sidecar encoding (`symbols.json`).
+///
+/// The two sidecars are versioned apart: each file states the encoding of its own rows, so a
+/// change of one does not move the bytes of the other.
+/// Version 5 states each function's totality on its row ([`SymbolMapEntry::totality`]).
+/// A version 4 file has no such field, and reading its absence as "not a function" would be
+/// false, so a reader of this version refuses it.
+const SYMBOL_SCHEMA_VERSION: u32 = 5;
 
 fn deserialize_schema_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<u32, D::Error> {
     let version = u32::deserialize(deserializer)?;
-    check_schema_version(version).map_err(serde::de::Error::custom)?;
+    check_schema_version(version, SOURCE_SCHEMA_VERSION).map_err(serde::de::Error::custom)?;
     Ok(version)
 }
 
-fn check_schema_version(version: u32) -> Result<(), String> {
-    if version == SIDECAR_SCHEMA_VERSION {
+fn deserialize_symbol_schema_version<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let version = u32::deserialize(deserializer)?;
+    check_schema_version(version, SYMBOL_SCHEMA_VERSION).map_err(serde::de::Error::custom)?;
+    Ok(version)
+}
+
+fn check_schema_version(version: u32, expected: u32) -> Result<(), String> {
+    if version == expected {
         Ok(())
     } else {
         Err(format!(
-            "unsupported compiler sidecar schema version {version}; expected {SIDECAR_SCHEMA_VERSION}"
+            "unsupported compiler sidecar schema version {version}; expected {expected}"
         ))
     }
 }
@@ -68,6 +85,9 @@ pub struct SymbolMapEntry {
     source_map_key: SourceMapKey,
     #[serde(skip_serializing_if = "Option::is_none")]
     symbol_kind: Option<SymbolKind>,
+    /// What the definition states about a function's totality; absent on every other row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    totality: Option<crate::Totality>,
 }
 
 impl SymbolMapEntry {
@@ -94,13 +114,22 @@ impl SymbolMapEntry {
     pub const fn symbol_kind(&self) -> Option<SymbolKind> {
         self.symbol_kind
     }
+
+    /// Returns what the definition states about the totality of the function this row names:
+    /// whether its `total` was checked, is assumed for a stated reason, or is a hook's, or the
+    /// function is partial ([`crate::Totality`]).
+    /// A row that names no function has none.
+    #[must_use]
+    pub const fn totality(&self) -> Option<&crate::Totality> {
+        self.totality.as_ref()
+    }
 }
 
 /// Canonically ordered, target-neutral symbol sidecar.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SymbolMap {
-    #[serde(deserialize_with = "deserialize_schema_version")]
+    #[serde(deserialize_with = "deserialize_symbol_schema_version")]
     schema_version: u32,
     entries: Vec<SymbolMapEntry>,
     /// Backend capabilities the definition needs (V8), when any.
@@ -121,6 +150,7 @@ impl SymbolMap {
                     emitted_name: module.id().as_str().to_owned(),
                     source_map_key: module.origin().key().clone(),
                     symbol_kind: None,
+                    totality: None,
                 },
             )?;
             for sentence in module.sentences() {
@@ -133,6 +163,7 @@ impl SymbolMap {
                             emitted_name: sentence.symbol().emitted_name().to_owned(),
                             source_map_key: sentence.origin().key().clone(),
                             symbol_kind: Some(SymbolKind::Sort),
+                            totality: None,
                         },
                     )?,
                     DefinitionSentence::Production(sentence) => push_symbol(
@@ -143,6 +174,7 @@ impl SymbolMap {
                             emitted_name: sentence.symbol().emitted_name().to_owned(),
                             source_map_key: sentence.origin().key().clone(),
                             symbol_kind: Some(SymbolKind::Production),
+                            totality: crate::Totality::of(sentence),
                         },
                     )?,
                     DefinitionSentence::Configuration(configuration) => {
@@ -160,6 +192,7 @@ impl SymbolMap {
                             emitted_name: sentence.label().emitted_name().to_owned(),
                             source_map_key: sentence.origin().key().clone(),
                             symbol_kind: None,
+                            totality: None,
                         },
                     )?,
                     DefinitionSentence::ContextAlias(sentence) => push_symbol(
@@ -170,6 +203,7 @@ impl SymbolMap {
                             emitted_name: sentence.name().to_owned(),
                             source_map_key: sentence.name_origin().key().clone(),
                             symbol_kind: None,
+                            totality: None,
                         },
                     )?,
                     DefinitionSentence::Subsort(_)
@@ -183,7 +217,7 @@ impl SymbolMap {
         }
         entries.sort();
         let map = Self {
-            schema_version: SIDECAR_SCHEMA_VERSION,
+            schema_version: SYMBOL_SCHEMA_VERSION,
             entries,
             capability_requirements: crate::capability::capability_requirements(definition),
         };
@@ -497,7 +531,10 @@ impl krs_ir::provenance_table::ArtifactRoot for SourceMap {
     }
 
     fn check_version(version: &serde_json::Value) -> Result<(), String> {
-        check_schema_version(u32::deserialize(version).map_err(|error| error.to_string())?)
+        check_schema_version(
+            u32::deserialize(version).map_err(|error| error.to_string())?,
+            SOURCE_SCHEMA_VERSION,
+        )
     }
 }
 
@@ -789,7 +826,7 @@ impl SourceMap {
             }
         }
         let map = Self {
-            schema_version: SIDECAR_SCHEMA_VERSION,
+            schema_version: SOURCE_SCHEMA_VERSION,
             entries: entries.into_values().collect(),
         };
         map.reject_path_leaks()?;
@@ -956,6 +993,7 @@ fn push_fixed_cell_symbols(
                 emitted_name: cell.name().to_owned(),
                 source_map_key: cell.origin().key().clone(),
                 symbol_kind: Some(SymbolKind::Cell),
+                totality: None,
             },
         )?;
         if let FixedCellContent::Children { children } = cell.content() {
@@ -1393,24 +1431,62 @@ mod reader_tests {
         let empty = serde_json::json!({
             "packages": [], "files": [], "items": [], "labels": [], "frames": []
         });
-        for version in [0, 1, 2, 3, 5] {
+        // Each sidecar has a version of its own, and each reader refuses every other one, the
+        // other sidecar's included.
+        for version in [0, 1, 2, 3, 4, 5, 6] {
             let unsupported =
                 format!("unsupported compiler sidecar schema version {version}; expected");
             let input = serde_json::json!({"schema_version": version, "entries": []});
-            let error = serde_json::from_value::<SymbolMap>(input.clone()).unwrap_err();
-            assert!(error.to_string().contains(&unsupported), "{error}");
-            // The source map carries its tables, so only its version can refuse it.
+            let symbols = serde_json::from_value::<SymbolMap>(input.clone());
+            if version == SYMBOL_SCHEMA_VERSION {
+                assert!(symbols.is_ok());
+            } else {
+                let error = symbols.unwrap_err();
+                assert!(error.to_string().contains(&unsupported), "{error}");
+            }
+            // A source map's stacks refer to its provenance tables, which it must carry.
+            assert!(serde_json::from_value::<SourceMap>(input.clone()).is_err());
             let mut tabled = input;
             tabled["provenance"] = empty.clone();
-            let error = serde_json::from_value::<SourceMap>(tabled).unwrap_err();
-            assert!(error.to_string().contains(&unsupported), "{error}");
+            let sources = serde_json::from_value::<SourceMap>(tabled);
+            if version == SOURCE_SCHEMA_VERSION {
+                assert!(sources.is_ok());
+            } else {
+                let error = sources.unwrap_err();
+                assert!(error.to_string().contains(&unsupported), "{error}");
+            }
         }
-        let valid = serde_json::json!({"schema_version": SIDECAR_SCHEMA_VERSION, "entries": []});
-        assert!(serde_json::from_value::<SymbolMap>(valid.clone()).is_ok());
-        // A source map's stacks refer to its provenance tables, which it must carry.
-        assert!(serde_json::from_value::<SourceMap>(valid.clone()).is_err());
-        let mut tabled = valid;
-        tabled["provenance"] = empty;
-        assert!(serde_json::from_value::<SourceMap>(tabled).is_ok());
+    }
+
+    #[test]
+    fn a_symbol_row_carries_a_functions_totality_and_no_other_rows() {
+        let row = |totality: Option<serde_json::Value>| {
+            let mut row = serde_json::json!({
+                "identity": {"identity_kind": "symbol", "identity": "production.f"},
+                "emitted_name": "f",
+                "source_map_key": "production.f",
+                "symbol_kind": "production",
+            });
+            if let Some(totality) = totality {
+                row["totality"] = totality;
+            }
+            serde_json::json!({"schema_version": SYMBOL_SCHEMA_VERSION, "entries": [row]})
+        };
+        let assumed = row(Some(
+            serde_json::json!({"state": "assumed", "reason": "by range"}),
+        ));
+        let map = serde_json::from_value::<SymbolMap>(assumed.clone()).unwrap();
+        assert_eq!(
+            map.entries()[0].totality(),
+            Some(&crate::Totality::Assumed {
+                reason: "by range".to_owned()
+            })
+        );
+        assert_eq!(serde_json::to_value(&map).unwrap(), assumed);
+        // A row with no totality writes no field.
+        let plain = row(None);
+        let map = serde_json::from_value::<SymbolMap>(plain.clone()).unwrap();
+        assert_eq!(map.entries()[0].totality(), None);
+        assert_eq!(serde_json::to_value(&map).unwrap(), plain);
     }
 }

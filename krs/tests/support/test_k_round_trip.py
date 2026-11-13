@@ -169,7 +169,7 @@ class NormalizationTests(unittest.TestCase):
 
     def test_the_symbol_tables_are_compared_by_identity(self) -> None:
         def table(*entries: tuple[str, str]) -> str:
-            return json.dumps({"schema_version": 4, "entries": [
+            return json.dumps({"schema_version": 5, "entries": [
                 {"identity": {"identity_kind": "label", "identity": identity}, "emitted_name": name,
                  "source_map_key": f"def.rule.{identity}"}
                 for identity, name in entries

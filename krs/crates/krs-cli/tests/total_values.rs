@@ -690,3 +690,124 @@ fn assumed_reasons(value: &serde_json::Value, reasons: &mut Vec<String>) {
         _ => {}
     }
 }
+
+/// One function of each kind beside the machine's checked `Keep`: total on the author's word,
+/// and partial.
+const KINDS: &str = r#"
+#[k::function(total, internal, assumed = "the memory holds key 9 from its first state on")]
+pub fn At9(memory: k::Term<Map<Int, Int>>) -> k::Term<Int> {
+    memory[9]
+}
+
+#[k::function(partial, internal)]
+pub fn Inv(d: k::Term<Int>) -> k::Term<Int> {
+    1 / d
+}
+"#;
+
+/// `symbols.json` states each function's totality on the function's row, and on no other row:
+/// `checked` for a `total` function whose results the check accepted, `assumed` with the reason
+/// as written, `partial` for a function not declared `total`. The definition's list of assumed
+/// totalities (`krs_compiler::assumed_totals`) names the same function by its item path, its K
+/// symbol, its reason and its declaration's place, and the row's identity is the list's.
+#[test]
+fn symbols_json_states_each_functions_totality_and_the_definition_lists_the_assumed() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), "kinds", KINDS, "At9(m)");
+    let output = temporary.path().join("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--ir", "--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+
+    let bytes = fs::read(output.join("symbols.json")).unwrap();
+    let document: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(document["schema_version"], 5);
+    let rows = document["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row.get("totality").is_some())
+        .map(|row| {
+            assert_eq!(row["symbol_kind"], "production", "{row}");
+            format!("{}: {}", row["emitted_name"], row["totality"])
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "\"at9\": {\"reason\":\"the memory holds key 9 from its first state on\",\"state\":\"assumed\"}",
+            "\"inv\": {\"state\":\"partial\"}",
+            "\"keep\": {\"state\":\"checked\"}",
+        ]
+    "#]]
+    .assert_debug_eq(&rows);
+
+    // The bytes of a row: the totality follows the row's other fields, state first.
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    for row in [
+        r#""emitted_name":"at9","source_map_key":"SOURCE","symbol_kind":"production","totality":{"state":"assumed","reason":"the memory holds key 9 from its first state on"}}"#,
+        r#""emitted_name":"inv","source_map_key":"SOURCE","symbol_kind":"production","totality":{"state":"partial"}}"#,
+        r#""emitted_name":"keep","source_map_key":"SOURCE","symbol_kind":"production","totality":{"state":"checked"}}"#,
+    ] {
+        let (before, after) = row.split_once("SOURCE").unwrap();
+        let start = text
+            .find(before)
+            .unwrap_or_else(|| panic!("{before}: {text}"))
+            + before.len();
+        let key = text[start..].find('"').unwrap();
+        assert!(text[start + key..].starts_with(after), "{row}: {text}");
+    }
+
+    // The typed reader gives the same rows.
+    let map: krs_compiler::SymbolMap = krs_ir::json::from_slice(&bytes).unwrap();
+    let states = map
+        .entries()
+        .iter()
+        .filter_map(|row| Some((row.emitted_name(), row.totality()?.state())))
+        .collect::<Vec<_>>();
+    assert_eq!(states.len(), rows.len());
+    assert!(states.contains(&("at9", "assumed")), "{states:?}");
+
+    let definition: krs_ir_levels::DefinitionIr =
+        krs_ir::json::from_slice(&fs::read(output.join("definition-ir.json")).unwrap()).unwrap();
+    let assumed = krs_compiler::assumed_totals(&definition);
+    let source = fs::read_to_string(manifest.with_file_name("src/lib.rs")).unwrap();
+    let listed = assumed
+        .iter()
+        .map(|entry| {
+            let (file, start, end) = entry.origin.as_ref().unwrap();
+            let row = map
+                .entries()
+                .iter()
+                .find(|row| {
+                    matches!(row.identity(), krs_compiler::MappedIdentity::Symbol(id)
+                        if id.as_str() == entry.production)
+                })
+                .unwrap();
+            assert_eq!(row.emitted_name(), entry.label);
+            format!(
+                "{} ({} {:?} {}) = {} because {:?}, at {file}: {}",
+                entry.item,
+                entry.package,
+                entry.module,
+                entry.name,
+                entry.label,
+                entry.reason,
+                source[*start as usize..*end as usize]
+                    .lines()
+                    .next()
+                    .unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "crate::At9 (kinds [] At9) = at9 because \"the memory holds key 9 from its first state on\", at src/lib.rs: At9",
+        ]
+    "#]]
+    .assert_debug_eq(&listed);
+}

@@ -5,6 +5,7 @@
 //! and produces the Semantic IR, the Definition IR, and the emitted K.
 
 pub mod artifacts;
+mod assumptions;
 pub mod capability;
 mod console;
 mod coverage;
@@ -41,6 +42,7 @@ pub(crate) const LEAF_CELL_SORT: &str = "the sort of a leaf cell";
 pub(crate) const CELL_COLLECTION_SORT: &str = "the sort of a cell collection";
 
 pub use artifacts::*;
+pub use assumptions::{AssumedTotal, Totality, assumed_totals};
 pub use coverage::coverage_warnings;
 pub use edit_origin::{
     AuthoredNodeRef, EditContainer, EditJudgement, InsertedNodeRef, JudgeError, KEdit,

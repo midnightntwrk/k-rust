@@ -89,6 +89,7 @@ krs expand --package my-semantics --definition main --output target/krs-expanded
 `--output` takes an absent or empty directory and writes only the files the expansion changes, each at its path relative to the package, such as `target/krs-expanded/src/rules.rs`, and stdout lists those paths, one per line.
 The printed package is the authored one with exactly those files replaced: copy the package (a relative `path` dependency must still reach its package from the copy), copy the directory over it, and `krs check` and `krs emit-k` judge the printed source as they judge yours.
 `emit-k` writes the generated K definition with the two maps that carry it back to your source: `symbols.json`, from stable identities to emitted K names, and `sources.json`, from generated ranges to authored ones.
+`symbols.json` also states, on each function's row, whether its `total` was checked, is [assumed for a stated reason](/reference/language#the-totality-a-definition-states), or is a hook's, or that the function is partial.
 Claims go to a separate `spec.k` beside `definition.k`, the layout `kompile` and `kprove` expect.
 These outputs are audit artifacts, not a second source file to edit.
 

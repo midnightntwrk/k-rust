@@ -125,7 +125,7 @@
 //! Every replacement import and non-claim sentence must occur in the reference multiset with at least the same multiplicity.
 //! It returns `{non_rule_counts,non_rule_count,subsort_count,reference_rules,replacement_rules,sentence_count}`; rule maps retain exact Rust-item-to-K-label transport for transitions.
 //! Counts and transport expectations remain caller-owned data.
-//! `kind: "symbols"` accepts `emitted_name`, `identity_kind`, and `symbol_kind` filters and returns `{rows}` of typed symbol sidecar entries in their stored order.
+//! `kind: "symbols"` accepts `emitted_name`, `identity_kind`, and `symbol_kind` filters and returns `{rows}` of typed symbol sidecar entries in their stored order; a function's row carries its `totality` (`{state}` of `checked`, `assumed` with its `reason`, `hooked` or `partial`).
 //! `kind: "sources"` accepts `key`, `node_kind`, and generated `artifact` filters and returns `{rows}` of typed source sidecar entries in their stored order.
 //! Source rows add `authored`, a flat array of `{k_namespace,cargo_name,package_relative_path,content_sha256}` for authored provenance frames.
 //! `ranged` projects every ranged provenance frame with the same file fields and its `frame_kind`, retaining stored frame order and multiplicity.
