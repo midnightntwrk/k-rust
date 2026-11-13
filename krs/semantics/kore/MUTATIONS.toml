@@ -1,0 +1,378 @@
+# Mutations of kore.k: each is a wrong reading of KORE's semantics (`misunderstanding`).
+
+# --- priorities and [owise] ---------------------------------------------------------------
+
+[[mutation]]
+id = "owise-first"
+misunderstanding = "an [owise] axiom is tried first (priority 0) instead of last"
+  [[mutation.edit]]
+  rule = "KORE.prio-owise"
+  find = "=> 200"
+  replace = "=> 0"
+
+[[mutation]]
+id = "owise-as-default"
+misunderstanding = "[owise] is read as an ordinary axiom of the default priority 50"
+  [[mutation.edit]]
+  rule = "KORE.prio-owise"
+  find = "=> 200"
+  replace = "=> 50"
+
+[[mutation]]
+id = "priority-ignored"
+misunderstanding = "the priority attribute is ignored: every axiom without [owise] has priority 50"
+  [[mutation.edit]]
+  rule = "KORE.prio-given"
+  find = "=> P"
+  replace = "=> 50"
+
+[[mutation]]
+id = "rule-owise-ignored"
+misunderstanding = "[owise] is honoured for function equations but ignored for rewrite rules"
+  [[mutation.edit]]
+  rule = "KORE.cands-cons"
+  find = "addCand(prio(P, O),"
+  replace = "addCand(P,"
+
+[[mutation]]
+id = "fn-owise-ignored"
+misunderstanding = "[owise] is honoured for rewrite rules but ignored for function equations"
+  [[mutation.edit]]
+  rule = "KORE.best-cons"
+  find = "prio(P, O)"
+  replace = "P"
+
+[[mutation]]
+id = "rule-priority-reversed"
+misunderstanding = "among applicable rewrite rules the largest priority number wins"
+  [[mutation.edit]]
+  rule = "KORE.lesser-left"
+  find = "P <=Int Q"
+  replace = "P >=Int Q"
+  [[mutation.edit]]
+  rule = "KORE.lesser-right"
+  find = "P >Int Q"
+  replace = "P <Int Q"
+  [[mutation.edit]]
+  rule = "KORE.min-nil"
+  find = "1000000"
+  replace = "-1000000"
+
+[[mutation]]
+id = "fn-priority-reversed"
+misunderstanding = "among applicable equations the largest priority number wins"
+  [[mutation.edit]]
+  rule = "KORE.best-better"
+  find = "P <Int Best"
+  replace = "P >Int Best"
+  [[mutation.edit]]
+  rule = "KORE.best-worse"
+  find = "P >=Int Best"
+  replace = "P <=Int Best"
+  [[mutation.edit]]
+  rule = "KORE.apply-fn"
+  find = "1000000"
+  replace = "-1000000"
+
+[[mutation]]
+id = "fn-first-applicable"
+misunderstanding = "equations are tried in the order of the text and the first applicable one gives the value, whatever the priorities"
+  [[mutation.edit]]
+  rule = "KORE.best-better"
+  find = "P <Int Best"
+  replace = "Best ==Int 1000000"
+  [[mutation.edit]]
+  rule = "KORE.best-worse"
+  find = "P >=Int Best"
+  replace = "Best =/=Int 1000000"
+
+[[mutation]]
+id = "fn-last-of-priority"
+misunderstanding = "among applicable equations of the least priority the last one gives the value. Argued survivor: two equations of one priority that both apply with different values make the definition inconsistent (the function would have two values), so on a consistent object definition the first and the last applicable equation of a priority agree; no case of a consistent definition kills it"
+expect = "survive"
+  [[mutation.edit]]
+  rule = "KORE.best-better"
+  find = "P <Int Best"
+  replace = "P <=Int Best"
+  [[mutation.edit]]
+  rule = "KORE.best-worse"
+  find = "P >=Int Best"
+  replace = "P >Int Best"
+
+[[mutation]]
+id = "rule-priority-ignored"
+misunderstanding = "every applicable rewrite rule gives a successor, whatever its priority"
+  [[mutation.edit]]
+  rule = "KORE.keep-take"
+  find = "Q ==Int P andBool T =/=K bot"
+  replace = "T =/=K bot"
+  [[mutation.edit]]
+  rule = "KORE.keep-skip"
+  find = "Q =/=Int P orBool T ==K bot"
+  replace = "T ==K bot"
+
+# --- requires -----------------------------------------------------------------------------
+
+[[mutation]]
+id = "rule-requires-ignored"
+misunderstanding = "a rewrite rule's requires is not checked: a failing requires is treated as true"
+  [[mutation.edit]]
+  rule = "KORE.fire-holds"
+  find = "eval(D, inst(R, B)) ==K bv(true)"
+  replace = "true"
+  [[mutation.edit]]
+  rule = "KORE.fire-refuted"
+  find = "eval(D, inst(R, B)) =/=K bv(true)"
+  replace = "false"
+
+[[mutation]]
+id = "fn-requires-ignored"
+misunderstanding = "an equation's requires is not checked: a failing requires is treated as true"
+  [[mutation.edit]]
+  rule = "KORE.try-holds"
+  find = "eval(D, inst(Req, B)) ==K bv(true)"
+  replace = "true"
+  [[mutation.edit]]
+  rule = "KORE.try-refuted"
+  find = "eval(D, inst(Req, B)) =/=K bv(true)"
+  replace = "false"
+
+[[mutation]]
+id = "rule-undefined-requires-holds"
+misunderstanding = "a rewrite rule applies unless its requires is false: an undefined requires holds"
+  [[mutation.edit]]
+  rule = "KORE.fire-holds"
+  find = "==K bv(true)"
+  replace = "=/=K bv(false)"
+  [[mutation.edit]]
+  rule = "KORE.fire-refuted"
+  find = "=/=K bv(true)"
+  replace = "==K bv(false)"
+
+[[mutation]]
+id = "fn-undefined-requires-holds"
+misunderstanding = "an equation applies unless its requires is false: an undefined requires holds"
+  [[mutation.edit]]
+  rule = "KORE.try-holds"
+  find = "==K bv(true)"
+  replace = "=/=K bv(false)"
+  [[mutation.edit]]
+  rule = "KORE.try-refuted"
+  find = "=/=K bv(true)"
+  replace = "==K bv(false)"
+
+# --- subsorts and injections -------------------------------------------------------------
+
+[[mutation]]
+id = "subsort-dropped"
+misunderstanding = "inj{A,B}(P) matches only injections from A itself: a subsort injection is dropped from matching"
+  [[mutation.edit]]
+  rule = "KORE.m-inj-sub"
+  delete = true
+
+[[mutation]]
+id = "subsort-not-transitive"
+misunderstanding = "only the stated subsorts hold: the subsort relation is not closed under transitivity"
+  [[mutation.edit]]
+  rule = "KORE.above-hit"
+  find = "leq(Y, B, All)"
+  replace = "Y ==Int B"
+
+[[mutation]]
+id = "subsort-unchecked"
+misunderstanding = "an injected value matches a pattern of any sort below the same target, whatever its own sort"
+  [[mutation.edit]]
+  rule = "KORE.m-inj-sub"
+  find = " andBool leq(C, A, S)"
+  replace = ""
+
+[[mutation]]
+id = "subsort-reversed"
+misunderstanding = "the subsort relation is read backwards when matching an injection"
+  [[mutation.edit]]
+  rule = "KORE.m-inj-sub"
+  find = "leq(C, A, S)"
+  replace = "leq(A, C, S)"
+
+[[mutation]]
+id = "inj-not-composed"
+misunderstanding = "inj{A,B}(inj{C,A}(V)) is kept nested instead of being inj{C,B}(V)"
+  [[mutation.edit]]
+  rule = "KORE.inj-compose"
+  delete = true
+
+[[mutation]]
+id = "inj-composed-outer-source"
+misunderstanding = "composing injections keeps the outer source sort: inj{A,B}(inj{C,A}(V)) is inj{A,B}(V)"
+  [[mutation.edit]]
+  rule = "KORE.inj-compose"
+  find = "mkInj(_, B, ij(C, _, T)) => ij(C, B, T)"
+  replace = "mkInj(A, B, ij(_, _, T)) => ij(A, B, T)"
+
+# --- matching ------------------------------------------------------------------------------
+
+[[mutation]]
+id = "nonlinear-ignored"
+misunderstanding = "a variable seen twice in a left side is matched independently; the first binding is kept"
+  [[mutation.edit]]
+  rule = "KORE.bind-same"
+  find = "requires T ==K U"
+  replace = ""
+  [[mutation.edit]]
+  rule = "KORE.bind-clash"
+  delete = true
+
+[[mutation]]
+id = "dv-any-value"
+misunderstanding = "a domain value in a pattern matches any domain value of its sort"
+  [[mutation.edit]]
+  rule = "KORE.m-int"
+  find = " requires I ==Int J"
+  replace = ""
+
+[[mutation]]
+id = "bool-dv-any-value"
+misunderstanding = "a Bool domain value in a pattern matches either Bool"
+  [[mutation.edit]]
+  rule = "KORE.m-bool"
+  find = " requires X ==Bool Y"
+  replace = ""
+
+[[mutation]]
+id = "symbol-unchecked"
+misunderstanding = "an application pattern matches an application of any symbol with arguments that match"
+  [[mutation.edit]]
+  rule = "KORE.m-app"
+  find = " requires F ==Int G"
+  replace = ""
+
+# --- evaluation and undefinedness ------------------------------------------------------------
+
+[[mutation]]
+id = "args-unevaluated"
+misunderstanding = "applications are not evaluated innermost: an application's arguments are left as built"
+  [[mutation.edit]]
+  rule = "KORE.ev-app"
+  find = "apply(D, F, evalTs(D, As))"
+  replace = "apply(D, F, As)"
+
+[[mutation]]
+id = "init-unevaluated"
+misunderstanding = "the initial term's function applications are not evaluated before the first step"
+  [[mutation.edit]]
+  rule = "KORE.init"
+  find = "start(D, eval(D, T))"
+  replace = "start(D, T)"
+
+[[mutation]]
+id = "rule-rhs-unevaluated"
+misunderstanding = "a rewrite rule's right side is a configuration as built: its function applications are not evaluated"
+  [[mutation.edit]]
+  rule = "KORE.fire-holds"
+  find = "some(eval(D, inst(Rhs, B)))"
+  replace = "some(inst(Rhs, B))"
+
+[[mutation]]
+id = "undefined-arg-passed"
+misunderstanding = "an undefined argument does not make an application undefined: functions are applied to it"
+  [[mutation.edit]]
+  rule = "KORE.apply-bot"
+  delete = true
+  [[mutation.edit]]
+  rule = "KORE.apply-look"
+  find = "requires notBool hasBot(As)"
+  replace = ""
+
+[[mutation]]
+id = "no-equation-undefined"
+misunderstanding = "a function application no equation applies to is undefined (\\bottom) instead of staying as it is"
+  [[mutation.edit]]
+  rule = "KORE.result-none"
+  find = "=> ap(F, As)"
+  replace = "=> bot"
+
+[[mutation]]
+id = "ite-lazy"
+misunderstanding = "#if is evaluated lazily: an undefined branch it does not select does not make it undefined"
+  [[mutation.edit]]
+  rule = "KORE.hook-bot"
+  find = "requires hasBot(As)"
+  replace = "requires hasBot(As) andBool O =/=Int 30"
+  [[mutation.edit]]
+  rule = "KORE.hook-bot"
+  find = "strictHook(_, As)"
+  replace = "strictHook(O, As)"
+  [[mutation.edit]]
+  rule = "KORE.hook-def"
+  find = "requires notBool hasBot(As)"
+  replace = "requires notBool hasBot(As) orBool O ==Int 30"
+
+[[mutation]]
+id = "hook-undefined-is-zero"
+misunderstanding = "a hook applied outside its domain (a division by zero) gives 0 instead of \\bottom"
+  [[mutation.edit]]
+  rule = "KORE.op-undef"
+  find = "=> bot"
+  replace = "=> iv(0)"
+
+[[mutation]]
+id = "tdiv-as-ediv"
+misunderstanding = "INT.tdiv (/Int) is read as Euclidean division"
+  [[mutation.edit]]
+  rule = "KORE.op-div"
+  find = "X /Int Y"
+  replace = "X divInt Y"
+
+[[mutation]]
+id = "tmod-as-emod"
+misunderstanding = "INT.tmod (%Int) is read as the Euclidean remainder"
+  [[mutation.edit]]
+  rule = "KORE.op-mod"
+  find = "X %Int Y"
+  replace = "X modInt Y"
+
+# --- steps and final configurations ---------------------------------------------------------
+
+[[mutation]]
+id = "nondeterminism-first-match"
+misunderstanding = "non-determinism collapsed: only the first applicable rule of the least priority gives a successor"
+  [[mutation.edit]]
+  rule = "KORE.keep-take"
+  find = "=> T ; keep(P, Cs)"
+  replace = "=> T ; .Ts"
+
+[[mutation]]
+id = "undefined-step-is-final"
+misunderstanding = "a configuration whose applicable rules all have undefined results is final"
+  [[mutation.edit]]
+  rule = "KORE.visit-step"
+  find = "visit(D, _, next(Ss), Fr, Seen, F) => push(D, Ss, Fr, Seen, F)"
+  replace = "visit(D, T, next(Ss), Fr, Seen, F) => push(D, Ss, Fr, Seen, #if Ss ==K .Ts #then insert(T, F) #else F #fi)"
+
+[[mutation]]
+id = "undefined-result-does-not-block"
+misunderstanding = "a rule whose result is undefined does not apply, so it does not block rules of larger priority"
+  [[mutation.edit]]
+  rule = "KORE.add-some"
+  find = "=> cand(P, T, Cs)"
+  replace = "=> #if T ==K bot #then Cs #else cand(P, T, Cs) #fi"
+
+[[mutation]]
+id = "bottom-is-configuration"
+misunderstanding = "an undefined result is a successor configuration (\\bottom is a state)"
+  [[mutation.edit]]
+  rule = "KORE.keep-take"
+  find = "Q ==Int P andBool T =/=K bot"
+  replace = "Q ==Int P"
+  [[mutation.edit]]
+  rule = "KORE.keep-skip"
+  find = "Q =/=Int P orBool T ==K bot"
+  replace = "Q =/=Int P"
+
+[[mutation]]
+id = "undefined-init-is-final"
+misunderstanding = "an undefined initial term is itself a final configuration"
+  [[mutation.edit]]
+  rule = "KORE.init-bot"
+  find = "done(.Ts)"
+  replace = "done(bot ; .Ts)"

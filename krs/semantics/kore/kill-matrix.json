@@ -1,0 +1,342 @@
+{
+ "args-unevaluated": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c03-nondet",
+   "c04-subsort",
+   "c05-hooks",
+   "c06-nonlinear",
+   "c07-strict-args",
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c12-undef-init",
+   "c13-inj-bool",
+   "c14-fn-undef-requires",
+   "c17-init-function",
+   "c18-div-signs"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "bool-dv-any-value": {
+  "killed_by": [
+   "c16-bool-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "bottom-is-configuration": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c13-inj-bool"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "dv-any-value": {
+  "killed_by": [
+   "c07-strict-args"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-first-applicable": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c07-strict-args"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-last-of-priority": {
+  "killed_by": [],
+  "status": "survived",
+  "undecided": []
+ },
+ "fn-owise-ignored": {
+  "killed_by": [
+   "c07-strict-args"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-priority-reversed": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c07-strict-args"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-requires-ignored": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c11-fn-no-equation",
+   "c14-fn-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-undefined-requires-holds": {
+  "killed_by": [
+   "c14-fn-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "hook-undefined-is-zero": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c12-undef-init"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "init-unevaluated": {
+  "killed_by": [
+   "c17-init-function"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "inj-composed-outer-source": {
+  "killed_by": [
+   "c13-inj-bool"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "inj-not-composed": {
+  "killed_by": [
+   "c13-inj-bool"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "ite-lazy": {
+  "killed_by": [
+   "c10-strict-ite"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "no-equation-undefined": {
+  "killed_by": [
+   "c11-fn-no-equation"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "nondeterminism-first-match": {
+  "killed_by": [
+   "c03-nondet",
+   "c13-inj-bool"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "nonlinear-ignored": {
+  "killed_by": [
+   "c15-nonlinear-rule"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "owise-as-default": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c07-strict-args",
+   "c17-init-function"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "owise-first": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c07-strict-args",
+   "c17-init-function"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "priority-ignored": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c08-undef-rhs-blocks"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c06-nonlinear"
+  ]
+ },
+ "rule-owise-ignored": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c17-init-function"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "rule-priority-ignored": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c08-undef-rhs-blocks",
+   "c17-init-function"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c06-nonlinear"
+  ]
+ },
+ "rule-priority-reversed": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c08-undef-rhs-blocks",
+   "c17-init-function"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c06-nonlinear"
+  ]
+ },
+ "rule-requires-ignored": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c09-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c03-nondet"
+  ]
+ },
+ "rule-rhs-unevaluated": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c03-nondet",
+   "c04-subsort",
+   "c05-hooks",
+   "c06-nonlinear",
+   "c07-strict-args",
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c13-inj-bool",
+   "c14-fn-undef-requires",
+   "c18-div-signs"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "rule-undefined-requires-holds": {
+  "killed_by": [
+   "c09-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-dropped": {
+  "killed_by": [
+   "c04-subsort"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-not-transitive": {
+  "killed_by": [
+   "c04-subsort"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-reversed": {
+  "killed_by": [
+   "c04-subsort"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-unchecked": {
+  "killed_by": [
+   "c13-inj-bool"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "symbol-unchecked": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c07-strict-args",
+   "c09-undef-requires",
+   "c13-inj-bool",
+   "c14-fn-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c01-fn-prio",
+   "c03-nondet",
+   "c05-hooks",
+   "c06-nonlinear",
+   "c11-fn-no-equation",
+   "c15-nonlinear-rule",
+   "c17-init-function",
+   "c18-div-signs"
+  ]
+ },
+ "tdiv-as-ediv": {
+  "killed_by": [
+   "c18-div-signs"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "tmod-as-emod": {
+  "killed_by": [
+   "c18-div-signs"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-arg-passed": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c13-inj-bool"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c12-undef-init"
+  ]
+ },
+ "undefined-init-is-final": {
+  "killed_by": [
+   "c12-undef-init"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-result-does-not-block": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-step-is-final": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c03-nondet",
+   "c13-inj-bool"
+  ]
+ }
+}

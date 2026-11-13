@@ -35,6 +35,10 @@ The encoder stops with an error naming the construct when it meets one outside t
 | `tools/korek.py` | The KORE text reader; the encoder of kompile's `definition.kore` and the initial term's KORE into a program of `kore.k`; the decoders of `krun --search`'s and `kore.k`'s results into one canonical text. |
 | `tools/case.py` | Builds a case's encoded program and its reference expected result (needs K). |
 | `cases/<id>/` | One case, below. |
+| `FLOW.toml`, `MUTATIONS.toml` | The kink corpus: every case's `kore.pgm`, the argued coverage obligations, and the 38 mutations of `kore.k`. |
+| `kink.lock` | kink-flow's verdict record of the corpus: each mutation's status and recorded killer, and the coverage verdicts. |
+| `kill-matrix.json` | For each mutation, its status, every case that kills it and the cases on which its run gave no comparable result. |
+| `tools/killmatrix.py` | Reduces `kink-flow run --full`'s JSON document to `kill-matrix.json`. |
 
 ### A case
 
@@ -101,6 +105,57 @@ The backends disagree on 7 cases, recorded in each `expected.json`:
 - c10: the llvm backend evaluates `#if true #then 1 #else 10 /Int 0 #fi` lazily and steps to `b(1)`; the hook `KEQUAL.ite` is a function of its three arguments, so an undefined argument makes it undefined, and the haskell backend has no final configuration.
 - c11: the llvm backend aborts (`Called finish_rewriting with no output file specified`) on `half(3)`, which no equation of the partial function `half` applies to; the haskell backend returns `b(half(3))` under the condition `\ceil(half(3))`.
 
+## The kink corpus
+
+The corpus is a kink-flow corpus of a K definition, as `kink/examples/imp` is: `FLOW.toml` names `kore.k` and its modules, and its programs are the cases' `kore.pgm` (start sort `Pgm`).
+Each mutation of `MUTATIONS.toml` is a wrong reading of KORE, stated in its `misunderstanding` and written as text edits of `kore.k`'s labelled rules.
+A case kills a mutation when the mutant's result on it, every final configuration of the object definition, differs from `kore.k`'s.
+
+Build kink-flow in a target directory of its own (the portable profile, no Z3), then run from this directory:
+
+```sh
+export CARGO_TARGET_DIR=/tmp/kore-in-k-target   # any directory of its own
+cargo +stable build --release -p kink-flow --no-default-features --locked
+KF=$CARGO_TARGET_DIR/release/kink-flow
+$KF check FLOW.toml --mutations MUTATIONS.toml
+$KF coverage FLOW.toml --lock kink.lock              # obligations of kore.k; records [coverage]
+$KF run FLOW.toml MUTATIONS.toml --lock kink.lock    # survivors; records [run]
+$KF run FLOW.toml MUTATIONS.toml --full | python3 tools/killmatrix.py > kill-matrix.json
+$KF run FLOW.toml MUTATIONS.toml --lock kink.lock --locked   # exit 1 when kink.lock is not current
+```
+
+Run kink-flow under a memory bound, for example `systemd-run --user --scope -p MemoryMax=12G -p MemorySwapMax=0`.
+Its caches are in `.kink-flow/`, which is not committed.
+
+### Results
+
+Measured in this tree with kink-flow built from it (portable profile):
+
+- Coverage: 272 obligations covered (139 of 141 rules, 96 of 97 requirements, 37 of 37 syntax productions), 3 argued, 0 open, over 18 comparable cases.
+  The argued obligations are `rule:KORE.ins-dup` and its requirement `requirement:KORE.ins-dup:held` (no `insert` receives a configuration its list already holds: a configuration is inserted into `seen` only when it is not a member, and into the finals only when taken from the frontier, which holds each configuration once), and `rule:KORE.tag-other` (configurations are values; `vr`, `hk`, `as` and `bot` never reach `cmp` under `kore.k`, and the rule is kept so that a mutant that makes `bot` a configuration still compares it).
+- Mutations: 38, of which 37 are killed and 1 survives as expected: `fn-last-of-priority` (`expect = "survive"`).
+  Two equations of one priority that both apply with different values state that the function has two values, an inconsistent definition; on a consistent object definition the first and the last applicable equation of a priority agree, so no case kills it.
+- Cost: `coverage` 4.7 s and `run --full` 24.9 s cold (host load above 20); `run --locked` 1.2 s warm.
+
+12 cases kill some mutation that no other case kills:
+
+| case | mutations it alone kills |
+| --- | --- |
+| c04-subsort | subsort-dropped, subsort-not-transitive, subsort-reversed |
+| c07-strict-args | dv-any-value, fn-owise-ignored |
+| c09-undef-requires | rule-undefined-requires-holds |
+| c10-strict-ite | ite-lazy |
+| c11-fn-no-equation | no-equation-undefined |
+| c12-undef-init | undefined-init-is-final |
+| c13-inj-bool | inj-composed-outer-source, inj-not-composed, subsort-unchecked |
+| c14-fn-undef-requires | fn-undefined-requires-holds |
+| c15-nonlinear-rule | nonlinear-ignored |
+| c16-bool-pattern | bool-dv-any-value |
+| c17-init-function | init-unevaluated |
+| c18-div-signs | tdiv-as-ediv, tmod-as-emod |
+
+The other six (c01, c02, c03, c05, c06, c08) each kill 2 to 10 mutations that another case also kills.
+
 ## Why K and not KRS
 
 The other packages of `krs/semantics` are KRS crates whose K is emitted by `krs`.
@@ -117,5 +172,5 @@ A half port, part of the definition in KRS and part in K, would leave two defini
 
 ## Status
 
-Done: the definition, the encoder and the case builder, and 18 cases with their reference results.
-Next: the kink corpus, and the command that reruns the cases.
+Done: the definition, the encoder and the case builder, 18 cases with their reference results, and the kink corpus.
+Next: the command that reruns the cases.

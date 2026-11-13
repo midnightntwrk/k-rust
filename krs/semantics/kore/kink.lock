@@ -1,0 +1,255 @@
+# kink's verdicts of a corpus, one section per command: [run] (`run` on a mutation list),
+# [coverage] (`coverage`), [compare] (`compare`) and [query] (`query` on a pattern list). As a
+# lock (`--lock FILE`; krs keeps <corpus>/kink.lock), each command reads, checks (--locked) and
+# rewrites only its own section, and keeps the others as they are.
+schema = "kink-flow-verdicts"
+
+[run]
+# The verdicts of kink's `run` command (`krs kink run`, `kink-flow run`): the next run tries
+# each `killer` first, a run without --locked rewrites this section, and `run --locked` checks
+# that it is current.
+version = 29
+profile = "no-z3"
+work_factor = 4
+
+[run.spec]
+outcome = "admitted"
+
+# Each [[run.mutation]] is a mutation of the list, by its id, and its verdict: killed (a
+# program's result differs on the mutant; `killer` names it), survived (every program agreed;
+# `horizon`, those that agreed only up to an observation horizon), equivalent or unkillable (no
+# program can tell the mutant apart), timeout, unknown or error (no verdict), invalid-mutation
+# or not-admitted (its author must fix it; `reason` says why).
+[[run.mutation]]
+id = "owise-first"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "owise-as-default"
+status = "killed"
+killer = "cases/c02-rule-prio/kore.pgm"
+
+[[run.mutation]]
+id = "priority-ignored"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "rule-owise-ignored"
+status = "killed"
+killer = "cases/c02-rule-prio/kore.pgm"
+
+[[run.mutation]]
+id = "fn-owise-ignored"
+status = "killed"
+killer = "cases/c07-strict-args/kore.pgm"
+
+[[run.mutation]]
+id = "rule-priority-reversed"
+status = "killed"
+killer = "cases/c02-rule-prio/kore.pgm"
+
+[[run.mutation]]
+id = "fn-priority-reversed"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "fn-first-applicable"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "fn-last-of-priority"
+status = "survived"
+
+[[run.mutation]]
+id = "rule-priority-ignored"
+status = "killed"
+killer = "cases/c02-rule-prio/kore.pgm"
+
+[[run.mutation]]
+id = "rule-requires-ignored"
+status = "killed"
+killer = "cases/c02-rule-prio/kore.pgm"
+
+[[run.mutation]]
+id = "fn-requires-ignored"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "rule-undefined-requires-holds"
+status = "killed"
+killer = "cases/c09-undef-requires/kore.pgm"
+
+[[run.mutation]]
+id = "fn-undefined-requires-holds"
+status = "killed"
+killer = "cases/c14-fn-undef-requires/kore.pgm"
+
+[[run.mutation]]
+id = "subsort-dropped"
+status = "killed"
+killer = "cases/c04-subsort/kore.pgm"
+
+[[run.mutation]]
+id = "subsort-not-transitive"
+status = "killed"
+killer = "cases/c04-subsort/kore.pgm"
+
+[[run.mutation]]
+id = "subsort-unchecked"
+status = "killed"
+killer = "cases/c13-inj-bool/kore.pgm"
+
+[[run.mutation]]
+id = "subsort-reversed"
+status = "killed"
+killer = "cases/c04-subsort/kore.pgm"
+
+[[run.mutation]]
+id = "inj-not-composed"
+status = "killed"
+killer = "cases/c13-inj-bool/kore.pgm"
+
+[[run.mutation]]
+id = "inj-composed-outer-source"
+status = "killed"
+killer = "cases/c13-inj-bool/kore.pgm"
+
+[[run.mutation]]
+id = "nonlinear-ignored"
+status = "killed"
+killer = "cases/c15-nonlinear-rule/kore.pgm"
+
+[[run.mutation]]
+id = "dv-any-value"
+status = "killed"
+killer = "cases/c07-strict-args/kore.pgm"
+
+[[run.mutation]]
+id = "bool-dv-any-value"
+status = "killed"
+killer = "cases/c16-bool-pattern/kore.pgm"
+
+[[run.mutation]]
+id = "symbol-unchecked"
+status = "killed"
+killer = "cases/c02-rule-prio/kore.pgm"
+
+[[run.mutation]]
+id = "args-unevaluated"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "init-unevaluated"
+status = "killed"
+killer = "cases/c17-init-function/kore.pgm"
+
+[[run.mutation]]
+id = "rule-rhs-unevaluated"
+status = "killed"
+killer = "cases/c01-fn-prio/kore.pgm"
+
+[[run.mutation]]
+id = "undefined-arg-passed"
+status = "killed"
+killer = "cases/c08-undef-rhs-blocks/kore.pgm"
+
+[[run.mutation]]
+id = "no-equation-undefined"
+status = "killed"
+killer = "cases/c11-fn-no-equation/kore.pgm"
+
+[[run.mutation]]
+id = "ite-lazy"
+status = "killed"
+killer = "cases/c10-strict-ite/kore.pgm"
+
+[[run.mutation]]
+id = "hook-undefined-is-zero"
+status = "killed"
+killer = "cases/c08-undef-rhs-blocks/kore.pgm"
+
+[[run.mutation]]
+id = "tdiv-as-ediv"
+status = "killed"
+killer = "cases/c18-div-signs/kore.pgm"
+
+[[run.mutation]]
+id = "tmod-as-emod"
+status = "killed"
+killer = "cases/c18-div-signs/kore.pgm"
+
+[[run.mutation]]
+id = "nondeterminism-first-match"
+status = "killed"
+killer = "cases/c03-nondet/kore.pgm"
+
+[[run.mutation]]
+id = "undefined-step-is-final"
+status = "killed"
+killer = "cases/c08-undef-rhs-blocks/kore.pgm"
+
+[[run.mutation]]
+id = "undefined-result-does-not-block"
+status = "killed"
+killer = "cases/c08-undef-rhs-blocks/kore.pgm"
+
+[[run.mutation]]
+id = "bottom-is-configuration"
+status = "killed"
+killer = "cases/c08-undef-rhs-blocks/kore.pgm"
+
+[[run.mutation]]
+id = "undefined-init-is-final"
+status = "killed"
+killer = "cases/c12-undef-init/kore.pgm"
+
+[coverage]
+# The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
+# next run tries each flip's `killer` first, a run without --locked rewrites this section, and
+# `coverage --locked` checks that it is current.
+version = 29
+profile = "no-z3"
+
+[coverage.spec]
+outcome = "admitted"
+
+[coverage.settings]
+depth = 1
+mcdc = [
+]
+work_factor = 4
+
+# Each family lists its obligations by id: `open`, those no program covers; `argued`, those an
+# argument of FLOW.toml ([[coverage.argued]]) stands in for, each with the `standing` it rests
+# on (text: its text alone; connected, checked-on-runs or proved: its invariant's checks hold;
+# unchecked: a check did not decide); `undecided`, those the records cannot decide.
+[coverage.rules]
+open = [
+]
+argued = [
+  { id = "rule:KORE.tag-other", standing = "text" },
+  { id = "rule:KORE.ins-dup", standing = "text" },
+]
+
+[coverage.requirements]
+open = [
+]
+argued = [
+  { id = "requirement:KORE.ins-dup:held", standing = "text" },
+]
+
+[coverage.syntax]
+open = [
+]
+argued = [
+]
+
+# No condition flip ran: the front end derives none, or `--tier 1` runs none.
+[coverage.flips]
+run = false
