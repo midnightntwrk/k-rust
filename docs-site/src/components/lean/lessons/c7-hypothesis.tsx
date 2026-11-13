@@ -102,6 +102,7 @@ export const hypothesis7: Lesson = {
         {
           hl: { u: [at(userChain, '   ag_agree,'), at(userChain, 'theorem sound_defn')] },
           notes: [note('u', at(userChain, '   ag_agree,'), "fprio: one fact is named, `ag`'s clauses agree; its author proves it…", 'ag_agree'), note('u', at(userChain, 'theorem sound_defn'), '…and the package is sound with no premise left.', 'Sound defn')],
+          say: 'For a definition whose operations are not all interpreted in Lean, the facts are stated at each interpretation of them: lesson 10.',
         },
       ],
     },

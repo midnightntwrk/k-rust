@@ -1,17 +1,21 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec c5815203 (status of 2026-11-13): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec 57f851ec (status of 2026-11-13): the goal and its scoreboard, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
 
-As of kcore-spec `c5815203`, status of 2026-11-13.
+As of kcore-spec `57f851ec`, status of 2026-11-13.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
 ## Changed since you last read
 
 Newest first.
 
+- Definitions with uninterpreted operations (Bytes, String, hashing) now mean something at each interpretation H of them, and a generated package states soundness and completeness for every H that gives a value wherever the text declares the operation total. [Lesson 10](/lean/sound-and-complete) gained a paragraph on it. For KEVM this discharged 18 of the 57 totality facts that called such an operation; the other 39 call an operation the text does not declare total, or fail for another reason too.
+- KEVM: the facts left under `FnHyp` are now 134, each with its place in KEVM's source: termination 37, totality 80, agreement 17 functions, matches 0. Work on deciders for KEVM stops here; the remaining facts are for proof search, later.
+- wasm and mir were measured for the first time. Both are refused as written (see the goal).
+- The tree moved to `57f851ec`. The core did not change, every lesson now states that commit, and every fact shown as checked by Lean was checked again there.
 - KEVM: new deciders cut the facts left under `FnHyp` for kompile's text from 365 to 164 (termination 175 → 37, totality 115 → 98, agreement 45 → 29 functions, matches 30 → 0). A package generated from `coreOK` now states soundness and completeness from its remaining named facts.
 - KEVM as written cannot meet `FnHyp`. Two pairs of its equations contradict each other, so kompile's own theory for KEVM has no model. Several `[total]` functions have arguments no equation covers. Details are under the goal; decisions 6 and 7 are new.
 - KEVM: kompile's own text is now read as written, with nothing refused, and so is k-rust's. For both, the kernel checks the check on the semantics (`coreOK`) and states both theorems. They hold under the four statements about functions (`FnHyp`), which are not yet proved for KEVM: about 370 facts are left (see the goal).
@@ -36,9 +40,9 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 | Definition | read | well-formed | obligations | sound and complete | used by a proof |
 | --- | --- | --- | --- | --- | --- |
 | imp | ✓ | ✓ | ✓ (none named) | ✓ | — |
-| KEVM | ✓ | ✓ | 164 named; 9 look false of KEVM as written (below) | stated from the named facts | — |
-| wasm | — | — | — | — | — |
-| mir | — | — | — | — | — |
+| KEVM | ✓ | ✓ | 134 named; 9 look false of KEVM as written (below) | stated from the named facts | — |
+| wasm | — (needs four reader features and Float, below) | — | — | — | — |
+| mir | all but three kinds of sentence | on an edited copy | — | — | — |
 | K in K | — | — | — | — | — |
 
 - **read**: every sentence of kompile's own KORE for the definition is read, ignored as having no meaning for the semantics, or refused with a reason.
@@ -52,8 +56,8 @@ One caveat: the package is not tied to the text, so the reader is trusted for it
 The peano and fprio examples are also read from kompile's own KORE now.
 The other 15 examples are read from k-rust's KORE.
 
-KEVM, measured 2026-11-13: kompile's own text and k-rust's are both read, with nothing refused. For each, the kernel checks `coreOK` and states both theorems, using only the standard axioms (about 6 minutes, 6.8 GB at peak). The larger well-formedness check fails only "every sort has a value", which the theorems do not ask.
-What is open is `FnHyp`: for kompile's text, 164 facts are left to the author, and the package states soundness and completeness from them. They are 37 functions whose termination is not shown, 98 `[total]` functions not confirmed to have a value, and 29 functions whose clauses of one priority are not confirmed to agree. Every clause's matches are confirmed to agree.
+KEVM, measured 2026-11-13: kompile's own text and k-rust's are both read, with nothing refused. For each, the kernel checks `coreOK` and states both theorems, using only the standard axioms (205 s, 6.8 GB at peak, in the run that closed the last round of work). The larger well-formedness check fails only "every sort has a value", which the theorems do not ask.
+What is open is `FnHyp`: for kompile's text, 134 facts are left to the author, each with its place in KEVM's source, and the package states soundness and completeness from them. They are 37 functions whose termination is not shown, 80 `[total]` functions not confirmed to have a value, and 17 functions whose clauses of one priority are not confirmed to agree. Every clause's matches are confirmed to agree. No more deciders will be written for KEVM; the remaining facts are for proof search, later.
 The KEVM package is not a committed example, since its input is 8 MB; `examples/kevm.sh` builds it.
 
 Nine of these facts look false of KEVM as written:
@@ -62,7 +66,15 @@ Nine of these facts look false of KEVM as written:
 - **Four `[total]` functions have arguments no equation covers**: `Cgascap_Int` at a negative cap; `_s<Word_` outside [0, 2^256); `_<Gas_` and `_<=Gas_`, whose missing cases exist only as `[simplification]` rules, which are not read (decision 6).
 - **Three more pairs of equations overlap at unusual arguments**: `Cgascap_Gas` at a negative cap, where the kernel's reading gives one no value and the other 0 (consistent in kompile's theory); `#merkleExtensionSplitter` where both paths are empty; `senderTxData` at a negative chain id. The last two give different results in general; no particular pair of values was computed.
 
-57 of the 98 totality facts are about functions that call a parameter: Bytes, String and KRYPTO operations, which have no interpretation here. With no interpretation they are false. For a definition with parameters, the proposal is to state the theorems for every interpretation that is total where the text declares the parameter total; that work is running.
+Some operations, such as those on Bytes and String and the KRYPTO hashes, have no interpretation in Lean: they are parameters. The theorems are stated for every interpretation that gives a value wherever the text declares the operation total ([lesson 10](/lean/sound-and-complete)). Of the 57 totality facts that called such an operation, 18 are discharged that way; the other 39 call an operation the text does not declare total, or fail for another reason too.
+
+wasm and mir, measured 2026-11-13 from kompile's own texts. Both are refused as written, and every number past the first refusal is of an edited copy, not of the definition.
+
+- **mir** is refused for three kinds of sentence: a rule with `ensures`, K's Float module (the library has no Float domain), and extra `[owise]` equations of one function. On a copy with the rule removed, the Float operations read as parameters, and the extra `[owise]` equations removed, `coreOK` holds and the kernel builds the package (173 s, 7.2 GB at peak), with 61 named facts. Three of them are false as written: three functions declared `[total]` that have no equation.
+- **wasm** needs four reader features first: the overload axioms kompile writes between constructors of list sorts one below another, user token sorts with literals, recognising Int's library module when the text declares `Int` again, and several `[owise]` equations per function. It also needs a Float domain, since it puts Float below one of its own sorts and writes Float literals.
+- Shared by both: no Float domain, several `[owise]` equations of one function, and `ensures` on a rule. Neither showed a problem of kernel cost.
+
+Next: one existing proof about an IMP program is being rebuilt on the imp package, for the "used by a proof" column.
 
 ## The core, layer by layer
 
