@@ -573,138 +573,158 @@ i09	principle	Initializer of `? group G`: Some(0) and k::absent!(0) sort (P3a; 0
 #
 ## readable, claim more
 pattern	line	[G { a: x, .. }, ..]	{ x, .. }	map![y -> x, ..]	Some(_)	Some(G { .. })	Some([..])	{ G { a: x, b: y } }	{ G { b: x, .. }, .. }
-rx01	-	sort	iop	arm	pop	pop	pop	iop	iop
-rx01	?	owp	iop	arm	pop	pop	pop	iop	iop
-rx01	*	cwi	iop	arm	pop	pop	pop	iop	iop
+rx01	-	sort	iop	mna	pop	pop	pop	iop	iop
+rx01	?	owp	iop	mna	pop	pop	pop	iop	iop
+rx01	*	cwi	iop	mna	pop	pop	pop	iop	iop
 rx01	member	readable more, claim more	subject	computation
 rx01	member	readable more, claim more	subject	leaf List
 rx01	member	readable more, claim more	subject	leaf Cons
 rx01	member	readable more, claim more	subject, written	computation
 rx01	member	readable more, claim more	subject, written	leaf List
 rx01	member	readable more, claim more	subject, written	leaf Cons
-rx01	principle	Subject on the computation or a List or cons leaf, the result leaving or writing it: [G { a: x, .. }, ..] sort (P3a: brackets are the mark, the record an item, a term the lattice judges); { x, .. } and the exact and keyless instance sets iop (P3b: braces mark instances, which the stack has nowhere); map![y -> x, ..] arm (the form step: readable writes a map's root as { k -> v, .. }, so its map! is a literal, S5.0g:P-R2); Some(_), Some(G { .. }) and Some([..]) pop (P3b). Paths: S5.0g:R3.
-rx02	-	br	iop	arm	pop	pop	pop	iop	iop
-rx02	?	br	iop	arm	pop	pop	pop	iop	iop
-rx02	*	br	iop	arm	pop	pop	pop	iop	iop
+rx01	principle	Subject on the computation or a List or cons leaf, the result leaving or writing it: [G { a: x, .. }, ..] sort (P3a: brackets are the mark, the record an item, a term the lattice judges); { x, .. } and the exact and keyless instance sets iop (P3b: braces mark instances, which the stack has nowhere); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks); Some(_), Some(G { .. }) and Some([..]) pop (P3b). Paths: S5.0g:R3.
+rx02	-	br	iop	mna	pop	pop	pop	iop	iop
+rx02	?	br	iop	mna	pop	pop	pop	iop	iop
+rx02	*	br	iop	mna	pop	pop	pop	iop	iop
 rx02	member	readable more, claim more	subject	leaf Int
-rx02	member	readable more, claim more	subject	leaf Map
 rx02	member	readable more, claim more	subject	leaf Set
 rx02	member	readable more, claim more	subject	group G
 rx02	member	readable more, claim more	subject, written	leaf Int
-rx02	member	readable more, claim more	subject, written	leaf Map
 rx02	member	readable more, claim more	subject, written	leaf Set
 rx02	member	readable more, claim more	subject, written	group G
-rx02	principle	Subject on a plain Int, Map or Set leaf or the group G, either side: [G { a: x, .. }, ..] br (P3b: no layer brackets mark and no instance layer); the braces iop (P3b, design:R4); map![y -> x, ..] arm (the form step, S5.0g:P-R2); the three Some(..) pop (P3b). Paths: S5.0g:R3.
-rx03	-	br	iop	arm	ok	sort	br	iop	iop
-rx03	?	br	iop	arm	owp	owp	br	iop	iop
-rx03	*	br	iop	arm	cwi	cwi	br	iop	iop
-rx03	member	readable more, claim more	subject	? leaf Int
-rx03	member	readable more, claim more	subject	? leaf Map
-rx03	member	readable more, claim more	subject, written	? leaf Int
-rx03	member	readable more, claim more	subject, written	? leaf Map
-rx03	principle	Subject on `? leaf Int` or `? leaf Map`, either side: Some(_) ok (P3a: presence, its inside any content; a `?` cell's presence constrains, so no lint, Q1); Some(G { .. }) sort (design:R3: a record value on the leaf, the lattice's); Some([..]) and [G { a: x, .. }, ..] br (P3b: no List layer); the braces iop (P3b); map![y -> x, ..] arm (the form step, S5.0g:P-R2). Paths: S5.0g:R3.
-rx04	-	owp	iop	arm	ok	sort	ok	iop	iop
-rx04	?	owp	iop	arm	owp	owp	owp	iop	iop
-rx04	*	owp	iop	arm	cwi	cwi	cwi	iop	iop
-rx04	member	readable more, claim more	subject	? leaf List
-rx04	member	readable more, claim more	subject, written	? leaf List
-rx04	principle	Subject on `? leaf List`, either side: Some(_) and Some([..]) ok (P3a, design:R3: the List leaf's brackets inside `Some`); Some(G { .. }) sort (a record item value, the lattice's); [G { a: x, .. }, ..] owp (P3c: the List leaf's mark under `?`, its inside passing, S5.0g:P-R5); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx05	-	br	iop	arm	ok	ok	br	iop	iop
-rx05	?	br	iop	arm	owp	owp	br	iop	iop
-rx05	*	br	iop	arm	cwi	cwi	br	iop	iop
-rx05	member	readable more, claim more	subject	? group G
-rx05	member	readable more, claim more	subject, written	? group G
-rx05	principle	Subject on `? group G`, either side: Some(_) and Some(G { .. }) ok (P3a, design:R3: the group's record inside `Some`, its `..` unconstraining, P6); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx06	-	ok	ils	arm	pop	pop	pop	ils	ils
-rx06	?	owp	ils	arm	pop	pop	pop	ils	ils
-rx06	*	cwi	ils	arm	pop	pop	pop	ils	ils
-rx06	member	readable more, claim more	subject	* List of G
-rx06	member	readable more, claim more	subject, written	* List of G
-rx06	principle	Subject on a List collection of G, either side: [G { a: x, .. }, ..] ok (P3a: the List collection's instance mark, the record its instance); { x, .. } and the exact and keyless instance sets ils (P3b: braces are the other order's instance mark); map![y -> x, ..] arm (the form step); the three Some(..) pop (P3b). Paths: S5.0g:R3.
-rx07	-	ils	ok	arm	pop	pop	pop	ok	ok
-rx07	?	ils	owp	arm	pop	pop	pop	owp	owp
-rx07	*	ils	cwi	arm	pop	pop	pop	cwi	cwi
-rx07	member	readable more, claim more	subject	* Set of G
-rx07	member	readable more, claim more	subject	* Map of G
-rx07	member	readable more, claim more	subject, written	* Set of G
-rx07	member	readable more, claim more	subject, written	* Map of G
-rx07	principle	Subject on a Set or Map collection of G, either side: [G { a: x, .. }, ..] ils (S5.0g:P-R4: brackets, here of an instance record, are the List order's mark); { x, .. } ok (Q2: a name in an unordered collection's braces is one whole instance, any one it holds, as `x @ G { .. }` names it); { G { a: x, b: y } } ok (P3a: an exact instance set, P6); { G { b: x, .. }, .. } ok (a subject's instance record leaves its key unconstrained, P5); map![y -> x, ..] arm (the form step); the three Some(..) pop (P3b). Paths: S5.0g:R3.
-rx08	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-rx08	?	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-rx08	*	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-rx08	member	readable more, claim more	result, matched	computation
-rx08	member	readable more, claim more	result, matched	leaf List
-rx08	member	readable more, claim more	result, matched	leaf Cons
-rx08	member	readable more, claim more	result, unmatched	computation
-rx08	member	readable more, claim more	result, unmatched	leaf List
-rx08	member	readable more, claim more	result, unmatched	leaf Cons
-rx08	principle	Result over the computation or a List or cons leaf, matched or not: [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: its item is a built term leaving b open; a kind answer before pairing, so it stands under a path); Some(_) wop (P4: `_` in a result, before the kind); Some(G { .. }) and Some([..]) pop (P3b); { x, .. } and the instance sets iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx09	-	br	iop	arm	wop	pop	pop	iop	iop
-rx09	?	br	iop	arm	wop	pop	pop	iop	iop
-rx09	*	br	iop	arm	wop	pop	pop	iop	iop
-rx09	member	readable more, claim more	result, matched	leaf Int
-rx09	member	readable more, claim more	result, matched	leaf Map
-rx09	member	readable more, claim more	result, matched	leaf Set
-rx09	member	readable more, claim more	result, matched	group G
-rx09	member	readable more, claim more	result, unmatched	leaf Int
-rx09	member	readable more, claim more	result, unmatched	leaf Map
-rx09	member	readable more, claim more	result, unmatched	leaf Set
-rx09	member	readable more, claim more	result, unmatched	group G
-rx09	principle	Result over a plain Int, Map or Set leaf or the group G, matched or not: [G { a: x, .. }, ..] br (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); the braces iop (P3b, design:R4); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx10	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-rx10	?	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-rx10	*	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-rx10	member	readable more, claim more	result, matched	? leaf Int
-rx10	member	readable more, claim more	result, matched	? leaf Map
-rx10	member	readable more, claim more	result, unmatched	? leaf Int
-rx10	member	readable more, claim more	result, unmatched	? leaf Map
-rx10	principle	Result over `? leaf Int` or `? leaf Map`, matched or not: Some(G { .. }) open-record-outside-pattern (S5.0g:R4: inside `Some` a term record of the leaf leaving a and b open; a kind answer, it stands, and comes before Q1's pairing over an unmatched cell); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx11	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	ok	iop	iop
-rx11	?	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
-rx11	*	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
-rx11	member	readable more, claim more	result, matched	? leaf List
-rx11	principle	Result over `? leaf List` matched by `Some([y, ..])`: Some([..]) ok (design:R3, P6: it keeps the subject's rest); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: a built item leaving fields open, named first, S5.0g:P-R5; kind answers, they stand); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
-rx12	-	br	iop	arm	wop	ok	br	iop	iop
-rx12	?	br	iop	arm	wop	owp	br	iop	iop
-rx12	*	br	iop	arm	wop	cwi	br	iop	iop
-rx12	member	readable more, claim more	result, matched	? group G
-rx12	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(G { .. }) ok (S5.0:F3, P6: a bare `..` over the present group keeps a and b, the subject's present record being its base; pairing); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx13	-	sort	ils	arm	wop	pop	pop	ils	ils
-rx13	?	owp	ils	arm	wop	pop	pop	ils	ils
-rx13	*	cwi	ils	arm	wop	pop	pop	ils	ils
-rx13	member	readable more, claim more	result, matched	* List of G
-rx13	principle	Result over a List collection of G matched by `[G { a: y, .. }, ..]`: [G { a: x, .. }, ..] sort (P6: a created instance at the front, its `..` the template's, and the root `..` keeps the subject's instances); { x, .. } and the instance sets ils (P3b: braces of the other order); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx14	-	ils	sort	arm	wop	pop	pop	rm	sort
-rx14	?	ils	owp	arm	wop	pop	pop	owp	owp
-rx14	*	ils	cwi	arm	wop	pop	pop	cwi	cwi
-rx14	member	readable more, claim more	result, matched	* Set of G
-rx14	principle	Result over a Set collection of G matched by `{ G { a: y, .. }, .. }`: { G { b: x, .. }, .. } sort (a created instance with its template's defaults, P6; a Set collection keys none); { G { a: x, b: y } } rm (P6: the exact set drops the subject's `..`); [G { a: x, .. }, ..] ils (S5.0g:P-R4); { x, .. } sort (Q2: a name is one whole instance, which the result writes as the value it is bound to, so the lattice judges its sort); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx15	-	ils	sort	arm	wop	pop	pop	rm	map-collection-key
-rx15	?	ils	owp	arm	wop	pop	pop	owp	owp
-rx15	*	ils	cwi	arm	wop	pop	pop	cwi	cwi
-rx15	member	readable more, claim more	result, matched	* Map of G
-rx15	principle	Result over a Map collection of G matched by `{ G { a: y, .. }, .. }`: { G { b: x, .. }, .. } map-collection-key (S5.0g:key: a created Map instance writes its key, its first child a, which the template does not state); { G { a: x, b: y } } rm (P6: the exact set drops the subject's `..`); [G { a: x, .. }, ..] ils (S5.0g:P-R4); { x, .. } sort (Q2: a name is one whole instance, which the result writes as the value it is bound to, so the lattice judges its sort); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx16	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	uor	iop	iop
-rx16	?	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
-rx16	*	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
-rx16	member	readable more, claim more	result, unmatched	? leaf List
-rx16	principle	Overwrite of `? leaf List` (Q1): Some([..]) uor (Q1 with P5: its presence unknown); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4, kind answers before pairing, standing under a path); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx17	-	br	iop	arm	wop	uor	br	iop	iop
-rx17	?	br	iop	arm	wop	owp	br	iop	iop
-rx17	*	br	iop	arm	wop	cwi	br	iop	iop
-rx17	member	readable more, claim more	result, unmatched	? group G
-rx17	principle	Overwrite of `? group G` (Q1): Some(G { .. }) uor (Q1, P5: pairing meets the unknown presence before the record's own S5.0:F3); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx18	-	rm	ils	arm	wop	pop	pop	ils	ils
-rx18	?	owp	ils	arm	wop	pop	pop	ils	ils
-rx18	*	cwi	ils	arm	wop	pop	pop	ils	ils
-rx18	member	readable more, claim more	result, unmatched	* List of G
-rx18	principle	Overwrite of a List collection of G (Q1): [G { a: x, .. }, ..] rm (P6: a root `..` the subject never wrote); { x, .. } and the instance sets ils (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rx19	-	ils	rm	arm	wop	pop	pop	sort	rm
-rx19	?	ils	owp	arm	wop	pop	pop	owp	owp
-rx19	*	ils	cwi	arm	wop	pop	pop	cwi	cwi
-rx19	member	readable more, claim more	result, unmatched	* Set of G
-rx19	member	readable more, claim more	result, unmatched	* Map of G
-rx19	principle	Overwrite of a Set or Map collection of G (Q1): { G { a: x, b: y } } sort (Q1's exact overwrite of the collection: one created instance naming every field, its key a included, S5.0g:key); { G { b: x, .. }, .. } rm (P6: a root `..` the subject never wrote, before the key); [G { a: x, .. }, ..] ils (S5.0g:P-R4); { x, .. } rm (Q2: a name is one whole instance, and the root `..` is a rest the subject never wrote, P6); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx02	principle	Subject on a plain Int or Set leaf or the group G, either side: [G { a: x, .. }, ..] br (P3b: no layer brackets mark and no instance layer); the braces iop (P3b, design:R4); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx03	-	br	iop	ok	pop	pop	pop	iop	iop
+rx03	?	br	iop	owp	pop	pop	pop	iop	iop
+rx03	*	br	iop	cwi	pop	pop	pop	iop	iop
+rx03	member	readable more, claim more	subject	leaf Map
+rx03	member	readable more, claim more	subject, written	leaf Map
+rx03	principle	Subject on a plain Map leaf, either side: map![y -> x, ..] ok (MAPROOT: at the cell's content it is the Map leaf's map read, as { k -> v, .. } is, P3a; its binder constrains, Q1); [G { a: x, .. }, ..] br (P3b: no layer brackets mark and no instance layer); the braces iop (P3b); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx04	-	br	iop	mna	ok	sort	br	iop	iop
+rx04	?	br	iop	mna	owp	owp	br	iop	iop
+rx04	*	br	iop	mna	cwi	cwi	br	iop	iop
+rx04	member	readable more, claim more	subject	? leaf Int
+rx04	member	readable more, claim more	subject, written	? leaf Int
+rx04	principle	Subject on `? leaf Int`, either side: Some(_) ok (P3a: presence, its inside any content; a `?` cell's presence constrains, so no lint, Q1); Some(G { .. }) sort (design:R3: a record value on the leaf, the lattice's); Some([..]) and [G { a: x, .. }, ..] br (P3b: no List layer); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx05	-	owp	iop	mna	ok	sort	ok	iop	iop
+rx05	?	owp	iop	mna	owp	owp	owp	iop	iop
+rx05	*	owp	iop	mna	cwi	cwi	cwi	iop	iop
+rx05	member	readable more, claim more	subject	? leaf List
+rx05	member	readable more, claim more	subject, written	? leaf List
+rx05	principle	Subject on `? leaf List`, either side: Some(_) and Some([..]) ok (P3a, design:R3: the List leaf's brackets inside `Some`); Some(G { .. }) sort (a record item value, the lattice's); [G { a: x, .. }, ..] owp (P3c: the List leaf's mark under `?`, its inside passing, S5.0g:P-R5); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx06	-	br	iop	owp	ok	sort	br	iop	iop
+rx06	?	br	iop	owp	owp	owp	br	iop	iop
+rx06	*	br	iop	owp	cwi	cwi	br	iop	iop
+rx06	member	readable more, claim more	subject	? leaf Map
+rx06	member	readable more, claim more	subject, written	? leaf Map
+rx06	principle	Subject on `? leaf Map`, either side: Some(_) ok (P3a: presence, its inside any content; a `?` cell's presence constrains, so no lint, Q1); Some(G { .. }) sort (design:R3: a record value on the leaf, the lattice's); Some([..]) and [G { a: x, .. }, ..] br (P3b: no List layer); the braces iop (P3b); map![y -> x, ..] owp (MAPROOT: the leaf's map read, as { k -> v, .. } is, whose mark stands under `?` without `Some(..)`, its inside passing, P3c, S5.0g:P-R5). Paths: S5.0g:R3.
+rx07	-	br	iop	mna	ok	ok	br	iop	iop
+rx07	?	br	iop	mna	owp	owp	br	iop	iop
+rx07	*	br	iop	mna	cwi	cwi	br	iop	iop
+rx07	member	readable more, claim more	subject	? group G
+rx07	member	readable more, claim more	subject, written	? group G
+rx07	principle	Subject on `? group G`, either side: Some(_) and Some(G { .. }) ok (P3a, design:R3: the group's record inside `Some`, its `..` unconstraining, P6); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx08	-	ok	ils	mna	pop	pop	pop	ils	ils
+rx08	?	owp	ils	mna	pop	pop	pop	ils	ils
+rx08	*	cwi	ils	mna	pop	pop	pop	ils	ils
+rx08	member	readable more, claim more	subject	* List of G
+rx08	member	readable more, claim more	subject, written	* List of G
+rx08	principle	Subject on a List collection of G, either side: [G { a: x, .. }, ..] ok (P3a: the List collection's instance mark, the record its instance); { x, .. } and the exact and keyless instance sets ils (P3b: braces are the other order's instance mark); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx09	-	ils	ok	mna	pop	pop	pop	ok	ok
+rx09	?	ils	owp	mna	pop	pop	pop	owp	owp
+rx09	*	ils	cwi	mna	pop	pop	pop	cwi	cwi
+rx09	member	readable more, claim more	subject	* Set of G
+rx09	member	readable more, claim more	subject	* Map of G
+rx09	member	readable more, claim more	subject, written	* Set of G
+rx09	member	readable more, claim more	subject, written	* Map of G
+rx09	principle	Subject on a Set or Map collection of G, either side: [G { a: x, .. }, ..] ils (S5.0g:P-R4: brackets, here of an instance record, are the List order's mark); { x, .. } ok (Q2: a name in an unordered collection's braces is one whole instance, any one it holds, as `x @ G { .. }` names it); { G { a: x, b: y } } ok (P3a: an exact instance set, P6); { G { b: x, .. }, .. } ok (a subject's instance record leaves its key unconstrained, P5); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx10	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+rx10	?	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+rx10	*	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+rx10	member	readable more, claim more	result, matched	computation
+rx10	member	readable more, claim more	result, matched	leaf List
+rx10	member	readable more, claim more	result, matched	leaf Cons
+rx10	member	readable more, claim more	result, unmatched	computation
+rx10	member	readable more, claim more	result, unmatched	leaf List
+rx10	member	readable more, claim more	result, unmatched	leaf Cons
+rx10	principle	Result over the computation or a List or cons leaf, matched or not: [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: its item is a built term leaving b open; a kind answer before pairing, so it stands under a path); Some(_) wop (P4: `_` in a result, before the kind); Some(G { .. }) and Some([..]) pop (P3b); { x, .. } and the instance sets iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx11	-	br	iop	mna	wop	pop	pop	iop	iop
+rx11	?	br	iop	mna	wop	pop	pop	iop	iop
+rx11	*	br	iop	mna	wop	pop	pop	iop	iop
+rx11	member	readable more, claim more	result, matched	leaf Int
+rx11	member	readable more, claim more	result, matched	leaf Set
+rx11	member	readable more, claim more	result, matched	group G
+rx11	member	readable more, claim more	result, unmatched	leaf Int
+rx11	member	readable more, claim more	result, unmatched	leaf Set
+rx11	member	readable more, claim more	result, unmatched	group G
+rx11	principle	Result over a plain Int or Set leaf or the group G, matched or not: [G { a: x, .. }, ..] br (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); the braces iop (P3b, design:R4); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx12	-	br	iop	sort|product:mrr	wop	pop	pop	iop	iop
+rx12	?	br	iop	owp|product:mrr	wop	pop	pop	iop	iop
+rx12	*	br	iop	cwi|product:mrr	wop	pop	pop	iop	iop
+rx12	member	readable more, claim more	result, matched	leaf Map
+rx12	principle	Result over a plain Map leaf matched by `{ z -> y, .. }`: map![y -> x, ..] sort (MAPROOT: at the cell's content it is the leaf's map read, as { k -> v, .. } is, which P6 reads in a result as the frame write `Cell(k::map![y -> x, ..])`, keeping the subject's framed rest; the product's mrr is the C-lim that a map read has no result side until design:M3, a cell-exception); [G { a: x, .. }, ..] br (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); the braces iop (P3b). Paths: S5.0g:R3.
+rx13	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+rx13	?	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+rx13	*	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+rx13	member	readable more, claim more	result, matched	? leaf Int
+rx13	member	readable more, claim more	result, unmatched	? leaf Int
+rx13	principle	Result over `? leaf Int`, matched or not: Some(G { .. }) open-record-outside-pattern (S5.0g:R4: inside `Some` a term record of the leaf leaving a and b open; a kind answer, it stands, and comes before Q1's pairing over an unmatched cell); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx14	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	ok	iop	iop
+rx14	?	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	owp	iop	iop
+rx14	*	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	cwi	iop	iop
+rx14	member	readable more, claim more	result, matched	? leaf List
+rx14	principle	Result over `? leaf List` matched by `Some([y, ..])`: Some([..]) ok (design:R3, P6: it keeps the subject's rest); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: a built item leaving fields open, named first, S5.0g:P-R5; kind answers, they stand); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3.
+rx15	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+rx15	?	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+rx15	*	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+rx15	member	readable more, claim more	result, matched	? leaf Map
+rx15	member	readable more, claim more	result, unmatched	? leaf Map
+rx15	principle	Result over `? leaf Map`, matched or not: Some(G { .. }) open-record-outside-pattern (S5.0g:R4: inside `Some` a term record of the leaf leaving a and b open; a kind answer, it stands, and comes before Q1's pairing over an unmatched cell); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] owp (MAPROOT: the leaf's map read, as { k -> v, .. } is, without `Some(..)`, P3c; the product's mrr is the C-lim that a map read has no result side until design:M3, named first since the advice `Some(..)` would meet it again, S5.0g:P-R5, a cell-exception). Paths: S5.0g:R3.
+rx16	-	br	iop	mna	wop	ok	br	iop	iop
+rx16	?	br	iop	mna	wop	owp	br	iop	iop
+rx16	*	br	iop	mna	wop	cwi	br	iop	iop
+rx16	member	readable more, claim more	result, matched	? group G
+rx16	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(G { .. }) ok (S5.0:F3, P6: a bare `..` over the present group keeps a and b, the subject's present record being its base; pairing); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx17	-	sort	ils	mna	wop	pop	pop	ils	ils
+rx17	?	owp	ils	mna	wop	pop	pop	ils	ils
+rx17	*	cwi	ils	mna	wop	pop	pop	ils	ils
+rx17	member	readable more, claim more	result, matched	* List of G
+rx17	principle	Result over a List collection of G matched by `[G { a: y, .. }, ..]`: [G { a: x, .. }, ..] sort (P6: a created instance at the front, its `..` the template's, and the root `..` keeps the subject's instances); { x, .. } and the instance sets ils (P3b: braces of the other order); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx18	-	ils	sort	mna	wop	pop	pop	rm	sort
+rx18	?	ils	owp	mna	wop	pop	pop	owp	owp
+rx18	*	ils	cwi	mna	wop	pop	pop	cwi	cwi
+rx18	member	readable more, claim more	result, matched	* Set of G
+rx18	principle	Result over a Set collection of G matched by `{ G { a: y, .. }, .. }`: { G { b: x, .. }, .. } sort (a created instance with its template's defaults, P6; a Set collection keys none); { G { a: x, b: y } } rm (P6: the exact set drops the subject's `..`); [G { a: x, .. }, ..] ils (S5.0g:P-R4); { x, .. } sort (Q2: a name is one whole instance, which the result writes as the value it is bound to, so the lattice judges its sort); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx19	-	ils	sort	mna	wop	pop	pop	rm	map-collection-key
+rx19	?	ils	owp	mna	wop	pop	pop	owp	owp
+rx19	*	ils	cwi	mna	wop	pop	pop	cwi	cwi
+rx19	member	readable more, claim more	result, matched	* Map of G
+rx19	principle	Result over a Map collection of G matched by `{ G { a: y, .. }, .. }`: { G { b: x, .. }, .. } map-collection-key (S5.0g:key: a created Map instance writes its key, its first child a, which the template does not state); { G { a: x, b: y } } rm (P6: the exact set drops the subject's `..`); [G { a: x, .. }, ..] ils (S5.0g:P-R4); { x, .. } sort (Q2: a name is one whole instance, which the result writes as the value it is bound to, so the lattice judges its sort); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx20	-	br	iop	rm|product:mrr	wop	pop	pop	iop	iop
+rx20	?	br	iop	owp|product:mrr	wop	pop	pop	iop	iop
+rx20	*	br	iop	cwi|product:mrr	wop	pop	pop	iop	iop
+rx20	member	readable more, claim more	result, unmatched	leaf Map
+rx20	principle	Overwrite of a plain Map leaf (Q1): map![y -> x, ..] rm (MAPROOT: at the cell's content it is the leaf's map read, as { k -> v, .. } is, which P6 reads in a result as the frame write `Cell(k::map![y -> x, ..])`, whose rest the subject never wrote; the product's mrr is the C-lim that a map read has no result side until design:M3, a cell-exception); [G { a: x, .. }, ..] br (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); the braces iop (P3b). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx21	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	uor	iop	iop
+rx21	?	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	owp	iop	iop
+rx21	*	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	cwi	iop	iop
+rx21	member	readable more, claim more	result, unmatched	? leaf List
+rx21	principle	Overwrite of `? leaf List` (Q1): Some([..]) uor (Q1 with P5: its presence unknown); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4, kind answers before pairing, standing under a path); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx22	-	br	iop	mna	wop	uor	br	iop	iop
+rx22	?	br	iop	mna	wop	owp	br	iop	iop
+rx22	*	br	iop	mna	wop	cwi	br	iop	iop
+rx22	member	readable more, claim more	result, unmatched	? group G
+rx22	principle	Overwrite of `? group G` (Q1): Some(G { .. }) uor (Q1, P5: pairing meets the unknown presence before the record's own S5.0:F3); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx23	-	rm	ils	mna	wop	pop	pop	ils	ils
+rx23	?	owp	ils	mna	wop	pop	pop	ils	ils
+rx23	*	cwi	ils	mna	wop	pop	pop	ils	ils
+rx23	member	readable more, claim more	result, unmatched	* List of G
+rx23	principle	Overwrite of a List collection of G (Q1): [G { a: x, .. }, ..] rm (P6: a root `..` the subject never wrote); { x, .. } and the instance sets ils (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx24	-	ils	rm	mna	wop	pop	pop	sort	rm
+rx24	?	ils	owp	mna	wop	pop	pop	owp	owp
+rx24	*	ils	cwi	mna	wop	pop	pop	cwi	cwi
+rx24	member	readable more, claim more	result, unmatched	* Set of G
+rx24	member	readable more, claim more	result, unmatched	* Map of G
+rx24	principle	Overwrite of a Set or Map collection of G (Q1): { G { a: x, b: y } } sort (Q1's exact overwrite of the collection: one created instance naming every field, its key a included, S5.0g:key); { G { b: x, .. }, .. } rm (P6: a root `..` the subject never wrote, before the key); [G { a: x, .. }, ..] ils (S5.0g:P-R4); { x, .. } rm (Q2: a name is one whole instance, and the root `..` is a rest the subject never wrote, P6); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] mna (MAPROOT: where it is the cell's content it is the cell's map read, as { k -> v, .. } is, so P3b: map notation, which no layer of the stack marks). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 #
 ## cells more
 pattern	line	k::configuration::Cell([.., x])	k::configuration::KCell(.., x)	k::configuration::Cell(_)

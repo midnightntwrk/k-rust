@@ -440,8 +440,9 @@ the descriptors of the base and its own. A case is judged by
   each looked up as the set's element (decision D1a, NT-10's review M1), one whose map reads an
   entry and leaves the others open (`{ 1 -> 2, .. }`, `k::map![1 -> 2, ..]`) and an instance record
   with `..` (`Obj { key: 1, .. }`), which select, and in a readable record the literal
-  `map![1 -> 2, ..]`, whose anonymous rest names no map (the class `anonymous-rest-in-map-literal`,
-  which advises the `{ 1 -> 2, .. }` case); on the result side, an instance written with each.
+  `map![1 -> 2, ..]`, which at the map child, its content root, is the child's map read, the
+  `{ 1 -> 2, .. }` case's meaning and K (MAPROOT); on the result side, an instance written with
+  each (the map read `map![x -> y, ..]` is `map-read-in-result`).
   Eight `cells!` map results have no twin either: each is written over a framed subject of its
   own (`cells::FRAMED_MAP_RESULTS`, finding NT-9-1), `k::map![5 -> old, rest @ ..]` or
   `k::map![5 -> old, ..]` over `{5 ↦ 5, 1 ↦ 7}`, whose rest `{1 ↦ 7}` holds the key `x` = 1 the

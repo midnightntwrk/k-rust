@@ -2722,9 +2722,11 @@ const fn result_probe<'p>(
 /// in it: its kind judges it, and pairing judges its `..` against the subject's map at the same
 /// cell, which keeps it where the subject framed its rest (P6 at the map's content root, M3) and
 /// refuses it as `rest-mismatch` where the subject wrote no rest, bound the map whole, matched
-/// nothing (Q1's overwrite) or `None` (a created cell). A readable `map![..]` is a literal
-/// everywhere (readable writes `{ k -> v, .. }`). The product refuses every such `cells!` result
-/// still, `anonymous-rest-in-map-literal`: the stated M3 limitation.
+/// nothing (Q1's overwrite) or `None` (a created cell). A readable `map![k -> v, ..]` at the
+/// leaf's content is its map read, the braces `{ k -> v, .. }` (MAPROOT), which P6 reads in a
+/// result as the same frame write, and the product refuses as the braces, `map-read-in-result`.
+/// The product refuses every such `cells!` result still, `anonymous-rest-in-map-literal`: the
+/// stated M3 limitation.
 #[test]
 fn a_cells_result_map_with_a_rest_at_its_leaf_root_is_judged_by_kind_and_pairing() {
     let arm = Outcome::Refuse("anonymous-rest-in-map-literal");
@@ -2802,8 +2804,8 @@ fn a_cells_result_map_with_a_rest_at_its_leaf_root_is_judged_by_kind_and_pairing
                 "map![y -> x, ..]",
                 Some("{ z -> y, .. }"),
             ),
-            arm,
-            arm,
+            Outcome::After,
+            Outcome::Refuse("map-read-in-result"),
         ),
     ];
     oracle_and_product(&probes);
@@ -2900,6 +2902,60 @@ fn a_cells_result_map_with_a_rest_at_a_records_child_is_judged_by_pairing() {
         ),
     ];
     oracle_and_product(&probes);
+}
+
+/// MAPROOT: a readable `map![k -> v, ..]` where it is a cell's content (the entry's own value, a
+/// group's or an instance's record's child, `Some(..)`'s content) is the cell's map read, as its
+/// braces `{ k -> v, .. }` are, with every judgement of theirs: admitted on a Map leaf,
+/// `map-notation-at-non-map` off a map, the missing `?` layer without `Some(..)`. Below every
+/// content root, as a list's element or in a constructor's record, its `..` keeps no cell's map:
+/// `anonymous-rest-in-map-literal`, in the oracle and the product alike.
+#[test]
+fn a_readable_map_literal_at_a_content_root_is_its_map_read() {
+    let subject = |stack, text| Probe {
+        form: Form::Readable,
+        side: Side::Subject,
+        path: &[],
+        stack,
+        text,
+        other: None,
+        written: false,
+        bound: &[],
+        records: &[],
+        elsewhere: false,
+    };
+    let int = Layer::Leaf(Notation::Plain);
+    let map = [Layer::Leaf(Notation::Map)];
+    let optional_map = [Layer::Optional, Layer::Leaf(Notation::Map)];
+    let list = [Layer::Leaf(Notation::List)];
+    let plain = [int.clone()];
+    let group = [sweep_group(
+        "B",
+        &[("m", Layer::Leaf(Notation::Map)), ("n", int.clone())],
+    )];
+    let keyed = [
+        Layer::Instances(Order::Map),
+        sweep_group("A", &[("id", int), ("m", Layer::Leaf(Notation::Map))]),
+    ];
+    let admit = Outcome::Admit { lint: None };
+    let arm = Outcome::Refuse("anonymous-rest-in-map-literal");
+    probes_agree(&[
+        (subject(&map, "map![y -> x, ..]"), admit),
+        (subject(&map, "{ y -> x, .. }"), admit),
+        (subject(&optional_map, "Some(map![y -> x, ..])"), admit),
+        (subject(&group, "B { m: map![y -> x, ..], .. }"), admit),
+        (subject(&keyed, "{ A { m: map![y -> x, ..], .. }, .. }"), admit),
+        (
+            subject(&list, "map![y -> x, ..]"),
+            Outcome::Refuse("map-notation-at-non-map"),
+        ),
+        (
+            subject(&optional_map, "map![y -> x, ..]"),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (subject(&list, "[map![y -> x, ..], ..]"), arm),
+        (subject(&plain, "Load { m: map![y -> x, ..] }"), arm),
+    ]);
 }
 
 /// Below a content root, inside a term (a list's element, a constructor's argument), a

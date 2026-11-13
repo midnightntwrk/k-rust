@@ -783,8 +783,8 @@ const fn result_subject(kind: CellKind) -> &'static str {
 /// map computes its value or its key, each looked up as the set's element (decision D1a: every
 /// cell written, nothing that selects), one whose map reads an entry and leaves the others open
 /// (`{ 1 -> 2, .. }`), and an instance record with `..` (`Obj { key: 1, .. }`), which select; and
-/// that map written as a literal with an anonymous rest (`map![1 -> 2, ..]`), which names no map
-/// in a readable record.
+/// that map written as a literal with an anonymous rest (`map![1 -> 2, ..]`), which at the map
+/// child, its content root, is the child's map read, the braces' meaning (MAPROOT).
 const READABLE_BAG_SUBJECTS: [&str; 7] = [
     "{ Obj { key: 1, m: map![1 -> 2] }, .. }",
     "{ Obj { key: k::builtin::int::add(0, 1), m: map![1 -> 2] }, .. }",

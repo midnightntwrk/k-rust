@@ -574,345 +574,345 @@ init	-	* Map of G	-	pop	pop	nii	sort	ir	br	ir	mna	sort	sort	rmc	sort	sort
 #
 ## readable more
 side	path	stack	other	[G { a: x, .. }, ..]	{ x, .. }	map![y -> x, ..]	Some(_)	Some(G { .. })	Some([..])	{ G { a: x, b: y } }	{ G { b: x, .. }, .. }
-subject	-	computation	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf List	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Cons	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	? leaf Int	-	br	iop	arm	ok	sort	br	iop	iop
-subject	-	? leaf List	-	owp	iop	arm	ok	sort	ok	iop	iop
-subject	-	? leaf Map	-	br	iop	arm	ok	sort	br	iop	iop
-subject	-	? group G	-	br	iop	arm	ok	ok	br	iop	iop
-subject	-	* List of G	-	ok	ils	arm	pop	pop	pop	ils	ils
-subject	-	* Set of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject	-	* Map of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject	?	computation	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf List	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Cons	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	? leaf Int	-	br	iop	arm	owp	owp	br	iop	iop
-subject	?	? leaf List	-	owp	iop	arm	owp	owp	owp	iop	iop
-subject	?	? leaf Map	-	br	iop	arm	owp	owp	br	iop	iop
-subject	?	? group G	-	br	iop	arm	owp	owp	br	iop	iop
-subject	?	* List of G	-	owp	ils	arm	pop	pop	pop	ils	ils
-subject	?	* Set of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject	?	* Map of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject	*	computation	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf List	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Cons	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	? leaf Int	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject	*	? leaf List	-	owp	iop	arm	cwi	cwi	cwi	iop	iop
-subject	*	? leaf Map	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject	*	? group G	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject	*	* List of G	-	cwi	ils	arm	pop	pop	pop	ils	ils
-subject	*	* Set of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-subject	*	* Map of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-subject, written	-	computation	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf List	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Cons	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	? leaf Int	-	br	iop	arm	ok	sort	br	iop	iop
-subject, written	-	? leaf List	-	owp	iop	arm	ok	sort	ok	iop	iop
-subject, written	-	? leaf Map	-	br	iop	arm	ok	sort	br	iop	iop
-subject, written	-	? group G	-	br	iop	arm	ok	ok	br	iop	iop
-subject, written	-	* List of G	-	ok	ils	arm	pop	pop	pop	ils	ils
-subject, written	-	* Set of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject, written	-	* Map of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject, written	?	computation	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf List	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Cons	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	? leaf Int	-	br	iop	arm	owp	owp	br	iop	iop
-subject, written	?	? leaf List	-	owp	iop	arm	owp	owp	owp	iop	iop
-subject, written	?	? leaf Map	-	br	iop	arm	owp	owp	br	iop	iop
-subject, written	?	? group G	-	br	iop	arm	owp	owp	br	iop	iop
-subject, written	?	* List of G	-	owp	ils	arm	pop	pop	pop	ils	ils
-subject, written	?	* Set of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject, written	?	* Map of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject, written	*	computation	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf List	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Cons	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	? leaf Int	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject, written	*	? leaf List	-	owp	iop	arm	cwi	cwi	cwi	iop	iop
-subject, written	*	? leaf Map	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject, written	*	? group G	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject, written	*	* List of G	-	cwi	ils	arm	pop	pop	pop	ils	ils
-subject, written	*	* Set of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-subject, written	*	* Map of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-result, matched	-	computation	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Int	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf List	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Cons	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Map	{ z -> y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Set	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	-	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	ok	iop	iop
-result, matched	-	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	-	? group G	Some(G { a: y, .. })	br	iop	arm	wop	ok	br	iop	iop
-result, matched	-	* List of G	[G { a: y, .. }, ..]	sort	ils	arm	wop	pop	pop	ils	ils
-result, matched	-	* Set of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	sort
-result, matched	-	* Map of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	map-collection-key
-result, matched	?	computation	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Int	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf List	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Cons	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Map	{ z -> y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Set	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	?	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
-result, matched	?	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	?	? group G	Some(G { a: y, .. })	br	iop	arm	wop	owp	br	iop	iop
-result, matched	?	* List of G	[G { a: y, .. }, ..]	owp	ils	arm	wop	pop	pop	ils	ils
-result, matched	?	* Set of G	{ G { a: y, .. }, .. }	ils	owp	arm	wop	pop	pop	owp	owp
-result, matched	?	* Map of G	{ G { a: y, .. }, .. }	ils	owp	arm	wop	pop	pop	owp	owp
-result, matched	*	computation	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Int	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf List	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Cons	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Map	{ z -> y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Set	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	*	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
-result, matched	*	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	*	? group G	Some(G { a: y, .. })	br	iop	arm	wop	cwi	br	iop	iop
-result, matched	*	* List of G	[G { a: y, .. }, ..]	cwi	ils	arm	wop	pop	pop	ils	ils
-result, matched	*	* Set of G	{ G { a: y, .. }, .. }	ils	cwi	arm	wop	pop	pop	cwi	cwi
-result, matched	*	* Map of G	{ G { a: y, .. }, .. }	ils	cwi	arm	wop	pop	pop	cwi	cwi
-result, unmatched	-	computation	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Int	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf List	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Cons	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Map	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Set	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	group G	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	? leaf Int	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	-	? leaf List	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	uor	iop	iop
-result, unmatched	-	? leaf Map	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	-	? group G	-	br	iop	arm	wop	uor	br	iop	iop
-result, unmatched	-	* List of G	-	rm	ils	arm	wop	pop	pop	ils	ils
-result, unmatched	-	* Set of G	-	ils	rm	arm	wop	pop	pop	sort	rm
-result, unmatched	-	* Map of G	-	ils	rm	arm	wop	pop	pop	sort	rm
-result, unmatched	?	computation	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Int	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf List	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Cons	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Map	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Set	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	group G	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	? leaf Int	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	?	? leaf List	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
-result, unmatched	?	? leaf Map	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	?	? group G	-	br	iop	arm	wop	owp	br	iop	iop
-result, unmatched	?	* List of G	-	owp	ils	arm	wop	pop	pop	ils	ils
-result, unmatched	?	* Set of G	-	ils	owp	arm	wop	pop	pop	owp	owp
-result, unmatched	?	* Map of G	-	ils	owp	arm	wop	pop	pop	owp	owp
-result, unmatched	*	computation	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Int	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf List	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Cons	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Map	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Set	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	group G	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	? leaf Int	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	*	? leaf List	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
-result, unmatched	*	? leaf Map	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	*	? group G	-	br	iop	arm	wop	cwi	br	iop	iop
-result, unmatched	*	* List of G	-	cwi	ils	arm	wop	pop	pop	ils	ils
-result, unmatched	*	* Set of G	-	ils	cwi	arm	wop	pop	pop	cwi	cwi
-result, unmatched	*	* Map of G	-	ils	cwi	arm	wop	pop	pop	cwi	cwi
+subject	-	computation	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf List	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf Cons	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf Map	-	br	iop	ok	pop	pop	pop	iop	iop
+subject	-	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	-	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	-	? leaf Int	-	br	iop	mna	ok	sort	br	iop	iop
+subject	-	? leaf List	-	owp	iop	mna	ok	sort	ok	iop	iop
+subject	-	? leaf Map	-	br	iop	owp	ok	sort	br	iop	iop
+subject	-	? group G	-	br	iop	mna	ok	ok	br	iop	iop
+subject	-	* List of G	-	ok	ils	mna	pop	pop	pop	ils	ils
+subject	-	* Set of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject	-	* Map of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject	?	computation	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf List	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf Cons	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf Map	-	br	iop	owp	pop	pop	pop	iop	iop
+subject	?	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	?	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	?	? leaf Int	-	br	iop	mna	owp	owp	br	iop	iop
+subject	?	? leaf List	-	owp	iop	mna	owp	owp	owp	iop	iop
+subject	?	? leaf Map	-	br	iop	owp	owp	owp	br	iop	iop
+subject	?	? group G	-	br	iop	mna	owp	owp	br	iop	iop
+subject	?	* List of G	-	owp	ils	mna	pop	pop	pop	ils	ils
+subject	?	* Set of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject	?	* Map of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject	*	computation	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf List	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf Cons	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf Map	-	br	iop	cwi	pop	pop	pop	iop	iop
+subject	*	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	*	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	*	? leaf Int	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject	*	? leaf List	-	owp	iop	mna	cwi	cwi	cwi	iop	iop
+subject	*	? leaf Map	-	br	iop	owp	cwi	cwi	br	iop	iop
+subject	*	? group G	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject	*	* List of G	-	cwi	ils	mna	pop	pop	pop	ils	ils
+subject	*	* Set of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+subject	*	* Map of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+subject, written	-	computation	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf List	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf Cons	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf Map	-	br	iop	ok	pop	pop	pop	iop	iop
+subject, written	-	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	? leaf Int	-	br	iop	mna	ok	sort	br	iop	iop
+subject, written	-	? leaf List	-	owp	iop	mna	ok	sort	ok	iop	iop
+subject, written	-	? leaf Map	-	br	iop	owp	ok	sort	br	iop	iop
+subject, written	-	? group G	-	br	iop	mna	ok	ok	br	iop	iop
+subject, written	-	* List of G	-	ok	ils	mna	pop	pop	pop	ils	ils
+subject, written	-	* Set of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject, written	-	* Map of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject, written	?	computation	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf List	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf Cons	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf Map	-	br	iop	owp	pop	pop	pop	iop	iop
+subject, written	?	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	? leaf Int	-	br	iop	mna	owp	owp	br	iop	iop
+subject, written	?	? leaf List	-	owp	iop	mna	owp	owp	owp	iop	iop
+subject, written	?	? leaf Map	-	br	iop	owp	owp	owp	br	iop	iop
+subject, written	?	? group G	-	br	iop	mna	owp	owp	br	iop	iop
+subject, written	?	* List of G	-	owp	ils	mna	pop	pop	pop	ils	ils
+subject, written	?	* Set of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject, written	?	* Map of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject, written	*	computation	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf List	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf Cons	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf Map	-	br	iop	cwi	pop	pop	pop	iop	iop
+subject, written	*	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	? leaf Int	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject, written	*	? leaf List	-	owp	iop	mna	cwi	cwi	cwi	iop	iop
+subject, written	*	? leaf Map	-	br	iop	owp	cwi	cwi	br	iop	iop
+subject, written	*	? group G	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject, written	*	* List of G	-	cwi	ils	mna	pop	pop	pop	ils	ils
+subject, written	*	* Set of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+subject, written	*	* Map of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+result, matched	-	computation	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf Int	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf List	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf Cons	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf Map	{ z -> y, .. }	br	iop	sort|product:mrr	wop	pop	pop	iop	iop
+result, matched	-	leaf Set	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	group G	G { a: y, .. }	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	? leaf Int	Some(old)	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, matched	-	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	ok	iop	iop
+result, matched	-	? leaf Map	Some({ z -> y, .. })	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, matched	-	? group G	Some(G { a: y, .. })	br	iop	mna	wop	ok	br	iop	iop
+result, matched	-	* List of G	[G { a: y, .. }, ..]	sort	ils	mna	wop	pop	pop	ils	ils
+result, matched	-	* Set of G	{ G { a: y, .. }, .. }	ils	sort	mna	wop	pop	pop	rm	sort
+result, matched	-	* Map of G	{ G { a: y, .. }, .. }	ils	sort	mna	wop	pop	pop	rm	map-collection-key
+result, matched	?	computation	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf Int	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf List	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf Cons	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf Map	{ z -> y, .. }	br	iop	owp|product:mrr	wop	pop	pop	iop	iop
+result, matched	?	leaf Set	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	group G	G { a: y, .. }	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	? leaf Int	Some(old)	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, matched	?	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	owp	iop	iop
+result, matched	?	? leaf Map	Some({ z -> y, .. })	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, matched	?	? group G	Some(G { a: y, .. })	br	iop	mna	wop	owp	br	iop	iop
+result, matched	?	* List of G	[G { a: y, .. }, ..]	owp	ils	mna	wop	pop	pop	ils	ils
+result, matched	?	* Set of G	{ G { a: y, .. }, .. }	ils	owp	mna	wop	pop	pop	owp	owp
+result, matched	?	* Map of G	{ G { a: y, .. }, .. }	ils	owp	mna	wop	pop	pop	owp	owp
+result, matched	*	computation	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf Int	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf List	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf Cons	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf Map	{ z -> y, .. }	br	iop	cwi|product:mrr	wop	pop	pop	iop	iop
+result, matched	*	leaf Set	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	group G	G { a: y, .. }	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	? leaf Int	Some(old)	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, matched	*	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	cwi	iop	iop
+result, matched	*	? leaf Map	Some({ z -> y, .. })	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, matched	*	? group G	Some(G { a: y, .. })	br	iop	mna	wop	cwi	br	iop	iop
+result, matched	*	* List of G	[G { a: y, .. }, ..]	cwi	ils	mna	wop	pop	pop	ils	ils
+result, matched	*	* Set of G	{ G { a: y, .. }, .. }	ils	cwi	mna	wop	pop	pop	cwi	cwi
+result, matched	*	* Map of G	{ G { a: y, .. }, .. }	ils	cwi	mna	wop	pop	pop	cwi	cwi
+result, unmatched	-	computation	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Int	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf List	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Cons	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Map	-	br	iop	rm|product:mrr	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Set	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	group G	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	? leaf Int	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	-	? leaf List	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	uor	iop	iop
+result, unmatched	-	? leaf Map	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	-	? group G	-	br	iop	mna	wop	uor	br	iop	iop
+result, unmatched	-	* List of G	-	rm	ils	mna	wop	pop	pop	ils	ils
+result, unmatched	-	* Set of G	-	ils	rm	mna	wop	pop	pop	sort	rm
+result, unmatched	-	* Map of G	-	ils	rm	mna	wop	pop	pop	sort	rm
+result, unmatched	?	computation	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Int	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf List	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Cons	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Map	-	br	iop	owp|product:mrr	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Set	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	group G	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	? leaf Int	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	?	? leaf List	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	owp	iop	iop
+result, unmatched	?	? leaf Map	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	?	? group G	-	br	iop	mna	wop	owp	br	iop	iop
+result, unmatched	?	* List of G	-	owp	ils	mna	wop	pop	pop	ils	ils
+result, unmatched	?	* Set of G	-	ils	owp	mna	wop	pop	pop	owp	owp
+result, unmatched	?	* Map of G	-	ils	owp	mna	wop	pop	pop	owp	owp
+result, unmatched	*	computation	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Int	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf List	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Cons	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Map	-	br	iop	cwi|product:mrr	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Set	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	group G	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	? leaf Int	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	*	? leaf List	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	cwi	iop	iop
+result, unmatched	*	? leaf Map	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	*	? group G	-	br	iop	mna	wop	cwi	br	iop	iop
+result, unmatched	*	* List of G	-	cwi	ils	mna	wop	pop	pop	ils	ils
+result, unmatched	*	* Set of G	-	ils	cwi	mna	wop	pop	pop	cwi	cwi
+result, unmatched	*	* Map of G	-	ils	cwi	mna	wop	pop	pop	cwi	cwi
 #
 ## claim more
 side	path	stack	other	[G { a: x, .. }, ..]	{ x, .. }	map![y -> x, ..]	Some(_)	Some(G { .. })	Some([..])	{ G { a: x, b: y } }	{ G { b: x, .. }, .. }
-subject	-	computation	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf List	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Cons	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	-	? leaf Int	-	br	iop	arm	ok	sort	br	iop	iop
-subject	-	? leaf List	-	owp	iop	arm	ok	sort	ok	iop	iop
-subject	-	? leaf Map	-	br	iop	arm	ok	sort	br	iop	iop
-subject	-	? group G	-	br	iop	arm	ok	ok	br	iop	iop
-subject	-	* List of G	-	ok	ils	arm	pop	pop	pop	ils	ils
-subject	-	* Set of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject	-	* Map of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject	?	computation	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf List	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Cons	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	?	? leaf Int	-	br	iop	arm	owp	owp	br	iop	iop
-subject	?	? leaf List	-	owp	iop	arm	owp	owp	owp	iop	iop
-subject	?	? leaf Map	-	br	iop	arm	owp	owp	br	iop	iop
-subject	?	? group G	-	br	iop	arm	owp	owp	br	iop	iop
-subject	?	* List of G	-	owp	ils	arm	pop	pop	pop	ils	ils
-subject	?	* Set of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject	?	* Map of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject	*	computation	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf List	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Cons	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject	*	? leaf Int	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject	*	? leaf List	-	owp	iop	arm	cwi	cwi	cwi	iop	iop
-subject	*	? leaf Map	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject	*	? group G	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject	*	* List of G	-	cwi	ils	arm	pop	pop	pop	ils	ils
-subject	*	* Set of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-subject	*	* Map of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-subject, written	-	computation	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf List	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Cons	-	sort	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	-	? leaf Int	-	br	iop	arm	ok	sort	br	iop	iop
-subject, written	-	? leaf List	-	owp	iop	arm	ok	sort	ok	iop	iop
-subject, written	-	? leaf Map	-	br	iop	arm	ok	sort	br	iop	iop
-subject, written	-	? group G	-	br	iop	arm	ok	ok	br	iop	iop
-subject, written	-	* List of G	-	ok	ils	arm	pop	pop	pop	ils	ils
-subject, written	-	* Set of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject, written	-	* Map of G	-	ils	ok	arm	pop	pop	pop	ok	ok
-subject, written	?	computation	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf List	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Cons	-	owp	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	?	? leaf Int	-	br	iop	arm	owp	owp	br	iop	iop
-subject, written	?	? leaf List	-	owp	iop	arm	owp	owp	owp	iop	iop
-subject, written	?	? leaf Map	-	br	iop	arm	owp	owp	br	iop	iop
-subject, written	?	? group G	-	br	iop	arm	owp	owp	br	iop	iop
-subject, written	?	* List of G	-	owp	ils	arm	pop	pop	pop	ils	ils
-subject, written	?	* Set of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject, written	?	* Map of G	-	ils	owp	arm	pop	pop	pop	owp	owp
-subject, written	*	computation	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Int	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf List	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Cons	-	cwi	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Map	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	leaf Set	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	group G	-	br	iop	arm	pop	pop	pop	iop	iop
-subject, written	*	? leaf Int	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject, written	*	? leaf List	-	owp	iop	arm	cwi	cwi	cwi	iop	iop
-subject, written	*	? leaf Map	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject, written	*	? group G	-	br	iop	arm	cwi	cwi	br	iop	iop
-subject, written	*	* List of G	-	cwi	ils	arm	pop	pop	pop	ils	ils
-subject, written	*	* Set of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-subject, written	*	* Map of G	-	ils	cwi	arm	pop	pop	pop	cwi	cwi
-result, matched	-	computation	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Int	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf List	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Cons	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Map	{ z -> y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	leaf Set	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	-	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	-	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	ok	iop	iop
-result, matched	-	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	-	? group G	Some(G { a: y, .. })	br	iop	arm	wop	ok	br	iop	iop
-result, matched	-	* List of G	[G { a: y, .. }, ..]	sort	ils	arm	wop	pop	pop	ils	ils
-result, matched	-	* Set of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	sort
-result, matched	-	* Map of G	{ G { a: y, .. }, .. }	ils	sort	arm	wop	pop	pop	rm	map-collection-key
-result, matched	?	computation	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Int	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf List	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Cons	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Map	{ z -> y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	leaf Set	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	?	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	?	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
-result, matched	?	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	?	? group G	Some(G { a: y, .. })	br	iop	arm	wop	owp	br	iop	iop
-result, matched	?	* List of G	[G { a: y, .. }, ..]	owp	ils	arm	wop	pop	pop	ils	ils
-result, matched	?	* Set of G	{ G { a: y, .. }, .. }	ils	owp	arm	wop	pop	pop	owp	owp
-result, matched	?	* Map of G	{ G { a: y, .. }, .. }	ils	owp	arm	wop	pop	pop	owp	owp
-result, matched	*	computation	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Int	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf List	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Cons	[y, ..]	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Map	{ z -> y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	leaf Set	old	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	group G	G { a: y, .. }	br	iop	arm	wop	pop	pop	iop	iop
-result, matched	*	? leaf Int	Some(old)	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	*	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
-result, matched	*	? leaf Map	Some({ z -> y, .. })	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, matched	*	? group G	Some(G { a: y, .. })	br	iop	arm	wop	cwi	br	iop	iop
-result, matched	*	* List of G	[G { a: y, .. }, ..]	cwi	ils	arm	wop	pop	pop	ils	ils
-result, matched	*	* Set of G	{ G { a: y, .. }, .. }	ils	cwi	arm	wop	pop	pop	cwi	cwi
-result, matched	*	* Map of G	{ G { a: y, .. }, .. }	ils	cwi	arm	wop	pop	pop	cwi	cwi
-result, unmatched	-	computation	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Int	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf List	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Cons	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Map	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	leaf Set	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	group G	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	-	? leaf Int	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	-	? leaf List	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	uor	iop	iop
-result, unmatched	-	? leaf Map	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	-	? group G	-	br	iop	arm	wop	uor	br	iop	iop
-result, unmatched	-	* List of G	-	rm	ils	arm	wop	pop	pop	ils	ils
-result, unmatched	-	* Set of G	-	ils	rm	arm	wop	pop	pop	sort	rm
-result, unmatched	-	* Map of G	-	ils	rm	arm	wop	pop	pop	sort	rm
-result, unmatched	?	computation	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Int	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf List	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Cons	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Map	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	leaf Set	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	group G	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	?	? leaf Int	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	?	? leaf List	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
-result, unmatched	?	? leaf Map	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	?	? group G	-	br	iop	arm	wop	owp	br	iop	iop
-result, unmatched	?	* List of G	-	owp	ils	arm	wop	pop	pop	ils	ils
-result, unmatched	?	* Set of G	-	ils	owp	arm	wop	pop	pop	owp	owp
-result, unmatched	?	* Map of G	-	ils	owp	arm	wop	pop	pop	owp	owp
-result, unmatched	*	computation	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Int	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf List	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Cons	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Map	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	leaf Set	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	group G	-	br	iop	arm	wop	pop	pop	iop	iop
-result, unmatched	*	? leaf Int	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	*	? leaf List	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
-result, unmatched	*	? leaf Map	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
-result, unmatched	*	? group G	-	br	iop	arm	wop	cwi	br	iop	iop
-result, unmatched	*	* List of G	-	cwi	ils	arm	wop	pop	pop	ils	ils
-result, unmatched	*	* Set of G	-	ils	cwi	arm	wop	pop	pop	cwi	cwi
-result, unmatched	*	* Map of G	-	ils	cwi	arm	wop	pop	pop	cwi	cwi
+subject	-	computation	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf List	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf Cons	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject	-	leaf Map	-	br	iop	ok	pop	pop	pop	iop	iop
+subject	-	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	-	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	-	? leaf Int	-	br	iop	mna	ok	sort	br	iop	iop
+subject	-	? leaf List	-	owp	iop	mna	ok	sort	ok	iop	iop
+subject	-	? leaf Map	-	br	iop	owp	ok	sort	br	iop	iop
+subject	-	? group G	-	br	iop	mna	ok	ok	br	iop	iop
+subject	-	* List of G	-	ok	ils	mna	pop	pop	pop	ils	ils
+subject	-	* Set of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject	-	* Map of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject	?	computation	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf List	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf Cons	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject	?	leaf Map	-	br	iop	owp	pop	pop	pop	iop	iop
+subject	?	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	?	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	?	? leaf Int	-	br	iop	mna	owp	owp	br	iop	iop
+subject	?	? leaf List	-	owp	iop	mna	owp	owp	owp	iop	iop
+subject	?	? leaf Map	-	br	iop	owp	owp	owp	br	iop	iop
+subject	?	? group G	-	br	iop	mna	owp	owp	br	iop	iop
+subject	?	* List of G	-	owp	ils	mna	pop	pop	pop	ils	ils
+subject	?	* Set of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject	?	* Map of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject	*	computation	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf List	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf Cons	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject	*	leaf Map	-	br	iop	cwi	pop	pop	pop	iop	iop
+subject	*	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	*	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject	*	? leaf Int	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject	*	? leaf List	-	owp	iop	mna	cwi	cwi	cwi	iop	iop
+subject	*	? leaf Map	-	br	iop	owp	cwi	cwi	br	iop	iop
+subject	*	? group G	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject	*	* List of G	-	cwi	ils	mna	pop	pop	pop	ils	ils
+subject	*	* Set of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+subject	*	* Map of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+subject, written	-	computation	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf List	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf Cons	-	sort	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	leaf Map	-	br	iop	ok	pop	pop	pop	iop	iop
+subject, written	-	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	-	? leaf Int	-	br	iop	mna	ok	sort	br	iop	iop
+subject, written	-	? leaf List	-	owp	iop	mna	ok	sort	ok	iop	iop
+subject, written	-	? leaf Map	-	br	iop	owp	ok	sort	br	iop	iop
+subject, written	-	? group G	-	br	iop	mna	ok	ok	br	iop	iop
+subject, written	-	* List of G	-	ok	ils	mna	pop	pop	pop	ils	ils
+subject, written	-	* Set of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject, written	-	* Map of G	-	ils	ok	mna	pop	pop	pop	ok	ok
+subject, written	?	computation	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf List	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf Cons	-	owp	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	leaf Map	-	br	iop	owp	pop	pop	pop	iop	iop
+subject, written	?	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	?	? leaf Int	-	br	iop	mna	owp	owp	br	iop	iop
+subject, written	?	? leaf List	-	owp	iop	mna	owp	owp	owp	iop	iop
+subject, written	?	? leaf Map	-	br	iop	owp	owp	owp	br	iop	iop
+subject, written	?	? group G	-	br	iop	mna	owp	owp	br	iop	iop
+subject, written	?	* List of G	-	owp	ils	mna	pop	pop	pop	ils	ils
+subject, written	?	* Set of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject, written	?	* Map of G	-	ils	owp	mna	pop	pop	pop	owp	owp
+subject, written	*	computation	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf Int	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf List	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf Cons	-	cwi	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	leaf Map	-	br	iop	cwi	pop	pop	pop	iop	iop
+subject, written	*	leaf Set	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	group G	-	br	iop	mna	pop	pop	pop	iop	iop
+subject, written	*	? leaf Int	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject, written	*	? leaf List	-	owp	iop	mna	cwi	cwi	cwi	iop	iop
+subject, written	*	? leaf Map	-	br	iop	owp	cwi	cwi	br	iop	iop
+subject, written	*	? group G	-	br	iop	mna	cwi	cwi	br	iop	iop
+subject, written	*	* List of G	-	cwi	ils	mna	pop	pop	pop	ils	ils
+subject, written	*	* Set of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+subject, written	*	* Map of G	-	ils	cwi	mna	pop	pop	pop	cwi	cwi
+result, matched	-	computation	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf Int	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf List	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf Cons	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	leaf Map	{ z -> y, .. }	br	iop	sort|product:mrr	wop	pop	pop	iop	iop
+result, matched	-	leaf Set	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	group G	G { a: y, .. }	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	-	? leaf Int	Some(old)	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, matched	-	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	ok	iop	iop
+result, matched	-	? leaf Map	Some({ z -> y, .. })	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, matched	-	? group G	Some(G { a: y, .. })	br	iop	mna	wop	ok	br	iop	iop
+result, matched	-	* List of G	[G { a: y, .. }, ..]	sort	ils	mna	wop	pop	pop	ils	ils
+result, matched	-	* Set of G	{ G { a: y, .. }, .. }	ils	sort	mna	wop	pop	pop	rm	sort
+result, matched	-	* Map of G	{ G { a: y, .. }, .. }	ils	sort	mna	wop	pop	pop	rm	map-collection-key
+result, matched	?	computation	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf Int	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf List	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf Cons	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	leaf Map	{ z -> y, .. }	br	iop	owp|product:mrr	wop	pop	pop	iop	iop
+result, matched	?	leaf Set	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	group G	G { a: y, .. }	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	?	? leaf Int	Some(old)	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, matched	?	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	owp	iop	iop
+result, matched	?	? leaf Map	Some({ z -> y, .. })	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, matched	?	? group G	Some(G { a: y, .. })	br	iop	mna	wop	owp	br	iop	iop
+result, matched	?	* List of G	[G { a: y, .. }, ..]	owp	ils	mna	wop	pop	pop	ils	ils
+result, matched	?	* Set of G	{ G { a: y, .. }, .. }	ils	owp	mna	wop	pop	pop	owp	owp
+result, matched	?	* Map of G	{ G { a: y, .. }, .. }	ils	owp	mna	wop	pop	pop	owp	owp
+result, matched	*	computation	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf Int	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf List	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf Cons	[y, ..]	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	leaf Map	{ z -> y, .. }	br	iop	cwi|product:mrr	wop	pop	pop	iop	iop
+result, matched	*	leaf Set	old	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	group G	G { a: y, .. }	br	iop	mna	wop	pop	pop	iop	iop
+result, matched	*	? leaf Int	Some(old)	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, matched	*	? leaf List	Some([y, ..])	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	cwi	iop	iop
+result, matched	*	? leaf Map	Some({ z -> y, .. })	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, matched	*	? group G	Some(G { a: y, .. })	br	iop	mna	wop	cwi	br	iop	iop
+result, matched	*	* List of G	[G { a: y, .. }, ..]	cwi	ils	mna	wop	pop	pop	ils	ils
+result, matched	*	* Set of G	{ G { a: y, .. }, .. }	ils	cwi	mna	wop	pop	pop	cwi	cwi
+result, matched	*	* Map of G	{ G { a: y, .. }, .. }	ils	cwi	mna	wop	pop	pop	cwi	cwi
+result, unmatched	-	computation	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Int	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf List	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Cons	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Map	-	br	iop	rm|product:mrr	wop	pop	pop	iop	iop
+result, unmatched	-	leaf Set	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	group G	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	-	? leaf Int	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	-	? leaf List	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	uor	iop	iop
+result, unmatched	-	? leaf Map	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	-	? group G	-	br	iop	mna	wop	uor	br	iop	iop
+result, unmatched	-	* List of G	-	rm	ils	mna	wop	pop	pop	ils	ils
+result, unmatched	-	* Set of G	-	ils	rm	mna	wop	pop	pop	sort	rm
+result, unmatched	-	* Map of G	-	ils	rm	mna	wop	pop	pop	sort	rm
+result, unmatched	?	computation	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Int	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf List	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Cons	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Map	-	br	iop	owp|product:mrr	wop	pop	pop	iop	iop
+result, unmatched	?	leaf Set	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	group G	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	?	? leaf Int	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	?	? leaf List	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	owp	iop	iop
+result, unmatched	?	? leaf Map	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	?	? group G	-	br	iop	mna	wop	owp	br	iop	iop
+result, unmatched	?	* List of G	-	owp	ils	mna	wop	pop	pop	ils	ils
+result, unmatched	?	* Set of G	-	ils	owp	mna	wop	pop	pop	owp	owp
+result, unmatched	?	* Map of G	-	ils	owp	mna	wop	pop	pop	owp	owp
+result, unmatched	*	computation	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Int	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf List	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Cons	-	open-record-outside-pattern	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Map	-	br	iop	cwi|product:mrr	wop	pop	pop	iop	iop
+result, unmatched	*	leaf Set	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	group G	-	br	iop	mna	wop	pop	pop	iop	iop
+result, unmatched	*	? leaf Int	-	br	iop	mna	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	*	? leaf List	-	open-record-outside-pattern	iop	mna	wop	open-record-outside-pattern	cwi	iop	iop
+result, unmatched	*	? leaf Map	-	br	iop	owp|product:mrr	wop	open-record-outside-pattern	br	iop	iop
+result, unmatched	*	? group G	-	br	iop	mna	wop	cwi	br	iop	iop
+result, unmatched	*	* List of G	-	cwi	ils	mna	wop	pop	pop	ils	ils
+result, unmatched	*	* Set of G	-	ils	cwi	mna	wop	pop	pop	cwi	cwi
+result, unmatched	*	* Map of G	-	ils	cwi	mna	wop	pop	pop	cwi	cwi
 #
 ## cells more
 side	path	stack	other	k::configuration::Cell([.., x])	k::configuration::KCell(.., x)	k::configuration::Cell(_)

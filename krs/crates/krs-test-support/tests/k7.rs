@@ -196,7 +196,7 @@ const STATUSES: &[&str] = &[
     "27 no driver: a simplification only rewrites what a prover simplifies, and needs a prover",
     "79 no driver: the base applies no function but Probe, ProbeK and Size from a rule",
     "10 no driver: the case's hole has a sort the context form's driver does not write in all its fields, or a production of the case's own no driver writes; whether a hole is ever cooled is a fact of sorts, which no finite run shows",
-    "3559 no driver: the compiled sweep's cases witness the compiler's verdict on each root sweep cell; the sweep base has no driver commands to set its cells up",
+    "3557 no driver: the compiled sweep's cases witness the compiler's verdict on each root sweep cell; the sweep base has no driver commands to set its cells up",
     "191 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "5376 no driver: the path sweep's cases witness the compiler's verdict on each sweep cell below a marked ancestor; the path base has no driver commands to set its cells up",
@@ -1058,16 +1058,15 @@ const RUN_STATUSES: &[&str] = &[
     "1 readable-run: no counter-witness: a group record whose every child is a binder matches every group",
     "6 readable-run: no value: `..` in a result is the rest a `..` of the subject's entry matched, and the subject's `old` matches the cell whole",
     "7 readable-run: no value: `_` builds no value",
-    "1 readable-run: no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none",
+    "1 readable-run: no value: a map read is a pattern, and a result keeping the entries it does not name is a frame write no route lowers yet",
     "1 readable-run: no value: the result's instance list does not line up with the subject's, which reads the front one",
     "60 readable-run: no value: the spelling is no notation of its cell's kind, so it denotes nothing there",
     "3 readable-run: no value: x = 1 is no value of the cell's sort",
     "2 readable-run: no witness: a cell record as a List cell's element, which no driver command writes: a readable result reads `[Job { .. }, ..]` on a List cell as a collection's instances, which it refuses, and no other spelling builds a cell record",
     "1 readable-run: no witness: a cell record behind the computation's first item, which no driver command writes: a driver command acts at the front of the computation",
-    "1 readable-run: no witness: a map literal's rest is the map its entries are written over, and an anonymous `..` names none",
     "63 readable-run: no witness: the spelling is no notation of its cell's kind, so it denotes nothing there",
-    "18 readable-run: runs a counter-witness",
-    "33 readable-run: runs, liveness",
+    "19 readable-run: runs a counter-witness",
+    "34 readable-run: runs, liveness",
     "16 readable-run: runs, value",
 ];
 
@@ -1116,13 +1115,13 @@ const RUN_UNSTATED: &[&str] = &[
     "no counter-witness: a group record whose every child is a binder matches every group: cells-run subject/frame/k::fragment![crate::Frame { ret: x }] | readable-run subject/frame/Frame { ret: x }",
     "no value: `..` in a result is the rest a `..` of the subject's entry matched, and the subject's `old` matches the cell whole: readable-run result/env/{ .. } | readable-run result/env/{ y -> x, .. } | readable-run result/stack/[.., Job { payload: 0, .. }] | readable-run result/stack/[..] | readable-run result/stack/[Job { payload: x, .. }, ..] | readable-run result/stack/[x, ..]",
     "no value: `_` builds no value: readable-run result/counter/_ | readable-run result/env/_ | readable-run result/frame/_ | readable-run result/job/_ | readable-run result/k/_ | readable-run result/pc/_ | readable-run result/stack/_",
-    "no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: cells-run result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 } | readable-run result/bag/{ Obj { key: x, m: map![x -> y, ..] }, .. }",
+    "no value: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: cells-run result/bag/{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 }",
+    "no value: a map read is a pattern, and a result keeping the entries it does not name is a frame write no route lowers yet: readable-run result/bag/{ Obj { key: x, m: map![x -> y, ..] }, .. }",
     "no value: refused at K2, so no definition is emitted to run: cells-run result/k/k::configuration::KCell(x, ..) | cells-run result/k/named/k::configuration::KCell(x, ..)",
     "no value: the result's instance list does not line up with the subject's, which reads the front one: readable-run result/job/[.., Job { payload: 0, .. }]",
     "no value: x = 1 is no value of the cell's sort: cells-run result/env/k::configuration::Cell(x) | cells-run result/frame/x | cells-run result/stack/k::configuration::Cell(x) | readable-run result/env/x | readable-run result/frame/x | readable-run result/stack/x",
     "no witness: a cell record as a List cell's element, which no driver command writes: a readable result reads `[Job { .. }, ..]` on a List cell as a collection's instances, which it refuses, and no other spelling builds a cell record: readable-run subject/stack/[.., Job { payload: 0, .. }] | readable-run subject/stack/[Job { payload: x, .. }, ..]",
     "no witness: a cell record behind the computation's first item, which no driver command writes: a driver command acts at the front of the computation: readable-run subject/k/[.., Job { payload: 0, .. }]",
-    "no witness: a map literal's rest is the map its entries are written over, and an anonymous `..` names none: readable-run subject/bag/{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }",
 ];
 
 /// What a run family's case's program is, what the run must end with, and its counter run, for one
@@ -1339,8 +1338,8 @@ const RUN_READS: &[&str] = &[
     "2 Map Open(1)",
     "8 ObjectMap Exact(1)",
     "2 ObjectMap Open(0)",
-    "2 ObjectMap Open(1)",
-    "12 Objects Open(1)",
+    "3 ObjectMap Open(1)",
+    "13 Objects Open(1)",
 ];
 
 /// The rule on the term family's spellings: an exact collection a spelling matches (a set's

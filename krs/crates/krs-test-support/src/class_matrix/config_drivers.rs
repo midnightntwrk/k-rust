@@ -68,6 +68,9 @@ const RESULT_LINE_UP: &str =
     "the result's instance list does not line up with the subject's, which reads the front one";
 /// An anonymous `..` in a map literal.
 const ANONYMOUS_REST: &str = "a map literal's rest is the map its entries are written over, and an anonymous `..` names none";
+/// A map read in a result: braces holding a rest, or a cell's `map![k -> v, ..]`.
+const MAP_READ_RESULT: &str =
+    "a map read is a pattern, and a result keeping the entries it does not name is a frame write no route lowers yet";
 
 /// What K7 runs a case on: its plan, and its counter runs or why it has none.
 pub(super) struct Plans {
@@ -876,7 +879,9 @@ fn bag_matched(spelling: &str) -> Result<Matched, &'static str> {
                 Exact(1),
             )
         }
+        // The map child's `map![1 -> 2, ..]` is its map read, as its braces are (MAPROOT).
         "{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
+        | "{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }"
         | "{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }" => {
             instance(
                 Matched::between(more(), vec![beside(1, &[(1, 3)]), beside(1, &[(3, 4)])]),
@@ -888,8 +893,6 @@ fn bag_matched(spelling: &str) -> Result<Matched, &'static str> {
             Matched::between(exact(), vec![beside(2, &[(1, 2)])]),
             Open(0),
         ),
-        // In a readable record, `map![..]` is a literal.
-        "{ Obj { key: 1, m: map![1 -> 2, ..] }, .. }" => return Err(ANONYMOUS_REST),
         _ => return Err(NOTATION),
     })
 }
@@ -1017,8 +1020,9 @@ fn bag_written(spelling: &str) -> Result<Written, &'static str> {
         | "{ k::fragment![crate::Obj { key: x, m: k::map![k::builtin::int::add(x, 1) -> y] }], ..instances0 }" => {
             beside(obj(1, &[(2, 2)]))
         }
-        "{ Obj { key: x, m: map![x -> y, ..] }, .. }"
-        | "{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 }" => {
+        // The map child's `map![x -> y, ..]` is its map read, which writes nothing.
+        "{ Obj { key: x, m: map![x -> y, ..] }, .. }" => return Err(MAP_READ_RESULT),
+        "{ k::fragment![crate::Obj { key: x, m: k::map![x -> y, ..] }], ..instances0 }" => {
             return Err(ANONYMOUS_REST);
         }
         _ => return Err(NOTATION),

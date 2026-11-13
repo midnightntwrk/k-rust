@@ -587,9 +587,33 @@ pub const fn mark(form: Form, spelling: &Spelling, inside_leaf: bool) -> Mark {
         Spelling::InstSet(_) if matches!(form, Form::Cells) => Mark::SetInst,
         Spelling::Brackets(_) if !matches!(form, Form::Cells) => Mark::Seq,
         Spelling::MapLit(_) if matches!(form, Form::Init) => Mark::Map,
+        // MAPROOT: a readable `map![k -> v, ..]` at a cell's content is its map read.
+        Spelling::MapLit(entries)
+            if matches!(form, Form::Readable | Form::Claim)
+                && matches!(entries.rest, Some(Rest::Anon)) =>
+        {
+            Mark::Map
+        }
         Spelling::Braces(_) if matches!(form, Form::Readable | Form::Claim) => Mark::SetInst,
         Spelling::MapRead(_) if matches!(form, Form::Readable | Form::Claim) => Mark::Map,
         _ => Mark::Value,
+    }
+}
+
+/// How deep inside `spelling` a map literal with an anonymous rest stands that the form step
+/// leaves to the kind ([`Place::content`]): reached through records' children, `Some(..)` and
+/// aliases only. `None` where there is none.
+fn rooted_map_literal(spelling: &Spelling) -> Option<usize> {
+    match spelling {
+        Spelling::MapLit(entries) if entries.rest == Some(Rest::Anon) => Some(0),
+        Spelling::Record(_)
+        | Spelling::Fragment(_)
+        | Spelling::Present(_)
+        | Spelling::Absent(_)
+        | Spelling::Alias(..) => children(spelling)
+            .into_iter()
+            .find_map(|one| rooted_map_literal(one).map(|depth| depth + 1)),
+        _ => None,
     }
 }
 
@@ -891,6 +915,12 @@ struct Place {
     /// In a term: below a call's argument, `Cell(..)`, `KCell(..)`, or a computation's or a
     /// map's literal; what records, `Some(..)`, brackets and braces hold stands where they do.
     term: bool,
+    /// Where a cell's content may stand: the entry's head, a record's or a fragment's child
+    /// (a group's or an instance's record names its children's contents, a constructor's its
+    /// arguments, which the kind tells apart), and what `Some(..)` or an alias holds there; a
+    /// bracket's or a brace's item, a map's entry and a term's part stand below every content
+    /// root.
+    content: bool,
 }
 
 impl Place {
@@ -899,6 +929,7 @@ impl Place {
         position: true,
         root: false,
         term: false,
+        content: true,
     };
 
     /// Where the spellings directly inside `spelling`, standing here, stand.
@@ -913,27 +944,32 @@ impl Place {
                     | Spelling::MapRead(_)
                     | Spelling::KMacro(_)
             );
+        let content = matches!(spelling, Spelling::Record(_) | Spelling::Fragment(_));
         match spelling {
             Spelling::Cell(_) => Self {
                 position: false,
                 root: true,
                 term,
+                content,
             },
             Spelling::Present(_) | Spelling::Absent(_) | Spelling::Alias(..) => self,
             Spelling::Record(_) | Spelling::Fragment(_) if self.position => Self {
                 position: true,
                 root: true,
                 term,
+                content,
             },
             Spelling::InstList(_) | Spelling::InstSet(_) if self.position => Self {
                 position: true,
                 root: false,
                 term,
+                content,
             },
             _ => Self {
                 position: false,
                 root: false,
                 term,
+                content,
             },
         }
     }
@@ -987,15 +1023,21 @@ impl Judge<'_> {
             // is pairing's (P4: it needs the declaration and the other side; S5.0g pattern review
             // P-R2, and the fixes review's F-1 for a record's child). A readable `map![..]` is a
             // literal at a configuration position: readable writes a map's root as
-            // `{ k -> v, .. }` (P2). Below every configuration position, in a term, a subject's
-            // map literal is a map pattern, its entries and the rest that holds the others
-            // (MAP-PARAM-PATTERN).
+            // `{ k -> v, .. }` (P2), and `map![k -> v, ..]` where it is a cell's content means
+            // those braces (MAPROOT): whether it stands at a cell's content, a record's child
+            // being one in a group's or an instance's record and a term's argument in a
+            // constructor's, is the kind's (P3; [`mark`], [`Judge::value`]). Below every
+            // configuration position, in a term, a subject's map literal is a map pattern, its
+            // entries and the rest that holds the others (MAP-PARAM-PATTERN).
             Spelling::MapLit(entries)
                 if entries.rest == Some(Rest::Anon)
                     && !(self.side == Side::Subject && place.term)
                     && !(self.form == Form::Cells
                         && (self.side == Side::Subject
-                            || (self.side == Side::Result && place.root))) =>
+                            || (self.side == Side::Result && place.root)))
+                    && !(matches!(self.form, Form::Readable | Form::Claim)
+                        && !place.term
+                        && place.content) =>
             {
                 return refuse("anonymous-rest-in-map-literal", Step::Form, depth);
             }
@@ -1195,6 +1237,13 @@ impl Judge<'_> {
     /// no instance, whose template would give them (P6). That is the record's shape, so it comes
     /// before the sort (P4).
     fn value(&mut self, spelling: &Spelling, depth: usize) -> Result<(), Refusal> {
+        // MAPROOT: a readable `map![k -> v, ..]` the form step left to the kind stands here
+        // below every content root, in a constructor's record: its `..` keeps no cell's map.
+        if matches!(self.form, Form::Readable | Form::Claim)
+            && let Some(below) = rooted_map_literal(spelling)
+        {
+            return refuse("anonymous-rest-in-map-literal", Step::Inside, depth + below);
+        }
         match spelling {
             Spelling::Wild => {}
             Spelling::Binder(name) => {
