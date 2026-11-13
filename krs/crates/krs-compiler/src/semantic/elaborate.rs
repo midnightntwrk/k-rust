@@ -246,7 +246,11 @@ pub(super) fn elaborate(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<Result<Elaboration, Unelaborated>, DescriptorLoweringError> {
-    let constructed = super::group_records::with_leaf_constructor_records(rule, declarations)?;
+    let constructed = super::group_records::with_leaf_constructor_records(
+        descriptor,
+        rule,
+        declarations,
+    )?;
     let rule = constructed.as_ref().unwrap_or(rule);
     let stated = super::cell_states::with_stated_present_groups(rule, declarations)?;
     let rule = stated.as_ref().unwrap_or(rule);

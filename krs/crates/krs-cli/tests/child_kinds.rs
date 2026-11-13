@@ -1997,3 +1997,95 @@ fn a_group_s_computation_child_in_an_instance_is_read_by_its_kind() {
         gk-named: error[krs::analysis::collection-entry]: not supported yet: the group `Tg` written in an instance record is the group's term, one term naming every child, and its record writes the child `gk` as a computation's items with a remainder, which no term of the group holds yet
         gk-declared: error[krs::analysis::collection-entry]: not supported yet: the group `Tg` written as a term is one term naming every child, and its record writes the child `gk` as a computation's items with a named rest, a remainder, which no term of the group holds yet"#]].assert_eq(&table);
 }
+
+/// LEFTS items 2 and 3: braces naming no entry in a term are the map literal they spell, as
+/// braces holding `->` are, wherever a term holds them: `{}` is `map![]`, the empty map, at a
+/// leaf's constructor record, in an item, an element, an instance's item, a fixed group's item and
+/// a constructor's argument (`*-empty`, `load ( .Map )` on both sides); `{ .. }` and `{ r @ .. }`
+/// are `map![..]` and `map![r @ ..]`, refused as the literal is at the same place, in a pattern as
+/// naming no entry and in a result as a rest that names no map (`*-dots`, `*-named`). A fixed
+/// group's item reads braces holding `->` as the literal too (`group-item-exact`).
+#[test]
+fn braces_naming_no_entry_in_a_term_are_the_literal() {
+    let source = braces_source();
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let go = "k: [Go(), ..]";
+    let kept = "k: [..]";
+    let subject = |entry: &str| {
+        readable(&format!(
+            "go: {{ {go}, {entry}, out: _ }} => {{ {kept}, out: [1] }};"
+        ))
+    };
+    let item = |items: &str| {
+        readable(&format!(
+            "go: {{ k: [{items}, ..], out: _ }} => {{ {kept}, out: [1] }};"
+        ))
+    };
+    let result = |entry: &str, written: &str| {
+        readable(&format!(
+            "go: {{ {go}, {entry} }} => {{ {kept}, {written} }};"
+        ))
+    };
+    let rows = [
+        ("leaf-empty", subject("cur: Load { m: {} }")),
+        ("leaf-empty-result", result("cur: _", "cur: Load { m: {} }")),
+        ("item-empty", item("Load { m: {} }")),
+        (
+            "item-empty-result",
+            readable(&format!("go: {{ {go} }} => {{ k: [Load {{ m: {{}} }}, ..] }};")),
+        ),
+        ("element-empty", subject("ll: [Load { m: {} }, ..]")),
+        (
+            "instance-item-empty",
+            subject("th: { me @ Th { tk: [Load { m: {} }, ..], .. }, .. }"),
+        ),
+        (
+            "group-item-empty",
+            subject("gg: Gg { hk: [Load { m: {} }, ..], .. }"),
+        ),
+        (
+            "group-item-exact",
+            readable(&format!(
+                "go: {{ {go}, gg: Gg {{ hk: [Load {{ m: {{ 0 -> v }} }}, ..], .. }}, out: _ }} => {{ {kept}, out: [v] }};"
+            )),
+        ),
+        ("argument-empty", item("Load({})")),
+        ("item-dots", item("Load { m: { .. } }")),
+        (
+            "item-dots-result",
+            readable(&format!("go: {{ {go} }} => {{ k: [Load {{ m: {{ .. }} }}, ..] }};")),
+        ),
+        ("leaf-dots", subject("cur: Load { m: { .. } }")),
+        ("leaf-dots-result", result("cur: _", "cur: Load { m: { .. } }")),
+        (
+            "group-item-dots",
+            subject("gg: Gg { hk: [Load { m: { .. } }, ..], .. }"),
+        ),
+        ("leaf-named", subject("cur: Load { m: { r @ .. } }")),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, sentences)| {
+            let manifest = package_with(temporary.path(), name, &source, sentences);
+            format!("{name}: {}", emitted(target.path(), &manifest))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        leaf-empty: rule [go]: <k> go => .K ... </k> <cur> load ( .Map ) </cur> <out> _ => ListItem(1) </out>
+        leaf-empty-result: rule [go]: <k> go => .K ... </k> <cur> _ => load ( .Map ) </cur>
+        item-empty: rule [go]: <k> load ( .Map ) => .K ... </k> <out> _ => ListItem(1) </out>
+        item-empty-result: rule [go]: <k> go => load ( .Map ) ... </k>
+        element-empty: rule [go]: <k> go => .K ... </k> <ll> ListItem(load ( .Map )) Krs_RestLl:List </ll> <out> _ => ListItem(1) </out>
+        instance-item-empty: rule [go]: <k> go => .K ... </k> <th> <tk> load ( .Map ) ~> Tail0:K </tk> ... </th> <out> _ => ListItem(1) </out>
+        group-item-empty: rule [go]: <k> go => .K ... </k> <hk> load ( .Map ) ... </hk> <out> _ => ListItem(1) </out>
+        group-item-exact: rule [go]: <k> go => .K ... </k> <hk> load ( 0 |-> V:KItem ) ... </hk> <out> _ => ListItem(V:KItem) </out>
+        argument-empty: rule [go]: <k> load ( .Map ) => .K ... </k> <out> _ => ListItem(1) </out>
+        item-dots: error[krs::syntax::invalid-expression-notation]: `map![..]` names no entry: it matches every map, which `_` says
+        item-dots-result: error[krs::syntax::invalid-expression-notation]: in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; an anonymous `..` names no map. A pattern reads a map's entries with `map![k -> v, ..]`, and a readable record with `{ k -> v, .. }`
+        leaf-dots: error[krs::syntax::invalid-expression-notation]: `map![..]` names no entry: it matches every map, which `_` says
+        leaf-dots-result: error[krs::syntax::invalid-expression-notation]: the entry of the cell `cur` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
+        group-item-dots: error[krs::syntax::invalid-expression-notation]: `map![..]` names no entry: it matches every map, which `_` says
+        leaf-named: error[krs::syntax::invalid-expression-notation]: `map![r @ ..]` names no entry: it is the whole map `r`, so write `r`"#]].assert_eq(&table);
+}

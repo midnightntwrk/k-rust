@@ -541,20 +541,65 @@ fn holds_map_arrow(group: &proc_macro2::Group) -> bool {
     })
 }
 
+/// Whether the braces `group`, which follow the token `before` in a term, are a map naming no
+/// entry: empty (`{}`), or holding only a rest (`{ .. }`, `{ r @ .. }`, `{ ..m }`). In a term
+/// such braces are no block, which holds a term, and no record, whose braces follow its path
+/// (`Load { .. }`), as they follow no macro (`map! {}`) and no generic path (`G::<T> {}`): the
+/// map is all they can denote, as braces holding `->` are.
+fn names_no_entry(group: &proc_macro2::Group, before: Option<&TokenTree>) -> bool {
+    if matches!(before, Some(TokenTree::Ident(_)))
+        || matches!(before, Some(TokenTree::Punct(punct)) if matches!(punct.as_char(), '!' | '>'))
+    {
+        return false;
+    }
+    let items = top_level_items(group.stream());
+    let rest = |item: &TokenStream| {
+        let trees = item.clone().into_iter().collect::<Vec<_>>();
+        let dots = |first: &TokenTree, second: &TokenTree| {
+            matches!((first, second), (TokenTree::Punct(first), TokenTree::Punct(second))
+                if first.as_char() == '.' && second.as_char() == '.')
+        };
+        match trees.as_slice() {
+            [first, second, ..] if dots(first, second) => true,
+            [TokenTree::Ident(_), TokenTree::Punct(at), first, second]
+                if at.as_char() == '@' && dots(first, second) =>
+            {
+                true
+            }
+            _ => false,
+        }
+    };
+    match items.as_slice() {
+        [] => group.stream().is_empty(),
+        [item] => rest(item),
+        _ => false,
+    }
+}
+
 /// `tokens`, the items of a computation's or a list's brackets, with each map written in braces
 /// inside them, `{ k -> v }`, `{ k -> v, r @ .. }`, `{ k -> v, ..m }` or `{ k -> v, .. }`, written
 /// as the literal `k::map![..]` holding the same entries and rest, at any depth: an item, a list's
 /// element and a constructor's argument or field are terms, where braces holding `->` are no
 /// block but the map they name, as the literal there is. So each means what the literal means in
 /// that term: in a pattern the map pattern, in a result the map it builds, and with an anonymous
-/// `..` the literal's refusal. The literal carries the braces' span.
+/// `..` the literal's refusal. Braces naming no entry there are a map too, the literal holding
+/// what they hold ([`names_no_entry`]): `{}` is `map![]`, the empty map, and `{ .. }`, `{ r @ .. }`
+/// and `{ ..m }` are `map![..]`, `map![r @ ..]` and `map![..m]`. The literal carries the braces'
+/// span.
 fn map_braces_as_literals(tokens: TokenStream) -> TokenStream {
+    let mut previous: Option<TokenTree> = None;
     tokens
         .into_iter()
-        .flat_map(|tree| match tree {
+        .map(|tree| {
+            let before = previous.replace(tree.clone());
+            (tree, before)
+        })
+        .flat_map(|(tree, before)| match tree {
             TokenTree::Group(group) => {
                 let inner = map_braces_as_literals(group.stream());
-                if group.delimiter() == proc_macro2::Delimiter::Brace && holds_map_arrow(&group) {
+                if group.delimiter() == proc_macro2::Delimiter::Brace
+                    && (holds_map_arrow(&group) || names_no_entry(&group, before.as_ref()))
+                {
                     let span = group.span();
                     let mut entries =
                         proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, inner);
@@ -1545,6 +1590,17 @@ fn parse_machine_pattern_record(
             )?
         } else if let Some(record) = readable_record(&content, StateMacroContext::Pattern)? {
             MachinePatternCell::State(Box::new(StateTerm::Record(Box::new(record))))
+        } else if let Some(read) = record_term_with_map_literals(&content)? {
+            skip_value(&content)?;
+            let (pattern, signs) =
+                crate::parse::structured_with(read, parse_pattern_with_signs, |error| {
+                    crate::SyntaxError::from(error)
+                })?;
+            let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
+            MachinePatternCell::Term {
+                pattern: Box::new(pattern),
+                tree: Box::new(tree),
+            }
         } else {
             let (pattern, signs) = parse_pattern_with_signs(&content)?;
             let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
@@ -1920,6 +1976,13 @@ fn parse_machine_result_record(
             )?
         } else if let Some(record) = readable_record(&content, StateMacroContext::Expression)? {
             MachineResultCell::State(Box::new(StateTerm::Record(Box::new(record))))
+        } else if let Some(read) = record_term_with_map_literals(&content)? {
+            skip_value(&content)?;
+            MachineResultCell::Term(Box::new(crate::parse::structured_with(
+                read,
+                |content| content.call(crate::term::parse_term_expression),
+                crate::SyntaxError::from,
+            )?))
         } else {
             MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
         };
@@ -2196,6 +2259,56 @@ fn bracket_presences(
     let mut read = proc_macro2::Group::new(group.delimiter(), stream);
     read.set_span(group.span());
     Ok(read)
+}
+
+/// The value at `content`, a record `Path { .. }` read as a term (no child of it is its cell's
+/// entry, [`readable_record`]), with the maps written in braces inside its children's values read
+/// as literals, as in brackets' items ([`map_braces_as_literals`]): a group's computation child's
+/// items and a constructor's fields there are terms, `gg: Gg { hk: [Load { m: {} }, ..], .. }`,
+/// where braces are the map they name. A child's whole value is left as it is. `None`, consuming
+/// nothing, when the value is no record or holds no such braces.
+fn record_term_with_map_literals(
+    content: ParseStream<'_>,
+) -> Result<Option<TokenStream>, ParseError> {
+    let fork = content.fork();
+    let mut value = Vec::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        value.push(fork.parse::<TokenTree>()?);
+    }
+    let Some((TokenTree::Group(body), owner)) = value.split_last() else {
+        return Ok(None);
+    };
+    if body.delimiter() != proc_macro2::Delimiter::Brace
+        || owner.is_empty()
+        || syn::parse2::<Path>(owner.iter().cloned().collect()).is_err()
+    {
+        return Ok(None);
+    }
+    let children = body
+        .stream()
+        .into_iter()
+        .map(|tree| match tree {
+            TokenTree::Group(group) => {
+                let mut rebuilt =
+                    proc_macro2::Group::new(group.delimiter(), map_braces_as_literals(group.stream()));
+                rebuilt.set_span(group.span());
+                TokenTree::Group(rebuilt)
+            }
+            tree => tree,
+        })
+        .collect::<TokenStream>();
+    if children.to_string() == body.stream().to_string() {
+        return Ok(None);
+    }
+    let mut read = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, children);
+    read.set_span(body.span());
+    Ok(Some(
+        owner
+            .iter()
+            .cloned()
+            .chain(std::iter::once(TokenTree::Group(read)))
+            .collect(),
+    ))
 }
 
 /// A subject's record value read without its presences ([`value_presences`]): a group record of

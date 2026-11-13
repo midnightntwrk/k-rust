@@ -43,7 +43,8 @@ pub(crate) fn record_term(record: &Record) -> Option<DescriptorTerm> {
 /// the macro read as a group's because a field writes a map in braces naming every entry
 /// (`cur: Load { m: { 0 -> v } }`), read as the constructor's term it is, each such field the map
 /// it names: a leaf holds a term of its sort, braces naming every entry denote the map exactly
-/// those entries (in a pattern the map pattern `0 |-> V`, in a result the map built), and a
+/// those entries (in a pattern the map pattern `0 |-> V`, in a result the map built), empty braces
+/// `{}` the empty map, as `map![]` does, and a
 /// constructor's field holds a term, so the record means `Load { m: k::map![0 -> v] }`, as that
 /// spelling does. A record with a field no term spells (a map with a rest, a computation's items,
 /// instance braces) is left as it is, refused on the leaf as before
@@ -53,6 +54,7 @@ pub(crate) fn record_term(record: &Record) -> Option<DescriptorTerm> {
 ///
 /// A cell the declarations lack.
 pub(super) fn with_leaf_constructor_records(
+    descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
     declarations: &DescriptorIndex<'_>,
 ) -> Result<Option<krs_ir::DescriptorHeadRule>, DescriptorLoweringError> {
@@ -78,6 +80,10 @@ pub(super) fn with_leaf_constructor_records(
             let State::Record(record) = &*state else {
                 continue;
             };
+            if let Some(error) = entry_less_map_field(descriptor, record, subject, &cell.cell.field)
+            {
+                return Err(error);
+            }
             if let Some(term) = constructor_record_term(record, subject) {
                 *state = State::Term(term);
                 changed = true;
@@ -85,6 +91,67 @@ pub(super) fn with_leaf_constructor_records(
         }
     }
     Ok(changed.then_some(rewritten))
+}
+
+/// The refusal of a constructor's record on the leaf `cell` whose field is braces naming no entry
+/// but a rest, `m: { .. }` or, in a pattern, `m: { r @ .. }`: below the leaf's content root such
+/// braces are the map literal they spell, `map![..]` or `map![r @ ..]`, as they are in an item
+/// ([`krs_syntax`]'s `map_braces_as_literals`), so they are refused as the literal is there, with
+/// its code and text: in a pattern it names no entry, and in a result its `..` names no map.
+/// `None` for any other record.
+fn entry_less_map_field(
+    descriptor: &Descriptor,
+    record: &Record,
+    subject: bool,
+    cell: &str,
+) -> Option<DescriptorLoweringError> {
+    if !matches!(
+        &record.head,
+        DescriptorTerm::Application {
+            arguments: krs_ir::Arguments::Positional(values),
+            update: None,
+            ..
+        } if values.is_empty()
+    ) {
+        return None;
+    }
+    record.fields.iter().find_map(|field| {
+        let State::Instances(krs_ir::ProtocolRuleInstances {
+            delimiter: krs_ir::InstanceDelimiter::Brace,
+            front,
+            rest,
+            back,
+        }) = &field.value
+        else {
+            return None;
+        };
+        if !front.is_empty() || !back.is_empty() {
+            return None;
+        }
+        let reason = match (rest, subject) {
+            (krs_ir::ProtocolRuleFrame::Anonymous { .. }, true) => {
+                "`map![..]` names no entry: it matches every map, which `_` says".to_owned()
+            }
+            (krs_ir::ProtocolRuleFrame::Bind { binding, .. }, true) => format!(
+                "`map![{binding} @ ..]` names no entry: it is the whole map `{binding}`, so write `{binding}`"
+            ),
+            (krs_ir::ProtocolRuleFrame::Anonymous { .. }, false) => {
+                krs_syntax::cell_entries::Refusal::AnonymousRestInMapLiteral.reason(
+                    krs_syntax::cell_entry::EntryForm::Readable,
+                    cell,
+                    &krs_ir::cell_kind::EntryKind::default(),
+                    None,
+                )
+            }
+            _ => return None,
+        };
+        Some(super::cell_states::collection_error(
+            descriptor,
+            krs_diagnostic::codes::syntax::INVALID_EXPRESSION_NOTATION,
+            &field.key,
+            reason,
+        ))
+    })
 }
 
 /// The constructor's term a record is whose head names a constructor (`Load { .. }`) and each of
@@ -122,6 +189,22 @@ fn constructor_record_term(record: &Record, subject: bool) -> Option<DescriptorT
                         },
                     ..
                 }) => super::cell_states::map_term(&field.value, subject, &mut held)?,
+                // Braces naming no entry and no rest, `m: {}`, are the empty map, as `map![]` is.
+                State::Instances(krs_ir::ProtocolRuleInstances {
+                    delimiter: krs_ir::InstanceDelimiter::Brace,
+                    front,
+                    rest: krs_ir::ProtocolRuleFrame::Exact,
+                    back,
+                }) if front.is_empty() && back.is_empty() => super::cell_states::map_term(
+                    &State::Map(krs_ir::ProtocolRuleMap {
+                        payload_key: field.key.clone(),
+                        body: krs_ir::ProtocolRuleMapBody::Empty {
+                            explicit_dot: false,
+                        },
+                    }),
+                    subject,
+                    &mut held,
+                )?,
                 _ => return None,
             };
             Some(krs_ir::NamedTermArgument {
