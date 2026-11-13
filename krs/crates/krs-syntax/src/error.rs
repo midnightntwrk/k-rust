@@ -629,8 +629,9 @@ impl SyntaxErrorKind {
             Self::MisplacedFresh { .. } => codes::expand::FRESH_PLACEMENT,
             Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
             Self::UnboundRemainder { .. } => codes::expand::UNBOUND_NAME,
-            Self::InstanceChildMultiplicity { .. } => codes::analysis::COLLECTION_ENTRY,
-            Self::InstanceGroupComputation { .. } => codes::analysis::COLLECTION_ENTRY,
+            Self::InstanceChildMultiplicity { .. } | Self::InstanceGroupComputation { .. } => {
+                codes::analysis::COLLECTION_ENTRY
+            }
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidSkippedOperand { .. } => codes::syntax::INVALID_SKIPPED_OPERAND,

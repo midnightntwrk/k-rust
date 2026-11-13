@@ -3428,24 +3428,18 @@ fn read_brackets(
     for (cell, pattern) in subject_cells {
         let pattern = match pattern {
             MachinePatternCell::Bracket(group) if is_computation(cell) => {
-                MachinePatternCell::KItems(Box::new(bracket_prefix(&items_with_map_literals(
-                    group,
-                ))?))
+                MachinePatternCell::KItems(Box::new(bracket_prefix(group)?))
             }
-            MachinePatternCell::Bracket(group) if is_elements(cell) => {
-                match list_pattern(&items_with_map_literals(group)) {
-                    Ok(pattern) => MachinePatternCell::List(Box::new(pattern)),
-                    // `[rest @ ..]`, which names no element, or brackets of another list mistake: a
-                    // list's notation, which the cell's kind answers before
-                    // ([`read_with_pairing_deferred`]).
-                    Err(ParseError::Structured(error))
-                        if defer_pairing && is_list_notation(&error) =>
-                    {
-                        MachinePatternCell::Refused(Box::new(error), list_binders(group))
-                    }
-                    Err(error) => return Err(error),
+            MachinePatternCell::Bracket(group) if is_elements(cell) => match list_pattern(group) {
+                Ok(pattern) => MachinePatternCell::List(Box::new(pattern)),
+                // `[rest @ ..]`, which names no element, or brackets of another list mistake: a
+                // list's notation, which the cell's kind answers before
+                // ([`read_with_pairing_deferred`]).
+                Err(ParseError::Structured(error)) if defer_pairing && is_list_notation(&error) => {
+                    MachinePatternCell::Refused(Box::new(error), list_binders(group))
                 }
-            }
+                Err(error) => return Err(error),
+            },
             MachinePatternCell::Bracket(group) => MachinePatternCell::State(Box::new(
                 StateTerm::Instances(parse_readable_instances(group, StateMacroContext::Pattern)?),
             )),
@@ -3455,22 +3449,10 @@ fn read_brackets(
     }
     let mut result = Vec::with_capacity(result_cells.len());
     for (cell, value) in result_cells {
-        // A result's items, a list's elements or a computation's, are terms: a map with an
-        // anonymous `..` there keeps no cell's map ([`anonymous_rest_in_map`]), and a map in
-        // braces is the literal ([`items_with_map_literals`]).
-        if let MachineResultCell::Bracket(group) = value
-            && !is_list(cell)
-            && !(defer_pairing && matched_by_state(cell))
-            && let Some(span) = anonymous_rest_map(&group.stream())
-        {
-            return Err(anonymous_rest_in_map(cell, span).into());
-        }
-        let literals = match value {
-            MachineResultCell::Bracket(group) if !is_list(cell) => {
-                Some(MachineResultCell::Bracket(items_with_map_literals(group)))
-            }
-            _ => None,
-        };
+        let literals = (!is_list(cell))
+            .then(|| result_items(cell, value, defer_pairing && matched_by_state(cell)))
+            .transpose()?
+            .flatten();
         let value = literals.as_ref().unwrap_or(value);
         let value = match value {
             MachineResultCell::Bracket(group) if is_elements(cell) => match list_result(group) {
@@ -3534,6 +3516,26 @@ fn read_brackets(
     Ok((subject, result))
 }
 
+/// A result's bracketed `value` for `cell`, read as items or elements: those are terms, so a map
+/// with an anonymous `..` there keeps no cell's map ([`anonymous_rest_in_map`]), unless the value
+/// is read as `kept_state`'s instances, and each map in braces is the literal
+/// ([`items_with_map_literals`]). `None` for a value that is no brackets.
+fn result_items(
+    cell: &Ident,
+    value: &MachineResultCell,
+    kept_state: bool,
+) -> Result<Option<MachineResultCell>, ParseError> {
+    let MachineResultCell::Bracket(group) = value else {
+        return Ok(None);
+    };
+    if !kept_state && let Some(span) = anonymous_rest_map(&group.stream()) {
+        return Err(anonymous_rest_in_map(cell, span).into());
+    }
+    Ok(Some(MachineResultCell::Bracket(items_with_map_literals(
+        group,
+    ))))
+}
+
 /// Reads a bracketed subject value as the computation cell's
 /// `[p1, .., pn, ..]` (at least `n` items, the rest kept) or `[p1, .., pn]`
 /// (exactly `n` items). The cell holds the continuation, which a rule reads
@@ -3541,6 +3543,8 @@ fn read_brackets(
 /// `[..]` matches whatever the cell holds, as `KCell(..)` does, and a result
 /// `[r1, .., rm, ..]` puts its items in front of it.
 fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
+    // Its items are terms, whose maps in braces are literals ([`items_with_map_literals`]).
+    let group = &items_with_map_literals(group);
     let parser = |input: ParseStream<'_>| {
         let sequence;
         bracketed!(sequence in input);
@@ -3684,6 +3688,8 @@ fn list_parts<T, R>(entries: Vec<ListEntry<T, R>>) -> Result<ListParts<T, R>, Pa
 /// before it are the list's front and those after it its back. Only a
 /// builtin `List` has a back; analysis rejects one on a cons list.
 fn list_pattern(group: &proc_macro2::Group) -> Result<ListPattern, ParseError> {
+    // Its elements are terms, whose maps in braces are literals ([`items_with_map_literals`]).
+    let group = &items_with_map_literals(group);
     let (items, rest, back) = list_parts(list_pattern_entries(group)?)?;
     let rest = match rest {
         None => RuleListRest::Exact,

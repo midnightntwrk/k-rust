@@ -132,7 +132,7 @@ fn constructor_record_term(record: &Record, subject: bool) -> Option<DescriptorT
         })
         .collect::<Option<Vec<_>>>()?;
     held.is_empty().then(|| DescriptorTerm::Application {
-        head_class: head_class.clone(),
+        head_class: *head_class,
         reference: reference.clone(),
         path_key: path_key.clone(),
         arguments: krs_ir::Arguments::named(fields),

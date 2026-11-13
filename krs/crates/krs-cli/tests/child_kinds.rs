@@ -1786,6 +1786,10 @@ fn the_map_braces_mean_what_the_literal_means() {
 /// - `Some({ .. })` is instance braces on the present cell, refused for its kind, as the cell's own
 ///   `{ .. }` is (`opt-entry-less`, `opt-entry-less-result`).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One table of the braces beside the literal, its expectation inline."
+)]
 fn the_map_braces_in_a_term_mean_the_literal() {
     let source = braces_source();
     let target = shared_fixture_target();
