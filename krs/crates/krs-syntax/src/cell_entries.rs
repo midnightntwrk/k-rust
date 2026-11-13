@@ -515,7 +515,7 @@ impl Refusal {
                 "the `cells!` entry of the cell `{cell}` takes a record's other children from a base (`..base`) that is no instance its subject labels: `cells!` is the reference notation, which names every child, and its one update rewrites in place the instance of a collection its subject labels; write each other child the record takes, and a group's children as their own entries"
             ),
             Self::MapReadInResult => format!(
-                "the entry of the cell `{cell}` writes braces in a result (`{{ k -> v }}`, `{{ k -> v, .. }}`, `{{ k -> v, ..m }}`): a readable record's braces at a cell, and a record child's braces holding a rest, are a map read, a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or the literal of those entries alone (`map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)"
+                "the entry of the cell `{cell}` writes braces holding a rest in a result (`{{ k -> v, .. }}`, `{{ k -> v, ..m }}`): a readable record's braces holding a rest are a map read, a pattern, which writes nothing; a result's map is a term, the literal over a map `m` its subject binds, the map whole or its rest named `m @ ..` (`map![k -> v, ..m]`), or those entries alone (`{{ k -> v }}`, `map![k -> v]`); keeping the entries a result does not name, with `..`, is a frame write no route lowers yet (a stated limitation)"
             ),
             Self::MapCollectionKey => {
                 let key = match own.as_slice() {
@@ -528,7 +528,7 @@ impl Refusal {
                 )
             }
             Self::MapReadValueBinder => format!(
-                "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level the value names what the entry maps to (a stated limitation; inside an instance record the value is matched)"
+                "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level a map read's value names what the entry maps to (a stated limitation; the braces of every entry, `{{ k -> v }}`, and a map read inside an instance record match the value)"
             ),
             Self::KeptRestInTerm => format!(
                 "the result's unnamed rest `..` keeps the rest of `{cell}` that its subject matches inside a term, below an alias or in parentheses: keeping it is not supported yet, since a result's `..` keeps a rest only where the subject's own brackets hold it, not inside a term; name the rest in the subject and write it back by its name"
@@ -1287,17 +1287,18 @@ impl Admission<'_> {
             }
             (Layer::Instances(order), _) => self.instances(*order, below, spelling),
             (Layer::Leaf(_), EntrySpelling::MapRead(map)) => {
-                // Both limitations are the readable record's top-level route's. A group
-                // record's or an instance record's child is a content root its record's route
-                // lowers (a field's value is its child's content), so a map read with a rest
-                // there has the M3 limitation its `cells!` twin `k::map![k -> v, ..]` has: in a
-                // result it would be the frame write `Cell(k::map![k -> v, ..])`, which a
-                // readable record has no spelling for yet.
-                let child = !head && map.rest.is_some();
-                if (head || child) && self.form.is_readable() && self.side == EntrySide::Result {
+                // Both limitations are a map read's, braces holding a rest. Braces naming every
+                // entry, `{ k -> v }`, are the map exactly those entries, at a cell and at a
+                // record's child alike, matched in a subject and written in a result. A map
+                // read's rest is the M3 limitation its `cells!` twin `k::map![k -> v, ..]` has:
+                // in a result it would be the frame write `Cell(k::map![k -> v, ..])`, which a
+                // readable record has no spelling for yet. At a readable record's top level a
+                // read's value names what the entry maps to.
+                if map.rest.is_some() && self.form.is_readable() && self.side == EntrySide::Result {
                     return Err(Refusal::MapReadInResult);
                 }
                 if head
+                    && map.rest.is_some()
                     && map.entries.iter().any(|(_, value)| {
                         !matches!(value, EntrySpelling::Binder(_) | EntrySpelling::Wild)
                     })

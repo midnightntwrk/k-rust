@@ -418,10 +418,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "TWIN-6"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["child-twins/readable/result/top/map/{ 0 -> x }"]
-finding = "TWIN-2"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
 ["child-twins/readable/subject/group-child/set/{ y, .. }"]
 finding = "TWIN-5"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -436,10 +432,6 @@ deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["child-twins/readable/subject/opt-child/set/{ y, .. }"]
 finding = "TWIN-5"
-deviation = "krs::syntax::rust-syntax @ spelling"
-
-["child-twins/readable/subject/top/map/{ 0 -> v }"]
-finding = "TWIN-2"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
 ["k3/child-twins/readable/both/list-child/list/[..] => [1, ..]"]

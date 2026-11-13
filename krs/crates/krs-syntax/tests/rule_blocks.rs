@@ -604,14 +604,6 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "duplicate readable rule binding `v`",
         ),
         (
-            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w } } => { computation: [v, ..] };",
-            "a machine-rule map pattern is `{ key -> value, .. }`",
-        ),
-        (
-            "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w, } } => { computation: [v, ..] };",
-            "a machine-rule map pattern is `{ key -> value, .. }`",
-        ),
-        (
             "for Expr; x: Wrap(a) => a where update env = map::lookup(env, a);",
             "requires exactly three arguments",
         ),
@@ -629,6 +621,20 @@ fn malformed_blocks_fail_at_the_local_construct() {
             error.to_string().contains(expected),
             "expected {expected:?} in {error}"
         );
+    }
+}
+
+/// A top cell's braces naming every entry are the map exactly those entries, as every record
+/// child of a map cell reads them (TWINFIX, TWIN-2): no map read, so no `..` is required.
+#[test]
+fn a_top_cell_s_braces_of_every_entry_are_the_map() {
+    for source in [
+        "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w } } => { computation: [v, ..] };",
+        "for Machine; x: { computation: [a, ..], env: { a -> v, b -> w, } } => { computation: [v, ..] };",
+        "for Machine; x: { computation: [a, ..] } => { computation: [..], env: { a -> 1 } };",
+    ] {
+        krs_syntax::RuleBlock::parse_source(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
     }
 }
 
@@ -1040,11 +1046,11 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: { y -> n, .. } };",
-            "writes braces in a result",
+            "writes braces holding a rest in a result",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], env: { y -> 1, .. } };",
-            "writes braces in a result",
+            "writes braces holding a rest in a result",
         ),
         // A presence is lexical over a matched term too: it pairs with no term.
         (
@@ -1154,7 +1160,7 @@ fn a_notation_fault_waits_for_the_cells_kind() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], acct: { Gm { ma: x, .. }, .. } } => { k: [..], acct: { y -> x, .. } };",
-            "writes braces in a result",
+            "writes braces holding a rest in a result",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)

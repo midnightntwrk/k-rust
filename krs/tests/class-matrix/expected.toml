@@ -8047,7 +8047,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 # TWINORACLE: twins the product refused where the spelling means something at its cell (findings
-# TWIN-1, TWIN-2); their K is recorded once they are accepted (TWIN-1's by TWINFIX).
+# TWIN-1, TWIN-2); their K is recorded since TWINFIX accepts them.
 
 [accept."child-twins/cells-claim/result/top/k/k::configuration::KCell(..tail)"]
 k = """
@@ -8068,8 +8068,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."child-twins/readable/result/top/map/{ 0 -> x }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tm> _ => .Map [ 0 <- V0:Int ] </tm>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."child-twins/readable/subject/top/map/{ 0 -> v }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tm> 0 |-> V0:KItem </tm>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."child-twins/cells-claim/both/top/k/k::configuration::KCell(..) => k::configuration::KCell(Cmd::Hold(), ..)"]
 k = """

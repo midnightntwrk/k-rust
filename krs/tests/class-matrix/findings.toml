@@ -42,11 +42,6 @@ owner = "S5"
 kind = "bug"
 what = "the source `krs expand` prints for a readable result that writes a `?` group's child (`og: Some(Og { ol: [x], .. })`, `on: x`, `ol: [..rest, y]` over a subject naming the group) is refused (`krs::analysis::cell-wrapper` at the item), so K3 cannot read it back; the case itself is accepted with its twin's K"
 
-["TWIN-2"]
-owner = "S5"
-kind = "feature"
-what = "a readable record's top-level Map cell refuses braces of exact entries, `tm: { 0 -> v }` in a subject (rust-syntax \"a machine-rule map pattern is `{ key -> value, .. }`\") and `tm: { 0 -> x }` in a result (map-read-in-result), where every record child of the same kind reads them as the map's entries (`0 |-> V`, `.Map [ 0 <- X ]`): one spelling, two readings"
-
 ["TWIN-4"]
 owner = "S5"
 kind = "diagnostic"

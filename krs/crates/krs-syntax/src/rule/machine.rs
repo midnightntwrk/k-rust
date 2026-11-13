@@ -1576,6 +1576,11 @@ fn parse_machine_result_record(
                 }
                 None => read_result_presence(&content)?,
             }
+        } else if let Some(map) = exact_map(&value_tokens(&content)) {
+            // A map cell's braces naming every entry, `{ k -> v }`, are the map written, as
+            // every record child of a map cell reads them ([`parse_readable_child`]).
+            skip_value(&content)?;
+            MachineResultCell::Term(Box::new(crate::term::parse_term_expression.parse2(map)?))
         } else if let Some(map) = braced_map_read(&content)? {
             // A map read is spelled by its arrows, which no instance list holds at its top
             // level, whatever the subject's entry of the cell spelled: on a collection it is
@@ -1978,6 +1983,9 @@ fn readable_record(
 /// - a map cell's braces naming its rest, `{ k -> v, rest @ .. }`: the rest is the map's other
 ///   entries, a map term, so the value is the map pattern those braces denote,
 ///   `k::map![k -> v, rest @ ..]`, as the `cells!` twin `Cell(k::map![k -> v, rest @ ..])` reads;
+/// - a map cell's braces naming every entry, `{ k -> v }`: the map exactly those entries,
+///   `k::map![k -> v]`, as every record child of a map cell reads them ([`parse_readable_child`])
+///   and as the `cells!` twin `Cell(k::map![k -> v])` does;
 /// - a group record `Group { .. }` whose map child names its rest the same way: the group's term
 ///   whose child holds that map pattern, as a record inside an instance or a `?` group's
 ///   `Some(..)` is ([`record_maps_as_terms`]);
@@ -1996,6 +2004,7 @@ fn named_rest_record(content: ParseStream<'_>) -> Result<Option<MachinePatternCe
     let named_map = |map: &proc_macro2::Group| named_map_pattern(map).is_some();
     let term = match trees.as_slice() {
         [TokenTree::Group(map)] if let Some(term) = named_map_pattern(map) => term,
+        [TokenTree::Group(_)] if let Some(term) = exact_map(&value) => term,
         [owner @ .., TokenTree::Group(body)]
             if body.delimiter() == proc_macro2::Delimiter::Brace && !owner.is_empty() =>
         {
@@ -2077,6 +2086,32 @@ fn named_map_pattern(map: &proc_macro2::Group) -> Option<TokenStream> {
     Some(quote_spanned!(span=> k::map!#entries))
 }
 
+/// The map `k::map![k -> v]` that a map cell's braces naming every entry, `{ k -> v }`, denote: no
+/// item of theirs is a rest. `None` for other braces and any other value.
+fn exact_map(tokens: &TokenStream) -> Option<TokenStream> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let [TokenTree::Group(map)] = trees.as_slice() else {
+        return None;
+    };
+    let rest = |item: &TokenStream| {
+        let trees = item.clone().into_iter().collect::<Vec<_>>();
+        trees.windows(2).any(|pair| {
+            matches!(pair, [TokenTree::Punct(first), TokenTree::Punct(second)]
+                if first.as_char() == '.' && second.as_char() == '.')
+        })
+    };
+    if map.delimiter() != proc_macro2::Delimiter::Brace
+        || !contains_top_level_arrow(map)
+        || top_level_items(map.stream()).iter().any(rest)
+    {
+        return None;
+    }
+    let span = map.span();
+    let mut entries = proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, map.stream());
+    entries.set_span(span);
+    Some(quote_spanned!(span=> k::map!#entries))
+}
+
 /// The value a readable record `record` writes for the cell `cell`, as written: the tokens after
 /// the `:` of its entry. `None` where the record writes no entry of that cell, or writes it as
 /// the shorthand `cell`.
@@ -2099,6 +2134,19 @@ fn record_cell_value(record: &TokenTree, cell: &Ident) -> Option<TokenStream> {
                 _ => None,
             }
         })
+}
+
+/// A record value's tokens up to the `,` that ends it, without consuming them.
+fn value_tokens(content: ParseStream<'_>) -> TokenStream {
+    let fork = content.fork();
+    let mut value = TokenStream::new();
+    while !fork.is_empty() && !fork.peek(Token![,]) {
+        match fork.parse::<TokenTree>() {
+            Ok(tree) => value.extend([tree]),
+            Err(_) => break,
+        }
+    }
+    value
 }
 
 /// Skips a record value whose reading is refused: its tokens up to the `,` that ends it.
