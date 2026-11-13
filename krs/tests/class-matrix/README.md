@@ -274,10 +274,10 @@ where the parentheses hold the whole content and a rewrite at their top level (p
 and denote nothing; a single-body rewrite in a group's record is printed in them).
 
 The family runs in the `cells`
-shard and the first shard of the fast tier: 477 cases (TWINFIX, 2026-11-13, 6 workers, kept
-scratch: alone 151 package builds and 199 s under a load of about 45, K6 12 checks; TWINORACLE's
-467 took 205 builds and 63 s warm, and the whole `cells` shard went from 632 cases to 1,099, 813
-builds and 288 s under a load of 25 to 100 from other work).
+shard and the first shard of the fast tier: 1,011 cases (TWINWIDE, 2026-11-13, 6 workers, kept
+scratch: alone 997 of them in 279 package builds and 341 s, K6 25 checks, where TWINFIX's 477 took
+144 builds and 152 s on the same host; the whole `cells` shard, 1,643 cases, took 887 builds and
+1,072 s under a load of 25 to 150 from other work; TWINORACLE's 467 took 205 builds and 63 s warm).
 
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
