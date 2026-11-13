@@ -4,7 +4,7 @@
 // every step is entailed. `Complete`: every successor the theory forces is one a step function
 // listing `Step`'s successors lists. The theorems `sound` and `complete`, and what a reader trusts
 // once lessons 1 to 11 are understood; and, for a definition with uninterpreted operations, the statement a
-// generated package makes for every interpretation of them. Every Lean pane is kcore-spec's text at the manifest's commit.
+// generated package makes for every interpretation of them, on kryp's. Every Lean pane is kcore-spec's text at the manifest's commit.
 
 import { checked, checkedLabel, coreCommit, coreFile, lineOf, slice, type Source, span } from '../data'
 import { type Lesson, note } from '../lesson'
@@ -17,7 +17,7 @@ const theorems = slice(soundLean, '/-- **Soundness of a semantics** that `coreOK
 const stmts = coreFile('KcoreSpec/Statements.lean')
 const stepIsDef = slice(stmts, '/-- The step relation\'s successors, as a step function', '∀ (x : Config c) (y : GroundTerm), y ∈ ref x.val ↔')
 const withHooks = slice(coreFile('KcoreSpec/Core.lean'), '/-- The same definition with its parameter symbols interpreted by H. -/', 'def Semantics.withHooks')
-const genHooks = slice(coreFile('KcoreGen.lean'), 'abbrev HooksTotal (H : HookParams)', 'theorem sound_defn (H : HookParams)')
+const genHooks = slice(coreFile('examples/kryp/Kryp/FnHyp.lean'), '/-- **The interpretations the statements are about**', 'theorem sound_defn (H : HookParams)')
 const peanoSound = slice(coreFile('examples/peano/Peano/Sound.lean'), 'theorem coreOK_defn', 'KCore.complete_hyp defn.sem ref coreOK_defn hf')
 
 const workedSound = checked('sound')
@@ -143,7 +143,7 @@ export const statements10: Lesson = {
       title: 'Definitions with uninterpreted operations',
       panes: [
         { id: 'h', label: 'KcoreSpec/Core.lean', source: withHooks, lang: 'lean' },
-        { id: 'g', label: 'KcoreGen.lean, what a package states', source: genHooks, lang: 'lean' },
+        { id: 'g', label: 'kryp, Kryp/FnHyp.lean', source: genHooks, lang: 'lean' },
       ],
       frames: [
         {
@@ -157,11 +157,12 @@ export const statements10: Lesson = {
         },
         {
           hl: { g: [at(genHooks, 'theorem sound_defn (H : HookParams)')] },
-          notes: [
-            note('g', at(genHooks, 'theorem sound_defn (H : HookParams)'), 'The facts the checks could not confirm, named as a list (the generator fills in the counts above).', 'hob : Obl H'),
-            note('g', at(genHooks, 'theorem sound_defn (H : HookParams)'), 'The statement of this lesson, for the semantics at H.', 'SoundC (defn.sem.withHooks H)'),
-          ],
-          say: 'A generated package states this for every such H, and `complete_defn` likewise. It is proved from `sound_hyp`, unchanged, applied to `c.withHooks H`; the kernel checks the proof.',
+          notes: [note('g', at(genHooks, 'theorem sound_defn (H : HookParams)'), 'The statement of this lesson, for the semantics at H.', 'SoundC (defn.sem.withHooks H)')],
+          say: "kryp uses K's KRYPTO hashes, such as `Keccak256`, which Lean does not interpret. Its package states soundness for every such H, and `complete_defn` likewise. It is proved from `sound_hyp`, unchanged, applied to `c.withHooks H`; the kernel checks the proof.",
+        },
+        {
+          hl: { g: [at(genHooks, 'abbrev Obl (H : HookParams)')] },
+          notes: [note('g', at(genHooks, 'abbrev Obl (H : HookParams)'), 'The facts the checks could not confirm. kryp has none, so `sound_defn` takes no premise but H; a package that names facts takes `(hob : Obl H)` as well.', 'Obl')],
         },
       ],
     },

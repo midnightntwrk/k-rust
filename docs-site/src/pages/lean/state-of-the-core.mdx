@@ -1,17 +1,22 @@
 ---
 title: State of the core
-description: "Where KCore stands, as of kcore-spec 57f851ec (status of 2026-11-13): the goal and its scoreboard, coverage of K, which parts of the core are settled, what is trusted, and the open decisions."
+description: "Where KCore stands, as of kcore-spec ab060581 (status of 2026-11-13): the goal and its scoreboard, coverage of K, which parts of the core are settled, what is trusted, and the open decisions."
 ---
 
 # State of the core
 
-As of kcore-spec `57f851ec`, status of 2026-11-13.
+As of kcore-spec `ab060581`, status of 2026-11-13.
 This is the only page of the Lean course that changes as the work moves; the lessons teach only the parts below marked settled.
 
 ## Changed since you last read
 
 Newest first.
 
+- The reader reads more of K, with no change to the core: several `[owise]` equations of one function, K's default configuration, projections in generated initializers, a cell sort below a user sort, `ensures` on a rewrite rule (as an extra `requires` condition where no rule of a larger priority overlaps the rule, refused otherwise), and `Int` declared again without a place. Of the 381 corpus texts, 294 are now read with nothing refused and 260 meet `coreOK` (were 193 and 158).
+- mir now stops only at K's FLOAT module. wasm stops at its constructor overloads.
+- New open decision 8: what a set pattern `SetItem(X) REST` matches.
+- In progress, not yet in the tree the course is written against: user token sorts, a set element alone as a pattern, the FLOAT module, and mir as written meeting `coreOK`. They will change parts of the core (literals, collection patterns and their axioms); the course will follow when that tree lands.
+- The tree moved to `ab060581`. The core did not change, every lesson now states that commit, and every fact shown as checked by Lean was checked again there. Lesson 10's example of a definition with uninterpreted operations is now kryp's package, which uses K's KRYPTO hashes.
 - A second scoreboard, [Coverage of K](#coverage-of-k): how much of KORE, of what kompile emits, and of K's builtin library the reader handles, and how many of k-rust's 381 cached kompile outputs it reads.
 - One existing K claim, sum-spec, is proved on the imp package over its own step relation, for all paths, with its matching-logic consequence: the theory Γ entails that the initial configuration eventually reaches the final one. A second claim, sum-N, is proved too. imp's "used by a proof" is now ✓.
 - Packages now carry readable term builders and a `fire` step for proofs, which took the sum-spec proof from 364 to 124 lines. Nine of the regenerated packages have not been kernel-checked since that change; they will be at the next wave end.
@@ -45,8 +50,8 @@ Every K definition we care about, read from kompile's own KORE, gets a Lean pack
 | --- | --- | --- | --- | --- | --- |
 | imp | ✓ | ✓ | ✓ (none named) | ✓ | ✓ (sum-spec and sum-N) |
 | KEVM | ✓ | ✓ | 134 named; 9 look false of KEVM as written (below) | stated from the named facts | — |
-| wasm | — (needs four reader features and Float, below) | — | — | — | — |
-| mir | all but three kinds of sentence | on an edited copy | — | — | — |
+| wasm | — (stops at its constructor overloads; also needs user token sorts and Float, below) | — | — | — | — |
+| mir | all but K's FLOAT module | on an edited copy | — | — | — |
 | K in K | — | — | — | — | — |
 
 - **read**: every sentence of kompile's own KORE for the definition is read, ignored as having no meaning for the semantics, or refused with a reason.
@@ -72,11 +77,11 @@ Nine of these facts look false of KEVM as written:
 
 Some operations, such as those on Bytes and String and the KRYPTO hashes, have no interpretation in Lean: they are parameters. The theorems are stated for every interpretation that gives a value wherever the text declares the operation total ([lesson 10](/lean/sound-and-complete)). Of the 57 totality facts that called such an operation, 18 are discharged that way; the other 39 call an operation the text does not declare total, or fail for another reason too.
 
-wasm and mir, measured 2026-11-13 from kompile's own texts. Both are refused as written, and every number past the first refusal is of an edited copy, not of the definition.
+wasm and mir, from kompile's own texts. Both are refused as written, and every number past the first refusal is of an edited copy, not of the definition.
 
-- **mir** is refused for three kinds of sentence: a rule with `ensures`, K's Float module (the library has no Float domain), and extra `[owise]` equations of one function. On a copy with the rule removed, the Float operations read as parameters, and the extra `[owise]` equations removed, `coreOK` holds and the kernel builds the package (173 s, 7.2 GB at peak), with 61 named facts. Three of them are false as written: three functions declared `[total]` that have no equation.
-- **wasm** needs four reader features first: the overload axioms kompile writes between constructors of list sorts one below another, user token sorts with literals, recognising Int's library module when the text declares `Int` again, and several `[owise]` equations per function. It also needs a Float domain, since it puts Float below one of its own sorts and writes Float literals.
-- Shared by both: no Float domain, several `[owise]` equations of one function, and `ensures` on a rule. Neither showed a problem of kernel cost.
+- **mir** is now refused only for K's FLOAT module: the library has no Float domain. Its rule with `ensures` is read, since no rule of a larger priority overlaps it, and so are its several `[owise]` equations. On an earlier copy with the Float operations read as parameters (and, before those two were read, the `ensures` rule and the extra `[owise]` equations removed), `coreOK` holds and the kernel builds the package (173 s, 7.2 GB at peak), with 61 named facts. Three of them are false as written: three functions declared `[total]` that have no equation.
+- **wasm** stops at the overload axioms kompile writes between list sorts one below another: six of its list symbols are declared total and injective but not constructors, and the text identifies some of their terms with others. After that it needs user token sorts with literals and a Float domain, since it puts Float below one of its own sorts and writes Float literals. Int declared again and several `[owise]` equations, two of the four reader features it needed, are now read.
+- Neither showed a problem of kernel cost.
 
 ## Coverage of K
 
@@ -96,19 +101,13 @@ For this project K is a finite thing, at three levels: the KORE language (its se
 - **parameter only**: the symbol is read and applied but has no interpretation in Lean, like Bytes and String; the theorems hold for every interpretation.
 - **not handled**: refused or left unaccounted for, with no recorded decision.
 
-**The corpus**: k-rust's 381 cached kompile outputs, of 62 definitions (KEVM is not among them). 193 texts are read with nothing refused, and 158 meet `coreOK`. The reader stops at a text's first fault, so the 175 texts it stops early hide whatever lies behind that fault.
+The table above is of `57f851ec`; the reader has since read several of its "not handled" rows, and a new table will follow.
 
-The largest gaps, by texts affected:
+**The corpus**: k-rust's 381 cached kompile outputs, of 62 definitions (KEVM is not among them). At `ab060581`, 294 texts are read with nothing refused, and 260 meet `coreOK` (at `57f851ec`: 193 and 158). The reader stops at a text's first fault, so the texts it stops early hide whatever lies behind that fault.
 
-- definitions with no `configuration` declaration, for which kompile supplies K's default configuration: 128 texts;
-- K's FLOAT module: 14;
-- a projection in a generated initializer: 14;
-- a function symbol in a rule's left side: 8;
-- K's K-REFLECTION module: 7;
-- the stdin and stdout stream rules: 7;
-- and 35 texts that are read but fail `coreOK` on sorting.
+At `57f851ec` the largest gaps, by texts affected, were: definitions with no `configuration` declaration, for which kompile supplies K's default configuration (128 texts); K's FLOAT module (14); a projection in a generated initializer (14); a function symbol in a rule's left side (8); K's K-REFLECTION module (7); the stdin and stdout stream rules (7); and 35 texts read but failing `coreOK` on sorting.
 
-Work on the first three and on the sorting failures is running, together with wasm and mir.
+At `ab060581` the default configuration and the projections in generated initializers are read. Of the 31 texts stopped by a rule with `ensures`, mir's 8 now stop at FLOAT, 13 meet `coreOK`, and 10 are refused because a rule of a larger priority overlaps it. FLOAT, user token sorts and set patterns are being worked on (see the change list).
 
 ## The core, layer by layer
 
@@ -147,6 +146,7 @@ Each is a question you can answer by replying.
 2. **A priority of 200 or above beside `[owise]`.** `[owise]` is priority 200, so a function with an `[owise]` clause and a clause of priority 200 or above is refused today. The KORE text puts the `[owise]` equation after every other equation, while the kernel reads `[owise]` as priority 200, and the two differ wherever both equations apply. Keep refusing, or read a priority of 200 or above as "after `[owise]`" and state where that differs from the KORE text?
 3. **Definitions read without the tie.** The theory Γ is built from the Lean definition, and the tie, a kernel check that the definition prints back as its KORE text, is optional. Without it the reader is trusted. Accept that, or have a package read without the tie say so in the names of its theorems?
 4. **The goal and its order.** Is the scoreboard above the end goal? The proposed order: read every definition from kompile's own KORE, starting with KEVM; rebuild one existing proof on a small package; review the core through this course; compare the executable evaluator with recorded outputs; then K in K.
-5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed (and implemented): `ensures C` on a function equation is read as an extra `requires` condition, when all of the function's equations have one priority; otherwise the function is refused. Under that restriction the two readings agree wherever the text is consistent. Such a definition cannot be tied to its text. KEVM's one case meets the restriction. Agree?
+5. **An `ensures` on a function equation.** One KEVM equation carries one. Proposed (and implemented): `ensures C` on a function equation is read as an extra `requires` condition, when all of the function's equations have one priority; otherwise the function is refused. Under that restriction the two readings agree wherever the text is consistent. Such a definition cannot be tied to its text. KEVM's one case meets the restriction. Agree? (A rewrite rule's `ensures` is now read the same way, where no rule of a larger priority overlaps the rule, and refused otherwise.)
 6. **A `[total]` function that no equation covers at some arguments.** The kernel reads a function as what its equations say, so such a declaration is false and the definition cannot meet `FnHyp`. K's own theory instead says the function has some unspecified value there. Keep the strict reading, which means KEVM needs four small fixes, or read such a function as unspecified outside its equations? (Recommended: keep the strict reading.)
 7. **KEVM as written.** Two pairs of its equations contradict each other, so no reading can prove it sound as written. Proposed: the KEVM row of the scoreboard counts as met for KEVM plus a short reviewed list of fixes (about nine equations), each listed on this page with its reason, and you decide whether to report them to KEVM's authors. Agree?
+8. **What a set pattern `SetItem(X) REST` matches.** kompile's text states that joining sets is idempotent and does not require the two parts to be disjoint. So against a set that contains `X` the pattern matches twice: once with `REST` the set without `X`, and once with `REST` the whole set. Reading the two parts as disjoint gives one match, but contradicts the text's own idempotence axiom. 16 corpus texts have such a pattern. Which reading?
