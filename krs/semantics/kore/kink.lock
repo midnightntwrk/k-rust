@@ -210,6 +210,31 @@ status = "killed"
 killer = "cases/c12-undef-init/kore.pgm"
 
 [[run.mutation]]
+id = "keq-undefined-false"
+status = "killed"
+killer = "cases/c38-keq-strict/kore.pgm"
+
+[[run.mutation]]
+id = "token-any-value"
+status = "killed"
+killer = "cases/c39-tokens-preds/kore.pgm"
+
+[[run.mutation]]
+id = "token-sort-ignored"
+status = "killed"
+killer = "cases/c39-tokens-preds/kore.pgm"
+
+[[run.mutation]]
+id = "as-first-subst-only"
+status = "killed"
+killer = "cases/c36-cell-key-twice/kore.pgm"
+
+[[run.mutation]]
+id = "as-alias-rebinds"
+status = "killed"
+killer = "cases/c40-as-patterns/kore.pgm"
+
+[[run.mutation]]
 id = "subst-first-only"
 status = "killed"
 killer = "cases/c19-map-choice/kore.pgm"
@@ -331,6 +356,7 @@ argued = [
 open = [
 ]
 argued = [
+  { id = "requirement:KORE.m-tok:S:Int ==Int T:Int:false", standing = "text" },
   { id = "requirement:KORE.ins-dup:held", standing = "text" },
 ]
 

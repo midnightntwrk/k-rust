@@ -377,6 +377,60 @@ misunderstanding = "an undefined initial term is itself a final configuration"
   find = "done(.Ts)"
   replace = "done(bot ; .Ts)"
 
+# --- equality, tokens and as-patterns ----------------------------------------------------
+
+[[mutation]]
+id = "keq-undefined-false"
+misunderstanding = "==K is total in the sense of always giving a Bool: an undefined operand makes it false instead of undefined"
+  [[mutation.edit]]
+  rule = "KORE.hook-bot"
+  find = "strictHook(_, As) => bot requires hasBot(As)"
+  replace = "strictHook(O, As) => bot requires hasBot(As) andBool O =/=Int 70"
+  [[mutation.edit]]
+  rule = "KORE.hook-def"
+  find = "requires notBool hasBot(As)"
+  replace = "requires notBool hasBot(As) orBool O ==Int 70"
+
+[[mutation]]
+id = "token-any-value"
+misunderstanding = "a token literal in a pattern matches any token of its sort"
+  [[mutation.edit]]
+  rule = "KORE.m-tok"
+  find = "requires S ==Int T andBool X ==String Y"
+  replace = "requires S ==Int T"
+
+[[mutation]]
+id = "token-sort-ignored"
+misunderstanding = "a token is its text: tokens of two sorts with one text are one value, in matching and in ==K, whatever the sorts of the tokens and of the injections that place them in a larger sort"
+  [[mutation.edit]]
+  rule = "KORE.m-tok"
+  find = "requires S ==Int T andBool X ==String Y"
+  replace = "requires X ==String Y"
+  [[mutation.edit]]
+  rule = "KORE.cmp-tok"
+  find = "lex(cmpI(S, T), "
+  replace = "lex(0, "
+  [[mutation.edit]]
+  rule = "KORE.cmp-inj"
+  find = "=> lex(cmpI(A, C), lex(cmpI(B, E), cmp(T, U)))"
+  replace = "=> cmp(T, U)"
+
+[[mutation]]
+id = "as-first-subst-only"
+misunderstanding = "an as-pattern binds its variable under the first substitution of its pattern only, so an alias of a collection pattern with a frame gives one successor instead of one for each split"
+  [[mutation.edit]]
+  rule = "KORE.as-bind"
+  find = "=> cat(bindVar(X, T, B, look(X, B)), bindAfter(X, T, Ms))"
+  replace = "=> bindVar(X, T, B, look(X, B))"
+
+[[mutation]]
+id = "as-alias-rebinds"
+misunderstanding = "an as-pattern's variable is bound afresh even when the left side has already bound it, instead of having to equal that binding"
+  [[mutation.edit]]
+  rule = "KORE.as-bind"
+  find = "cat(bindVar(X, T, B, look(X, B)),"
+  replace = "cat(bindVar(X, T, B, none),"
+
 # --- collections: matching -----------------------------------------------------------------
 
 [[mutation]]

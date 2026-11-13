@@ -25,4 +25,8 @@ argument = "as rule:KORE.ins-dup: no insert receives a configuration its list ho
 
 [[coverage.argued]]
 item = "rule:KORE.tag-other"
-argument = "configurations are values (ap, iv, bv, ij, co); vr, hk, as, cb and bot never reach cmp under kore.k, and kv and el are compared only with their own kind (cmp-kv, cmp-el), since a collection holds elements of one kind; the rule is kept so that a mutant that makes bot a configuration still compares it"
+argument = "configurations are values (ap, iv, bv, tk, ij, co); vr, hk, as, cb and bot never reach cmp under kore.k, and kv and el are compared only with their own kind (cmp-kv, cmp-el), since a collection holds elements of one kind; the rule is kept so that a mutant that makes bot a configuration still compares it"
+
+[[coverage.argued]]
+item = "requirement:KORE.m-tok:S:Int ==Int T:Int:false"
+argument = "a token pattern of sort S stands at a position of sort S in a well-sorted left side, and the value matched there is of sort S: a token of S itself, since a token of another sort T < S stands under inj{T,S}, which m-inj-same and m-inj-sub compare by sort before reaching the token; so m-tok never meets two tokens of different sorts"
