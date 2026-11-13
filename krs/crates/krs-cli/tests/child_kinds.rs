@@ -1893,3 +1893,107 @@ fn the_map_braces_in_a_term_mean_the_literal() {
         opt-entry-less: error[krs::analysis::collection-entry]: the cell `omap` holds an optional `Map` leaf, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = "*", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`
         opt-entry-less-result: error[krs::analysis::collection-entry]: the cell `omap` holds an optional `Map` leaf, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = "*", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"#]].assert_eq(&table);
 }
+
+/// The child-kinds source whose instance group `Tg` holds a computation child `gk`.
+fn group_computation_source() -> String {
+    let source = SOURCE
+        .replace(
+            "    #[k::cell]\n    pub ga: Int,\n}",
+            "    #[k::cell]\n    pub ga: Int,\n    #[k::cell]\n    pub gk: KSequence,\n}",
+        )
+        .replace(
+            "tg: Tg { gm: k::map![0 -> 5], ga: 0 }",
+            "tg: Tg { gm: k::map![0 -> 5], ga: 0, gk: k::k![] }",
+        );
+    assert!(
+        source.contains("pub gk: KSequence") && source.contains("ga: 0, gk: k::k![]"),
+        "the source has `gk`"
+    );
+    source
+}
+
+/// LEFTS item 1: a computation child of a group written inside an instance record is that
+/// child's entry, read by its kind as the cell's own brackets are: exact brackets hold exactly
+/// their items (`gk-exact`, `gk-empty`, the `cells!` spellings), and a pattern's brackets ending
+/// in `..` a computation whose first items they name (`gk-anonymous`, `go ~> _:K` in the group's
+/// term). A named rest there, declared or not, is the stated limit (`collection-entry`): a
+/// group's term holds no binder of a remainder yet (`gk-named`, `gk-declared`).
+#[test]
+fn a_group_s_computation_child_in_an_instance_is_read_by_its_kind() {
+    let source = group_computation_source();
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let subject = |gk: &str| {
+        readable(&format!(
+            "go: {{ k: [Go(), ..], th: {{ me @ Th {{ tg: Tg {{ gk: {gk}, .. }}, .. }}, .. }}, out: _ }} => {{ k: [..], out: [1] }};"
+        ))
+    };
+    let instance = |gk: &str| {
+        format!(
+            "Ths::th: {{ me @ k::fragment![crate::Th {{ tg: crate::Tg {{ gk: {gk}, .. }}, .. }}], i @ .. }}"
+        )
+    };
+    let kgo = format!("k: {KC}KCell(Cmd::Go(), ..)");
+    let kept = format!("k: {KC}KCell(..)");
+    let out = format!("out: {KC}Cell(_)");
+    let rows = [
+        ("gk-exact", subject("[Go()]")),
+        ("gk-empty", subject("[]")),
+        ("gk-anonymous", subject("[Go(), ..]")),
+        (
+            "gk-exact-both",
+            readable(
+                "go: { k: [Go(), ..], th: { me @ Th { tg: Tg { gk: [Go()], .. }, .. }, .. } } => { k: [..], th: { Th { tg: Tg { gk: [Hold()], .. }, ..me }, .. } };",
+            ),
+        ),
+        (
+            "gk-cells-exact",
+            cells(
+                "",
+                &format!("{kgo}, {}, {out}", instance("[Cmd::Go()]")),
+                &format!("{kept}, out: {KC}Cell([1])"),
+            ),
+        ),
+        (
+            "gk-cells-anonymous",
+            cells(
+                "",
+                &format!("{kgo}, {}, {out}", instance("[Cmd::Go(), ..]")),
+                &format!("{kept}, out: {KC}Cell([1])"),
+            ),
+        ),
+        (
+            "gk-named",
+            cells(
+                "",
+                &format!("{kgo}, {}, {out}", instance("[Cmd::Go(), rest @ ..]")),
+                &format!("{kept}, out: {KC}Cell([1])"),
+            ),
+        ),
+        (
+            "gk-declared",
+            cells(
+                "rest: k::Term<k::builtin::KSequence>,\n    ",
+                &format!("{kgo}, {}, {out}", instance("[Cmd::Go(), rest @ ..]")),
+                &format!("{kept}, out: {KC}Cell([1])"),
+            ),
+        ),
+    ];
+    let table = rows
+        .iter()
+        .map(|(name, sentences)| {
+            let manifest = package_with(temporary.path(), name, &source, sentences);
+            format!("{name}: {}", emitted(target.path(), &manifest))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect_test::expect![[r#"
+        gk-exact: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> _ </gm> <ga> _ </ga> <gk> go </gk> </tg> ... </th> <out> _ => ListItem(1) </out>
+        gk-empty: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> _ </gm> <ga> _ </ga> <gk> .K </gk> </tg> ... </th> <out> _ => ListItem(1) </out>
+        gk-anonymous: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> _ </gm> <ga> _ </ga> <gk> go ~> _:K </gk> </tg> ... </th> <out> _ => ListItem(1) </out>
+        gk-exact-both: rule [go]: <k> go => .K ... </k> <th> (<tg> <gm> MeTgGm:Map </gm> <ga> MeTgGa:Int </ga> <gk> go </gk> </tg> => <tg> <gm> MeTgGm:Map </gm> <ga> MeTgGa:Int </ga> <gk> hold </gk> </tg>) ... </th>
+        gk-cells-exact: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> _ </gm> <ga> _ </ga> <gk> go </gk> </tg> ... </th> <out> _ => ListItem(1) </out>
+        gk-cells-anonymous: rule [go]: <k> go => .K ... </k> <th> <tg> <gm> _ </gm> <ga> _ </ga> <gk> go ~> _:K </gk> </tg> ... </th> <out> _ => ListItem(1) </out>
+        gk-named: error[krs::analysis::collection-entry]: not supported yet: the group `Tg` written in an instance record is the group's term, one term naming every child, and its record writes the child `gk` as a computation's items with a remainder, which no term of the group holds yet
+        gk-declared: error[krs::analysis::collection-entry]: not supported yet: the group `Tg` written as a term is one term naming every child, and its record writes the child `gk` as a computation's items with a named rest, a remainder, which no term of the group holds yet"#]].assert_eq(&table);
+}

@@ -3424,9 +3424,10 @@ fn parse_instance_child(
     if let Some(sequence) = remainder_sequence(&tokens, context)? {
         return Ok(StateTerm::KSequence(sequence));
     }
-    // An instance's group child is the group's term, which holds no computation's items: a record
-    // of the group (a `k::fragment!`, or a record with a rest, which no constructor's record has)
-    // whose child is brackets with a remainder is that limit, at the brackets.
+    // An instance's group child is the group's term, which holds a computation child's items but
+    // no binder of its remainder: a record of the group (a `k::fragment!`, or a record with a rest,
+    // which no constructor's record has) whose child is brackets with a remainder is that limit,
+    // at the brackets.
     if kept && let Some(error) = group_computation_remainder(&tokens, context) {
         return Err(error);
     }
@@ -3454,10 +3455,10 @@ fn parse_instance_child(
 /// The refusal of a group record written as an instance's child, `k::fragment![G { .. }]` or
 /// `G { .., .. }` (a constructor's record is written whole, so a record with a rest is a group's),
 /// whose child at any depth of such records is brackets ending in a remainder
-/// ([`remainder_sequence`]): a computation's items, which no term of the group holds yet, while
-/// the instance record's group child is the group's term (`krs::analysis::collection-entry`, the
-/// limit the compiler states for a present `?` group's computation child). `None` for any other
-/// value.
+/// ([`remainder_sequence`]): the group's term holds a computation child's items (the compiler
+/// reads them by the child's kind) but no binder of its remainder yet, while the instance
+/// record's group child is the group's term (`krs::analysis::collection-entry`, the limit the
+/// compiler states for a present `?` group's computation child). `None` for any other value.
 fn group_computation_remainder(
     tokens: &TokenStream,
     context: StateMacroContext,

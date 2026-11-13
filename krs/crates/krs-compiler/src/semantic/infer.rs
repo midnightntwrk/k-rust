@@ -3416,6 +3416,16 @@ impl StructuredTermBuilder<'_> {
                 {
                     self.infer(&field.value, Some(&place), subject)?;
                 }
+                ProtocolCellContent::Leaf { .. }
+                    if let Some(sequence) =
+                        self.child_sequence(owner, declared, &field.value, subject)? =>
+                {
+                    for item in &sequence.items {
+                        let expected = matches!(item.value, DescriptorTerm::Wildcard { .. })
+                            .then(|| self.k_item_sort.clone());
+                        self.infer_k_item(&item.value, expected.as_ref(), subject)?;
+                    }
+                }
                 ProtocolCellContent::Leaf { sort, .. } => {
                     self.infer(&field.value, Some(&semantic_sort_ref(&sort.sort)), subject)?;
                 }
@@ -3587,6 +3597,78 @@ impl StructuredTermBuilder<'_> {
             })
     }
 
+    /// The K sequence that a cell term's computation child `declared` holds where the term writes
+    /// it in brackets, `value`: brackets on a computation cell are its items wherever the cell is
+    /// declared (R4), a group's term included, so `Hh { qk: [Go()], .. }` holds the computation
+    /// `go` and `[Go(), ..]` in a pattern one whose first item is `go`, `go ~> _`, as the cell's
+    /// own entry does. `None` for any other child or value. A named rest there is the limit the
+    /// macros state for an instance record's group child: a group's term holds no binder of a
+    /// computation's remainder yet (`krs::analysis::collection-entry`).
+    fn child_sequence(
+        &self,
+        owner: &StableItemId,
+        declared: &krs_ir::DescriptorCellField,
+        value: &DescriptorTerm,
+        subject: bool,
+    ) -> Result<Option<krs_ir::ProtocolRuleKSequence<DescriptorTerm>>, DescriptorLoweringError>
+    {
+        let Some(sequence) = super::group_records::computation_sequence(
+            &krs_ir::ProtocolRuleStateTerm::Term(value.clone()),
+            declared,
+        ) else {
+            return Ok(None);
+        };
+        match &sequence.tail {
+            krs_ir::ProtocolRuleFrame::Exact => Ok(Some(sequence)),
+            krs_ir::ProtocolRuleFrame::Anonymous { .. } if subject => Ok(Some(sequence)),
+            krs_ir::ProtocolRuleFrame::Reuse { key, .. } => {
+                Err(super::cell_states::collection_error(
+                    self.descriptor,
+                    krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                    key,
+                    format!(
+                        "not supported yet: the group `{}` written as a term is one term naming every child, and its record writes the child `{}` as a computation's items with a named rest, a remainder, which no term of the group holds yet",
+                        owner.item_name(),
+                        declared.rust_field
+                    ),
+                ))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Lowers a computation child's K sequence written in brackets inside a cell term
+    /// ([`Self::child_sequence`]): its items, each a `KItem`, then, where a pattern's brackets end
+    /// in `..`, a wildcard of sort `K` for the rest it leaves unread.
+    fn lower_child_sequence(
+        &mut self,
+        sequence: &krs_ir::ProtocolRuleKSequence<DescriptorTerm>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let mut items = sequence
+            .items
+            .iter()
+            .map(|item| {
+                let expected = matches!(item.value, DescriptorTerm::Wildcard { .. })
+                    .then(|| self.k_item_sort.clone());
+                self.lower_k_item(&item.value, expected.as_ref(), subject)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if let krs_ir::ProtocolRuleFrame::Anonymous { key } = &sequence.tail {
+            items.push(self.lower(
+                &DescriptorTerm::Wildcard { key: key.clone() },
+                Some(&SemanticSortRef::k_sequence()),
+                subject,
+            )?);
+        }
+        let item_sort = super::catalog::common_sequence_item_sort(&items, self.sort_parents);
+        Ok(SemanticTerm::k_sequence(
+            semantic_origin(self.descriptor, sequence.payload_key.clone(), "cell-term-k-sequence")?,
+            item_sort,
+            items,
+        ))
+    }
+
     fn lower_cell_term(
         &mut self,
         key: &ProvenanceKey,
@@ -3637,8 +3719,16 @@ impl StructuredTermBuilder<'_> {
                 }
                 ProtocolCellContent::Leaf { sort, .. } => {
                     let content_sort = semantic_sort_ref(&sort.sort);
-                    let content =
-                        self.lower_record_field(value, &field_id, Some(&content_sort), record)?;
+                    let sequence = match value {
+                        Some(value) => self.child_sequence(owner, declared, value, record.subject)?,
+                        None => None,
+                    };
+                    let content = match sequence {
+                        Some(sequence) => self.lower_child_sequence(&sequence, record.subject)?,
+                        None => {
+                            self.lower_record_field(value, &field_id, Some(&content_sort), record)?
+                        }
+                    };
                     let origin = match field {
                         Some(field) => {
                             semantic_origin(self.descriptor, field.key.clone(), "cell-term-child")?
