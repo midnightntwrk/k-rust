@@ -2098,6 +2098,11 @@ fn braces_naming_no_entry_in_a_term_are_the_literal() {
             subject("gg: Gg { hk: [Load { m: { .. } }, ..], .. }"),
         ),
         ("leaf-named", subject("cur: Load { m: { r @ .. } }")),
+        ("leaf-splice", subject("cur: Load { m: { ..m } }")),
+        (
+            "leaf-splice-result",
+            result("env: m, cur: _", "cur: Load { m: { ..m } }"),
+        ),
     ];
     let table = rows
         .iter()
@@ -2122,5 +2127,7 @@ fn braces_naming_no_entry_in_a_term_are_the_literal() {
         leaf-dots: error[krs::syntax::invalid-expression-notation]: `map![..]` names no entry: it matches every map, which `_` says
         leaf-dots-result: error[krs::syntax::invalid-expression-notation]: the entry of the cell `cur` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{ k -> v, .. }`) below the cell's content root, in a list's element, a record written as a term (a constructor's, or a group's at a leaf) or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{ k -> v, .. }`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)
         group-item-dots: error[krs::syntax::invalid-expression-notation]: `map![..]` names no entry: it matches every map, which `_` says
-        leaf-named: error[krs::syntax::invalid-expression-notation]: `map![r @ ..]` names no entry: it is the whole map `r`, so write `r`"#]].assert_eq(&table);
+        leaf-named: error[krs::syntax::invalid-expression-notation]: `map![r @ ..]` names no entry: it is the whole map `r`, so write `r`
+        leaf-splice: error[krs::syntax::invalid-expression-notation]: `map![..m]` has no entry: it is the map `m` itself, so write `m`
+        leaf-splice-result: error[krs::syntax::invalid-expression-notation]: `map![..m]` has no entry: it is the map `m` itself, so write `m`"#]].assert_eq(&table);
 }

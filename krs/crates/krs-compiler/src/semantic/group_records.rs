@@ -94,8 +94,9 @@ pub(super) fn with_leaf_constructor_records(
 }
 
 /// The refusal of a constructor's record on the leaf `cell` whose field is braces naming no entry
-/// but a rest, `m: { .. }` or, in a pattern, `m: { r @ .. }`: below the leaf's content root such
-/// braces are the map literal they spell, `map![..]` or `map![r @ ..]`, as they are in an item
+/// but a rest, `m: { .. }`, `m: { ..m }` or, in a pattern, `m: { r @ .. }`: below the leaf's
+/// content root such braces are the map literal they spell, `map![..]`, `map![..m]` or
+/// `map![r @ ..]`, as they are in an item
 /// ([`krs_syntax`]'s `map_braces_as_literals`), so they are refused as the literal is there, with
 /// its code and text: in a pattern it names no entry, and in a result its `..` names no map.
 /// `None` for any other record.
@@ -134,6 +135,9 @@ fn entry_less_map_field(
             }
             (krs_ir::ProtocolRuleFrame::Bind { binding, .. }, true) => format!(
                 "`map![{binding} @ ..]` names no entry: it is the whole map `{binding}`, so write `{binding}`"
+            ),
+            (krs_ir::ProtocolRuleFrame::Reuse { binding, .. }, _) => format!(
+                "`map![..{binding}]` has no entry: it is the map `{binding}` itself, so write `{binding}`"
             ),
             (krs_ir::ProtocolRuleFrame::Anonymous { .. }, false) => {
                 krs_syntax::cell_entries::Refusal::AnonymousRestInMapLiteral.reason(

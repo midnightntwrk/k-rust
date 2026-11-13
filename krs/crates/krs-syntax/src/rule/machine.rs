@@ -576,6 +576,17 @@ fn names_no_entry(group: &proc_macro2::Group, before: Option<&TokenTree>) -> boo
     }
 }
 
+/// Whether the braces `group` hold one map splice and nothing else, `{ ..m }`.
+fn splices_a_map(group: &proc_macro2::Group) -> bool {
+    if group.delimiter() != proc_macro2::Delimiter::Brace {
+        return false;
+    }
+    let trees = group.stream().into_iter().collect::<Vec<_>>();
+    matches!(trees.as_slice(), [TokenTree::Punct(first), TokenTree::Punct(second), _, ..]
+        if first.as_char() == '.' && second.as_char() == '.')
+        && top_level_items(group.stream()).len() == 1
+}
+
 /// `tokens`, the items of a computation's or a list's brackets, with each map written in braces
 /// inside them, `{ k -> v }`, `{ k -> v, r @ .. }`, `{ k -> v, ..m }` or `{ k -> v, .. }`, written
 /// as the literal `k::map![..]` holding the same entries and rest, at any depth: an item, a list's
@@ -2337,16 +2348,30 @@ fn record_term_with_map_literals(
         .stream()
         .into_iter()
         .map(|tree| match tree {
+            // A child's whole value in braces splicing a map, `m: { ..m }`, is no entry of the
+            // child's cell (no instance reading takes it), so it is the literal it spells.
+            TokenTree::Group(group) if splices_a_map(&group) => {
+                let span = group.span();
+                let mut entries =
+                    proc_macro2::Group::new(proc_macro2::Delimiter::Bracket, group.stream());
+                entries.set_span(span);
+                quote_spanned!(span=> k::map!#entries)
+                    .into_iter()
+                    .collect::<TokenStream>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            }
             TokenTree::Group(group) => {
                 let mut rebuilt = proc_macro2::Group::new(
                     group.delimiter(),
                     map_braces_as_literals(group.stream()),
                 );
                 rebuilt.set_span(group.span());
-                TokenTree::Group(rebuilt)
+                vec![TokenTree::Group(rebuilt)]
             }
-            tree => tree,
+            tree => vec![tree],
         })
+        .flatten()
         .collect::<TokenStream>();
     if children.to_string() == body.stream().to_string() {
         return Ok(None);
