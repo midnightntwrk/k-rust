@@ -384,11 +384,11 @@ deviation = "krs::analysis::unsupported-shape @ item"
 
 ["child-twins/cells-claim/result/list-child/k/[..tail]"]
 finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ spelling"
+deviation = "krs::analysis::collection-entry @ entry"
 
 ["child-twins/cells-claim/result/map-child/k/[..tail]"]
 finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ spelling"
+deviation = "krs::analysis::collection-entry @ entry"
 
 ["child-twins/cells-claim/result/top/k/k::configuration::KCell(..tail)"]
 finding = "TWIN-1"
@@ -420,11 +420,11 @@ deviation = "krs::analysis::unsupported-shape @ item"
 
 ["child-twins/cells/result/list-child/k/[..tail]"]
 finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ spelling"
+deviation = "krs::analysis::collection-entry @ entry"
 
 ["child-twins/cells/result/map-child/k/[..tail]"]
 finding = "TWIN-3"
-deviation = "krs::analysis::collection-entry @ spelling"
+deviation = "krs::analysis::collection-entry @ entry"
 
 ["child-twins/cells/result/top/k/k::configuration::KCell(..tail)"]
 finding = "TWIN-1"

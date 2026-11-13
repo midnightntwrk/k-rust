@@ -240,7 +240,9 @@ supported yet in a rule, and a group record child's kept result rest (`nested-an
 There is no leaf of sort `KSequence`: a declaration holding one writes every leaf with its wrapper,
 and the source `krs expand` prints for such a base is refused (`krs::analysis::cell-wrapper`), which
 would turn every case's K3 red. The family runs in the `cells` shard and the first shard of the fast
-tier.
+tier: 467 cases (2026-11-13, 8 workers, kept scratch: alone 205 package builds and 63 s, K6 12
+checks; the whole `cells` shard went from 632 cases to 1,099, 813 builds and 288 s under a load of
+25 to 100 from other work).
 
 The generator's own tests check that every base expands, that every case's ranges point at its
 construct, and that both files parse:
