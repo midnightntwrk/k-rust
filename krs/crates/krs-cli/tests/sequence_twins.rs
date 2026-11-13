@@ -701,7 +701,7 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
             ),
         ),
     ]);
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         ll: error[krs::syntax::invalid-list-notation]: the entry of the cell `ll` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or match the list whole to drop or move it: `_` drops it, and a binder `rest` moves it (`..rest`)
         ll-dropped: error[krs::analysis::always-enabled-rule]: rule `go` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard
         aux: error[krs::syntax::invalid-list-notation]: the entry of the cell `aux` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a readable rule keeps a computation's rest, and a `cells!` rule whose subject names it (`KCell(x, rest @ ..)`) may put it back after other items (`KCell(y, ..rest)`), move it into another computation cell (`aux: KCell(..rest)`), or drop it, writing the cell without it (`KCell(y)`)
@@ -713,7 +713,7 @@ fn a_rest_mismatch_advises_a_spelling_its_subject_admits() {
         unmatched-child: error[krs::syntax::invalid-list-notation]: the entry of the cell `tl` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it writes the whole list, which drops a rest the subject leaves unnamed; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it
         cells-k-condition: rule [go]: <k> go ~> Rest:K => .K </k> requires isKResult(Rest:K)
         cells-k-moved: rule [go]: <k> put ( A:Int , B:Int ) ~> Rest:K => go ~> Rest:K </k>
-        cells-k-into-aux: rule [go]: <k> go ~> Rest:K => .K </k> <aux> .K => Rest:K </aux>"#]].assert_eq(&lines.join("\n"));
+        cells-k-into-aux: rule [go]: <k> go ~> Rest:K => .K </k> <aux> .K => Rest:K </aux>"]].assert_eq(&lines.join("\n"));
 }
 
 /// The rows of [`a_map_or_collection_rest_mismatch_advises_a_spelling_that_works`], over the
@@ -831,7 +831,7 @@ fn a_map_or_collection_rest_mismatch_advises_a_spelling_that_works() {
         );
         format!("{name}: {}", verdict(target.path(), &manifest))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         env: error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; name the rest in the subject (`map![k -> v, rest @ ..]`) to put it back under other entries (`map![k -> w, ..rest]`), to move it into another cell (`Cell(rest)`), or to drop it, writing the map without it (`map![k -> w]`)
         readable-env: error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: the subject's `..` matches the entries of the map it leaves unnamed, and the result, which writes the whole map and has no `..`, would keep them to K but drop them to a Rust reader; a readable record names no rest of a map that a result can write, so match the map whole with a binder `m` and build its new map from it (`map::update(m, k, w)`); a `cells!` rule whose subject names the rest (`map![k -> v, rest @ ..]`) may put it back under other entries (`map![k -> w, ..rest]`), move it into another cell (`Cell(rest)`), or drop it, writing the map without it (`map![k -> w]`)
         env-back: rule [go]: <env> 0 |-> V:KItem Rest:Map => 0 |-> 1 Rest:Map </env>
@@ -841,7 +841,7 @@ fn a_map_or_collection_rest_mismatch_advises_a_spelling_that_works() {
         job: error[krs::syntax::invalid-list-notation]: the entry of the cell `job` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a rule does not remove a collection's other instances yet
         cells-job: error[krs::syntax::invalid-list-notation]: the entry of the cell `job` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest: a rule does not remove a collection's other instances yet
         job-kept: rule [go]: <k> go => .K ... </k> <jobs> <job> <jk> .K => go </jk> </job> ... </jobs>
-        job-named: error[krs::analysis::collection-entry]: not supported yet: the pattern binds the other instances of the collection `job` to `rest` (`rest @ ..`), and a result that does not put them back with `..rest` removes them, which a rule does not state yet"#]].assert_eq(&lines.join("\n"));
+        job-named: error[krs::analysis::collection-entry]: not supported yet: the pattern binds the other instances of the collection `job` to `rest` (`rest @ ..`), and a result that does not put them back with `..rest` removes them, which a rule does not state yet"]].assert_eq(&lines.join("\n"));
 }
 
 /// The rows of [`a_moved_rest_has_one_rule_at_fixed_and_optional_cells`], over the preamble with
@@ -983,7 +983,7 @@ fn a_moved_rest_has_one_rule_at_fixed_and_optional_cells() {
         );
         format!("{name}: {}", verdict(target.path(), &manifest))
     });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         ok-out: rule [go]: <k> go => .K ... </k> <ok> put ( 1 , 2 ) ~> Rest:K => .K </ok> <aux> .K => Rest:K </aux>
         ok-in: rule [go]: <k> go ~> Rest:K => .K </k> <ok> .K => Rest:K </ok>
         ok-condition: rule [go]: <k> go => .K ... </k> <ok> go ~> Rest:K => .K </ok> requires isKResult(Rest:K)
@@ -993,7 +993,7 @@ fn a_moved_rest_has_one_rule_at_fixed_and_optional_cells() {
         readable-tm-whole: rule [go]: <k> go => .K ... </k> <th> <tm> M:Map => M:Map [ 0 <- 1 ] </tm> ... </th>
         readable-tm-named: rule [go]: <k> go => .K ... </k> <th> <tm> 0 |-> V:KItem Rest:Map => 0 |-> 1 </tm> ... </th>
         readable-env-named: rule [go]: <k> go => .K ... </k> <env> 0 |-> V:KItem Rest:Map </env> <out> _ => ListItem(V:KItem) </out>
-        tk-into-aux: error[krs::syntax::unsupported-rule-signature]: the rest `rest` of the computation child `tk` is a remainder of the computation, as a computation cell's `KCell(x, rest @ ..)` rest is, and a rule's typed parameters declare no remainder: leave `rest` out of them"#]].assert_eq(&lines.join("\n"));
+        tk-into-aux: error[krs::syntax::unsupported-rule-signature]: the rest `rest` of the computation child `tk` is a remainder of the computation, as a computation cell's `KCell(x, rest @ ..)` rest is, and a rule's typed parameters declare no remainder: leave `rest` out of them"]].assert_eq(&lines.join("\n"));
 }
 
 /// The rows of [`a_built_computation_writes_every_rest_it_names`]: the rests a built

@@ -522,13 +522,11 @@ fn first_error(target: &Path, manifest: &Path) -> String {
         .to_owned()
 }
 
-/// The configuration remainder as a term and a sequence literal at a `K` field are refused. One
-/// item at a `K` field is that field's one-item sequence (ITEMSORTS): a `KItem` is a `K`. A bound
-/// remainder the rule neither puts back nor uses, of the computation or of a map, is an ordinary
-/// pattern binder the rule does not use, so the rule drops it (NAMED-REST-DROP): the cell holds
-/// what the result writes.
+/// A bound remainder the rule neither puts back nor uses, of the computation or of a map, is an
+/// ordinary pattern binder the rule does not use, so the rule drops it (NAMED-REST-DROP): the cell
+/// holds what the result writes.
 #[test]
-fn remainders_the_rule_cannot_write_are_refused() {
+fn a_remainder_the_rule_neither_puts_back_nor_uses_is_dropped() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let dropped = [
@@ -591,6 +589,14 @@ pub fn lost(
             "dropped-map: rule [lost]: <k> drop ~> Tail:K => .K ~> Tail:K </k> <env> 0 |-> V:Int Rest:Map => 1 |-> V:Int </env>",
         ]
     "#]].assert_debug_eq(&kept);
+}
+
+/// The configuration remainder as a term and a sequence literal at a `K` field are refused. One
+/// item at a `K` field is that field's one-item sequence (ITEMSORTS): a `KItem` is a `K`.
+#[test]
+fn remainders_the_rule_cannot_write_are_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
     let cases = [
         (
             "state-term",
