@@ -378,22 +378,11 @@ kind = "k8"
 # TWINORACLE: the child twins' reds (`child-twins/..`, shard `cells`), each a disagreement between a child
 # and its twin triaged by meaning (TWIN-1 .. TWIN-10); TWINFIX resolved every one, so none is pending.
 
-# TWINWIDE: the widened family's reds, each triaged by meaning (progress log): the print of a readable
-# result writing a group's child inside an instance (TWW-2), and C6's limit told as a signature error
-# outside the case (TWW-3). BACKMAP resolved the readable alias over a Map cell's braces (BACKMAP-2-1)
-# and a readable `?` leaf's `Some({ 0 -> x })` in a result (TWW-1).
-
-["k3/child-twins/readable/result/nested-child/int/x"]
-finding = "TWW-2"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/result/nested-child/list/[x]"]
-finding = "TWW-2"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
-
-["k3/child-twins/readable/result/nested-child/map/{ 0 -> x }"]
-finding = "TWW-2"
-deviation = "printed surface refused: krs::analysis::cell-wrapper @ item"
+# TWINWIDE: the widened family's reds, each triaged by meaning (progress log): C6's limit told as a
+# signature error outside the case (TWW-3). BACKMAP admitted a readable alias over a Map cell's braces
+# (BACKMAP-2-1) and a readable `?` leaf's `Some({ 0 -> x })` in a result (TWW-1), and MAPITEM's printer
+# leaves a group child's kept computation inside an instance record to the record's `..` (TWW-2), so
+# none of those is pending.
 
 ["child-twins/cells/both/nested-child/k/[Cmd::Go(), rest @ ..] => [Cmd::Hold(), ..rest]"]
 finding = "TWW-3"

@@ -2996,14 +2996,16 @@ struct CellRendering<'a> {
     list_rest_names: Vec<Ident>,
 }
 
-/// `printed` with each computation child of a present `?` group that the rule only keeps left to
-/// the records' `..`, where it has one: the elaboration names every child of a present group's
-/// record, the children a readable record's `..` keeps by a binder the subject binds and the
-/// result writes back at the same child, and a binder is no entry of a computation child in a
-/// `k::fragment!` (`krs::analysis::cell-wrapper`), whose brackets would be the `?` group's
-/// computation items, not supported yet. A child the subject binds whole and the result writes
-/// back as it was, with the binder read nowhere else, is what an open record keeps, so the records
-/// leave it to `..` and the binder is declared no more. `None` where the rule keeps none so.
+/// `printed` with each computation child of a group written whole that the rule only keeps left
+/// to the records' `..`, where it has one: a present `?` group's, and a group child's of an
+/// instance record the result updates (`job: [J { jh: Hh { hn: x, .. }, ..me }, ..]`). The
+/// elaboration names every child of such a group's record, the children a readable record's `..`
+/// keeps by a binder the subject binds and the result writes back at the same child, and a binder
+/// is no entry of a computation child in a `k::fragment!` (`krs::analysis::cell-wrapper`), whose
+/// brackets would be the group's computation items, not supported yet where the group is one
+/// term. A child the subject binds whole and the result writes back as it was, with the binder
+/// read nowhere else, is what an open record keeps, so the records leave it to `..` and the
+/// binder is declared no more. `None` where the rule keeps none so.
 fn without_kept_computations(
     printed: &krs_ir::DescriptorConfigurationRule,
     index: &DescriptorIndex<'_>,
@@ -3019,66 +3021,46 @@ fn without_kept_computations(
         else {
             continue;
         };
-        let (State::Present { value: before }, State::Present { value: after }) =
-            (&mut before.value, &mut after.value)
-        else {
-            continue;
-        };
-        let (
-            State::Group(DescriptorTerm::Cell {
-                declaration,
-                fields: before_fields,
-                open: before_open,
-                ..
-            }),
-            State::Group(DescriptorTerm::Cell {
-                fields: after_fields,
-                open: after_open,
-                update: None,
-                ..
-            }),
-        ) = (&mut **before, &mut **after)
-        else {
-            continue;
-        };
-        let Ok(group) = index.cell(declaration) else {
-            continue;
-        };
-        let variable = |field: &krs_ir::DescriptorCellTermField| match &*field.value {
-            DescriptorTerm::Variable { name, .. } => Some(name.clone()),
-            _ => None,
-        };
-        let kept = group
-            .fields
-            .iter()
-            .filter(|child| {
-                matches!(
-                    child.content,
-                    krs_ir::ProtocolCellContent::Leaf {
-                        wrapper: krs_ir::CellWrapper::KCell,
-                        ..
+        match (&mut before.value, &mut after.value) {
+            (State::Present { value: before }, State::Present { value: after }) => {
+                if let (State::Group(before), State::Group(after)) = (&mut **before, &mut **after) {
+                    keep_computations_open(before, after, printed, index, &mut dropped);
+                }
+            }
+            // An instance the result updates, `..label` over the subject's `label @ ..`: each
+            // group child both write as a term.
+            (State::Instances(before), State::Instances(after)) => {
+                for updated in after.front.iter_mut().chain(&mut after.back) {
+                    let krs_ir::ProtocolInstanceRest::Update { label } = &updated.rest else {
+                        continue;
+                    };
+                    let Some(matched) = before
+                        .front
+                        .iter_mut()
+                        .chain(&mut before.back)
+                        .find(|matched| matched.label.as_ref() == Some(label))
+                    else {
+                        continue;
+                    };
+                    for child in &mut updated.fields {
+                        let Some(was) = matched
+                            .fields
+                            .iter_mut()
+                            .find(|was| was.field == child.field)
+                        else {
+                            continue;
+                        };
+                        if let (
+                            State::Group(before) | State::Term(before),
+                            State::Group(after) | State::Term(after),
+                        ) = (&mut was.value, &mut child.value)
+                        {
+                            keep_computations_open(before, after, printed, index, &mut dropped);
+                        }
                     }
-                )
-            })
-            .filter_map(|child| {
-                let written = |fields: &[krs_ir::DescriptorCellTermField]| {
-                    fields
-                        .iter()
-                        .find(|field| field.field.as_str() == child.rust_field)
-                        .and_then(variable)
-                };
-                let name = written(before_fields)?;
-                (written(after_fields).as_ref() == Some(&name)
-                    && crate::semantic::variable_occurrences(printed, &name) == 2)
-                    .then(|| (child.rust_field.clone(), name))
-            })
-            .collect::<Vec<_>>();
-        for (child, name) in kept {
-            before_fields.retain(|field| field.field.as_str() != child);
-            after_fields.retain(|field| field.field.as_str() != child);
-            *before_open = true;
-            *after_open = true;
-            dropped.insert(name);
+                }
+            }
+            _ => {}
         }
     }
     if dropped.is_empty() {
@@ -3087,6 +3069,79 @@ fn without_kept_computations(
     rule.bindings
         .retain(|binding| !dropped.contains(&binding.name));
     Some(rule)
+}
+
+/// Leaves to the records' `..` each computation child that the group terms `before` (the
+/// subject's) and `after` (the result's, no update) both write as one binder, read nowhere else
+/// in `printed`, adding the binder to `dropped` ([`without_kept_computations`]). Any other pair of
+/// terms is left as it is.
+fn keep_computations_open(
+    before: &mut DescriptorTerm,
+    after: &mut DescriptorTerm,
+    printed: &krs_ir::DescriptorConfigurationRule,
+    index: &DescriptorIndex<'_>,
+    dropped: &mut BTreeSet<String>,
+) {
+    let (
+        DescriptorTerm::Cell {
+            declaration,
+            fields: before_fields,
+            open: before_open,
+            ..
+        },
+        DescriptorTerm::Cell {
+            declaration: written,
+            fields: after_fields,
+            open: after_open,
+            update: None,
+            ..
+        },
+    ) = (before, after)
+    else {
+        return;
+    };
+    if declaration != written {
+        return;
+    }
+    let Ok(group) = index.cell(declaration) else {
+        return;
+    };
+    let variable = |field: &krs_ir::DescriptorCellTermField| match &*field.value {
+        DescriptorTerm::Variable { name, .. } => Some(name.clone()),
+        _ => None,
+    };
+    let kept = group
+        .fields
+        .iter()
+        .filter(|child| {
+            matches!(
+                child.content,
+                krs_ir::ProtocolCellContent::Leaf {
+                    wrapper: krs_ir::CellWrapper::KCell,
+                    ..
+                }
+            )
+        })
+        .filter_map(|child| {
+            let written = |fields: &[krs_ir::DescriptorCellTermField]| {
+                fields
+                    .iter()
+                    .find(|field| field.field.as_str() == child.rust_field)
+                    .and_then(variable)
+            };
+            let name = written(before_fields)?;
+            (written(after_fields).as_ref() == Some(&name)
+                && crate::semantic::variable_occurrences(printed, &name) == 2)
+                .then(|| (child.rust_field.clone(), name))
+        })
+        .collect::<Vec<_>>();
+    for (child, name) in kept {
+        before_fields.retain(|field| field.field.as_str() != child);
+        after_fields.retain(|field| field.field.as_str() != child);
+        *before_open = true;
+        *after_open = true;
+        dropped.insert(name);
+    }
 }
 
 /// The subject and result entries of `printed`'s cells, each printed by [`render_rule_cell`].
