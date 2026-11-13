@@ -1046,11 +1046,20 @@ fn a_result_value_is_read_by_its_spelling_and_an_unpaired_cell_is_carried() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], pc: n } => { k: [..], pc: { y -> n, .. } };",
-            "writes braces holding a rest in a result",
+            "writes a map read in a result, braces holding a rest",
         ),
         (
             "for Machine; x: { k: [Go(), ..] } => { k: [..], env: { y -> 1, .. } };",
-            "writes braces holding a rest in a result",
+            "writes a map read in a result, braces holding a rest",
+        ),
+        // The cell's `map![k -> v, ..]` reads as those braces, at a cell and in `Some(..)` alike.
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], env: map![y -> 1, ..] };",
+            "writes a map read in a result, braces holding a rest",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], omap: Some(map![y -> 1, ..]) };",
+            "writes a map read in a result, braces holding a rest",
         ),
         // A presence is lexical over a matched term too: it pairs with no term.
         (
@@ -1160,7 +1169,7 @@ fn a_notation_fault_waits_for_the_cells_kind() {
         ),
         (
             "for Machine; x: { k: [Go(), ..], acct: { Gm { ma: x, .. }, .. } } => { k: [..], acct: { y -> x, .. } };",
-            "writes braces holding a rest in a result",
+            "writes a map read in a result, braces holding a rest",
         ),
     ] {
         let block = krs_syntax::RuleBlock::parse_source(source)

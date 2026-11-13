@@ -1033,7 +1033,12 @@ fn record_maps_as_terms(
             continue;
         }
         let value = value.iter().cloned().collect::<TokenStream>();
-        let written = match value.clone().into_iter().collect::<Vec<_>>().as_slice() {
+        // The child's `map![k -> v, ..]` reads as its braces `{ k -> v, .. }`.
+        let trees = rooted_map_braces(&value).map_or_else(
+            || value.clone().into_iter().collect::<Vec<_>>(),
+            |braces| vec![TokenTree::Group(braces)],
+        );
+        let written = match trees.as_slice() {
             [TokenTree::Group(map)]
                 if map.delimiter() == proc_macro2::Delimiter::Brace
                     && contains_top_level_arrow(map) =>
@@ -1116,7 +1121,8 @@ fn named_rest_of(map: &proc_macro2::Group) -> Option<Ident> {
 }
 
 /// The braces of a value spelled as a map read with its other entries open, `{ k -> v, .. }`:
-/// one braced group whose items hold a top-level arrow and end in `..`.
+/// one braced group whose items hold a top-level arrow and end in `..`; or the braces a cell's
+/// `map![k -> v, ..]` reads as ([`rooted_map_braces`]), where the value is a cell's content.
 fn map_read_group(tokens: &TokenStream) -> Option<proc_macro2::Group> {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     match trees.as_slice() {
@@ -1127,8 +1133,28 @@ fn map_read_group(tokens: &TokenStream) -> Option<proc_macro2::Group> {
         {
             Some(group.clone())
         }
-        _ => None,
+        _ => rooted_map_braces(tokens),
     }
+}
+
+/// The braces `{ k -> v, .. }` that a readable `map![k -> v, ..]` (or `k::map![k -> v, ..]`)
+/// written as a cell's content reads as: the cell's map read, the map holding those entries and
+/// the cell's others, which is what its braces mean there. A literal naming its rest
+/// (`r @ ..`), writing it over a map (`..m`) or naming every entry is a term, read as one. The
+/// braces carry the literal's span. `None` for any other value.
+///
+/// Only a content root's reader calls it (a cell's value, `Some(..)`'s content, an instance's or a
+/// group record's child): below every root the literal's `..` names no map, which the collector
+/// refuses from the same spelling, by the cell's kind ([`crate::cell_entries`]).
+fn rooted_map_braces(tokens: &TokenStream) -> Option<proc_macro2::Group> {
+    let (name, entries) = crate::state_macro::qualified_macro_payload(tokens)?;
+    let span = tokens.clone().into_iter().last()?.span();
+    let mut braces = proc_macro2::Group::new(proc_macro2::Delimiter::Brace, entries);
+    braces.set_span(span);
+    (name == "map"
+        && contains_top_level_arrow(&braces)
+        && top_level_items(braces.stream()).last().is_some_and(is_dots))
+    .then_some(braces)
 }
 
 /// A map read `{ k -> v, .. }` that `tokens` spell, as a map cell's entries in `context`, or
@@ -1340,6 +1366,15 @@ fn parse_machine_pattern_record(
                 let (entries, rest, _) = parse_machine_map_pattern(&content)?;
                 MachinePatternCell::MapItems(entries, rest)
             }
+        } else if let Some(braces) = rooted_map_braces(&value_tokens(&content)) {
+            // The cell's `map![k -> v, ..]` is its map read, as its braces `{ k -> v, .. }` are.
+            skip_value(&content)?;
+            let (entries, rest, _) = crate::parse::structured_with(
+                TokenTree::Group(braces).into(),
+                parse_machine_map_pattern,
+                crate::SyntaxError::from,
+            )?;
+            MachinePatternCell::MapItems(entries, rest)
         } else if let Some(presences) = value_presences(&content, StateMacroContext::Pattern) {
             skip_value(&content)?;
             presences.carry(faults)?;
@@ -1616,11 +1651,11 @@ fn parse_machine_result_record(
                     presences.carry(faults)?;
                     crate::parse::structured_with(
                         presences.read,
-                        read_result_presence,
+                        |content| read_result_presence(content, &cell),
                         crate::SyntaxError::from,
                     )?
                 }
-                None => read_result_presence(&content)?,
+                None => read_result_presence(&content, &cell)?,
             }
         } else if let Some(map) = exact_map(&value_tokens(&content)) {
             // A map cell's braces naming every entry, `{ k -> v }`, are the map written, as
@@ -1631,6 +1666,10 @@ fn parse_machine_result_record(
             // A map read is spelled by its arrows, which no instance list holds at its top
             // level, whatever the subject's entry of the cell spelled: on a collection it is
             // map notation on a cell that is no Map, the cell's kind's class.
+            MachineResultCell::MapRead(map)
+        } else if let Some(map) = rooted_map_braces(&value_tokens(&content)) {
+            // The cell's `map![k -> v, ..]` is its map read, as its braces `{ k -> v, .. }` are.
+            skip_value(&content)?;
             MachineResultCell::MapRead(map)
         } else if family == Some(StateFamily::Instances)
             && (content.peek(syn::token::Bracket) || content.peek(syn::token::Brace))
@@ -1686,7 +1725,8 @@ fn parse_machine_result_record(
 }
 
 /// The refusal a readable result's record value `Group { .. }` carries when one of its children
-/// is a map read `{ k -> v, .. }`, a pattern where a value is built (`map-read-in-result`). The
+/// is a map read `{ k -> v, .. }` (or the child's `map![k -> v, ..]`, which reads as those
+/// braces), a pattern where a value is built (`map-read-in-result`). The
 /// collector judges the authored spelling first, by the child's declared kind (ruling R4), so
 /// the cell is neither read nor written and the refusal is carried
 /// ([`read_with_pairing_deferred`]). A map child otherwise, and every map child of a subject, is
@@ -1708,21 +1748,15 @@ fn record_child_entry(content: ParseStream<'_>) -> Option<crate::SyntaxError> {
     }
     top_level_items(body.stream()).into_iter().find_map(|item| {
         let trees = item.into_iter().collect::<Vec<_>>();
-        let [
-            TokenTree::Ident(child),
-            TokenTree::Punct(colon),
-            TokenTree::Group(map),
-        ] = trees.as_slice()
+        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = trees.as_slice()
         else {
             return None;
         };
-        if colon.as_char() != ':'
-            || map.delimiter() != proc_macro2::Delimiter::Brace
-            || !contains_top_level_arrow(map)
-            || !top_level_items(map.stream()).last().is_some_and(is_dots)
-        {
+        if colon.as_char() != ':' {
             return None;
         }
+        // Braces holding a rest, or the child's `map![k -> v, ..]`, which reads as them.
+        let map = map_read_group(&value.iter().cloned().collect())?;
         let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
             crate::cell_entry::EntryForm::Readable,
             &child.unraw().to_string(),
@@ -1769,10 +1803,36 @@ fn computation_items_value<T>(
     read(&content.fork()).err().map(syntax_error)
 }
 
-/// A result's `Some(..)` or `None` ([`parse_readable_result_state`]). A present content whose
-/// list notation keeps an anonymous `..` (`Some([..])`) is refused by the notation, but only
-/// once the cell's kind has answered.
-fn read_result_presence(content: ParseStream<'_>) -> Result<MachineResultCell, ParseError> {
+/// A result's `Some(..)` or `None` ([`parse_readable_result_state`]) for the cell `cell`. A
+/// present content whose list notation keeps an anonymous `..` (`Some([..])`) is refused by the
+/// notation, and one that is a map read (`Some({ k -> v, .. })`, `Some(map![k -> v, ..])`), a
+/// pattern where a value is built, is `map-read-in-result`, but each only once the cell's kind
+/// has answered.
+fn read_result_presence(
+    content: ParseStream<'_>,
+    cell: &Ident,
+) -> Result<MachineResultCell, ParseError> {
+    let inside = {
+        let fork = content.fork();
+        fork.parse::<Ident>()
+            .ok()
+            .filter(|some| some == "Some")
+            .and(fork.parse::<proc_macro2::Group>().ok())
+            .filter(|_| fork.is_empty() || fork.peek(Token![,]))
+    };
+    if let Some(map) = inside.and_then(|inside| map_read_group(&inside.stream())) {
+        let reason = crate::cell_entries::Refusal::MapReadInResult.reason(
+            crate::cell_entry::EntryForm::Readable,
+            &cell.unraw().to_string(),
+            &crate::cell_entries::EntryKind::default(),
+            None,
+        );
+        skip_value(content)?;
+        return Ok(MachineResultCell::Refused(Box::new(crate::SyntaxError::new(
+            crate::SyntaxErrorKind::RustSyntax(reason),
+            map.span(),
+        ))));
+    }
     let fork = content.fork();
     match parse_readable_result_state(&fork, StateFamily::Optional) {
         Ok(state) => {
@@ -1944,7 +2004,7 @@ fn readable_record(
         [TokenTree::Group(map)] => {
             map.delimiter() == proc_macro2::Delimiter::Brace && contains_top_level_arrow(map)
         }
-        _ => false,
+        value => rooted_map_braces(&value.iter().cloned().collect()).is_some(),
     };
     let item_less = |value: &[TokenTree]| match value {
         [TokenTree::Group(group)] => {
@@ -2012,6 +2072,14 @@ fn readable_record(
                     return Ok(None);
                 }
                 // A map read's `..` is the map's anonymous rest, as at a record's top level.
+                StateTerm::Map(crate::state_macro::parse_map(
+                    map.stream(),
+                    reading,
+                    Some(TokenRange::for_tokens(&value)?),
+                )?)
+            }
+            // The child's `map![k -> v, ..]` is its map read, as its braces are.
+            _ if let Some(map) = rooted_map_braces(&value) => {
                 StateTerm::Map(crate::state_macro::parse_map(
                     map.stream(),
                     reading,
@@ -2299,7 +2367,7 @@ fn readable_form_step(
             // literal in any term.
             let error = if located.refusal == Refusal::AnonymousRestInMapLiteral {
                 error.with_help(
-                    "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a cell's map with `{ k -> v, .. }`, and a map in a term with `map![k -> v, ..]`",
+                    "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a cell's map where it is the cell's content with `map![k -> v, ..]` or `{ k -> v, .. }`, and a map in a term with `map![k -> v, ..]`",
                 )
             } else {
                 error
