@@ -600,12 +600,17 @@ pub const fn mark(form: Form, spelling: &Spelling, inside_leaf: bool) -> Mark {
     }
 }
 
-/// How deep inside `spelling` a map literal with an anonymous rest stands that the form step
-/// leaves to the kind ([`Place::content`]): reached through records' children, `Some(..)` and
-/// aliases only. `None` where there is none.
+/// How deep inside `spelling` a map read with an anonymous rest stands that the form step leaves
+/// to the kind ([`Place::content`]), the literal `map![k -> v, ..]` or its braces
+/// `{ k -> v, .. }`: reached through records' children, `Some(..)` and aliases only. `None` where
+/// there is none.
 fn rooted_map_literal(spelling: &Spelling) -> Option<usize> {
     match spelling {
-        Spelling::MapLit(entries) if entries.rest == Some(Rest::Anon) => Some(0),
+        Spelling::MapLit(entries) | Spelling::MapRead(entries)
+            if entries.rest == Some(Rest::Anon) =>
+        {
+            Some(0)
+        }
         Spelling::Record(_)
         | Spelling::Fragment(_)
         | Spelling::Present(_)
@@ -1241,8 +1246,9 @@ impl Judge<'_> {
     /// no instance, whose template would give them (P6). That is the record's shape, so it comes
     /// before the sort (P4).
     fn value(&mut self, spelling: &Spelling, depth: usize) -> Result<(), Refusal> {
-        // MAPROOT: a readable `map![k -> v, ..]` the form step left to the kind stands here
-        // below every content root, in a constructor's record: its `..` keeps no cell's map.
+        // MAPROOT: a readable `map![k -> v, ..]` the form step left to the kind, or its braces
+        // (BACKMAP), stands here below every content root, in a constructor's record: its `..`
+        // keeps no cell's map.
         if matches!(self.form, Form::Readable | Form::Claim)
             && let Some(below) = rooted_map_literal(spelling)
         {

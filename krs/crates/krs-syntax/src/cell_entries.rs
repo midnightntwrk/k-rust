@@ -381,9 +381,10 @@ impl Refusal {
             ),
             // A readable `map![k -> v, ..]` at a cell's content root is the cell's map read, its
             // braces' meaning; below every root, in a list's element, a constructor's record or a
-            // term a result builds, no cell's map is there for its `..` to keep.
+            // term a result builds, no cell's map is there for its `..` to keep, in either
+            // spelling.
             Self::AnonymousRestInMapLiteral if form.is_readable() => format!(
-                "the entry of the cell `{cell}` holds `map![..]` with an anonymous `..` below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{{ k -> v, .. }}`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)"
+                "the entry of the cell `{cell}` holds a map with an anonymous `..` (`map![k -> v, ..]` or `{{ k -> v, .. }}`) below the cell's content root, in a list's element, a constructor's record or a term a result builds, where it keeps no cell's map: a cell's map is read at its content (the cell's entry, a record's child, `Some(..)`'s content) with `map![k -> v, ..]` or `{{ k -> v, .. }}`, and a result builds a map as the literal over a map `m` its subject binds (`map![k -> v, ..m]`)"
             ),
             Self::AnonymousRestInMapLiteral => format!(
                 "the entry of the cell `{cell}` builds `k::map![..]` with an anonymous `..`, which names no map: a built map's rest is the map its entries are written over (`k::map![k -> v, ..m]`), and keeping the entries a subject's `..` matched is a frame write no route lowers yet (a stated limitation), so a rule names that rest in its subject (`k::map![k -> v, rest @ ..]`) and builds the map over it (`k::map![k -> w, ..rest]`)"
@@ -1527,8 +1528,9 @@ impl Admission<'_> {
     /// the value is a built term, and a record in it with a bare `..` is refused, at that
     /// record ([`Self::term`]).
     fn value(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
-        // A readable `map![k -> v, ..]` the form step left to the kind stands here below every
-        // content root, in a constructor's record: its `..` keeps no cell's map.
+        // A readable `map![k -> v, ..]` the form step left to the kind, or its braces
+        // `{ k -> v, .. }`, stands here below every content root, in a constructor's record: its
+        // `..` keeps no cell's map.
         if self.form.is_readable()
             && let Some(at) = rooted_map_literal(spelling)
         {
@@ -1792,12 +1794,15 @@ fn open_record(spelling: &EntrySpelling) -> Option<Vec<usize>> {
         })
 }
 
-/// Where inside `spelling` a map literal with an anonymous rest stands that the form step leaves
-/// to the kind: reached through records' children, `Some(..)`, an alias or an alternative only
-/// ([`Admission::root`]). `None` where there is none.
+/// Where inside `spelling` a map read with an anonymous rest stands that the form step leaves to
+/// the kind, the literal `map![k -> v, ..]` or its braces `{ k -> v, .. }`: reached through
+/// records' children, `Some(..)`, an alias or an alternative only ([`Admission::root`]). `None`
+/// where there is none.
 fn rooted_map_literal(spelling: &EntrySpelling) -> Option<Vec<usize>> {
     match spelling {
-        EntrySpelling::MapLiteral(map) if map.rest == Some(EntryRest::Anonymous) => {
+        EntrySpelling::MapLiteral(map) | EntrySpelling::MapRead(map)
+            if map.rest == Some(EntryRest::Anonymous) =>
+        {
             Some(Vec::new())
         }
         EntrySpelling::Record(_)
