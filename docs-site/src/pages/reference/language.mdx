@@ -321,6 +321,7 @@ Such a rule is rejected when it changes no cell, for instance when it only reads
 The overlap check treats two rules that share no cell as independent, because they commute; rules that share cells are compared on those cells only.
 
 A readable record reads entries of a Map cell with `env: { name -> value, .. }`: `value` binds what the entry maps to, and the cell is left unchanged, so the result record does not restate `env`.
+Braces naming every entry, `env: { 0 -> v }`, are no map read but the map exactly those entries, as at a record's child: a subject matches the map `{0 -> v}` (`<env> 0 |-> V </env>`, the K of the `cells!` entry `env: Cell(k::map![0 -> v])`), its values matched as any pattern, and a result writes it (`{ 0 -> x }` is `.Map [ 0 <- X ]`); braces holding a rest in a result stay a map read, `map-read-in-result`.
 The key is what the map is looked up by, and it reads by what stands at its root.
 A key name the subject binds elsewhere looks its entry up, so the rule applies only where that key is present: `var: { k: [name, ..], env: { name -> value, .. } } => { k: [value, ..] }`.
 A key name that nothing else in the subject binds matches the key of any entry and binds it, so the rule applies once per entry, a nondeterministic choice that `krs search` shows as one solution per entry: `pick: { k: [Pick(), ..], threads: { tid -> t, .. } } => ..` emits `<threads> Tid |-> T ... </threads>`, and a `Map<K, V>` cell gives `tid` the type `K`.
