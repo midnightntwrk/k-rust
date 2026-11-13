@@ -419,7 +419,8 @@ fn a_declaration_that_writes_one_wrapper_writes_every_leaf_s() {
 /// declaration writes wrappers, and its initializer's term is refused for what is true (LEFTS
 /// item 10): the declaration writes its leaves with their wrappers, so the plain field reads as a
 /// group, which a sort is not, advising `Cell<Int>`; every leaf wrapped is the accepted form
-/// ([`a_declaration_that_writes_one_wrapper_writes_every_leaf_s`]).
+/// ([`a_declaration_that_writes_one_wrapper_writes_every_leaf_s`]). A plain field of a type with
+/// generic arguments (`Map<Int, Int>`) is told the same way by the declaration's reader (R7).
 #[test]
 fn a_plain_sort_field_beside_wrapped_leaves_is_told_as_the_declaration_s() {
     let target = shared_fixture_target();
@@ -427,6 +428,7 @@ fn a_plain_sort_field_beside_wrapped_leaves_is_told_as_the_declaration_s() {
     let rows = [
         ("int", "Int", "0"),
         ("list", "List", "k::builtin::list::empty()"),
+        ("map", "k::builtin::Map<Int, Int>", "k::map![]"),
     ];
     let refusals = rows
         .iter()
@@ -465,6 +467,7 @@ fn a_plain_sort_field_beside_wrapped_leaves_is_told_as_the_declaration_s() {
         [
             "error[krs::analysis::invalid-term]: the cell `n` is declared `Int` in a declaration that writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `Int` is not, being no `#[k::cell]` struct: write the leaf with its wrapper, `Cell<Int>`",
             "error[krs::analysis::invalid-term]: the cell `n` is declared `List` in a declaration that writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, which `List` is not, being no `#[k::cell]` struct: write the leaf with its wrapper, `Cell<List>`",
+            "error[krs::syntax::unsupported-configuration-field]: unsupported fixed configuration field: this declaration writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, whose declaration is a `#[k::cell]` struct with no generic arguments: write this leaf with its wrapper, `Cell<..>` around its type",
         ]
     "#]].assert_debug_eq(&refusals);
 }

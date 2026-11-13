@@ -664,6 +664,20 @@ impl GroupReason {
             Self::NoHelper => "plain leaf fields require a `#[k::cell]` helper",
         }
     }
+
+    /// The refusal of a field of a type with generic arguments read as a group, whose declaration
+    /// is a `#[k::cell]` struct named by a plain path.
+    const fn generic(self) -> &'static str {
+        match self {
+            Self::Wrapped => {
+                "this declaration writes its leaves with their wrappers (`Cell<..>`, `KCell<..>`), and where it does a field of a plain type is a group, whose declaration is a `#[k::cell]` struct with no generic arguments: write this leaf with its wrapper, `Cell<..>` around its type"
+            }
+            Self::Nested => {
+                "`nested` declares a group, whose declaration is a `#[k::cell]` struct with no generic arguments: a leaf of this type is declared without `nested`"
+            }
+            Self::NoHelper => "nested fixed-cell declarations cannot have generic arguments",
+        }
+    }
 }
 
 fn parse_cell_type(
@@ -762,10 +776,7 @@ fn parse_nested_cell(
         return Err(unsupported_field(group.computation(), ty.span()));
     }
     if !is_plain_path(&type_path.path) {
-        return Err(unsupported_field(
-            "nested fixed-cell declarations cannot have generic arguments",
-            type_path.span(),
-        ));
+        return Err(unsupported_field(group.generic(), type_path.span()));
     }
     Ok(ConfigurationCellContent::Nested {
         declaration: type_path.path.clone(),
