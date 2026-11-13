@@ -943,6 +943,68 @@ fn parse_readable_instance(
     Ok(InstanceItem::new(range, label, owner, fields, rest)?)
 }
 
+/// The refusal of an instance child `name` written as a group's record, `G { .. }`, one of whose
+/// children, at any depth of such records, is written in braces as instances, `c: { .. }` or
+/// `c: { i @ I { .. }, .. }` ([`instance_braces`]): an instance record's group child is the
+/// group's term, one term naming every child, and a term names no collection's instances (an
+/// instance record does not name a `?` or `*` child yet), while braces naming no entry are no
+/// map either (`krs::analysis::collection-entry`, at the braces). The record's `..` matches the
+/// child whatever it holds. `None` for any other value.
+fn nested_instances_in_group_term(
+    name: &Ident,
+    tokens: &TokenStream,
+    context: StateMacroContext,
+) -> Option<crate::SyntaxError> {
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let (TokenTree::Group(body), owner) = trees.split_last()? else {
+        return None;
+    };
+    if body.delimiter() != proc_macro2::Delimiter::Brace
+        || owner.is_empty()
+        || syn::parse2::<Path>(owner.iter().cloned().collect()).is_err()
+    {
+        return None;
+    }
+    let group = owner
+        .iter()
+        .rev()
+        .find_map(|tree| match tree {
+            TokenTree::Ident(ident) => Some(ident.unraw().to_string()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    top_level_items(body.stream()).into_iter().find_map(|item| {
+        let trees = item.into_iter().collect::<Vec<_>>();
+        let [TokenTree::Ident(child), TokenTree::Punct(colon), value @ ..] = trees.as_slice() else {
+            return None;
+        };
+        if colon.as_char() != ':' || value.is_empty() {
+            return None;
+        }
+        let value = value.iter().cloned().collect::<TokenStream>();
+        if let Some(braces) = instance_braces(&value, context) {
+            return Some(
+                crate::SyntaxError::new(
+                    crate::SyntaxErrorKind::InstanceGroupComputation {
+                        reason: format!(
+                            "the instance child `{}` is written as a record of the group `{group}`, which is the group's term, one term naming every child, and it writes the child `{}` in braces as a collection's instances; a term names no collection's instances, as {}, and braces naming no entry are no map either",
+                            name.unraw(),
+                            child.unraw(),
+                            crate::INSTANCE_CHILD_MULTIPLICITY
+                        ),
+                    },
+                    braces.span(),
+                )
+                .with_help(format!(
+                    "leave the child `{}` out of the record, whose `..` matches it whatever it holds; a cell of its instances is named by a sentence's own record, as a rule for the instance's group does",
+                    child.unraw()
+                )),
+            );
+        }
+        nested_instances_in_group_term(name, &value, context)
+    })
+}
+
 /// One readable instance child `name`: `[items.., ..]` for a computation cell
 /// or a list, a map cell's entries `{ k -> v, .. }`, or a term; a braced
 /// list's child in a pattern is read as a key is ([`parse_readable_instances`]).
@@ -976,6 +1038,9 @@ fn parse_readable_child(
             return Ok(StateTerm::Present(Box::new(value)));
         }
         None => {}
+    }
+    if let Some(error) = nested_instances_in_group_term(name, &tokens, context) {
+        return Err(error.into());
     }
     let read = |tokens| match context {
         StateMacroContext::Pattern if braced => {

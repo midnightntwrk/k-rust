@@ -6111,6 +6111,7 @@ fn a_record_at_a_configuration_position_names_its_struct_s_own_children() {
         ),
     ]);
     let listed = smt_with(&[(threads, &threads.replace("\"Map\"", "\"List\""))]);
+    let set_threads = smt_with(&[(threads, &threads.replace("\"Map\"", "\"Set\""))]);
     let slots = smt_with(&[
         (
             "#[k::cell]\npub struct Thread {",
@@ -6209,6 +6210,28 @@ pub fn go(
             ),
         ),
         ("instance-record-no-such-cell", SMT, instance("nope: v")),
+        // A nested collection's instances in an instance record's group child (LEFTS item 4):
+        // braces are told at the braces; a List's brackets are list notation's.
+        (
+            "instance-record-nested-instances",
+            SMT,
+            instance("threads: Threads { thread: { t @ Thread { tv: v, .. }, .. } }"),
+        ),
+        (
+            "instance-record-nested-instances-set",
+            &set_threads,
+            instance("threads: Threads { thread: { t @ Thread { tv: v, .. }, .. } }"),
+        ),
+        (
+            "instance-record-nested-dots",
+            SMT,
+            instance("threads: Threads { thread: { .. } }, cid: v"),
+        ),
+        (
+            "instance-record-nested-instances-list",
+            &listed,
+            instance("threads: Threads { thread: [t @ Thread { tv: v, .. }, ..] }"),
+        ),
         (
             "group-record-no-such-cell",
             &fixed,
@@ -6331,6 +6354,26 @@ pub fn go(
                 "instance-record-no-such-cell",
                 "error[krs::analysis::invalid-term]: the instance cell `Core` has no child `nope`",
                 "--> smt/src/lib.rs: `nope: v, .. }, .`",
+            ],
+            [
+                "instance-record-nested-instances",
+                "error[krs::analysis::collection-entry]: the instance child `threads` is written as a record of the group `Threads`, which is the group's term, one term naming every child, and it writes the child `thread` in braces as a collection's instances; a term names no collection's instances, as an instance record does not name a `?` or `*` child yet, and braces naming no entry are no map either",
+                "--> smt/src/lib.rs: `{ t @ Thread { t`",
+            ],
+            [
+                "instance-record-nested-instances-set",
+                "error[krs::analysis::collection-entry]: the instance child `threads` is written as a record of the group `Threads`, which is the group's term, one term naming every child, and it writes the child `thread` in braces as a collection's instances; a term names no collection's instances, as an instance record does not name a `?` or `*` child yet, and braces naming no entry are no map either",
+                "--> smt/src/lib.rs: `{ t @ Thread { t`",
+            ],
+            [
+                "instance-record-nested-dots",
+                "error[krs::analysis::collection-entry]: the instance child `threads` is written as a record of the group `Threads`, which is the group's term, one term naming every child, and it writes the child `thread` in braces as a collection's instances; a term names no collection's instances, as an instance record does not name a `?` or `*` child yet, and braces naming no entry are no map either",
+                "--> smt/src/lib.rs: `{ .. } }, cid: v`",
+            ],
+            [
+                "instance-record-nested-instances-list",
+                "error[krs::analysis::collection-entry]: the child `thread` of `Threads` is a `*` cell, whose instances a group record does not name yet, as an instance record does not name a `?` or `*` child yet",
+                "--> smt/src/lib.rs: `thread: [t @ Thr`",
             ],
             [
                 "group-record-no-such-cell",
