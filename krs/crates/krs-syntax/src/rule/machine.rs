@@ -1655,24 +1655,8 @@ fn parse_machine_pattern_record(
             )?
         } else if let Some(record) = readable_record(&content, StateMacroContext::Pattern)? {
             MachinePatternCell::State(Box::new(StateTerm::Record(Box::new(record))))
-        } else if let Some(read) = record_term_with_map_literals(&content)? {
-            skip_value(&content)?;
-            let (pattern, signs) =
-                crate::parse::structured_with(read, parse_pattern_with_signs, |error| {
-                    crate::SyntaxError::from(error)
-                })?;
-            let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
-            MachinePatternCell::Term {
-                pattern: Box::new(pattern),
-                tree: Box::new(tree),
-            }
         } else {
-            let (pattern, signs) = parse_pattern_with_signs(&content)?;
-            let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
-            MachinePatternCell::Term {
-                pattern: Box::new(pattern),
-                tree: Box::new(tree),
-            }
+            read_pattern_term(&content)?
         };
         cells.push((cell, value));
         if content.peek(Token![,]) {
@@ -2354,8 +2338,10 @@ fn record_term_with_map_literals(
         .into_iter()
         .map(|tree| match tree {
             TokenTree::Group(group) => {
-                let mut rebuilt =
-                    proc_macro2::Group::new(group.delimiter(), map_braces_as_literals(group.stream()));
+                let mut rebuilt = proc_macro2::Group::new(
+                    group.delimiter(),
+                    map_braces_as_literals(group.stream()),
+                );
                 rebuilt.set_span(group.span());
                 TokenTree::Group(rebuilt)
             }
@@ -2374,6 +2360,22 @@ fn record_term_with_map_literals(
             .chain(std::iter::once(TokenTree::Group(read)))
             .collect(),
     ))
+}
+
+/// A subject's cell value read as a term pattern, a record's with the maps in braces inside its
+/// children read as literals ([`record_term_with_map_literals`]).
+fn read_pattern_term(content: ParseStream<'_>) -> Result<MachinePatternCell, ParseError> {
+    let (pattern, signs) = if let Some(read) = record_term_with_map_literals(content)? {
+        skip_value(content)?;
+        crate::parse::structured_with(read, parse_pattern_with_signs, crate::SyntaxError::from)?
+    } else {
+        parse_pattern_with_signs(content)?
+    };
+    let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
+    Ok(MachinePatternCell::Term {
+        pattern: Box::new(pattern),
+        tree: Box::new(tree),
+    })
 }
 
 /// A subject's record value read without its presences ([`value_presences`]): a group record of

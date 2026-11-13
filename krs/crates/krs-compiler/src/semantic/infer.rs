@@ -3663,7 +3663,11 @@ impl StructuredTermBuilder<'_> {
         }
         let item_sort = super::catalog::common_sequence_item_sort(&items, self.sort_parents);
         Ok(SemanticTerm::k_sequence(
-            semantic_origin(self.descriptor, sequence.payload_key.clone(), "cell-term-k-sequence")?,
+            semantic_origin(
+                self.descriptor,
+                sequence.payload_key.clone(),
+                "cell-term-k-sequence",
+            )?,
             item_sort,
             items,
         ))
@@ -3720,7 +3724,9 @@ impl StructuredTermBuilder<'_> {
                 ProtocolCellContent::Leaf { sort, .. } => {
                     let content_sort = semantic_sort_ref(&sort.sort);
                     let sequence = match value {
-                        Some(value) => self.child_sequence(owner, declared, value, record.subject)?,
+                        Some(value) => {
+                            self.child_sequence(owner, declared, value, record.subject)?
+                        }
                         None => None,
                     };
                     let content = match sequence {

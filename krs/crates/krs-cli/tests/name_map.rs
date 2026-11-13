@@ -870,7 +870,10 @@ fn a_name_no_k_name_spells_is_refused_at_its_declaration() {
         (
             "variant",
             library(
-                &[("    Skip(),\n", "    Skip(),\n    #[k::syntax(\"cafe\")]\n    Café(),\n")],
+                &[(
+                    "    Skip(),\n",
+                    "    Skip(),\n    #[k::syntax(\"cafe\")]\n    Café(),\n",
+                )],
                 "",
             ),
         ),
@@ -878,7 +881,10 @@ fn a_name_no_k_name_spells_is_refused_at_its_declaration() {
             "cell",
             library(
                 &[
-                    ("    pub acc: Int,\n", "    pub acc: Int,\n    #[k::cell]\n    pub generated_top: Int,\n"),
+                    (
+                        "    pub acc: Int,\n",
+                        "    pub acc: Int,\n    #[k::cell]\n    pub generated_top: Int,\n",
+                    ),
                     ("acc: 0 }", "acc: 0, generated_top: 0 }"),
                 ],
                 "",
@@ -905,15 +911,22 @@ fn a_name_no_k_name_spells_is_refused_at_its_declaration() {
 fn with_cells(fields: &[(&str, &str, &str, &str)]) -> String {
     let declared = fields
         .iter()
-        .map(|(attribute, field, ty, _)| format!("    #[k::cell{attribute}]\n    pub {field}: {ty},\n"))
-        .collect::<String>();
+        .map(|(attribute, field, ty, _)| {
+            format!("    #[k::cell{attribute}]\n    pub {field}: {ty},\n")
+        })
+        .collect::<Vec<_>>()
+        .concat();
     let initial = fields
         .iter()
         .map(|(_, field, _, value)| format!(", {field}: {value}"))
-        .collect::<String>();
+        .collect::<Vec<_>>()
+        .concat();
     library(
         &[
-            ("    pub acc: Int,\n", &format!("    pub acc: Int,\n{declared}")),
+            (
+                "    pub acc: Int,\n",
+                &format!("    pub acc: Int,\n{declared}"),
+            ),
             ("acc: 0 }", &format!("acc: 0{initial} }}")),
         ],
         "",
@@ -942,12 +955,18 @@ fn a_cell_takes_every_name_k_spells_unless_its_sort_is_taken() {
                 ("(name = \"callStack\")", "cs2", "Int", "0"),
             ]),
         ),
-        ("upper-k", with_cells(&[("(name = \"K\")", "tt", "Int", "0")])),
+        (
+            "upper-k",
+            with_cells(&[("(name = \"K\")", "tt", "Int", "0")]),
+        ),
         (
             "generated-top",
             with_cells(&[("(name = \"generated-top\")", "tt", "Int", "0")]),
         ),
-        ("digit", with_cells(&[("(name = \"1x\")", "tt", "Int", "0")])),
+        (
+            "digit",
+            with_cells(&[("(name = \"1x\")", "tt", "Int", "0")]),
+        ),
         ("underscore", with_cells(&[("", "my_cell", "Int", "0")])),
     ];
     let table = rows
@@ -989,7 +1008,10 @@ fn an_item_named_in_krs_s_generated_namespace_is_refused() {
         (
             "variant",
             library(
-                &[("    Skip(),\n", "    Skip(),\n    #[k::syntax(\"kgo\")]\n    #[allow(non_camel_case_types)]\n    __krs_Go(),\n")],
+                &[(
+                    "    Skip(),\n",
+                    "    Skip(),\n    #[k::syntax(\"kgo\")]\n    #[allow(non_camel_case_types)]\n    __krs_Go(),\n",
+                )],
                 "",
             ),
         ),
@@ -1005,10 +1027,10 @@ fn an_item_named_in_krs_s_generated_namespace_is_refused() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         struct: error[krs::policy::reserved-name]: the item `__krs_generated_semantic_production` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 50:12)
         variant: error[krs::policy::reserved-name]: the item `__krs_Go` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 17:5)
-        sort: error[krs::policy::reserved-name]: the item `__KrsS` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 49:5)"#]].assert_eq(&table);
+        sort: error[krs::policy::reserved-name]: the item `__KrsS` is named in the namespace `__krs..`, which is reserved for the names KRS generates; give the item another name (at 49:5)"]].assert_eq(&table);
 }
 
 /// Two sibling cells of one K name are the author's collision, refused as two cells of one name
@@ -1026,7 +1048,10 @@ fn sibling_cells_of_one_name_are_the_author_s_collision() {
         ),
         (
             "sibling-field-name",
-            with_cells(&[("(name = \"acc2\")", "acc1", "Int", "0"), ("", "acc2", "Int", "0")]),
+            with_cells(&[
+                ("(name = \"acc2\")", "acc1", "Int", "0"),
+                ("", "acc2", "Int", "0"),
+            ]),
         ),
     ];
     let table = rows
@@ -1039,7 +1064,7 @@ fn sibling_cells_of_one_name_are_the_author_s_collision() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         sibling: error[krs::analysis::duplicate-cell-name]: cells `Machine::acc` and `Machine::acc2` both have the K cell name `acc`; a configuration names each of its cells once (at 25:22)
-        sibling-field-name: error[krs::analysis::duplicate-cell-name]: cells `Machine::acc1` and `Machine::acc2` both have the K cell name `acc2`; a configuration names each of its cells once (at 28:9)"#]].assert_eq(&table);
+        sibling-field-name: error[krs::analysis::duplicate-cell-name]: cells `Machine::acc1` and `Machine::acc2` both have the K cell name `acc2`; a configuration names each of its cells once (at 28:9)"]].assert_eq(&table);
 }

@@ -512,11 +512,8 @@ pub(super) fn infer_head_rule_sorts(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<BTreeMap<String, SemanticSortRef>, DescriptorLoweringError> {
-    let constructed = super::group_records::with_leaf_constructor_records(
-        descriptor,
-        rule,
-        declarations,
-    )?;
+    let constructed =
+        super::group_records::with_leaf_constructor_records(descriptor, rule, declarations)?;
     let rule = constructed.as_ref().unwrap_or(rule);
     head_rule_configuration(rule, declarations)?;
     let seeds = seed_head_rule_sorts(descriptor, rule, declarations, sort_parents)?;
