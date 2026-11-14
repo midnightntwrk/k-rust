@@ -1,0 +1,14 @@
+{
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortS": 10,
+  "SortString": 12
+ },
+ "symbols": {
+  "Lbla'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'String'Unds'String": 1,
+  "Lblb'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool": 2,
+  "Lblc'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'String": 3
+ }
+}

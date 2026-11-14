@@ -339,6 +339,21 @@ id = "list-as-set"
 status = "killed"
 killer = "cases/c30-list-positions/kore.pgm"
 
+[[run.mutation]]
+id = "string-lt-reversed"
+status = "killed"
+killer = "cases/c49-string-bool-eq/kore.pgm"
+
+[[run.mutation]]
+id = "string-eq-prefix"
+status = "killed"
+killer = "cases/c49-string-bool-eq/kore.pgm"
+
+[[run.mutation]]
+id = "bool-eq-as-and"
+status = "killed"
+killer = "cases/c49-string-bool-eq/kore.pgm"
+
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
 # next run tries each flip's `killer` first, a run without --locked rewrites this section, and

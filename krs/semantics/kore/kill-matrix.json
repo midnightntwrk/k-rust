@@ -40,7 +40,8 @@
    "c40-as-patterns",
    "c45-fn-owise-recursion",
    "c47-undef-rhs-same-prio",
-   "c48-fn-undef-requires-larger"
+   "c48-fn-undef-requires-larger",
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -63,6 +64,13 @@
  "bool-dv-any-value": {
   "killed_by": [
    "c16-bool-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "bool-eq-as-and": {
+  "killed_by": [
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -399,7 +407,8 @@
    "c40-as-patterns",
    "c41-total-requires",
    "c43-ensures",
-   "c44-ensures-priority"
+   "c44-ensures-priority",
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -548,7 +557,8 @@
    "c44-ensures-priority",
    "c45-fn-owise-recursion",
    "c47-undef-rhs-same-prio",
-   "c48-fn-undef-requires-larger"
+   "c48-fn-undef-requires-larger",
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -572,6 +582,20 @@
   "killed_by": [
    "c28-set-overlap",
    "c29-set-hooks"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "string-eq-prefix": {
+  "killed_by": [
+   "c49-string-bool-eq"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "string-lt-reversed": {
+  "killed_by": [
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -661,7 +685,8 @@
    "c40-as-patterns",
    "c41-total-requires",
    "c43-ensures",
-   "c44-ensures-priority"
+   "c44-ensures-priority",
+   "c49-string-bool-eq"
   ]
  },
  "tdiv-as-ediv": {

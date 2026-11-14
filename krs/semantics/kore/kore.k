@@ -39,6 +39,8 @@
 //   - ==K and =/=K compare two values: equal values are equal terms, since a value's injections
 //     are composed and its collections canonical; a domain value of a token sort is a value of
 //     that sort, so tokens of two sorts with one text differ;
+//   - a domain value of String is a value of that sort, its text; ==String is the equality of
+//     texts and <String their lexicographic order, ==Bool the equality of Bool values;
 //   - a Map is a finite map, a Set a finite set, a List a finite sequence; a value of each is
 //     canonical (a map's entries ordered by key and a set's elements by value, without
 //     repetition), so that equal collections are equal terms. Map and Set concatenation are
@@ -448,9 +450,10 @@ module KORE
 
   // ---------------------------------------------------------------- hooks
   // 1 +Int, 2 -Int, 3 *Int, 4 /Int, 5 %Int, 10 <Int, 11 <=Int, 12 >Int, 13 >=Int, 14 ==Int,
-  // 15 =/=Int, 20 andBool, 21 orBool, 22 notBool, 30 #if_#then_#else_#fi,
+  // 15 =/=Int, 20 andBool, 21 orBool, 22 notBool, 23 ==Bool, 30 #if_#then_#else_#fi,
   // 40 Map:lookup, 41 Map:lookupOrDefault, 42 Map:update, 43 _[_<-undef], 44 _in_keys(_),
-  // 45 sizeMap, 50 Set:in, 51 size(Set), 52 |Set, 60 sizeList, 70 ==K, 71 =/=K
+  // 45 sizeMap, 50 Set:in, 51 size(Set), 52 |Set, 60 sizeList, 70 ==K, 71 =/=K, 80 ==String,
+  // 81 <String (a String value is tk(S, Text) with S the sort String)
   syntax Term ::= strictHook(Int, Ts) [function]
   rule [hook-bot]: strictHook(_, As) => bot requires hasBot(As)
   rule [hook-def]: strictHook(O, As) => hookOp(O, As) requires notBool hasBot(As)
@@ -470,6 +473,7 @@ module KORE
   rule [op-and]: hookOp(20, bv(X) ; bv(Y) ; .Ts) => bv(X andBool Y)
   rule [op-or]: hookOp(21, bv(X) ; bv(Y) ; .Ts) => bv(X orBool Y)
   rule [op-not]: hookOp(22, bv(X) ; .Ts) => bv(notBool X)
+  rule [op-bool-eq]: hookOp(23, bv(X) ; bv(Y) ; .Ts) => bv(X ==Bool Y)
   rule [op-ite-then]: hookOp(30, bv(C) ; T ; _ ; .Ts) => T requires C
   rule [op-ite-else]: hookOp(30, bv(C) ; _ ; E ; .Ts) => E requires notBool C
   rule [op-lookup]: hookOp(40, co(map, _, Es) ; A ; .Ts) => valueOr(A, bot, Es)
@@ -484,6 +488,8 @@ module KORE
   rule [op-size-list]: hookOp(60, co(list, _, Es) ; .Ts) => iv(len(Es))
   rule [op-keq]: hookOp(70, A ; B ; .Ts) => bv(cmp(A, B) ==Int 0)
   rule [op-kne]: hookOp(71, A ; B ; .Ts) => bv(cmp(A, B) =/=Int 0)
+  rule [op-str-eq]: hookOp(80, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X ==String Y)
+  rule [op-str-lt]: hookOp(81, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X <String Y)
   rule [op-undef]: hookOp(_, _) => bot [owise]
 
   syntax Ts ::= union(Ts, Ts) [function]

@@ -598,3 +598,29 @@ misunderstanding = "List concatenation is read as Set concatenation: commutative
   rule = "KORE.join-list"
   find = "=> join(co(list, C, app(Es, E ; .Ts)), Ps)"
   replace = "=> join(mkCol(list, C, insE(list, E, Es)), Ps)"
+
+# --- String and Bool equality -------------------------------------------------------------
+
+[[mutation]]
+id = "string-lt-reversed"
+misunderstanding = "<String is read as the reverse of the lexicographic order of texts"
+  [[mutation.edit]]
+  rule = "KORE.op-str-lt"
+  find = "bv(X <String Y)"
+  replace = "bv(Y <String X)"
+
+[[mutation]]
+id = "string-eq-prefix"
+misunderstanding = "==String holds when the texts share their first character, not when they are equal"
+  [[mutation.edit]]
+  rule = "KORE.op-str-eq"
+  find = "bv(X ==String Y)"
+  replace = "bv(substrString(X, 0, 1) ==String substrString(Y, 0, 1))"
+
+[[mutation]]
+id = "bool-eq-as-and"
+misunderstanding = "==Bool is read as andBool: two false operands are not equal"
+  [[mutation.edit]]
+  rule = "KORE.op-bool-eq"
+  find = "bv(X ==Bool Y)"
+  replace = "bv(X andBool Y)"
