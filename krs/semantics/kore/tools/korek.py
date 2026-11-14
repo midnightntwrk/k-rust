@@ -177,10 +177,10 @@ def read_pattern(text):
 
 HOOKS = {'INT.add': 1, 'INT.sub': 2, 'INT.mul': 3, 'INT.tdiv': 4, 'INT.tmod': 5,
          'INT.lt': 10, 'INT.le': 11, 'INT.gt': 12, 'INT.ge': 13, 'INT.eq': 14, 'INT.ne': 15,
-         'BOOL.and': 20, 'BOOL.or': 21, 'BOOL.not': 22, 'KEQUAL.ite': 30,
+         'BOOL.and': 20, 'BOOL.or': 21, 'BOOL.not': 22, 'BOOL.eq': 23, 'KEQUAL.ite': 30,
          'MAP.lookup': 40, 'MAP.lookupOrDefault': 41, 'MAP.update': 42, 'MAP.remove': 43,
          'MAP.in_keys': 44, 'MAP.size': 45, 'SET.in': 50, 'SET.size': 51, 'SET.union': 52,
-         'LIST.size': 60, 'KEQUAL.eq': 70, 'KEQUAL.ne': 71}
+         'LIST.size': 60, 'KEQUAL.eq': 70, 'KEQUAL.ne': 71, 'STRING.eq': 80, 'STRING.lt': 81}
 # the constructors of a collection sort: its concatenation, unit and element symbols
 KINDS = {'MAP': 'map', 'SET': 'set', 'LIST': 'list'}
 ROLES = ('concat', 'unit', 'element')
@@ -282,7 +282,8 @@ class Encoder:
                 return f'iv({v})'
             if s == 'SortBool':
                 return f'bv({v})'
-            if s in self.token_sorts and s not in FIXED_SORTS:
+            if (s in self.token_sorts or s == 'SortString') and s not in FIXED_SORTS:
+                # a domain value of a token sort or of String: its sort and its text
                 return f'tk({self.sort(sorts[0])}, {json.dumps(v)})'
             raise Unsupported(f'domain value of {s}')
         if name == 'inj':

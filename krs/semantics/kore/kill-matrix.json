@@ -10,6 +10,7 @@
    "c07-strict-args",
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c12-undef-init",
    "c13-inj-bool",
    "c14-fn-undef-requires",
@@ -36,7 +37,11 @@
    "c37-keq",
    "c38-keq-strict",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c45-fn-owise-recursion",
+   "c47-undef-rhs-same-prio",
+   "c48-fn-undef-requires-larger",
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -63,10 +68,18 @@
   "status": "killed",
   "undecided": []
  },
+ "bool-eq-as-and": {
+  "killed_by": [
+   "c49-string-bool-eq"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
  "bottom-is-configuration": {
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c13-inj-bool",
    "c21-map-concat",
    "c23-map-lookup-missing",
@@ -76,7 +89,8 @@
    "c36-cell-key-twice",
    "c38-keq-strict",
    "c43-ensures",
-   "c44-ensures-priority"
+   "c44-ensures-priority",
+   "c47-undef-rhs-same-prio"
   ],
   "status": "killed",
   "undecided": []
@@ -135,7 +149,8 @@
   "killed_by": [
    "c07-strict-args",
    "c20-map-key-fixed",
-   "c34-cells-several"
+   "c34-cells-several",
+   "c45-fn-owise-recursion"
   ],
   "status": "killed",
   "undecided": []
@@ -195,10 +210,13 @@
    "c07-strict-args",
    "c24-map-fn-pattern",
    "c39-tokens-preds",
-   "c40-as-patterns"
+   "c40-as-patterns",
+   "c48-fn-undef-requires-larger"
   ],
   "status": "killed",
-  "undecided": []
+  "undecided": [
+   "c45-fn-owise-recursion"
+  ]
  },
  "fn-requires-ignored": {
   "killed_by": [
@@ -206,14 +224,16 @@
    "c11-fn-no-equation",
    "c14-fn-undef-requires",
    "c24-map-fn-pattern",
-   "c42-total-no-equation"
+   "c42-total-no-equation",
+   "c48-fn-undef-requires-larger"
   ],
   "status": "killed",
   "undecided": []
  },
  "fn-undefined-requires-holds": {
   "killed_by": [
-   "c14-fn-undef-requires"
+   "c14-fn-undef-requires",
+   "c48-fn-undef-requires-larger"
   ],
   "status": "killed",
   "undecided": []
@@ -237,7 +257,9 @@
    "c12-undef-init",
    "c26-map-strict",
    "c32-elem-strict",
-   "c38-keq-strict"
+   "c38-keq-strict",
+   "c47-undef-rhs-same-prio",
+   "c48-fn-undef-requires-larger"
   ],
   "status": "killed",
   "undecided": []
@@ -362,7 +384,7 @@
   "status": "killed",
   "undecided": []
  },
- "no-equation-undefined": {
+ "no-equation-kept": {
   "killed_by": [
    "c11-fn-no-equation"
   ],
@@ -385,7 +407,8 @@
    "c40-as-patterns",
    "c41-total-requires",
    "c43-ensures",
-   "c44-ensures-priority"
+   "c44-ensures-priority",
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -423,10 +446,13 @@
    "c24-map-fn-pattern",
    "c39-tokens-preds",
    "c40-as-patterns",
-   "c41-total-requires"
+   "c41-total-requires",
+   "c48-fn-undef-requires-larger"
   ],
   "status": "killed",
-  "undecided": []
+  "undecided": [
+   "c45-fn-owise-recursion"
+  ]
  },
  "priority-ignored": {
   "killed_by": [
@@ -437,7 +463,8 @@
   ],
   "status": "killed",
   "undecided": [
-   "c06-nonlinear"
+   "c06-nonlinear",
+   "c46-prio-nonterm-requires"
   ]
  },
  "rule-owise-ignored": {
@@ -459,7 +486,8 @@
   ],
   "status": "killed",
   "undecided": [
-   "c06-nonlinear"
+   "c06-nonlinear",
+   "c46-prio-nonterm-requires"
   ]
  },
  "rule-priority-reversed": {
@@ -472,7 +500,8 @@
   ],
   "status": "killed",
   "undecided": [
-   "c06-nonlinear"
+   "c06-nonlinear",
+   "c46-prio-nonterm-requires"
   ]
  },
  "rule-requires-ignored": {
@@ -500,6 +529,7 @@
    "c07-strict-args",
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c13-inj-bool",
    "c14-fn-undef-requires",
    "c18-div-signs",
@@ -524,7 +554,11 @@
    "c39-tokens-preds",
    "c40-as-patterns",
    "c43-ensures",
-   "c44-ensures-priority"
+   "c44-ensures-priority",
+   "c45-fn-owise-recursion",
+   "c47-undef-rhs-same-prio",
+   "c48-fn-undef-requires-larger",
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -548,6 +582,20 @@
   "killed_by": [
    "c28-set-overlap",
    "c29-set-hooks"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "string-eq-prefix": {
+  "killed_by": [
+   "c49-string-bool-eq"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "string-lt-reversed": {
+  "killed_by": [
+   "c49-string-bool-eq"
   ],
   "status": "killed",
   "undecided": []
@@ -604,7 +652,11 @@
    "c23-map-lookup-missing",
    "c26-map-strict",
    "c38-keq-strict",
-   "c42-total-no-equation"
+   "c42-total-no-equation",
+   "c45-fn-owise-recursion",
+   "c46-prio-nonterm-requires",
+   "c47-undef-rhs-same-prio",
+   "c48-fn-undef-requires-larger"
   ],
   "status": "killed",
   "undecided": [
@@ -612,7 +664,6 @@
    "c03-nondet",
    "c05-hooks",
    "c06-nonlinear",
-   "c11-fn-no-equation",
    "c15-nonlinear-rule",
    "c17-init-function",
    "c18-div-signs",
@@ -634,7 +685,8 @@
    "c40-as-patterns",
    "c41-total-requires",
    "c43-ensures",
-   "c44-ensures-priority"
+   "c44-ensures-priority",
+   "c49-string-bool-eq"
   ]
  },
  "tdiv-as-ediv": {
@@ -669,6 +721,7 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c13-inj-bool",
    "c21-map-concat",
    "c23-map-lookup-missing",
@@ -676,7 +729,8 @@
    "c28-set-overlap",
    "c32-elem-strict",
    "c36-cell-key-twice",
-   "c38-keq-strict"
+   "c38-keq-strict",
+   "c47-undef-rhs-same-prio"
   ],
   "status": "killed",
   "undecided": [
@@ -694,9 +748,24 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c36-cell-key-twice",
    "c43-ensures",
    "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-result-empties-step": {
+  "killed_by": [
+   "c13-inj-bool",
+   "c21-map-concat",
+   "c23-map-lookup-missing",
+   "c26-map-strict",
+   "c28-set-overlap",
+   "c32-elem-strict",
+   "c38-keq-strict",
+   "c47-undef-rhs-same-prio"
   ],
   "status": "killed",
   "undecided": []
@@ -705,6 +774,7 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c43-ensures",
    "c44-ensures-priority"
   ],

@@ -160,7 +160,7 @@ status = "killed"
 killer = "cases/c08-undef-rhs-blocks/kore.pgm"
 
 [[run.mutation]]
-id = "no-equation-undefined"
+id = "no-equation-kept"
 status = "killed"
 killer = "cases/c11-fn-no-equation/kore.pgm"
 
@@ -203,6 +203,11 @@ killer = "cases/c08-undef-rhs-blocks/kore.pgm"
 id = "bottom-is-configuration"
 status = "killed"
 killer = "cases/c08-undef-rhs-blocks/kore.pgm"
+
+[[run.mutation]]
+id = "undefined-result-empties-step"
+status = "killed"
+killer = "cases/c13-inj-bool/kore.pgm"
 
 [[run.mutation]]
 id = "undefined-init-is-final"
@@ -333,6 +338,21 @@ killer = "cases/c30-list-positions/kore.pgm"
 id = "list-as-set"
 status = "killed"
 killer = "cases/c30-list-positions/kore.pgm"
+
+[[run.mutation]]
+id = "string-lt-reversed"
+status = "killed"
+killer = "cases/c49-string-bool-eq/kore.pgm"
+
+[[run.mutation]]
+id = "string-eq-prefix"
+status = "killed"
+killer = "cases/c49-string-bool-eq/kore.pgm"
+
+[[run.mutation]]
+id = "bool-eq-as-and"
+status = "killed"
+killer = "cases/c49-string-bool-eq/kore.pgm"
 
 [coverage]
 # The verdicts of kink's `coverage` command (`krs kink coverage`, `kink-flow coverage`): the
