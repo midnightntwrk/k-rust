@@ -160,7 +160,7 @@ status = "killed"
 killer = "cases/c08-undef-rhs-blocks/kore.pgm"
 
 [[run.mutation]]
-id = "no-equation-undefined"
+id = "no-equation-kept"
 status = "killed"
 killer = "cases/c11-fn-no-equation/kore.pgm"
 

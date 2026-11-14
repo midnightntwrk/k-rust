@@ -10,6 +10,7 @@
    "c07-strict-args",
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c12-undef-init",
    "c13-inj-bool",
    "c14-fn-undef-requires",
@@ -67,6 +68,7 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c13-inj-bool",
    "c21-map-concat",
    "c23-map-lookup-missing",
@@ -362,7 +364,7 @@
   "status": "killed",
   "undecided": []
  },
- "no-equation-undefined": {
+ "no-equation-kept": {
   "killed_by": [
    "c11-fn-no-equation"
   ],
@@ -500,6 +502,7 @@
    "c07-strict-args",
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c13-inj-bool",
    "c14-fn-undef-requires",
    "c18-div-signs",
@@ -612,7 +615,6 @@
    "c03-nondet",
    "c05-hooks",
    "c06-nonlinear",
-   "c11-fn-no-equation",
    "c15-nonlinear-rule",
    "c17-init-function",
    "c18-div-signs",
@@ -669,6 +671,7 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c13-inj-bool",
    "c21-map-concat",
    "c23-map-lookup-missing",
@@ -694,6 +697,7 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c36-cell-key-twice",
    "c43-ensures",
    "c44-ensures-priority"
@@ -705,6 +709,7 @@
   "killed_by": [
    "c08-undef-rhs-blocks",
    "c10-strict-ite",
+   "c11-fn-no-equation",
    "c43-ensures",
    "c44-ensures-priority"
   ],

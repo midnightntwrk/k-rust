@@ -284,12 +284,12 @@ misunderstanding = "an undefined argument does not make an application undefined
   replace = ""
 
 [[mutation]]
-id = "no-equation-undefined"
-misunderstanding = "a function application no equation applies to is undefined (\\bottom) instead of staying as it is"
+id = "no-equation-kept"
+misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (\\bottom)"
   [[mutation.edit]]
   rule = "KORE.result-none"
-  find = "=> ap(F, As)"
-  replace = "=> bot"
+  find = "result(_, _, none) => bot"
+  replace = "result(F, As, none) => ap(F, As)"
 
 [[mutation]]
 id = "ite-lazy"

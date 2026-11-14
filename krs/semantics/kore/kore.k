@@ -14,7 +14,9 @@
 //   - an equation applies when its argument patterns match and its requires evaluates to true;
 //     among the applicable equations one of the least priority gives the result (an [owise]
 //     equation has priority 200, an equation without priority 50); an application no equation
-//     applies to stays as it is;
+//     applies to has no value (\bottom), since only an equation gives an application a value;
+//     a function declared total is read the same, although kompile states that it has some value
+//     there, which a definition then leaves open;
 //   - a rewrite rule applies when its left side matches and its requires evaluates to true; the
 //     successors are the defined results of the applicable rules of the least priority; a rule
 //     whose result is undefined still blocks the rules of larger priority;
@@ -201,7 +203,7 @@ module KORE
 
   syntax Term ::= result(Int, Ts, Res) [function]
   rule [result-some]: result(_, _, some(T)) => T
-  rule [result-none]: result(F, As, none) => ap(F, As)
+  rule [result-none]: result(_, _, none) => bot
 
   // the applicable equation of least priority (the first one of that priority)
   syntax Res ::= bestCl(Def, Ts, Clauses, Int, Res) [function]

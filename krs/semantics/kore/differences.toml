@@ -31,20 +31,22 @@ application undefined, so the rule's result is undefined and there is no final c
 case = "c11-fn-no-equation"
 backend = "haskell"
 reason = """
-half is a partial function (not declared total) with no equation for 3, and the rule that \
-builds b(half(3)) applies. KORE does not fix the value of a partial function where no equation \
-applies. kore.k reads the application as a value that stays in the configuration, unconstrained; \
-the haskell backend keeps the same term under the condition \\ceil(half(3)), that is, the final \
-configuration exists if half(3) is defined. Both readings leave b(half(3)) as the one final \
-configuration; they differ only in the condition, which kore.k's results do not carry."""
+half is a partial function (not declared total) with no equation for 3. Only an equation gives \
+an application of a function a value, and kompile states no functional axiom for a partial \
+function, so half(3) has no value and neither has b(half(3)): the rule applies at a(3) with an \
+undefined result, a(3) has no successor and is not final, and kore.k has no final \
+configuration. The haskell backend keeps b(half(3)) under the condition \\ceil(half(3)), a \
+final configuration that exists only if half(3) is defined; under kore.k's reading that \
+condition is false."""
 
 [[difference]]
 case = "c11-fn-no-equation"
 backend = "llvm"
 reason = """
 The llvm backend aborts (Called finish_rewriting with no output file specified) on half(3), \
-which no equation of the partial function half applies to; kore.k keeps the application, as \
-the entry for the haskell backend says."""
+which no equation of the partial function half applies to; half(3) has no value, so the rule \
+applies with an undefined result and there is no final configuration, as the entry for the \
+haskell backend says."""
 
 [[difference]]
 case = "c12-undef-init"
@@ -150,19 +152,19 @@ backend = "haskell"
 reason = """
 even is declared total and no equation applies to even(3): the definition states that even(3) \
 has a value, not which. The haskell backend splits the search on it and gives yes(3) under the \
-condition even(3) = true and no(3) under its negation. kore.k decides a requires on its ground \
-value; an application that no equation evaluates is not the value true, so the requires does \
-not hold and the [owise] rule gives no(3). kore.k's results carry no conditions (as for c11), so \
-it keeps the one branch its reading decides; the haskell backend's two conditional results \
-cover every value even(3) may have."""
+condition even(3) = true and no(3) under its negation. kore.k gives an application no equation \
+applies to no value, total or not, so the requires even(3) is undefined, does not hold, and the \
+[owise] rule gives no(3). A total function without an equation for its arguments is outside \
+what kore.k's reading decides (README, "The fragment"); the haskell backend's two conditional \
+results cover every value even(3) may have."""
 
 [[difference]]
 case = "c42-total-no-equation"
 backend = "llvm"
 reason = """
 The llvm backend aborts (Called finish_rewriting with no output file specified) on even(3), \
-which no equation of even applies to, as on c11; kore.k keeps the application, as the entry for \
-the haskell backend says."""
+which no equation of even applies to, as on c11; kore.k gives no(3), as the entry for the \
+haskell backend says."""
 
 [[difference]]
 case = "c43-ensures"
