@@ -1,0 +1,539 @@
+# What kore.k reads of KCore's data, one row per constructor (or field) of KCore's Clause, Rule,
+# Term and Lit types and of the KORE Pattern type its reader reads, and one per attribute that
+# reader reads (kcore-spec: KcoreSpec/Core.lean, KcoreSpec/Parse.lean, KcoreSpec/Kore/Read.lean;
+# Pattern from kore-lean's KoreParser/AST.lean, which KcoreSpec reads as Kore.Pattern).
+#
+# status = "covered": kore.k (through tools/korek.py's encoding) reads it; `rules` names the
+#          kore.k rules that read it and `cases` the cases that exercise it.
+# status = "absent":  kore.k does not read it; `note` says why and what the encoder does on it.
+# A row is never blank. This is a skeleton: the rows are KCore's constructors, not yet the rows of
+# kcore-spec's rows.toml.
+
+# --- Clause (a function equation) -----------------------------------------------------------
+
+[[row]]
+type = "Clause"
+item = "vars"
+status = "absent"
+note = "the sorts of an equation's variables are not encoded: a variable is vr(i) and binds any value (m-var); on a well-sorted definition the value at a variable's position has its sort"
+
+[[row]]
+type = "Clause"
+item = "pats"
+status = "covered"
+rules = ["try", "ms-cons", "m-var", "m-app", "m-inj-same", "m-inj-sub"]
+cases = ["c01-fn-prio", "c06-nonlinear", "c24-map-fn-pattern"]
+
+[[row]]
+type = "Clause"
+item = "req"
+status = "covered"
+rules = ["try-holds", "try-refuted"]
+cases = ["c01-fn-prio", "c14-fn-undef-requires", "c48-fn-undef-requires-larger"]
+
+[[row]]
+type = "Clause"
+item = "rhs"
+status = "covered"
+rules = ["try-holds", "result-some"]
+cases = ["c01-fn-prio", "c07-strict-args"]
+
+[[row]]
+type = "Clause"
+item = "prio"
+status = "covered"
+rules = ["cprio", "prio-given", "prio-owise", "ta-take", "ta-skip", "ncl-cons", "ei-next"]
+cases = ["c01-fn-prio", "c45-fn-owise-recursion", "c48-fn-undef-requires-larger"]
+
+[[row]]
+type = "Clause"
+item = "ens"
+status = "covered"
+rules = ["ev-en", "ensure-holds", "ensure-fails", "inst-en", "try-holds"]
+cases = ["c50-fn-ensures", "c51-fn-ensures-owise"]
+note = "the field REVIEW-FA D1 decides (not yet in kcore-merge's Core.lean, whose Clause has vars, pats, req, rhs, prio); encoded in the right side as en(R, E); mutation ensures-as-requires, killed by c51"
+
+# --- Rule (a rewrite rule) ------------------------------------------------------------------
+
+[[row]]
+type = "Rule"
+item = "vars"
+status = "absent"
+note = "as Clause.vars: variable sorts are not encoded"
+
+[[row]]
+type = "Rule"
+item = "lhs"
+status = "covered"
+rules = ["fire", "m-app", "m-var"]
+cases = ["c02-rule-prio", "c15-nonlinear-rule", "c34-cells-several"]
+
+[[row]]
+type = "Rule"
+item = "req"
+status = "covered"
+rules = ["fire-holds", "fire-refuted"]
+cases = ["c02-rule-prio", "c09-undef-requires"]
+
+[[row]]
+type = "Rule"
+item = "rhs"
+status = "covered"
+rules = ["fire-holds", "step-some"]
+cases = ["c02-rule-prio", "c08-undef-rhs-blocks", "c47-undef-rhs-same-prio"]
+
+[[row]]
+type = "Rule"
+item = "ens"
+status = "covered"
+rules = ["ev-en", "ensure-holds", "ensure-fails"]
+cases = ["c43-ensures", "c44-ensures-priority"]
+
+[[row]]
+type = "Rule"
+item = "prio"
+status = "covered"
+rules = ["rprio", "prio-given", "prio-owise", "fa-take", "fa-skip", "nrl-cons", "step-next"]
+cases = ["c02-rule-prio", "c46-prio-nonterm-requires"]
+
+# --- Term -----------------------------------------------------------------------------------
+
+[[row]]
+type = "Term"
+item = "var"
+status = "covered"
+rules = ["m-var", "bind-new", "bind-same", "bind-clash", "inst-var"]
+cases = ["c06-nonlinear", "c15-nonlinear-rule"]
+
+[[row]]
+type = "Term"
+item = "app"
+status = "covered"
+rules = ["ev-app", "apply-ctor", "apply-fn", "ev-hook", "ev-col", "m-app", "m-col"]
+cases = ["c01-fn-prio", "c05-hooks", "c19-map-choice", "c22-map-hooks"]
+note = "a constructor or function as ap, a hooked symbol of the listed hooks as hk, a collection symbol as cb; a parameter symbol (impl = none) and any other hook are refused by the encoder"
+
+[[row]]
+type = "Term"
+item = "inj"
+status = "covered"
+rules = ["ev-inj", "inj-compose", "inj-new", "m-inj-same", "m-inj-sub", "leq-up"]
+cases = ["c04-subsort", "c13-inj-bool"]
+
+[[row]]
+type = "Term"
+item = "as"
+status = "covered"
+rules = ["m-as", "as-bind"]
+cases = ["c40-as-patterns"]
+
+[[row]]
+type = "Term"
+item = "dv"
+status = "covered"
+rules = ["ev-int", "ev-bool", "ev-tok", "m-int", "m-bool", "m-tok"]
+cases = ["c05-hooks", "c16-bool-pattern", "c39-tokens-preds", "c49-string-bool-eq"]
+
+# --- Lit (the literal of a Term.dv) ---------------------------------------------------------
+
+[[row]]
+type = "Lit"
+item = "int"
+status = "covered"
+rules = ["ev-int", "m-int", "op-add"]
+cases = ["c05-hooks", "c18-div-signs"]
+
+[[row]]
+type = "Lit"
+item = "bool"
+status = "covered"
+rules = ["ev-bool", "m-bool", "op-and"]
+cases = ["c05-hooks", "c16-bool-pattern"]
+
+[[row]]
+type = "Lit"
+item = "tok"
+status = "covered"
+rules = ["ev-tok", "m-tok", "op-str-eq", "op-str-lt", "cmp-tok"]
+cases = ["c39-tokens-preds", "c49-string-bool-eq"]
+
+[[row]]
+type = "Lit"
+item = "float"
+status = "absent"
+note = "the encoder refuses a domain value of a sort other than Int, Bool, String or a token sort"
+
+# --- Kore.Pattern (the KORE text the encoder reads) -----------------------------------------
+
+[[row]]
+type = "Pattern"
+item = "var"
+status = "covered"
+rules = ["m-var", "inst-var"]
+cases = ["c06-nonlinear"]
+
+[[row]]
+type = "Pattern"
+item = "app"
+status = "covered"
+rules = ["ev-app", "m-app"]
+cases = ["c01-fn-prio"]
+
+[[row]]
+type = "Pattern"
+item = "string"
+status = "covered"
+rules = ["ev-tok", "m-tok"]
+cases = ["c39-tokens-preds", "c49-string-bool-eq"]
+note = "read as the text of a \\dv and as attribute arguments"
+
+[[row]]
+type = "Pattern"
+item = "top"
+status = "covered"
+rules = ["try-holds", "fire-holds"]
+cases = ["c01-fn-prio", "c02-rule-prio"]
+note = "a \\top requires or ensures is read as none (requires bv(true), no en); \\top ends an equation's argument list"
+
+[[row]]
+type = "Pattern"
+item = "bottom"
+status = "covered"
+rules = ["apply-bot", "hook-bot", "init-bot"]
+cases = ["c12-undef-init"]
+note = "\\bottom in a term is bot; the \\bottom inside an [owise] premise's \\or is not read"
+
+[[row]]
+type = "Pattern"
+item = "not"
+status = "covered"
+rules = ["prio-owise"]
+cases = ["c01-fn-prio", "c51-fn-ensures-owise"]
+note = "only as the [owise] premise of an equation, which the encoder reads through the owise attribute, not by its text; elsewhere refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "and"
+status = "covered"
+rules = ["m-as", "ev-en", "fire"]
+cases = ["c40-as-patterns", "c43-ensures", "c50-fn-ensures"]
+note = "\\and(P, V) in a left side is an as-pattern; \\and(lhs, req) and \\and(rhs, ens) are a rule's or an equation's structure"
+
+[[row]]
+type = "Pattern"
+item = "or"
+status = "absent"
+note = "only inside an [owise] premise, not read; elsewhere refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "implies"
+status = "covered"
+rules = ["try"]
+cases = ["c01-fn-prio"]
+note = "the shape of an equation axiom"
+
+[[row]]
+type = "Pattern"
+item = "iff"
+status = "absent"
+note = "refused (a connective in a term); not in the axioms the encoder selects"
+
+[[row]]
+type = "Pattern"
+item = "exist"
+status = "absent"
+note = "only inside an [owise] premise and kompile's functional axioms, not read; elsewhere refused"
+
+[[row]]
+type = "Pattern"
+item = "forall"
+status = "absent"
+note = "refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "mu"
+status = "absent"
+note = "refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "nu"
+status = "absent"
+note = "refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "ceil"
+status = "absent"
+note = "refused in a term; kompile's definedness axioms are not selected"
+
+[[row]]
+type = "Pattern"
+item = "floor"
+status = "absent"
+note = "refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "equals"
+status = "covered"
+rules = ["try", "try-holds"]
+cases = ["c01-fn-prio"]
+note = "an equation's conclusion f(X) = rhs, and a requires or ensures R = true"
+
+[[row]]
+type = "Pattern"
+item = "in"
+status = "covered"
+rules = ["try", "ms-cons"]
+cases = ["c01-fn-prio"]
+note = "an equation's argument patterns \\in(X0, P0)"
+
+[[row]]
+type = "Pattern"
+item = "next"
+status = "absent"
+note = "refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "rewrites"
+status = "covered"
+rules = ["fire", "succs"]
+cases = ["c02-rule-prio"]
+note = "the shape of a rule axiom"
+
+[[row]]
+type = "Pattern"
+item = "dv"
+status = "covered"
+rules = ["ev-int", "ev-bool", "ev-tok"]
+cases = ["c05-hooks", "c39-tokens-preds"]
+
+[[row]]
+type = "Pattern"
+item = "leftAssoc"
+status = "absent"
+note = "refused (a connective in a term)"
+
+[[row]]
+type = "Pattern"
+item = "rightAssoc"
+status = "absent"
+note = "refused (a connective in a term)"
+
+# --- attributes the reader reads ------------------------------------------------------------
+
+[[row]]
+type = "attribute"
+item = "priority"
+status = "covered"
+rules = ["prio-given"]
+cases = ["c01-fn-prio", "c02-rule-prio"]
+
+[[row]]
+type = "attribute"
+item = "owise"
+status = "covered"
+rules = ["prio-owise"]
+cases = ["c01-fn-prio", "c02-rule-prio", "c45-fn-owise-recursion"]
+
+[[row]]
+type = "attribute"
+item = "label"
+status = "absent"
+note = "a name; not read"
+
+[[row]]
+type = "attribute"
+item = "UNIQUE'Unds'ID"
+status = "absent"
+note = "a name; not read"
+
+[[row]]
+type = "attribute"
+item = "org'Stop'kframework'Stop'attributes'Stop'Location"
+status = "absent"
+note = "presentation; not read"
+
+[[row]]
+type = "attribute"
+item = "org'Stop'kframework'Stop'attributes'Stop'Source"
+status = "covered"
+rules = []
+cases = ["c01-fn-prio"]
+note = "read by the encoder only, to select the object definition's axioms (every case); no kore.k rule"
+
+[[row]]
+type = "attribute"
+item = "subsort"
+status = "covered"
+rules = ["leq-up", "above-hit"]
+cases = ["c04-subsort"]
+
+[[row]]
+type = "attribute"
+item = "constructor"
+status = "covered"
+rules = ["apply-ctor"]
+cases = ["c01-fn-prio"]
+
+[[row]]
+type = "attribute"
+item = "function"
+status = "covered"
+rules = ["apply-fn"]
+cases = ["c01-fn-prio"]
+
+[[row]]
+type = "attribute"
+item = "functional"
+status = "absent"
+note = "not read; a total function is evaluated as any other (see total)"
+
+[[row]]
+type = "attribute"
+item = "total"
+status = "covered"
+rules = ["apply-fn", "ea-none"]
+cases = ["c41-total-requires", "c42-total-no-equation"]
+note = "read as any function: where no equation applies the application is bot, the HookParams.none member's value, which the text's total does not admit (c42)"
+
+[[row]]
+type = "attribute"
+item = "hook"
+status = "covered"
+rules = ["hook-def", "hook-bot", "op-undef"]
+cases = ["c05-hooks", "c22-map-hooks", "c29-set-hooks"]
+note = "the hooks of the fragment by operation code; any other hook is refused by the encoder"
+
+[[row]]
+type = "attribute"
+item = "unit"
+status = "covered"
+rules = ["ev-col", "col-def"]
+cases = ["c21-map-concat", "c31-list-concat"]
+
+[[row]]
+type = "attribute"
+item = "element"
+status = "covered"
+rules = ["ev-kv", "ev-el", "m-col"]
+cases = ["c19-map-choice", "c27-set-choice", "c30-list-positions"]
+
+[[row]]
+type = "attribute"
+item = "concat"
+status = "covered"
+rules = ["join-col", "join-elem", "inse-overlap"]
+cases = ["c21-map-concat", "c28-set-overlap", "c31-list-concat"]
+
+[[row]]
+type = "attribute"
+item = "assoc"
+status = "covered"
+rules = ["join-col", "join-list"]
+cases = ["c31-list-concat"]
+note = "for the collection sorts only, through canonical values; on another symbol not read"
+
+[[row]]
+type = "attribute"
+item = "comm"
+status = "covered"
+rules = ["inse-before", "inse-after"]
+cases = ["c25-map-equal"]
+note = "for Map and Set only, through canonical values; on another symbol not read"
+
+[[row]]
+type = "attribute"
+item = "idem"
+status = "covered"
+rules = ["inse-overlap", "op-union"]
+cases = ["c28-set-overlap"]
+note = "_Set_ on a common element is bot (partial concatenation); |Set is the union"
+
+[[row]]
+type = "attribute"
+item = "cell"
+status = "covered"
+rules = ["m-app", "m-col"]
+cases = ["c34-cells-several", "c35-cell-map"]
+note = "read by the encoder: cells are constructors, a cell collection of type Map a Map"
+
+[[row]]
+type = "attribute"
+item = "initializer"
+status = "covered"
+rules = ["init"]
+cases = ["c17-init-function", "c34-cells-several"]
+note = "the encoder unfolds kompile's initializer equations into the initial configuration"
+
+[[row]]
+type = "attribute"
+item = "hasDomainValues"
+status = "covered"
+rules = ["ev-tok", "m-tok"]
+cases = ["c39-tokens-preds"]
+
+[[row]]
+type = "attribute"
+item = "token"
+status = "covered"
+rules = ["ev-tok", "m-tok"]
+cases = ["c39-tokens-preds"]
+
+[[row]]
+type = "attribute"
+item = "anywhere"
+status = "absent"
+note = "not read; overloads are outside the fragment"
+
+[[row]]
+type = "attribute"
+item = "symbol-overload"
+status = "absent"
+note = "not read; overloads are outside the fragment"
+
+[[row]]
+type = "attribute"
+item = "symbol'Kywd'"
+status = "absent"
+note = "a name; not read"
+
+[[row]]
+type = "attribute"
+item = "non-executable"
+status = "absent"
+note = "not read and not refused by name: an equation so marked would be read as any equation"
+
+[[row]]
+type = "attribute"
+item = "simplification"
+status = "absent"
+note = "not read and not refused by name: a simplification axiom of the object definition whose left side has variable arguments would be read as an equation"
+
+[[row]]
+type = "attribute"
+item = "macro"
+status = "absent"
+note = "not read; no case declares one"
+
+[[row]]
+type = "attribute"
+item = "macro-rec"
+status = "absent"
+note = "not read; no case declares one"
+
+[[row]]
+type = "attribute"
+item = "alias"
+status = "absent"
+note = "not read; no case declares one"
+
+[[row]]
+type = "attribute"
+item = "alias-rec"
+status = "absent"
+note = "not read; no case declares one"

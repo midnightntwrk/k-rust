@@ -257,7 +257,7 @@ misunderstanding = "an undefined argument does not make an application undefined
 
 [[mutation]]
 id = "no-equation-kept"
-misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (\\bottom)"
+misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (bot); the equations leave such a point open, so the mutant differs from the HookParams.none member of KCore's family, which kore.k is, not from the text"
   [[mutation.edit]]
   rule = "KORE.result-none"
   find = "result(_, _, none) => bot"
