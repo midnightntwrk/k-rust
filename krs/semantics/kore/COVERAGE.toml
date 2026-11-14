@@ -6,6 +6,10 @@
 # status = "covered": kore.k (through tools/korek.py's encoding) reads it; `rules` names the
 #          kore.k rules that read it and `cases` the cases that exercise it.
 # status = "absent":  kore.k does not read it; `note` says why and what the encoder does on it.
+# For attributes, status is "refused" (the encoder stops with the reason in `note`, REFUSED_ATTRS
+# in tools/korek.py) or "ignored" (read and ignored: the reason it has no meaning in kore.k,
+# IGNORED_ATTRS); the encoder refuses any attribute key of a selected axiom or an applied symbol
+# that it neither reads nor lists, so none passes through silently.
 # A row is never blank. This is a skeleton: the rows are KCore's constructors, not yet the rows of
 # kcore-spec's rows.toml.
 
@@ -343,20 +347,20 @@ cases = ["c01-fn-prio", "c02-rule-prio", "c45-fn-owise-recursion"]
 [[row]]
 type = "attribute"
 item = "label"
-status = "absent"
-note = "a name; not read"
+status = "ignored"
+note = "a name"
 
 [[row]]
 type = "attribute"
 item = "UNIQUE'Unds'ID"
-status = "absent"
-note = "a name; not read"
+status = "ignored"
+note = "a name"
 
 [[row]]
 type = "attribute"
 item = "org'Stop'kframework'Stop'attributes'Stop'Location"
-status = "absent"
-note = "presentation; not read"
+status = "ignored"
+note = "a position in the source text"
 
 [[row]]
 type = "attribute"
@@ -390,8 +394,8 @@ cases = ["c01-fn-prio"]
 [[row]]
 type = "attribute"
 item = "functional"
-status = "absent"
-note = "not read; a total function is evaluated as any other (see total)"
+status = "ignored"
+note = "states that an application has one value; kore.k evaluates a constructor to itself and a function by its equations, and a function declared total is evaluated as any other (COVERAGE.toml, total)"
 
 [[row]]
 type = "attribute"
@@ -487,53 +491,83 @@ cases = ["c39-tokens-preds"]
 [[row]]
 type = "attribute"
 item = "anywhere"
-status = "absent"
-note = "not read; overloads are outside the fragment"
+status = "refused"
+note = "anywhere: a rule applied in every context, outside the fragment"
 
 [[row]]
 type = "attribute"
 item = "symbol-overload"
-status = "absent"
-note = "not read; overloads are outside the fragment"
+status = "refused"
+note = "symbol-overload: overloads are outside the fragment"
 
 [[row]]
 type = "attribute"
 item = "symbol'Kywd'"
-status = "absent"
-note = "a name; not read"
+status = "ignored"
+note = "a name"
 
 [[row]]
 type = "attribute"
 item = "non-executable"
-status = "absent"
-note = "not read and not refused by name: an equation so marked would be read as any equation"
+status = "refused"
+note = "non-executable"
 
 [[row]]
 type = "attribute"
 item = "simplification"
-status = "absent"
-note = "not read and not refused by name: a simplification axiom of the object definition whose left side has variable arguments would be read as an equation"
+status = "refused"
+note = "simplification axiom: not an equation of the definition"
 
 [[row]]
 type = "attribute"
 item = "macro"
-status = "absent"
-note = "not read; no case declares one"
+status = "refused"
+note = "macro: a symbol kompile expands, outside the fragment"
 
 [[row]]
 type = "attribute"
 item = "macro-rec"
-status = "absent"
-note = "not read; no case declares one"
+status = "refused"
+note = "macro-rec: a symbol kompile expands, outside the fragment"
 
 [[row]]
 type = "attribute"
 item = "alias"
-status = "absent"
-note = "not read; no case declares one"
+status = "refused"
+note = "alias: a symbol kompile expands, outside the fragment"
 
 [[row]]
 type = "attribute"
 item = "alias-rec"
-status = "absent"
-note = "not read; no case declares one"
+status = "refused"
+note = "alias-rec: a symbol kompile expands, outside the fragment"
+
+[[row]]
+type = "attribute"
+item = "injective"
+status = "ignored"
+note = "no-confusion of a constructor, which kore.k has by comparing terms"
+
+[[row]]
+type = "attribute"
+item = "sortInjection"
+status = "ignored"
+note = "inj is read by its name"
+
+[[row]]
+type = "attribute"
+item = "smt-hook"
+status = "ignored"
+note = "a solver's reading of the symbol; kore.k evaluates ground terms"
+
+[[row]]
+type = "attribute"
+item = "smtlib"
+status = "ignored"
+note = "a solver's reading of the symbol; kore.k evaluates ground terms"
+
+[[row]]
+type = "attribute"
+item = "update"
+status = "ignored"
+note = "the Map update symbol is read by its hook"

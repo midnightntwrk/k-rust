@@ -221,6 +221,52 @@ class Unsupported(Exception):
     pass
 
 
+# Every attribute key of an axiom the encoder selects, and of a symbol it applies, is refused by
+# name, read, or ignored with the reason it has no meaning in kore.k; any other key is refused, so
+# no attribute passes through unexamined (COVERAGE.toml has the same lists).
+REFUSED_ATTRS = {
+    'simplification': 'simplification axiom: not an equation of the definition',
+    'non-executable': 'non-executable',
+    'anywhere': 'anywhere: a rule applied in every context, outside the fragment',
+    'macro': 'macro: a symbol kompile expands, outside the fragment',
+    'macro-rec': 'macro-rec: a symbol kompile expands, outside the fragment',
+    'alias': 'alias: a symbol kompile expands, outside the fragment',
+    'alias-rec': 'alias-rec: a symbol kompile expands, outside the fragment',
+    'symbol-overload': 'symbol-overload: overloads are outside the fragment',
+}
+# read by the encoder
+AXIOM_READ = {SOURCE, 'priority', 'owise', 'subsort'}
+SYMBOL_READ = {SOURCE, 'function', 'constructor', 'hook', 'unit', 'element', 'concat'}
+# ignored: no meaning in kore.k
+IGNORED_ATTRS = {
+    "UNIQUE'Unds'ID": 'a name',
+    'label': 'a name',
+    "symbol'Kywd'": 'a name',
+    "org'Stop'kframework'Stop'attributes'Stop'Location": 'a position in the source text',
+    'functional': 'states that an application has one value; kore.k evaluates a constructor to '
+                  'itself and a function by its equations, and a function declared total is '
+                  'evaluated as any other (COVERAGE.toml, total)',
+    'total': 'a total function is evaluated as any other (COVERAGE.toml, total)',
+    'injective': 'no-confusion of a constructor, which kore.k has by comparing terms',
+    'sortInjection': 'inj is read by its name',
+    'smt-hook': "a solver's reading of the symbol; kore.k evaluates ground terms",
+    'smtlib': "a solver's reading of the symbol; kore.k evaluates ground terms",
+    'update': 'the Map update symbol is read by its hook',
+    'cell': 'a cell is read as the constructor it is',
+    'assoc': "a collection symbol's law, which kore.k's canonical collection values give",
+    'comm': "a collection symbol's law, which kore.k's canonical collection values give",
+    'idem': "a collection symbol's law; kore.k reads _Set_ on a common element as undefined",
+}
+
+
+def check_attrs(what, attrs, read):
+    for k in attrs:
+        if k in REFUSED_ATTRS:
+            raise Unsupported(f'{what}: {REFUSED_ATTRS[k]}')
+        if k not in read and k not in IGNORED_ATTRS:
+            raise Unsupported(f'{what}: attribute {k}')
+
+
 class Encoder:
     def __init__(self, modules, source, top_init=None):
         self.decls = {}
@@ -298,6 +344,7 @@ class Encoder:
         if decl is None:
             raise Unsupported(f'undeclared symbol {name}')
         attrs = decl[1]
+        check_attrs(f'symbol {name}', attrs, SYMBOL_READ)
         coll = collection_hook(attrs)
         if coll is not None:
             return self.collection(coll[0], decl[0][2], p)
@@ -325,6 +372,7 @@ class Encoder:
         nested concatenations, units and elements of the same sort flattened."""
         if p[0] == 'app' and p[1] in self.decls:
             (_, _, res), attrs = self.decls[p[1]]
+            check_attrs(f'symbol {p[1]}', attrs, SYMBOL_READ)
             coll = collection_hook(attrs)
             if coll is not None and coll[0] == kind and res == sort:
                 role, args = coll[1], p[3]
@@ -491,6 +539,7 @@ class Encoder:
     def encode(self, init):
         rules, fns = [], {}
         for ax, attrs in self.axioms:
+            check_attrs('axiom', attrs, AXIOM_READ)
             if ax[1] == '\\rewrites':
                 rules.append(self.rule(ax, attrs))
             elif ax[1] == '\\implies':
@@ -501,6 +550,7 @@ class Encoder:
         done = 0
         while done < len(self.needed):
             for ax, attrs in self.generated[self.needed[done]]:
+                check_attrs('axiom', attrs, AXIOM_READ)
                 f, c = self.equation(ax, attrs)
                 fns.setdefault(f, []).append(c)
             done += 1
