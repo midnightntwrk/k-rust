@@ -443,14 +443,16 @@ class Encoder:
         return enc
 
     def equation(self, ax, attrs):
-        # \implies(\and(REQ-or-owise-negation, \and(\in(X0, P0), ... \top)), \equals(f(X0..), \and(RHS, \top)))
+        # \implies(\and(REQ-or-owise-negation, \and(\in(X0, P0), ... \top)), \equals(f(X0..), \and(RHS, ENS)))
+        # ENS is \top or \equals{Bool,_}(E, true). The ensures stands in the right side of the
+        # equality, so it is encoded in the right side, en(RHS, E), as a rule's is: where the
+        # equation applies and E is not true, the application has no value.
         _, _, _, (pre, concl) = ax
         if concl[1] != '\\equals':
             raise Unsupported('equation conclusion')
         lhs, rhsand = concl[3]
-        rhs, top = rhsand[3]
-        if top[1] != '\\top':
-            raise Unsupported('ensures in equation')
+        rhs, ens = rhsand[3]
+        e = self.req(ens)
         reqpart, argpart = pre[3]
         owise = 'owise' in attrs
         if owise:
@@ -480,7 +482,11 @@ class Encoder:
         prio, _ = self.priority(attrs)
         r = self.req(reqpart)
         ps = ' ; '.join(pat_terms) + ' ; .Ts' if pat_terms else '.Ts'
-        return fname, f'cl({prio}, {str(owise).lower()}, {ps}, {self.term(r) if r else "bv(true)"}, {self.term(rhs)}, '
+        req = self.term(r) if r else "bv(true)"
+        right = self.term(rhs)
+        if e:
+            right = f'en({right}, {self.term(e)})'
+        return fname, f'cl({prio}, {str(owise).lower()}, {ps}, {req}, {right}, '
 
     def encode(self, init):
         rules, fns = [], {}

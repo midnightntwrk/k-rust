@@ -250,6 +250,11 @@ status = "killed"
 killer = "cases/c43-ensures/kore.pgm"
 
 [[run.mutation]]
+id = "ensures-as-requires"
+status = "killed"
+killer = "cases/c51-fn-ensures-owise/kore.pgm"
+
+[[run.mutation]]
 id = "subst-first-only"
 status = "killed"
 killer = "cases/c19-map-choice/kore.pgm"

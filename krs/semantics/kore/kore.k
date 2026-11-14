@@ -29,6 +29,10 @@
 //   - a rule's ensures is part of its result: r ensures E is r where E evaluates to true and
 //     undefined (an empty result) otherwise, so a rule whose ensures is false has applied and
 //     blocks the rules of larger priority as one with an undefined right side does;
+//   - an equation's ensures is part of its right side in the same way (kompile writes
+//     f(P) = \and(r, E = true)): where the equation applies and E is not true the application
+//     has no value; the ensures does not decide whether the equation applies, so an equation of
+//     larger priority or an [owise] one does not apply there;
 //   - matching is syntactic up to injections: inj{A,B}(P) matches inj{C,B}(V) where C = A, with P
 //     against V, or C < A in the reflexive-transitive closure of the stated subsorts, with P
 //     against inj{C,A}(V); a variable seen twice must be bound to equal values; an as-pattern
@@ -71,14 +75,14 @@ module KORE-SYNTAX
                                        // and element symbols from parts: elements, and terms of
                                        // the collection's sort
                 | co(Kind, Int, Ts)    // a collection value: its elements, canonical (below)
-                | en(Term, Term)       // a rule's right side and its ensures
+                | en(Term, Term)       // a rule's or an equation's right side and its ensures
                 | kv(Term, Term)       // the element K |-> V of a map
                 | el(Term)             // the element of a set or a list
   syntax Kind ::= "map" | "set" | "list"
   syntax Ts ::= ".Ts" | Term ";" Ts
 
   syntax Subs ::= ".Subs" | sub(Int, Int, Subs)                       // subsort{A, B}: A < B
-  syntax Clauses ::= ".Cls" | cl(Int, Bool, Ts, Term, Term, Clauses)  // priority, owise, arguments, requires, right side
+  syntax Clauses ::= ".Cls" | cl(Int, Bool, Ts, Term, Term, Clauses)  // priority, owise, arguments, requires, right side (en(R, E) with an ensures)
   syntax Fns ::= ".Fns" | fn(Int, Clauses, Fns)                        // a function symbol and its equations
   syntax Rules ::= ".Rules" | rl(Int, Bool, Term, Term, Term, Rules)   // priority, owise, left side, requires, right side
   syntax Def ::= def(Subs, Fns, Rules)
