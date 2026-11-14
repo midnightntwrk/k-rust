@@ -62,7 +62,10 @@ export const theory9: Lesson = {
       frames: [
         {
           hl: { g: [at(gamma, 'def Γ (c : Semantics)'), at(gamma, 'ΓSig c ∪ ΓCons c')] },
-          notes: [note('g', at(gamma, 'def Γ (c : Semantics)'), 'Six parts, each read from the `Semantics` value.', 'Semantics')],
+          notes: [
+            note('g', at(gamma, 'def Γ (c : Semantics)'), 'Seven parts, each read from the `Semantics` value.', 'Semantics'),
+            note('g', at(gamma, 'ΓSig c ∪ ΓCons c'), 'Not settled: silent points. No point is silent today, so this part is empty.', 'ΓFallback c'),
+          ],
           say: 'Lesson 8 said what a theory is. This is the theory of a definition: what it means, in matching logic. It is built from the Lean value, not read from the KORE text the prologue showed.',
         },
       ],

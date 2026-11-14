@@ -162,8 +162,11 @@ export const evaluation5: Lesson = {
           ],
         },
         {
-          hl: { t: [at(evalTerm, '| hook {σ')] },
-          notes: [note('t', at(evalTerm, '| hook {σ'), 'Not settled: whether a builtin operation declared total but described on part of its arguments, such as `substrString`, has no value there or an undetermined one.', 'hook')],
+          hl: { t: span(evalTerm, '| hook {σ', 'c.hookRes f vs = some r') },
+          notes: [
+            note('t', at(evalTerm, '| hook {σ'), 'Not settled: whether a builtin operation declared total but described on part of its arguments, such as `substrString`, has no value there or an undetermined one.', 'hook'),
+            note('t', at(evalTerm, 'c.hookRes f vs = some r'), "Not settled: silent points, where the result would be the interpretation's value (`hookRes`). The table of such points is empty today, so nothing is silent.", 'hookRes'),
+          ],
         },
         {
           hl: { t: span(evalTerm, '| ovl {σ', 'EvalTerm c σ (.app f ts) ((allSome rs).map (c.norm f))') },
