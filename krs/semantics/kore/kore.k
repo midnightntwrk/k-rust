@@ -14,9 +14,10 @@
 //   - an equation applies when its argument patterns match and its requires evaluates to true;
 //     among the applicable equations one of the least priority gives the result (an [owise]
 //     equation has priority 200, an equation without priority 50); an application no equation
-//     applies to has no value (\bottom), since only an equation gives an application a value;
-//     a function declared total is read the same, although kompile states that it has some value
-//     there, which a definition then leaves open;
+//     applies to is given no value here (bot): the equations leave it open, and this interpreter
+//     is the member of KCore's family whose interpretation gives nothing (HookParams.none), not
+//     the text's meaning for every interpretation; a function declared total is read the same,
+//     so at such a point the result is outside what the text admits;
 //   - a rewrite rule applies when its left side matches and its requires evaluates to true; the
 //     successors are the defined results of the applicable rules of the least priority; a rule
 //     whose result is undefined still blocks the rules of larger priority;
@@ -29,6 +30,10 @@
 //   - a rule's ensures is part of its result: r ensures E is r where E evaluates to true and
 //     undefined (an empty result) otherwise, so a rule whose ensures is false has applied and
 //     blocks the rules of larger priority as one with an undefined right side does;
+//   - an equation's ensures is part of its right side in the same way (kompile writes
+//     f(P) = \and(r, E = true)): where the equation applies and E is not true the application
+//     has no value; the ensures does not decide whether the equation applies, so an equation of
+//     larger priority or an [owise] one does not apply there;
 //   - matching is syntactic up to injections: inj{A,B}(P) matches inj{C,B}(V) where C = A, with P
 //     against V, or C < A in the reflexive-transitive closure of the stated subsorts, with P
 //     against inj{C,A}(V); a variable seen twice must be bound to equal values; an as-pattern
@@ -71,14 +76,14 @@ module KORE-SYNTAX
                                        // and element symbols from parts: elements, and terms of
                                        // the collection's sort
                 | co(Kind, Int, Ts)    // a collection value: its elements, canonical (below)
-                | en(Term, Term)       // a rule's right side and its ensures
+                | en(Term, Term)       // a rule's or an equation's right side and its ensures
                 | kv(Term, Term)       // the element K |-> V of a map
                 | el(Term)             // the element of a set or a list
   syntax Kind ::= "map" | "set" | "list"
   syntax Ts ::= ".Ts" | Term ";" Ts
 
   syntax Subs ::= ".Subs" | sub(Int, Int, Subs)                       // subsort{A, B}: A < B
-  syntax Clauses ::= ".Cls" | cl(Int, Bool, Ts, Term, Term, Clauses)  // priority, owise, arguments, requires, right side
+  syntax Clauses ::= ".Cls" | cl(Int, Bool, Ts, Term, Term, Clauses)  // priority, owise, arguments, requires, right side (en(R, E) with an ensures)
   syntax Fns ::= ".Fns" | fn(Int, Clauses, Fns)                        // a function symbol and its equations
   syntax Rules ::= ".Rules" | rl(Int, Bool, Term, Term, Term, Rules)   // priority, owise, left side, requires, right side
   syntax Def ::= def(Subs, Fns, Rules)
@@ -490,6 +495,9 @@ module KORE
   rule [op-kne]: hookOp(71, A ; B ; .Ts) => bv(cmp(A, B) =/=Int 0)
   rule [op-str-eq]: hookOp(80, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X ==String Y)
   rule [op-str-lt]: hookOp(81, tk(_, X) ; tk(_, Y) ; .Ts) => bv(X <String Y)
+  // No other case gives a value. Where the hook's text states none (/Int and %Int by zero, a
+  // missing key), bot is the text's \bottom; at a point the text leaves open, bot is the value
+  // of HookParams.none, the member of KCore's family this interpreter is, not the text's \bottom.
   rule [op-undef]: hookOp(_, _) => bot [owise]
 
   syntax Ts ::= union(Ts, Ts) [function]

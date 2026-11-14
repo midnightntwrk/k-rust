@@ -205,3 +205,24 @@ The llvm backend aborts on the division by zero in the requires of g's equation 
 which it evaluates for g(0). For g(1) the equation of priority 40 applies and gives 1; for g(0) \
 it does not, the requires of priority 60 is undefined, so not true, and the [owise] equation \
 gives 3: b(1, 3)."""
+
+[[difference]]
+case = "c50-fn-ensures"
+backend = "llvm"
+reason = """
+The llvm backend does not evaluate the equation's ensures: it gives half(-4) the value -2 and \
+steps run(-4) to done(-2), although -4 >Int 0 is false. The axiom kompile writes is \
+half(N) = (N /Int 2 and (N >=Int 0 = true)): the ensures stands in the right side of the \
+equality, so where the equation applies and N >=Int 0 is false half(N) is \\bottom, run(-4)'s \
+rule applies with an undefined result, and run(-4) has no successor and is not final. The \
+haskell backend gives done(2) alone, as kore.k does."""
+
+[[difference]]
+case = "c51-fn-ensures-owise"
+backend = "llvm"
+reason = """
+As for c50, the llvm backend does not evaluate the ensures and gives half(-4) the value -2. The \
+first equation decides at -4 (its argument pattern matches, it has no requires), so the [owise] \
+equation half(_) = 0 does not apply there: the negation kompile writes as its premise names the \
+first equation's argument pattern and requires, not its ensures. half(-4) is \\bottom, not 0, \
+and run(-4) has no successor; the haskell backend gives done(2) alone, as kore.k does."""

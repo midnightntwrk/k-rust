@@ -221,6 +221,53 @@ class Unsupported(Exception):
     pass
 
 
+# Every attribute key of an axiom the encoder selects, and of a symbol it applies, is refused by
+# name, read, or ignored with the reason it has no meaning in kore.k; any other key is refused, so
+# no attribute passes through unexamined (COVERAGE.toml has the same lists).
+REFUSED_ATTRS = {
+    'simplification': 'simplification axiom: not an equation of the definition',
+    'non-executable': 'non-executable',
+    'anywhere': 'anywhere: a rule applied in every context, outside the fragment',
+    'macro': 'macro: a symbol kompile expands, outside the fragment',
+    'macro-rec': 'macro-rec: a symbol kompile expands, outside the fragment',
+    'alias': 'alias: a symbol kompile expands, outside the fragment',
+    'alias-rec': 'alias-rec: a symbol kompile expands, outside the fragment',
+    'symbol-overload': 'symbol-overload: overloads are outside the fragment',
+}
+# read by the encoder
+AXIOM_READ = {SOURCE, 'priority', 'owise', 'subsort'}
+SYMBOL_READ = {SOURCE, 'function', 'constructor', 'hook', 'unit', 'element', 'concat'}
+# ignored: no meaning in kore.k
+IGNORED_ATTRS = {
+    "UNIQUE'Unds'ID": 'a name',
+    'label': 'a name',
+    "symbol'Kywd'": 'a name',
+    "org'Stop'kframework'Stop'attributes'Stop'Location": 'a position in the source text',
+    'functional': 'states that an application has one value; kore.k evaluates a constructor to '
+                  'itself and a function by its equations, and a function declared total is '
+                  'evaluated as any other (COVERAGE.toml, total)',
+    'total': 'a total function is evaluated as any other (COVERAGE.toml, total)',
+    'injective': 'no-confusion of a constructor, which kore.k has by comparing terms',
+    'sortInjection': 'inj is read by its name',
+    'smt-hook': "a solver's reading of the symbol; kore.k evaluates ground terms",
+    'smtlib': "a solver's reading of the symbol; kore.k evaluates ground terms",
+    'update': 'the Map update symbol is read by its hook',
+    'cell': 'a cell is read as the constructor it is',
+    'initializer': 'an initializer equation is found by the symbol it defines, from topCellInitializer',
+    'assoc': "a collection symbol's law, which kore.k's canonical collection values give",
+    'comm': "a collection symbol's law, which kore.k's canonical collection values give",
+    'idem': "a collection symbol's law; kore.k reads _Set_ on a common element as undefined",
+}
+
+
+def check_attrs(what, attrs, read):
+    for k in attrs:
+        if k in REFUSED_ATTRS:
+            raise Unsupported(f'{what}: {REFUSED_ATTRS[k]}')
+        if k not in read and k not in IGNORED_ATTRS:
+            raise Unsupported(f'{what}: attribute {k}')
+
+
 class Encoder:
     def __init__(self, modules, source, top_init=None):
         self.decls = {}
@@ -298,6 +345,7 @@ class Encoder:
         if decl is None:
             raise Unsupported(f'undeclared symbol {name}')
         attrs = decl[1]
+        check_attrs(f'symbol {name}', attrs, SYMBOL_READ)
         coll = collection_hook(attrs)
         if coll is not None:
             return self.collection(coll[0], decl[0][2], p)
@@ -325,6 +373,7 @@ class Encoder:
         nested concatenations, units and elements of the same sort flattened."""
         if p[0] == 'app' and p[1] in self.decls:
             (_, _, res), attrs = self.decls[p[1]]
+            check_attrs(f'symbol {p[1]}', attrs, SYMBOL_READ)
             coll = collection_hook(attrs)
             if coll is not None and coll[0] == kind and res == sort:
                 role, args = coll[1], p[3]
@@ -386,6 +435,7 @@ class Encoder:
             eqs = self.generated[name]
             if len(eqs) != 1:
                 raise Unsupported(f'initializer {name} of {len(eqs)} equations')
+            check_attrs(f'initializer {name}', eqs[0][1], AXIOM_READ)
             _, _, _, (pre, concl) = eqs[0][0]
             lhs, (rhs, _) = concl[3][0], concl[3][1][3]
             binds, a = {}, pre[3][1]
@@ -443,14 +493,16 @@ class Encoder:
         return enc
 
     def equation(self, ax, attrs):
-        # \implies(\and(REQ-or-owise-negation, \and(\in(X0, P0), ... \top)), \equals(f(X0..), \and(RHS, \top)))
+        # \implies(\and(REQ-or-owise-negation, \and(\in(X0, P0), ... \top)), \equals(f(X0..), \and(RHS, ENS)))
+        # ENS is \top or \equals{Bool,_}(E, true). The ensures stands in the right side of the
+        # equality, so it is encoded in the right side, en(RHS, E), as a rule's is: where the
+        # equation applies and E is not true, the application has no value.
         _, _, _, (pre, concl) = ax
         if concl[1] != '\\equals':
             raise Unsupported('equation conclusion')
         lhs, rhsand = concl[3]
-        rhs, top = rhsand[3]
-        if top[1] != '\\top':
-            raise Unsupported('ensures in equation')
+        rhs, ens = rhsand[3]
+        e = self.req(ens)
         reqpart, argpart = pre[3]
         owise = 'owise' in attrs
         if owise:
@@ -480,11 +532,16 @@ class Encoder:
         prio, _ = self.priority(attrs)
         r = self.req(reqpart)
         ps = ' ; '.join(pat_terms) + ' ; .Ts' if pat_terms else '.Ts'
-        return fname, f'cl({prio}, {str(owise).lower()}, {ps}, {self.term(r) if r else "bv(true)"}, {self.term(rhs)}, '
+        req = self.term(r) if r else "bv(true)"
+        right = self.term(rhs)
+        if e:
+            right = f'en({right}, {self.term(e)})'
+        return fname, f'cl({prio}, {str(owise).lower()}, {ps}, {req}, {right}, '
 
     def encode(self, init):
         rules, fns = [], {}
         for ax, attrs in self.axioms:
+            check_attrs('axiom', attrs, AXIOM_READ)
             if ax[1] == '\\rewrites':
                 rules.append(self.rule(ax, attrs))
             elif ax[1] == '\\implies':
@@ -495,6 +552,7 @@ class Encoder:
         done = 0
         while done < len(self.needed):
             for ax, attrs in self.generated[self.needed[done]]:
+                check_attrs('axiom', attrs, AXIOM_READ)
                 f, c = self.equation(ax, attrs)
                 fns.setdefault(f, []).append(c)
             done += 1

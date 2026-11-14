@@ -257,7 +257,7 @@ misunderstanding = "an undefined argument does not make an application undefined
 
 [[mutation]]
 id = "no-equation-kept"
-misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (\\bottom)"
+misunderstanding = "a function application no equation applies to stays as it is, a value, instead of having no value (bot); the equations leave such a point open, so the mutant differs from the HookParams.none member of KCore's family, which kore.k is, not from the text"
   [[mutation.edit]]
   rule = "KORE.result-none"
   find = "result(_, _, none) => bot"
@@ -411,7 +411,7 @@ misunderstanding = "an as-pattern's variable is bound afresh even when the left 
 
 [[mutation]]
 id = "ensures-ignored"
-misunderstanding = "a rule's ensures is not evaluated: the rule gives its right side whatever the ensures is"
+misunderstanding = "an ensures is not evaluated: a rule or an equation gives its right side whatever the ensures is"
   [[mutation.edit]]
   rule = "KORE.ev-en"
   find = "=> ensure(eval(D, E), eval(D, T))"
@@ -428,6 +428,26 @@ misunderstanding = "a rule whose ensures is false has not applied, as one whose 
   rule = "KORE.fa-take"
   find = "app(fire(D, L, R, Rhs, T),"
   replace = "app(drop(vr(-1), fire(D, L, R, Rhs, T)),"
+
+[[mutation]]
+id = "ensures-as-requires"
+misunderstanding = "an equation whose ensures is not true has not applied, as one whose requires is not true: the next equation of its priority, a larger priority or the [owise] equation gives the value, instead of the application having no value (rules keep their reading: the marker of a false ensures is no successor and still blocks)"
+  [[mutation.edit]]
+  rule = "KORE.ensure-fails"
+  find = "=> bot"
+  replace = "=> vr(-1)"
+  [[mutation.edit]]
+  rule = "KORE.step-some"
+  find = "next(drop(bot, R ; Rs))"
+  replace = "next(drop(vr(-1), drop(bot, R ; Rs)))"
+  [[mutation.edit]]
+  rule = "KORE.else-some"
+  find = "=> some(T)"
+  replace = "=> some(T) requires T =/=K vr(-1)"
+  [[mutation.edit]]
+  rule = "KORE.else-none"
+  find = "orElse(none, D, As, Cs, P) => tryAt(D, As, Cs, P)"
+  replace = "orElse(R, D, As, Cs, P) => tryAt(D, As, Cs, P) requires R ==K none orBool R ==K some(vr(-1))"
 
 # --- collections: matching -----------------------------------------------------------------
 
