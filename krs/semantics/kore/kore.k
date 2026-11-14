@@ -20,6 +20,10 @@
 //   - a rewrite rule applies when its left side matches and its requires evaluates to true; the
 //     successors are the defined results of the applicable rules of the least priority; a rule
 //     whose result is undefined still blocks the rules of larger priority;
+//   - equations and rules are tried by ascending priority, the first equation of a priority in
+//     the order of the text: one of a larger priority applies only where none of a smaller one
+//     does, so its requires and right side are evaluated only there (a requires or right side
+//     without a value at a larger priority does not affect a result decided at a smaller one);
 //   - a configuration is final when no rule applies to it; one to which rules apply but all
 //     with undefined results has no successor and is not final (the path is undefined);
 //   - a rule's ensures is part of its result: r ensures E is r where E evaluates to true and
@@ -109,20 +113,59 @@ module KORE
     requires member(S, Seen)
 
   // ---------------------------------------------------------------- rewrite rules
+  // Priorities are walked in ascending order. A rule applies only where no rule of a smaller
+  // priority does, so the rules of a priority are tried only where none of a smaller priority
+  // applies; where one does, no requires or right side of a larger priority is evaluated, and a
+  // larger priority could only have removed results.
   syntax Res ::= "none" | some(Term)
-  syntax Cands ::= ".Cands" | cand(Int, Term, Cands)   // an applicable rule's priority and result
+  syntax Prio ::= "noP" | at(Int)   // no priority; a priority
 
   syntax Step ::= "stuck" | next(Ts)   // no rule applies; the successors
   syntax Step ::= succs(Def, Term) [function]
-  rule [succs]: succs(def(S, Fs, Rs), T) => pick(cands(def(S, Fs, Rs), Rs, T))
+  rule [succs]: succs(def(S, Fs, Rs), T) => stepAt(def(S, Fs, Rs), Rs, T, nextRl(Rs, noP))
 
-  syntax Cands ::= cands(Def, Rules, Term) [function]
-  rule [cands-nil]: cands(_, .Rules, _) => .Cands
-  rule [cands-cons]: cands(D, rl(P, O, L, R, Rhs, Rs), T) => addCand(prio(P, O), fire(D, L, R, Rhs, T), cands(D, Rs, T))
+  // at priority P: the results of the rules of P, else the next priority, else no rule applies
+  syntax Step ::= stepAt(Def, Rules, Term, Prio) [function]
+  rule [step-none]: stepAt(_, _, _, noP) => stuck
+  rule [step-at]: stepAt(D, Rs, T, at(P)) => stepIf(D, Rs, T, P, fireAt(D, Rs, T, P))
+  syntax Step ::= stepIf(Def, Rules, Term, Int, Ts) [function]
+  rule [step-next]: stepIf(D, Rs, T, P, .Ts) => stepAt(D, Rs, T, nextRl(Rs, at(P)))
+  // rules of P apply: their defined results are the successors; an undefined result is no
+  // successor and still blocks the larger priorities
+  rule [step-some]: stepIf(_, _, _, _, R ; Rs) => next(drop(bot, R ; Rs))
+
+  // the results of the rules of priority P, in the order of the text
+  syntax Ts ::= fireAt(Def, Rules, Term, Int) [function]
+  rule [fa-nil]: fireAt(_, .Rules, _, _) => .Ts
+  rule [fa-take]: fireAt(D, rl(Q, O, L, R, Rhs, Rs), T, P) => app(fire(D, L, R, Rhs, T), fireAt(D, Rs, T, P))
+    requires rprio(Q, O) ==Int P
+  rule [fa-skip]: fireAt(D, rl(Q, O, _, _, _, Rs), T, P) => fireAt(D, Rs, T, P)
+    requires rprio(Q, O) =/=Int P
+
+  // the least priority of the rules (equations) above the bound, noP when there is none
+  syntax Prio ::= nextRl(Rules, Prio) [function]
+  rule [nrl-nil]: nextRl(.Rules, _) => noP
+  rule [nrl-cons]: nextRl(rl(Q, O, _, _, _, Rs), B) => least(over(rprio(Q, O), B), nextRl(Rs, B))
+  syntax Prio ::= nextCl(Clauses, Prio) [function]
+  rule [ncl-nil]: nextCl(.Cls, _) => noP
+  rule [ncl-cons]: nextCl(cl(Q, O, _, _, _, Cs), B) => least(over(cprio(Q, O), B), nextCl(Cs, B))
+  syntax Prio ::= over(Int, Prio) [function]   // the priority if it is above the bound
+  rule [over-free]: over(P, noP) => at(P)
+  rule [over-above]: over(P, at(B)) => at(P) requires P >Int B
+  rule [over-below]: over(P, at(B)) => noP requires P <=Int B
+  syntax Prio ::= least(Prio, Prio) [function]
+  rule [least-none]: least(noP, Q) => Q
+  rule [least-only]: least(at(P), noP) => at(P)
+  rule [least-left]: least(at(P), at(Q)) => at(P) requires P <=Int Q
+  rule [least-right]: least(at(P), at(Q)) => at(Q) requires P >Int Q
 
   syntax Int ::= prio(Int, Bool) [function]
   rule [prio-owise]: prio(_, true) => 200
   rule [prio-given]: prio(P, false) => P
+  syntax Int ::= rprio(Int, Bool) [function]   // a rule's priority
+  rule [rprio]: rprio(P, O) => prio(P, O)
+  syntax Int ::= cprio(Int, Bool) [function]   // an equation's priority
+  rule [cprio]: cprio(P, O) => prio(P, O)
 
   // the results of a rule: one for each substitution of its left side whose requires holds
   syntax Ts ::= fire(Def, Term, Term, Term, Term) [function]
@@ -134,27 +177,11 @@ module KORE
   rule [fire-refuted]: fireM(D, R, Rhs, m(B, Ms)) => fireM(D, R, Rhs, Ms)
     requires eval(D, inst(R, B)) =/=K bv(true)
 
-  syntax Cands ::= addCand(Int, Ts, Cands) [function]
-  rule [add-none]: addCand(_, .Ts, Cs) => Cs
-  rule [add-some]: addCand(P, T ; Ts, Cs) => cand(P, T, addCand(P, Ts, Cs))
-
-  syntax Step ::= pick(Cands) [function]
-  rule [pick-none]: pick(.Cands) => stuck
-  rule [pick]: pick(cand(P, T, Cs)) => next(keep(minPrio(cand(P, T, Cs)), cand(P, T, Cs)))
-
-  syntax Int ::= minPrio(Cands) [function]
-  rule [min-nil]: minPrio(.Cands) => 1000000
-  rule [min-cons]: minPrio(cand(P, _, Cs)) => lesser(P, minPrio(Cs))
-  syntax Int ::= lesser(Int, Int) [function]
-  rule [lesser-left]: lesser(P, Q) => P requires P <=Int Q
-  rule [lesser-right]: lesser(P, Q) => Q requires P >Int Q
-
-  syntax Ts ::= keep(Int, Cands) [function]
-  rule [keep-nil]: keep(_, .Cands) => .Ts
-  rule [keep-take]: keep(P, cand(Q, T, Cs)) => T ; keep(P, Cs)
-    requires Q ==Int P andBool T =/=K bot
-  rule [keep-skip]: keep(P, cand(Q, T, Cs)) => keep(P, Cs)
-    requires Q =/=Int P orBool T ==K bot
+  // the list without the elements equal to the term
+  syntax Ts ::= drop(Term, Ts) [function]
+  rule [drop-nil]: drop(_, .Ts) => .Ts
+  rule [drop-keep]: drop(X, T ; Ts) => T ; drop(X, Ts) requires T =/=K X
+  rule [drop-hit]: drop(X, T ; Ts) => drop(X, Ts) requires T ==K X
 
   // ---------------------------------------------------------------- evaluation
   syntax Term ::= eval(Def, Term) [function]
@@ -199,23 +226,32 @@ module KORE
     requires notBool hasBot(As)
   syntax Term ::= applyL(Def, Int, Ts, Look) [function]
   rule [apply-ctor]: applyL(_, F, As, nofn) => ap(F, As)
-  rule [apply-fn]: applyL(D, F, As, fnd(Cs)) => result(F, As, bestCl(D, As, Cs, 1000000, none))
+  rule [apply-fn]: applyL(D, F, As, fnd(Cs)) => result(F, As, evalAt(D, As, Cs, nextCl(Cs, noP)))
 
   syntax Term ::= result(Int, Ts, Res) [function]
   rule [result-some]: result(_, _, some(T)) => T
   rule [result-none]: result(_, _, none) => bot
 
-  // the applicable equation of least priority (the first one of that priority)
-  syntax Res ::= bestCl(Def, Ts, Clauses, Int, Res) [function]
-  rule [best-nil]: bestCl(_, _, .Cls, _, R) => R
-  rule [best-cons]: bestCl(D, As, cl(P, O, Ps, Req, Rhs, Cs), Best, R)
-    => bestCl2(D, As, Cs, Best, R, prio(P, O), tryCl(D, Ps, Req, Rhs, As))
-  syntax Res ::= bestCl2(Def, Ts, Clauses, Int, Res, Int, Res) [function]
-  rule [best-better]: bestCl2(D, As, Cs, Best, _, P, some(T)) => bestCl(D, As, Cs, P, some(T))
-    requires P <Int Best
-  rule [best-worse]: bestCl2(D, As, Cs, Best, R, P, some(_)) => bestCl(D, As, Cs, Best, R)
-    requires P >=Int Best
-  rule [best-none]: bestCl2(D, As, Cs, Best, R, _, none) => bestCl(D, As, Cs, Best, R)
+  // Equations by ascending priority, as rules are: at priority P the first equation of P that
+  // applies gives the result, else the next priority. An equation applies only where none of a
+  // smaller priority does, so one of a larger priority is not evaluated where one of P applies.
+  syntax Res ::= evalAt(Def, Ts, Clauses, Prio) [function]
+  rule [ea-none]: evalAt(_, _, _, noP) => none
+  rule [ea-at]: evalAt(D, As, Cs, at(P)) => evalIf(D, As, Cs, P, tryAt(D, As, Cs, P))
+  syntax Res ::= evalIf(Def, Ts, Clauses, Int, Res) [function]
+  rule [ei-some]: evalIf(_, _, _, _, some(T)) => some(T)
+  rule [ei-next]: evalIf(D, As, Cs, P, none) => evalAt(D, As, Cs, nextCl(Cs, at(P)))
+
+  // the result of the first equation of priority P that applies, in the order of the text
+  syntax Res ::= tryAt(Def, Ts, Clauses, Int) [function]
+  rule [ta-nil]: tryAt(_, _, .Cls, _) => none
+  rule [ta-take]: tryAt(D, As, cl(Q, O, Ps, Req, Rhs, Cs), P) => orElse(tryCl(D, Ps, Req, Rhs, As), D, As, Cs, P)
+    requires cprio(Q, O) ==Int P
+  rule [ta-skip]: tryAt(D, As, cl(Q, O, _, _, _, Cs), P) => tryAt(D, As, Cs, P)
+    requires cprio(Q, O) =/=Int P
+  syntax Res ::= orElse(Res, Def, Ts, Clauses, Int) [function]
+  rule [else-some]: orElse(some(T), _, _, _, _) => some(T)
+  rule [else-none]: orElse(none, D, As, Cs, P) => tryAt(D, As, Cs, P)
 
   syntax Res ::= tryCl(Def, Ts, Term, Term, Ts) [function]
   rule [try]: tryCl(D, Ps, Req, Rhs, As) => tryM(D, Req, Rhs, matchTs(Ps, As, .Bind, subsOf(D)))

@@ -187,3 +187,21 @@ that would give c(0) does not apply; K's text does not state this beyond the man
 wording (a rule of larger priority applies when the others have been tried and failed), so it \
 is kore.k's reading, recorded against both backends; the \
 haskell backend gives b(1) alone, as kore.k does, so neither backend applies that rule."""
+
+[[difference]]
+case = "c47-undef-rhs-same-prio"
+backend = "llvm"
+reason = """
+The llvm backend aborts on X /Int 0 in the right side of one of two rules of one priority \
+([hook_INT_tdiv]: Division by zero). That rule applies with an undefined result, which is no \
+successor; the other rule of the same priority applies with c(1), which is the one final \
+configuration."""
+
+[[difference]]
+case = "c48-fn-undef-requires-larger"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in the requires of g's equation of priority 60, \
+which it evaluates for g(0). For g(1) the equation of priority 40 applies and gives 1; for g(0) \
+it does not, the requires of priority 60 is undefined, so not true, and the [owise] equation \
+gives 3: b(1, 3)."""

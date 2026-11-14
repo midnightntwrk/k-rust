@@ -205,6 +205,11 @@ status = "killed"
 killer = "cases/c08-undef-rhs-blocks/kore.pgm"
 
 [[run.mutation]]
+id = "undefined-result-empties-step"
+status = "killed"
+killer = "cases/c13-inj-bool/kore.pgm"
+
+[[run.mutation]]
 id = "undefined-init-is-final"
 status = "killed"
 killer = "cases/c12-undef-init/kore.pgm"

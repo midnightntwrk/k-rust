@@ -30,86 +30,58 @@ misunderstanding = "the priority attribute is ignored: every axiom without [owis
 id = "rule-owise-ignored"
 misunderstanding = "[owise] is honoured for function equations but ignored for rewrite rules"
   [[mutation.edit]]
-  rule = "KORE.cands-cons"
-  find = "addCand(prio(P, O),"
-  replace = "addCand(P,"
+  rule = "KORE.rprio"
+  find = "=> prio(P, O)"
+  replace = "=> P"
 
 [[mutation]]
 id = "fn-owise-ignored"
 misunderstanding = "[owise] is honoured for rewrite rules but ignored for function equations"
   [[mutation.edit]]
-  rule = "KORE.best-cons"
-  find = "prio(P, O)"
-  replace = "P"
+  rule = "KORE.cprio"
+  find = "=> prio(P, O)"
+  replace = "=> P"
 
 [[mutation]]
 id = "rule-priority-reversed"
 misunderstanding = "among applicable rewrite rules the largest priority number wins"
   [[mutation.edit]]
-  rule = "KORE.lesser-left"
-  find = "P <=Int Q"
-  replace = "P >=Int Q"
-  [[mutation.edit]]
-  rule = "KORE.lesser-right"
-  find = "P >Int Q"
-  replace = "P <Int Q"
-  [[mutation.edit]]
-  rule = "KORE.min-nil"
-  find = "1000000"
-  replace = "-1000000"
+  rule = "KORE.rprio"
+  find = "=> prio(P, O)"
+  replace = "=> 0 -Int prio(P, O)"
 
 [[mutation]]
 id = "fn-priority-reversed"
 misunderstanding = "among applicable equations the largest priority number wins"
   [[mutation.edit]]
-  rule = "KORE.best-better"
-  find = "P <Int Best"
-  replace = "P >Int Best"
-  [[mutation.edit]]
-  rule = "KORE.best-worse"
-  find = "P >=Int Best"
-  replace = "P <=Int Best"
-  [[mutation.edit]]
-  rule = "KORE.apply-fn"
-  find = "1000000"
-  replace = "-1000000"
+  rule = "KORE.cprio"
+  find = "=> prio(P, O)"
+  replace = "=> 0 -Int prio(P, O)"
 
 [[mutation]]
 id = "fn-first-applicable"
 misunderstanding = "equations are tried in the order of the text and the first applicable one gives the value, whatever the priorities"
   [[mutation.edit]]
-  rule = "KORE.best-better"
-  find = "P <Int Best"
-  replace = "Best ==Int 1000000"
-  [[mutation.edit]]
-  rule = "KORE.best-worse"
-  find = "P >=Int Best"
-  replace = "Best =/=Int 1000000"
+  rule = "KORE.cprio"
+  find = "=> prio(P, O)"
+  replace = "=> 0"
 
 [[mutation]]
 id = "fn-last-of-priority"
 misunderstanding = "among applicable equations of the least priority the last one gives the value. Argued survivor: two equations of one priority that both apply with different values make the definition inconsistent (the function would have two values), so on a consistent object definition the first and the last applicable equation of a priority agree; no case of a consistent definition kills it"
 expect = "survive"
   [[mutation.edit]]
-  rule = "KORE.best-better"
-  find = "P <Int Best"
-  replace = "P <=Int Best"
-  [[mutation.edit]]
-  rule = "KORE.best-worse"
-  find = "P >=Int Best"
-  replace = "P >Int Best"
+  rule = "KORE.else-some"
+  find = "orElse(some(T), _, _, _, _) => some(T)"
+  replace = "orElse(some(T), D, As, Cs, P) => #if tryAt(D, As, Cs, P) ==K none #then some(T) #else tryAt(D, As, Cs, P) #fi"
 
 [[mutation]]
 id = "rule-priority-ignored"
 misunderstanding = "every applicable rewrite rule gives a successor, whatever its priority"
   [[mutation.edit]]
-  rule = "KORE.keep-take"
-  find = "Q ==Int P andBool T =/=K bot"
-  replace = "T =/=K bot"
-  [[mutation.edit]]
-  rule = "KORE.keep-skip"
-  find = "Q =/=Int P orBool T ==K bot"
-  replace = "T ==K bot"
+  rule = "KORE.rprio"
+  find = "=> prio(P, O)"
+  replace = "=> 0"
 
 # --- requires -----------------------------------------------------------------------------
 
@@ -337,8 +309,8 @@ misunderstanding = "INT.tmod (%Int) is read as the Euclidean remainder"
 id = "nondeterminism-first-match"
 misunderstanding = "non-determinism collapsed: only the first applicable rule of the least priority gives a successor"
   [[mutation.edit]]
-  rule = "KORE.keep-take"
-  find = "=> T ; keep(P, Cs)"
+  rule = "KORE.drop-keep"
+  find = "=> T ; drop(X, Ts)"
   replace = "=> T ; .Ts"
 
 [[mutation]]
@@ -353,21 +325,25 @@ misunderstanding = "a configuration whose applicable rules all have undefined re
 id = "undefined-result-does-not-block"
 misunderstanding = "a rule whose result is undefined does not apply, so it does not block rules of larger priority"
   [[mutation.edit]]
-  rule = "KORE.add-some"
-  find = "=> cand(P, T, addCand(P, Ts, Cs))"
-  replace = "=> #if T ==K bot #then addCand(P, Ts, Cs) #else cand(P, T, addCand(P, Ts, Cs)) #fi"
+  rule = "KORE.fa-take"
+  find = "app(fire(D, L, R, Rhs, T),"
+  replace = "app(drop(bot, fire(D, L, R, Rhs, T)),"
 
 [[mutation]]
 id = "bottom-is-configuration"
 misunderstanding = "an undefined result is a successor configuration (\\bottom is a state)"
   [[mutation.edit]]
-  rule = "KORE.keep-take"
-  find = "Q ==Int P andBool T =/=K bot"
-  replace = "Q ==Int P"
+  rule = "KORE.step-some"
+  find = "next(drop(bot, R ; Rs))"
+  replace = "next(R ; Rs)"
+
+[[mutation]]
+id = "undefined-result-empties-step"
+misunderstanding = "an undefined result among the rules of the least priority that apply makes the whole step undefined: the defined results of the other rules of that priority are dropped"
   [[mutation.edit]]
-  rule = "KORE.keep-skip"
-  find = "Q =/=Int P orBool T ==K bot"
-  replace = "Q =/=Int P"
+  rule = "KORE.step-some"
+  find = "next(drop(bot, R ; Rs))"
+  replace = "#if hasBot(R ; Rs) #then next(.Ts) #else next(R ; Rs) #fi"
 
 [[mutation]]
 id = "undefined-init-is-final"
@@ -449,9 +425,9 @@ misunderstanding = "a rule whose ensures is false has not applied, as one whose 
   find = "=> bot"
   replace = "=> vr(-1)"
   [[mutation.edit]]
-  rule = "KORE.add-some"
-  find = "=> cand(P, T, addCand(P, Ts, Cs))"
-  replace = "=> #if T ==K vr(-1) #then addCand(P, Ts, Cs) #else cand(P, T, addCand(P, Ts, Cs)) #fi"
+  rule = "KORE.fa-take"
+  find = "app(fire(D, L, R, Rhs, T),"
+  replace = "app(drop(vr(-1), fire(D, L, R, Rhs, T)),"
 
 # --- collections: matching -----------------------------------------------------------------
 
