@@ -472,7 +472,7 @@ item = "initializer"
 status = "covered"
 rules = ["init"]
 cases = ["c17-init-function", "c34-cells-several"]
-note = "the encoder unfolds kompile's initializer equations into the initial configuration"
+note = "the encoder unfolds kompile's initializer equations into the initial configuration, found by the symbols they define; their attributes are checked as every axiom's"
 
 [[row]]
 type = "attribute"

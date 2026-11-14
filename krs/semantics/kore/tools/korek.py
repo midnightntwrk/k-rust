@@ -253,6 +253,7 @@ IGNORED_ATTRS = {
     'smtlib': "a solver's reading of the symbol; kore.k evaluates ground terms",
     'update': 'the Map update symbol is read by its hook',
     'cell': 'a cell is read as the constructor it is',
+    'initializer': 'an initializer equation is found by the symbol it defines, from topCellInitializer',
     'assoc': "a collection symbol's law, which kore.k's canonical collection values give",
     'comm': "a collection symbol's law, which kore.k's canonical collection values give",
     'idem': "a collection symbol's law; kore.k reads _Set_ on a common element as undefined",
@@ -434,6 +435,7 @@ class Encoder:
             eqs = self.generated[name]
             if len(eqs) != 1:
                 raise Unsupported(f'initializer {name} of {len(eqs)} equations')
+            check_attrs(f'initializer {name}', eqs[0][1], AXIOM_READ)
             _, _, _, (pre, concl) = eqs[0][0]
             lhs, (rhs, _) = concl[3][0], concl[3][1][3]
             binds, a = {}, pre[3][1]
