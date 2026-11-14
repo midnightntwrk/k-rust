@@ -7,6 +7,9 @@ The ports are incremental and are not yet complete.
 Their current coverage and remaining source shapes are recorded in `coverage.toml`.
 A port may be described as complete only after its ledger covers the pinned source definition's syntax, configuration, executable rules, and selected upstream behavior and proof suites without an unrecorded adapter boundary.
 
+`kore/` is a semantics package of another kind: `kore.k`, a K definition (not KRS) that interprets encoded KORE object definitions, with its cases and its kink corpus.
+It is not a port of an upstream definition, so it has no `coverage.toml` entry, and it is not a member of this Cargo workspace; `kore/README.md` describes it and how to run it.
+
 The external Runtime Verification checkouts remain read-only authorities:
 
 - KWasm: `inspirations/runtimeverification/wasm-semantics` at `212271bd434bd402e27c42f6416854342733386d`;

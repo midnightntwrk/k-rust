@@ -1,0 +1,187 @@
+# The differences of kore.k's result from a reference backend's recorded result, one entry per
+# case and backend, each with the reason it is not a defect of kore.k. tools/check.py passes a
+# case only when kore.k's result equals each backend's result that no entry names and differs
+# from each one an entry names, so an entry cannot outlive its difference. A backend's error
+# differs from every result.
+
+[[difference]]
+case = "c08-undef-rhs-blocks"
+backend = "llvm"
+reason = """
+The llvm backend aborts on X /Int 0 ([hook_INT_tdiv]: Division by zero). INT.tdiv is undefined \
+on a zero divisor, so the rule's result is \\bottom: the rule applies with an undefined result, \
+has no successor and blocks the rule of larger priority; there is no final configuration."""
+
+[[difference]]
+case = "c09-undef-requires"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in a requires. The requires is undefined, so it \
+is not true and the rule does not apply."""
+
+[[difference]]
+case = "c10-strict-ite"
+backend = "llvm"
+reason = """
+The llvm backend evaluates #if true #then 1 #else 10 /Int 0 #fi lazily and steps to b(1). The \
+hook KEQUAL.ite is a function of its three arguments; an undefined argument makes the \
+application undefined, so the rule's result is undefined and there is no final configuration."""
+
+[[difference]]
+case = "c11-fn-no-equation"
+backend = "haskell"
+reason = """
+half is a partial function (not declared total) with no equation for 3, and the rule that \
+builds b(half(3)) applies. KORE does not fix the value of a partial function where no equation \
+applies. kore.k reads the application as a value that stays in the configuration, unconstrained; \
+the haskell backend keeps the same term under the condition \\ceil(half(3)), that is, the final \
+configuration exists if half(3) is defined. Both readings leave b(half(3)) as the one final \
+configuration; they differ only in the condition, which kore.k's results do not carry."""
+
+[[difference]]
+case = "c11-fn-no-equation"
+backend = "llvm"
+reason = """
+The llvm backend aborts (Called finish_rewriting with no output file specified) on half(3), \
+which no equation of the partial function half applies to; kore.k keeps the application, as \
+the entry for the haskell backend says."""
+
+[[difference]]
+case = "c12-undef-init"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in the initial term. The initial configuration \
+is \\bottom, which has no final configuration."""
+
+[[difference]]
+case = "c13-inj-bool"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero under an injection. The function's result is \
+\\bottom, an injection of \\bottom is \\bottom, and the rule that builds it has no successor."""
+
+[[difference]]
+case = "c14-fn-undef-requires"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in an equation's requires. That requires is not \
+true, so the equation does not apply and the [owise] equation gives the value."""
+
+[[difference]]
+case = "c21-map-concat"
+backend = "llvm"
+reason = """
+The llvm backend aborts on M (1 |-> 3) where M has the key 1 ([hook_MAP_concat]: Duplicate \
+keys in map concatenation). K's MAP module states that the concatenation of maps with a common \
+key is #False: MAP.concat is defined on maps with disjoint keys. That rule's result is \
+undefined, and the rules of the same priority give the final configurations."""
+
+[[difference]]
+case = "c23-map-lookup-missing"
+backend = "llvm"
+reason = """
+The llvm backend aborts on M[5] where M has no key 5 ([hook_MAP_lookup]: Key not found for map \
+lookup). K's MAP module states that a lookup of a missing key is #False: the rule that builds \
+a(M[5]) has an undefined result, and the rule of the same priority gives the final \
+configuration."""
+
+[[difference]]
+case = "c26-map-strict"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in a map entry's value. The entry is \
+undefined; MAP.element and MAP.concat are strict, so the map and the rule's result are \
+undefined."""
+
+[[difference]]
+case = "c28-set-overlap"
+backend = "llvm"
+reason = """
+S SetItem(1) where S has the element 1. K's SET module declares _Set_ idem (idempotent), and its \
+documentation calls the concatenation of sets with a common element #False, noting that \
+concrete execution may silently allow it: K's sources state both readings. kore.k reads the \
+concatenation as partial, defined on disjoint sets, which is the reading under which a Set \
+pattern's element patterns and frame take disjoint parts of the subject; so that rule's result \
+is undefined. The llvm backend computes the union and gives r(1, SetItem(1)); the haskell \
+backend's result is kore.k's."""
+
+[[difference]]
+case = "c32-elem-strict"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in a set's and a list's element. SET.element, \
+LIST.element and the concatenations are strict, so the collection and the rule's result are \
+undefined."""
+
+[[difference]]
+case = "c33-list-middle-frame"
+backend = "haskell"
+reason = """
+The haskell backend's search stops with ErrorRewritesInstantiation: its unifier finds no \
+solution for a List pattern with elements on both sides of the frame. List concatenation is \
+associative, so ListItem(X) L ListItem(Y) matches every list of at least two elements, with X \
+the first, Y the last and L the middle; kore.k gives r(1, 4, ListItem(2) ListItem(3)), as the \
+llvm backend does."""
+
+[[difference]]
+case = "c36-cell-key-twice"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the second new(1, _), which adds an instance of the key <id>(1) to a \
+cell collection that has one ([hook_MAP_concat]: Duplicate keys in map concatenation). The \
+collection's sort AcctCellMap has the MAP hooks, and Map concatenation is defined only on maps \
+of disjoint keys (K's MAP module states the concatenation of maps with a common key to be \
+#False), so that \
+rule's result is undefined and the path has no final configuration; the other path gives the \
+two final configurations of pick, which the haskell backend gives too."""
+
+[[difference]]
+case = "c38-keq-strict"
+backend = "llvm"
+reason = """
+The llvm backend aborts on the division by zero in an operand of ==K. KEQUAL.eq is a function \
+of its two arguments, total on defined ones; an undefined argument makes the application \
+undefined, so the rule that builds r(...) has no successor and the rule of the same priority \
+gives the final configuration ok(0)."""
+
+[[difference]]
+case = "c42-total-no-equation"
+backend = "haskell"
+reason = """
+even is declared total and no equation applies to even(3): the definition states that even(3) \
+has a value, not which. The haskell backend splits the search on it and gives yes(3) under the \
+condition even(3) = true and no(3) under its negation. kore.k decides a requires on its ground \
+value; an application that no equation evaluates is not the value true, so the requires does \
+not hold and the [owise] rule gives no(3). kore.k's results carry no conditions (as for c11), so \
+it keeps the one branch its reading decides; the haskell backend's two conditional results \
+cover every value even(3) may have."""
+
+[[difference]]
+case = "c42-total-no-equation"
+backend = "llvm"
+reason = """
+The llvm backend aborts (Called finish_rewriting with no output file specified) on even(3), \
+which no equation of even applies to, as on c11; kore.k keeps the application, as the entry for \
+the haskell backend says."""
+
+[[difference]]
+case = "c43-ensures"
+backend = "llvm"
+reason = """
+The llvm backend does not evaluate the ensures: it steps a(0) to b(0) although 0 >Int 0 is \
+false. A rule l => r requires P ensures E is the axiom l and P implies next (r and E = true), so \
+where E is false the rule's result is empty: the rule has applied, a(0) has no successor and is \
+not final (the K manual, "Rule Structure": the ensures may make the term undefined, and the \
+backend applies the rule anyway). The haskell backend's result is \
+kore.k's, b(1) alone."""
+
+[[difference]]
+case = "c44-ensures-priority"
+backend = "llvm"
+reason = """
+As for c43, the llvm backend does not evaluate the ensures and steps a(0) to b(0). The rule \
+whose ensures is false has applied with an empty result, so the rule of larger priority number \
+that would give c(0) does not apply; K's text does not state this beyond the manual's owise \
+wording (a rule of larger priority applies when the others have been tried and failed), so it \
+is kore.k's reading, recorded against both backends; the \
+haskell backend gives b(1) alone, as kore.k does, so neither backend applies that rule."""

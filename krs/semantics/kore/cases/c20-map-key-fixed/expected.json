@@ -1,0 +1,31 @@
+{
+ "backends": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map(SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(10),inj{SortInt,SortKItem}(2)|->inj{SortInt,SortKItem}(20),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(30)}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(2,SortMap{}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(20,SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(10),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(30)}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(3,SortMap{}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(30,SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(10),inj{SortInt,SortKItem}(2)|->inj{SortInt,SortKItem}(20)}))"
+   ]
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lbld'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map(SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(10),inj{SortInt,SortKItem}(2)|->inj{SortInt,SortKItem}(20),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(30)}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(2,SortMap{}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(20,SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(10),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(30)}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(3,SortMap{}))",
+    "inj{SortS,SortKItem}(Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map(30,SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(10),inj{SortInt,SortKItem}(2)|->inj{SortInt,SortKItem}(20)}))"
+   ]
+  }
+ },
+ "backends_agree": true,
+ "inputs": {
+  "def.k": "82f3ffd9fc23a132c6d79623365751e63fd328a5a2e22f8dfae648f52a00f344",
+  "pgm": "b2f8e2271de7747e947080ed9f5f3d95957654d7069ece26a71633014b006ea6"
+ },
+ "reference": {
+  "haskell": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)",
+  "llvm": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+ }
+}

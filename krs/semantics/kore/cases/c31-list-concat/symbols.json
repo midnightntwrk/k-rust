@@ -1,0 +1,25 @@
+{
+ "collections": {
+  "SortList": {
+   "concat": "Lbl'Unds'List'Unds'",
+   "element": "LblListItem",
+   "kind": "list",
+   "unit": "Lbl'Stop'List"
+  }
+ },
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortList": 12,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lblassoc'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List": 6,
+  "Lblgo'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List'Unds'List": 1,
+  "Lbln'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 2,
+  "Lblp'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List'Unds'List": 3,
+  "Lblq'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List'Unds'List": 4,
+  "Lblsame'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'List": 5
+ }
+}

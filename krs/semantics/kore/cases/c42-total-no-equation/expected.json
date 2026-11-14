@@ -1,0 +1,22 @@
+{
+ "backends": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblno'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int(3)) if not(true=Lbleven'LParUndsRParUnds'CASE-SYNTAX'Unds'Bool'Unds'Int(3))",
+    "inj{SortS,SortKItem}(Lblyes'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int(3)) if true=Lbleven'LParUndsRParUnds'CASE-SYNTAX'Unds'Bool'Unds'Int(3)"
+   ]
+  },
+  "llvm": {
+   "error": "what(): Called finish_rewriting with no output file specified; [Error] krun: search"
+  }
+ },
+ "backends_agree": false,
+ "inputs": {
+  "def.k": "26937aef453f1aefa228493657231ad3b471726c7d138986278625a1641d3dac",
+  "pgm": "6539422e903b826deb25df4f551048fe1069317a4e3eebdb3df93d790fbdcc4d"
+ },
+ "reference": {
+  "haskell": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)",
+  "llvm": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+ }
+}

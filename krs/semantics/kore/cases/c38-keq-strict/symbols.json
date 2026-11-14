@@ -1,0 +1,15 @@
+{
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 1,
+  "Lblok'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int": 2,
+  "Lblr'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool": 5,
+  "dotk": 3,
+  "kseq": 4
+ }
+}

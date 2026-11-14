@@ -1,0 +1,32 @@
+# kink-flow corpus for kore.k: each program is one case's encoded object definition and initial
+# term (cases/<id>/kore.pgm, written by tools/case.py from cases/<id>/def.k and pgm).
+
+[spec]
+entry = "kore.k"
+main_module = "KORE"
+syntax_module = "KORE-SYNTAX"
+
+[budget]
+time_ms = 20000
+max_depth = 100000
+work_factor = 4
+
+[[program]]
+files = "cases/*/kore.pgm"
+start_sort = "Pgm"
+
+[[coverage.argued]]
+item = "rule:KORE.ins-dup"
+argument = "insert is applied to a configuration only when it is not yet in seen (push-new), or to a configuration taken from the frontier, which holds each seen configuration once and is visited once; so neither seen nor finals ever receives a configuration it holds"
+
+[[coverage.argued]]
+item = "requirement:KORE.ins-dup:held"
+argument = "as rule:KORE.ins-dup: no insert receives a configuration its list holds"
+
+[[coverage.argued]]
+item = "rule:KORE.tag-other"
+argument = "configurations are values (ap, iv, bv, tk, ij, co); vr, hk, as, cb and bot never reach cmp under kore.k, and kv and el are compared only with their own kind (cmp-kv, cmp-el), since a collection holds elements of one kind; the rule is kept so that a mutant that makes bot a configuration still compares it"
+
+[[coverage.argued]]
+item = "requirement:KORE.m-tok:S:Int ==Int T:Int:false"
+argument = "a token pattern of sort S stands at a position of sort S in a well-sorted left side, and the value matched there is of sort S: a token of S itself, since a token of another sort T < S stands under inj{T,S}, which m-inj-same and m-inj-sub compare by sort before reaching the token; so m-tok never meets two tokens of different sorts"

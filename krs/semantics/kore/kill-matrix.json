@@ -1,0 +1,721 @@
+{
+ "args-unevaluated": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c03-nondet",
+   "c04-subsort",
+   "c05-hooks",
+   "c06-nonlinear",
+   "c07-strict-args",
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c12-undef-init",
+   "c13-inj-bool",
+   "c14-fn-undef-requires",
+   "c17-init-function",
+   "c18-div-signs",
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c23-map-lookup-missing",
+   "c24-map-fn-pattern",
+   "c25-map-equal",
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c29-set-hooks",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c32-elem-strict",
+   "c33-list-middle-frame",
+   "c34-cells-several",
+   "c35-cell-map",
+   "c36-cell-key-twice",
+   "c37-keq",
+   "c38-keq-strict",
+   "c39-tokens-preds",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "as-alias-rebinds": {
+  "killed_by": [
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "as-first-subst-only": {
+  "killed_by": [
+   "c36-cell-key-twice",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "bool-dv-any-value": {
+  "killed_by": [
+   "c16-bool-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "bottom-is-configuration": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c13-inj-bool",
+   "c21-map-concat",
+   "c23-map-lookup-missing",
+   "c26-map-strict",
+   "c28-set-overlap",
+   "c32-elem-strict",
+   "c36-cell-key-twice",
+   "c38-keq-strict",
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-first-split-only": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern",
+   "c27-set-choice",
+   "c35-cell-map",
+   "c36-cell-key-twice",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-frame-not-rebuilt": {
+  "killed_by": [
+   "c21-map-concat",
+   "c25-map-equal",
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c35-cell-map",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-pattern-open": {
+  "killed_by": [
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern",
+   "c30-list-positions",
+   "c33-list-middle-frame"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "col-unordered": {
+  "killed_by": [
+   "c21-map-concat",
+   "c25-map-equal",
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "dv-any-value": {
+  "killed_by": [
+   "c07-strict-args",
+   "c20-map-key-fixed",
+   "c34-cells-several"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "ensures-false-not-applied": {
+  "killed_by": [
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "ensures-ignored": {
+  "killed_by": [
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-first-applicable": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c07-strict-args",
+   "c24-map-fn-pattern",
+   "c39-tokens-preds",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-first-subst-only": {
+  "killed_by": [
+   "c24-map-fn-pattern"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-last-of-priority": {
+  "killed_by": [],
+  "status": "survived",
+  "undecided": []
+ },
+ "fn-owise-ignored": {
+  "killed_by": [
+   "c07-strict-args",
+   "c24-map-fn-pattern",
+   "c39-tokens-preds",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-priority-reversed": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c07-strict-args",
+   "c24-map-fn-pattern",
+   "c39-tokens-preds",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-requires-ignored": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c11-fn-no-equation",
+   "c14-fn-undef-requires",
+   "c24-map-fn-pattern",
+   "c42-total-no-equation"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "fn-undefined-requires-holds": {
+  "killed_by": [
+   "c14-fn-undef-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "frame-dropped": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern",
+   "c27-set-choice",
+   "c30-list-positions",
+   "c35-cell-map"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "hook-undefined-is-zero": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c12-undef-init",
+   "c26-map-strict",
+   "c32-elem-strict",
+   "c38-keq-strict"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "init-unevaluated": {
+  "killed_by": [
+   "c17-init-function",
+   "c19-map-choice",
+   "c27-set-choice",
+   "c33-list-middle-frame",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "inj-composed-outer-source": {
+  "killed_by": [
+   "c13-inj-bool",
+   "c37-keq",
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "inj-not-composed": {
+  "killed_by": [
+   "c13-inj-bool",
+   "c37-keq",
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "ite-lazy": {
+  "killed_by": [
+   "c10-strict-ite"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "keq-undefined-false": {
+  "killed_by": [
+   "c38-keq-strict"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "list-as-set": {
+  "killed_by": [
+   "c30-list-positions",
+   "c31-list-concat"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "list-match-commutative": {
+  "killed_by": [
+   "c30-list-positions",
+   "c33-list-middle-frame"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "list-split-at-head": {
+  "killed_by": [
+   "c30-list-positions",
+   "c33-list-middle-frame"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-concat-overrides": {
+  "killed_by": [
+   "c21-map-concat",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-duplicate-keys": {
+  "killed_by": [
+   "c21-map-concat",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-entry-by-position": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c24-map-fn-pattern",
+   "c35-cell-map",
+   "c36-cell-key-twice",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-keyed-by-entry": {
+  "killed_by": [
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c36-cell-key-twice"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-lookup-missing-defined": {
+  "killed_by": [
+   "c23-map-lookup-missing"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "map-update-duplicates": {
+  "killed_by": [
+   "c22-map-hooks",
+   "c28-set-overlap",
+   "c29-set-hooks"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "no-equation-undefined": {
+  "killed_by": [
+   "c11-fn-no-equation"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "nondeterminism-first-match": {
+  "killed_by": [
+   "c03-nondet",
+   "c13-inj-bool",
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c36-cell-key-twice",
+   "c39-tokens-preds",
+   "c40-as-patterns",
+   "c41-total-requires",
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "nonlinear-ignored": {
+  "killed_by": [
+   "c15-nonlinear-rule",
+   "c20-map-key-fixed",
+   "c31-list-concat",
+   "c35-cell-map",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "owise-as-default": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c07-strict-args",
+   "c17-init-function",
+   "c24-map-fn-pattern",
+   "c39-tokens-preds",
+   "c40-as-patterns",
+   "c41-total-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "owise-first": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c07-strict-args",
+   "c17-init-function",
+   "c24-map-fn-pattern",
+   "c39-tokens-preds",
+   "c40-as-patterns",
+   "c41-total-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "priority-ignored": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c08-undef-rhs-blocks",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c06-nonlinear"
+  ]
+ },
+ "rule-owise-ignored": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c17-init-function",
+   "c41-total-requires"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "rule-priority-ignored": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c08-undef-rhs-blocks",
+   "c17-init-function",
+   "c41-total-requires",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c06-nonlinear"
+  ]
+ },
+ "rule-priority-reversed": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c08-undef-rhs-blocks",
+   "c17-init-function",
+   "c41-total-requires",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c06-nonlinear"
+  ]
+ },
+ "rule-requires-ignored": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c09-undef-requires",
+   "c20-map-key-fixed",
+   "c41-total-requires",
+   "c42-total-no-equation"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c03-nondet",
+   "c34-cells-several"
+  ]
+ },
+ "rule-rhs-unevaluated": {
+  "killed_by": [
+   "c01-fn-prio",
+   "c02-rule-prio",
+   "c03-nondet",
+   "c04-subsort",
+   "c05-hooks",
+   "c06-nonlinear",
+   "c07-strict-args",
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c13-inj-bool",
+   "c14-fn-undef-requires",
+   "c18-div-signs",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c23-map-lookup-missing",
+   "c24-map-fn-pattern",
+   "c25-map-equal",
+   "c26-map-strict",
+   "c27-set-choice",
+   "c28-set-overlap",
+   "c29-set-hooks",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c32-elem-strict",
+   "c34-cells-several",
+   "c35-cell-map",
+   "c36-cell-key-twice",
+   "c37-keq",
+   "c38-keq-strict",
+   "c39-tokens-preds",
+   "c40-as-patterns",
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "rule-undefined-requires-holds": {
+  "killed_by": [
+   "c09-undef-requires",
+   "c42-total-no-equation"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "set-idempotent": {
+  "killed_by": [
+   "c28-set-overlap"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "set-union-partial": {
+  "killed_by": [
+   "c28-set-overlap",
+   "c29-set-hooks"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-dropped": {
+  "killed_by": [
+   "c04-subsort",
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-not-transitive": {
+  "killed_by": [
+   "c04-subsort"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-reversed": {
+  "killed_by": [
+   "c04-subsort",
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subsort-unchecked": {
+  "killed_by": [
+   "c13-inj-bool",
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "subst-first-only": {
+  "killed_by": [
+   "c19-map-choice",
+   "c20-map-key-fixed",
+   "c27-set-choice",
+   "c36-cell-key-twice",
+   "c40-as-patterns"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "symbol-unchecked": {
+  "killed_by": [
+   "c02-rule-prio",
+   "c07-strict-args",
+   "c09-undef-requires",
+   "c13-inj-bool",
+   "c14-fn-undef-requires",
+   "c23-map-lookup-missing",
+   "c26-map-strict",
+   "c38-keq-strict",
+   "c42-total-no-equation"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c01-fn-prio",
+   "c03-nondet",
+   "c05-hooks",
+   "c06-nonlinear",
+   "c11-fn-no-equation",
+   "c15-nonlinear-rule",
+   "c17-init-function",
+   "c18-div-signs",
+   "c20-map-key-fixed",
+   "c21-map-concat",
+   "c22-map-hooks",
+   "c24-map-fn-pattern",
+   "c25-map-equal",
+   "c28-set-overlap",
+   "c29-set-hooks",
+   "c30-list-positions",
+   "c31-list-concat",
+   "c32-elem-strict",
+   "c34-cells-several",
+   "c35-cell-map",
+   "c36-cell-key-twice",
+   "c37-keq",
+   "c39-tokens-preds",
+   "c40-as-patterns",
+   "c41-total-requires",
+   "c43-ensures",
+   "c44-ensures-priority"
+  ]
+ },
+ "tdiv-as-ediv": {
+  "killed_by": [
+   "c18-div-signs"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "tmod-as-emod": {
+  "killed_by": [
+   "c18-div-signs"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "token-any-value": {
+  "killed_by": [
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "token-sort-ignored": {
+  "killed_by": [
+   "c39-tokens-preds"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-arg-passed": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c13-inj-bool",
+   "c21-map-concat",
+   "c23-map-lookup-missing",
+   "c26-map-strict",
+   "c28-set-overlap",
+   "c32-elem-strict",
+   "c36-cell-key-twice",
+   "c38-keq-strict"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c12-undef-init"
+  ]
+ },
+ "undefined-init-is-final": {
+  "killed_by": [
+   "c12-undef-init"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-result-does-not-block": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c36-cell-key-twice",
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": []
+ },
+ "undefined-step-is-final": {
+  "killed_by": [
+   "c08-undef-rhs-blocks",
+   "c10-strict-ite",
+   "c43-ensures",
+   "c44-ensures-priority"
+  ],
+  "status": "killed",
+  "undecided": [
+   "c03-nondet",
+   "c13-inj-bool",
+   "c20-map-key-fixed",
+   "c30-list-positions",
+   "c36-cell-key-twice",
+   "c41-total-requires"
+  ]
+ }
+}

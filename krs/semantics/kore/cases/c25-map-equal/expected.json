@@ -1,0 +1,23 @@
+{
+ "backends": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblsame'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map(SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)}))"
+   ]
+  },
+  "llvm": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblsame'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map(SortMap{inj{SortInt,SortKItem}(1)|->inj{SortInt,SortKItem}(2),inj{SortInt,SortKItem}(3)|->inj{SortInt,SortKItem}(4)}))"
+   ]
+  }
+ },
+ "backends_agree": true,
+ "inputs": {
+  "def.k": "e7ca4b93742e6f7e95d4edf1d4dbee92eb396f314bdb9125bebc225613bce8b5",
+  "pgm": "47f74a6f076fb25f16e478603114badfff9cc59febaa22ddd74c520dd385f191"
+ },
+ "reference": {
+  "haskell": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)",
+  "llvm": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+ }
+}

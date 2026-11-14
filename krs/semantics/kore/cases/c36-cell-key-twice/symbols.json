@@ -1,0 +1,33 @@
+{
+ "collections": {
+  "SortAcctCellMap": {
+   "concat": "Lbl'Unds'AcctCellMap'Unds'",
+   "element": "LblAcctCellMapItem",
+   "kind": "map",
+   "unit": "Lbl'Stop'AcctCellMap"
+  }
+ },
+ "sorts": {
+  "SortAcctCellMap": 12,
+  "SortBool": 2,
+  "SortCmds": 10,
+  "SortInt": 1,
+  "SortKItem": 11
+ },
+ "symbols": {
+  "Lbl'-LT-'acct'-GT-'": 10,
+  "Lbl'-LT-'accts'-GT-'": 6,
+  "Lbl'-LT-'bal'-GT-'": 9,
+  "Lbl'-LT-'id'-GT-'": 8,
+  "Lbl'-LT-'k'-GT-'": 5,
+  "Lbl'-LT-'t'-GT-'": 7,
+  "Lbl'UndsSClnUndsUnds'CASE-SYNTAX'Unds'Cmds'Unds'Cmd'Unds'Cmds": 2,
+  "Lblalt'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Cmds'Unds'Cmds": 13,
+  "Lblend'Unds'CASE-SYNTAX'Unds'Cmds": 14,
+  "Lblgot'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmds'Unds'Int'Unds'Int": 12,
+  "Lblnew'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int": 1,
+  "Lblpick'Unds'CASE-SYNTAX'Unds'Cmd": 11,
+  "dotk": 3,
+  "kseq": 4
+ }
+}

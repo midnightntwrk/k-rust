@@ -1,0 +1,21 @@
+{
+ "collections": {
+  "SortMap": {
+   "concat": "Lbl'Unds'Map'Unds'",
+   "element": "Lbl'UndsPipe'-'-GT-Unds'",
+   "kind": "map",
+   "unit": "Lbl'Stop'Map"
+  }
+ },
+ "sorts": {
+  "SortBool": 2,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortMap": 12,
+  "SortS": 10
+ },
+ "symbols": {
+  "Lblgo'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Map": 1,
+  "Lblr'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int'Unds'Map": 2
+ }
+}

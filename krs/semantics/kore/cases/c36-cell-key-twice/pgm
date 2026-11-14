@@ -1,0 +1,1 @@
+alt(new(1, 10) ; new(2, 20) ; pick ; end, new(1, 10) ; new(1, 20) ; end)

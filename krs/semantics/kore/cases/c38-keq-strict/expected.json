@@ -1,0 +1,21 @@
+{
+ "backends": {
+  "haskell": {
+   "finals": [
+    "inj{SortS,SortKItem}(Lblok'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Int(0))"
+   ]
+  },
+  "llvm": {
+   "error": "[hook_INT_tdiv]: Division by zero: 10 / 0; [Error] krun: search"
+  }
+ },
+ "backends_agree": false,
+ "inputs": {
+  "def.k": "c6a8fcb0315687c7425b3de081faf7cc980b822913bbed2c966463b88d7b3549",
+  "pgm": "9d09b88df8e6f6dd150b7b96fd3feaa52f1894a7d5474b961cc28ea71c451b14"
+ },
+ "reference": {
+  "haskell": "K v7.1.337: kompile --backend haskell; krun --search (kore-exec 0.1.155)",
+  "llvm": "K v7.1.337: kompile --backend llvm --enable-search; krun --search (llvm backend 0.1.140)"
+ }
+}

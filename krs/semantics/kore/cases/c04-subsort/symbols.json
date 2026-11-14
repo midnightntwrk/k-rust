@@ -1,0 +1,18 @@
+{
+ "sorts": {
+  "SortBool": 2,
+  "SortExp": 10,
+  "SortInt": 1,
+  "SortKItem": 11,
+  "SortNum": 13,
+  "SortVal": 12
+ },
+ "symbols": {
+  "Lblid'LParUndsRParUnds'CASE-SYNTAX'Unds'Exp'Unds'Exp": 6,
+  "Lblkind'LParUndsRParUnds'CASE-SYNTAX'Unds'Exp'Unds'Exp": 1,
+  "Lblneg'LParUndsRParUnds'CASE-SYNTAX'Unds'Exp'Unds'Exp": 4,
+  "Lblpair'LParUndsCommUndsRParUnds'CASE-SYNTAX'Unds'Val'Unds'Val'Unds'Val": 3,
+  "Lblv'LParUndsRParUnds'CASE-SYNTAX'Unds'Val'Unds'Int": 2,
+  "Lblwrap'LParUndsRParUnds'CASE-SYNTAX'Unds'Exp'Unds'Exp": 5
+ }
+}
