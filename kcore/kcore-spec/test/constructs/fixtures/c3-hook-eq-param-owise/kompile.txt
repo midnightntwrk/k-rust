@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-hook-eq-param-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 203830
+definition.kore sha256: 4c6f49a5edd6a8d5dbfda507d1c3699f12504c7dd7b0024f24e70faf345c7b06
+stripped sha256: 445ce2d84abd8922f642385e8bf94f19286e2fb5f7e5f61f8ef0c1542bdb378b
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-EQ-PARAM-OWISE-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-HOOK-EQ-PARAM-OWISE as default.

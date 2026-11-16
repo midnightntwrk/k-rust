@@ -1,0 +1,2 @@
+# pair simplification x priority on one function: c3-eq-only-prio's equation (f(X) => X [priority(40)]) beside a simplification rule of f; differs_from c3-eq-only-prio: the text without the simplification rule; on one rule kompile rejects the pair (e2-simp-priority)
+differs_from = "c3-eq-only-prio"

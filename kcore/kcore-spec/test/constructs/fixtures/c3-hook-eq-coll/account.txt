@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module C3-HOOK-EQ-COLL: 404 sentences
+  1 inert import [generated]
+  186 read [generated]
+  184 read [builtin]
+  5 read [user]
+  4 inert injectivity [generated]
+  12 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 hookEquation
+      sentence 308 (LblMyListItem): hookEquation (LblMyListItem: a hooked symbol of the text, hook LIST.element interpreted by the registry)
+        [user] (no label) at c3-hook-eq-coll.k:8: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortKItem{}, R}(X0:SortKItem{}, inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))), \top{R}())), \equals{SortMyList{}, R}(LblMyListItem{}(X0:SortKItem{}), \and{SortMyList{}}(Lbl'Stop'MyList{}(), \top{SortMyList{}}()))) [UNIQUE'Unds'ID{}("a942b8a67abd64ebd4cad757c20311ac1cebcec6c77fde7281834c6f466d044e"), org'Stop'kframework'Stop'attributes'Stop'Lo …
+finish: sentence 308 (LblMyListItem): hookEquation (LblMyListItem: a hooked symbol of the text, hook LIST.element interpreted by the registry)
+(exit 0)

@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-map.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 210508
+definition.kore sha256: f4f63c1a91eda0a46525a25d1d0bafa59ea5de2f8a9d8bf2c63a70a200b14d44
+stripped sha256: 3e74f48c240e1c383b24522e7eef45c2604a34e63178d1655dc4a11863b88c80
+main module: 417 sentences, 85 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?V' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-map.k)
+  	Location(6,52,6,54)
+  	6 |	  rule <k> set(K) => .K ... </k> <m> .Map => K |-> ?V:Int </m>
+  	  .	                                                   ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-MAP-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-VARS-MAP as default.

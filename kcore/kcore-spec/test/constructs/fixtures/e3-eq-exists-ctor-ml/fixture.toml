@@ -1,0 +1,2 @@
+# e3-eq-exists-ctor (rule pick(X) => ?C ensures ?C =/=K X; kompile rejects ?C on an equation) in the #Exists spelling, the ensures as {(C =/=K X) #Equals true}; imports BOOL so that true parses inside {...}
+# from the sentence: pick(x) = {c of Col | (c =/=K x) = true}; Col's elements are r and g (no junk), so pick(r) = {g} alone, pick(g) = {r}

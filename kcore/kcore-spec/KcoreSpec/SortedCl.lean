@@ -1,0 +1,185 @@
+/-
+  KCore. A clause whose patterns need not bind every variable, asked CN-4's bodies as decided
+  conditions of their own:
+  - `Semantics.clauseSortedOpen`: `clauseSorted` with "each variable occurs in the clause" (its
+    patterns, conditions, right side, `ensures` or right side's predicate) in place of "the patterns
+    bind each variable";
+  - `Semantics.clausePlainOpen`: what `clausesPlain` asks of one clause, with the conjunct on open
+    condition variables: none, or closed conditions, or each of a confined sort;
+  - `Semantics.sortedOKCl`: `sortedOK` with each clause asked these two; `sortedOK` gives it
+    (`Semantics.sortedOKCl_of_sortedOK`).
+-/
+import KcoreSpec.Obligations
+import KcoreSpec.FaithOK
+import KcoreSpec.SubjectReduction
+
+set_option autoImplicit false
+
+namespace KCore
+
+/-- `clauseSorted` with "each of its variables occurs in it" in place of "its patterns bind each of
+its variables": its patterns have the argument sorts in a left-hand side's context, each variable
+occurs in its patterns, its conditions, its right-hand side, its `ensures` or its right side's
+predicate, its `requires` is a Bool, its right-hand side has the result sort, its `ensures` is a
+Bool, and each binder of its predicates ranges where values and elements agree. -/
+def Semantics.clauseSortedOpen (c : Semantics) (f : Fn) (rhsHeads : List CtorSig) (cl : Clause) : Bool :=
+  sortsOfTerms c.patCtxAll cl.vars cl.pats == some f.args &&
+  binds cl.vars.length (varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
+    (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) &&
+  reqOK (c.rhsCtx rhsHeads) cl.vars cl.req &&
+  sortOfTerm (c.rhsCtx rhsHeads) cl.vars cl.rhs == some f.result &&
+  reqOK (c.rhsCtx rhsHeads) cl.vars cl.ens &&
+  (Cond.bound c cl.vars.length cl.pre && Cond.bound c cl.vars.length cl.post)
+
+/-- What `clausesPlain` asks of one clause, with the conjunct on its open condition variables: no
+variable bound by `\exists`, `\top` predicates, and no open condition variable, or closed
+conditions, or each open condition variable of a confined sort. -/
+def Semantics.clausePlainOpen (c : Semantics) (cl : Clause) : Bool :=
+  cl.exs.isEmpty && cl.pre.isTop && cl.post.isTop &&
+  (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false)
+
+theorem Semantics.clauseSortedOpen_parts {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
+    (h : c.clauseSortedOpen f H cl = true) :
+    sortsOfTerms c.patCtxAll cl.vars cl.pats = some f.args ∧
+      (∀ i < cl.vars.length, i ∈ varOccsList cl.pats ++ cl.condVars ++ varOccs cl.rhs ++
+        (cl.ens.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.post) ∧
+      (∀ t, cl.req = some t → sortOfTerm (c.rhsCtx H) cl.vars t = some Srt.bool) ∧
+      sortOfTerm (c.rhsCtx H) cl.vars cl.rhs = some f.result ∧
+      (∀ t, cl.ens = some t → sortOfTerm (c.rhsCtx H) cl.vars t = some Srt.bool) := by
+  simp only [Semantics.clauseSortedOpen, Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨⟨hpats, hb⟩, hreq⟩, hrhs⟩, hens⟩, -⟩ := h
+  refine ⟨hpats, fun i hi => ?_, fun t ht => ?_, hrhs, fun t ht => ?_⟩
+  · simp only [binds, List.all_eq_true, List.mem_range, List.contains_iff_mem] at hb
+    exact hb i hi
+  · rw [ht] at hreq; simpa [reqOK] using hreq
+  · rw [ht] at hens; simpa [reqOK] using hens
+
+theorem Semantics.clausePlainOpen_parts {c : Semantics} {cl : Clause} (h : c.clausePlainOpen cl = true) :
+    cl.exs = [] ∧ cl.pre = .top ∧ cl.post = .top ∧
+      (!cl.reqOpen || cl.reqClosed || cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true := by
+  simp only [Semantics.clausePlainOpen, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨hex, hpre⟩, hpost⟩, hrest⟩ := h
+  exact ⟨List.isEmpty_iff.mp hex, Cond.eq_top_of_isTop hpre, Cond.eq_top_of_isTop hpost, hrest⟩
+
+/-- `clauseSorted` asks what `clauseSortedOpen` asks. -/
+theorem Semantics.clauseSortedOpen_of_sorted {c : Semantics} {f : Fn} {H : List CtorSig} {cl : Clause}
+    (h : c.clauseSorted f H cl = true) : c.clauseSortedOpen f H cl = true := h
+
+/-- The variables of a clause's `requires` are among its conditions'. -/
+theorem Clause.req_condVars {cl : Clause} {t : Term} (ht : cl.req = some t) : ∀ i ∈ varOccs t, i ∈ cl.condVars :=
+  fun i hi => List.mem_append_left _ (by rw [ht]; exact hi)
+
+/-- The variables of a clause's `requires` are among those of its patterns and conditions. -/
+theorem Clause.req_leftVars {cl : Clause} {t : Term} (ht : cl.req = some t) : ∀ i ∈ varOccs t, i ∈ cl.leftVars :=
+  fun i hi => List.mem_append_right _ (Clause.req_condVars ht i hi)
+
+/-- The conditions of a clause with a `\top` premise predicate are its `requires`. -/
+theorem Clause.condVars_of_top {cl : Clause} (hpre : cl.pre = .top) :
+    cl.condVars = (cl.req.map varOccs).getD [] := by
+  simp [Clause.condVars, hpre, varOccsCond]
+
+
+/-- `sortedOK` with each clause asked `clauseSortedOpen` and `clausePlainOpen`: the sorts and
+subsorts, each clause well sorted with each of its variables occurring in it, its predicates `\top`,
+no variable bound by `\exists`, and its open condition variables of confined sorts or its
+conditions closed; the rules well sorted and plain; the parameters plain. -/
+def Semantics.sortedOKCl (c : Semantics) : Bool :=
+  c.subsortsOK && c.fns.all (fun f => f.clauses.all fun cl =>
+      c.clauseSortedOpen f (c.fns.map Fn.sig) cl && c.clausePlainOpen cl) &&
+    c.rules.all c.ruleSorted && c.rulesPlain && c.paramsPlain
+
+theorem Semantics.sortedOKCl_parts {c : Semantics} (h : c.sortedOKCl = true) :
+    c.subsortsOK = true ∧
+      (∀ f ∈ c.fns, ∀ cl ∈ f.clauses, c.clauseSortedOpen f (c.fns.map Fn.sig) cl = true ∧ c.clausePlainOpen cl = true) ∧
+      c.rules.all c.ruleSorted = true ∧ c.rulesPlain = true ∧ c.paramsPlain = true := by
+  simp only [Semantics.sortedOKCl, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := h
+  refine ⟨h1, fun f hf cl hcl => ?_, h3, h4, h5⟩
+  have := List.all_eq_true.mp (List.all_eq_true.mp h2 f hf) cl hcl
+  simpa only [Bool.and_eq_true] using this
+
+/-- **`sortedOK` gives `sortedOKCl`**: the two ask the same of each clause (`clauseSorted` is
+`clauseSortedOpen`, and `clausesPlain` asks `clausePlainOpen` of each clause). -/
+theorem Semantics.sortedOKCl_of_sortedOK {c : Semantics} (h : c.sortedOK = true) : c.sortedOKCl = true := by
+  have hs := Semantics.sortedOK_sorted h
+  have hp : c.clausesPlain = true := by
+    simp only [Semantics.sortedOK, Bool.and_eq_true] at h; exact h.1.2
+  have hcl : ∀ f ∈ c.fns, ∀ cl ∈ f.clauses, (c.clauseSortedOpen f (c.fns.map Fn.sig) cl && c.clausePlainOpen cl) = true := by
+    intro f hf cl hcl
+    have hcs : c.clauseSorted f (c.fns.map Fn.sig) cl = true := by
+      simp only [Bool.and_eq_true, List.all_eq_true] at hs
+      exact hs.1.2 f hf cl hcl
+    have hcp : c.clausePlainOpen cl = true := List.all_eq_true.mp (List.all_eq_true.mp hp f hf) cl hcl
+    rw [Bool.and_eq_true]
+    exact ⟨Semantics.clauseSortedOpen_of_sorted hcs, hcp⟩
+  simp only [Semantics.sortedOK, Bool.and_eq_true] at h
+  simp only [Semantics.sortedOKCl, Bool.and_eq_true]
+  exact ⟨⟨⟨⟨h.1.1.1.1.1, List.all_eq_true.mpr fun f hf => List.all_eq_true.mpr (hcl f hf)⟩, h.1.1.1.2⟩, h.1.1.2⟩, h.2⟩
+
+/-- A rule of a semantics `sortedOKCl` accepts has no existential variable and `\top` predicates. -/
+theorem Semantics.sortedOKCl_rule {c : Semantics} (h : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) :
+    r.exs = [] ∧ r.pre = .top ∧ r.post = .top := by
+  obtain ⟨-, -, -, hrp, -⟩ := Semantics.sortedOKCl_parts h
+  exact Semantics.rulesPlain_rule hrp hr
+
+
+namespace Faithful
+
+variable {c : Semantics}
+
+/-- `rule_ctx` from `sortedOKCl`. -/
+theorem rule_ctxCl (hok : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) :
+    sortOfTerm c.patCtxAll r.vars r.lhs = some topCellSort ∧
+      (∀ t, r.req = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool) ∧
+      sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars r.rhs = some topCellSort := by
+  obtain ⟨-, -, hrs, -, -⟩ := Semantics.sortedOKCl_parts hok
+  have h := List.all_eq_true.mp hrs r hr
+  simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hl, -⟩, -⟩, -⟩, hreq⟩, -⟩, -⟩, -⟩, -⟩, -⟩, hrhs⟩ := h
+  refine ⟨hl, fun t ht => ?_, hrhs⟩
+  · rw [ht] at hreq
+    simpa [reqOK] using hreq
+
+/-- `rule_ctx_ens` from `sortedOKCl`. -/
+theorem rule_ctx_ensCl (hok : c.sortedOKCl = true) {r : Rule} (hr : r ∈ c.rules) :
+    ∀ t, r.ens = some t → sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some Srt.bool := by
+  obtain ⟨-, -, hrs, -, -⟩ := Semantics.sortedOKCl_parts hok
+  have h := List.all_eq_true.mp hrs r hr
+  simp only [Semantics.ruleSorted, Bool.and_eq_true, beq_iff_eq] at h
+  intro t ht
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, -⟩, -⟩, -⟩, hens⟩, -⟩, -⟩, -⟩, -⟩ := h
+  rw [ht] at hens
+  simpa [reqOK] using hens
+
+end Faithful
+
+/-- **What evaluation needs, from `sortedOKCl` and `srReady`** (`sortCtx_of_all`): of each clause
+it reads the right side's sort. -/
+theorem sortCtx_of_allCl {c : Semantics} (hok : c.sortedOKCl = true) (hr : c.srReady = true)
+    (hov : c.OvlCase) : SortCtx c := by
+  simp only [Semantics.srReady, Bool.and_eq_true, List.all_eq_true] at hr
+  obtain ⟨⟨hnd, htr⟩, hrk⟩ := hr
+  obtain ⟨-, hfns, -, -, -⟩ := Semantics.sortedOKCl_parts hok
+  have htr' : ∀ a b d, (a, b) ∈ c.subsorts → (b, d) ∈ c.subsorts → (a, d) ∈ c.subsorts := fun a b d hab hbd => by
+    have := htr (a, b) hab (b, d) hbd
+    simp only [bne_self_eq_false, Bool.false_or, List.contains_iff_mem] at this
+    exact this
+  refine ⟨htr', nodup_of_eq_true hnd, fun fn hfn' => ?_, hov, rangeBelow_of_keysOK hrk⟩
+  rcases List.mem_append.mp hfn' with hfn | hfn
+  · refine ⟨c.fns.map Fn.sig, fun k hk => ?_, fun cl hcl => ?_⟩
+    · obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk
+      exact ⟨g, List.mem_append_left _ hg, rfl⟩
+    · exact (Semantics.clauseSortedOpen_parts (hfns fn hfn cl hcl).1).2.2.2.1
+  · exact ⟨[], fun k hk => (nomatch hk), fun cl h => (sortPreds_ctx hfn cl h).2.2.2.2.1⟩
+
+
+/-- `rhs_sorted_core` from `sortedOKCl`. -/
+theorem rhs_sorted_coreCl {c : Semantics} (hok : c.sortedOKCl = true) (hsr : c.srReady = true) (hov : c.OvlCase)
+    {r : Rule} (hr : r ∈ c.rules) {σ : Subst} (hσ : c.WellSorted r.vars σ) {v : GroundTerm}
+    (he : EvalTerm c σ r.rhs (some v)) : c.sortOf v = some topCellSort :=
+  EvalTerm.sorted (sortCtx_of_allCl hok hsr hov) he
+    (fun k hk => by
+      obtain ⟨g, hg, rfl⟩ := List.mem_map.mp hk; exact ⟨g, List.mem_append_left _ hg, rfl⟩) hσ
+    (Faithful.rule_ctxCl hok hr).2.2 rfl
+
+end KCore

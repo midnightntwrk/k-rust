@@ -1,0 +1,2 @@
+# a binder whose sort is below the equation's sort, and an equation of the bound variable with a term of a larger sort: f : Int -> KItem, f(X) => #Exists B:Bool. (B #And {B #Equals (X >Int 0)}); h : KItem -> Int, h(K) => #Exists Z:Int. (Z #And {Z #Equals K})
+# from the sentences: f(x) = {inj(x >Int 0)}; h(k) = {z of Int | inj(z) = k}: {v} where k = inj(v) for a value v of Int (inj injective), the empty set where k is no injection of an element of Int

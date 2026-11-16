@@ -1,0 +1,2 @@
+# e3-eq-exists-bool-partial (rule f(X) => ?B ensures ?B ==Bool notBool X, f not total; kompile rejects ?B on an equation) in the #Exists spelling: e3-eq-exists-bool-ml without total
+# from the sentence: f(x) = {notBool x}: f(true) = false and no other result

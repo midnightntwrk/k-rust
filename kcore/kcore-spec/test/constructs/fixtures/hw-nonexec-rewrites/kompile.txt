@@ -1,0 +1,3 @@
+command: none: fixture.toml kore = 'test/constructs/fixtures/hw-nonexec-rewrites/hw-nonexec-rewrites.kore', a KORE text kompile does not write; account.txt is `kcore account test/constructs/fixtures/hw-nonexec-rewrites/hw-nonexec-rewrites.kore` (cwd: kcore-spec)
+definition.kore bytes: 239794
+definition.kore sha256: 7bb089030ba3fcb5ecff3b58f8a393d3f05756881dd174cf8ce0bfe6f9ec9659

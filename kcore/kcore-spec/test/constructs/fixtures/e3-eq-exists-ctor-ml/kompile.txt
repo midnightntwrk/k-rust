@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ctor-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 141503
+definition.kore sha256: fbaf9477f7a8377815955cd0d1d7d5f51c6f05b8abec5a439b5310e4222c9d72
+stripped sha256: a4ea36866a657e53cf90edcfb93f42f72e0b43f7d160f98b67deecf9669a9c70
+main module: 314 sentences, 31 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-CTOR-ML-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-EXISTS-CTOR-ML as default.

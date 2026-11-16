@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-eq-rhs-and-pred.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202580
+definition.kore sha256: e7fa72ee318eb9ade135f0fc00e309cdbdf0eb1a32d79aea703c7a530acd5edc
+stripped sha256: b62228c0513be11bfdda0035da1fdb46866f12a3e9d8c13b06950079327883e3
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-AND-PRED-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-EQ-RHS-AND-PRED as default.

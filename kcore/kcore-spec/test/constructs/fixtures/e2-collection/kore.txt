@@ -1,0 +1,234 @@
+//@ 0
+module E2-COLLECTION
+//@ 7
+  hooked-sort SortInt{} [hasDomainValues{}(), hook{}("INT.Int")]
+//@ 8
+  hooked-sort SortMySet{} [concat{}(Lbl'Unds'MySet'Unds'{}()), element{}(LblMySetItem{}()), hook{}("SET.Set"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), unit{}(Lbl'Stop'MySet{}())]
+//@ 10
+  hooked-sort SortMyList{} [concat{}(Lbl'Unds'MyList'Unds'{}()), element{}(LblMyListItem{}()), hook{}("LIST.List"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,3,8,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), unit{}(Lbl'Stop'MyList{}()), update{}(LblMyList'Coln'set{}())]
+//@ 19
+  hooked-symbol Lbl'Stop'MyList{}() : SortMyList{} [function{}(), functional{}(), hook{}("LIST.unit"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,21,10,105)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}(".MyList"), total{}()]
+//@ 20
+  hooked-symbol Lbl'Stop'MySet{}() : SortMySet{} [function{}(), functional{}(), hook{}("SET.unit"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,20,6,103)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}(".MySet"), total{}()]
+//@ 36
+  hooked-symbol LblMyList'Coln'set{}(SortMyList{}, SortInt{}, SortKItem{}) : SortMyList{} [function{}(), hook{}("LIST.update"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,21,12,103)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}("MyList:set")]
+//@ 37
+  hooked-symbol LblMyListItem{}(SortKItem{}) : SortMyList{} [function{}(), functional{}(), hook{}("LIST.element"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,21,11,111)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}("MyListItem"), total{}()]
+//@ 38
+  hooked-symbol LblMySetItem{}(SortKItem{}) : SortMySet{} [function{}(), functional{}(), hook{}("SET.element"), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,20,7,120)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}("MySetItem"), total{}()]
+//@ 52
+  hooked-symbol Lbl'Unds'MyList'Unds'{}(SortMyList{}, SortMyList{}) : SortMyList{} [element{}(LblMyListItem{}()), function{}(), functional{}(), hook{}("LIST.concat"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,21,9,177)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}("_MyList_"), total{}(), unit{}(Lbl'Stop'MyList{}()), update{}(LblMyList'Coln'set{}())]
+//@ 53
+  hooked-symbol Lbl'Unds'MySet'Unds'{}(SortMySet{}, SortMySet{}) : SortMySet{} [element{}(LblMySetItem{}()), function{}(), hook{}("SET.concat"), idem{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,20,5,158)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)"), symbol'Kywd'{}("_MySet_"), unit{}(Lbl'Stop'MySet{}())]
+//@ 85
+  symbol LblisMyList{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 86
+  symbol LblisMySet{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+//@ 107
+  symbol Lblproject'Coln'MyList{}(SortK{}) : SortMyList{} [function{}()]
+//@ 108
+  symbol Lblproject'Coln'MySet{}(SortK{}) : SortMySet{} [function{}()]
+//@ 129
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortMySet{}, SortKItem{}} (From:SortMySet{}))) [subsort{SortMySet{}, SortKItem{}}()] // subsort
+//@ 133
+  axiom{R} \exists{R} (Val:SortKItem{}, \equals{SortKItem{}, R} (Val:SortKItem{}, inj{SortMyList{}, SortKItem{}} (From:SortMyList{}))) [subsort{SortMyList{}, SortKItem{}}()] // subsort
+//@ 137
+  axiom{R} \exists{R} (Val:SortMyList{}, \equals{SortMyList{}, R} (Val:SortMyList{}, Lbl'Stop'MyList{}())) [functional{}()] // functional
+//@ 138
+  axiom{R} \exists{R} (Val:SortMySet{}, \equals{SortMySet{}, R} (Val:SortMySet{}, Lbl'Stop'MySet{}())) [functional{}()] // functional
+//@ 151
+  axiom{R} \exists{R} (Val:SortMyList{}, \equals{SortMyList{}, R} (Val:SortMyList{}, LblMyListItem{}(K0:SortKItem{}))) [functional{}()] // functional
+//@ 152
+  axiom{R} \exists{R} (Val:SortMySet{}, \equals{SortMySet{}, R} (Val:SortMySet{}, LblMySetItem{}(K0:SortKItem{}))) [functional{}()] // functional
+//@ 159
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 160
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 161
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 162
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 170
+  axiom{R} \equals{SortMyList{}, R} (Lbl'Unds'MyList'Unds'{}(Lbl'Unds'MyList'Unds'{}(K1:SortMyList{},K2:SortMyList{}),K3:SortMyList{}),Lbl'Unds'MyList'Unds'{}(K1:SortMyList{},Lbl'Unds'MyList'Unds'{}(K2:SortMyList{},K3:SortMyList{}))) [assoc{}()] // associativity
+//@ 171
+  axiom{R}\equals{SortMyList{}, R} (Lbl'Unds'MyList'Unds'{}(K:SortMyList{},Lbl'Stop'MyList{}()),K:SortMyList{}) [unit{}()] // right unit
+//@ 172
+  axiom{R}\equals{SortMyList{}, R} (Lbl'Unds'MyList'Unds'{}(Lbl'Stop'MyList{}(),K:SortMyList{}),K:SortMyList{}) [unit{}()] // left unit
+//@ 173
+  axiom{R} \exists{R} (Val:SortMyList{}, \equals{SortMyList{}, R} (Val:SortMyList{}, Lbl'Unds'MyList'Unds'{}(K0:SortMyList{}, K1:SortMyList{}))) [functional{}()] // functional
+//@ 174
+  axiom{R} \equals{SortMySet{}, R} (Lbl'Unds'MySet'Unds'{}(Lbl'Unds'MySet'Unds'{}(K1:SortMySet{},K2:SortMySet{}),K3:SortMySet{}),Lbl'Unds'MySet'Unds'{}(K1:SortMySet{},Lbl'Unds'MySet'Unds'{}(K2:SortMySet{},K3:SortMySet{}))) [assoc{}()] // associativity
+//@ 175
+  axiom{R} \equals{SortMySet{}, R} (Lbl'Unds'MySet'Unds'{}(K:SortMySet{},K:SortMySet{}),K:SortMySet{}) [idem{}()] // idempotency
+//@ 176
+  axiom{R}\equals{SortMySet{}, R} (Lbl'Unds'MySet'Unds'{}(K:SortMySet{},Lbl'Stop'MySet{}()),K:SortMySet{}) [unit{}()] // right unit
+//@ 177
+  axiom{R}\equals{SortMySet{}, R} (Lbl'Unds'MySet'Unds'{}(Lbl'Stop'MySet{}(),K:SortMySet{}),K:SortMySet{}) [unit{}()] // left unit
+//@ 183
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 184
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 185
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 188
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 189
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 190
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 208
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisMyList{}(K0:SortK{}))) [functional{}()] // functional
+//@ 209
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblisMySet{}(K0:SortK{}))) [functional{}()] // functional
+//@ 211
+  axiom{R, SortSort} \exists{R} (Val:SortSort, \equals{SortSort, R} (Val:SortSort, Lblite{SortSort}(K0:SortBool{}, K1:SortSort, K2:SortSort))) [functional{}()] // functional
+//@ 215
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 231
+  axiom{} \or{SortKItem{}} (\exists{SortKItem{}} (Val:SortBool{}, inj{SortBool{}, SortKItem{}} (Val:SortBool{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCell{}, inj{SortGeneratedCounterCell{}, SortKItem{}} (Val:SortGeneratedCounterCell{})), \exists{SortKItem{}} (Val:SortGeneratedCounterCellOpt{}, inj{SortGeneratedCounterCellOpt{}, SortKItem{}} (Val:SortGeneratedCounterCellOpt{})), \exists{SortKItem{}} (Val:SortGeneratedTopCell{}, inj{SortGeneratedTopCell{}, SortKItem{}} (Val:SortGeneratedTopCell{})), \exists{SortKItem{}} (Val:SortGeneratedTopCellFragment{}, inj{SortGeneratedTopCellFragment{}, SortKItem{}} (Val:SortGeneratedTopCellFragment{})), \exists{SortKItem{}} (Val:SortInt{}, inj{SortInt{}, SortKItem{}} (Val:SortInt{})), \exists{SortKItem{}} (Val:SortKCell{}, inj{SortKCell{}, SortKItem{}} (Val:SortKCell{})), \exists{SortKItem{}} (Val:SortKCellOpt{}, inj{SortKCellOpt{}, SortKItem{}} (Val:SortKCellOpt{})), \exists{SortKItem{}} (Val:SortKConfigVar{}, inj{SortKConfigVar{}, SortKItem{}} (Val:SortKConfigVar{})), \exists{SortKItem{}} (Val:SortList{}, inj{SortList{}, SortKItem{}} (Val:SortList{})), \exists{SortKItem{}} (Val:SortMap{}, inj{SortMap{}, SortKItem{}} (Val:SortMap{})), \exists{SortKItem{}} (Val:SortMyList{}, inj{SortMyList{}, SortKItem{}} (Val:SortMyList{})), \exists{SortKItem{}} (Val:SortMySet{}, inj{SortMySet{}, SortKItem{}} (Val:SortMySet{})), \exists{SortKItem{}} (Val:SortSet{}, inj{SortSet{}, SortKItem{}} (Val:SortSet{})), \bottom{SortKItem{}}()) [constructor{}()] // no junk
+//@ 305
+// rule isMyList(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(4306da3b200b9cbd3719d2142364d89fb5bb9b5de9bc39a907fec5a7ae28fc8b), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen1:SortMyList{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortMyList{}, SortKItem{}}(Var'Unds'Gen1:SortMyList{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisMyList{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("4306da3b200b9cbd3719d2142364d89fb5bb9b5de9bc39a907fec5a7ae28fc8b"), owise{}()]
+//@ 306
+// rule isMyList(inj{MyList,KItem}(MyList))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(82c2e75b15a1a06a5ae6aae7f7fd37efaafe366f18bf24c78819679b604c9a7b)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMyList{}, SortKItem{}}(VarMyList:SortMyList{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisMyList{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("82c2e75b15a1a06a5ae6aae7f7fd37efaafe366f18bf24c78819679b604c9a7b")]
+//@ 307
+// rule isMySet(K)=>#token("false","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(729c061a02847705674706bb87e6ba3041d5ca8c00dbcff415887cbb433e53f9), owise]
+  axiom{R} \implies{R} (
+    \and{R} (
+      \not{R} (
+        \or{R} (
+          \exists{R} (Var'Unds'Gen0:SortMySet{},
+            \and{R} (
+              \top{R}(),
+              \and{R} (
+                \in{SortK{}, R} (
+                  X0:SortK{},
+                  kseq{}(inj{SortMySet{}, SortKItem{}}(Var'Unds'Gen0:SortMySet{}),dotk{}())
+                ),
+                \top{R} ()
+              )
+          )),
+          \bottom{R}()
+        )
+      ),
+      \and{R}(
+        \top{R}(),
+        \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            VarK:SortK{}
+          ),
+          \top{R} ()
+        )
+    )),
+    \equals{SortBool{},R} (
+      LblisMySet{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("false"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("729c061a02847705674706bb87e6ba3041d5ca8c00dbcff415887cbb433e53f9"), owise{}()]
+//@ 308
+// rule isMySet(inj{MySet,KItem}(MySet))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(932b08c395a8fa8dc7d73c17a70035977135b61df1164d589ef29ee79d483bf1)]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMySet{}, SortKItem{}}(VarMySet:SortMySet{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      LblisMySet{}(X0:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("932b08c395a8fa8dc7d73c17a70035977135b61df1164d589ef29ee79d483bf1")]
+//@ 327
+// rule `project:MyList`(inj{MyList,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(43cd9b7865cd775d3e12692757f4dc34881ed14051401ac979e5aa2733d1a619), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMyList{}, SortKItem{}}(VarK:SortMyList{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortMyList{},R} (
+      Lblproject'Coln'MyList{}(X0:SortK{}),
+     \and{SortMyList{}} (
+       VarK:SortMyList{},
+        \top{SortMyList{}}())))
+  [UNIQUE'Unds'ID{}("43cd9b7865cd775d3e12692757f4dc34881ed14051401ac979e5aa2733d1a619")]
+//@ 328
+// rule `project:MySet`(inj{MySet,KItem}(K))=>K requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(07ff3bb1b672e74a64980f867691f782de5c31b7f8a5822ed62977d80ba641c6), projection]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            kseq{}(inj{SortMySet{}, SortKItem{}}(VarK:SortMySet{}),dotk{}())
+          ),
+          \top{R} ()
+        )),
+    \equals{SortMySet{},R} (
+      Lblproject'Coln'MySet{}(X0:SortK{}),
+     \and{SortMySet{}} (
+       VarK:SortMySet{},
+        \top{SortMySet{}}())))
+  [UNIQUE'Unds'ID{}("07ff3bb1b672e74a64980f867691f782de5c31b7f8a5822ed62977d80ba641c6")]
+//@ 332
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,14,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-collection.k)")]

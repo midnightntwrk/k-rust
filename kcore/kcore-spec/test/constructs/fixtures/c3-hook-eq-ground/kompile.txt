@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-hook-eq-ground.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202747
+definition.kore sha256: 6acc7647bff683ba4917297d8d16724eec9988dc295fea531c414e2d46807b29
+stripped sha256: 01dc8fb71c2f41aeb89e6264f505029c22b0fc517d196f1dfa999df13d11f7db
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-hook-only: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-EQ-GROUND-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-HOOK-EQ-GROUND as default.

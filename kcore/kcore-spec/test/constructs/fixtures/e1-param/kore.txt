@@ -1,0 +1,100 @@
+//@ 0
+module E1-PARAM
+//@ 81
+  symbol Lblpick{SortS}(SortBool{}, SortS, SortS) : SortS [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,20,3,69)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e1-param.k)"), symbol'Kywd'{}("pick")]
+//@ 97
+  symbol Lblsame{SortS, SortT}(SortS, SortT) : SortBool{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,26,4,69)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e1-param.k)"), symbol'Kywd'{}("same")]
+//@ 139
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 140
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 153
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 154
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 155
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 158
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 159
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 160
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 182
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 266
+// rule pick{K}(#token("false","Bool"),_Gen0,B)=>B requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(660980190fc70a117919c01269f02d00e8569ce75a109796d9779942fd337bee), org.kframework.attributes.Location(Location(6,8,6,30)), org.kframework.attributes.Source(Source(FIXTURE/e1-param.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortBool{}, R} (
+            X0:SortBool{},
+            \dv{SortBool{}}("false")
+          ),\and{R} (
+          \in{SortK{}, R} (
+            X1:SortK{},
+            Var'Unds'Gen0:SortK{}
+          ),\and{R} (
+          \in{SortK{}, R} (
+            X2:SortK{},
+            VarB:SortK{}
+          ),
+          \top{R} ()
+        )))),
+    \equals{SortK{},R} (
+      Lblpick{SortK{}}(X0:SortBool{},X1:SortK{},X2:SortK{}),
+     \and{SortK{}} (
+       VarB:SortK{},
+        \top{SortK{}}())))
+  [UNIQUE'Unds'ID{}("660980190fc70a117919c01269f02d00e8569ce75a109796d9779942fd337bee"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,30)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e1-param.k)")]
+//@ 267
+// rule pick{K}(#token("true","Bool"),A,_Gen0)=>A requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(fac1e0eb1f1938ac84844609a59d57d4274e71dcbed0f15531d4e01fc9f3b0bf), org.kframework.attributes.Location(Location(5,8,5,29)), org.kframework.attributes.Source(Source(FIXTURE/e1-param.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortBool{}, R} (
+            X0:SortBool{},
+            \dv{SortBool{}}("true")
+          ),\and{R} (
+          \in{SortK{}, R} (
+            X1:SortK{},
+            VarA:SortK{}
+          ),\and{R} (
+          \in{SortK{}, R} (
+            X2:SortK{},
+            Var'Unds'Gen0:SortK{}
+          ),
+          \top{R} ()
+        )))),
+    \equals{SortK{},R} (
+      Lblpick{SortK{}}(X0:SortBool{},X1:SortK{},X2:SortK{}),
+     \and{SortK{}} (
+       VarA:SortK{},
+        \top{SortK{}}())))
+  [UNIQUE'Unds'ID{}("fac1e0eb1f1938ac84844609a59d57d4274e71dcbed0f15531d4e01fc9f3b0bf"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e1-param.k)")]
+//@ 282
+// rule same{K,K}(_Gen0,_Gen1)=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(5f13839009ef2b132dc0583fb7ec5a2f2ad906460869eb1ead4d6a2f278e593c), org.kframework.attributes.Location(Location(7,8,7,26)), org.kframework.attributes.Source(Source(FIXTURE/e1-param.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortK{}, R} (
+            X0:SortK{},
+            Var'Unds'Gen0:SortK{}
+          ),\and{R} (
+          \in{SortK{}, R} (
+            X1:SortK{},
+            Var'Unds'Gen1:SortK{}
+          ),
+          \top{R} ()
+        ))),
+    \equals{SortBool{},R} (
+      Lblsame{SortK{}, SortK{}}(X0:SortK{},X1:SortK{}),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("5f13839009ef2b132dc0583fb7ec5a2f2ad906460869eb1ead4d6a2f278e593c"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,8,7,26)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e1-param.k)")]
+//@ 284
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,8,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e1-param.k)")]

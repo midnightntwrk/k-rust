@@ -1,0 +1,7 @@
+import MatchingLogic.Pattern 
+import MatchingLogic.PrettyPrinterOptions
+import MatchingLogic.Proof
+import MatchingLogic.Positivity
+import MatchingLogic.Definedness 
+import MatchingLogic.DeductionTheorem
+import MatchingLogic.Soundness

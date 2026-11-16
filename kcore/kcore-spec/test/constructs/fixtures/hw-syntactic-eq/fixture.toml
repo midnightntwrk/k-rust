@@ -1,0 +1,4 @@
+# Hand-written KORE: f2-examples/ens.kompile.kore (K 7.1.337's text of f2-examples/ens.k) with one
+# attribute, syntactic{}("1"), put first in the attribute list of the function equation of half; nothing else
+# changed. No text kompile 7.1.337 delivers holds the key there. Shows a function equation carrying syntactic: refused by name (equationAttribute).
+kore = "test/constructs/fixtures/hw-syntactic-eq/hw-syntactic-eq.kore"

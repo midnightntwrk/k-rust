@@ -1,0 +1,5 @@
+name = "MatchingLogic"
+defaultTargets = ["MatchingLogic"]
+
+[[lean_lib]]
+name = "MatchingLogic"

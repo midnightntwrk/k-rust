@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-only-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202458
+definition.kore sha256: 8abfadfe462405828dc940038739744b3cf90378ba1625be51fd7c171bf342e7
+stripped sha256: e0c624aa2794ae331f8435e7b47da5fcfe68fbbd4b921f96551214f1a9633712
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-ONLY-REQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-EQ-ONLY-REQ as default.

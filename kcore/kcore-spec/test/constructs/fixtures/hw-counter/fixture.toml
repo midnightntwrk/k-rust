@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3): probe 5: <k> a() => b(C) ... </k> <generatedCounter> C </generatedCounter> (e3-fresh's rule edited).
+# From: test/constructs/kfix.py run e3-fresh's definition.kore. No text kompile 7.1.337 delivers holds the shape.
+kore = "test/constructs/fixtures/hw-counter/hw-counter.kore"

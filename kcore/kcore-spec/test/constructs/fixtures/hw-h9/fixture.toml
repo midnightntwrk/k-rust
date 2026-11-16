@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3): H9, the [owise] equation of the 0-ary f (the text as kompile's frontend wrote it, before its validation refused it).
+# From: test/constructs/kfix.py run e2-clause-genless's definition.kore. No text kompile 7.1.337 delivers holds the shape.
+kore = "test/constructs/fixtures/hw-h9/hw-h9.kore"

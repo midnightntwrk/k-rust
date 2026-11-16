@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-list.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210207
+definition.kore sha256: 7d688935cf3ecb3980d61d0eca7b0c503238d57f49a9ef1ac017ab033186cfe1
+stripped sha256: 3462f8492c5a27f266827d3daa331d3e8ff4cf1828901e9fc1095797f95529bd
+main module: 416 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?V' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-list.k)
+  	Location(6,50,6,52)
+  	6 |	  rule <k> go() => .K ... </k> <l> L => ListItem(?V:Int) L </l>
+  	  .	                                                 ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-LIST-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-VARS-LIST as default.

@@ -1,0 +1,2 @@
+# a binder of Int (not confined) in an alternative of \or, fixed inside it by a term over the universal variable: f(X) => X #Or (#Exists B:Int. (B #And {B #Equals X +Int 1})), f not total
+# from the sentence: f(x) = {x, x +Int 1}, two elements at every x (no result)

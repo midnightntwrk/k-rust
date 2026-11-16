@@ -1,0 +1,16 @@
+name = "koreParser"
+version = "0.1.0"
+defaultTargets = ["KoreParser", "roundtrip"]
+testDriver = "roundtrip"
+testDriverArgs = [
+  "../milestone-1/kore/definition.kore",
+  "../milestone-1/kore/syntaxDefinition.kore",
+  "test/features.kore",
+]
+
+[[lean_lib]]
+name = "KoreParser"
+
+[[lean_exe]]
+name = "roundtrip"
+root = "RoundTrip"

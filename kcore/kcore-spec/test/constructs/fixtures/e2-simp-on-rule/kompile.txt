@@ -1,0 +1,13 @@
+command: kompile --backend haskell e2-simp-on-rule.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.7
+output:
+  [Error] Compiler: Simplification rules expect function/functional/mlOp symbols
+  at the top of the left hand side term.
+  	Source(FIXTURE/e2-simp-on-rule.k)
+  	Location(3,8,3,30)
+  	3 |	  rule <k> a(X) => X ... </k> [simplification]
+  	  .	       ^~~~~~~~~~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SIMP-ON-RULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-SIMP-ON-RULE as default.

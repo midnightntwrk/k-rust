@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3): H11, go(X) #And #Ceil(1 /Int X) on the rule's left side (the #Ceil of go(X) replaced).
+# From: test/constructs/kfix.py run e3-ml-rule-lhs-ceil-ctor's definition.kore. No text kompile 7.1.337 delivers holds the shape.
+kore = "test/constructs/fixtures/hw-h11/hw-h11.kore"

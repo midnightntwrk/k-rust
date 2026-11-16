@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-h9/hw-h9.kore: 5 modules; prelude agrees
+user module E2-CLAUSE-GENLESS: 419 sentences
+  1 inert import [generated]
+  195 read [generated]
+  184 read [builtin]
+  11 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unboundVariable
+      sentence 371 (Lblf): unboundVariable (VarH: in the requires, not bound by the left side)
+        [user] (no label) at e2-clause-genless.k:10: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(LblisC{}(VarH:SortS{}), \dv{SortBool{}}("true")), \top{R}()), \equals{SortInt{}, R}(Lblf{}(), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("fbdc22d64929b0a0101784015605142786ac4e9f0114501b710ece2e7f4c0c83"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,8,10,34)"), org'Stop'kframework'Stop'attribu …
+finish: sentence 371 (Lblf): unboundVariable (VarH: in the requires, not bound by the left side)
+(exit 0)

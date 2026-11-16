@@ -1,0 +1,20 @@
+command: kompile --backend haskell e2-equation-partial.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: Found concrete attribute without simplification attribute on
+  function with one or more non-concrete rules.
+  	Source(FIXTURE/e2-equation-partial.k)
+  	Location(4,8,4,27)
+  	4 |	  rule p(X, Y) => X +Int Y [concrete(X), symbolic(Y)]
+  	  .	       ^~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Found symbolic attribute without simplification attribute on
+  function with one or more non-symbolic rules.
+  	Source(FIXTURE/e2-equation-partial.k)
+  	Location(4,8,4,27)
+  	4 |	  rule p(X, Y) => X +Int Y [concrete(X), symbolic(Y)]
+  	  .	       ^~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-EQUATION-PARTIAL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-EQUATION-PARTIAL as default.

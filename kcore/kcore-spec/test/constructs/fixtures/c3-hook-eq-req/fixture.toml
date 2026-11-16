@@ -1,0 +1,2 @@
+# pair hook x equation: a hooked function of the text (hook INT.add) with an equation under a requires; differs_from c3-hook-only: the text without the equation
+differs_from = "c3-hook-only"

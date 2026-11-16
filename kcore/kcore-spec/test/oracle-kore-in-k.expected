@@ -1,0 +1,4 @@
+# ID oracle reached N U coherent vs (test/oracle-kore-in-k.sh); the same N and U as `kcore agree`'s run
+c03-nondet/haskell oracle:true reached:10 N:4 U:0 coherent:decided vs:agree
+c08-undef-rhs-blocks/haskell oracle:true reached:1 N:0 U:1 coherent:decided vs:agree
+c24-map-fn-pattern/haskell oracle:true reached:2 N:1 U:0 coherent:open vs:agree

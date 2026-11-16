@@ -1,0 +1,11 @@
+command: kompile --backend haskell e7-implicitk.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 84467
+definition.kore sha256: 964fe4455541a3929f57fa349d0f6e19fc4e50d23dbdea8707bf69429559a5eb
+stripped sha256: 67153a7e9d6f0d5370f641638e7ab76ad55c3562cd440340b522259c430e18c0
+main module: 243 sentences, 18 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E7-IMPLICITK-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E7-IMPLICITK as default.

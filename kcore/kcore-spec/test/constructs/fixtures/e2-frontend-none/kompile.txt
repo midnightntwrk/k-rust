@@ -1,0 +1,10 @@
+command: kompile --backend haskell m.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 226077
+definition.kore sha256: 8ebccc7bdc97e981457f52bac01f3d5263645194e18c62a8e5b545ab3b0e3cc5
+stripped sha256: f6aa18a3355900f6c9c648ef3cfbfdf0afb17994c485bef5e6cedcb512f143b9
+main module: 475 sentences, 119 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name M-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using M as default.

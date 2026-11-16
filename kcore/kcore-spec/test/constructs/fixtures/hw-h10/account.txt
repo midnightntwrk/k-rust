@@ -1,0 +1,20 @@
+test/constructs/fixtures/hw-h10/hw-h10.kore: 5 modules; prelude agrees
+user module E2-OPEN-MIXED-CLAUSE: 252 sentences
+  1 inert import [generated]
+  167 read [generated]
+  52 read [builtin]
+  1 refused openGenerator [user]
+      e.g. symbol Lbland{}(SortA{}, SortA{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,16,3,43)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-fix/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-open-mixed-clause/src/e2-open-mixed-clause.k)"), symbol'Kywd'{}("and")]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unknownSymbol
+      sentence 214 (Lblfirst): unknownSymbol (Lbland)
+        [user] (no label) at e2-open-mixed-clause.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortB{}, R}(X0:SortB{}, Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{})), \top{R}())), \equals{SortA{}, R}(Lblfirst{}(X0:SortB{}), \and{SortA{}}(VarX:SortA{}, \top{SortA{}}()))) [UNIQUE'Unds'ID{}("b4b5caf40433b2103f90e6c0a93e2c576887650faf01fcd0febabd21e43954ce"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,25)"), org'Stop'k …
+finish: sentence 214 (Lblfirst): unknownSymbol (Lbland)
+(exit 0)

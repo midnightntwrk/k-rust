@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-RULE-RHS-FORALL: 406 sentences
+  1 inert import [generated]
+  187 read [generated]
+  184 read [builtin]
+  4 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  3 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 openExtent
+      sentence 310 (Lbl'-LT-'generatedTop'-GT-'): openExtent (Int)
+        [user] (no label) at e3-ml-rule-rhs-forall.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}(Var'Unds'Gen0:SortInt{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, Sor …
+finish: sentence 310 (Lbl'-LT-'generatedTop'-GT-'): openExtent (Int)
+(exit 0)

@@ -1,0 +1,2 @@
+# a binder in the second conjunct of an \and of terms: f(X) => (notBool X) #And (#Exists B:Bool. (B #And {B #Equals X})), f not total
+# from the sentence: f(x) = {notBool x} ∩ {x}, the empty set at every x

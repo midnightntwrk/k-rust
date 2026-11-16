@@ -1,0 +1,11 @@
+command: kompile --backend haskell e7-guardors.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 85435
+definition.kore sha256: b04545ab195e89d9610dd477005d51d3bebff773f0405b301892b2bd90dce3a3
+stripped sha256: eb068c2e7a35aed712a8443515c1fbc50e667c4ee69394993399252c8f38af5b
+main module: 248 sentences, 23 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E7-GUARDORS-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E7-GUARDORS as default.

@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-rule-only-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 207770
+definition.kore sha256: 59f5bda3134c935e3fdb8518be1530fdcd2ca4ca56af649517b743fc59745b29
+stripped sha256: 3be01f94400809b9b460892eca3e888654089d8675e59ee99a3d232cde9919eb
+main module: 410 sentences, 56 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-ONLY-REQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-RULE-ONLY-REQ as default.

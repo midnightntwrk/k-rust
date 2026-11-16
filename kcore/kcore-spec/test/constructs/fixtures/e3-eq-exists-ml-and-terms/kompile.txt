@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ml-and-terms.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 203944
+definition.kore sha256: d6defe335ae62b1b4a32a39d77ef853a107e419b41a5a7719be98dc3048ae5df
+stripped sha256: c6bfebe59f203a407ab2787c139e97882d855681338a79e9c3e4ab4f8f52b822
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ML-AND-TERMS-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-ML-AND-TERMS as default.

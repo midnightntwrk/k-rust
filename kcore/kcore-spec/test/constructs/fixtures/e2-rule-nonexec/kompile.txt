@@ -1,0 +1,13 @@
+command: kompile --backend haskell e2-rule-nonexec.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: non-executable attribute is only supported on function rules.
+  	Source(FIXTURE/e2-rule-nonexec.k)
+  	Location(4,8,4,33)
+  	4 |	  rule <k> c(X) => a(X) ... </k> [non-executable]
+  	  .	       ^~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-RULE-NONEXEC-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-RULE-NONEXEC as default.

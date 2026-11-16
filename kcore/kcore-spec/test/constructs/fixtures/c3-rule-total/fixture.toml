@@ -1,0 +1,2 @@
+# [total] on a rewrite rule: kompile rejects it ('Rule cannot have the following attributes: [total]'), so no pair with [total] exists for rules
+expect = "error"

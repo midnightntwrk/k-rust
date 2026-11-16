@@ -1,0 +1,2 @@
+# pair priority x [owise] on one rule; differs_from c3-rule-only-prio: the text without the pair's second modifier
+differs_from = "c3-rule-only-prio"

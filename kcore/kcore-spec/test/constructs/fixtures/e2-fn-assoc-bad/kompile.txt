@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-fn-assoc-bad.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 202864
+definition.kore sha256: 490225d19b85116a68fd3d529cfe63ca4acf231235c8d28ac85680f749b98605
+stripped sha256: 53599fd991bad720f175aaee8a76a6e1b236b45b27f384e967844046f6776511
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-FN-ASSOC-BAD-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-FN-ASSOC-BAD as default.

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-fun.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 206936
+definition.kore sha256: 632282882e0c551f384f5759bd526299899c61df13eb51223b61851060a9b853
+stripped sha256: eaf64ace043b16bd14528c626d0c87a8739660d638d0a353a8e31859c053a794
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-FUN-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E5-OVL-FUN as default.

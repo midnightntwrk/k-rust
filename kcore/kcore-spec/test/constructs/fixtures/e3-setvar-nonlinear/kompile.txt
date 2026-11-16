@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-setvar-nonlinear.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 85190
+definition.kore sha256: ce19588d16665487f6d48252904ab8f7b30214fc828d5b27e894c5dab3685ee4
+stripped sha256: c3bd21422736ff8f4b31447f1fb5814741ce95d34d8bde770519a36803a0ab0c
+main module: 248 sentences, 23 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-SETVAR-NONLINEAR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-SETVAR-NONLINEAR as default.

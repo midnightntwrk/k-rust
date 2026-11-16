@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-eq-only-prio-plain.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 203406
+definition.kore sha256: d7975293b4456f4f78e708a1597020c7fccaa16d9a808e66ab0d600cbc413de6
+stripped sha256: cd0ac676c8b9fe438d93cb0d3ffdd4257c90174fbaf0d217bc550f77a634203c
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-ONLY-PRIO-PLAIN-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-EQ-ONLY-PRIO-PLAIN as default.

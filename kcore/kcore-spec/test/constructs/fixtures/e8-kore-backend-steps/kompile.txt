@@ -1,0 +1,12 @@
+command: kompile --backend haskell --kore-backend-steps resolveComm,resolveIO,resolveFun,resolveFunctionWithConfig,resolveStrict,resolveAnonVars,resolveContexts,numberSentences1,resolveHeatCoolAttribute,resolveSemanticCasts,subsortKItem1,propagateMacroToRules,guardOrs,resolveFreshConfigConstants,generateSortPredicateSyntax1,generateSortProjections1,expandMacros,addImplicitComputationCell,resolveFreshConstants,generateSortPredicateSyntax2,generateSortProjections2,checkSimplificationRules,subsortKItem2,concretizeCells,genCoverage,addSemanticsModule,resolveConfigVar,addCoolLikeAtt,removeAnywhereRules,generateSortPredicateRules,numberSentences2 e7-constfold.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 271796
+definition.kore sha256: 803cf58c3cf4a80d19b7722f4b2e9d64073cec06c16c5d58ee080c74268490ae
+stripped sha256: d5495500febf7d9bc8497be946e18a558d298dc8ad564fc14575757aafbfb66c
+main module: 495 sentences, 2 not in e7-constfold's, in kore.txt
+differs_from e7-constfold: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E7-CONSTFOLD-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E7-CONSTFOLD as default.

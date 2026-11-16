@@ -1,0 +1,13 @@
+command: kompile --backend haskell e2-simp-owise.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.7
+output:
+  [Error] Compiler: owise attribute is not supported on simplification rules.
+  	Source(FIXTURE/e2-simp-owise.k)
+  	Location(5,8,5,23)
+  	5 |	  rule f(f(X)) => f(X) [simplification, owise]
+  	  .	       ^~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SIMP-OWISE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-SIMP-OWISE as default.

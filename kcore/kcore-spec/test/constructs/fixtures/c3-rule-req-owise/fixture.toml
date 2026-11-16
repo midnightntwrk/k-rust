@@ -1,0 +1,2 @@
+# pair requires x [owise]: a rule with requires beside an [owise] one; differs_from c3-rule-only-req-plain: the text without the pair's second modifier
+differs_from = "c3-rule-only-req-plain"

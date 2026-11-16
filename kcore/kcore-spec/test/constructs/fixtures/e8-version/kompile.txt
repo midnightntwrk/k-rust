@@ -1,0 +1,7 @@
+command: kompile --version  (cwd: the fixture directory)
+exit: 0
+seconds: 0.1
+definition.kore: none written
+output:
+  K version:    v7.1.337
+  Build date:   Tue Aug 25 11:54:58 JST 2026

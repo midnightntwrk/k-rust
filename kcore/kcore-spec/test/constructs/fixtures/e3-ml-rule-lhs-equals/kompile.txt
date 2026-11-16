@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-equals.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 207579
+definition.kore sha256: e31428b4078cb0d69015c91bbfe4b35e73981267d4e48eca524dedbffda04d42
+stripped sha256: 76012b56ec7668c73a7ee08621c414739b417c0cfd5e9769d97ab830543bfc79
+main module: 409 sentences, 53 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-EQUALS-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-RULE-LHS-EQUALS as default.

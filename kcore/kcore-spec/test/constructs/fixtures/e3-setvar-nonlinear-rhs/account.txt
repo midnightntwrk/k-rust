@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-SETVAR-NONLINEAR-RHS: 241 sentences
+  1 inert import [generated]
+  158 read [generated]
+  52 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 setVariable
+      sentence 206 (Lblf): setVariable (VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort)
+        [user] (no label) at e3-setvar-nonlinear-rhs.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, @VarS:SortExp{}), \and{R}(\in{SortExp{}, R}(X1:SortExp{}, @VarS:SortExp{}), \top{R}()))), \equals{SortExp{}, R}(Lblf{}(X0:SortExp{}, X1:SortExp{}), \and{SortExp{}}(@VarS:SortExp{}, \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("619d8a1f117503330c30232895e57eb9ca3360f603bc519c854841eb7370c024"), org'Stop'kframework'Stop'attrib …
+finish: sentence 206 (Lblf): setVariable (VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort)
+(exit 0)

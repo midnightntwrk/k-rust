@@ -1,0 +1,9 @@
+command: kompile --backend haskell e2-registry-symbol-name.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 89556
+definition.kore sha256: ee4bdcd661ffa21178239aee72764771d6bd449af35588d762a19739a5f31746
+stripped sha256: c617e27d730f0a2411997ab812342222dbeb3ac172d70eb6387d840b7a2ec660
+main module: 259 sentences, 36 not in base's, in kore.txt
+output:
+  

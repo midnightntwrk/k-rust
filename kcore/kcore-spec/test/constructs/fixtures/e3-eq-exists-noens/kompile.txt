@@ -1,0 +1,23 @@
+command: kompile --backend haskell e3-eq-exists-noens.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.9
+output:
+  [Warning] Compiler: Variable '?B' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-eq-exists-noens.k)
+  	Location(4,16,4,18)
+  	4 |	  rule f(_) => ?B
+  	  .	               ^~
+  [Error] Compiler: Cannot encode equations with existential variables to KORE.
+   If this is desired, please use #Exists with regular variables.
+   Offending variables: [?B]
+   context: rule f(_Gen0)=>?B requires #token("true","Bool") ensures
+  #token("true","Bool")
+  [UNIQUE_ID(8433399e9fa9b9b69d071239ad5413144cb871b66673e8926a357916bafec4e3),
+  org.kframework.attributes.Location(Location(4,8,4,18)),
+  org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-noens.k)),
+  org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody
+  [symbol(#ruleNoConditions)])]
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-NOENS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-EXISTS-NOENS as default.

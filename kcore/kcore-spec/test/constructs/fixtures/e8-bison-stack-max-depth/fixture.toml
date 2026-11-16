@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+extra = ["--bison-stack-max-depth", "10000"]
+same_as = "e8-ref"

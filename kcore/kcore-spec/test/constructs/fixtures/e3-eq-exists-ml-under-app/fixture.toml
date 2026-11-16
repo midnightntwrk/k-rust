@@ -1,0 +1,2 @@
+# a binder under an application on an equation's right side: f(X) => g(#Exists B:Bool. (B #And {B #Equals X})), f and g total, g(B) => notBool B
+# from the sentence: f(x) = g({x}) = {notBool x}: f(true) = false, f(false) = true

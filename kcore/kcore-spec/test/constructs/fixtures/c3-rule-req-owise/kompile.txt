@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-rule-req-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 209080
+definition.kore sha256: 7f266985579f6076c10d4fc1e652fdc870049605300f08c65f63e351aec88f99
+stripped sha256: 02fb5e74ae3d7fe39eeafae21e513c64b94b6cd7cba84a3c05c1bc942e7d2407
+main module: 411 sentences, 57 not in base's, in kore.txt
+differs_from c3-rule-only-req-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-REQ-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-RULE-REQ-OWISE as default.

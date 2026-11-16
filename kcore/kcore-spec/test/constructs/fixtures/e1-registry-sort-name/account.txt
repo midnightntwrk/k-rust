@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E1-REGISTRY-SORT-NAME: 413 sentences
+  1 inert import [generated]
+  195 read [generated]
+  183 read [builtin]
+  5 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 registrySortName
+      sentence 23 (SortBytes): registrySortName (Bytes)
+        [generated] (no label) at :0: sort SortBytes{} []
+finish: sentence 23 (SortBytes): registrySortName (Bytes)
+(exit 0)

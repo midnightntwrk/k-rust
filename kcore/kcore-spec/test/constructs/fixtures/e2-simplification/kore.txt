@@ -1,0 +1,276 @@
+//@ 0
+module E2-SIMPLIFICATION
+//@ 80
+  symbol Lblf{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), symbol'Kywd'{}("f")]
+//@ 83
+  symbol Lblg{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,49,4,88)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), symbol'Kywd'{}("g")]
+//@ 134
+  symbol Lblsl{}(SortInt{}) : SortInt{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,60)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), smtlib{}("sl"), symbol'Kywd'{}("sl")]
+//@ 171
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsAnd-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 172
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsStar'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 173
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 174
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'-Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 176
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-Eqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 179
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-LT-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 180
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 181
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 182
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 183
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 184
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 185
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'K'Unds'{}(K0:SortK{}, K1:SortK{}))) [functional{}()] // functional
+//@ 186
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-Eqls'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 187
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds-GT-'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 200
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 201
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 202
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 205
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 206
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 207
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 208
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Unds'xorInt'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 210
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'UndsPipe'Int'Unds'{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 212
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblabsInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 213
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblfreshInt'LParUndsRParUnds'INT'Unds'Int'Unds'Int{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 230
+  axiom{R, SortSort} \exists{R} (Val:SortSort, \equals{SortSort, R} (Val:SortSort, Lblite{SortSort}(K0:SortBool{}, K1:SortSort, K2:SortSort))) [functional{}()] // functional
+//@ 232
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblmaxInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 233
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, LblminInt'LParUndsCommUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int'Unds'Int{}(K0:SortInt{}, K1:SortInt{}))) [functional{}()] // functional
+//@ 236
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 243
+  axiom{R} \exists{R} (Val:SortInt{}, \equals{SortInt{}, R} (Val:SortInt{}, Lbl'Tild'Int'Unds'{}(K0:SortInt{}))) [functional{}()] // functional
+//@ 286
+// rule `_*Int_`(f(X),Y)=>`_*Int_`(Y,f(X)) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c06163e2f659da7d671ad2f8f920b5088325ad9fcdfbb3779d31b961a4f58ed6), concrete(Y), org.kframework.attributes.Location(Location(16,8,16,34)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification, symbolic(X)]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsStar'Int'Unds'{}(Lblf{}(VarX:SortInt{}),VarY:SortInt{}),
+     \and{SortInt{}} (
+       Lbl'UndsStar'Int'Unds'{}(VarY:SortInt{},Lblf{}(VarX:SortInt{})),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("c06163e2f659da7d671ad2f8f920b5088325ad9fcdfbb3779d31b961a4f58ed6"), concrete{}(VarY:SortInt{}), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,8,16,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}(""), symbolic{}(VarX:SortInt{})]
+//@ 287
+// rule `_*Int_`(f(X),#token("0","Int"))=>#token("0","Int") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(865d237fc0f190c589b46ab741b817fe44a944452b3a8113c64b3d98c0eb6cb4), concrete, org.kframework.attributes.Location(Location(14,8,14,24)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsStar'Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("0")),
+     \and{SortInt{}} (
+       \dv{SortInt{}}("0"),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("865d237fc0f190c589b46ab741b817fe44a944452b3a8113c64b3d98c0eb6cb4"), concrete{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,8,14,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("")]
+//@ 288
+// rule `_*Int_`(f(X),#token("1","Int"))=>f(X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(0fce33f1762e34e6dd8db0f197161a4eea4224f817b75b79b7be2ad9a9d7bcb2), org.kframework.attributes.Location(Location(15,8,15,27)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification, symbolic]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsStar'Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("1")),
+     \and{SortInt{}} (
+       Lblf{}(VarX:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("0fce33f1762e34e6dd8db0f197161a4eea4224f817b75b79b7be2ad9a9d7bcb2"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,8,15,27)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}(""), symbolic{}()]
+//@ 296
+// rule `_+Int_`(f(X),#token("0","Int"))=>f(X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(1f9402501b7bd83f405f459d3a0c7e1e04d1f9f651686cc2208cde5318cf33e4), org.kframework.attributes.Location(Location(10,8,10,27)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification(10)]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsPlus'Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("0")),
+     \and{SortInt{}} (
+       Lblf{}(VarX:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("1f9402501b7bd83f405f459d3a0c7e1e04d1f9f651686cc2208cde5318cf33e4"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,8,10,27)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("10")]
+//@ 297
+// rule `_+Int_`(f(X),#token("1","Int"))=>`_+Int_`(X,#token("1","Int")) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8093bd0d50e6e14eafc1e64384522344859e725a0b40ebc6d576b7232f1d5ca8), org.kframework.attributes.Location(Location(11,8,11,31)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification(50)]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsPlus'Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("1")),
+     \and{SortInt{}} (
+       Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("1")),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("8093bd0d50e6e14eafc1e64384522344859e725a0b40ebc6d576b7232f1d5ca8"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,8,11,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("50")]
+//@ 298
+// rule `_+Int_`(f(X),#token("2","Int"))=>`_+Int_`(X,#token("2","Int")) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(eb1c538fa2cf312134c05cf4f5e667b55929b4ccf0dfbbd04ecd9dd760d75172), org.kframework.attributes.Location(Location(12,8,12,31)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification(200)]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsPlus'Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("2")),
+     \and{SortInt{}} (
+       Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("2")),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("eb1c538fa2cf312134c05cf4f5e667b55929b4ccf0dfbbd04ecd9dd760d75172"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,8,12,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("200")]
+//@ 299
+// rule `_+Int_`(f(X),#token("3","Int"))=>`_+Int_`(X,#token("3","Int")) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(55c4efd5dedb6e5c6e3dd0385d8d5d2783360a292b1bea817876a45016600550), org.kframework.attributes.Location(Location(13,8,13,31)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification(300)]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'UndsPlus'Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("3")),
+     \and{SortInt{}} (
+       Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},\dv{SortInt{}}("3")),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("55c4efd5dedb6e5c6e3dd0385d8d5d2783360a292b1bea817876a45016600550"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,8,13,31)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("300")]
+//@ 306
+// rule `_-Int_`(f(X),#token("0","Int"))=>f(X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(3a55306d2c2b7ec77d782552e957477710703f6eda86b13bb568d6db8b4ceacd), org.kframework.attributes.Location(Location(18,8,18,27)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), preserves-definedness, simplification]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'Unds'-Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("0")),
+     \and{SortInt{}} (
+       Lblf{}(VarX:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("3a55306d2c2b7ec77d782552e957477710703f6eda86b13bb568d6db8b4ceacd"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,8,18,27)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), preserves-definedness{}(), simplification{}("")]
+//@ 307
+// rule `_-Int_`(f(X),#token("1","Int"))=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(df229f0e50372bebbed6c8b771ca4acf6655fffc4276afe49bdf16ac32c3ec92), non-executable, org.kframework.attributes.Location(Location(20,8,20,24)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lbl'Unds'-Int'Unds'{}(Lblf{}(VarX:SortInt{}),\dv{SortInt{}}("1")),
+     \and{SortInt{}} (
+       VarX:SortInt{},
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("df229f0e50372bebbed6c8b771ca4acf6655fffc4276afe49bdf16ac32c3ec92"), non-executable{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,8,20,24)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("")]
+//@ 315
+// rule `_>=Int_`(sl(X),#token("0","Int"))=>#token("true","Bool") requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(761b2016c4daf0ee21e2f6f47326902bc0c7c3ced482e93efc8a1f38b0c8cdf4), org.kframework.attributes.Location(Location(19,8,19,29)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification, smt-lemma]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortBool{},R} (
+      Lbl'Unds-GT-Eqls'Int'Unds'{}(Lblsl{}(VarX:SortInt{}),\dv{SortInt{}}("0")),
+     \and{SortBool{}} (
+       \dv{SortBool{}}("true"),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("761b2016c4daf0ee21e2f6f47326902bc0c7c3ced482e93efc8a1f38b0c8cdf4"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,8,19,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}(""), smt-lemma{}()]
+//@ 347
+// rule f(X)=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2211bdde9c61e), org.kframework.attributes.Location(Location(6,8,6,17)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortInt{}, R} (
+            X0:SortInt{},
+            VarX:SortInt{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortInt{},R} (
+      Lblf{}(X0:SortInt{}),
+     \and{SortInt{}} (
+       VarX:SortInt{},
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2211bdde9c61e"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,17)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)")]
+//@ 348
+// rule f(f(X))=>f(X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d3273684d102977f83c3de6eaaab600268d403c1085437460063e2f9bb5fbc96), label(E2-SIMPLIFICATION.s-label), org.kframework.attributes.Location(Location(9,19,9,34)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lblf{}(Lblf{}(VarX:SortInt{})),
+     \and{SortInt{}} (
+       Lblf{}(VarX:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("d3273684d102977f83c3de6eaaab600268d403c1085437460063e2f9bb5fbc96"), label{}("E2-SIMPLIFICATION.s-label"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,19,9,34)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("")]
+//@ 349
+// rule f(g(X,Y))=>g(X,Y) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(04e4a8fc754e305e229a3a73f8a55ebf0c919d333de8e9a7a6ff3082b38c871c), org.kframework.attributes.Location(Location(21,8,21,29)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification, syntactic(1)]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lblf{}(Lblg{}(VarX:SortInt{},VarY:SortInt{})),
+     \and{SortInt{}} (
+       Lblg{}(VarX:SortInt{},VarY:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("04e4a8fc754e305e229a3a73f8a55ebf0c919d333de8e9a7a6ff3082b38c871c"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,8,21,29)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}(""), syntactic{}("1")]
+//@ 351
+// rule g(X,Y)=>`_+Int_`(X,Y) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(125833d2db8890e9204fcbeaf8f37197787815763befe87028fabee035958142), org.kframework.attributes.Location(Location(7,8,7,27)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortInt{}, R} (
+            X0:SortInt{},
+            VarX:SortInt{}
+          ),\and{R} (
+          \in{SortInt{}, R} (
+            X1:SortInt{},
+            VarY:SortInt{}
+          ),
+          \top{R} ()
+        ))),
+    \equals{SortInt{},R} (
+      Lblg{}(X0:SortInt{},X1:SortInt{}),
+     \and{SortInt{}} (
+       Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{},VarY:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("125833d2db8890e9204fcbeaf8f37197787815763befe87028fabee035958142"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,8,7,27)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)")]
+//@ 352
+// rule g(X,Y)=>g(Y,X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(8240202ef4c77ef6117a9d8a3f3ea74562ca59423d7f25688cbc8fe5385d49f7), org.kframework.attributes.Location(Location(17,8,17,26)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lblg{}(VarX:SortInt{},VarY:SortInt{}),
+     \and{SortInt{}} (
+       Lblg{}(VarY:SortInt{},VarX:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("8240202ef4c77ef6117a9d8a3f3ea74562ca59423d7f25688cbc8fe5385d49f7"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,8,17,26)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("")]
+//@ 353
+// rule g(Y,X)=>g(Y,X) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d24388632e2b4d6978740bd042798aa0a8c792590f4f3e8b438b962e08f9f56f), org.kframework.attributes.Location(Location(17,8,17,26)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)]), simplification]
+  axiom{R} \implies{R} (
+    \top{R}(),
+    \equals{SortInt{},R} (
+      Lblg{}(VarY:SortInt{},VarX:SortInt{}),
+     \and{SortInt{}} (
+       Lblg{}(VarY:SortInt{},VarX:SortInt{}),
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("d24388632e2b4d6978740bd042798aa0a8c792590f4f3e8b438b962e08f9f56f"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,8,17,26)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)"), simplification{}("")]
+//@ 406
+// rule sl(X)=>X requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(252a97ec7b504cbf1b2537937a76429df1d77d59c8090d8e6c4b9b6c3d6a5afa), org.kframework.attributes.Location(Location(8,8,8,18)), org.kframework.attributes.Source(Source(FIXTURE/e2-simplification.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortInt{}, R} (
+            X0:SortInt{},
+            VarX:SortInt{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortInt{},R} (
+      Lblsl{}(X0:SortInt{}),
+     \and{SortInt{}} (
+       VarX:SortInt{},
+        \top{SortInt{}}())))
+  [UNIQUE'Unds'ID{}("252a97ec7b504cbf1b2537937a76429df1d77d59c8090d8e6c4b9b6c3d6a5afa"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(8,8,8,18)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)")]
+//@ 407
+// rule #Ceil{Map,#SortParam}(`_Map_`(`_|->_`(@K0,@K1),@Rest))=>#And{#SortParam}(#Equals{Bool,#SortParam}(`_in_keys(_)_MAP_Bool_KItem_Map`(@K0,@Rest),#token("false","Bool")),#And{#SortParam}(#Top{#SortParam}(.KList),#Ceil{KItem,#SortParam}(@K1))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233), simplification, sortParams({Q0})]
+  axiom{R,Q0} \implies{R} (
+    \top{R}(),
+    \equals{Q0,R} (
+      \ceil{SortMap{}, Q0}(Lbl'Unds'Map'Unds'{}(Lbl'UndsPipe'-'-GT-Unds'{}(@VarK0:SortKItem{},@VarK1:SortKItem{}),@VarRest:SortMap{})),
+     \and{Q0} (
+       \and{Q0}(\equals{SortBool{}, Q0}(Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(@VarK0:SortKItem{},@VarRest:SortMap{}),\dv{SortBool{}}("false")),\and{Q0}(\top{Q0}(),\ceil{SortKItem{}, Q0}(@VarK1:SortKItem{}))),
+        \top{Q0}())))
+  [UNIQUE'Unds'ID{}("c3ef047673d1123119fa107febfbe8f250dbfbcfa1df4d2f44d28ce4e740e233"), simplification{}("")]
+//@ 408
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,22,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-simplification.k)")]

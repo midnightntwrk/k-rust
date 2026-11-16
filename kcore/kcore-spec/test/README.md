@@ -1,0 +1,754 @@
+# The short test system: what exists
+
+Beside the release run (`test/release.sh`, section "The release run"). The judge, the L1 packages,
+syn30/syn100 and the ties of every example package but peano are retired (section "Retired").
+
+| What | File | Run (from kcore-spec, library and `kcore` built) | Time |
+|---|---|---|---|
+| The headline statements restated in full (`SoundC`, `CompleteC`, `ExactC`, `OutIs`, `OutFn`, `Outcome.pat`, `famEx`, `famOpen`, `Unblocked`, `StepDecided`, `FnHyp`, `OpenDecided`, `OpenLaws`, the conditions' `needsWitness`, `Witnessed`, `condK`, `Refuted`, `CondDecided`, `Γc`, `Γcl`, `Semantics.plain`, `SoundC₀`, `CompleteC₀`, `Consistent`, `StepIs`, `StepFn`, `Semantics.coreOK` and the old texts by `rfl` against their bodies, `StepBy` by its fields; `sound_hyp`, `complete_hyp`, `exact_hyp`, `sound_at`, `complete_at`, `consistent_of`, `has_model_choice`, `famEx_values`, `famOpen_values` and the lemmas that relate the plain texts by their proof terms at the written types) and the axioms of every theorem pinned, exactly `propext`, `Classical.choice`, `Quot.sound` (`#guard_msgs`) | `test/Pins.lean` | `lake env lean test/Pins.lean` | 1 s |
+| The statements a generated package states (`coreOK_defn`, `sound_hyp`, `complete_hyp`, `fnHyp_defn`, `sound_defn`, `complete_defn`) and their axioms, on peano generated with `--core` | `test/PinsPeano.lean`, `test/pins-peano.sh` | `test/pins-peano.sh` | 43 s |
+| The generator's text for a definition that is not `plain` (no `plain_defn`, `obl_nil` or `obligations_nil`; `OpenDecided` and `OpenLaws` owed; `sound_at_of`, `complete_at_of` the general `KCore.sound_at`, `KCore.complete_at`; `sound`, `complete` taking `hob : Obligations defn`), built, on peano generated with `--core --as-not-plain` and prio with `--wf --as-not-plain` | `test/not-plain.sh` | `test/not-plain.sh` | 92 s |
+| Run certificates whose step is by a rule sharing its sentence's `UNIQUE_ID` with another (`requiresOrSplit`: f2-examples/mlreqorsplit at `go(-6)`; `orSplit`: f2-examples/mlvalue at `q(1)`; hand-built, test/certs): `kcore gen` gives the step the second rule's number and the kernel checks the run; where both rules of the id step (f2-examples/mlreqor at `go(5)`) the step is by the first, since each is a reading of the one sentence the id names, and the kernel checks it; a certificate no rule of the id justifies is refused with the step and the rules; the rules of an id are found by the id in the generated package (`kcore rule-ids` on its definition.kore), not by number; peano and prio, the example packages with certificates, regenerate identically | `test/cert-shared-uid.sh`, `test/certs/`, `kcore rule-ids` (KcoreGen.lean) | `test/cert-shared-uid.sh` | 30 s |
+| Everything below as one table, required rows and scoreboard (section "The integration run") | `test/integration.sh` | `test/integration.sh` | under 3 min |
+| Agreement with the reference backends' cached results (section "Agreement with K's results") | `kcore agree CASES.jsonl` (KcoreGen.lean), `test/agree-cases.py`, `test/agree.jsonl` | `test/agree.sh` against `test/agree.expected` | 1 s |
+| No text read clean with `wf` false: `kcore account` over the corpus's extracted texts, the f2-examples and any paths given; a text the reader and the account refuse nothing of whose `wf` is false is listed with its failing conjuncts and `coreOK`'s | `test/wfclean.py` | `python3 -I test/wfclean.py -j 4 [PATH...]` (exit 1 when one is listed) | 1 min |
+| The native round trip: `parse`, `emit`, compared with the text up to sentence order (the tie's `Reordered defn.emit kore`), modulo exactly the sentences classified `readAs` or `unread` | `kcore roundtrip KORE` (KcoreGen.lean) | `.lake/build/bin/kcore roundtrip f2-examples/prio.kore`; all texts against `test/roundtrip.expected`: `test/roundtrip.sh` | 3.5 s for 60 texts |
+
+Now 96 texts: 24 `exact`, 57 `differs`, 15 `cannot` (`test/roundtrip.expected`; syn30's and syn100's
+inputs, two `exact`, left with their packages). The first measurement, over 60 texts (the
+f2-examples and every package's `NAME/definition.kore`):
+26 `exact` (krust's texts the ties are built from: colls-list, fprio, imp, imp-sec, imp-sec-leaky,
+kimp, lazy, ph, prio, vault, vault-leaky, and the package inputs of those plus peano, kink-imp,
+kryp, syn30, syn100); 28 `differs`: kompile's own texts (`*.kompile.kore`, ref-peano, ref-kimp, and
+the ref-* packages' inputs), where `emit` writes krust's form, not kompile's (the library sorts'
+attributes, kompile's projection axioms; about 200 sentences each way), and colls (its cell map:
+the collection sort's own declaration and the cell symbols' `cell` attribute are not emitted as
+written); 6 `cannot`: refused by `parse` (ens-owise ensuresPriority, fprio-refused twice
+owisePriority, parsym-app parametricSymbol, rsn registrySortName) and
+imp-programs.kore, which is not a definition. No text is `modulo`: each text with a `readAs` or
+`unread` sentence also differs elsewhere.
+
+A pin fails on a change of meaning: checked by mutating the restated body (swapping the step's
+configurations, dropping a conjunct of `coreOK`, dropping a hypothesis of `sound_hyp`, dropping an
+axiom from the expected list); each mutation makes the file fail. What the restated bodies mention
+(`Γ`, `Γstep`, `den`, `Step`, `Eval`, `coreOK`'s conjuncts) is pinned by the review cone (v), not here.
+
+## The integration run: `test/integration.sh`
+
+One command, from anywhere, run alone in its workspace (the library and `kcore` are built by it,
+from whatever `.lake/build` holds). It prints one table (check, kind, verdict, seconds, note) and
+keeps the logs in `.lake/integration/`. The exit status is 1 only when a `required` row is not `ok`;
+`scoreboard` rows may be `red`. Native checks run first, then the Lean checks, JOBS at once (the
+available memory of `free -g` at start over 12 GiB, between 1 and 8; `INTEGRATION_JOBS` overrides);
+each Lean and `kcore` process under its own 12 GiB scope, one thread.
+
+| Row | Kind | What | Expected values |
+|---|---|---|---|
+| library | required | `test/lake-serial.sh` (every KcoreSpec module) | builds |
+| kcore | required | `lake build kcore` | builds |
+| pins | required | `test/Pins.lean` | compiles |
+| pins-peano | required | `test/pins-peano.sh` | compiles |
+| axioms | required | `test/Axioms.lean`: every declaration of every `KcoreSpec.*` module (16,224 on 1647896b) depends on no axiom but `propext`, `Classical.choice`, `Quot.sound` (so no `sorry`, no `axiom`, no `native_decide`) | none other |
+| witnesses | required | `test/Witnesses.lean`: the ten `Model*Witness` modules, each with its theorems (all within the three axioms) and its negative ones named | every module has theorems |
+| cone | required | `test/ConeV.lean` writes cone (v) to `.lake/cone-v.txt`; `test/cone.py` compares its declaration names, line count and each declaration's own line count with `../core-cone.txt` (or `$KCORE_CONE`), printing what was added, removed, resized; never rewrites it | the committed cone |
+| regen | scoreboard | `test/regen.sh`: every package regenerated natively from its own `NAME/definition.kore` into `.lake/regen/NAME`, `diff -r -I 'Generated by .kcore gen'` without `User`, `.lake`, lake files | all 17 identical |
+| roundtrip | scoreboard | `test/roundtrip.sh` | `test/roundtrip.expected` |
+| corpus | scoreboard | `test/corpus.py`: the reference cache's kompiled texts, extracted once into `.lake/corpus/defs` (by sha256 prefix, `index.json` names the entries), each through `kcore gen TEXT PKG Cov --core`; `clean` when no refusal is printed, `coreOK` when `kcore gen` succeeds | `test/corpus.expected` (one line a text) |
+| agree | scoreboard | `test/agree.sh`: `kcore agree test/agree.jsonl` (after corpus: the cases' texts are its extraction) | `test/agree.expected` (one line a case) |
+| agree-kore-in-k | scoreboard | `test/agree.sh test/agree-kore-in-k.jsonl test/agree-kore-in-k.expected`: the kore-in-k corpus's cases (section "The kore-in-k corpus"); its kompiled texts in `.lake/kore-in-k`, built once by hand (that section); `skipped` (neither `ok` nor `red`) when `.lake/kore-in-k` is absent, the note `texts not built` | `test/agree-kore-in-k.expected` (one line a case and backend) |
+| member | scoreboard | `test/member.sh` | exits 0 |
+| not-plain | scoreboard | `test/not-plain.sh`: the generator's text for a definition that is not `plain`, on peano (`--core`) and prio (`--wf`) | builds |
+| pred-sorted | scoreboard | `test/PredSorted.lean` over `.lake/regen/peano` built without the tie (`gen/build.sh`) | compiles |
+| test/X | scoreboard | every other `test/*.lean` (not `ReviewCone`, which writes the committed cones, nor `PrintNames`, a command-line tool): the kompiled text per K construct and the library's small cores; a new file is picked up by itself | compiles, no `sorry` |
+
+What a lane that changes the reader or `emit` updates: `test/roundtrip.expected` (the verdict per
+text: `test/roundtrip.sh` prints the new lines), `test/corpus.expected` (`python3 -I test/corpus.py
+-j N --write-expected test/corpus.expected`), `test/agree.expected` (`test/agree.sh` prints the
+changed lines; `.lake/agree.verdicts` is the new file), the committed packages (regenerated by
+`examples/run.sh`, which the regen row compares with), and `../core-cone.txt` when the cone changes
+(the cone row prints the difference; the cone is not rewritten by this script).
+
+Run in this workspace (eeb03fa4 plus this change, 2026-11-14, 61 GiB available so 5 at once, other
+lanes building), with `KCORE_CONE` set to the main checkout's `core-cone.txt`, the one file of that
+name on the machine (this workspace has none at `../core-cone.txt`); exit status 1 (the cone):
+
+| check | kind | verdict | seconds | note |
+|---|---|---|---|---|
+| library | required | ok | 20 | all built (nothing to rebuild) |
+| kcore | required | ok | 0 | |
+| regen | scoreboard | ok | 3 | 19 of 19 identical |
+| roundtrip | scoreboard | ok | 5 | 26 exact, 27 differs, 7 cannot, as expected |
+| corpus | scoreboard | ok | 41 | 381 texts, read clean 314, coreOK 314, as expected (the first run, extracting the texts, 84 s) |
+| pins | required | ok | 0 | |
+| pins-peano | required | ok | 43 | |
+| axioms | required | ok | 3 | 15,411 declarations |
+| witnesses | required | ok | 1 | 8 modules |
+| cone | required | FAIL | 1 | the main checkout's `core-cone.txt` is 3,340 lines, 639 declarations; this tree's cone 3,362 / 641: added `concatS`, `setUnitSplitAx`, `setDecompAx`, removed `setElemInjAx`, four declarations resized (the set change of a071c2d5's parent). Against this tree's `findings/work/review-cone/core-hyp.txt`: same |
+| member | scoreboard | ok | 4 | |
+| pred-sorted | scoreboard | ok | 17 | |
+| test/* (28 files) | scoreboard | ok | 0 to 70 | the longest FloatLib 70, SetCat 30, NameCodes 29, SetItem 24, LibrarySubsort 23 |
+| total | | | 145 | |
+
+With `kcore agree` (the next commit), run again (58 GiB available, 4 at once): the same verdicts, and
+the row `agree | scoreboard | ok | 0 | 26 not-runnable, as expected` after corpus; library 21, corpus
+50, pins-peano 39, pred-sorted 16, the longest test FloatLib 66; total 164 s, exit status 1 (the cone).
+
+So the integration lane must refresh `core-cone.txt` from a071c2d5's cone before this row is green.
+The `kcore` row is required too: without it no native row can run.
+
+## Agreement with K's results: `kcore agree`
+
+`kcore agree CASES.jsonl...` (KcoreGen.lean). A case is one JSON line: `id`, `definition` (the
+path of the KORE text, relative to the case file), `input` (a configuration, KORE), `mode` (`step`;
+`execute`, with `depth` or to the end; `search-final`, `search-all`, with or without `depth`),
+`expected` (KORE: a configuration, `\or` of them, `\or` of `\equals(VarResult, C)`, or `\bottom`)
+and `source` (the cache entries it came from). The text is read by `parse`; the input and each
+disjunct of the expected result are read as values (`Parse.term`, as the reader reads a right-hand
+side, then the chosen executable's `evalT`); the executable step is run in the mode; the two sets of
+configurations are compared (`Exec.same`); in `search-final` the finals are the reached
+configurations at which no rule applies, and those at which a rule applies with no successor are
+printed apart (`undefined`; section "The kore-in-k corpus" says what is proved of that split).
+Verdicts: `agree`, `differ` (both results printed as KORE),
+`not-runnable` with the reason, `no-reference`. The executable step is chosen per text: `CExec`
+(CollExec.lean, collection patterns included) where `CExec.execReady` holds (`CExec.step_iff`), else
+`Exec` where `ok`, `srReady` and `matchReady` hold (`Exec.step_iff_of_ok`); each lists exactly
+`Step`'s successors for some fuel. Elsewhere the verdict is `not-runnable`, and where `okAll`,
+`srReady` and `matchReady` hold the reason says what running it anyway with `CExec` gives. The output
+says which step ran: a first line `{"note"}`, and per case `executable` (`CExec` or `Exec` for an
+`agree` or `differ`, empty otherwise; `by:CExec` in `test/agree.expected`). Not checked by the
+harness: the coherence of the clauses of one priority (`CoherentAll`, a hypothesis of both
+theorems). The fuel: at the fixed fuel (`Exec.fuel`, 100,000) every successor printed is a `Step`
+successor (`CExec.successorsN_sound`); for `CExec` the successors listed at a configuration are
+exactly its `Step` successors where `CExec.outOfFuel` is false (`CExec.step_iff_at`, given
+`CoherentAll`, CollExecFinal.lean), and a run stops with `not-runnable` at any configuration it
+expands where `outOfFuel` holds (`runMode`); so with `CExec` a run's reached configurations are
+exactly those `Step` reaches within the mode's bound, given `CoherentAll`. For `Exec` only soundness
+is proved at the fixed fuel (a successor could be missed). The input must evaluate to a value of the
+top cell's sort (the theorems are about `Config c`).
+
+- `test/agree-cases.py` builds `test/agree.jsonl` from the reference cache only (its docstring says
+  how): kore-exec entries (input: the pattern, a K-rust fixture; needs `KRUST_CHECKOUT` when the
+  entry's path is gone), and krun groups (program, `-c` options, definition) with a `--depth 0` run,
+  whose output is the input of the group's other runs. Definitions are named by their path in the
+  corpus extraction (`.lake/corpus/defs`), and two kompiled texts are taken as one definition when they
+  are equal without comments and `Source`/`Location` attributes. krun's `--definition` is matched to
+  its kompile entry by recomputing `tree_digest` over the archive: all 237 krun runs found theirs.
+- `test/agree.sh` runs it (under a 12 GiB scope, about 1 s) and compares `VERDICT ID [anyway:VERDICT]`
+  with `test/agree.expected`; the integration row `agree` (after `corpus`).
+
+The first case file: 26 cases over 20 definitions, 18 from the 104 kore-exec entries (10 patterns,
+each over several kompiled copies of one test definition) and 8 from the krun groups with a
+`--depth 0` run (three programs: stuck.pgm and false-ensures.pgm on the trivial-result definition,
+sumto10.imp with `-cENV=.Map` on imp). `CExec.execReady` holds on all 20 definitions (`ok` on 11 of
+them), so `CExec` is the step chosen for every case. Verdicts with `CExec` (KcoreGen after the
+executable step for collection patterns was merged): **agree 2, differ 0, not-runnable 24,
+no-reference 0**. Changed from the verdicts with `Exec` below: the 14 cases over definitions outside
+`ok` are now judged, not run anyway; two-entry-map on its two definitions is `agree` (the same two
+configurations as before, now by the step `CExec.step_iff` covers), the 12 others `not-runnable`
+for the reason they had when run anyway (the input has variables). The 12 cases over definitions
+inside `ok` keep their verdict and reason. No case differs, so there is nothing to explain.
+
+The verdicts with `Exec` (under `ok && srReady && matchReady`), before: **agree 0, differ 0,
+not-runnable 26, no-reference 0**:
+- 4 kore-exec cases over definitions inside `ok`: the input has variables (symbolic-owise `X`,
+  symbolic-depth-bound `X` twice, injected-variable `E`); KCore's step is on values.
+- 14 kore-exec cases over definitions outside `ok` (their rules match map, set or list patterns),
+  `okAll` holding: run anyway, 2 agree (two-entry-map on two variants of its definition: from
+  `<m> 1 |-> 2  3 |-> 4 </m>`, execute to depth 2 gives the two configurations K gives, one entry
+  removed in each, by the rule `(_K |-> _V) REST => REST`), and 12 have inputs with variables.
+- 8 krun cases: the input is `LblinitGeneratedTopCell{}(…)`. krun `--depth 0` prints the
+  configuration's initializer applied to the configuration variables' map, not its value, and the
+  reader reads the configuration's initializers as presentation, not as functions (Parse.lean,
+  `treeInits` among the `known` names), so the input has no value in KCore (`unknownSymbol`).
+
+No case differs, so there is no difference to explain yet; nothing was changed in the library.
+
+Wanted (reference runs not cached; none run in this unit):
+1. The initial configuration as a value for the three krun programs, e.g. `kore-exec DEF --module M
+   --pattern P0 --depth 0` with P0 the cached `krun --depth 0` output (the backend evaluates the
+   initializer): makes the 8 krun cases readable; sumto10's definition (imp) then decides by `ok`.
+2. A `krun --depth 0` run, then 1., for the 33 (program, `-c`) groups that have other runs but no
+   depth-0 one: `imp-semantics/examples/{dangling-else,while-and-following}.imp` with `-cENV=.Map`,
+   `go.cmd` with `-cENV=40 -cMODE=5`, and with no `-c` the K-rust fixtures `bytes.ops`,
+   `cli/{exit,io}/program.pgm`, `{done,seed}.state`, `{list,map,set}-ops.collections`,
+   `hooks/{bytes-replacement-range,edges,string-index-boundaries}.hooks`,
+   `{keccak-abc,keccak-empty,sha256-abc}.crypto`, and under `execution/`: `branching-execution/start`,
+   `concrete-symbolic-rules/concrete-input`, `depth-bounded-search/count-five`,
+   `list-cell-positions/{drop-last,get-1,get-2,get-3-front,last,mk-last-get}`,
+   `star-cell-heating/{two,two-late}`, `star-cell-map-nested-set/{neg-two,pos-two,pos2-two,two}`
+   (`.pgm`), and `trivial-result-execution/false-ensures.pgm` on the other variant of its definition
+   (177 runs in all; `python3 -I test/agree-cases.py --wanted` lists each).
+3. kore-exec runs from ground patterns over definitions inside `ok`: the one ground pattern cached
+   (two-entry-map) is over a definition outside it.
+4. mir's `main-a-b-c` krun runs read a KORE input generated in the run's work directory
+   (`@{work}/main-a-b-c.initial.kore`), whose content is not cached.
+
+Not used: the K-rust repository's committed fixtures (`crates/k-rust/tests/fixtures/reference/*/
+reference.toml`) also hold reference results with their inputs; this case file takes the cache only.
+
+What the cache holds (`entries/XX/HASH/{key.json, meta.json, result.json, stdout, stderr,
+files.tar.zst}`; `key.json` has the argv, `inputs` with `tree:` digests of input directories,
+`argument_files` with sha256): 720 `kompile`, 994 `kore-parser`, 87 `kast` (JSON KAST output, not
+KORE), 70 `kprove`, 237 `krun` (stdout the result as KORE), 104 `kore-exec` (all from
+reference-symbolic-execution-differential.sh; the result in the archive).
+
+Traps: the cases' definitions are read from `.lake/corpus/defs`, so `test/corpus.py` must have run
+(the integration orders it); a kompiled text's `//` comments carry the source path, so they are
+removed before comparing texts; the case file is 157 KB because the symbolic kore-exec results are
+large.
+
+## The kore-in-k corpus: `test/agree-kore-in-k.jsonl`
+
+An external case file: the 49 cases of the kore-in-k corpus (`krs/semantics/kore` on the kore-in-k
+branch, its README), each a small K definition chosen by mutation testing of a KORE interpreter to
+tell one wrong reading of K from the right one, with the final configurations of `krun --search`
+recorded for the haskell and the llvm backends (or the backend's error). `test/agree-kore-in-k.py DIR`
+(or `$KORE_IN_K`) builds it: one case per (case, backend), id `<case>/<backend>`; the kompiled texts
+are built into `.lake/kore-in-k/build/<case>/hs/definition.kore` by the corpus's own `tools/case.py`
+(`$K_KOMPILE`; about 3 s a case) on copies of the cases in `.lake/kore-in-k/cases`, never by rerunning
+a reference backend (a case whose `def.k` or `pgm` no longer has its recorded SHA-256 is refused);
+the texts case.py regenerates (`pgm.kore`, `kore.pgm`, `symbols.json`) are compared with the
+corpus's, and were identical for all 44 but c41, whose regenerated `kore.pgm` and `symbols.json`
+(the corpus's own encoding, which the cases do not read) differ from the committed ones; its
+`pgm.kore` is identical. The input is kompile's initial configuration at the corpus's `pgm.kore`:
+for one cell `<generatedTop>(<k>(kseq(inj{S,KItem}(PGM), dotk())), <generatedCounter>(0))`, for
+several cells (c34-c36) the unfolding of the kompiled text's initializer equations by the corpus's
+own encoder (`tools/korek.py`); the recorded finals, in the corpus's canonical text, are read back
+into KORE configurations of that shape, with their conditions (the script's docstring says how).
+
+Building the texts (once per workspace; the integration row is `skipped` until then): from
+kcore-spec, with the corpus directory of a kore-in-k checkout (read only; on this machine
+`/artifacts/worktrees/kore-in-k/krs/semantics/kore`) and K's `kompile`,
+
+    K_KOMPILE=/path/to/k/bin/kompile LEAN_NUM_THREADS=1 systemd-run --user --scope -q \
+      -p MemoryMax=12G -p MemorySwapMax=0 timeout 1800 \
+      python3 -I test/agree-kore-in-k.py CORPUS_DIR > .lake/kik.jsonl
+
+49 kompiles of about 3 s (92 s wall for the first 33, 33 s for the 11 added, about 2 s each for the 5
+added from c45, 2026-11-14). The case file it prints equals the committed
+`test/agree-kore-in-k.jsonl` byte for byte when the corpus is unchanged (`cmp` it; the committed file
+is the one the row reads). Rerun without `K_KOMPILE`, the script reuses the texts whose stamp matches. A
+workspace whose `.lake/kore-in-k` holds only the first 33 texts must rerun it with `K_KOMPILE` (the
+11 texts added, about 33 s): the row is skipped only when the directory is absent, and a missing text
+makes its cases `not-runnable`, so the row red.
+
+The mode is `search-final` without a depth. Two kinds of reached configuration without a `Step`
+successor are kept apart (`runMode`, `Executable.noSucc` in KcoreGen.lean):
+- (N) no rule applies: `∀ r ∈ c.rules, NotApplies c r x` (no match of a left-hand side whose
+  `requires` is `true`). These are the finals, compared with the expected result.
+- (U) some rule applies but x has no successor: every applying match's right-hand side has no
+  value, or a rule of a smaller priority applies with no result and blocks the others. In the
+  rule's reading `lhs ∧ ⌈req = true⌉ ⇒ rhs` the right-hand side denotes nothing there: the
+  definition gives x no continuation, which is not the same as x being done. These are printed per
+  case (the JSON field `undefined`, and a count in the reason), not compared.
+
+A reached configuration without a listed successor where a `requires` or a right-hand side ran out
+of fuel is neither: the case is `not-runnable` with that reason (none here). Elsewhere `execute` is
+unchanged (a path ends where no successor is listed, N or U alike), and `step` and `search-all`
+have no finals.
+
+What is proved about deciding N and U with the executable (`CExec`, on a core `execReady`
+accepts; KcoreSpec/CollExecFinal.lean). The harness decides N from the step's own matches
+(`CExec.ruleMatches` at `Exec.fuel`): every match of every rule has the `requires` value `some false`
+(false or undefined).
+- N: `CExec.noRule_of_ruleMatches`: if, at some fuel n, every listed match of every rule has
+  `some false`, then `∀ r ∈ c.rules, NotApplies c r x`. It holds at every n, so at the harness's fixed
+  fuel, and reads `execReady` only (no coherence). Conversely, given `CoherentAll`:
+  `CExec.noRule_iff` (no rule applies iff some fuel lists only `some false`, `→` from some fuel on,
+  by `CExec.ruleMatches_of_noRule`), and at one fuel `CExec.noRule_iff_at` (where no listed match is
+  out of fuel, the list decides N exactly; no listed match is ever `some true` where no rule applies,
+  `CExec.ruleMatches_ne_true`).
+- U: "a rule applies": a listed match with `some true`, at any fuel, is a well-sorted match whose
+  `requires` evaluates to `true` (`CExec.applies_of_ruleMatches`, `execReady` only), so the rule does
+  not satisfy `NotApplies` given `CoherentAll` (`CExec.not_notApplies_of_ruleMatches`); conversely an
+  applying rule has such a match from some fuel on (`CExec.ruleMatches_of_applies`). "No successor":
+  the harness calls a configuration U only where `outOfFuel` is false (else the case is
+  `not-runnable`) and no successor is listed, and then x has no `Step` successor
+  (`CExec.noStep_at`, from `CExec.step_iff_at`, given `CoherentAll`).
+
+So given `CoherentAll`, which the harness does not check, a `search-final` result with `CExec` is
+exactly KCore's: the reached configurations, their N and U split, at the fixed fuel. What remains
+unproved about the fixed fuel: nothing on the configurations a run reports; a configuration where
+`outOfFuel` holds is not decided (the run stops there, `not-runnable`), and there the list may miss a
+successor and leave N open (only `CExec.successorsN_sound` holds). For `Exec` (chosen where `execReady`
+fails and `ok`, `srReady`, `matchReady` hold; no case of either case file now) none of these is
+stated.
+
+Readings added to `kcore agree` for this file: an input whose evaluation is undefined is no
+configuration and gives the empty result (c12); an expected disjunct `\and(C, φ)` (a backend's result
+under ` if …`) is C where the condition φ holds and nothing where it does not (`condHolds`), its terms
+read as values (a ground term denotes its value, or nothing where its evaluation is undefined):
+`\ceil(Q)` holds where Q has a value (c11), `\equals(A, B)` where A and B denote the same, the same
+value or both nothing, `\not` and `\and` as written (c42). A backend's error is `no-reference` with
+its text as the reason (U is not computed then). A text the account refuses (the checks `kcore gen`
+makes after reading: `uninduced`, `missingBuiltin`, `cellCollUnmatched`, `libraryUnstated`,
+`functionInPattern`) is run anyway and `not-runnable` (`anyway:VERDICT`): the semantics read is not
+the text's there. The reader reads a rule's `ensures` as the rule's `ens` (`Rule.ens`, the right
+side's premise `Step.rule`'s `hens`), so the account does not refuse c43, c44 or the four krun cases
+of `trivial-result` in `test/agree.jsonl` (these stay `not-runnable`: their input is unread).
+`test/agree-kore-in-k.expected` carries, after `#`, the reason of each verdict that changed or is new.
+
+Verdicts with the `ensures` as `Rule.ens`, 49 cases (c45-c49 added from the corpus's main line,
+merge 38cac354e): haskell **agree 46, differ 0, no-reference 1 (c33), not-runnable 2 (c39, c46)**;
+llvm **agree 28, differ 4 (c10, c28, c43, c44), no-reference 15, not-runnable 2 (c39, c46)**; in all
+74 / 4 / 16 / 4. On the first 44: 68 / 4 / 14 / 2: c43/haskell went from differ to agree (at a(0) the
+rule applies, no `requires`, and its `ensures` `0 >Int 0` is false: a(0) is U, not compared, and
+b(1) is the one final); c43/llvm and c44/llvm differ (KCore b(1), the backend b(0) too: it does not
+check the `ensures`); c44/haskell agrees, b(1), now by the field. The 5 new: c45, c49 agree on both
+backends; c47, c48 agree on haskell and are `no-reference` on llvm (division by zero); c46 is
+`not-runnable` on both (the priority-60 rule's `requires` `loop(X)` does not terminate, and the
+harness evaluates every rule's `requires` at the reached configuration, so it runs out of fuel).
+The text below is the 44-case state before the field.
+
+Verdicts, 44 cases (the reader reads 43 texts, refusing c39 with `registrySortName`; `CExec.execReady`
+holds on all 43): haskell **agree 41, differ 1 (c43), no-reference 1 (c33), not-runnable 1 (c39)**;
+llvm **agree 26, differ 4 (c10, c28, c43, c44), no-reference 13, not-runnable 1 (c39)**; in all
+67 / 5 / 14 / 2 (before the reader's guarded `ensures`: 66 / 4 / 14 / 4, c44 refused by the account
+and run anyway: differ). The 33 earlier cases: unchanged (53 / 2 / 11). The new ones, each explained in
+`../findings/KT-1-kore-in-k-agreement.md`: c34, c35, c37, c40, c41 agree on both backends; c36, c38
+and c42 agree on haskell and are `no-reference` on llvm; c39 is refused by the reader; c43 differs
+(the `ensures` read as a `requires` conjunct, `ruleEnsuresAsRequires`); c44's `ensures` guards its right side: at a(0) the rule applies with no
+result and blocks the priority-60 rule (a(0) is a U configuration, not compared), b(1) is the one
+final, which agrees with haskell; llvm records b(0) too (it does not check the `ensures`): differ.
+c43 has no overlapping rule of a larger priority, so its `ensures` is still read as a `requires`
+conjunct, and it differs as before. U is non-empty in five cases, one configuration
+each: c36/haskell (the path that adds a second instance of key 1) besides the four below.
+The earlier 33, as measured before: haskell agree 32, differ 0, no-reference 1 (c33); llvm agree 21,
+differ 2 (c10, c28), no-reference 10. U is non-empty in four cases, one
+configuration each, the input: c08/haskell `a(0)`, c10/haskell and c10/llvm `a(0)`, c11/haskell
+`a(3)`; every other case reaches no U configuration. Before N and U were kept apart (finals = every
+reached configuration without a successor): haskell agree 29, differ 3 (c08, c10, c11, each listing
+its U input as final where the backend records none); llvm unchanged. `test/agree.sh` on this file:
+under 1 s. Each `agree` was checked to be sensitive: changing one integer of an expected final, or
+dropping one of c19's three, makes the case `differ`. The two differences left are decided choices
+of KCore (`#if` strict, c10/llvm; `_Set_` partial on overlap, c28/llvm); each case and what the cases
+do and do not exercise: `../findings/KT-1-kore-in-k-agreement.md`.
+
+`kcore oracle CASES.jsonl...` (or `kcore oracle DEFINITION.kore CONFIG.kore`) prints KCore's own
+verdict without a backend: per case, every reached configuration with its `CExec` successors, the N
+and U sets, `execReady`, whether `CoherentAll` is decided (`coherentVerdict`: `coreOK` and no
+agreement or match-independence fact named, else the open facts), and `vs_expected` where the case
+carries an expected result. `test/oracle-kore-in-k.sh` runs it on c03, c08 and c24 (haskell) against
+`test/oracle-kore-in-k.expected` (not an integration row).
+
+## The construct lists: `test/constructs/`
+
+DONE-0 C1's eight key lists E1 to E8, extracted from K 7.1.337 by `test/constructs/extract.sh`
+(`extract.py`'s docstring gives each list's unit) into `.lake/constructs/`, each with the
+second-method recount C1 names (E2, E5, E6, E7, and E8 against `kompile --help`). E6 reads the
+kompiled text of one module importing every builtin module, written once by
+`test/constructs/kompile-e6.sh` into `.lake/constructs-e6/` (not committed; the script names the
+modules kompile rejects and why). `test/constructs/rows.toml` holds one row per key with its status
+and the place that gives it (`rows-header.toml` says the fields; `seed-rows.py` wrote the first
+version). `test/constructs.sh` (not an integration row) fails unless every list's keys equal its
+rows and E4's syntax-tree keys equal `test/ConstructsE4.lean`'s, and prints the counts. It also
+runs `test/constructs/units.py`: every refused row and every class R-c row names in `unit` a
+ticket of `progress/tickets-*.toml` or a unit of `progress/units.toml` (`KCORE_PROGRESS`, else the directory beside
+kcore-spec, else the main checkout's), or for a row not of class R-c `none (R-a)`, `none (R-b)` or
+`none (scope)`; it prints the refused rows by class and fails on a row without a valid `unit`.
+
+The K-level rows (E1, E2, E3, E7, E8) point at fixtures in `test/constructs/fixtures/`: small K texts
+kompiled by `python3 -I test/constructs/kfix.py run [NAME...]` (K 7.1.337, `--backend haskell`, one
+kompile at a time under the memory wrapper, about 2 s each). Each fixture keeps its text,
+`kompile.txt` (the command, exit code, sha256 of the kompiled text, kompile's messages),
+`kore.txt` (the sentences the text adds to the empty module of fixture `base`, each after its index
+in the main module) and `account.txt` (`kcore account`); the kompiled text itself is regenerated,
+not committed. A row names its fixture and the sentences that carry it, or, where no sentence
+does, the class and the evidence: a pair of fixtures whose texts are equal (`same_as`, erased) or
+kompile's error (rejected). `kfix.py check` (run by `constructs.sh`) fails unless
+every pointer resolves in the committed files. The fixtures are evidence for TRIAGE; they set no
+status. Fixture `kore-k` kompiles `krs/semantics/kore/kore.k` of the k-rust checkout (copied in,
+sha256 in its `kompile.txt`); `extract.sh` then writes `uses-kore.E4` and `uses-kore.E6`, from which
+the E4 and E6 rows' `kore` marks are set. Kompile numbers its generated variables
+(`Var'Unds'GenN`) differently from run to run; `kfix.py` renumbers them before comparing texts.
+
+## OV-6 unit 1 merged, the harness's finals proved, 44 kore-in-k cases (kcore-merge, 2026-11-14)
+
+Merged: d0f7dec9 (kcore-theory: `CExec` reads overloading symbols, `execReady` with `matchReadyO`)
+into the kore-in-k agreement line (2d181b6f), merge commit 0745ac71, no conflict; `KcoreGen.lean`
+built unchanged. `kcore exec-ready`: 343 of the 343 coreOK corpus texts meet `execReady`.
+`test/integration.sh` on the merge (65 GiB available, 5 at once,
+`KCORE_CONE=../findings/work/review-cone/core-hyp.txt`): every row `ok`, 255 s (library 21 after the
+`test/lake-serial.sh` rebuild of the merged modules, 13 min one at a time; axioms 17,588
+declarations; cone unchanged; agree 2 / 24, agree-kore-in-k 53 / 2 / 11).
+
+Then: KcoreSpec/CollExecFinal.lean (section "The kore-in-k corpus": N, U and the fixed fuel for
+`CExec`; outside the cone); `kcore agree` stops a run at a configuration where `CExec.outOfFuel`
+holds, asks the input to be of the top cell's sort, reads conditions (`condHolds`), and runs anyway
+(`not-runnable`) a text the account refuses; the kore-in-k case file at 44 cases.
+
+`test/integration.sh` at the end (63 GiB available, 5 at once, the same `KCORE_CONE`): exit status 0,
+every row `ok`, 233 s:
+
+| check | kind | verdict | seconds | note |
+|---|---|---|---|---|
+| library | required | ok | 24 | all built |
+| kcore | required | ok | 0 | |
+| regen | scoreboard | ok | 1 | 17 of 17 identical |
+| roundtrip | scoreboard | ok | 6 | 24 exact, 43 differs, 8 cannot, as expected |
+| corpus | scoreboard | ok | 51 | as `test/corpus.expected` |
+| agree | scoreboard | ok | 1 | 2 agree, 24 not-runnable (four now `anyway:not-runnable`, the account's `ensuresBlocking`) |
+| agree-kore-in-k | scoreboard | ok | 2 | 66 agree, 4 differ, 14 no-reference, 4 not-runnable |
+| pins | required | ok | 1 | |
+| pins-peano | required | ok | 39 | |
+| axioms | required | ok | 3 | 17,611 declarations |
+| witnesses | required | ok | 1 | 9 modules |
+| cone | required | ok | 0 | the same declarations and line count |
+| member | scoreboard | ok | 4 | |
+| pred-sorted | scoreboard | ok | 14 | |
+| test/* (40 files) | scoreboard | ok | 0 to 105 | the longest FloatLib 105, Overloads 59, SetCat 58, SetItem 56, MapCeilLemma 51, LibrarySubsort 50 |
+| total | | | 233 | |
+
+Not run: `test/release.sh`, `examples/run.sh`, the KEVM/mir packages, any kernel build of a package
+(no package text changed: regen 17 of 17 identical).
+
+## State after the integration batch of 2026-11-14 (kcore-merge)
+
+Merged, in one tree: the set concatenation line (a071c2d5), the integration tests (59e4a369, on it),
+the overloading symbols' line (9c6cfeac, OV-1 to OV-4: `sound_hyp`/`complete_hyp` hold with
+overloading symbols, no gate in `coreOK`) and the FnHyp deciders' line (954a966a: TotalsG,
+CallGroups, the Int counters, the cell-map items). Merge commits 657eefe2 (A, B, C) and 85794838
+(D), each followed by fix commits; all of `test/integration.sh` is `ok` on the result (178 s, 5 at
+once), with `KCORE_CONE=../findings/work/review-cone/core-hyp.txt`.
+
+What the next batch must know:
+- The review cone (v) is 3,544 lines, 667 declarations (3,340 / 639 at 167fd26e): the overloading
+  symbols' 26 declarations, the set line's `concatS`, `setUnitSplitAx`, `setDecompAx` added,
+  `setElemInjAx` removed, 22 changed. It is written to `../findings/work/review-cone/core-hyp.txt`
+  only: the main checkout's `core-cone.txt` (outside this workspace's sparse tree) still holds
+  3,340 / 639, so the cone row fails against it until it is refreshed from `core-hyp.txt`. The
+  other cones (`core.txt`, `f2-*.txt`) were not refreshed.
+- The cone row (`test/cone.py`) now also fails when a declaration's own line count changes; a change
+  that keeps the line count is not seen (the cone files hold line ranges).
+- With an overloading symbol (`ovls ≠ []`) the deciders' agreement, match and totality obligations
+  name every function (`agreeObligationsI`, `matchObligationsL`, and now `totalObligationsRP`):
+  `totalOKP` is sound given `CoherentAll`, which they show only through the matcher, which does not
+  read overloading symbols. `fnHyp_of_fnObligations` reads those facts directly then. Termination
+  (`terminates_of_rankL`, CallGroups and the counters) takes `OvlCase` and is not gated. Every text
+  the reader reads today has `ovls = []`, so no decided list changed.
+- `_Set_` is partial on this tree, so `#precompiledAccountsSetAux` is named for totality in both
+  KEVM texts (`right sides: partial hook _Set_`). Named facts (`kcore fn-facts`, native): kompile's
+  KEVM (`target/benchmarks/work/kevm/reference-definition/definition.kore`, sha256 87f26c47…) 9 + 18,
+  50, 17, 0 = 94; krust's KEVM (`findings/work/p23/kevm-out/kore/definition.kore` of the main
+  checkout, sha256 09f7dbe1…) 7 + 16, 45, 20, 7 = 95; kompile's mir (corpus `54c47612b6f3b8ba`)
+  5 + 6, 28, 11, 0 = 50.
+- Not kernel-built in this batch: syn30 and syn100 (their `Tie/Wf.lean`, `Facts/Terminates.lean`
+  regenerated here), colls (`FnHyp`, regenerated on the deciders' line), and every package whose
+  `Wf.lean`/`Facts` text the overloading line regenerated other than those that line built. Built
+  here with their user modules: colls-list (User.Faithful), imp-sec (User.Faithful), kimp
+  (User.Faithful4) on their `modules.txt`, fprio with the tie (User.Values); none needed a change.
+- Not run: `examples/run.sh`, `final.sh`, the judge, syn30/syn100, the KEVM/mir packages.
+
+
+## The executable step for collection patterns merged, and the last full run (kcore-merge, 2026-11-14)
+
+Merged: the executable step for collection patterns (8f285ab6, `KCore.CExec`, `kcore exec`,
+`kcore exec-ready`, `test/CollExec.lean`) on 786ccd39, merge commit 4437a42b, then fix commits.
+`CExec.step_iff (hr : execReady c = true) (hco : CoherentAll c)` keeps its statement. `execReady`
+is unchanged: its `matchReady` already has `c.ovls.isEmpty` (the overloading symbols' line added it),
+so the proofs read `c.ovls = []` from it (`evalT_sound` and the StepIff section take it,
+`patEval_complete` and `roleVal` refute `PatVal.ovl`, `EvalTerm.exec` refutes `EvalTerm.ovl`); the
+executable step does not read overloading symbols, and `execReady`'s doc says so. `kcore agree` runs
+`CExec` where `execReady` holds (section "Agreement with K's results").
+
+`test/integration.sh` on the merge (5 at once, 62 GiB available, `KCORE_CONE=../findings/work/review-cone/core-hyp.txt`),
+all `ok`, 183 s: library 25 (the CExec modules rebuilt), axioms 17,138 declarations, witnesses 9
+modules, cone the same 667 declarations and 3,544 lines (no cone root reaches `execReady`), regen 19
+of 19 identical, roundtrip, corpus and agree as expected (agree before `kcore agree` changed), test/*
+32 files `ok`, the longest FloatLib 88, SetCat 41, NameCodes 36, SetItem 34.
+
+The last full run with `findings/work/p45/final.sh` as it stands, on this tree (after the `kcore agree`
+commit), one Lean process at a time, 59 to 63 GiB available, load about 50 on 32 CPUs from other
+lanes. Inputs outside this workspace's sparse tree were copied in for the run and removed after:
+`findings/work/m16/syn/k{30,100}/definition.kore` (equal to `examples/syn{30,100}/Syn{30,100}/definition.kore`)
+and, for the tail, `findings/work/p23/probe/out/kryp/definition.kore` (equal to `examples/kryp/Kryp/definition.kore`).
+The run's outputs (which final.sh writes over `findings/work/p45/*.txt`) are kept in
+`.lake/final-run/` of this workspace, and `findings/work/p45` was restored to its committed state.
+
+| step | verdict | time | note |
+|---|---|---|---|
+| lake build, lake build kcore | ok | under 1 min | nothing to rebuild |
+| examples/run.sh, peano to kimp-ni | FAIL at kimp-ni | 42 min | `NI/Examples.lean:44`: `sortCtx_of hok hsr` lacks its `OvlCase` argument (mechanical, fixed: `.inl (matchCtx_of hmr).noOvl`); peano, prio, kink-imp, kimp, imp-sec, imp-sec-leaky, ph built with their user modules |
+| examples, kimp-ni (final-tail.sh, after the fix) | ok | 12 s | 7 modules |
+| examples, kryp to ref-kimp (final-tail.sh) | ok | 29 min | 636 modules: kryp, vault, vault-leaky (User.Leak), colls-list, lazy, fprio, colls (its `FnHyp` regenerated on the deciders' line, built for the first time), ref-peano, ref-fprio, ref-kimp |
+| syn30 with its tie | ok | 4 min | regenerated on the merge, first kernel build |
+| syn100 with its tie | ok | 10 min | the same |
+| L1 packages peano, syn30, syn100 with their tie | ok | 2, 4, 14 min | regenerated by the run: `Tie/Wf.lean` and `Facts/Terminates.lean` changed (the overloading symbols' arguments), committed |
+| GenFrozen syn30, syn100 | ok | 2 s each | `L1/Frozen` unchanged |
+| snapshot | ok | 1 s | 1,220 files, protected 1,628 |
+| judge | FAIL, then PASS | 4 s; 52 s | `L1/Edit/Generic.lean:90`: `sortCtx_of` lacks `OvlCase` (fixed as kimp-ni's); then `L1/Edit/PeanoProofs.lean:77`: `pred_owise`'s `cases` lacks the `ovl` alternative (fixed: refuted as `hook` and `coll` are, `by decide`); rerun `judge/run.sh p45-final --no-cost`: PASS, 19 targets, 150 replayed. The cost step was not run: `k2l-eval` (`findings/work/m14-k2lean`) is outside this workspace |
+| negtests | ok, after the fix | 4 s; 9.5 min | protected, wrong-statement (the type mismatch, not a build failure, after the fix), package, package-import all `JUDGE FAIL` as they should; hashes restored |
+| axioms of the key theorems (peano package) | ok | under 1 s | every printed line within `propext`, `Classical.choice`, `Quot.sound` (`kIte_eq` none; `clausesAgree_sound`, `boundsApart_sound` `propext`, `Quot.sound`) |
+| axioms-ni, axioms-colls | ok | 3 s, 1 s | rerun by final-tail.sh after kimp-ni built: within the three axioms |
+| PredSorted | ok | 2 s | |
+| colls diag | ok | 0 s | colls.kore outside `ok`: the package is the core, its tie and subject reduction |
+| KEVM (kompile's text, `examples/kevm.sh`, `--core`) | ok | 6 min | generated in 28 s, 53 modules, 320.6 s module wall, peak 6.8 GiB; `coreOK_defn`, `sound_hyp`, `complete_hyp`, `fnHyp_defn`, `sound_defn`, `complete_defn` within the three axioms; named facts 94: agreement 17, termination 9 (a call not ranked below it) + 18 (a self call not decreasing), totality 50 |
+| sorry check | ok (false positive) | | the one line printed is CollExec.lean's header comment "no sorry, no axiom beyond"; no `sorry` in code |
+| total | | 1 h 22 min (final.sh) + 30 min (tail) + 11 min (judge, negtests) | |
+
+Not in final.sh, so not run: the mir package (only `kcore fn-facts` natively, earlier: 50 named facts),
+krust's KEVM text, the judge's cost step.
+
+The Tie modules' cost (module wall time, summed from the build logs; `NS.Tie` and `NS.Tie.*`),
+against the package's total module wall time:
+
+| package | Tie modules | Tie wall (s) | package wall (s) | peak (MiB) | slowest Tie module |
+|---|---|---|---|---|---|
+| Peano | 39 | 110.1 | 132.6 | 4,278 | Tie.Faith 14.7 |
+| Prio | 40 | 107.9 | 126.3 | 4,409 | Tie.Faith 13.9 |
+| KinkImp | 148 | 435.0 | 457.3 | 6,863 | Tie.Faith 36.9 |
+| Kimp | 116 | 507.8 | 536.7 | 7,542 | Tie.Faith 55.6 |
+| ImpSec | 121 | 501.7 | 525.6 | 7,939 | Tie.Faith 46.4 |
+| ImpSecLeaky | 121 | 506.3 | 528.8 | 8,040 | Tie.Faith 36.7 |
+| Ph | 39 | 90.7 | 105.4 | 4,563 | Tie.Faith 11.0 |
+| Kryp | 120 | 427.3 | 450.9 | 7,976 | Tie.Env 47.8 |
+| Vault | 47 | 180.4 | 206.7 | 5,468 | Tie.Faith 20.2 |
+| VaultLeaky | 47 | 158.9 | 192.2 | 5,563 | Tie.Scan0 20.6 |
+| CollsList | 45 | 199.7 | 222.3 | 5,547 | Tie.Env 24.9 |
+| Lazy | 44 | 155.3 | 180.8 | 4,758 | Tie.Faith 17.8 |
+| Fprio | 45 | 175.4 | 200.2 | 4,789 | Tie.Faith 17.8 |
+| Syn30 | 70 | 216.6 | 233.4 | 5,158 | Tie.Faith 14.6 |
+| Syn100 | 190 | 563.3 | 593.0 | 5,527 | Tie.Faith 16.7 |
+| L1Peano | 39 | 93.7 | 109.8 | 4,277 | Tie.Faith 11.5 |
+| L1Syn30 | 70 | 221.6 | 241.0 | 5,158 | Tie.Faith 13.6 |
+| L1Syn100 | 190 | 810.0 | 842.0 | 5,528 | Tie.Scan0 27.3 |
+| total | 1,531 | 5,461.7 | 5,885.0 | | |
+
+The packages without the tie (Colls 44.9 s, RefPeano 50.2, RefFprio 49.3, RefKimp 97.7) and the user
+modules (107.7 s) make the rest of the 6,239.7 s of module wall time: the Tie modules are 88% of it.
+KEVM's `term_named` (module `KevmKompile.FnHyp.Term`, which states and proves it): 37.9 s wall,
+5,958 MiB, the slowest of KEVM's 53 modules (then `CoreOK.genWf` 29.6 s, 6,989 MiB).
+
+## State after the String and Bytes merge (kcore-reader, 2026-11-14)
+
+Merged: the String and Bytes line (6365ce2f) into the reader lane with overloading symbols
+(68efdab1), merge commit 985c4f00 and its fix commits. `test/integration.sh` on the merge (5 at once,
+60 GiB available, `KCORE_CONE=../findings/work/review-cone/core-hyp.txt` recomputed): every required
+row `ok`; two scoreboard rows red, both fixed after the run and rechecked alone: `roundtrip` (the new
+`f2-examples/strbytes.kompile.kore`, `differs`, added to `test/roundtrip.expected`) and
+`test/StringBytesLib` (`coreOK_of_T` takes `overloadsOK`; 40 s alone). Times: library 24, corpus 57,
+pins-peano 49, pred-sorted 14, the longest tests FloatLib 105, LibrarySubsort 66, MapCeilLemma 66,
+SetCat 64, InitProjection 61, Overloads 59, SetItem 58, StringBytesLib 58, UserToken 49, NameCodes 40;
+total 261 s.
+
+Measured natively on the merged tree (`kcore` of commit 47bda436's tree):
+- Corpus (`test/corpus.py`): 381 texts, read clean 343, `coreOK` 343, as `test/corpus.expected`.
+- Round trip: 26 exact, 43 differs, 8 cannot (77 texts).
+- `kcore agree test/agree.jsonl`: agree 0, differ 0, not-runnable 26, no-reference 0.
+- Named facts (`kcore fn-facts`; termination with a rank certificate + without, totality, agreement,
+  match): kompile's KEVM (`target/benchmarks/work/kevm/reference-definition/definition.kore` of the
+  main checkout, sha256 87f26c47…) 9 + 18, 50, 17, 0 = 94; krust's KEVM
+  (`findings/work/p23/kevm-out/kore/definition.kore` of the main checkout, sha256 09f7dbe1…) 7 + 16,
+  45, 20, 7 = 95; kompile's mir (corpus `54c47612b6f3b8ba`) 5 + 6, 28, 11, 0 = 50; kompile's wasm
+  (corpus `fcad041be7a7e384`) 2 + 38, 143, 225, 639 = 1,047. The four counts equal those measured
+  before the merge (the state above and RD-3 §11.13).
+- Review cone (v): 3,876 lines, 757 declarations (3,544 / 667 before): the String and Bytes line's
+  90 declarations added, none removed, its seven named definitions changed (`hook`, `hookTable`,
+  `hookSigs`, `dvOK`, `Faithful.distinctSorts`, `Faithful.genWf`, `Faithful.collSortOK`); nothing
+  changed by the merge itself. Written to `../findings/work/review-cone/core-hyp.txt` only; the main
+  checkout's `core-cone.txt` still holds 3,340 / 639.
+- Packages: `test/regen.sh`, 19 of 19 identical; no package text changed, none kernel-built.
+
+Not run: `examples/run.sh`, `final.sh`, the judge, syn30/syn100, the KEVM/mir/wasm packages' kernel
+builds.
+
+## The reader and String and Bytes line merged with the executable step (kcore-merge, 2026-11-14)
+
+Merged: 07434836 (kcore-reader: the reader lane, the overload reader, String and Bytes) into
+068fd8ee (the executable step for collection patterns, `kcore agree` on it), merge commit c832c5ae.
+One textual conflict (this file); no proof needed a change: the `CollExec*` modules, which read
+`matchReady` and the evaluator, and `KcoreGen` build on the library with String and Bytes as they are.
+
+`test/integration.sh` on the merge (64 GiB available, 5 at once,
+`KCORE_CONE=../findings/work/review-cone/core-hyp.txt`), exit status 0, every row `ok`, 222 s:
+library 21 (from a copy of the kcore-reader build: only the seven `CollExec*` modules and
+`KcoreSpec` rebuilt), regen 19 of 19 identical, roundtrip 26 exact / 43 differs / 8 cannot, corpus
+as `test/corpus.expected` (343 read clean / 343 coreOK of 381), agree 2 agree / 24 not-runnable as
+`test/agree.expected`, pins-peano 41, axioms 17,548 declarations, witnesses 9 modules, cone the same
+757 declarations and 3,876 lines (`.lake/cone-v.txt` byte-identical to `core-hyp.txt`; no cone root
+reaches `CExec`), test/* 40 files, the longest FloatLib 99, LibrarySubsort 55, InitProjection 52,
+MapCeilLemma 53, SetCat 51, Overloads 50, SetItem 49. No expected file changed.
+
+Review cone (v) against 068fd8ee's (3,544 lines / 667 declarations): 3,876 / 757, 90 declarations
+added (the STRING and BYTES operations `KCore.string*`, `KCore.bytes*`, `KCore.KStr.*`,
+`KCore.KBytes.*`, `KCore.Srt.string`, `.bytes`, `.endianness`, `.signedness`, `KCore.hookTrie`,
+`KCore.NatMap.ofListBy`, `.evenKeys`, `.oddKeys` and their helpers), none removed, six resized:
+`Faithful.distinctSorts` 5 -> 6, `Faithful.genWf` 12 -> 13, `dvOK` 10 -> 11, `hook` 3 -> 4,
+`hookSigs` 31 -> 50, `hookTable` 3 -> 4 (`Faithful.collSortOK` changed keeping its line count).
+
+`kcore exec-ready` over the 343 texts that meet coreOK (`.lake/corpus/results.txt` `clean coreOK`):
+324 meet `CExec.execReady` (256 meet the old `ok && srReady && matchReady`; none meets that and
+not `execReady`), 19 do not, every one of them a text with overloading symbols (`matchReady` has
+`c.ovls.isEmpty`): overload-constructors 7 (no clause or rule refused: only that conjunct), gas3 6
+and wasm 6 (also a pattern applying an overloading symbol, "a symbol of no known kind in a
+pattern"). 20 of the 343 texts hold a `symbol-overload` axiom; the one of them that meets
+`execReady` (evm-equivalence) has no overloading symbol in the reader's sense. No `mismatch` line
+(`readyWhy` and `readyP` agree on every clause and rule).
+
+## The executable step reads overloading symbols (kcore-theory, 2026-11-14)
+
+`CExec` (CollExec.lean) matches a pattern headed by an overloading symbol at the one argument list
+its normal form determines (`ovlArgs`, complete by `ovlArgs_complete` from `OvlLaws.norm_decomp`)
+and evaluates such a symbol to `norm`; `execReady` holds `matchReadyO` (`overloadsOK` in place of
+`ovls.isEmpty`); `CExec.step_iff` keeps its statement (designs/OV-0-overloads.md, "OV-6").
+`kcore exec-ready` over the 343 coreOK corpus texts: 343 meet `execReady` (324 before), no
+`mismatch`; its first line ends with `matchReadyO 0|1`. `test/agree.sh`: as expected (2 agree, 24
+not-runnable). `test/Overloads.lean` adds the kernel steps through `CExec.successorsN` and the
+native runs from `test/collexec/ovlsub-*.kore`, `ovllist-len.kore`. The old `Exec` and the deciders
+keep `matchReady` with its gate.
+
+## The reader reads `ensures` into `Rule.ens` (kcore-theory, 2026-11-14)
+
+A rewrite axiom `\rewrites(lhs ∧ req, rhs ∧ ens)` is read with its `ensures` as the rule's `ens`
+(`Parse.ruleBody`), its `requires` and right side as written; the earlier readings (the `ensures`
+conjoined to the `requires`, class `read ruleEnsuresAsRequires`, and beside an overlapping rule of a
+larger priority the right side guarded by `Map:lookup`, `ensuresResultIdx`, refusal
+`ensuresBlocking`) are removed. `kcore account` prints the number of rules with an `ensures` in
+place of the guarded rules. `Cert.ruleStuck` also accepts a match whose `ensures` is not `true`
+(`Cert.ensVal_not_false_true` for the fuel change).
+
+A function equation's `ensures` is likewise its clause's `ens` (`Clause.ens`): the equation is
+`f(p̄) = rhs ∧ (ens = true)`, the clause applies where its patterns match and its `requires` is true,
+and where it decides and its `ensures` is not `true` the function has no value there under every
+interpretation (`Eval.ensFails`), its rest not read; `kcore account` prints the number of rules read
+with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
+
+- `test/Ensures.lean`, `test/FallbackFns.lean`: `half(N) => N /Int 2 ensures N >=Int 0`, alone and
+  beside an `[owise]` equation: `half(-4)` has no value and `run(-4)` no successor under every
+  interpretation; a `[total]` function whose `ensures` fails makes `FnHyp` fail under every one;
+  `Γ`'s item for `half`'s equation is the translation of the text's sentence (`half_item_is_text`);
+  a library parameter applied only in an equation's `ensures` is one of the semantics' parameters
+  (`EnsParam`, `ensparam.kompile.kore`); the failing call in a rule's `requires` (`EnsReq`,
+  `ensreq.kompile.kore`): `f(0)` has no value and `a` no successor under every interpretation.
+- `test/Guards.lean`: the reading notes' guards (findings/REVIEW-RN-reading-notes.md §3), each for
+  every interpretation. G3 and G4 are stated on `f2-examples/projapp.kore`, krust's text of a rule
+  applying `project:Int`, which holds `project:Int`'s selector-domain axiom and selector-inverse lemma: the axiom read as a clause
+  with `ensures false` (`projectionDomainAsClause`), `project:Int(K)` has no value at every K that
+  is not an injected Int, and where it has a value v, K is `kseq(inj(v), dotk)`, for every
+  interpretation. K 7.1.337's text of `starinit.k` (`starinit.kompile.kore`) holds neither sentence: there the
+  value at `.K` is the interpretation's, which the text leaves open. G8 (`ruleRightDefined`): for
+  every semantics, a rule's axiom without the premise `⌈rhs ∧ ens⌉`, with the definedness axioms,
+  entails the one `Γ` reads.
+- `test/SilentTotal.lean`: `totalSilentKeys` against the builtin text (native: the keys of
+  `silentTable` the text declares `total`; `precisionFloat`, `exponentBitsFloat` declared `total`,
+  in `partialHooks` and no key); `HookParams.totals` meets `silentTotal` in every semantics,
+  `HookParams.none` in none; at one point per key Γ states ⊥ under `HookParams.none` and a value
+  under `HookParams.totals`.
+
+- `test/EnsBridge.lean` (`test/EnsGuard.lean` folded into it): B-guard, the guard encoding gives the
+  field's steps (`guard_step`, an equivalence, where `Map:lookup`, `|->` and `_andBool_` are no
+  constructors) and the same `NotApplies` (`guard_notApplies`); B-conj, the conjunct encoding:
+  (1) `conj_step` needs `EnsDefined` (each rule's `ensures` has a result at every well-sorted σ),
+  and without it fails (`NeedsDefined.conj_step_needs_defined`: a priority-50 rule `requires false
+  ensures F(0)`, F not terminating at 0, blocks the priority-60 step in the conjunct reading only);
+  (2) `step_of_conj` under `Apart`; (3) `conj_notApplies` with the same `ensures` hypothesis as (1);
+  (4) `notApplies_of_conj`. All within propext, Classical.choice, Quot.sound.
+- `test/EnsuresRule.lean`: the three texts read with no note, one rule with an `ensures` each; the
+  shapes restated on `ens`; the seven step and no-step theorems unchanged.
+- The corpus (381 texts): read clean 353, `coreOK` 353, as `test/corpus.expected`. The 31 texts with a
+  rule `ensures` (each the same text the earlier reader classed `ruleEnsuresAsRequires`; 10 of them
+  read with the guard, 21 with the conjunct) now hold one rule with `ens = some _` each; no other
+  text has one. The `--core` packages of all 353: byte-identical to the earlier reader's
+  (generated with kcore-merge's `kcore` and this one, `diff -r -I 'Generated by'`; they read the text
+  with `definition_of`). `test/regen.sh`: 17 of 17 identical.
+- `kcore agree`: `test/agree.sh` 2 agree, 24 not-runnable (comments updated); the kore-in-k case file
+  rebuilt from the corpus's 49 cases: 74 / 4 / 16 / 4 (see "The kore-in-k corpus").
+- The hand-written User modules the field touched, built with their packages (`gen/build.sh`, as
+  `examples/run.sh --build-only`): peano (with the tie; Statements, Facts, Proofs, Cert, Reach,
+  Faithful, Faithful3, Model, Course), prio (Cert, Course), colls (Course), kimp (Reach, Faithful4,
+  Course): all built, unchanged from the commit that edited them.
+
+## Retired (2026-11-14): what each removed thing checked, and what checks it now
+
+Removed in one commit (so it can be reverted alone), decided by the project's orchestrator after the
+last full run above measured them; everything removed is in the tree of that commit's parent. The
+test system is now `test/integration.sh` per merged batch and `test/release.sh` for a release.
+
+| Removed | What it checked | What checks it now |
+|---|---|---|
+| The L1 judge: `findings/work/l1/judge/` (`run.sh`, `Judge.lean`, `protected.sha256`, `targets.txt`, `meas.py`, `order.py`, `summarize.py`), the proofs it judged `L1/Edit/` (Generic, PeanoProofs, Syn30Proofs, Syn100Proofs) and the frozen statements `L1/Frozen/` (Peano, Syn30, Syn100) | A guard for a proof-writing agent loop: (1) 1,628 protected files unchanged by sha256 (the judge, the snapshot, `L1/Frozen`, the KORE inputs, the L1 packages' sources); (2) no `sorry`, `native_decide`, `axiom`, `extern`, `implemented_by`, `unsafe`, nor an import of compiled proofs in `L1/Edit`; (3) `L1/Frozen` and `L1/Edit` compiled against the snapshot; (4) the kernel's replay of every editable constant (150 at the last run), each of the 19 targets at its frozen statement, axioms within `propext`, `Classical.choice`, `Quot.sound`: peano's `deterministic`, `pred_succ`, `pred_owise`, `doneHoldsZero_preserved`, `counter_preserved`, `step_run_succ`, `step_run_zero`, `stuck_done`, `doneHoldsZero_fails`, and syn30's and syn100's `deterministic`, `counter_preserved`, `step_witness`, `next_last`, `dbl_succ`; (5) their cost in heartbeats (`k2l-eval`, outside this tree) | (1) For the library's own statements, `test/Pins.lean` (the headline statements restated) and the cone row (every reached declaration's name and line count) in `test/integration.sh`; protection of frozen statements and of package sources against an agent's edits: nothing (no agent loop edits proofs against frozen statements now). (2) The `axioms` row (every `KcoreSpec` declaration within the three axioms), and in the release run the `sorry` step over `KcoreSpec`, `KcoreGen.lean`, `examples` and the `axioms-*` steps over the packages' statements. (3), (4) Peano's nine statements are stated in `examples/peano/User/Statements.lean` and proved in `User/Proofs.lean` on the same text (`../milestone-1/kore/definition.kore`), built by the release run (`examples`), but not replayed against a frozen snapshot and not hashed; syn30's and syn100's ten targets: given up. (5) Given up. |
+| Its negative checks, `findings/work/l1/tests/negtests.sh`, `negtests-kcore.sh` | That the judge refuses a protected file changed, a proof of another statement under a target's name, a generated tie module changed, an import of a package module | Given up with the judge. For the pin file the analogue is the mutation evidence at the top of this file (each mutation makes `test/Pins.lean` fail), done once, not re-run. |
+| The L1 packages, `findings/work/l1/pkgs/{peano,syn30,syn100}` (generated with `--tie`, built with their ties) | The judge's data: `L1/Frozen` read its definitions from them; their ties in the kernel | Peano: `examples/peano` is generated from the same text with its tie (release run, `examples` and `axioms-peano`). Syn30, syn100: given up. |
+| The snapshot, `findings/work/l1/snapshot/` (`SOURCE` committed; the copy, 1,220 files at b7dfac5e, ignored) | The source tree the judge compiled against | Nothing; the history holds every tree. |
+| The rest of `findings/work/l1/`: `refreeze/` (`GenFrozen.lean`, `snapshot.sh`, `gen_syn_proofs.py`, `try*.sh`), `growth/`, `results/`, `runs/`, `log.jsonl`, `.gitignore` | The tools that re-froze `L1/Frozen` and the snapshot, the L1 loop's growth measurement, and its run records | Nothing (records: in the parent commit's tree and `findings/L1-loop.md`). |
+| The syn30 and syn100 example packages, `examples/syn30`, `examples/syn100` (the synthetic family of `findings/M1.6-scale-probe.md`, 30 and 100 constructors, rules and clauses; 325 files) | Scale: native regeneration identical (the regen row), and in the final run their kernel build with the tie (4 and 10 min) | Scale: the KEVM and mir `--core` packages in the release run (`kevm`, `mir`). The tie at scale: given up (peano's tie only). Their inputs' round trip (two `exact`): given up. |
+| The ties of the twelve tied packages other than peano: prio, kink-imp, kimp, imp-sec, imp-sec-leaky, ph, kryp, vault, vault-leaky, colls-list, lazy, fprio (`NS/Tie.lean`, `NS/Tie/`, `tie.txt`: 909 files, 933 modules by the table above); each is now generated with `--wf` | Per package, in the kernel, `NS.tied : KCore.Tied kore` (Tie.lean: `Parse.parse kore = .ok d`, `wf d`, `Reordered d.emit kore`) with `kore` the package's KORE text as a Lean term and `d` the package's `defn`; and `wf_defn` from it (`NS.Tie.Wf`), which `NS.Sound` used | `wf defn`: `NS.Wf.Wf` (`--wf`, the same decision by the kernel, no tie), so `NS.Sound` states and proves `sound`, `complete`, `coreOK_defn`, `sound_hyp`, `complete_hyp` as before (its only change is the import). That the package's `defn` is what `parse` reads from its text: natively only, by `kcore gen` writing it (the regen row: the committed package is what `kcore gen` writes) and the round trip (`test/roundtrip.sh`, `emit (parse text)` against the text, native: each of the twelve packages' `NAME/definition.kore` is `exact` in `test/roundtrip.expected`); in the kernel only for peano (release run). The reader is trusted, backed by that evidence (decision of 2026-11-14). |
+| `findings/work/p45/final.sh`, `final-tail.sh` | The full run (table above) | `test/release.sh` (next section) |
+
+Not removed, and why:
+- `KcoreSpec/Tie.lean` (`Tied`, `Tied.of_parts`, the parse and emit lemmas), `kcore gen --tie` (KcoreGen.lean)
+  and `gen/build.sh --tie`: peano's tie uses them, and `KcoreSpec.Tie` is imported by generated
+  `Facts/Ok.lean` and `Wf/Wf.lean` modules. No library code existed only for the judge, the L1
+  packages or syn30/syn100.
+- `findings/work/p23/final.sh`, `final-tail.sh`: an older full run, superseded by p45's before this
+  change; it names removed paths (`examples/syn*`, `findings/work/l1`) and is not runnable; kept as
+  the record of that run with its outputs.
+- `findings/work/m25/` (its own copies of syn30's and syn100's definitions and ties, `M25_syn*`):
+  a measurement record outside the example packages.
+
+## The release run: `test/release.sh`
+
+One command, from anywhere, run alone in its workspace; one table (step, verdict, seconds, note),
+logs in `.lake/release/`; exit status 1 when a step is not `ok`. Steps, in order:
+
+| Step | What |
+|---|---|
+| integration | `test/integration.sh` (`KCORE_CONE` passed through) |
+| examples | `examples/run.sh --build-only`: every example package as committed, built in the kernel with its user's modules: peano with its tie and User.Statements to User.Course; prio, kink-imp, kimp, imp-sec, imp-sec-leaky, ph, kryp, vault, vault-leaky, colls-list, lazy, fprio, colls, ref-peano, ref-fprio with theirs; kimp-ni's seven NI modules; ref-kimp with User.SumSpec (K's claim `sum-spec`) and User.SumN |
+| axioms-peano | `#print axioms` of `Peano.tied`, `sound_hyp`, `complete_hyp`, `sound`, `complete`, `coreOK_defn` |
+| axioms-sumspec | of `RefKimp.SumSpec.sum_spec`, `sum_spec_entailed`, `RefKimp.SumN.sum_N`, `RefKimp.sound_hyp`, `complete_hyp` |
+| axioms-ni | of the ten noninterference results over kimp, imp-sec, imp-sec-leaky, vault, vault-leaky (`NI.leaky_not_ni`, `NI.checkers_differ`, `NI.kimpNI_of_unwinding`, `Kimp.noninterference`, `NI.Keyed.not_noninterference`, `NI.Keyed.var_not_unwinds`, `Vault.noninterference`, `VaultLeaky.noninterference`, `VaultLeaky.not_noninterference`, `VaultLeaky.leak_not_unwinds`) |
+| kevm | kompile's KEVM text (`KEVM_KORE`, default the main checkout's `target/benchmarks/work/kevm/reference-definition/definition.kore`, not committed): `examples/kevm.sh` (`kcore gen --core`, every module built, under `.lake/kevm`) and the axioms of its `coreOK_defn`, `sound_hyp`, `complete_hyp`, `fnHyp_defn`, `sound_defn`, `complete_defn` |
+| mir | the same on kompile's mir text, corpus entry `54c47612b6f3b8ba` (`.lake/corpus/defs`, extracted by the integration run's corpus row) |
+| sorry | no `sorry` in the code (comments and strings removed) of `KcoreSpec`, `KcoreGen.lean`, `examples` |
+
+An axioms step fails when a declaration is not printed or a printed line names an axiom other than
+`propext`, `Classical.choice`, `Quot.sound`.
+
+The first release run, on this line after the trimming (2026-11-14, 64 GiB available, other lanes
+building; `KCORE_CONE=../findings/work/review-cone/core-hyp.txt`), exit status 0, 1,854 s (31 min):
+
+| step | verdict | seconds | note |
+|---|---|---|---|
+| integration | ok | 233 | every row `ok`: regen 17 of 17 identical, roundtrip 24 exact / 43 differs / 8 cannot, corpus 343 / 343, agree 2 agree / 24 not-runnable, axioms 17,548 declarations, cone 3,876 / 757 |
+| examples | ok | 1,195 | 600 modules, 1,176.9 s module wall (table below) |
+| axioms-peano | ok | 1 | 6 declarations within the three axioms |
+| axioms-sumspec | ok | 0 | 5 |
+| axioms-ni | ok | 1 | 10 |
+| kevm | ok | 238 | generated in 22 s, 53 modules, 213.8 s module wall, peak 6.8 GiB (`CoreOK.genWf` 7,004 MiB, `FnHyp.Term` 23.4 s); named facts 94: agreement 17, termination 9 + 18, totality 50 (as before) |
+| mir | ok | 185 | generated in 14 s, 50 modules, 169.1 s module wall, peak 7.2 GiB; named facts 50: agreement 11, termination 5 + 6, totality 28 (as before) |
+| sorry | ok | 1 | none in the code of 743 files |
+| total | | 1,854 | against 2 h 3 min for final.sh, its tail, the judge and its negative checks before |
+
+The first attempt stopped at peano's `User.Model` (heartbeats: its kernel decisions enumerate
+`hookSigs`, which the String and Bytes line enlarged; fixed as `KcoreSpec/ModelHas.lean` was, by
+`maxHeartbeats 1000000`), so the run above is the second, on the fix.
+
+Per package (module count, module wall seconds, peak MiB), user modules included:
+
+| package | modules | wall (s) | peak (MiB) |
+|---|---|---|---|
+| peano (with its tie: 39 Tie modules, 105.1 s) | 77 | 165.8 | 7,337 |
+| prio | 36 | 46.6 | 7,344 |
+| kink-imp | 33 | 89.2 | 9,980 |
+| kimp | 37 | 101.4 | 10,285 |
+| imp-sec | 33 | 96.4 | 10,562 |
+| imp-sec-leaky | 32 | 85.9 | 10,562 |
+| ph | 33 | 45.1 | 7,347 |
+| kimp-ni | 7 | 11.5 | 2,192 |
+| kryp | 32 | 79.6 | 9,959 |
+| vault | 33 | 45.4 | 7,366 |
+| vault-leaky | 34 | 47.9 | 7,368 |
+| colls-list | 24 | 39.3 | 7,362 |
+| lazy | 33 | 46.3 | 7,359 |
+| fprio | 33 | 47.3 | 7,347 |
+| colls | 23 | 45.4 | 7,600 |
+| ref-peano | 32 | 43.9 | 7,332 |
+| ref-fprio | 33 | 45.3 | 7,337 |
+| ref-kimp (User.SumSpec, User.SumN) | 35 | 94.6 | 10,273 |
+| total | 600 | 1,176.9 | |
+
+Memory: the peaks of 10 GiB and more are each package's `NS.Wf.Faith` (ImpSec and ImpSecLeaky
+10,562 MiB, Kimp 10,285, RefKimp 10,273, KinkImp 9,980, Kryp 9,959), under the 12 GiB scope with
+1.4 GiB to spare; the tied packages' `Tie.Faith` peaked lower (under 8,100 MiB per package in the
+table above, on the tree before String and Bytes). Not investigated here.

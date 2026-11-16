@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ml-in-or-int.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202671
+definition.kore sha256: 4d67ecffda137761d5a787d28cd1637e441fbcd04e2359e36acb4f9d98f64736
+stripped sha256: 1e8eea1bda49dd8eaee44a5e65794e4d982ff4492fcdee1fd95fd4a5bc2532e8
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ML-IN-OR-INT-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-ML-IN-OR-INT as default.

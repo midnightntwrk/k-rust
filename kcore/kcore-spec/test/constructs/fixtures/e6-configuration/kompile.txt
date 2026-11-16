@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-configuration.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.6
+definition.kore bytes: 731517
+definition.kore sha256: bd1074ade57753bd97ed4324826ca977b122523188674be4a927cf3bce772137
+stripped sha256: 5c07d1ea9205cd6e15bb4486b599982c013642b53a189c71d078bfefed2cc1df
+main module: 3243 sentences, 2720 not in base's (469685 bytes, over 200000): kore.txt holds the 4 with a Source in the fixture
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-CONFIGURATION-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-CONFIGURATION as default.

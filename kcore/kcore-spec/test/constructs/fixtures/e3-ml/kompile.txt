@@ -1,0 +1,29 @@
+command: kompile --backend haskell e3-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 211336
+definition.kore sha256: b840e15b303cc8a464024f2db5781dab32e4cc71ea45dcc1c8ed9b881c3f2ab9
+stripped sha256: 60ec812368ccbd635b84a78fb7f2b9ea0ae30cb38bb8df75f0936da2074cbcd6
+main module: 402 sentences, 45 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml.k)
+  	Location(6,16,6,17)
+  	6 |	  rule #Ceil(f(X)) => #Top [simplification]
+  	  .	               ^
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml.k)
+  	Location(7,16,7,17)
+  	7 |	  rule #Ceil(g(X)) => #Not(#Bottom) [simplification]
+  	  .	               ^
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml.k)
+  	Location(13,16,13,17)
+  	13 |	  rule #Ceil(h(X)) => #Floor(#Forall Y. {f(Y) #Equals g(Y)})
+  [simplification(60)]
+  	   .	               ^
+  [Warning] Compiler: Could not find main syntax module with name E3-ML-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using E3-ML as default.

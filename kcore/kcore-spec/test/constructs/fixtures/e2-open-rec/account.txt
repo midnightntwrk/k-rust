@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-OPEN-REC: 246 sentences
+  1 inert import [generated]
+  160 read [generated]
+  52 read [builtin]
+  1 refused openGenerator [user]
+      e.g. symbol Lbland{}(SortB{}, SortB{}) : SortB{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,34,2,61)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-rec.k)"), symbol'Kywd'{}("and")]
+  4 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unknownSymbol
+      sentence 210 (Lbl'-LT-'generatedTop'-GT-'): unknownSymbol (Lbland)
+        [user] (no label) at e2-open-rec.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lblc{}(Lbland{}(VarX:SortB{}, VarY:SortB{})), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(Lbld{}(VarX:SortB{}), dotk{}())), Var'Unds'DotVar0: …
+finish: sentence 210 (Lbl'-LT-'generatedTop'-GT-'): unknownSymbol (Lbland)
+(exit 0)

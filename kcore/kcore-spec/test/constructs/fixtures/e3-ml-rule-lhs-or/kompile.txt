@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-or.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 86786
+definition.kore sha256: 4ef14819ec17df4d832d0a4c8745c8dfd9e0778be1d193b4b492f089f332b0e6
+stripped sha256: 3d321c0d56c9bcf453b8e1d9defe141cab56646eb29541ec9f9a83a08f60f7ad
+main module: 254 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-OR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-RULE-LHS-OR as default.

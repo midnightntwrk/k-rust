@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-eq-rhs-and-term.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 204945
+definition.kore sha256: dd3459f219619f4d2cbe944d5099e5b361f8fa2ca459b6773d9e40edebd4d5ef
+stripped sha256: 25a53fd569db863148be7b3dc8d12d5de350a535c9768fbca59b6d31cf0de470
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-AND-TERM-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-EQ-RHS-AND-TERM as default.

@@ -1,0 +1,3 @@
+# e2-anywhere-eq's text under --allow-anywhere-haskell: kompile accepts it, warns that it removed the anywhere rule, and writes f with no equation (same_as e8-allow-anywhere-eq-norule)
+main = "e2-anywhere-eq.k"
+extra = ["--allow-anywhere-haskell"]

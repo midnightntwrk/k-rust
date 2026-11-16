@@ -1,0 +1,24 @@
+name = "kcoreSpec"
+version = "0.1.0"
+defaultTargets = ["KcoreSpec", "gammad"]
+
+[[require]]
+name = "MatchingLogic"
+path = "../aml-port"
+
+[[require]]
+name = "koreParser"
+path = "../kore-lean"
+
+[[lean_lib]]
+name = "KcoreSpec"
+# one thread per lean process, so the 12 GiB address-space cap (test/lake-serial.sh) leaves room
+moreLeanArgs = ["-j1"]
+
+[[lean_exe]]
+name = "gammad"
+root = "GammaD"
+
+[[lean_exe]]
+name = "kcore"
+root = "KcoreGen"

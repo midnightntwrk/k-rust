@@ -1,0 +1,2 @@
+# pair requires x [owise]: an equation with requires beside an [owise] one; differs_from c3-eq-only-req-plain: the text without the pair's second modifier
+differs_from = "c3-eq-only-req-plain"

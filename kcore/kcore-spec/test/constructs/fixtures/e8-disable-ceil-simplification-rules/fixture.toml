@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+extra = ["--disable-ceil-simplification-rules"]
+differs_from = "e8-ref"

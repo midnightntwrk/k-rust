@@ -1,0 +1,3 @@
+# pair ensures x [owise]: f2-examples/ens-owise.k reused, copied unchanged (half(N) => N /Int 2 ensures N >=Int 0 beside half(_) => 0 [owise]); differs_from c3-eq-ens-owise-base
+main = "ens-owise.k"
+differs_from = "c3-eq-ens-owise-base"

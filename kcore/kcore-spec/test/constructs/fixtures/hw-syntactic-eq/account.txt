@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-syntactic-eq/hw-syntactic-eq.kore: 5 modules; prelude agrees
+user module ENS: 405 sentences
+  1 inert import [generated]
+  186 read [generated]
+  183 read [builtin]
+  6 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 equationAttribute
+      sentence 364 (Lblhalf): equationAttribute (syntactic on a function equation: no text gives the key a meaning, so that reading the equation with the key dropped states no more than the text cannot be shown)
+        [user] (no label) at ens.k:16: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarN:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblhalf{}(X0:SortInt{}), \and{SortInt{}}(Lbl'UndsSlsh'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("2")), \equals{SortBool{}, SortInt{}}(Lbl'Unds-GT-Eqls'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true"))))) [syntactic{}("1"), UNIQUE'Unds'ID{}("2 …
+finish: sentence 364 (Lblhalf): equationAttribute (syntactic on a function equation: no text gives the key a meaning, so that reading the equation with the key dropped states no more than the text cannot be shown)
+(exit 0)

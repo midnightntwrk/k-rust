@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+extra = ["--main-module", "REF-SYNTAX"]
+differs_from = "e8-ref"

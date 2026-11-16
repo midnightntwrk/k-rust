@@ -1,0 +1,23 @@
+command: kompile --backend haskell e2-frontend-effect.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 243888
+definition.kore sha256: f5e88557d932a639fe951a41f2b94bee63a51ba8aa029454cd188e078289ed74
+stripped sha256: 8128d90f04c3d92fa11557bd14d1395ef21a57b3313916d7b86ebe0d59dd430e
+main module: 495 sentences, 163 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-frontend-effect.k)
+  	Location(18,22,18,24)
+  	18 |	  rule <k> free() => ?X:Int ... </k>
+  	   .	                     ^~
+  [Warning] Compiler: Variable 'I' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-frontend-effect.k)
+  	Location(19,23,19,24)
+  	19 |	  rule <k> sum(E:Exp, I:Int) => sum(E, E) ... </k>
+  	   .	                      ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-FRONTEND-EFFECT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-FRONTEND-EFFECT as default.

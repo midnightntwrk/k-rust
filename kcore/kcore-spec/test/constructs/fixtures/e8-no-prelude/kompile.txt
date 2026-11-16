@@ -1,0 +1,9 @@
+command: kompile --backend haskell --no-prelude ref.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 0.4
+output:
+  [Error] Compiler: Could not find module: INT
+  	Source(FIXTURE/ref.k)
+  	Location(7,3,7,14)
+  	7 |	  imports INT
+  	  .	  ^~~~~~~~~~~

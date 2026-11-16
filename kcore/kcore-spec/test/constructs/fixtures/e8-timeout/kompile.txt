@@ -1,0 +1,10 @@
+command: kompile --backend haskell --timeout 10m ref.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 233133
+definition.kore sha256: afa74828d32c58ea4b944f072bead0c1a8a898b7a9c498beb0a51305ab0cf32b
+stripped sha256: 146c0c83cb2579e44b21de9a657073470687135cc8a062535b1b122f8f91bf70
+main module: 477 sentences, 0 not in e8-ref's, in kore.txt
+same_as e8-ref: equal after stripping
+output:
+  

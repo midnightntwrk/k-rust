@@ -1,0 +1,12 @@
+command: kompile --backend haskell --main-module REF-SYNTAX ref.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 83925
+definition.kore sha256: 1839b9d3f274b23576d0f06fc7844022c254e76c550ec7be1debcf84cfa48622
+stripped sha256: f03b1ca932c8f229491c02493d648c3e282fe0739593696268151aa107f195c0
+main module: 245 sentences, 15 not in e8-ref's, in kore.txt
+differs_from e8-ref: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  REF-SYNTAX-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  REF-SYNTAX as default.

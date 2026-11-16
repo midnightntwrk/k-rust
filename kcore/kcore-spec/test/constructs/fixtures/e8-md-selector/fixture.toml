@@ -1,0 +1,3 @@
+main = "md.md"
+extra = ["--md-selector", "k & !extra"]
+differs_from = "e8-md"

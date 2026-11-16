@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-collection.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 146767
+definition.kore sha256: ff152741a44251a4061c88321793dc0e041b7de72f505a80c767c2715f163dc7
+stripped sha256: bf38cd4d8a02050ef73f7b2c28acae8ac42835b1e979c595a1f21bf6e79ff559
+main module: 333 sentences, 51 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-COLLECTION-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-COLLECTION as default.

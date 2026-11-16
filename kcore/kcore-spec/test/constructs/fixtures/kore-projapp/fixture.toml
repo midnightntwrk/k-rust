@@ -1,0 +1,4 @@
+# krust's text of f2-examples/projapp.k (a rule applying project:Int): it holds the selector-domain
+# axiom of each projection, which kompile 7.1.337 writes for none (test/Guards.lean G3), read as a
+# clause of the projection (ReadingNote.projectionDomainAsClause).
+kore = "f2-examples/projapp.kore"

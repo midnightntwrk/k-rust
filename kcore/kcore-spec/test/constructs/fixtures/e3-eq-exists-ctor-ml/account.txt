@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-CTOR-ML: 311 sentences
+  1 inert import [generated]
+  169 read [generated]
+  110 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 309 (Lblpick): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-ctor-ml.k:6: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortCol{}, R}(X0:SortCol{}, VarX:SortCol{}), \top{R}())), \equals{SortCol{}, R}(Lblpick{}(X0:SortCol{}), \and{SortCol{}}(\exists{SortCol{}}(VarC:SortCol{}, \and{SortCol{}}(VarC:SortCol{}, \equals{SortBool{}, SortCol{}}(Lbl'UndsEqlsSlshEqls'K'Unds'{}(kseq{}(inj{SortCol{}, SortKItem{}}(VarC:SortCol{}), dotk{}()), kseq{}(inj{SortCol{}, SortKItem{}}( …
+finish: sentence 309 (Lblpick): manyValuedRightSide (\exists)
+(exit 0)

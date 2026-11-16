@@ -1,0 +1,10 @@
+command: kompile --backend haskell --hook-namespaces FOO ref.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 233159
+definition.kore sha256: 86dac75d18d50b407069812e3790765e1689bc18d85b913e08e2b04837973ebc
+stripped sha256: ab81c506998b91665b5ee5bb13f56a543f7ac5f30b44ca61802268be7e9c48f1
+main module: 477 sentences, 1 not in e8-ref's, in kore.txt
+differs_from e8-ref: different after stripping
+output:
+  

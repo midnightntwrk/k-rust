@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+args = ["--backend", "llvm", "--no-llvm-kompile", "ref.k", "-o", "out"]
+differs_from = "e8-ref"

@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-hook-eq-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 202807
+definition.kore sha256: 269ce708f96cf426e71cfca2beef325062219100fc75283775248f934658bf72
+stripped sha256: bee3918dc432f0116b3831cb2585ea2b7176ed9b790b1a7e66966c65cd4149db
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-hook-only: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-EQ-REQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-HOOK-EQ-REQ as default.

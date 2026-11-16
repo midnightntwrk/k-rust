@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-comm-eq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 202499
+definition.kore sha256: 1c50347854b40c1311177a968bd733a06e7784c8ffcd42ee2b935595027b08c5
+stripped sha256: ed22210714063c0d6995182fe531faccd694c2258fd70b3d6d64b2e880233762
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-COMM-EQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-COMM-EQ as default.

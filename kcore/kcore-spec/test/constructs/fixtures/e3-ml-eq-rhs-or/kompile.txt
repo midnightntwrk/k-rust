@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-eq-rhs-or.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 204871
+definition.kore sha256: 587c36e801e0744f6e7d878d376e3a83ef509934771b42049b52e62d738af7ca
+stripped sha256: 66a64a704281accf4da95e0a39dc895a6b6e5c96b9fb23f2aff75cea3003fa8c
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-OR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-EQ-RHS-OR as default.

@@ -1,0 +1,12 @@
+command: kompile --backend haskell e1-priority.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 208741
+definition.kore sha256: 97fa8653242aa65ccd8be3debb886f2b591a62aee87a8a2ab78fcf245d22f14e
+stripped sha256: bbf479352a166316797d5c31d7d97c6daea58449f954c1aa669856076206a5cc
+main module: 417 sentences, 61 not in base's, in kore.txt
+same_as e1-priority: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-PRIORITY-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E1-PRIORITY as default.

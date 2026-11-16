@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-setvar.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 203128
+definition.kore sha256: c4b7771173cfb1a03047514526e0c1025e7de2c4acfb15bc01a34c127af1ef01
+stripped sha256: 67bfd0603e482f48effc7858dc335ea0056ae428e8d78cb4894263c1ff63bde3
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-SETVAR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-SETVAR as default.

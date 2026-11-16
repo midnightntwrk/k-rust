@@ -1,0 +1,15 @@
+//@ 223
+  symbol Lblgo{}() : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,35)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-configuration.k)"), symbol'Kywd'{}("go")]
+//@ 305
+  symbol Lblwrap{}(SortK{}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,38,4,60)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-configuration.k)"), symbol'Kywd'{}("wrap")]
+//@ 3087
+// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(go(.KList))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(wrap(`#configuration_K-REFLECTION_K`(.KList)))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(71d6086353a67c16bd2ca786659a5f340b40f8135c18c5fe1ec9791b9e4d7da2), org.kframework.attributes.Location(Location(5,8,5,47)), org.kframework.attributes.Source(Source(FIXTURE/e6-configuration.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblwrap{}(Lbl'Hash'configuration'Unds'K-REFLECTION'Unds'K{}())),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("71d6086353a67c16bd2ca786659a5f340b40f8135c18c5fe1ec9791b9e4d7da2"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,47)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-configuration.k)")]
+//@ 3242
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e6-configuration.k)")]

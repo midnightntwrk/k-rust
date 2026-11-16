@@ -1,0 +1,11 @@
+command: kompile --backend haskell e1-sentences.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 237004
+definition.kore sha256: f9047526a3340473aa1ef20d1bcbea15891f3c587487cfd3902ebfccf8fd49c3
+stripped sha256: 60e9af7df23f0c63b549ae5ffe8042f8f8a290b7f50097169d78e16046585fc5
+main module: 463 sentences, 131 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-SENTENCES-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E1-SENTENCES as default.

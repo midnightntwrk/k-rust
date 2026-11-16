@@ -1,0 +1,672 @@
+/-
+  The library's sentences about interpreted hooked symbols, evaluated at values against Γ's
+  graphs (`hook`, `silent`). Native evaluation only (`#eval`), no kernel proof.
+  Run from the package root: `lake env lean test/LibProbe.lean`.
+
+  For a kompile text, each axiom of the user module is put in one of four classes (TIE-0's rows):
+  - 9: `functional` of a hooked symbol (the sort-parametric `ite{S}`'s among them);
+  - 15: a collection law (`assoc`, `unit`; inert `collectionLaw`);
+  - 17: a library equation (builtin source, read, not `simplification`, not `functional`);
+  - 18: a library `simplification` (builtin source), and an inert `simplification`.
+  A sentence of these classes that applies a symbol Γ does not have (`kernelSyms`) is counted and
+  not probed. Each other one is evaluated at every point of a grid of values of its variables'
+  sorts, an element variable at each value, a set variable at ∅ and at each value's singleton.
+
+  The evaluation is Γ's: a value of a constructor applied to values is that term; of an
+  interpreted symbol, `hook`'s value; where `hook` gives none and the point is not silent, no
+  value (ΓDomains states ⊥); at a silent point (`silent`) ΓFallback states the interpretation's
+  value `fallback`, which is no value under `HookParams.none` (its `app` gives none). So the probe
+  reads a silent point three ways: as `HookParams.none` (no value), and as the two interpretations
+  giving, at every silent point, the first (`pick 0`) or the second (`pick 1`) grid value of the
+  symbol's result sort; each is an interpretation (`HookParams.app` is any function, `fallback`
+  keeps a value of the result sort). A parameter symbol is read by `paramVal` and a function by
+  `Exec.evalF`, both under `HookParams.none`; a point reaching one is marked.
+
+  A sentence holds at a point where its pattern denotes every element (`\top`): `\implies` with
+  a premise that does not hold holds; `\equals` holds where both sides denote the same (no value
+  and no value, one value and the same value); `\exists Val. Val = t` (the `functional` sentence)
+  holds where `t` has one value. A point where the sentence fails and no silent point, parameter
+  or function rest was reached is a counterexample for every interpretation: Γ with the sentence
+  has no model. A sentence's sort variables (`R`, `Q0`) are not instantiated: its predicates denote
+  every element or none in any sort.
+
+  Grids: Int -3 … 3 and 2^64 + 1; Bool both; KItem the injections of 0, 1, 2, true and of a user
+  constructor of one Int argument applied to 0; K `.K` and four sequences; Map, Set, List six
+  values each over the KItems 0, 1, 2 (empty, one entry, two, overlapping and disjoint);
+  String "", "a", "ab", "é∀"; Float binary32's 1.0, largest finite, ∞, NaN and `p1x2`'s 1.0, ∞,
+  NaN; Bytes three values; Endianness `LE`, `BE` and Signedness `Signed`, `Unsigned`.
+
+  `check` runs the probe on `ens.kompile.kore` and on kompile's text of kimp (`ref-kimp.kore`) and
+  compares the per-class counts with `expected`; set idempotence (row 16) is probed as the control.
+  `checkFlt` runs it on `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET) with two more readings,
+  interpretations meeting `Semantics.silentTotal` that give no value at the other silent points,
+  and compares with `expectedFlt`. Both add two readings: `HookParams.lib` (its value, through
+  `Semantics.fallback`), and `hash`, which gives a silent point one of the first two grid values of
+  the result sort by a hash of the symbol and the arguments (so that two silent points of a sort
+  have different values). Both check that the conditions on the interpretation are closed
+  (`Reads`, `readsOK`): a sentence that reads the interpretation at a probed point is a `functional`
+  sentence of a symbol of `totalSilentKeys` or at a line of `libSentences`, reads it only where its
+  left side is at a silent point, and every sentence at a line of `libSentences` that the text holds
+  and the probe evaluates reads it; and that under `HookParams.lib` only the control fails.
+-/
+import KcoreSpec
+
+set_option autoImplicit false
+set_option maxRecDepth 100000
+
+namespace KCore.LibProbe
+
+open KCore KCore.Parse KCore.Faithful KoreAML
+
+/-- What a pattern denotes at a point: nothing, one value, or every element (`\top`, a predicate
+that holds). -/
+inductive D where
+  | bot
+  | val (v : GroundTerm)
+  | top
+  deriving Inhabited
+
+def D.same : D → D → Bool
+  | .bot, .bot | .top, .top => true
+  | .val a, .val b => GroundTerm.cmp a b == .eq
+  | _, _ => false
+
+def D.meet : D → D → D
+  | .top, d | d, .top => d
+  | .bot, _ | _, .bot => .bot
+  | .val a, .val b => if GroundTerm.cmp a b == .eq then .val a else .bot
+
+/-- How a silent point is read: `HookParams.none`, or the interpretation giving the i-th grid value
+of the result sort. -/
+inductive Mode where
+  | none
+  | pick (i : Nat)
+  /-- the i-th grid value at the silent points of the symbols `ks`, no value at the others -/
+  | only (ks : List Sym) (i : Nat)
+  /-- `HookParams.lib`'s value (`Semantics.fallback` under it) -/
+  | lib
+  /-- one of the first two grid values of the result sort, chosen by a hash of the symbol and the
+  arguments: an interpretation that gives two silent points of a sort different values -/
+  | hash
+  deriving Inhabited, BEq
+
+def Mode.name : Mode → String
+  | .none => "H=none"
+  | .pick i => s!"H=pick{i}"
+  | .only _ i => s!"H=only{i}"
+  | .lib => "H=lib"
+  | .hash => "H=hash"
+
+/-- What a point's evaluation reached that depends on the interpretation. -/
+structure Fl where
+  silent : List String := []
+  param : List String := []
+  deriving Inhabited
+
+abbrev M := StateT Fl (Except String)
+
+instance : Inhabited (M D) := ⟨throw "unreachable"⟩
+
+/-! ## Values -/
+
+def iK (i : Int) : GroundTerm := .inj Srt.int Srt.kitem (int i)
+def bK (b : Bool) : GroundTerm := .inj Srt.bool Srt.kitem (bool b)
+def kOf (ks : List GroundTerm) : GroundTerm := ks.foldr (fun a b => .ctor kseq [a, b]) (.ctor dotk [])
+
+def ints : List Int := [-3, -2, -1, 0, 1, 2, 3, 18446744073709551617]
+
+/-- A user constructor of one Int argument whose sort is below KItem, applied to 0, as a KItem. -/
+def userItem (c : Semantics) : List GroundTerm :=
+  match c.ctors.find? (fun k => k.args == [Srt.int] && c.sortOf (.inj k.result Srt.kitem (.ctor k.name [int 0])) == some Srt.kitem) with
+  | some k => [.inj k.result Srt.kitem (.ctor k.name [int 0])]
+  | none => []
+
+def mapV (es : List (Int × Int)) : GroundTerm :=
+  .map Srt.map (es.foldl (fun m (k, v) => insertE (iK k) (iK v) m) [])
+def setV (es : List Int) : GroundTerm := .set Srt.set (es.foldr (fun k s => insertS (iK k) s) [])
+def listV (es : List Int) : GroundTerm := .list Srt.list (es.map iK)
+
+/-- Float values (precision, exponent width, encoding): binary32's 1.0, the largest finite value,
++∞ and NaN; `p1x2`'s (a format with a field of 1, `KFloat.thinOK`) 1.0, ∞ and NaN. -/
+def floats : List (Nat × Nat × Nat) :=
+  [(24, 8, 0x3F800000), (24, 8, 0x7F7FFFFF), (24, 8, 0x7F800000), (24, 8, 0x7FC00000),
+   (1, 2, 1), (1, 2, 3), (1, 2, 8)]
+
+/-- The grid of values of a sort (each checked to be of it); none for a sort without one. -/
+def gridOf (c : Semantics) (s : Srt) (small : Bool := false) : Option (List GroundTerm) :=
+  let raw : Option (List GroundTerm) :=
+    if s == Srt.int then some ((if small then ints.filter (·.natAbs ≤ 3) else ints).map int)
+    else if s == Srt.bool then some [bool true, bool false]
+    else if s == Srt.kitem then some ([iK 0, iK 1, iK 2, bK true] ++ userItem c)
+    else if s == Srt.k then some [kOf [], kOf [iK 0], kOf [iK 1], kOf [iK 0, iK 1], kOf [bK true]]
+    else if s == Srt.map then some [mapV [], mapV [(0, 1)], mapV [(1, 2)], mapV [(0, 1), (1, 2)], mapV [(0, 2)], mapV [(2, 0)]]
+    else if s == Srt.set then some [setV [], setV [0], setV [1], setV [0, 1], setV [1, 2], setV [2]]
+    else if s == Srt.list then some [listV [], listV [0], listV [1], listV [0, 1], listV [1, 0], listV [0, 0]]
+    else if s == Srt.string then some (["", "a", "ab", "é∀"].map fun t => .dv Srt.string (.tok t))
+    else if s == Srt.float then some (floats.map fun (p, e, b) => .dv Srt.float (.float p e b))
+    else if s == Srt.bytes then some (["", "\x01", "\x00\xff"].map fun t => .dv Srt.bytes (.tok t))
+    else if s == Srt.endianness then some [.ctor littleEndianBytes [], .ctor bigEndianBytes []]
+    else if s == Srt.signedness then some [.ctor signedBytes [], .ctor unsignedBytes []]
+    else none
+  raw.map (·.filter fun v => c.sortOf v == some s)
+
+/-! ## Printing -/
+
+partial def showV (c : Semantics) : GroundTerm → String
+  | .dv _ (.int i) => toString i
+  | .dv _ (.bool b) => toString b
+  | .dv _ (.tok t) => s!"\"{t}\""
+  | .dv _ (.float p e b) => s!"float({p},{e},{b})"
+  | .inj _ _ t => showV c t
+  | .ctor f [] => if f == dotk then ".K" else c.symName f
+  | .ctor f [a, b] => if f == kseq then s!"{showV c a} ~> {showV c b}" else s!"{c.symName f}({showV c a}, {showV c b})"
+  | .ctor f ts => s!"{c.symName f}({", ".intercalate (ts.map (showV c))})"
+  | .map _ [] => ".Map"
+  | .map _ es => "{" ++ ", ".intercalate (es.map fun (k, v) => s!"{showV c k} |-> {showV c v}") ++ "}"
+  | .set _ [] => ".Set"
+  | .set _ es => "{" ++ ", ".intercalate (es.map (showV c)) ++ "}"
+  | .list _ [] => ".List"
+  | .list _ es => "[" ++ ", ".intercalate (es.map (showV c)) ++ "]"
+
+def showD (c : Semantics) : D → String
+  | .bot => "⊥"
+  | .top => "⊤"
+  | .val v => showV c v
+
+/-! ## Γ's symbols and sorts by their KORE names -/
+
+def stripSort (n : String) : String := if n.startsWith "Sort" then n.drop 4 |>.toString else n
+
+def ksortName : Kore.KSort → String
+  | .ctor h [] => h.ident.name
+  | .ctor h _ => h.ident.name ++ "{…}"
+  | .var v => v.ident.ident.name
+
+/-- The key of an application: the symbol's name, and for an instance of a sort-parametric symbol
+its name at the sorts, `Sort` dropped (`f{X₁,…}`, as the reader names it). -/
+def appKey (h : Kore.SymbolIdent) (sorts : List Kore.KSort) : String :=
+  if sorts.isEmpty then h.ident.name
+  else h.ident.name ++ "{" ++ ",".intercalate (sorts.map (stripSort ∘ ksortName)) ++ "}"
+
+structure Ctx where
+  c : Semantics
+  syms : List (String × CtorSig)
+  sorts : List (String × Srt)
+  mode : Mode
+  /-- the Int grid without 2^64 + 1 (a length or count of that size is not evaluated) -/
+  small : Bool := false
+
+def Ctx.of (c : Semantics) (m : Mode) (small : Bool := false) : Ctx :=
+  { c, mode := m, small
+    syms := (kernelSyms c).map fun k => (c.symName k.name, k)
+    sorts := (kernelSorts c).map fun s => ("Sort" ++ c.sortName s, s) }
+
+def Ctx.sort (x : Ctx) (s : Kore.KSort) : Except String Srt :=
+  match x.sorts.lookup (ksortName s) with
+  | some s => pure s
+  | none => throw s!"sort {ksortName s} not among Γ's"
+
+mutual
+  /-- The applications of a pattern, by key (an injection as `inj`: Γ's injections are its
+  subsorts, checked where one is evaluated). -/
+  partial def appsOf : Kore.Pattern → List String
+    | .app h ss ps => (if h.ident.name == "inj" then "inj" else appKey h ss) :: appsOfL ps
+    | .not _ p | .exist _ _ p | .forall _ _ p | .mu _ p | .nu _ p | .ceil _ _ p | .floor _ _ p | .next _ p => appsOf p
+    | .and _ ps | .or _ ps => appsOfL ps
+    | .implies _ p q | .iff _ p q | .equals _ _ p q | .in _ _ p q | .rewrites _ p q => appsOf p ++ appsOf q
+    | .leftAssoc h ss ps | .rightAssoc h ss ps => appKey h ss :: appsOfL ps
+    | _ => []
+  partial def appsOfL : List Kore.Pattern → List String
+    | [] => []
+    | p :: ps => appsOf p ++ appsOfL ps
+end
+
+/-- The free variables of a pattern: name (a set variable's with `@`) and sort. -/
+partial def freeVars (bound : List String) : Kore.Pattern → List (String × Kore.KSort)
+  | .var (.evar v) => if bound.contains v.var.ident.name then [] else [(v.var.ident.name, v.sort)]
+  | .var (.svar v) => if bound.contains ("@" ++ v.var.ident.name) then [] else [("@" ++ v.var.ident.name, v.sort)]
+  | .app _ _ ps | .and _ ps | .or _ ps | .leftAssoc _ _ ps | .rightAssoc _ _ ps => ps.flatMap (freeVars bound)
+  | .not _ p | .ceil _ _ p | .floor _ _ p | .next _ p => freeVars bound p
+  | .exist _ v p | .forall _ v p => freeVars (v.var.ident.name :: bound) p
+  | .mu v p | .nu v p => freeVars (("@" ++ v.var.ident.name) :: bound) p
+  | .implies _ p q | .iff _ p q | .equals _ _ p q | .in _ _ p q | .rewrites _ p q => freeVars bound p ++ freeVars bound q
+  | _ => []
+
+/-! ## The evaluator -/
+
+def dvVal (x : Ctx) (s : Kore.KSort) (t : String) : M D := do
+  let s ← liftM (m := Except String) (x.sort s)
+  if s == Srt.int then
+    match t.toInt? with
+    | some i => pure (.val (int i))
+    | none => throw s!"Int literal {t}"
+  else if s == Srt.bool then
+    if t == "true" then pure (.val (bool true)) else if t == "false" then pure (.val (bool false)) else throw s!"Bool literal {t}"
+  else if s == Srt.string then pure (.val (.dv Srt.string (.tok t)))
+  else throw s!"literal of sort {x.c.sortName s}"
+
+/-- The meaning of Γ's symbol `k` at the values `vs`. -/
+def applyAt (x : Ctx) (key : String) (k : CtorSig) (vs : List GroundTerm) : M D := do
+  let c := x.c
+  if c.sortsOf vs != some k.args then throw s!"{key} applied to arguments not of its sorts"
+  if (lookupSig c.ctorSigs k.name).isSome then return .val (.ctor k.name vs)
+  match hook k.name vs with
+  | some (some v) => return .val v
+  | some none =>
+    if silent k.name vs then
+      modify fun f => { f with silent := f.silent ++ [key] }
+      let pickAt (i : Nat) : M D := match gridOf c k.result x.small with
+        | some (g :: gs) => return .val ((g :: gs)[i % (gs.length + 1)]!)
+        | _ => throw s!"no grid for the result sort of {key}"
+      match x.mode with
+      | .none => return .bot
+      | .pick i => pickAt i
+      | .only ks i => if ks.contains k.name then pickAt i else return .bot
+      | .lib => return match (c.withHooks HookParams.lib).fallback k.name vs with
+        | some v => .val v
+        | none => .bot
+      | .hash => pickAt ((hash (key ++ "(" ++ ", ".intercalate (vs.map (showV c)) ++ ")")).toNat % 2)
+    else return .bot
+  | none =>
+    if (c.lookupParam k.name).isSome then
+      modify fun f => { f with param := f.param ++ [key] }
+      return match c.paramVal k.name vs with
+        | some v => .val v
+        | none => .bot
+    match Exec.evalF c 10000 k.name vs with
+    | some (some v) => return .val v
+    | some none =>
+      modify fun f => { f with param := f.param ++ [key ++ " (rest)"] }
+      return .bot
+    | none => throw s!"{key}: no meaning found (not a constructor, hook, parameter, or function with a result)"
+
+partial def eval (x : Ctx) (env : List (String × D)) : Kore.Pattern → M D
+  | .var (.evar v) => match env.lookup v.var.ident.name with
+    | some d => pure d
+    | none => throw s!"unbound {v.var.ident.name}"
+  | .var (.svar v) => match env.lookup ("@" ++ v.var.ident.name) with
+    | some d => pure d
+    | none => throw s!"unbound @{v.var.ident.name}"
+  | .dv s t => dvVal x s t
+  | .top _ => pure .top
+  | .bottom _ => pure .bot
+  | .and _ ps => do
+    let ds ← ps.mapM (eval x env)
+    pure (ds.foldl D.meet .top)
+  | .not _ p => do
+    match ← eval x env p with
+    | .top => pure .bot
+    | .bot => pure .top
+    | .val _ => throw "\\not of a term"
+  | .implies _ p q => do
+    match ← eval x env p with
+    | .bot => pure .top
+    | .top => eval x env q
+    | .val _ => throw "\\implies with a term premise"
+  | .equals _ _ p q => do
+    let a ← eval x env p
+    let b ← eval x env q
+    pure (if a.same b then .top else .bot)
+  | .in _ _ p q => do
+    let a ← eval x env p
+    let b ← eval x env q
+    pure (match a.meet b with | .bot => .bot | _ => .top)
+  | .ceil _ _ p => do
+    match ← eval x env p with
+    | .bot => pure .bot
+    | _ => pure .top
+  | .exist _ v (.equals _ _ (.var (.evar v')) t) => do
+    if v != v' then throw "\\exists of another shape"
+    match ← eval x env t with
+    | .val _ => pure .top
+    | .bot => pure .bot
+    | .top => throw "\\exists over \\top"
+  | .app h sorts args => do
+    let ds ← args.mapM (eval x env)
+    if h.ident.name == "inj" then
+      match sorts, ds with
+      | [_, B], [d] => do
+        let B ← liftM (m := Except String) (x.sort B)
+        let A ← liftM (m := Except String) (x.sort (sorts.headD default))
+        match d with
+        | .bot => pure .bot
+        | .top => throw "inj of \\top"
+        | .val v =>
+          let w := match v with
+            | .inj a0 _ t => GroundTerm.inj a0 B t
+            | _ => GroundTerm.inj A B v
+          if x.c.sortOf w == some B then pure (.val w) else throw "ill-sorted injection"
+      | _, _ => throw "inj of another shape"
+    else
+      let key := appKey h sorts
+      match x.syms.lookup key with
+      | none => throw s!"{key} not among Γ's symbols"
+      | some k =>
+        if ds.any (fun d => match d with | .bot => true | _ => false) then pure .bot
+        else
+          let vs ← ds.mapM fun d => match d with
+            | .val v => pure v
+            | _ => throw s!"{key} applied to \\top"
+          applyAt x key k vs
+  | p => throw s!"construct not evaluated ({(reprStr p).take 60})"
+
+/-! ## Sentences -/
+
+/-- The two sides the sentence compares, for printing. -/
+partial def sides : Kore.Pattern → Option (Kore.Pattern × Kore.Pattern)
+  | .implies _ _ q => sides q
+  | .equals _ _ l r => some (l, r)
+  | .exist _ _ (.equals _ _ _ t) => some (t, t)
+  | _ => none
+
+def points : List (String × List D) → List (List (String × D))
+  | [] => [[]]
+  | (n, ds) :: rest => let ps := points rest; ds.flatMap fun d => ps.map ((n, d) :: ·)
+
+def attr? (as : List Kore.AppPattern) (n : String) : Option String :=
+  match as.find? (·.head.ident.name == n) with
+  | some a => match a.args with
+    | [.string s] => some s
+    | _ => some ""
+  | none => none
+
+def hasAttr (as : List Kore.AppPattern) (n : String) : Bool := (attr? as n).isSome
+
+def srcOf (as : List Kore.AppPattern) : String := (attr? as "org'Stop'kframework'Stop'attributes'Stop'Source").getD ""
+def locOf (as : List Kore.AppPattern) : String := (attr? as "org'Stop'kframework'Stop'attributes'Stop'Location").getD ""
+
+def isBuiltin (as : List Kore.AppPattern) : Bool := ((srcOf as).splitOn "/include/kframework/builtin/").length > 1
+
+/-- The builtin file and line of a library sentence (`domains.md:1415`). -/
+def placeOf (as : List Kore.AppPattern) : String :=
+  let file := ((srcOf as).splitOn "/").getLast?.getD "" |>.replace ")" ""
+  let line := (((locOf as).drop 9).toString.splitOn ",").headD ""
+  if file.isEmpty then "-" else s!"{file}:{line}"
+
+def isFunctionalShape : Kore.Pattern → Option (Kore.SymbolIdent × List Kore.KSort)
+  | .exist _ v (.equals _ _ (.var (.evar v')) (.app h ss _)) => if v == v' then some (h, ss) else none
+  | _ => none
+
+def isReadC : SentenceClass → Bool
+  | .read | .readAs _ => true
+  | _ => false
+
+/-- The class (TIE-0 row) of a user-module axiom, if one of 9, 15, 17, 18; 16 (set idempotence,
+refuted, out of scope) is probed as the control that the probe finds a counterexample. A hooked
+symbol's `functional` sentence is row 9 whatever its reading (the sort-parametric `ite{S}`'s is
+inert `parametricFunctional`, and applies `ite{S}`, a symbol Γ does not have). -/
+def rowOf (k : Kore.Definition) (a : Kore.Axiom) : Option Nat :=
+  let cls := classify (.axiom a)
+  match cls with
+  | .inert .collectionLaw => some 15
+  | .inert .simplification => some 18
+  | .unread .setIdempotence => some 16
+  | _ =>
+    match isFunctionalShape a.pattern with
+    | some (h, _) =>
+      let hooked := (k.symbolDecls.find? (·.name == h.ident.name)).any (·.hooked)
+      if hasAttr a.attributes "functional" && hooked then some 9 else none
+    | none =>
+      if isBuiltin a.attributes && hasAttr a.attributes "simplification" then some 18
+      else if isBuiltin a.attributes && isReadC cls then some 17
+      else none
+
+structure Res where
+  index : Nat
+  line : Nat
+  row : Nat
+  place : String
+  syms : List String
+  absent : List String
+  points : Nat := 0
+  holds : Nat := 0
+  /-- points where the sentence's premise (`\implies`' first argument) holds under `HookParams.none`:
+  the points at which the sentence says something -/
+  active : Nat := 0
+  /-- points where a silent point, a parameter or a function's rest was reached -/
+  hdep : Nat := 0
+  /-- failures under `HookParams.none` at points reaching nothing that depends on H -/
+  cex : List String := []
+  /-- failures under some interpretation at points reaching a silent point or parameter -/
+  hfail : List String := []
+  /-- points reading the interpretation where the left side (the application the sentence states
+  the value of) is not at a silent point: the interpretation is read inside the right side only -/
+  hOff : Nat := 0
+  /-- the readings under which it fails at some point -/
+  failModes : List String := []
+  /-- why not probed -/
+  skip : Option String := none
+
+def showPoint (c : Semantics) (pt : List (String × D)) : String :=
+  ", ".intercalate (pt.map fun (n, d) => s!"{n} = {showD c d}")
+
+/-- Evaluate one sentence at every point of its grid, in the three readings of silent points. -/
+def probe (c : Semantics) (r : Res) (a : Kore.Axiom) (modes : List Mode := [.none, .pick 0, .pick 1])
+    (small : Bool := false) : Res := Id.run do
+  let fv := (freeVars [] a.pattern).eraseDups
+  let x0 := Ctx.of c .none small
+  let mut grids : List (String × List D) := []
+  for (n, s) in fv do
+    match x0.sort s with
+    | .error e => return { r with skip := some e }
+    | .ok srt =>
+      match gridOf c srt small with
+      | none => return { r with skip := some s!"no grid for sort {c.sortName srt} (variable {n})" }
+      | some g =>
+        let ds := g.map D.val
+        grids := grids ++ [(n, if n.startsWith "@" then D.bot :: ds else ds)]
+  let pts := points grids
+  let leftKey : Option String := match sides a.pattern with
+    | some (.app h ss _, _) => some (appKey h ss)
+    | _ => none
+  let mut r := { r with points := pts.length }
+  for pt in pts do
+    let mut dep := false
+    let mut off := false
+    let mut okAll := true
+    for m in modes do
+      let x := Ctx.of c m small
+      match (eval x pt a.pattern).run {} with
+      | .error e => return { r with skip := some s!"at {showPoint c pt}: {e}" }
+      | .ok (d, fl) =>
+        let isDep := !fl.silent.isEmpty || !fl.param.isEmpty
+        if isDep then
+          dep := true
+          if !(leftKey.any fl.silent.contains) then off := true
+        let holds := match d with | .top => true | _ => false
+        if !holds then
+          okAll := false
+          if !r.failModes.contains m.name then r := { r with failModes := r.failModes ++ [m.name] }
+          let sd := match sides a.pattern with
+            | some (l, rr) =>
+              let l' := match (eval x pt l).run {} with | .ok (d, _) => showD c d | .error e => e
+              let r' := match (eval x pt rr).run {} with | .ok (d, _) => showD c d | .error e => e
+              s!"left {l'}, right {r'}"
+            | none => ""
+          let msg := s!"{m.name} at {showPoint c pt}: {sd}" ++
+            (if isDep then s!" (reached {fl.silent ++ fl.param})" else "")
+          if isDep then r := { r with hfail := r.hfail ++ [msg] }
+          else if m == .none then r := { r with cex := r.cex ++ [msg] }
+    let premise := match a.pattern with
+      | .implies _ p _ => p
+      | _ => .top (.var ⟨⟨⟨"R"⟩⟩⟩)
+    match (eval (Ctx.of c .none small) pt premise).run {} with
+    | .ok (.top, _) => r := { r with active := r.active + 1 }
+    | _ => pure ()
+    if dep then r := { r with hdep := r.hdep + 1 }
+    if off then r := { r with hOff := r.hOff + 1 }
+    if okAll then r := { r with holds := r.holds + 1 }
+  return r
+
+def verdict (r : Res) : String :=
+  match r.skip with
+  | some e => s!"not probed: {e}"
+  | none =>
+    if !r.cex.isEmpty then s!"COUNTEREXAMPLE ({r.cex.length} points; first: {r.cex.headD ""})"
+    else if !r.hfail.isEmpty then s!"FAILS UNDER SOME H at a silent point ({r.hfail.length} point-readings; first: {r.hfail.headD ""})"
+    else if r.hdep > 0 then s!"holds ({r.hdep} points reach a silent point or parameter; holds in every reading)"
+    else "holds"
+
+/-- The line of each axiom of the text, by its 1-based index. -/
+def axiomLines (text : String) : List Nat :=
+  ((text.splitOn "\n").zipIdx.filter fun (l, _) => l.trimAsciiStart.startsWith "axiom").map (·.2 + 1)
+
+/-- Per class: sentences, over Γ's symbols, holding at every point in the three readings, with a
+counterexample, failing only in some reading at a silent point, not probed though over Γ. -/
+abbrev Summary := List (Nat × Nat × Nat × Nat × Nat × Nat × Nat)
+
+/-- What a run finds of the sentences that read the interpretation, each named by its row and its
+place (a `functional` sentence, which has none, by its symbol):
+- `unnamed`: those reading it at some point that are neither a `functional` sentence of a symbol of
+  `totalSilentKeys` nor at a line of `libSentences`;
+- `unread`: those at a line of `libSentences`, probed, that read it at no point;
+- `off`: those reading it at a point where the left side is not at a silent point;
+- `libFails`: those failing at some point under `HookParams.lib`. -/
+structure Reads where
+  unnamed : List String
+  unread : List String
+  off : List String
+  libFails : List String
+  deriving BEq, Repr
+
+/-- The text without the user module's sentences the reader refuses as builtin sentences outside
+the library's text (`builtinText`: a module of a K installation KCore's library does not hold), with
+their heads; the text itself when there are none. -/
+def outOfLibrary (k : Kore.Definition) : Kore.Definition × List String :=
+  let off := Parse.preludeLength k
+  let rs := (Parse.refusals k).filter (·.reason.name == "builtinText")
+  let ix := rs.filterMap (·.index)
+  match k.modules.getLast? with
+  | none => (k, [])
+  | some m =>
+    let m' := { m with sentences := (m.sentences.zipIdx.filter fun (_, i) => !ix.contains (off + i)).map (·.1) }
+    ({ k with modules := k.modules.dropLast ++ [m'] }, rs.map (·.head))
+
+def run (path : String) (verbose : Bool := true) (modes : List Mode := [.none, .pick 0, .pick 1])
+    (small : Bool := false) (dropOut : Bool := false) : IO (Summary × Reads) := do
+  let text ← IO.FS.readFile path
+  let k ← match Kore.parseDefinition text with
+    | .ok k => pure k
+    | .error e => throw (IO.userError s!"read: {e}")
+  let (k, dropped) := if dropOut then outOfLibrary k else (k, [])
+  unless dropped.isEmpty do
+    IO.println s!"{path}: {dropped.length} sentences of builtin modules outside the library's text left out: {dropped}"
+  let d ← match Parse.parse k with
+    | .ok d => pure d
+    | .error e => throw (IO.userError s!"parse: {e.toText}")
+  let c := d.sem
+  let user := (k.modules.getLast?.map (·.name.ident.name)).getD ""
+  let lines := if dropped.isEmpty then axiomLines text else []
+  let ads := k.axiomDecls
+  IO.println s!"{path}: user module {user}, {ads.length} axioms (lines found {lines.length})"
+  let gNames := ((kernelSyms c).map fun k => c.symName k.name) ++ ["inj"]
+  let mut res : List Res := []
+  for ad in ads do
+    if ad.module != user then continue
+    match rowOf k ad.ax with
+    | none => pure ()
+    | some row =>
+      let syms := (appsOf ad.ax.pattern).eraseDups
+      let absent := syms.filter (!gNames.contains ·)
+      let r : Res := { index := ad.index, line := lines.getD (ad.index - 1) 0, row, place := placeOf ad.ax.attributes, syms, absent }
+      let r := if absent.isEmpty then probe c r ad.ax modes small else { r with skip := some s!"applies symbols Γ does not have: {absent}" }
+      res := res ++ [r]
+  IO.println s!"Γ's instances of ite: {gNames.filter (·.startsWith "Lblite")}"
+  let mut sum : Summary := []
+  for row in [9, 15, 17, 18, 16] do
+    let rs := res.filter (·.row == row)
+    let over := rs.filter (·.absent.isEmpty)
+    let cexs := over.filter (!·.cex.isEmpty)
+    let hf := over.filter (fun r => r.cex.isEmpty && !r.hfail.isEmpty)
+    let sk := over.filter (·.skip.isSome)
+    let hold := over.filter (fun r => r.skip.isNone && r.cex.isEmpty && r.hfail.isEmpty)
+    IO.println s!"row {row}{if row == 16 then " (control, not in scope)" else ""}: {rs.length} sentences, {over.length} over Γ's symbols ({rs.length - over.length} not), probed {over.length - sk.length}: {hold.length} hold, {cexs.length} with a counterexample, {hf.length} failing only under some H at silent points, {sk.length} not probed"
+    sum := sum ++ [(row, rs.length, over.length, hold.length, cexs.length, hf.length, sk.length)]
+  if verbose then
+    for r in res do
+      IO.println s!"#{r.index} L{r.line} row {r.row} {r.place} [{" ".intercalate r.syms}] points {r.points} (premise holds at {r.active}, reads H at {r.hdep}): {verdict r}{if r.failModes.isEmpty then "" else s!" [fails under {r.failModes}]"}"
+      for m in r.cex.drop 1 |>.take 7 do IO.println s!"    also {m}"
+      for m in r.hfail.drop 1 |>.take 7 do IO.println s!"    also {m}"
+  let name (r : Res) : String := s!"{r.row} {if r.place == "-" then " ".intercalate r.syms else r.place}"
+  let keyNames := totalSilentKeys.map c.symName
+  let places := libSentences.map fun (l, _) => s!"domains.md:{l}"
+  let named (r : Res) : Bool :=
+    (r.row == 9 && r.syms.length == 1 && r.syms.all keyNames.contains) || (r.row != 9 && places.contains r.place)
+  let probed := res.filter (·.skip.isNone)
+  let reads : Reads :=
+    { unnamed := (probed.filter fun r => r.hdep > 0 && !named r).map name
+      unread := (probed.filter fun r => r.row != 9 && places.contains r.place && r.hdep == 0).map name
+      off := (probed.filter (·.hOff > 0)).map name
+      libFails := (probed.filter (·.failModes.contains Mode.lib.name)).map name }
+  let readers := probed.filter (·.hdep > 0)
+  IO.println s!"sentences reading the interpretation: {readers.map fun r => s!"{name r} ({r.hdep} points)"}"
+  IO.println s!"guard: {reprStr reads}"
+  return (sum, reads)
+
+/-- The counts both texts give: every sentence over Γ's symbols of rows 9, 15, 17, 18 holds in the
+three readings (`<=Set`'s `functional` sentence too: it has a value at every pair of sets); row 16
+(set idempotence) is the control. -/
+def expected : Summary :=
+  [(9, 54, 46, 46, 0, 0, 0), (15, 9, 9, 9, 0, 0, 0), (17, 28, 23, 23, 0, 0, 0), (18, 64, 57, 57, 0, 0, 0),
+   (16, 1, 1, 0, 1, 0, 0)]
+
+/-- What `checkLib` requires of a run: every sentence reading the interpretation has a named
+condition and reads it only where its left side is silent, every named sentence the text holds reads
+it, and under `HookParams.lib` only the control (set idempotence) fails. -/
+def readsOK (r : Reads) : Bool :=
+  r.unnamed.isEmpty && r.unread.isEmpty && r.off.isEmpty && r.libFails.all (·.startsWith "16 ")
+
+/-- The readings `check` and `checkFlt` add: `HookParams.lib`, and the non-constant `hash`. -/
+def libModes : List Mode := [.lib, .hash]
+
+def check (path : String) : IO Unit := do
+  let (s, r) ← run path (modes := [.none, .pick 0, .pick 1] ++ libModes)
+  if s != expected then throw (IO.userError s!"{path}: counts {s}, expected {expected}")
+  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
+
+/-- The interpretations `checkFlt` reads silent points by: the three readings, and two that give the
+symbols of `totalSilentKeys` the first or second grid value of the result sort at their silent
+points and no value elsewhere (each meets `Semantics.silentTotal`). -/
+def fltModes : List Mode := [.none, .pick 0, .pick 1, .only totalSilentKeys 0, .only totalSilentKeys 1] ++ libModes
+
+/-- The counts of `silentflt.kompile.kore` (FLOAT, STRING, BYTES, SET imported) over the five
+readings, the Int grid without 2^64 + 1. Row 9's eight failures are the `functional` sentences of
+`substrString`, `Int2Bytes` (at a negative length), `isNaN`, `--Float`, `absFloat`, `floorFloat`,
+`ceilFloat`, `truncFloat`, under `HookParams.none` only. Row 17's three: `isInfinite`'s equation (domains.md 1673) at the three `p1x2`
+values under the two `only` readings (`isInfinite` has a value, `maxValueFloat` none, so the right
+side has none); `=/=Float`'s (1648) and `rfindChar`'s (1893) under `pick0` and `pick1` (in the points printed),
+which give the silent points of two symbols values that do not agree with the equation. -/
+def expectedFlt : Summary :=
+  [(9, 93, 71, 63, 0, 8, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 40, 36, 0, 3, 1), (18, 67, 60, 60, 0, 0, 0),
+   (16, 1, 1, 0, 1, 0, 0)]
+
+def checkFlt : IO Unit := do
+  let path := "f2-examples/silentflt.kompile.kore"
+  let (s, r) ← run path (modes := fltModes) (small := true)
+  if s != expectedFlt then throw (IO.userError s!"{path}: counts {s}, expected {expectedFlt}")
+  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
+
+/-- The counts of `allbuiltins.kompile.kore` (kompile's text of a definition importing every module
+of the K 7.1.337 installation's builtin files) over `fltModes`, the Int grid without 2^64 + 1, after
+leaving out the 213 sentences of builtin modules outside the library's text (`outOfLibrary`:
+ARRAY, RANGEMAP, RAT, FFI, …). The sentences reading the interpretation are those of silentflt. -/
+def expectedAll : Summary :=
+  [(9, 102, 71, 63, 0, 8, 0), (15, 12, 9, 9, 0, 0, 0), (17, 63, 40, 36, 0, 3, 1), (18, 114, 107, 107, 0, 0, 0),
+   (16, 1, 1, 0, 1, 0, 0)]
+
+def checkAll : IO Unit := do
+  let path := "f2-examples/allbuiltins.kompile.kore"
+  let (s, r) ← run path (modes := fltModes) (small := true) (dropOut := true)
+  if s != expectedAll then throw (IO.userError s!"{path}: counts {s}, expected {expectedAll}")
+  if !readsOK r then throw (IO.userError s!"{path}: sentences reading the interpretation: {reprStr r}")
+  IO.println s!"{path}: counts as expected, conditions closed, HookParams.lib fails only the control"
+
+end KCore.LibProbe
+
+#eval KCore.LibProbe.check "f2-examples/ens.kompile.kore"
+#eval KCore.LibProbe.check "f2-examples/ref-kimp.kore"
+#eval KCore.LibProbe.checkFlt
+-- about 30 minutes: run with LIBPROBE_ALL=1
+#eval show IO Unit from do if (← IO.getEnv "LIBPROBE_ALL").isSome then KCore.LibProbe.checkAll else pure ()

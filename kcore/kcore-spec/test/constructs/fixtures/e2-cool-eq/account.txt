@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-COOL-EQ: 399 sentences
+  1 inert import [generated]
+  185 read [generated]
+  184 read [builtin]
+  2 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [user]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unboundVariable
+      sentence 355 (Lblf): unboundVariable (VarHOLE: in the requires, not bound by the left side)
+        [user] (no label) at e2-cool-eq.k:5: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(Lbl'Unds'andBool'Unds'{}(\dv{SortBool{}}("true"), LblisKResult{}(VarHOLE:SortK{})), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("e33ca6b01637fa627d96a3f59e7574ea321168cd31ac851ad6d2 …
+finish: sentence 355 (Lblf): unboundVariable (VarHOLE: in the requires, not bound by the left side)
+(exit 0)

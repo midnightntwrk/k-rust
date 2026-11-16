@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-fn-idem.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 202853
+definition.kore sha256: 93ea34be105cb4afd8d8374316ad7bde231a705b41e1c40e2619b8d4b66598f8
+stripped sha256: 4acf9c32e11cf0dfc53db2126a056a6780b222fc3176fd3d7e90b4ac0771ad53
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-FN-IDEM-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-FN-IDEM as default.

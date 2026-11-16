@@ -1,0 +1,2 @@
+//@ 92
+  hooked-symbol Lblfh{}(SortInt{}) : SortInt{} [function{}(), hook{}("FOO.bar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,18,10,63)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/ref.k)"), symbol'Kywd'{}("fh")]

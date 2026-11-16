@@ -1,0 +1,27 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-MINT: 587 sentences
+  1 inert import [generated]
+  241 read [generated]
+  222 read [builtin]
+  1 refused sortAttribute [generated]
+      e.g. sort Sort8{} [nat{}("8")]
+  50 refused builtinText [builtin]
+      e.g. hooked-symbol Lbl--MInt'UndsUnds'MINT'Unds'MInt'Unds'MInt{SortWidth}(SortMInt{SortWidth}) : SortMInt{SortWidth} [function{}(), functional{}(), hook{}("MINT.neg"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3001,34,3001,108)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(NIXSTORE/i …
+  3 read [user]
+  1 refused axiomShape [generated]
+      e.g. axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortMInt{Sort8{}}, SortKItem{}}(From:SortMInt{Sort8{}}))) [subsort{SortMInt{Sort8{}}, SortKItem{}}()]
+  33 inert parametricFunctional [generated]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  3 inert distinctCtors [generated]
+  15 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 parametricSort
+      sentence 140 (Lbla): parametricSort
+        [user] (no label) at e3-mint.k:5: symbol Lbla{}(SortMInt{Sort8{}}) : SortExp{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,40)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-mint.k)"), symbol'Kywd'{}("a")]
+      sentence 463 (Lbl'-LT-'generatedTop'-GT-'): parametricSort
+        [user] (no label) at e3-mint.k:6: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}(VarX:SortMInt{Sort8{}})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortK …
+finish: sentence 140 (Lbla): parametricSort
+(exit 0)

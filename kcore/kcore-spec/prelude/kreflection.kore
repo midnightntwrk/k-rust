@@ -1,0 +1,16 @@
+// The sentences of K's K-REFLECTION module (domains.md, lines 2376-2396) as K 7.1.337's kompile
+// writes them, without their Source and Location attributes (taken from kompile's KORE of K's io
+// fixture, cli/io/io.k, whose stream cells import the module). The reader recognises them by content
+// (Parse.reflectionModuleText) and reads them as the definition's own sentences.
+[]
+module K-REFLECTION
+  hooked-symbol Lbl'Hash'argv'LParRParUnds'K-REFLECTION'Unds'List{}() : SortList{} [function{}(), hook{}("KREFLECTION.argv")]
+  hooked-symbol Lbl'Hash'configuration'Unds'K-REFLECTION'Unds'K{}() : SortK{} [function{}(), hook{}("KREFLECTION.configuration"), impure{}()]
+  hooked-symbol Lbl'Hash'fresh'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'String{}(SortString{}) : SortKItem{} [function{}(), hook{}("KREFLECTION.fresh"), impure{}()]
+  hooked-symbol Lbl'Hash'getenv'LParUndsRParUnds'K-REFLECTION'Unds'K'Unds'String{}(SortString{}) : SortK{} [function{}(), hook{}("KREFLECTION.getenv"), impure{}()]
+  hooked-symbol Lbl'Hash'kompiledDirectory'LParRParUnds'K-REFLECTION'Unds'String{}() : SortString{} [function{}(), hook{}("KREFLECTION.kompiledDir")]
+  symbol Lbl'Hash'noParse{}(SortString{}) : SortIOError{} [constructor{}(), functional{}(), injective{}(), symbol'Kywd'{}("#noParse")]
+  hooked-symbol Lbl'Hash'sort'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'K{}(SortK{}) : SortString{} [function{}(), hook{}("KREFLECTION.sort")]
+  hooked-symbol Lbl'Hash'unparseKORE'LParUndsRParUnds'K-REFLECTION'Unds'String'Unds'Sort{SortSort}(SortSort) : SortString{} [function{}(), hook{}("KREFLECTION.printKORE")]
+  hooked-symbol Lblgetsymbol'LParUndsRParUnds'K-REFLECTION'Unds'KItem'Unds'K{}(SortK{}) : SortKItem{} [function{}(), hook{}("KREFLECTION.getKLabel")]
+endmodule []

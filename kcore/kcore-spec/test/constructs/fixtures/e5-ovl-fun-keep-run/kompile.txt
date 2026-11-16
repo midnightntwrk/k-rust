@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-ovl-fun-keep-run.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 94636
+definition.kore sha256: 8ae707a16bc5d6b7555ec91c7827394a35c14264c89177e9e699fe3171d5f86c
+stripped sha256: 661b15c8a6d05eea78d8b87c5fc0d58f11120232b6a1a7d0fd0b2ffc9d6c10f6
+main module: 276 sentences, 53 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OVL-FUN-KEEP-RUN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E5-OVL-FUN-KEEP-RUN as default.

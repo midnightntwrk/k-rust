@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-REGISTRY-SYMBOL-NAME: 256 sentences
+  1 inert import [generated]
+  168 read [generated]
+  51 read [builtin]
+  6 read [user]
+  6 inert injectivity [generated]
+  2 inert distinctCtors [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 registrySymbolName
+      sentence 52 (Lbl'UndsPlus'Int'Unds'): registrySymbolName (Lbl'UndsPlus'Int'Unds')
+        [user] (no label) at e2-registry-symbol-name.k:4: symbol Lbl'UndsPlus'Int'Unds'{}(SortNum{}, SortNum{}) : SortNum{} [constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,36,4,67)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-registry-symbol-name.k)"),  …
+finish: sentence 52 (Lbl'UndsPlus'Int'Unds'): registrySymbolName (Lbl'UndsPlus'Int'Unds')
+(exit 0)

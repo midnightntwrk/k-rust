@@ -1,0 +1,30 @@
+command: kompile --backend haskell e3-ml-floor-lhs.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.1
+output:
+  kore-exec: [60380] Error (ErrorVerify):
+      Error:
+        module 'E3-ML-FLOOR-LHS':
+        axiom declaration:
+        (definition.kore 618:24):
+          Unsupported LHS of equation:
+          \floor{SortInt{}, Q0}(Lblf{}(VarX:SortInt{}))
+  Error:
+    module 'E3-ML-FLOOR-LHS':
+    axiom declaration:
+    (definition.kore 618:24):
+      Unsupported LHS of equation:
+      \floor{SortInt{}, Q0}(Lblf{}(VarX:SortInt{}))
+  Created bug report: kore-exec.tar.gz
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-floor-lhs.k)
+  	Location(5,17,5,18)
+  	5 |	  rule #Floor(f(X)) => #Top [simplification]
+  	  .	                ^
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-FLOOR-LHS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-FLOOR-LHS as default.

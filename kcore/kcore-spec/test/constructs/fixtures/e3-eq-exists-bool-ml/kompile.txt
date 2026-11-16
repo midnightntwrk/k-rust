@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-bool-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 122627
+definition.kore sha256: 29c8642071ba1f90c2773d795896f0231d1b06db22a3af3a22b91dbce7105955
+stripped sha256: cea8a387773b249ea2280ab8aa7aac9aec45567785b794a4836c29c0525bf659
+main module: 283 sentences, 14 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-BOOL-ML-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-EXISTS-BOOL-ML as default.

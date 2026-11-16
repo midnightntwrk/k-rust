@@ -1,0 +1,4 @@
+# e2-anywhere-simp's text under --allow-anywhere-haskell: kompile still rejects it ("anywhere attribute is not supported on simplification rules.")
+main = "e2-anywhere-simp.k"
+extra = ["--allow-anywhere-haskell"]
+expect = "error"

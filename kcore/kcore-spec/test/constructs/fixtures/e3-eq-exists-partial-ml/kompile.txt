@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-partial-ml.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 122484
+definition.kore sha256: 229c82d0e8f128de53f0a37ee9227de86af77e5c10020fdb5b3e5b5d802a40bc
+stripped sha256: ea1c6e4db3ad0d61a5a80e9caae4dec5dd8a7bbde89c1e6ee92ce5eb7e91f009
+main module: 282 sentences, 13 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-PARTIAL-ML-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-PARTIAL-ML as default.

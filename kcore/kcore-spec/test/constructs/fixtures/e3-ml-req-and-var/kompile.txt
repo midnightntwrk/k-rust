@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-and-var.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 126769
+definition.kore sha256: e46c7fb55df312f15bea55f4c79d8110e84797290cd956885259a2090f71c5f3
+stripped sha256: 03ccddfbfef421789760ca4698678f9cbf537de8f82fa3b00607176ae890424c
+main module: 296 sentences, 28 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-AND-VAR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-AND-VAR as default.

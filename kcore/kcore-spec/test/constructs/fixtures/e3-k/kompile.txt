@@ -1,0 +1,10 @@
+command: kompile --backend haskell e3-k.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.6
+definition.kore bytes: 214294
+definition.kore sha256: fea15f17e560dc3a1c8ef902fe9e8e6f0e0999e965d2f7ff1c53f9918362adb7
+stripped sha256: 4e9a69cecf88b9923f35f64f6fc580808ffbdff861895df443870f573a2872e2
+main module: 425 sentences, 69 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name E3-K-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using E3-K as default.

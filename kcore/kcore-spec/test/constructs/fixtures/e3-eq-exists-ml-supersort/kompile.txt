@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-eq-exists-ml-supersort.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 204161
+definition.kore sha256: 16dc7a6b4ef7dbd2184f98e491e5374508b3cb290054d7e492e413aa206a187b
+stripped sha256: 2b6898aa0ac065178866fdd022bfdb3b5dba3900d2e132ecb6d572dabe9de330
+main module: 393 sentences, 36 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-ML-SUPERSORT-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-ML-SUPERSORT as default.

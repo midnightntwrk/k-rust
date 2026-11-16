@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+extra = ["--type-inference-mode", "simplesub"]
+same_as = "e8-ref"

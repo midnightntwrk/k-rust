@@ -1,0 +1,3 @@
+# pair ensures x [owise]: f2-examples/ensrule-overlap.k reused, copied unchanged (assume(B) => ok() ensures B beside _:Cmd => stuck() [owise]); differs_from c3-rule-ens-owise-base
+main = "ensrule-overlap.k"
+differs_from = "c3-rule-ens-owise-base"

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-rhs-top.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 87593
+definition.kore sha256: 35af485fac833587bc6784318a8adb1e59482c646af7f61da2b42a9dcb31736f
+stripped sha256: 1cb1b6d7aad46df0509e64c8aa93d363b61d1deb47a4372b70d43f5e0c1e5e4b
+main module: 260 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-RHS-TOP-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-RULE-RHS-TOP as default.

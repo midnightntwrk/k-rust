@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-h1-fun/hw-h1-fun.kore: 5 modules; prelude agrees
+user module HW-BASE: 427 sentences
+  1 inert import [generated]
+  196 read [generated]
+  183 read [builtin]
+  14 read [user]
+  8 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 constructorEquation
+      sentence 441 (Lbla): constructorEquation (Lbla: a constructor; right side headed by Lblf, no constructor)
+        [user] (no label) at hw-base.k:99: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortExp{}, R}(Lbla{}(X0:SortInt{}), \and{SortExp{}}(Lblf{}(VarX:SortInt{}), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("hw-h1-fun"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99,1,99,1)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktree …
+finish: sentence 441 (Lbla): constructorEquation (Lbla: a constructor; right side headed by Lblf, no constructor)
+(exit 0)

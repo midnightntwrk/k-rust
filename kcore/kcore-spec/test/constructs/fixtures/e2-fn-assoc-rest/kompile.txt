@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-fn-assoc-rest.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 201559
+definition.kore sha256: f1d1d67ff740e65ef50b97304c6a43a9346e444b1cb516127c25721cf6824645
+stripped sha256: fb23ac046a0dff17bcfe9a5e58b513ac914ed8dbc44be77637af46bf39220749
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-FN-ASSOC-REST-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-FN-ASSOC-REST as default.
