@@ -1,0 +1,22 @@
+command: kompile --backend haskell e3-vars.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 216321
+definition.kore sha256: f05c5e1b662ba9245de315dd0fae520c0c2ce87bda825b037d80b28c3f59d316
+stripped sha256: 5f996fd90b76e17c5c33ef7c2e25fa8e07d1ac6949931fdc39f7c6be9b220d69
+main module: 432 sentences, 100 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '!N' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars.k)
+  	Location(7,21,7,23)
+  	7 |	  rule <k> b() => d(!N:Int) ... </k>
+  	  .	                    ^~
+  [Warning] Compiler: Variable '?Z' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars.k)
+  	Location(8,26,8,28)
+  	8 |	  rule <k> c(_, _Y) => d(?Z:Int) ... </k>
+  	  .	                         ^~
+  [Warning] Compiler: Could not find main syntax module with name E3-VARS-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E3-VARS as default.

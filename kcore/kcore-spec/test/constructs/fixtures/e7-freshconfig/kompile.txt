@@ -1,0 +1,17 @@
+command: kompile --backend haskell e7-freshconfig.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 209329
+definition.kore sha256: 9d59fdc4cb73b4e7a2feddc5cd43e78df7b02b958666e1972674f737ba411e8d
+stripped sha256: c7fd95a867da6255c3d46ee858b262781273a2df85eba5d9b7b8a11b451cf36d
+main module: 414 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '!N' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e7-freshconfig.k)
+  	Location(4,40,4,42)
+  	4 |	  configuration <k> $PGM:Exp </k> <id> !N:Int </id>
+  	  .	                                       ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E7-FRESHCONFIG-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E7-FRESHCONFIG as default.

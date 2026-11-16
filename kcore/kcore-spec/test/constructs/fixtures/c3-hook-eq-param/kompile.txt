@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-hook-eq-param.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202407
+definition.kore sha256: a12a0e7723e4ad60b0f5b8d0d64e1d60758102be24626ab0d604145e6ea906db
+stripped sha256: 138e8e465c548d69c80af226336a15731c7ab96b9785a95b3f97b83add3bff7f
+main module: 391 sentences, 34 not in base's, in kore.txt
+differs_from c3-hook-only-param: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-EQ-PARAM-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-HOOK-EQ-PARAM as default.

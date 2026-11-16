@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-rangemap.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 229749
+definition.kore sha256: 21cb8d73adf1ffa1a2a603604f87dcd3bdcab6c29fad77fbb97fa4189e57fa4e
+stripped sha256: e3629205c165b9b2087a2c1f7cbcf2f3ef599f5789e58bb020e46f52b224321a
+main module: 463 sentences, 87 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-RANGEMAP-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E6-RANGEMAP as default.

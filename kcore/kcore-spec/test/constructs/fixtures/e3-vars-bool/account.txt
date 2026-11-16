@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-VARS-BOOL: 293 sentences
+  1 inert import [generated]
+  167 read [generated]
+  95 read [builtin]
+  3 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 existentialRhs
+      sentence 231 (Lbl'-LT-'generatedTop'-GT-'): existentialRhs (Var'Ques'Z)
+        [user] (no label) at e3-vars-bool.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}()), dotk{}())), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \exists{SortGeneratedTopCell{}}(Var'Ques'Z:SortBool{}, \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj …
+finish: sentence 231 (Lbl'-LT-'generatedTop'-GT-'): existentialRhs (Var'Ques'Z)
+(exit 0)

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-userlist.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 214540
+definition.kore sha256: 42e51b8911f39b34bd0722cbed734e994320c267d33e533a0e60c78c51b90309
+stripped sha256: 161605b605d883c2787354f094ca9aed9797ab7b6137d451332038057a6fe272
+main module: 423 sentences, 67 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-USERLIST-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-USERLIST as default.

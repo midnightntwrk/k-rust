@@ -1,0 +1,10 @@
+command: kompile --backend haskell e3-ml-ag.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 209119
+definition.kore sha256: 3b17ddaaa479f2801c22634f3c4ae4cec3276ddd542e98edea88297bfdc392e2
+stripped sha256: fb2822726584f5a92b3b460d742757441668ba7f2858f2bc748890bda5e627ad
+main module: 406 sentences, 50 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name E3-ML-AG-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E3-ML-AG as default.

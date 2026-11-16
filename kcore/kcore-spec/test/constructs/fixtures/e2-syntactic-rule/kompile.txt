@@ -1,0 +1,10 @@
+command: kompile --backend haskell e2-syntactic-rule.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: Had 1 structural errors.
+  [Error] Compiler: syntactic attribute is only supported on simplification
+  rules.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SYNTACTIC-RULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-SYNTACTIC-RULE as default.

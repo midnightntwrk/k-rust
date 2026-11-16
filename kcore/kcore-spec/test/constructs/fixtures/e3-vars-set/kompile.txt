@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-set.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210181
+definition.kore sha256: 3c2c41007b2b88011a2ea506138e528456e54d77876b5e15e4677052657620e8
+stripped sha256: 2b3a40bb6db147262ee1356c267467a1e3c546c4611d478ef63f1a7116896584
+main module: 416 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?V' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-set.k)
+  	Location(6,49,6,51)
+  	6 |	  rule <k> go() => .K ... </k> <s> S => SetItem(?V:Int) S </s>
+  	  .	                                                ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-SET-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-VARS-SET as default.

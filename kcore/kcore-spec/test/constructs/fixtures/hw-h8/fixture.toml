@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3): H8, \exists B. (w() = B and B >=Int 0 = true) as an axiom; w has no other equation.
+# From: test/constructs/kfix.py run hw-base's definition.kore. No text kompile 7.1.337 delivers holds the shape.
+kore = "test/constructs/fixtures/hw-h8/hw-h8.kore"

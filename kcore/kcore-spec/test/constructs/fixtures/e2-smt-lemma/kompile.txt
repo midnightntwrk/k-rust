@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-smt-lemma.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 202356
+definition.kore sha256: e91dec9e3625278064bf2ee35fa9b010f7dfd3d53419ea581961371cda80a26c
+stripped sha256: 5812b9bb880ea5a0943e70a329e3955b76c40f5e58785c295286f6c4bf5f952b
+main module: 391 sentences, 34 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SMT-LEMMA-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-SMT-LEMMA as default.

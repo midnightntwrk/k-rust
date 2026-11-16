@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-LHS-OR-RHS-VAR: 257 sentences
+  1 inert import [generated]
+  168 read [generated]
+  52 read [builtin]
+  4 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  3 inert distinctCtors [generated]
+  11 inert noJunk [generated]
+  1 read orSplit [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 218: orSplit
+stage refusals (of sentences classified read): 1
+  1 unboundVariable
+      sentence 218 (Lbl'-LT-'generatedTop'-GT-'): unboundVariable (VarX: in the right side, not bound by the left side)
+        [user] (no label) at e3-ml-lhs-or-rhs-var.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(\or{SortExp{}}(Lble{}(VarX:SortVal{}), Lbld{}())), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(in …
+finish: sentence 218 (Lbl'-LT-'generatedTop'-GT-'): unboundVariable (VarX: in the right side, not bound by the left side)
+(exit 0)

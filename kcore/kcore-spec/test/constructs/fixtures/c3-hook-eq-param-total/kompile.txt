@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-hook-eq-param-total.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202601
+definition.kore sha256: 7ac893894344c7b87c6caf26a43ae34dbcace1cecf603cfc510d46e74517f088
+stripped sha256: ee01f5f36386d30296d14ded311dc3ef65febdb01f0cfd074ea9afb2032af9d9
+main module: 392 sentences, 35 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-EQ-PARAM-TOTAL-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using C3-HOOK-EQ-PARAM-TOTAL as default.

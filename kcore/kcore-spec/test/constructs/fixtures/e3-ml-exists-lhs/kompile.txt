@@ -1,0 +1,48 @@
+command: kompile --backend haskell e3-ml-exists-lhs.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.0
+output:
+  kore-exec: [59316] Error (ErrorVerify):
+      Error:
+        module 'E3-ML-EXISTS-LHS':
+        axiom declaration:
+        (definition.kore 618:24):
+          Unsupported LHS of equation:
+          \exists{Q0}(
+              VarY:SortK{},
+              \equals{SortK{}, Q0}(
+                  kseq{}(
+                      /* Inj: */ inj{SortInt{}, SortKItem{}}(Lblf{}(VarX:SortInt{})),
+                      dotk{}()
+                  ),
+                  VarY:SortK{}
+              )
+          )
+  Error:
+    module 'E3-ML-EXISTS-LHS':
+    axiom declaration:
+    (definition.kore 618:24):
+      Unsupported LHS of equation:
+      \exists{Q0}(
+          VarY:SortK{},
+          \equals{SortK{}, Q0}(
+              kseq{}(
+                  /* Inj: */ inj{SortInt{}, SortKItem{}}(Lblf{}(VarX:SortInt{})),
+                  dotk{}()
+              ),
+              VarY:SortK{}
+          )
+      )
+  Created bug report: kore-exec.tar.gz
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-exists-lhs.k)
+  	Location(5,22,5,23)
+  	5 |	  rule #Exists Y. {f(X) #Equals Y} => #Top [simplification]
+  	  .	                     ^
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EXISTS-LHS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-EXISTS-LHS as default.

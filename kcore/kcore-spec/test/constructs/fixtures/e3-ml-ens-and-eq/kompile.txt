@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-ml-ens-and-eq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 205086
+definition.kore sha256: 5142deb6f256fbe872bb98b83bfd61d67f91bb6a8f4d2cb63594e071a4fe4d8c
+stripped sha256: e72ff88bc97ff44d021ac41b08ccd59e6206721f1a858c993f9bf4954abfc03d
+main module: 395 sentences, 38 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-ens-and-eq.k)
+  	Location(8,11,8,12)
+  	8 |	  rule hh(X) => true
+  	  .	          ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-ENS-AND-EQ-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-ENS-AND-EQ as default.

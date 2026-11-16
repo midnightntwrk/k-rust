@@ -1,0 +1,2 @@
+# e3-eq-exists-noens (rule f(_) => ?B; kompile rejects ?B on an equation) in the #Exists spelling
+# from the sentence: f(x) = every element of Bool, {true, false} (no result: the two instances differ); f is not total, so the text has the model with both, and Γ the same sentence

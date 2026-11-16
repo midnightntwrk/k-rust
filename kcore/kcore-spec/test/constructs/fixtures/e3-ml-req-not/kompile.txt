@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-not.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 207541
+definition.kore sha256: e7fd3899a63f698d479d8bcc8edb6f59aeb9bc7a0575aa4407fd6647da5f931a
+stripped sha256: bc43fd926f0e8d995f248fb541d7426799a5a0c0f4019d5c426aa6f37208d3da
+main module: 409 sentences, 53 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-NOT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-ML-REQ-NOT as default.

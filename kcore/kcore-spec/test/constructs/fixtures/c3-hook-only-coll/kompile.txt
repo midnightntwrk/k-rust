@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-hook-only-coll.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 206529
+definition.kore sha256: 7b6409f4f11705861d4217e069c11028a23b5902e74e45e15200263d23347604
+stripped sha256: cd05d5c47b61e6eabff97a5329e6a9c844675f219d6e29ed2ab2789cfa58fdf5
+main module: 406 sentences, 50 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-HOOK-ONLY-COLL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-HOOK-ONLY-COLL as default.

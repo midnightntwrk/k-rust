@@ -1,0 +1,11 @@
+command: kompile --backend haskell e7-constfold.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 271398
+definition.kore sha256: f5cf44c50ed2d8976ea3d3a8c17c73f645e1944dbe452b1193a0fadbb2030079
+stripped sha256: f13d205f411e796b115f1f8f981694d531c1c2f1cd7756d6c16d736955f9f705
+main module: 495 sentences, 86 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E7-CONSTFOLD-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E7-CONSTFOLD as default.

@@ -1,0 +1,3 @@
+# pair priority x [owise] on one equation; differs_from c3-eq-only-prio: the text without the pair's second modifier
+differs_from = "c3-eq-only-prio"
+# kompile writes the equation with both attributes; the reader refuses it owisePriority (account.txt)

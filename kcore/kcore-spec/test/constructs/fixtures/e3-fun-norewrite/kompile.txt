@@ -1,0 +1,13 @@
+command: kompile --backend haskell e3-fun-norewrite.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: #fun expressions must have at least one rewrite.
+  	Source(FIXTURE/e3-fun-norewrite.k)
+  	Location(4,20,4,36)
+  	4 |	  rule <k> c(X) => #fun(a(_))(a(X)) ... </k>
+  	  .	                   ^~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-FUN-NOREWRITE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-FUN-NOREWRITE as default.

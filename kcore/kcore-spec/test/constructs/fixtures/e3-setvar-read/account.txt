@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-SETVAR-READ: 252 sentences
+  1 inert import [generated]
+  160 read [generated]
+  52 read [builtin]
+  6 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  6 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 setVariable
+      sentence 265 (Lblw): setVariable (VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort)
+        [user] (no label) at e3-setvar-read.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, @VarS:SortExp{}), \top{R}())), \equals{SortExp{}, R}(Lblw{}(X0:SortExp{}), \and{SortExp{}}(@VarS:SortExp{}, \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("5715b92517cfca46b3db261309e860714f5c627d4cfc062cbbd1c6687d1beddc"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,23)"), org'Stop'kframework'Stop'attr …
+finish: sentence 265 (Lblw): setVariable (VarS: in the right side, the requires, the ensures or an exclusion: the sentence states the function's value at every set holding the arguments; with the set as the value it has no model at a sort with two elements, otherwise its truth reads every subset of the sort)
+(exit 0)

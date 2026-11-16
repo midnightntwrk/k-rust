@@ -1,0 +1,12 @@
+command: kompile --backend haskell e2-anywhere-eq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 201360
+definition.kore sha256: 564c4b8ea28b69cc87aa3d92c35d28089548751923214717bbf681f81150f9dd
+stripped sha256: c34c4db9e62cc0a0daf7e2a1967f2b378373b3a1733c8a51cf91ef5dad3152f4
+main module: 390 sentences, 33 not in base's, in kore.txt
+same_as e8-allow-anywhere-eq: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-EQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ANYWHERE-EQ as default.

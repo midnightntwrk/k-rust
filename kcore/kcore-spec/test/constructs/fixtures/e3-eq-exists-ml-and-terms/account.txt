@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-ML-AND-TERMS: 390 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 manyValuedRightSide
+      sentence 349 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-ml-and-terms.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, LblnotBool'Unds'{}(VarX:SortBool{}))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("71e78470a3907f06b1543bc19a68242710ebb87d6e87cd1484a583bf0f367188"), org'S …
+      sentence 384 (Lblk): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-ml-and-terms.k:7: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblk{}(X0:SortInt{}), \and{SortInt{}}(\exists{SortInt{}}(VarZ:SortInt{}, \and{SortInt{}}(VarZ:SortInt{}, Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("1")))), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("ff87d43f27acc7824ecfec5b1d57bb61b43df4b3a96b7f22309f1a2d03 …
+finish: sentence 349 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

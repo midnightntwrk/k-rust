@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-simp-prio.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 203202
+definition.kore sha256: be5649ac465f1d5a52be86179b89c869de07a67d29f6340eda13e61910ac3d33
+stripped sha256: 490014078af4f91c0aa880b2b0bf2b20c3a3cd52bcdb48aff5a10169e49d58b7
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-eq-only-prio: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SIMP-PRIO-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-SIMP-PRIO as default.

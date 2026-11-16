@@ -1,0 +1,447 @@
+# M1.3 parts of Γ_D for ../milestone-1/kore/definition.kore
+
+## F0 (KcoreSpec/Fragment.lean): parse, wf, emit = input
+verdict: in F0
+yes  names declared once
+yes  declarations over declared sorts
+yes  subsorts: depth one, one supersort
+yes  user sorts inhabited
+yes  functions: well-sorted, total, deterministic
+yes  rules: well-sorted over the configuration sort
+yes  certificate: self calls decrease
+yes  presentation: variable names distinct
+constructor sorts: [K, KItem, GeneratedCounterCell, GeneratedCounterCellOpt, GeneratedTopCell, GeneratedTopCellFragment, KCell, KCellOpt, Nat, State, Val]; user sorts: [Nat, State, Val]
+functions: [Lblpred]; rules: 2
+# Γ^AML 141, AML(Γ) without simplifications 184, Γ_cons 194; Γ_closure 1; lemmas 18
+
+## Γ_cons (KcoreSpec/Curate.lean; STATEMENTS.md rules Cons-*)
+[Cons-Fun] cons-fun kseq
+  x1 ∈ ⟦SortKItem⟧ ∧ x2 ∈ ⟦SortK⟧ → (∃y:SortK. kseq x1 x2 = y)
+[Cons-Fun] cons-fun dotk
+  ∃y:SortK. dotk = y
+[Cons-Inj] cons-inj kseq
+  x1 ∈ ⟦SortKItem⟧ ∧ x2 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortKItem⟧ ∧ y2 ∈ ⟦SortK⟧ → kseq x1 x2 = kseq y1 y2 → x1 = y1 ∧ x2 = y2
+[Cons-Dist] cons-dist kseq / dotk
+  x1 ∈ ⟦SortKItem⟧ ∧ x2 ∈ ⟦SortK⟧ → ¬(kseq x1 x2 = dotk)
+[Cons-NoJunk] cons-nojunk SortK
+  ⟦SortK⟧ = (μX. kseq ⟦SortKItem⟧ X ∨ dotk)
+[Cons-Fun] cons-fun #KConfigValue
+  x1 ∈ ⟦SortK⟧ → (∃y:SortKItem. #KConfigValue x1 = y)
+[Cons-Fun] cons-fun inj SortBool SortKItem
+  x1 ∈ ⟦SortBool⟧ → (∃y:SortKItem. inj SortBool SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortGeneratedCounterCell SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ → (∃y:SortKItem. inj SortGeneratedCounterCell SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortGeneratedCounterCellOpt SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ → (∃y:SortKItem. inj SortGeneratedCounterCellOpt SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortGeneratedTopCell SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ → (∃y:SortKItem. inj SortGeneratedTopCell SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ → (∃y:SortKItem. inj SortGeneratedTopCellFragment SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortInt SortKItem
+  x1 ∈ ⟦SortInt⟧ → (∃y:SortKItem. inj SortInt SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortKCell SortKItem
+  x1 ∈ ⟦SortKCell⟧ → (∃y:SortKItem. inj SortKCell SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ → (∃y:SortKItem. inj SortKCellOpt SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ → (∃y:SortKItem. inj SortKConfigVar SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortList SortKItem
+  x1 ∈ ⟦SortList⟧ → (∃y:SortKItem. inj SortList SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortMap SortKItem
+  x1 ∈ ⟦SortMap⟧ → (∃y:SortKItem. inj SortMap SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortNat SortKItem
+  x1 ∈ ⟦SortNat⟧ → (∃y:SortKItem. inj SortNat SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortSet SortKItem
+  x1 ∈ ⟦SortSet⟧ → (∃y:SortKItem. inj SortSet SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortState SortKItem
+  x1 ∈ ⟦SortState⟧ → (∃y:SortKItem. inj SortState SortKItem x1 = y)
+[Cons-Fun] cons-fun inj SortVal SortKItem
+  x1 ∈ ⟦SortVal⟧ → (∃y:SortKItem. inj SortVal SortKItem x1 = y)
+[Cons-Inj] cons-inj #KConfigValue
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortK⟧ → #KConfigValue x1 = #KConfigValue y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortBool SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortBool⟧ → inj SortBool SortKItem x1 = inj SortBool SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortGeneratedCounterCell SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCell⟧ → inj SortGeneratedCounterCell SortKItem x1 = inj SortGeneratedCounterCell SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortGeneratedCounterCellOpt SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCellOpt⟧ → inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortGeneratedCounterCellOpt SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortGeneratedTopCell SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortGeneratedTopCell⟧ → inj SortGeneratedTopCell SortKItem x1 = inj SortGeneratedTopCell SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortGeneratedTopCellFragment⟧ → inj SortGeneratedTopCellFragment SortKItem x1 = inj SortGeneratedTopCellFragment SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortInt SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortInt⟧ → inj SortInt SortKItem x1 = inj SortInt SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortKCell SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortKCell⟧ → inj SortKCell SortKItem x1 = inj SortKCell SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → inj SortKCellOpt SortKItem x1 = inj SortKCellOpt SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → inj SortKConfigVar SortKItem x1 = inj SortKConfigVar SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortList SortKItem
+  x1 ∈ ⟦SortList⟧ ∧ y1 ∈ ⟦SortList⟧ → inj SortList SortKItem x1 = inj SortList SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortMap SortKItem
+  x1 ∈ ⟦SortMap⟧ ∧ y1 ∈ ⟦SortMap⟧ → inj SortMap SortKItem x1 = inj SortMap SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortNat SortKItem
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortNat⟧ → inj SortNat SortKItem x1 = inj SortNat SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortSet SortKItem
+  x1 ∈ ⟦SortSet⟧ ∧ y1 ∈ ⟦SortSet⟧ → inj SortSet SortKItem x1 = inj SortSet SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortState SortKItem
+  x1 ∈ ⟦SortState⟧ ∧ y1 ∈ ⟦SortState⟧ → inj SortState SortKItem x1 = inj SortState SortKItem y1 → x1 = y1
+[Cons-Inj] cons-inj inj SortVal SortKItem
+  x1 ∈ ⟦SortVal⟧ ∧ y1 ∈ ⟦SortVal⟧ → inj SortVal SortKItem x1 = inj SortVal SortKItem y1 → x1 = y1
+[Cons-Dist] cons-dist #KConfigValue / inj SortBool SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortBool⟧ → ¬(#KConfigValue x1 = inj SortBool SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortGeneratedCounterCell SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCell⟧ → ¬(#KConfigValue x1 = inj SortGeneratedCounterCell SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortGeneratedCounterCellOpt SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCellOpt⟧ → ¬(#KConfigValue x1 = inj SortGeneratedCounterCellOpt SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortGeneratedTopCell SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortGeneratedTopCell⟧ → ¬(#KConfigValue x1 = inj SortGeneratedTopCell SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortGeneratedTopCellFragment⟧ → ¬(#KConfigValue x1 = inj SortGeneratedTopCellFragment SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortInt SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortInt⟧ → ¬(#KConfigValue x1 = inj SortInt SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortKCell SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(#KConfigValue x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(#KConfigValue x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(#KConfigValue x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortList SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(#KConfigValue x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortMap SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(#KConfigValue x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortNat SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(#KConfigValue x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortSet SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(#KConfigValue x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortState SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(#KConfigValue x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist #KConfigValue / inj SortVal SortKItem
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(#KConfigValue x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortGeneratedCounterCell SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCell⟧ → ¬(inj SortBool SortKItem x1 = inj SortGeneratedCounterCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortGeneratedCounterCellOpt SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCellOpt⟧ → ¬(inj SortBool SortKItem x1 = inj SortGeneratedCounterCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortGeneratedTopCell SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortGeneratedTopCell⟧ → ¬(inj SortBool SortKItem x1 = inj SortGeneratedTopCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortGeneratedTopCellFragment⟧ → ¬(inj SortBool SortKItem x1 = inj SortGeneratedTopCellFragment SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortInt SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortInt⟧ → ¬(inj SortBool SortKItem x1 = inj SortInt SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortKCell SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(inj SortBool SortKItem x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(inj SortBool SortKItem x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortBool SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortBool SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortBool SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortBool SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortBool SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortBool SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortBool SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortBool⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortBool SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortGeneratedTopCell SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortGeneratedTopCell⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortGeneratedTopCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortGeneratedTopCellFragment⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortGeneratedTopCellFragment SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortInt SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortInt⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortInt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortKCell SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCell SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortGeneratedCounterCell SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortGeneratedTopCell SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortGeneratedTopCell⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortGeneratedTopCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortGeneratedTopCellFragment⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortGeneratedTopCellFragment SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortInt SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortInt⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortInt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortKCell SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedCounterCellOpt SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortGeneratedCounterCellOpt SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortGeneratedTopCellFragment SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortGeneratedTopCellFragment⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortGeneratedTopCellFragment SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortInt SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortInt⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortInt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortKCell SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCell SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortGeneratedTopCell⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortGeneratedTopCell SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortInt SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortInt⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortInt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortKCell SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortGeneratedTopCellFragment SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortGeneratedTopCellFragment⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortGeneratedTopCellFragment SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortKCell SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortKCell⟧ → ¬(inj SortInt SortKItem x1 = inj SortKCell SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortKCellOpt SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ → ¬(inj SortInt SortKItem x1 = inj SortKCellOpt SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortInt SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortInt SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortInt SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortInt SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortInt SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortInt SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortInt SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortInt SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortKCell SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortKCell SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortKCell SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortKCell SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortKCell SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortKCell SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCell SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortKCell SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortKConfigVar SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortKConfigVar⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortKConfigVar SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortKCellOpt SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortKCellOpt SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortKConfigVar SortKItem / inj SortList SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortList⟧ → ¬(inj SortKConfigVar SortKItem x1 = inj SortList SortKItem y1)
+[Cons-Dist] cons-dist inj SortKConfigVar SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortKConfigVar SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortKConfigVar SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortKConfigVar SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortKConfigVar SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortKConfigVar SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortKConfigVar SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortKConfigVar SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortKConfigVar SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortKConfigVar⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortKConfigVar SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortList SortKItem / inj SortMap SortKItem
+  x1 ∈ ⟦SortList⟧ ∧ y1 ∈ ⟦SortMap⟧ → ¬(inj SortList SortKItem x1 = inj SortMap SortKItem y1)
+[Cons-Dist] cons-dist inj SortList SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortList⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortList SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortList SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortList⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortList SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortList SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortList⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortList SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortList SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortList⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortList SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortMap SortKItem / inj SortNat SortKItem
+  x1 ∈ ⟦SortMap⟧ ∧ y1 ∈ ⟦SortNat⟧ → ¬(inj SortMap SortKItem x1 = inj SortNat SortKItem y1)
+[Cons-Dist] cons-dist inj SortMap SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortMap⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortMap SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortMap SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortMap⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortMap SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortMap SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortMap⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortMap SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortNat SortKItem / inj SortSet SortKItem
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortSet⟧ → ¬(inj SortNat SortKItem x1 = inj SortSet SortKItem y1)
+[Cons-Dist] cons-dist inj SortNat SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortNat SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortSet SortKItem / inj SortState SortKItem
+  x1 ∈ ⟦SortSet⟧ ∧ y1 ∈ ⟦SortState⟧ → ¬(inj SortSet SortKItem x1 = inj SortState SortKItem y1)
+[Cons-Dist] cons-dist inj SortSet SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortSet⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortSet SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-Dist] cons-dist inj SortState SortKItem / inj SortVal SortKItem
+  x1 ∈ ⟦SortState⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(inj SortState SortKItem x1 = inj SortVal SortKItem y1)
+[Cons-NoJunk] cons-nojunk SortKItem
+  ⟦SortKItem⟧ = (μX. #KConfigValue ⟦SortK⟧ ∨ inj SortBool SortKItem ⟦SortBool⟧ ∨ inj SortGeneratedCounterCell SortKItem ⟦SortGeneratedCounterCell⟧ ∨ inj SortGeneratedCounterCellOpt SortKItem ⟦SortGeneratedCounterCellOpt⟧ ∨ inj SortGeneratedTopCell SortKItem ⟦SortGeneratedTopCell⟧ ∨ inj SortGeneratedTopCellFragment SortKItem ⟦SortGeneratedTopCellFragment⟧ ∨ inj SortInt SortKItem ⟦SortInt⟧ ∨ inj SortKCell SortKItem ⟦SortKCell⟧ ∨ inj SortKCellOpt SortKItem ⟦SortKCellOpt⟧ ∨ inj SortKConfigVar SortKItem ⟦SortKConfigVar⟧ ∨ inj SortList SortKItem ⟦SortList⟧ ∨ inj SortMap SortKItem ⟦SortMap⟧ ∨ inj SortNat SortKItem ⟦SortNat⟧ ∨ inj SortSet SortKItem ⟦SortSet⟧ ∨ inj SortState SortKItem ⟦SortState⟧ ∨ inj SortVal SortKItem ⟦SortVal⟧)
+[Cons-Fun] cons-fun <generatedCounter>
+  x1 ∈ ⟦SortInt⟧ → (∃y:SortGeneratedCounterCell. <generatedCounter> x1 = y)
+[Cons-Inj] cons-inj <generatedCounter>
+  x1 ∈ ⟦SortInt⟧ ∧ y1 ∈ ⟦SortInt⟧ → <generatedCounter> x1 = <generatedCounter> y1 → x1 = y1
+[Cons-NoJunk] cons-nojunk SortGeneratedCounterCell
+  ⟦SortGeneratedCounterCell⟧ = (μX. <generatedCounter> ⟦SortInt⟧)
+[Cons-Fun] cons-fun noGeneratedCounterCell
+  ∃y:SortGeneratedCounterCellOpt. noGeneratedCounterCell = y
+[Cons-Fun] cons-fun inj SortGeneratedCounterCell SortGeneratedCounterCellOpt
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ → (∃y:SortGeneratedCounterCellOpt. inj SortGeneratedCounterCell SortGeneratedCounterCellOpt x1 = y)
+[Cons-Inj] cons-inj inj SortGeneratedCounterCell SortGeneratedCounterCellOpt
+  x1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortGeneratedCounterCell⟧ → inj SortGeneratedCounterCell SortGeneratedCounterCellOpt x1 = inj SortGeneratedCounterCell SortGeneratedCounterCellOpt y1 → x1 = y1
+[Cons-Dist] cons-dist noGeneratedCounterCell / inj SortGeneratedCounterCell SortGeneratedCounterCellOpt
+  y1 ∈ ⟦SortGeneratedCounterCell⟧ → ¬(noGeneratedCounterCell = inj SortGeneratedCounterCell SortGeneratedCounterCellOpt y1)
+[Cons-NoJunk] cons-nojunk SortGeneratedCounterCellOpt
+  ⟦SortGeneratedCounterCellOpt⟧ = (μX. noGeneratedCounterCell ∨ inj SortGeneratedCounterCell SortGeneratedCounterCellOpt ⟦SortGeneratedCounterCell⟧)
+[Cons-Fun] cons-fun <generatedTop>
+  x1 ∈ ⟦SortKCell⟧ ∧ x2 ∈ ⟦SortGeneratedCounterCell⟧ → (∃y:SortGeneratedTopCell. <generatedTop> x1 x2 = y)
+[Cons-Inj] cons-inj <generatedTop>
+  x1 ∈ ⟦SortKCell⟧ ∧ x2 ∈ ⟦SortGeneratedCounterCell⟧ ∧ y1 ∈ ⟦SortKCell⟧ ∧ y2 ∈ ⟦SortGeneratedCounterCell⟧ → <generatedTop> x1 x2 = <generatedTop> y1 y2 → x1 = y1 ∧ x2 = y2
+[Cons-NoJunk] cons-nojunk SortGeneratedTopCell
+  ⟦SortGeneratedTopCell⟧ = (μX. <generatedTop> ⟦SortKCell⟧ ⟦SortGeneratedCounterCell⟧)
+[Cons-Fun] cons-fun <generatedTop>-fragment
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ x2 ∈ ⟦SortGeneratedCounterCellOpt⟧ → (∃y:SortGeneratedTopCellFragment. <generatedTop>-fragment x1 x2 = y)
+[Cons-Inj] cons-inj <generatedTop>-fragment
+  x1 ∈ ⟦SortKCellOpt⟧ ∧ x2 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ y1 ∈ ⟦SortKCellOpt⟧ ∧ y2 ∈ ⟦SortGeneratedCounterCellOpt⟧ → <generatedTop>-fragment x1 x2 = <generatedTop>-fragment y1 y2 → x1 = y1 ∧ x2 = y2
+[Cons-NoJunk] cons-nojunk SortGeneratedTopCellFragment
+  ⟦SortGeneratedTopCellFragment⟧ = (μX. <generatedTop>-fragment ⟦SortKCellOpt⟧ ⟦SortGeneratedCounterCellOpt⟧)
+[Cons-Fun] cons-fun <k>
+  x1 ∈ ⟦SortK⟧ → (∃y:SortKCell. <k> x1 = y)
+[Cons-Inj] cons-inj <k>
+  x1 ∈ ⟦SortK⟧ ∧ y1 ∈ ⟦SortK⟧ → <k> x1 = <k> y1 → x1 = y1
+[Cons-NoJunk] cons-nojunk SortKCell
+  ⟦SortKCell⟧ = (μX. <k> ⟦SortK⟧)
+[Cons-Fun] cons-fun noKCell
+  ∃y:SortKCellOpt. noKCell = y
+[Cons-Fun] cons-fun inj SortKCell SortKCellOpt
+  x1 ∈ ⟦SortKCell⟧ → (∃y:SortKCellOpt. inj SortKCell SortKCellOpt x1 = y)
+[Cons-Inj] cons-inj inj SortKCell SortKCellOpt
+  x1 ∈ ⟦SortKCell⟧ ∧ y1 ∈ ⟦SortKCell⟧ → inj SortKCell SortKCellOpt x1 = inj SortKCell SortKCellOpt y1 → x1 = y1
+[Cons-Dist] cons-dist noKCell / inj SortKCell SortKCellOpt
+  y1 ∈ ⟦SortKCell⟧ → ¬(noKCell = inj SortKCell SortKCellOpt y1)
+[Cons-NoJunk] cons-nojunk SortKCellOpt
+  ⟦SortKCellOpt⟧ = (μX. noKCell ∨ inj SortKCell SortKCellOpt ⟦SortKCell⟧)
+[Cons-Fun] cons-fun z
+  ∃y:SortNat. z = y
+[Cons-Fun] cons-fun s
+  x1 ∈ ⟦SortNat⟧ → (∃y:SortNat. s x1 = y)
+[Cons-Inj] cons-inj s
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortNat⟧ → s x1 = s y1 → x1 = y1
+[Cons-Dist] cons-dist z / s
+  y1 ∈ ⟦SortNat⟧ → ¬(z = s y1)
+[Cons-NoJunk] cons-nojunk SortNat
+  ⟦SortNat⟧ = (μX. z ∨ s X)
+[Cons-Fun] cons-fun run
+  x1 ∈ ⟦SortNat⟧ → (∃y:SortState. run x1 = y)
+[Cons-Fun] cons-fun done
+  x1 ∈ ⟦SortVal⟧ → (∃y:SortState. done x1 = y)
+[Cons-Inj] cons-inj run
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortNat⟧ → run x1 = run y1 → x1 = y1
+[Cons-Inj] cons-inj done
+  x1 ∈ ⟦SortVal⟧ ∧ y1 ∈ ⟦SortVal⟧ → done x1 = done y1 → x1 = y1
+[Cons-Dist] cons-dist run / done
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortVal⟧ → ¬(run x1 = done y1)
+[Cons-NoJunk] cons-nojunk SortState
+  ⟦SortState⟧ = (μX. run ⟦SortNat⟧ ∨ done ⟦SortVal⟧)
+[Cons-Fun] cons-fun inj SortNat SortVal
+  x1 ∈ ⟦SortNat⟧ → (∃y:SortVal. inj SortNat SortVal x1 = y)
+[Cons-Inj] cons-inj inj SortNat SortVal
+  x1 ∈ ⟦SortNat⟧ ∧ y1 ∈ ⟦SortNat⟧ → inj SortNat SortVal x1 = inj SortNat SortVal y1 → x1 = y1
+[Cons-NoJunk] cons-nojunk SortVal
+  ⟦SortVal⟧ = (μX. inj SortNat SortVal ⟦SortNat⟧)
+[Cons-Coh] cons-coh SortNat < SortVal < SortKItem
+  x ∈ ⟦SortNat⟧ → inj SortVal SortKItem (inj SortNat SortVal x) = inj SortNat SortKItem x
+[Cons-Coh] cons-coh SortKCell < SortKCellOpt < SortKItem
+  x ∈ ⟦SortKCell⟧ → inj SortKCellOpt SortKItem (inj SortKCell SortKCellOpt x) = inj SortKCell SortKItem x
+[Cons-Coh] cons-coh SortGeneratedCounterCell < SortGeneratedCounterCellOpt < SortKItem
+  x ∈ ⟦SortGeneratedCounterCell⟧ → inj SortGeneratedCounterCellOpt SortKItem (inj SortGeneratedCounterCell SortGeneratedCounterCellOpt x) = inj SortGeneratedCounterCell SortKItem x
+
+## Γ_closure (KcoreSpec/Closure.lean)
+[Closure] closure (2 rules)
+  ∀y. •y ⊆ ((∃VarN:SortNat. ∃Var_Gen4:SortNat. ∃Var_DotVar0:SortGeneratedCounterCell. (<generatedTop> (<k> (kseq (inj SortState SortKItem (run (s VarN ∧ Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell]) ∧ y ∈ (<generatedTop> (<k> (kseq (inj SortState SortKItem (run (pred Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell])) ∨ (∃Var_Gen4:SortNat. ∃Var_DotVar0:SortGeneratedCounterCell. (<generatedTop> (<k> (kseq (inj SortState SortKItem (run (z ∧ Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell]) ∧ y ∈ (<generatedTop> (<k> (kseq (inj SortState SortKItem (done (inj SortNat SortVal Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell])))
+
+## Lemmas: the [simplification] axioms, not in Γ_D (STATEMENTS.md for the expected verdicts)
+[T-axiom] axiom 3 (INJ) [simplification]
+  S1 ∈ ⟦Sort⟧ ∧ S2 ∈ ⟦Sort⟧ ∧ S3 ∈ ⟦Sort⟧ ∧ R ∈ ⟦Sort⟧ ∧ T ∈ ⟦S1⟧ → (inj S2 S3 (inj S1 S2 T) =[S3,R] inj S1 S3 T) = ⟦R⟧
+[T-axiom] axiom 112 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Bool SelectorInput⌉[SortBool,R] →[R] kseq (inj SortBool SortKItem (project:Bool SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 115 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:K SelectorInput⌉[SortK,R] →[R] project:K SelectorInput =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 118 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:KItem SelectorInput⌉[SortKItem,R] →[R] kseq (project:KItem SelectorInput) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 128 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Int SelectorInput⌉[SortInt,R] →[R] kseq (inj SortInt SortKItem (project:Int SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 134 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:List SelectorInput⌉[SortList,R] →[R] kseq (inj SortList SortKItem (project:List SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 141 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Set SelectorInput⌉[SortSet,R] →[R] kseq (inj SortSet SortKItem (project:Set SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 146 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Map SelectorInput⌉[SortMap,R] →[R] kseq (inj SortMap SortKItem (project:Map SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 156 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:KCell SelectorInput⌉[SortKCell,R] →[R] kseq (inj SortKCell SortKItem (project:KCell SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 159 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Nat SelectorInput⌉[SortNat,R] →[R] kseq (inj SortNat SortKItem (project:Nat SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 162 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:State SelectorInput⌉[SortState,R] →[R] kseq (inj SortState SortKItem (project:State SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 165 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Val SelectorInput⌉[SortVal,R] →[R] kseq (inj SortVal SortKItem (project:Val SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 171 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedCounterCell SelectorInput⌉[SortGeneratedCounterCell,R] →[R] kseq (inj SortGeneratedCounterCell SortKItem (project:GeneratedCounterCell SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 174 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedCounterCellOpt SelectorInput⌉[SortGeneratedCounterCellOpt,R] →[R] kseq (inj SortGeneratedCounterCellOpt SortKItem (project:GeneratedCounterCellOpt SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 177 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedTopCell SelectorInput⌉[SortGeneratedTopCell,R] →[R] kseq (inj SortGeneratedTopCell SortKItem (project:GeneratedTopCell SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 180 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedTopCellFragment SelectorInput⌉[SortGeneratedTopCellFragment,R] →[R] kseq (inj SortGeneratedTopCellFragment SortKItem (project:GeneratedTopCellFragment SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 183 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:KCellOpt SelectorInput⌉[SortKCellOpt,R] →[R] kseq (inj SortKCellOpt SortKItem (project:KCellOpt SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 202 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ Q0 ∈ ⟦Sort⟧ ∧ @VarK0 ⊆ ⟦SortKItem⟧ ∧ @VarK1 ⊆ ⟦SortKItem⟧ ∧ @VarRest ⊆ ⟦SortMap⟧ → (⊤[R] →[R] ⌈_Map_ (_|->_ @VarK0 @VarK1) @VarRest⌉[SortMap,Q0] =[Q0,R] ((_in_keys(_)_MAP_Bool_KItem_Map @VarK0 @VarRest =[SortBool,Q0] dv[SortBool]("false") ∧ ⊤[Q0] ∧ ⌈@VarK1⌉[SortKItem,Q0]) ∧ ⊤[Q0])) = ⟦R⟧

@@ -1,0 +1,2 @@
+# pair priority x [owise]: an equation with priority(40) beside an [owise] one; differs_from c3-eq-only-prio-plain: the text without the pair's second modifier
+differs_from = "c3-eq-only-prio-plain"

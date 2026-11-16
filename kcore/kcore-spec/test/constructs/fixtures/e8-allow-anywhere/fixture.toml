@@ -1,0 +1,2 @@
+main = "e2-anywhere.k"
+extra = ["--allow-anywhere-haskell"]

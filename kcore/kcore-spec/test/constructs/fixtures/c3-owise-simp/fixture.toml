@@ -1,0 +1,2 @@
+# pair [owise] x [simplification] on one function: c3-eq-req-owise's two equations (f(X) => X requires X >Int 0, f(_) => 0 [owise]) beside a simplification rule of f; differs_from c3-eq-req-owise: the text without the simplification rule (without the attribute alone kompile rejects the rule: 'Illegal function symbol f on LHS of rule'); on one rule kompile rejects the pair (e2-simp-owise)
+differs_from = "c3-eq-req-owise"

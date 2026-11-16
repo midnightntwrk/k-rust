@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-band-ctor.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 83961
+definition.kore sha256: 71bfef5f911d355901f83e0104982e25e78be92d02c0717082c4e18ea21153fb
+stripped sha256: 478980a71e447d941ab01856d50ecbd395d059e887bf5bb9e5ff7b3048f7e464
+main module: 246 sentences, 21 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-BAND-CTOR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-BAND-CTOR as default.

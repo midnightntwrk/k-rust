@@ -1,0 +1,12 @@
+command: kompile --backend haskell e2-anywhere.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 205625
+definition.kore sha256: 07ff083aba82b9c2bcf232fa52f6d1444900a758d2d4a68a98bc5b9c1560e587
+stripped sha256: 5888c14a225bee0dbddd14ccee79c199b4a5e842c1bce2f00a38df233c927bbb
+main module: 405 sentences, 49 not in base's, in kore.txt
+same_as e8-allow-anywhere: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ANYWHERE as default.

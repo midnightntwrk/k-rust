@@ -1,0 +1,3 @@
+# e2-anywhere-eq's text without its anywhere equation, default options: equal to e8-allow-anywhere-eq's text after stripping, so the option drops the equation and nothing else
+main = "e2-anywhere-eq.k"
+same_as = "e8-allow-anywhere-eq"

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-reqens.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 212139
+definition.kore sha256: c7c88499fa01fc9de8ce36bdc20db1bfcc64d61fb602f68b60dde63573e761ca
+stripped sha256: 0c93cbcbc447cbf4cb7b44f89c8c107816ae2b56960a48653765c18f1ba7a058
+main module: 419 sentences, 63 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-REQENS-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-REQENS as default.

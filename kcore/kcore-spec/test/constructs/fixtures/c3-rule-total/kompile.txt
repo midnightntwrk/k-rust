@@ -1,0 +1,13 @@
+command: kompile --backend haskell c3-rule-total.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: Rule cannot have the following attributes: [total]
+  	Source(FIXTURE/c3-rule-total.k)
+  	Location(6,8,6,29)
+  	6 |	  rule <k> a(X) => b(X) </k> [total]
+  	  .	       ^~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-TOTAL-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-RULE-TOTAL as default.

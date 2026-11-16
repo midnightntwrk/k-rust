@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E5-OVL-FUN-LHS-OWISE: 435 sentences
+  1 inert import [generated]
+  208 read [generated]
+  183 read [builtin]
+  10 read [user]
+  7 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  2 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  12 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 overloadForm
+      sentence 301 (LblcapGas): overloadForm (LblcapN: neither a constructor nor an overloading symbol)
+        [generated] (no label) at :0: axiom{R} \equals{SortGas{}, R}(LblcapGas{}(inj{SortN{}, SortGas{}}(K0:SortN{})), inj{SortN{}, SortGas{}}(LblcapN{}(K0:SortN{}))) [symbol-overload{}(LblcapGas{}(), LblcapN{}())]
+finish: sentence 301 (LblcapGas): overloadForm (LblcapN: neither a constructor nor an overloading symbol)
+(exit 0)

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-fragment.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.6
+definition.kore bytes: 227293
+definition.kore sha256: 263f107aa5a2ac4b8262dbb24b53c2a9726dd74557a9ba183edce2b846ecbc4d
+stripped sha256: 0d2110ac6ca8cbb7cd60fe723978e0885b8ee09dac3219b5f3461f6c3ffa9218
+main module: 467 sentences, 123 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-FRAGMENT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-FRAGMENT as default.

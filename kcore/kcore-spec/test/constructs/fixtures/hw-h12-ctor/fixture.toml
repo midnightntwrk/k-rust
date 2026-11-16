@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3): H12, a symbol k(Int, Int) : Map that is no function, with constructor, declared beside MAP.
+# From: test/constructs/kfix.py run hw-base's definition.kore. No text kompile 7.1.337 delivers holds the shape.
+kore = "test/constructs/fixtures/hw-h12-ctor/hw-h12-ctor.kore"

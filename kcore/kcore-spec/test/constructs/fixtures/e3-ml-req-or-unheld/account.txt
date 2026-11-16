@@ -1,0 +1,22 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-REQ-OR-UNHELD: 402 sentences
+  1 inert import [generated]
+  186 read [generated]
+  184 read [builtin]
+  2 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 read requiresOrSplit [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 306: requiresOrSplit
+stage refusals (of sentences classified read): 1
+  1 unboundVariable
+      sentence 306 (Lbl'-LT-'generatedTop'-GT-'): unboundVariable (VarY: in the requires, not bound by the left side)
+        [user] (no label) at e3-ml-req-or-unheld.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblgo{}(VarX:SortInt{})), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \equals{SortBool{}, SortGeneratedTopCell{}}(\and{SortBool{}}(\or{SortBool{}}(Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0")), Lbl'U …
+finish: sentence 306 (Lbl'-LT-'generatedTop'-GT-'): unboundVariable (VarY: in the requires, not bound by the left side)
+(exit 0)

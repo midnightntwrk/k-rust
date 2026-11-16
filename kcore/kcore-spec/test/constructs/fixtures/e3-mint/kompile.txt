@@ -1,0 +1,10 @@
+command: kompile --backend haskell e3-mint.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 284214
+definition.kore sha256: 55e02c214378e76c7b0936783bb0767e8ba6cd68175a2049dc49e60dd44c96ab
+stripped sha256: dc04bb9cc85092a4b37bea344bad6c9fcf3bdae4ecaaf5c5f3065ba8a7149499
+main module: 590 sentences, 146 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name E3-MINT-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E3-MINT as default.

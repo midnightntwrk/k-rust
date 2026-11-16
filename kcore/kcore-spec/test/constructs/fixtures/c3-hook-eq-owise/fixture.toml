@@ -1,0 +1,2 @@
+# pair hook x equation: a hooked function of the text (hook INT.add) with two equations, plus(X, 0) => X and an [owise] equation beside it; differs_from c3-hook-only: the text without the equations
+differs_from = "c3-hook-only"

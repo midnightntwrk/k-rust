@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-eq-exists-int.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.9
+output:
+  [Error] Compiler: Cannot encode equations with existential variables to KORE.
+   If this is desired, please use #Exists with regular variables.
+   Offending variables: [?Z]
+   context: rule h(X)=>?Z requires #token("true","Bool") ensures
+  `_==Int_`(`_*Int_`(?Z,#token("2","Int")),X)
+  [UNIQUE_ID(70ad1b32f340f444fb0d6f7ea25579fb9cc81d0e26023af0eeb5eacd4e4e4d7b),
+  org.kframework.attributes.Location(Location(4,8,4,44)),
+  org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-int.k)),
+  org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody
+  "ensures" Bool [symbol(#ruleEnsures)])]
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-INT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-EXISTS-INT as default.

@@ -1,0 +1,2 @@
+# a binder of Bool (confined) in an alternative of \or, fixed inside it: f(X) => X #Or (#Exists B:Bool. (B #And {B #Equals notBool X})), and the variant fx with {B #Equals X}; neither total
+# from the sentences: f(x) = {x, notBool x}, two elements at every x (no result); fx(x) = {x}

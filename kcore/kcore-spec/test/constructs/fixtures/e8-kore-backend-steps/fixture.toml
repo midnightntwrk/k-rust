@@ -1,0 +1,4 @@
+main = "e7-constfold.k"
+text_from = "e7-constfold"
+extra = ["--kore-backend-steps", "resolveComm,resolveIO,resolveFun,resolveFunctionWithConfig,resolveStrict,resolveAnonVars,resolveContexts,numberSentences1,resolveHeatCoolAttribute,resolveSemanticCasts,subsortKItem1,propagateMacroToRules,guardOrs,resolveFreshConfigConstants,generateSortPredicateSyntax1,generateSortProjections1,expandMacros,addImplicitComputationCell,resolveFreshConstants,generateSortPredicateSyntax2,generateSortProjections2,checkSimplificationRules,subsortKItem2,concretizeCells,genCoverage,addSemanticsModule,resolveConfigVar,addCoolLikeAtt,removeAnywhereRules,generateSortPredicateRules,numberSentences2"]
+differs_from = "e7-constfold"

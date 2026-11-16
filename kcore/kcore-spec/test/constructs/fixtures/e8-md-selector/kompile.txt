@@ -1,0 +1,11 @@
+command: kompile --backend haskell --md-selector k & !extra md.md -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 82626
+definition.kore sha256: a1568cedc7d10e80fda0518cefeb513d376347b8205d14752ab86ef04c46c0e0
+stripped sha256: 2065debe52f5060831a5154d4d31255b69f2e7a0c9e71bd04832d46b5336168e
+main module: 239 sentences, 14 not in base's, in kore.txt
+differs_from e8-md: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name MD-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using MD as default.

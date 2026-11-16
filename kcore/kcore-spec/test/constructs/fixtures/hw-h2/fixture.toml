@@ -1,0 +1,3 @@
+# Hand-written KORE (KPROV-reopen-decision section 3): H2, an equation headed by the open generator and: and(X, Y) = and(X, X).
+# From: f2-examples/commctor.kompile.kore. No text kompile 7.1.337 delivers holds the shape.
+kore = "test/constructs/fixtures/hw-h2/hw-h2.kore"

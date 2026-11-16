@@ -1,0 +1,13 @@
+command: kompile --backend haskell --allow-anywhere-haskell e2-anywhere-simp.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: anywhere attribute is not supported on simplification rules.
+  	Source(FIXTURE/e2-anywhere-simp.k)
+  	Location(5,8,5,23)
+  	5 |	  rule f(f(X)) => f(X) [simplification, anywhere]
+  	  .	       ^~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-SIMP-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-ANYWHERE-SIMP as default.

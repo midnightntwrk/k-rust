@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E5-OVL-FUN-KEEP: 256 sentences
+  1 inert import [generated]
+  170 read [generated]
+  52 read [builtin]
+  5 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 overloadForm
+      sentence 216 (LblcapGas): overloadForm (LblcapN: neither a constructor nor an overloading symbol)
+        [generated] (no label) at :0: axiom{R} \equals{SortGas{}, R}(LblcapGas{}(inj{SortN{}, SortGas{}}(K0:SortN{})), LblcapN{}(K0:SortN{})) [symbol-overload{}(LblcapGas{}(), LblcapN{}())]
+finish: sentence 216 (LblcapGas): overloadForm (LblcapN: neither a constructor nor an overloading symbol)
+(exit 0)

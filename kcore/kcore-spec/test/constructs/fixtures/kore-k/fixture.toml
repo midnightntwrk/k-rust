@@ -1,0 +1,3 @@
+main = "kore.k"
+external = ["krs/semantics/kore/kore.k"]
+kore_txt = false

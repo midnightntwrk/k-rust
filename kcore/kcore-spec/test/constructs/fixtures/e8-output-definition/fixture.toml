@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+args = ["--backend", "haskell", "ref.k", "--output-definition", "out"]
+same_as = "e8-ref"

@@ -1,0 +1,9 @@
+command: kompile --backend haskell e1-registry-sort-name.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210449
+definition.kore sha256: ab25c4c7c41b42567d78c5289c9c55ecea9c78a71f4d697d3a316a9d20ee4d83
+stripped sha256: e34cf8343bc3edc80d1393fb129650d0ef094cc5e75822d73897bdbcd8b73446
+main module: 416 sentences, 62 not in base's, in kore.txt
+output:
+  

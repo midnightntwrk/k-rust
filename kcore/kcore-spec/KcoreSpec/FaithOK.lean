@@ -1,0 +1,487 @@
+/-
+  KCore. The decidable conditions on a semantics that the matching-logic theory `Γ`
+  (Faithful.lean) reads beyond `okAll` and `srReady`, joined in one check, `Semantics.faithOK`,
+  which `wf` reads (Tie.lean).
+
+  Step soundness (FaithfulSound.lean, `HypSound`) reads that the names and sort numbers of the
+  functions are well formed (`namesNumbered`), that values are generated (`genWf`), that no
+  collection sort holds a domain value (`collSortsOK`), that the definition's collections are
+  built by the parameters their names denote (`collsOK`), and that every symbol a left-hand side
+  may apply is one the downward reading covers (`patHeadsOK`). The existence of a model
+  (ModelCarrier.lean, `HypModel`) reads in addition that symbols and sorts are named apart
+  (`namesApartK`), literals told apart by their text (`LitsApart`), the sorts of values and
+  symbols numbered (`sortsNumbered`), collection symbols apart from constructors
+  (`collsNotCtors`), symbols named like `ite` apart by their sort (`itesApart`), hooks,
+  parameters and constructors apart (`kindsApart`), each constructor listed once (`ctorsOnce`),
+  and functions apart from the other kinds (`fnsApart`). The two facts of those hypotheses that
+  `wf` decides by its other conjuncts are not repeated: the map pattern symbols are not
+  constructors (`patHooksApart`, `NamesApart.patHooks_of_wf`), and the definition's own sorts and
+  symbols are numbered (`idsOK`, a conjunct of `namesOK`).
+-/
+import KcoreSpec.Evaluation
+import KcoreSpec.Emit
+import KcoreSpec.Kore.Distinct
+
+set_option autoImplicit false
+
+namespace KCore
+
+/-- The library collection of a kind (whose hooks a collection sort's symbols have). A range map's
+is RANGEMAP's sort and symbols, the fourth row of `builtinColls`. -/
+def builtinColl : CollKind → CollSig
+  | .map => builtinColls[0] | .set => builtinColls[1] | .list => builtinColls[2]
+  | .rangeMap => ⟨Srt.rangeMap, .rangeMap, Srt.range, some Srt.kitem, rmUnit, rmElem, rmConcat⟩
+
+namespace Faithful
+
+/-- Every sort the semantics numbers: the registry's and the definition's own. -/
+def kernelSorts (c : Semantics) : List Srt := List.range (nRegSorts + c.sortNames.length)
+
+/-- Every symbol the semantics gives a signature: its constructors, its functions (the sort
+predicates among them), its parameter symbols, the interpreted hooked symbols and its overloading
+symbols. -/
+def kernelSyms (c : Semantics) : List CtorSig :=
+  c.ctorSigs ++ c.allFns.map Fn.sig ++ c.params.map (·.sig) ++ hookSigs ++ c.ovlSigs
+
+/-- The constructor sorts: K, KItem, the definition's sorts (the cell sorts among them) and the
+library's sorts with generators, less the definition's own collection sorts (`c.colls`, whose
+values are collections), the token sorts (`c.lib.tokenSorts`, whose values are their literals)
+and the sorts hooked to a library carrier (`c.lib.carriers`, whose values are its literals). -/
+def consSorts (c : Semantics) : List Srt :=
+  ([Srt.k, Srt.kitem] ++ sortBy c.sortName (c.userSorts ++ c.libCtorSorts)).filter
+    fun s => !(c.colls.any (·.sort == s)) && !c.lib.tokenSorts.contains s && c.lib.carriers.all (·.1 != s)
+
+/-- A constructor sort is its own carrier. -/
+theorem carrier_of_consSorts {c : Semantics} {s : Srt} (h : s ∈ consSorts c) : c.lib.carrier s = s := by
+  unfold consSorts at h
+  exact Lib.carrier_of_not _ (by simp only [List.mem_filter, Bool.and_eq_true] at h; exact h.2.2)
+
+/-- The sorts whose distinct values denote distinct elements: Int, Bool, KConfigVar (whose values
+are its tokens, `dvOK`), Float, String and Bytes (whose values are their literals, whatever the
+imports), the library's token and byte sorts, every collection sort, and the sorts hooked to a
+library carrier. -/
+def distinctSorts (c : Semantics) : List Srt :=
+  [Srt.int, Srt.bool, Srt.kconfigVar, Srt.float, Srt.string, Srt.bytes] ++ c.lib.tokenSorts ++ c.lib.byteSorts ++
+    c.allColls.map (·.sort) ++ c.lib.carriers.map (·.1)
+
+/-- The value sort of the map collection `k`, at which `Γ` reads its entries' values: its `val`,
+and the sort 0 for a collection without one (a set's or a list's axioms read no value sort). -/
+def valSort (k : CollSig) : Srt := k.val.getD 0
+
+/-- A sort whose distinct values `Γ` makes distinct elements: K and the sorts below KItem, by the
+graph of `_==K_`; the sorts of `distinctSorts`, by the distinctness axiom. -/
+def apartSort (c : Semantics) (s : Srt) : Bool :=
+  s == Srt.k || s == Srt.kitem || c.sortsBelowKItem.contains s || (distinctSorts c).contains s
+
+/-- **Generated values.** Every constructor's result sort and every subsort pair's upper sort is a
+constructor sort, no subsort pair is reflexive, a constructor sort has no domain values and is no
+collection sort, the constructor sorts are `apartSort`, and an open generator's (a raw parameter's)
+result sort is a constructor sort. Decidable on the data. It says that a
+value of a constructor sort is a constructor or an injection applied to values, which is what makes
+the constructors' axioms of `Γ` (read at that sort) describe it (a Float literal's sort, Float, is no
+constructor sort), and that distinct values of every
+sort are distinct elements (KConfigVar's by `distinctSorts`). -/
+def genWf (c : Semantics) : Bool :=
+  c.ctorSigs.all (fun k => (consSorts c).contains k.result) &&
+  c.subsorts.all (fun p => (consSorts c).contains p.2 && p.1 != p.2) &&
+  (consSorts c).all (fun s => apartSort c s && s != Srt.int && s != Srt.bool && s != Srt.kconfigVar &&
+    !c.lib.tokenSorts.contains s && !c.lib.byteSorts.contains s && (c.collOf s).isNone && s != Srt.float &&
+    s != Srt.string && s != Srt.bytes) &&
+  c.params.all (fun k => !k.raw || (consSorts c).contains k.sig.result)
+
+/-- A collection sort holds no domain value: it is not Int, Bool, KConfigVar, Float, String, Bytes,
+or a token or byte sort of the library. Decidable on the data. -/
+def collSortOK (c : Semantics) (s : Srt) : Bool :=
+  s != Srt.int && s != Srt.bool && s != Srt.kconfigVar && !c.lib.tokenSorts.contains s &&
+    !c.lib.byteSorts.contains s && s != Srt.float && s != Srt.string && s != Srt.bytes &&
+    c.lib.carriers.all (·.1 != s)
+
+/-- A collection sort is its own carrier. -/
+theorem carrier_of_collSortOK {c : Semantics} {s : Srt} (h : collSortOK c s = true) : c.lib.carrier s = s :=
+  Lib.carrier_of_not _ (by unfold collSortOK at h; simp only [Bool.and_eq_true] at h; exact h.2)
+
+/-- Every collection sort of the semantics holds no domain value. -/
+def collSortsOK (c : Semantics) : Bool := c.allColls.all fun k => collSortOK c k.sort
+
+/-- The argument sorts of a collection's element symbol: key and value (`valSort`) for a map or a
+range map, the element sort otherwise. -/
+def elemArgs (k : CollSig) : List Srt :=
+  match k.kind with
+  | .map | .rangeMap => [k.key, valSort k]
+  | _ => [k.key]
+
+/-- The definition's collection `k` is the collection of its sort (`collOf`), and its unit,
+element and concatenation are parameter symbols, not named like a hook or like `ite` at a sort,
+whose declarations (the first of their names) have the collection's sorts and are implemented by
+the library's symbols of its kind; a map collection has a value sort. Decidable on the data;
+`collOK` (which `wf` checks) says that such parameters are declared, this says that they are the
+ones the names denote. -/
+def collSymsOK (c : Semantics) (k : CollSig) : Bool :=
+  decide (c.collOf k.sort = some k) &&
+  [k.unit, k.elem, k.concat].all (fun f => !isHook f && (iteSort? (c.symName f)).isNone) &&
+  decide (c.lookupParam k.unit = some { sig := ⟨k.unit, [], k.sort⟩, impl := some (builtinColl k.kind).unit }) &&
+  decide (c.lookupParam k.elem = some { sig := ⟨k.elem, elemArgs k, k.sort⟩, impl := some (builtinColl k.kind).elem }) &&
+  decide (c.lookupParam k.concat =
+    some { sig := ⟨k.concat, [k.sort, k.sort], k.sort⟩, impl := some (builtinColl k.kind).concat }) &&
+  (k.kind != .map || k.val.isSome)
+
+/-- A parameter implemented by a map pattern symbol or by a set or list one (`collPatternHooks`): a
+collection pattern symbol when it is not a hook (`isCollPat`). -/
+def collImpl (kp : ParamSig) : Bool :=
+  match kp.impl with
+  | some g => patternHooks.contains g || collPatternHooks.contains g
+  | none => false
+
+/-- The definition's collections are well formed (`collSymsOK`), and every parameter implemented by
+a map, set or list pattern symbol (`collImpl`) is the unit, element or concatenation of one of
+them. Decidable on the data. -/
+def collsOK (c : Semantics) : Bool :=
+  c.colls.all (collSymsOK c) &&
+  c.params.all fun kp => !collImpl kp ||
+    c.colls.any fun k => kp.sig.name == k.unit || kp.sig.name == k.elem || kp.sig.name == k.concat
+
+/-- A pattern symbol the downward reading covers, besides the constructors: a map pattern symbol,
+a collection pattern symbol (`isCollPat`: the library set's and list's, a parameter implemented
+by a map, set or list pattern symbol) or an overloading symbol (`isOvl`). -/
+def downHead (c : Semantics) (f : Sym) : Bool := patternHooks.contains f || c.isCollPat f || c.isOvl f
+
+/-- Every symbol a left-hand side's context gives a signature to (`patCtxAll`) is a constructor
+or a symbol the downward reading covers (`downHead`). Decidable on the data. -/
+def patHeadsOK (c : Semantics) : Bool :=
+  c.patCtxAll.heads.all fun k => c.isCtor k.name || downHead c k.name
+
+/-- The names and sort numbers of the functions are well formed: no constructor or function is
+named like `ite` at a sort (`iteSort?`), and every sort of a function is a numbered sort.
+`NamesNumbered` (Faithful.lean), decided. -/
+def namesNumbered (c : Semantics) : Bool :=
+  c.ctorSigs.all (fun k => (iteSort? (c.symName k.name)).isNone) &&
+  c.allFns.all (fun fn => (iteSort? (c.symName fn.label)).isNone) &&
+  c.allFns.all fun fn => (fn.result :: fn.args).all fun s => decide (s < nRegSorts + c.sortNames.length)
+
+namespace Model
+
+/-- `NamesApartK`, decided. -/
+def namesApartK (c : Semantics) : Bool :=
+  (kernelSyms c).all (fun k => (kernelSyms c).all fun k' => c.symName k.name != c.symName k'.name || k == k') &&
+  (kernelSyms c).all (fun k => c.symName k.name != "inj") &&
+  (kernelSorts c).all (fun s => (kernelSorts c).all fun s' => c.sortName s != c.sortName s' || s == s')
+
+/-- No token or byte sort of the library is Int, Bool or Float: a literal's text then determines the
+literal at each sort (`Lit.text` on the literals `dvOK` admits). -/
+def LitsApart (c : Semantics) : Bool :=
+  !(c.lib.tokenSorts ++ c.lib.byteSorts).contains Srt.int &&
+  !(c.lib.tokenSorts ++ c.lib.byteSorts).contains Srt.bool &&
+  !(c.lib.tokenSorts ++ c.lib.byteSorts).contains Srt.float
+
+/-- Every sort a value may have, and every sort of a symbol the semantics gives a signature, is a
+numbered sort (`kernelSorts`): the sorts of `kernelSyms` (a constructor term has its constructor's
+result sort), both sorts of each subsort pair (an injection has its upper one), the library's
+token and byte sorts (whose literals are values), and the sorts of every collection. The
+interpretation reads a sort by its name among the numbered sorts only, so a value of any other
+sort would denote no element of its sort. `NamesNumbered` says this of the functions only, and
+`idsOK` of the definition's own sorts only. -/
+def sortsNumbered (c : Semantics) : Bool :=
+  (kernelSyms c).all (fun k => (k.result :: k.args).all fun s => decide (s < nRegSorts + c.sortNames.length)) &&
+  c.subsorts.all (fun p => decide (p.1 < nRegSorts + c.sortNames.length) && decide (p.2 < nRegSorts + c.sortNames.length)) &&
+  (c.lib.tokenSorts ++ c.lib.byteSorts ++ c.lib.carriers.map (·.1)).all (fun s => decide (s < nRegSorts + c.sortNames.length)) &&
+  c.allColls.all (fun k => decide (k.sort < nRegSorts + c.sortNames.length) &&
+    decide (k.key < nRegSorts + c.sortNames.length) && decide (valSort k < nRegSorts + c.sortNames.length))
+
+/-- No unit, element or concatenation symbol of a collection is a constructor: the interpretation
+reads a constructor first, so such a symbol would build a constructor term where the collection's
+value is meant. `patHooksApart` says this of the library map's symbols only. -/
+def collsNotCtors (c : Semantics) : Bool :=
+  c.allColls.all fun k => [k.unit, k.elem, k.concat].all fun f => !c.isCtor f
+
+/-- Every symbol with a signature named like `ite` at a sort (`iteSort?`) is named at a numbered
+sort, and no two are named at one sort: `Lblite` applied to a sort reads the first such symbol
+(`resolve`), and `Γ` says of each of them what the head `Lblite` applied to its sort does
+(`symArityItem`, the graphs of `ΓDomains`), so a sort name that names no sort would leave a
+parameter's graph without an element. `iteSort?` drops the last character of the name, so
+`namesApartK` does not give the second part. -/
+def itesApart (c : Semantics) : Bool :=
+  (kernelSyms c).all fun k =>
+    (match iteSort? (c.symName k.name) with
+      | some X => (kernelSorts c).any fun s => c.sortName s == X
+      | none => true) &&
+    (kernelSyms c).all fun k' =>
+      (iteSort? (c.symName k.name)).isNone || iteSort? (c.symName k.name) != iteSort? (c.symName k'.name) || k == k'
+
+/-- The interpreted hooks and the parameters are not constructors, and no parameter is an
+interpreted hook: the interpretation reads a constructor first, then a hook, then a parameter, so
+a symbol of two kinds would be read as the first, against the graph `Γ` states of the other.
+`hooksApart` says this of the user's constructors and functions only, and is not part of `Hyp`. -/
+def kindsApart (c : Semantics) : Bool :=
+  hookSigs.all (fun k => !c.isCtor k.name) &&
+  c.params.all (fun kp => !c.isCtor kp.sig.name && !isHook kp.sig.name)
+
+/-- No constructor is listed twice: the names of `ctorSigs` are distinct. `Semantics.gens` reads a
+sort's constructors from `ctorSigs`, and `ΓCons` states the distinctness of every pair of them, so
+a constructor listed twice is said to be apart from itself (ModelDupCtorWitness.lean).
+`namesApartK` does not exclude it: the two entries are one signature. -/
+def ctorsOnce (c : Semantics) : Bool := nodup (c.ctorSigs.map (·.name))
+
+/-- No function is named like a constructor, an interpreted hook or a parameter: the interpretation
+reads a constructor, then a hook, then a parameter, then a function, so a function of another kind's
+name would be read as that symbol, against its equations, and `Γ` has no model when the function's
+equation gives the symbol another value than its constructor term (ModelFnCtorWitness.lean).
+`idsOK` numbers the user's functions apart from the user's constructors and parameters; the
+library's constructors and the registry's parameters are numbered by no check. -/
+def fnsApart (c : Semantics) : Bool :=
+  c.allFns.all fun fn => !c.isCtor fn.label && !isHook fn.label && !c.isParam fn.label
+
+/-! ### `namesApartK` by sorted codes
+
+`namesApartK` compares every two symbols' names, quadratic in their number. `namesApartFast`
+decides the same by the strictly ascending sorted codes of the names (`KoreAML.Distinct`): of the
+distinct signatures, and of the numbered sorts. -/
+
+/-- The names of the distinct signatures of `kernelSyms` and those of the numbered sorts are
+distinct (their codes, sorted, ascend), and no symbol is named `inj`. -/
+def namesApartFast (c : Semantics) : Bool :=
+  let ks := (kernelSyms c).eraseDups
+  KoreAML.Distinct.codesDistinct (KoreAML.Distinct.passesFor ks.length) (ks.map fun k => c.symName k.name) &&
+  (kernelSyms c).all (fun k => c.symName k.name != "inj") &&
+  KoreAML.Distinct.codesDistinct (KoreAML.Distinct.passesFor (kernelSorts c).length)
+    ((kernelSorts c).map c.sortName)
+
+theorem kore_nodup_spec : ∀ {l : List String}, KoreAML.nodup l = true → l.Nodup
+  | [], _ => List.nodup_nil
+  | a :: as, h => by
+    simp only [KoreAML.nodup, Bool.and_eq_true] at h
+    refine List.nodup_cons.mpr ⟨fun hm => ?_, kore_nodup_spec h.2⟩
+    rw [List.contains_iff_mem.mpr hm] at h
+    cases h.1
+
+theorem inj_of_nodup_map {α β : Type} {f : α → β} : ∀ {l : List α}, (l.map f).Nodup →
+    ∀ x ∈ l, ∀ y ∈ l, f x = f y → x = y
+  | [], _, _, hx, _, _, _ => absurd hx List.not_mem_nil
+  | a :: l, h, x, hx, y, hy, he => by
+    rw [List.map_cons, List.nodup_cons] at h
+    rcases List.mem_cons.mp hx with rfl | hx' <;> rcases List.mem_cons.mp hy with rfl | hy'
+    · rfl
+    · exact absurd (he ▸ List.mem_map_of_mem hy') h.1
+    · exact absurd (he.symm ▸ List.mem_map_of_mem hx') h.1
+    · exact inj_of_nodup_map h.2 x hx' y hy' he
+
+theorem namesApartK_of_fast {c : Semantics} (h : namesApartFast c = true) : namesApartK c = true := by
+  simp only [namesApartFast, Bool.and_eq_true] at h
+  obtain ⟨⟨h1, h2⟩, h3⟩ := h
+  have n1 := kore_nodup_spec (KoreAML.Distinct.nodup_of_codes h1)
+  have n3 := kore_nodup_spec (KoreAML.Distinct.nodup_of_codes h3)
+  simp only [namesApartK, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, bne_iff_ne, ne_eq,
+    beq_iff_eq]
+  refine ⟨⟨fun k hk k' hk' => ?_, fun k hk => ?_⟩, fun s hs s' hs' => ?_⟩
+  · by_cases he : c.symName k.name = c.symName k'.name
+    · exact Or.inr (inj_of_nodup_map n1 k (List.mem_eraseDups.mpr hk) k' (List.mem_eraseDups.mpr hk') he)
+    · exact Or.inl he
+  · simpa using List.all_eq_true.mp h2 k hk
+  · by_cases he : c.sortName s = c.sortName s'
+    · exact Or.inr (inj_of_nodup_map n3 s hs s' hs' he)
+    · exact Or.inl he
+
+end Model
+
+end Faithful
+
+/-! ## Confined sorts -/
+
+mutual
+  /-- The variables a term holds under constructors and injections only. -/
+  def ctorOccs (c : Semantics) : Term → List Nat
+    | .var i => [i]
+    | .app f ts => if c.isCtor f then ctorOccsList c ts else []
+    | .inj _ _ t => ctorOccs c t
+    | .as t i => ctorOccs c t ++ [i]
+    | .dv _ _ => []
+    termination_by structural t => t
+  def ctorOccsList (c : Semantics) : List Term → List Nat
+    | [] => []
+    | t :: ts => ctorOccs c t ++ ctorOccsList c ts
+    termination_by structural ts => ts
+end
+
+/-- Every value of s is a literal: no constructor, overloading symbol, open generator or injection
+ends at s, and s is no token, byte, collection or carrier sort. -/
+def Semantics.litSort (c : Semantics) (s : Srt) : Bool :=
+  c.ctorSigs.all (·.result != s) && c.ovlSigs.all (·.result != s) && c.subsorts.all (·.2 != s) &&
+  c.params.all (fun k => !(k.raw && k.sig.result == s)) && (c.collOf s).isNone &&
+  !c.lib.tokenSorts.contains s && !c.lib.byteSorts.contains s && c.lib.carriers.all (·.1 != s)
+
+/-- Confined at depth k: Bool with only literals; or a constructor sort with a generator, each of
+whose generators takes arguments of sorts confined at a smaller depth and is no overloading symbol
+that overloads a function. A sort without a generator is not confined: the text holds no sentence
+about which elements it has. A function an overloading generator overloads gives the generator's
+application at covered arguments a function's value, which need not be a value's. -/
+def Semantics.confinedAt (c : Semantics) : Nat → Srt → Bool
+  | 0, s => s == Srt.bool && c.litSort s
+  | k + 1, s => c.confinedAt 0 s ||
+      ((Faithful.consSorts c).contains s && !(c.gens s).isEmpty &&
+        (c.gens s).all fun g => g.argSorts.all (c.confinedAt k) &&
+          match g with
+          | .ctor kg => c.ovls.all fun o => o.sig.name != kg.name || o.over.all fun f => c.fns.all (·.label != f)
+          | .inj _ => true)
+
+/-- **The sorts every element of which the theory states to be a value's.** -/
+def Semantics.confined (c : Semantics) (s : Srt) : Bool :=
+  c.confinedAt (Faithful.kernelSorts c).length s
+
+/-- HO-1: the unit, element and concatenation symbols of a map, list or set collection. -/
+def Semantics.holds (c : Semantics) (f : Sym) : Bool := patternHooks.contains f || c.isCollPat f
+
+mutual
+  /-- The variables a term holds under constructors, injections and the symbols under which a
+  value's element has values' elements as arguments (`holds`). -/
+  def heldOccs (c : Semantics) : Term → List Nat
+    | .var i => [i]
+    | .app f ts => if c.isCtor f || c.holds f then heldOccsList c ts else []
+    | .inj _ _ t => heldOccs c t
+    | .as t i => heldOccs c t ++ [i]
+    | .dv _ _ => []
+  def heldOccsList (c : Semantics) : List Term → List Nat
+    | [] => []
+    | t :: ts => heldOccs c t ++ heldOccsList c ts
+end
+
+mutual
+  /-- A variable held under constructors and injections only is held (`heldOccs`). -/
+  theorem ctorOccs_subset_heldOccs (c : Semantics) : ∀ (t : Term), ∀ i ∈ ctorOccs c t, i ∈ heldOccs c t
+    | .var _, i, hi => by simpa [ctorOccs, heldOccs] using hi
+    | .app f ts, i, hi => by
+      unfold ctorOccs at hi
+      unfold heldOccs
+      by_cases hf : c.isCtor f = true
+      · rw [if_pos hf] at hi
+        rw [if_pos (by rw [hf]; rfl)]
+        exact ctorOccsList_subset_heldOccsList c ts i hi
+      · rw [if_neg hf] at hi
+        cases hi
+    | .inj _ _ t, i, hi => by
+      unfold ctorOccs at hi
+      unfold heldOccs
+      exact ctorOccs_subset_heldOccs c t i hi
+    | .as t j, i, hi => by
+      unfold ctorOccs at hi
+      unfold heldOccs
+      rcases List.mem_append.mp hi with hi | hi
+      · exact List.mem_append_left _ (ctorOccs_subset_heldOccs c t i hi)
+      · exact List.mem_append_right _ hi
+    | .dv _ _, i, hi => by simp [ctorOccs] at hi
+  /-- `ctorOccs_subset_heldOccs` over a list of terms. -/
+  theorem ctorOccsList_subset_heldOccsList (c : Semantics) :
+      ∀ (ts : List Term), ∀ i ∈ ctorOccsList c ts, i ∈ heldOccsList c ts
+    | [], i, hi => by simp [ctorOccsList] at hi
+    | t :: ts, i, hi => by
+      unfold ctorOccsList at hi
+      unfold heldOccsList
+      rcases List.mem_append.mp hi with hi | hi
+      · exact List.mem_append_left _ (ctorOccs_subset_heldOccs c t i hi)
+      · exact List.mem_append_right _ (ctorOccsList_subset_heldOccsList c ts i hi)
+end
+
+/-- Each binder of a condition ranges where values and elements agree: an `exMatch` variable is
+held by its pattern under constructors and injections, or is of a confined sort; an `ex` or `all`
+variable is of a confined sort. -/
+def Cond.bound (c : Semantics) (n : Nat) : Cond → Bool
+  | .exMatch ys _ p _ body =>
+      (List.range ys.length).all (fun j =>
+        (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) &&
+      Cond.bound c (n + ys.length) body
+  | .ex s body | .all s body => c.confined s && Cond.bound c (n + 1) body
+  | .not p => Cond.bound c n p
+  | .and p q | .or p q | .implies p q => Cond.bound c n p && Cond.bound c n q
+  | _ => true
+
+/-! ## Overloading symbols -/
+
+namespace Semantics
+variable (c : Semantics)
+
+/-- The overload of `o`'s symbol by the symbol of `kg` is well formed: kg has as many arguments,
+each of its argument sorts and its result sort at most `o`'s. -/
+def ovlPairOK (o : OvlSig) (kg : CtorSig) : Bool :=
+  kg.args.length == o.sig.args.length && (kg.args.zip o.sig.args).all (fun (A, B) => c.le A B) &&
+    c.le kg.result o.sig.result
+
+/-- The signature `kg` and, for an overloading symbol, the signatures of the symbols it overloads. -/
+def ovlDown (kg : CtorSig) : List CtorSig :=
+  kg :: match c.lookupOvl kg.name with
+    | some o => c.ovlOver o
+    | none => []
+
+/-- **Two overloads of one symbol agree**, those of `k1` and `k2`: at some position no sort lies
+below both argument sorts (no value lies in both), or a symbol h, `k1` or one it overloads and `k2`
+or one it overloads, covers every value lying in both: at each position, each sort at most both
+argument sorts is at most h's. -/
+def ovlCoherent (k1 k2 : CtorSig) : Bool :=
+  let lower := fun (A1 A2 : Srt) => (A1 :: A2 :: c.subsorts.map (·.1)).filter fun C => c.le C A1 && c.le C A2
+  (k1.args.zip k2.args).any (fun (A1, A2) => (lower A1 A2).isEmpty) ||
+  ((c.ovlDown k1).filter fun h => (c.ovlDown k2).contains h).any fun h =>
+    h.args.length == k1.args.length &&
+      ((h.args.zip k1.args).zip k2.args).all fun ((H, A1), A2) => (lower A1 A2).all fun C => c.le C H
+
+/-- **The overloading symbols are well formed**: each is an overloading symbol of no other kind
+(`isOvl`) declared once, named plainly (not like `ite` at a sort, so its applications in patterns and
+right-hand sides are written as its values are), of a constructor sort; each symbol it overloads is a constructor or an
+overloading symbol listed before it (so the overloads are acyclic and `norm`'s steps suffice), of
+its arity, with argument and result sorts at most its own (`ovlPairOK`); and any two overloads of
+one symbol agree (`ovlCoherent`). Decidable on the data. -/
+def overloadsOK : Bool :=
+  (c.ovls.zipIdx.all fun (o, i) =>
+    c.isOvl o.sig.name && c.lookupOvl o.sig.name == some o && (iteSort? (c.symName o.sig.name)).isNone &&
+    (Faithful.consSorts c).contains o.sig.result &&
+    o.over.all (fun g => (lookupSig c.ctorSigs g).isSome || (c.ovls.take i).any (·.sig.name == g)) &&
+    (c.ovlOver o).length == o.over.length &&
+    (c.ovlOver o).all (c.ovlPairOK o) &&
+    (c.ovlOver o).all fun k1 => (c.ovlOver o).all fun k2 => c.ovlCoherent k1 k2)
+
+/-- The symbols f reaches along the overloads, f among them, in at most `n` steps. -/
+def ovlReach : Nat → Sym → List Sym
+  | 0, f => [f]
+  | n + 1, f => f :: match c.lookupOvl f with
+    | some o => o.over.flatMap (ovlReach n)
+    | none => []
+
+/-- The symbols f reaches along the overloads, f among them (f alone for a symbol that overloads
+none). -/
+def ovlClosure (f : Sym) : List Sym := c.ovlReach (c.ovls.length + 1) f
+
+end Semantics
+
+open Faithful Faithful.Model in
+/-- **The decidable conditions of the theory**: what step soundness (`HypSound`) and the existence
+of a model (`HypModel`) read of a semantics beyond `okAll`, `srReady`, the map pattern symbols'
+apartness from the constructors and the numbering of the definition's own sorts and symbols,
+which `wf` decides otherwise. -/
+def Semantics.faithOK (c : Semantics) : Bool :=
+  namesNumbered c && genWf c && collSortsOK c && collsOK c && patHeadsOK c &&
+  namesApartK c && LitsApart c && sortsNumbered c && collsNotCtors c && itesApart c &&
+  kindsApart c && ctorsOnce c && fnsApart c
+
+open Faithful Faithful.Model in
+/-- **The decidable conditions of the theory that soundness and completeness read**: those of
+`faithOK` but `collsNotCtors`, which `kindsApart` and `collsOK` imply (`collsNotCtors_of`,
+FaithfulCollPat.lean). -/
+def Semantics.faithCoreOK (c : Semantics) : Bool :=
+  namesNumbered c && genWf c && collSortsOK c && collsOK c && patHeadsOK c &&
+  namesApartK c && LitsApart c && sortsNumbered c && itesApart c &&
+  kindsApart c && ctorsOnce c && fnsApart c
+
+open Faithful Faithful.Model in
+theorem Semantics.faithCoreOK_of_faithOK {c : Semantics} (h : c.faithOK = true) : c.faithCoreOK = true := by
+  simp only [Semantics.faithOK, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, -⟩, h10⟩, h11⟩, h12⟩, h13⟩ := h
+  simp only [Semantics.faithCoreOK, h1, h2, h3, h4, h5, h6, h7, h8, h10, h11, h12, h13, Bool.and_self]
+
+open Faithful Faithful.Model in
+/-- `faithOK` from its conjuncts, the names' apartness by sorted codes (`namesApartFast`): each a
+decision of its own. -/
+theorem Semantics.faithOK_of_parts {c : Semantics} (h1 : namesNumbered c = true) (h2 : genWf c = true)
+    (h3 : collSortsOK c = true) (h4 : collsOK c = true) (h5 : patHeadsOK c = true)
+    (h6 : namesApartFast c = true) (h7 : LitsApart c = true) (h8 : sortsNumbered c = true)
+    (h9 : collsNotCtors c = true) (h10 : itesApart c = true) (h11 : kindsApart c = true)
+    (h12 : ctorsOnce c = true) (h13 : fnsApart c = true) : c.faithOK = true := by
+  simp only [Semantics.faithOK, h1, h2, h3, h4, h5, namesApartK_of_fast h6, h7, h8, h9, h10, h11, h12,
+    h13, Bool.and_self]
+
+end KCore

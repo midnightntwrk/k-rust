@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module C3-HOOK-EQ-LIB: 387 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 read [user]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 hookEquation
+      sentence 301 (Lbl'UndsPlus'Int'Unds'): hookEquation (Lbl'UndsPlus'Int'Unds': a symbol of the registry)
+        [user] (no label) at c3-hook-eq-lib.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortInt{}, R}(Lbl'UndsPlus'Int'Unds'{}(X0:SortInt{}, X1:SortInt{}), \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("d8b4ae4926d8ec7b1d5abaa5fed68fd6c7f3f5a21c76a51231394a2b36fbf995"), org'Stop'kf …
+finish: sentence 301 (Lbl'UndsPlus'Int'Unds'): hookEquation (Lbl'UndsPlus'Int'Unds': a symbol of the registry)
+(exit 0)

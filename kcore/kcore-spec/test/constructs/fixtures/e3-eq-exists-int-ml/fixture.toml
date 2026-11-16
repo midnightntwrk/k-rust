@@ -1,0 +1,2 @@
+# e3-eq-exists-int (rule h(X) => ?Z ensures ?Z *Int 2 ==Int X; kompile rejects ?Z on an equation) in the #Exists spelling, the ensures as {(Z *Int 2 ==Int X) #Equals true}; imports BOOL so that true parses inside {...}
+# from the sentence: h(x) = {z of Int | (z *Int 2 ==Int x) = true}; Z is not confined and no conjunct equates it with a term, so the elements are ones the text does not name: refused existentialEquation Int

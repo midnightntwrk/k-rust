@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-eq-exists-bool-partial.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.0
+output:
+  [Error] Compiler: Cannot encode equations with existential variables to KORE.
+   If this is desired, please use #Exists with regular variables.
+   Offending variables: [?B]
+   context: rule f(X)=>?B requires #token("true","Bool") ensures
+  `_==Bool_`(?B,`notBool_`(X))
+  [UNIQUE_ID(fda651bb5aea1bb97a250db830bb3675848d88eb3f469061ac9a721208b80cf0),
+  org.kframework.attributes.Location(Location(4,8,4,46)),
+  org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-bool-partial.k)),
+  org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody
+  "ensures" Bool [symbol(#ruleEnsures)])]
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-BOOL-PARTIAL-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-EQ-EXISTS-BOOL-PARTIAL as default.

@@ -1,0 +1,160 @@
+/-
+  KCore. A substitution well sorted on the variables of a clause's patterns and conditions extends
+  to every variable of the clause, where each other variable is of a sort with a value.
+
+  `Fails` and `Clause.DecidesAt` range over substitutions well sorted on `leftVars`, `Eval.clause`
+  and `Clause.AppliesAt` over substitutions well sorted on every variable. Under `HeldAt` (each
+  variable in `leftVars` or of a sort with a value; `Semantics.RightHeld` gives it of every clause
+  of the definition's functions) the first give the second (`Semantics.extendHeld`), agreeing on
+  `leftVars`. Matching and evaluation read a substitution at the term's variables only
+  (`PatVal.congr_varsRH`, `PatVals.congr_varsRH`; for `EvalTerm`, `Exec.EvalTerm.congr`), and the
+  patterns and the `requires` have their variables in `leftVars`, so a match with a `requires`
+  true under the first is one under the extension (`Clause.appliesAt_extendRH`).
+-/
+import KcoreSpec.RightHeld
+import KcoreSpec.EvalFunctional
+
+set_option autoImplicit false
+
+namespace KCore
+
+/-! ## Matching reads a substitution at the pattern's variables only -/
+
+mutual
+  /-- Matching reads σ at the pattern's variables only. -/
+  theorem PatVal.congr_varsRH {c : Semantics} {σ σ' : Subst} : ∀ {p : Term} {v : GroundTerm}, PatVal c σ p v →
+      (∀ j ∈ varOccs p, σ'.lookup j = σ.lookup j) → PatVal c σ' p v
+    | .var j, v, h, ha => by
+      cases h with
+      | var h => exact .var (by rw [ha j (by simp [varOccs]), h])
+    | .dv s l, v, h, _ => by cases h; exact .dv
+    | .app f ps, v, h, ha => by
+      have ha' : ∀ j ∈ varOccsList ps, σ'.lookup j = σ.lookup j := fun j hj => ha j (by simpa [varOccs] using hj)
+      cases h with
+      | ctor hc hs => exact .ctor hc (PatVals.congr_varsRH hs ha')
+      | hook hp hs hv => exact .hook hp (PatVals.congr_varsRH hs ha') hv
+      | coll hc hp hs hv => exact .coll hc hp (PatVals.congr_varsRH hs ha') hv
+      | ovl hc ho hs hv => exact .ovl hc ho (PatVals.congr_varsRH hs ha') hv
+    | .inj a b p, v, h, ha => by
+      cases h with
+      | inj h => exact .inj (PatVal.congr_varsRH h fun j hj => ha j (by simpa [varOccs] using hj))
+    | .as p i, v, h, ha => by
+      cases h with
+      | as h hi =>
+        exact .as (PatVal.congr_varsRH h fun j hj => ha j (by simp [varOccs, hj]))
+          (by rw [ha i (by simp [varOccs]), hi])
+    termination_by structural p => p
+  /-- Matching a list of patterns reads σ at their variables only. -/
+  theorem PatVals.congr_varsRH {c : Semantics} {σ σ' : Subst} : ∀ {ps : List Term} {vs : List GroundTerm},
+      PatVals c σ ps vs → (∀ j ∈ varOccsList ps, σ'.lookup j = σ.lookup j) → PatVals c σ' ps vs
+    | [], vs, h, _ => by cases h; exact .nil
+    | p :: ps, vs, h, ha => by
+      cases h with
+      | cons h hs =>
+        exact .cons (PatVal.congr_varsRH h fun j hj => ha j (by simp [varOccsList, hj]))
+          (PatVals.congr_varsRH hs fun j hj => ha j (by simp [varOccsList, hj]))
+    termination_by structural ps => ps
+end
+
+/-! ## The extension step -/
+
+/-- Each variable of `vars` outside `L` is of a sort with a value. -/
+def Semantics.HeldAt (c : Semantics) (vars : List Srt) (L : List Nat) : Prop :=
+  ∀ i s, vars[i]? = some s → i ∈ L ∨ ∃ v, c.sortOf v = some s
+
+/-- `RightHeld` gives `HeldAt` of each clause of the definition's functions, on its `leftVars`. -/
+theorem Semantics.RightHeld.heldAt {c : Semantics} (h : c.RightHeld) {f : Fn} (hf : f ∈ c.fns) {cl : Clause}
+    (hcl : cl ∈ f.clauses) : c.HeldAt cl.vars cl.leftVars :=
+  h f hf cl hcl
+
+theorem Semantics.extendHeld_aux {c : Semantics} {vars : List Srt} {L : List Nat} (hh : c.HeldAt vars L)
+    (σ : Subst) :
+    ∀ js : List Nat, ∃ σ' : Subst, (∀ i ∈ L, σ'.lookup i = σ.lookup i) ∧
+      ∀ i ∈ js, i ∉ L → ∀ s, vars[i]? = some s → ∃ v, σ'.lookup i = some v ∧ c.sortOf v = some s
+  | [] => ⟨σ, fun _ _ => rfl, fun _ h => nomatch h⟩
+  | j :: js => by
+    obtain ⟨σ', h1, h2⟩ := Semantics.extendHeld_aux hh σ js
+    by_cases hj : j ∈ L
+    · exact ⟨σ', h1, fun i hi hiL s hs => by
+        rcases List.mem_cons.mp hi with rfl | hi
+        · exact absurd hj hiL
+        · exact h2 i hi hiL s hs⟩
+    · cases hv : vars[j]? with
+      | none => exact ⟨σ', h1, fun i hi hiL s hs => by
+          rcases List.mem_cons.mp hi with rfl | hi
+          · rw [hv] at hs; cases hs
+          · exact h2 i hi hiL s hs⟩
+      | some t =>
+        rcases hh j t hv with hjL | ⟨v, hsv⟩
+        · exact absurd hjL hj
+        · refine ⟨(j, v) :: σ', fun i hi => ?_, fun i hi hiL s hs => ?_⟩
+          · have hne : (i == j) = false := by
+              simp only [beq_eq_false_iff_ne, ne_eq]; rintro rfl; exact hj hi
+            simp only [List.lookup, hne]; exact h1 i hi
+          · by_cases hij : i = j
+            · subst hij
+              rw [hv] at hs; cases hs
+              exact ⟨v, by simp [List.lookup], hsv⟩
+            · have hne : (i == j) = false := by simpa using hij
+              rcases List.mem_cons.mp hi with rfl | hi
+              · exact absurd rfl hij
+              · simp only [List.lookup, hne]; exact h2 i hi hiL s hs
+
+/-- **A substitution well sorted on `L` extends to every variable** where each other variable is of
+a sort with a value, agreeing on `L`. -/
+theorem Semantics.extendHeld {c : Semantics} {vars : List Srt} {L : List Nat} (hh : c.HeldAt vars L) {σ : Subst}
+    (hσ : c.WellSortedAt vars L σ) :
+    ∃ σ', c.WellSorted vars σ' ∧ ∀ i ∈ L, σ'.lookup i = σ.lookup i := by
+  obtain ⟨σ', h1, h2⟩ := Semantics.extendHeld_aux hh σ (List.range vars.length)
+  refine ⟨σ', fun i s hs => ?_, h1⟩
+  by_cases hi : i ∈ L
+  · obtain ⟨v, hv, hsv⟩ := hσ i hi s hs
+    exact ⟨v, (h1 i hi).trans hv, hsv⟩
+  · have hlt : i < vars.length := (List.getElem?_eq_some_iff.mp hs).1
+    exact h2 i (List.mem_range.mpr hlt) hi s hs
+
+/-- The variables of a clause's `requires` are among those of its patterns and conditions. -/
+theorem Clause.req_leftVarsRH {cl : Clause} {t : Term} (ht : cl.req = some t) : ∀ i ∈ varOccs t, i ∈ cl.leftVars :=
+  fun i hi => List.mem_append_right _ (List.mem_append_left _ (by rw [ht]; exact hi))
+
+/-- **A clause that matches with its `requires` true under a substitution well sorted on its
+patterns and conditions applies under an extension of it**, where each other variable is of a sort
+with a value: the extension is well sorted on every variable and agrees on `leftVars`, which hold
+the variables of the patterns and of the `requires`. -/
+theorem Clause.appliesAt_extendRH {c : Semantics} {cl : Clause} (hh : c.HeldAt cl.vars cl.leftVars) {σ : Subst}
+    {vs : List GroundTerm} (hσ : c.WellSortedAt cl.vars cl.leftVars σ) (hm : PatVals c σ cl.pats vs)
+    (hreq : ∀ t, cl.req = some t → EvalTerm c σ t (some (bool true))) :
+    ∃ σ', cl.AppliesAt c σ' vs ∧ ∀ i ∈ cl.leftVars, σ'.lookup i = σ.lookup i := by
+  obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld hh hσ
+  refine ⟨σ', ⟨hws, PatVals.congr_varsRH hm fun j hj => hag j (List.mem_append_left _ hj), fun t ht => ?_⟩, hag⟩
+  exact Exec.EvalTerm.congr (hreq t ht) fun i hi => (hag i (Clause.req_leftVarsRH ht i hi)).symm
+
+/-- Where a clause's patterns bind every variable, each variable is in `leftVars`. -/
+theorem Semantics.heldAt_of_bindsRH {c : Semantics} {cl : Clause}
+    (hb : binds cl.vars.length (varOccsList cl.pats) = true) : c.HeldAt cl.vars cl.leftVars := by
+  intro i s hs
+  have hi : i < cl.vars.length := (List.getElem?_eq_some_iff.mp hs).1
+  exact Or.inl (List.mem_append_left _ (List.contains_iff_mem.mp (List.all_eq_true.mp hb i (List.mem_range.mpr hi))))
+
+/-- **A clause that applies under no substitution fails**, where each variable outside its
+patterns and conditions is of a sort with a value and its `requires` has a result at each match
+well sorted on every variable: a match well sorted on `leftVars` extends to one well sorted on every
+variable (`Semantics.extendHeld`), under which the `requires` has a result other than `true`, the
+same under the match (it reads `leftVars` only). -/
+theorem Clause.fails_of_not_appliesRH {c : Semantics} {cl : Clause} (hh : c.HeldAt cl.vars cl.leftVars)
+    {vs : List GroundTerm}
+    (hreq : ∀ σ, c.WellSorted cl.vars σ → PatVals c σ cl.pats vs → ∀ t, cl.req = some t → ∃ r, EvalTerm c σ t r)
+    (hna : ¬ ∃ σ, cl.AppliesAt c σ vs) : Fails c vs cl := by
+  refine Fails.intro fun σ hσ hm => ?_
+  obtain ⟨σ', hws, hag⟩ := Semantics.extendHeld hh hσ
+  have hm' : PatVals c σ' cl.pats vs := PatVals.congr_varsRH hm fun j hj => hag j (List.mem_append_left _ hj)
+  cases hr : cl.req with
+  | none => exact absurd ⟨σ', hws, hm', fun t ht => by rw [hr] at ht; cases ht⟩ hna
+  | some t =>
+    obtain ⟨r, he⟩ := hreq σ' hws hm' t hr
+    by_cases hb : r = some (bool true)
+    · subst hb
+      exact absurd ⟨σ', hws, hm', fun t' ht' => by rw [hr] at ht'; cases ht'; exact he⟩ hna
+    · exact ReqFails.intro hr (Exec.EvalTerm.congr he fun i hi => hag i (Clause.req_leftVarsRH hr i hi)) hb
+
+end KCore

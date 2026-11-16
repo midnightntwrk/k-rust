@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-setvar-rewrite-req.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 129374
+definition.kore sha256: 161f51af63a1f8c9f4d44bad17aed3f6ec32a520a543ee3d74204d76162a98b7
+stripped sha256: d8c5b4296af166bd92b9c21dff9da87efdcbb8ba97f35e2b58905cce09ba1d4d
+main module: 307 sentences, 39 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-SETVAR-REWRITE-REQ-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-SETVAR-REWRITE-REQ as default.

@@ -1,0 +1,16 @@
+command: kompile --backend haskell e3-cells.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 244333
+definition.kore sha256: 44141f6fd500ee6c8c11e1937df52921f97c4d1c8b58694b9f42c2629f84fe4b
+stripped sha256: 27aa0801aac86beb1ca7d6f5190f761aac315162a4222f96c88cae0fd6c553a8
+main module: 509 sentences, 165 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'B' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-cells.k)
+  	Location(9,36,9,37)
+  	9 |	  rule <t> <k> e() => a() ... </k> B:Bag </t>
+  	  .	                                   ^
+  [Warning] Compiler: Could not find main syntax module with name E3-CELLS-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E3-CELLS as default.

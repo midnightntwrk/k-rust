@@ -1,0 +1,147 @@
+# The core of KCore: what a reader must understand to know what `sound` and `complete` say.
+# Everything outside it is checked by Lean's kernel against it and needs no review.
+#
+# This file drives two things:
+#   - the docs-site Lean course: the doc owner writes about entries with status = "stable" only,
+#     and is told when a status changes, never when code changes;
+#   - the freeze: a stable entry changes only through a ticket that names it.
+#
+# status = "stable":      the declaration's text is expected to stay; teach it.
+# status = "provisional": named reason and the ticket that settles it; the course gives it one line
+#                         ("not settled: <reason>") and no explanation.
+#
+# The entries are the review cone of the roots below, grouped in teaching order. The cone is computed
+# by `#review_cone` (KcoreSpec/ReviewCone.lean): types of reached declarations, values of reached
+# definitions, proofs not entered.
+
+[tree]
+commit = "c68b1a1a"
+path = "/artifacts/worktrees/kcore-merge/draft-personal/k-semantics-core-2026-11/kcore-spec"
+roots = ["KCore.SoundC", "KCore.CompleteC", "KCore.StepIs", "KCore.Semantics.coreOK", "KCore.FnHyp"]
+headline = ["KCore.sound_hyp (c) (h : c.coreOK = true) (hf : FnHyp c) : SoundC c", "KCore.complete_hyp (c) (ref) (h : c.coreOK = true) (hf : FnHyp c) : CompleteC c ref"]
+cone_size = "3,910 lines in 762 declarations"
+declarations_authority = "core-cone.txt beside this file lists every declaration of the cone by module with its line range (findings/work/review-cone/core-hyp.txt at the commit); the declarations fields below name the main ones of each layer"
+changed = "2026-11-14, from 82f6879b (release run passed on c68b1a1a; release gate by a Fable agent: PASS): silent points, the mechanism with an EMPTY table: silentTable, silent, Semantics.fallback, Semantics.hookRes and Faithful.ΓFallback are added; EvalTerm's hook case, Faithful.Γ, ΓDomains and Semantics.paramVal read them; with the table empty every definition means what it meant at 82f6879b. The deciders handle overloading symbols (no cone change). The two theorems' statements are unchanged"
+
+[[layer]]
+id = "terms"
+order = 1
+status = "stable"
+teaches = "what a configuration is: ground terms, patterns with variables, sorts and symbols as numbers"
+file = "KcoreSpec/Core.lean (GroundTerm, Term, Lit); KcoreSpec/FixedSignature.lean (Srt, Sym and CtorSig only); KcoreSpec/Evaluation.lean (Subst)"
+declarations = ["KCore.GroundTerm", "KCore.Term", "Srt", "Sym", "KCore.Subst"]
+note = "a literal is an integer, a boolean, a token, bytes, or a float: Lit.float p e bits is the IEEE 754 encoding at precision p and exponent width e with one NaN per format, so equal values are equal terms (KcoreSpec/FloatDomain.lean, KFloat.ok)"
+note_literals = "a String is its sequence of Unicode scalar values and a Bytes value one character per byte below 256; both forms are canonical and settled"
+
+[[layer]]
+id = "signature"
+order = 2
+status = "stable"
+teaches = "a definition as a Lean value: sorts, constructors, subsorts, functions as clauses with priorities, rules with priorities, collections, overloading symbols (a symbol at larger sorts that agrees with constructors at smaller sorts on injected arguments)"
+file = "KcoreSpec/Core.lean"
+declarations = ["KCore.Semantics", "KCore.CtorSig (KcoreSpec/FixedSignature.lean)", "KCore.Fn", "KCore.Clause", "KCore.Rule", "KCore.CollSig", "KCore.CollKind", "KCore.OvlSig"]
+except = [
+  { declaration = "KCore.Lib, and the registry in KcoreSpec/FixedSignature.lean (everything but Srt, Sym and CtorSig), BuiltinNames.lean, BuiltinData.lean, Builtins.lean", status = "provisional", reason = "the library registry becomes a list of hook domains", ticket = "KN-4" },
+  { declaration = "KCore.Semantics.hooks, KCore.HookParams, KCore.ParamSig", status = "provisional", reason = "hook domains", ticket = "KN-4" },
+  { declaration = "KCore.Semantics.params", status = "provisional", reason = "sort parameters are read by a special case for ite", ticket = "KN-5" },
+]
+
+[[layer]]
+id = "values"
+order = 3
+status = "stable"
+teaches = "which ground terms are values of which sort; configurations as well-sorted terms of the top sort"
+file = "KcoreSpec/Value.lean"
+declarations = ["sortOf", "sortsOf", "KCore.Value", "KCore.Config", "WellSorted"]
+
+[[layer]]
+id = "matching"
+order = 4
+status = "stable"
+teaches = "when a pattern matches a value under a substitution, including map, list and set patterns (a set pattern that concatenates matches a disjoint split) and a pattern headed by an overloading symbol, as a relation"
+examples = "peano for variables, constructors, injections; kimp's rules for a map pattern (K |-> V M); colls-list for a list pattern"
+file = "KcoreSpec/Evaluation.lean"
+declarations = ["KCore.PatVal", "KCore.PatVals"]
+
+[[layer]]
+id = "evaluation"
+order = 5
+status = "stable"
+teaches = "function evaluation as a relation: a clause decides where it applies and every clause of a smaller priority fails; no result where every clause fails; the order of clauses has no meaning"
+file = "KcoreSpec/Evaluation.lean"
+declarations = ["KCore.Eval", "KCore.EvalTerm", "KCore.EvalTerms", "KCore.Fails", "KCore.ReqFails"]
+except = [
+  { declaration = "silentTable, silent, Semantics.fallback, Semantics.hookRes (KcoreSpec/Hooks.lean); Faithful.ΓFallback", status = "provisional", reason = "silent points: where K's text describes a hook on part of its arguments only, the result is a parameter value, theorems for every interpretation; the table is empty, so today nothing is silent; filling it is the next change", ticket = "SP-0 group B" },
+  { declaration = "KcoreSpec/Hooks.lean (the Bool, Int and Float operations, HookParams)", status = "provisional", reason = "hook domains; Float: 25 operations computed as IEEE 754 defines them, 16 left uninterpreted; String and Bytes: 35 operations computed (KcoreSpec/StringDomain.lean), partial where K's text defines them on part of their arguments only; whether a hook the library declares total but describes on part of its arguments (substrString) has no value or an undetermined one there is not settled, and the definedness choices are not yet compared with k-rust's docs/amendments.md", ticket = "KN-4" },
+  { declaration = "strictness of Bool hooks", status = "provisional", reason = "open choice: the kernel is strict, a short-circuiting reading is a named obligation", ticket = "decision C4" },
+]
+
+[[layer]]
+id = "step"
+order = 6
+status = "stable"
+teaches = "one step: a rule whose left side matches, whose requires is true, whose right side has a value, and no rule of a smaller priority applies"
+file = "KcoreSpec/Step.lean"
+declarations = ["KCore.Step", "KCore.NotApplies", "what Step.lean reads of rules: requires and priority"]
+
+[[layer]]
+id = "hypothesis"
+order = 7
+status = "stable"
+teaches = "what the theorems assume of a definition's functions, as four statements about evaluation: every function has a result on well-sorted arguments; every [total] function has a value; two clauses of one priority agree where both apply; two matches of one clause agree"
+file = "KcoreSpec/Statements.lean (FnHyp), EvalFunctional.lean (Coherent, MatchIndependent), ClausesAgree.lean"
+declarations = ["KCore.FnHyp", "KCore.Coherent", "KCore.MatchIndependent", "KCore.ClausesAgree"]
+examples = "fprio: the two clauses of ag agree (examples/fprio/User/Values.lean, ag_agree)"
+not_core = "how a package meets FnHyp: decidable checks confirm most of it and name the rest as a short list (Obligations, CoreObligations, the decider lists); with an empty list the package states sound and complete with no premise. One paragraph at most, as machinery the kernel checks. The lazy (short-circuit) obligations are used by neither headline theorem and are not taught here"
+
+[[layer]]
+id = "matching-logic"
+order = 8
+status = "stable"
+teaches = "patterns, models and Γ ⊧ φ of applicative matching logic, as much as the statements use"
+file = "aml-port: MatchingLogic/Pattern.lean, Semantics.lean, Definedness.lean"
+declarations = ["ML.Pattern", "ML.Interpretation", "the entailment Γ ⊧ φ", "definedness", "KoreAML.sNext", "KoreAML.allNext"]
+
+[[layer]]
+id = "theory"
+order = 9
+status = "stable"
+teaches = "the theory Γ a definition denotes, built from the Lean value: sorts and subsorts, constructors (no confusion, no junk), collections (four map axioms, five list axioms, four set axioms, as for maps, with concatenation defined on disjoint sets), overloading symbols (each overload as an equation, and distinctness of uncovered applications), function equations in priority form with the closure axiom, rule axioms; and the denotation of a configuration"
+file = "KcoreSpec/Faithful.lean, Kore/Translate.lean, Kore/Signature.lean, Kore/Gamma.lean"
+declarations = ["KCore.Faithful.Γ", "KCore.Faithful.Γstep", "KCore.den (KcoreSpec/Statements.lean)", "ΓSig", "ΓCons", "ΓColls", "ΓFns", "ΓRules"]
+except = [{ declaration = "ΓDomains", status = "provisional", reason = "hook domains", ticket = "KN-4" }]
+
+[[layer]]
+id = "statements"
+order = 10
+status = "stable"
+teaches = "SoundC: Γ with the step closure has a model and every step is entailed. CompleteC: every successor the theory forces is a step. The two theorems, with their two hypotheses"
+file = "KcoreSpec/Sound.lean, Statements.lean"
+declarations = ["KCore.SoundC", "KCore.CompleteC", "KCore.StepIs", "KCore.StepFn", "KCore.sound_hyp", "KCore.complete_hyp"]
+examples = "every package states coreOK_defn, sound_hyp and complete_hyp in NAME/Sound.lean (peano, ref-kimp); peano's instances are in examples/peano/User/Course.lean"
+note = "Sound d := SoundC d.sem and Complete d ref := CompleteC d.sem ref are aliases over a Definition; mention them in one line as the forms older text uses"
+
+[[layer]]
+id = "well-formedness"
+order = 11
+status = "stable"
+teaches = "coreOK, the decidable check on the semantics, as six conjuncts, each in words with its Lean text. sortedOK: subsorts a strict partial order whose upper sorts are user sorts or library constructor sorts, every clause and every rule well sorted; a token sort of the definition has its literals as values and no constructors. faithCoreOK: twelve naming and numbering conditions, each closing a way the theory Γ would otherwise have no model. hooksApart, predsApart, idsOK: names apart and numbering. overloadsOK: each overloading symbol is declared once, plainly named, over constructors or earlier overloading symbols, with coherent overloads. What coreOK does not ask, because no proof of either theorem reads it: that every sort has a value, that signatures are over declared sorts, that a map pattern has one frame, that a function without clauses is never applied"
+file = "KcoreSpec/Statements.lean (coreOK), Tie.lean (sortedOK), DefinitionWf.lean (subsortsOK, libConsSorts, clauseSorted, ruleSorted), FaithOK.lean (faithCoreOK), NamesApart.lean"
+declarations = ["KCore.Semantics.coreOK", "sortedOK", "subsortsOK", "libConsSorts", "clauseSorted", "ruleSorted", "faithCoreOK", "hooksApart", "predsApart", "idsOK", "overloadsOK"]
+examples = "kernel-checked definitions that meet every other condition and FnHyp yet whose Γ has no model: ModelKindsWitness (a hook also listed as a constructor), ModelItesWitness (two parameters with one name at one sort), ModelSortsWitness (an unnumbered token sort sharing the default name with a user sort), ModelOvlTwiceWitness (one overloading symbol listed twice); test/LibrarySubsort.lean (a user sort below JSON: a value and a step)"
+except = [
+  { declaration = "inside overloadsOK: an overloading symbol is not named like ite at a sort", status = "provisional", reason = "needed by the proofs (a pattern writes such a symbol under another name than the overload items use); no example shows it is needed in truth", ticket = "witness cores" },
+  { declaration = "inside faithCoreOK: the first half of itesApart (every symbol named like ite is named at a numbered sort)", status = "provisional", reason = "no example shows it is needed in truth; the second half (no two at one sort) has ModelItesWitness", ticket = "witness cores" },
+]
+note = "okAll and wf d (which also check inhabited sorts, declared signatures, the presentation, the certificates and the printer) are not core: wf implies coreOK and is what the tie to a KORE text and the executable matcher use. A package can be generated from coreOK alone (kcore gen --core); it states sound_hyp and complete_hyp and never wf"
+
+[not_core]
+# Checked by the kernel against the core; never taught as something to review.
+items = [
+  "every proof",
+  "the reader (Parse) and the tie to the KORE text: trusted only when a definition is read without the tie",
+  "the generator and every generated package",
+  "the test system: test/integration.sh per merged batch (pins of the statements, axioms of every declaration, cone diff, witnesses, corpus, round trip, agreement with reference backends on cases) and test/release.sh (every example package, KEVM, mir)",
+  "the deciders and the executable evaluators (the one for collection patterns is proved to list exactly Step's successors: KCore.CExec.step_iff)",
+  "theorem kinds (invariants, determinism, noninterference), certificates, the symbolic layer: taught later as uses of the core, each when its interface is stable",
+]

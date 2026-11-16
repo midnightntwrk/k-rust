@@ -1,0 +1,9 @@
+command: kompile --backend haskell e5-ovl-fun-clause.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 90003
+definition.kore sha256: e7c25dcb08be9039fb35e8578739535cdce5682ff3cf9c35095f73faf318ac0e
+stripped sha256: 6554493a26f9fdf844d7e0dde894eebcee0c50f5ba413bbd0226994ffde5e450
+main module: 261 sentences, 36 not in base's, in kore.txt
+output:
+  

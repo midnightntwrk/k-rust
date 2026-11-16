@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-comm-ctor.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 83843
+definition.kore sha256: bdd84cca7641dc3bcc9d5bb92c691612d8ed21dbb8978ea966cc984d99eb3fa3
+stripped sha256: d6c27dc1e763376c1940d1d6584576e59ac8759f7ff53f5765f14107ba52380f
+main module: 244 sentences, 19 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-COMM-CTOR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-COMM-CTOR as default.

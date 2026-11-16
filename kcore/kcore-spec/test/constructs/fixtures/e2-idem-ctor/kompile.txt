@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-idem-ctor.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 83783
+definition.kore sha256: 49d763017acf9855fcadd64cf2647df4b22d827ad30ae1d7464290657498939f
+stripped sha256: 6de1dd99b8c2487f6cc665f5d0fe42c796105a29d0a5716d84ffdb9c5b0d1714
+main module: 245 sentences, 20 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-IDEM-CTOR-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-IDEM-CTOR as default.

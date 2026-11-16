@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-update.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210473
+definition.kore sha256: c9024adf889b2cbdb052361441e1cc3920f516a6d2a7fe6460de940eebb9467e
+stripped sha256: 8020cecf969f7c087097c0da404dcad9364449b90cc30da34db7dd7fa434f662
+main module: 416 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?V' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-update.k)
+  	Location(6,50,6,52)
+  	6 |	  rule <k> go() => .K ... </k> <m> M => M [ 0 <- ?V:Int ] [ 0 <- 1 ] </m>
+  	  .	                                                 ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-UPDATE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-VARS-UPDATE as default.

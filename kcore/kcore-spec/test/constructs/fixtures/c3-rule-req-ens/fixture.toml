@@ -1,0 +1,2 @@
+# pair requires x ensures: one rule with both; differs_from c3-rule-only-req: the text without the pair's second modifier
+differs_from = "c3-rule-only-req"

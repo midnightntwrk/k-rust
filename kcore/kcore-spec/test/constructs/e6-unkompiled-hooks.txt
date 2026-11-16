@@ -1,0 +1,27 @@
+# E6 recount: hook names written `hook(...)` in the builtin files that no hooked declaration of the
+# kompiled text carries, each with the reason (kompile 7.1.337, --backend haskell).
+# A hook outside the namespaces of org.kframework.builtin.Hooks.namespaces is not a hook to kompile
+# (ModuleToKORE.isRealHook): the symbol is declared without it, as an ordinary function.
+RAT.add      RAT is not a hook namespace (Hooks.java); rat.md's symbols are plain functions
+RAT.div      as RAT.add
+RAT.eq       as RAT.add
+RAT.ge       as RAT.add
+RAT.gt       as RAT.add
+RAT.le       as RAT.add
+RAT.lt       as RAT.add
+RAT.max      as RAT.add
+RAT.min      as RAT.add
+RAT.mul      as RAT.add
+RAT.ne       as RAT.add
+RAT.pow      as RAT.add
+RAT.sub      as RAT.add
+# K is not a hook namespace either; SORT-K's and BASIC-K's sorts are the prelude's (kore/prelude.kore)
+K.K          kast.md SORT-K; the sort SortK of the prelude module KSEQ
+K.KItem      kast.md BASIC-K; the sort SortKItem of the prelude module BASIC-K
+# a hook on a token production gives no declaration
+MINT.literal domains.md MINT-SYNTAX: `syntax MInt{Width} ::= r"..." [token, hook(MINT.literal)]`
+# a module attributed [concrete] is excluded for the haskell backend (HaskellBackend.excludedModuleTags)
+BUFFER.StringBuffer  domains.md STRING-BUFFER-HOOKED [concrete]
+BUFFER.empty         as BUFFER.StringBuffer
+BUFFER.concat        as BUFFER.StringBuffer
+BUFFER.toString      as BUFFER.StringBuffer

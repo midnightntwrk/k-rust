@@ -1,0 +1,37 @@
+command: kompile --backend haskell --verbose ref.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 233133
+definition.kore sha256: 2f2e359bef54337aa5c688e27a9adbf76a7fc322619c15e74e23d2c5ba448d2d
+stripped sha256: 146c0c83cb2579e44b21de9a657073470687135cc8a062535b1b122f8f91bf70
+main module: 477 sentences, 0 not in e8-ref's, in kore.txt
+same_as e8-ref: equal after stripping
+output:
+  Parse command line options                                   =  0.013s
+  Importing: Source(Auto imported prelude)
+  Importing: Source(BUILTIN/prelude.md)
+  Importing: Source(BUILTIN/kast.md)
+  Importing: Source(BUILTIN/domains.md)
+  Importing: Source(FIXTURE/ref.k)
+  Outer parsing [65 modules]                                   =  0.420s
+    New scanner: REF-CONFIG-CELLS                              =  0.125s
+    New scanner: STDOUT-STREAM-CONFIG-CELLS                    =  0.187s
+    New scanner: STDIN-STREAM-CONFIG-CELLS                     =  0.198s
+  Parse configurations [3/3 declarations]                      =  0.330s
+    New scanner: REF-RULE-CELLS                                =  0.137s
+    New scanner: STRING-KORE-RULE-CELLS                        =  0.144s
+    New scanner: REF-RULE-CELLS                                =  0.189s
+    New scanner: STRING-COMMON-RULE-CELLS                      =  0.186s
+    New scanner: STDOUT-STREAM-RULE-CELLS                      =  0.210s
+    New scanner: STDIN-STREAM-RULE-CELLS                       =  0.235s
+    New scanner: K-IO-RULE-CELLS                               =  0.249s
+  Parse rules [128/128 rules]                                  =  0.454s
+  Validate parsed definition                                   =  0.151s
+  Apply compile pipeline and validate definition               =  0.160s
+  Kompile to kore                                              =  0.006s
+  Save to disk                                                 =  0.026s
+    Print definition.kore                                      =  0.075s
+    Validate def                                               =  0.151s
+  Backend                                                      =  0.227s
+  Cleanup                                                      =  0.000s
+  Total                                                        =  1.787s

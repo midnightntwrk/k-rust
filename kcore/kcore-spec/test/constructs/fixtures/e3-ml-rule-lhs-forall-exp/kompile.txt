@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-forall-exp.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 85555
+definition.kore sha256: 7316dbcec63cd5b8e7c2d455dd31f83b2ce883e9e73ea5c164717139c748ddae
+stripped sha256: 22fc71b2f71569e2c8a3398355fb902132a7beef9c7aa9ae7b95b31e3540c8be
+main module: 248 sentences, 23 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-FORALL-EXP-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-RULE-LHS-FORALL-EXP as default.

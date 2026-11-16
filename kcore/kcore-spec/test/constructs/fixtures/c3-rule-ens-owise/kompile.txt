@@ -1,0 +1,10 @@
+command: kompile --backend haskell ensrule-overlap.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 208927
+definition.kore sha256: f7f95ac67376dd5bf39195a7d89038494911d639c587b59b5ed24e673fcea6d2
+stripped sha256: 508b98c8950706c5c36cd2338502f67c14826d148e657690dc63c8a0bcc85773
+main module: 410 sentences, 56 not in base's, in kore.txt
+differs_from c3-rule-ens-owise-base: different after stripping
+output:
+  

@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-owise-total.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 203922
+definition.kore sha256: 7cb6b4573801adf5e282900ef7d6ba5301b4596ee14cc74f9a9b9402cb47b591
+stripped sha256: b67e3e5d018ec121ec075a662111c7714f98caf24a37657c9f2824fa92aa3d11
+main module: 393 sentences, 36 not in base's, in kore.txt
+differs_from c3-eq-only-owise: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-OWISE-TOTAL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-EQ-OWISE-TOTAL as default.

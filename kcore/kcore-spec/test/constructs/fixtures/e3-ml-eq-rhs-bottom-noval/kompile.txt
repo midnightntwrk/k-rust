@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-ml-eq-rhs-bottom-noval.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 270135
+definition.kore sha256: 014276bd38ada6322783ef312869e2e660671c1ec9df5f51286c6a796abda530
+stripped sha256: 12fd107dbf4f26725bc316a893bde0203e65c045db5ab8e9d222e860899d1e16
+main module: 488 sentences, 79 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-eq-rhs-bottom-noval.k)
+  	Location(6,10,6,11)
+  	6 |	  rule f(X) => c("x") [owise]
+  	  .	         ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-RHS-BOTTOM-NOVAL-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-EQ-RHS-BOTTOM-NOVAL as default.

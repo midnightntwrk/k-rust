@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+extra = ["--top-cell", "t"]
+same_as = "e8-ref"

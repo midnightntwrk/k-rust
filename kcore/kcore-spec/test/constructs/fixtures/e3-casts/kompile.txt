@@ -1,0 +1,10 @@
+command: kompile --backend haskell e3-casts.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.8
+definition.kore bytes: 213443
+definition.kore sha256: 8a05e6a33f272d66f0155a121b8efc2d7f9751de3a0cd2a7b00e2843b87f7d43
+stripped sha256: 3ab0edc608ddb5013cb31900935dd3c338b4362bddbb44834fef2467f1e8c1d3
+main module: 421 sentences, 65 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name E3-CASTS-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E3-CASTS as default.

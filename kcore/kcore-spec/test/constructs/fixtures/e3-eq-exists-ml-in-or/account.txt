@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-ML-IN-OR: 281 sentences
+  1 inert import [generated]
+  157 read [generated]
+  95 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 manyValuedRightSide
+      sentence 246 (Lblf): manyValuedRightSide (\or)
+        [user] (no label) at e3-eq-exists-ml-in-or.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\or{SortBool{}}(VarX:SortBool{}, \exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, \equals{SortBool{}, SortBool{}}(VarB:SortBool{}, LblnotBool'Unds'{}(VarX:SortBool{}))))), \top{SortBool{}}()))) [UNIQUE' …
+      sentence 247 (Lblfx): manyValuedRightSide (\or)
+        [user] (no label) at e3-eq-exists-ml-in-or.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, VarX:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblfx{}(X0:SortBool{}), \and{SortBool{}}(\or{SortBool{}}(VarX:SortBool{}, \exists{SortBool{}}(VarB:SortBool{}, \and{SortBool{}}(VarB:SortBool{}, \equals{SortBool{}, SortBool{}}(VarB:SortBool{}, VarX:SortBool{})))), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("d686981a …
+finish: sentence 246 (Lblf): manyValuedRightSide (\or)
+(exit 0)

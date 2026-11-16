@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-cells-dotbag.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 218950
+definition.kore sha256: 8c29afb204dc5b88736854163ecc282a5af1a6b7ac2dc2af02f413b52bbd0148
+stripped sha256: e515443a0f666ce098cd807ce443aacaf49f251c2ef6d27cb4c80cba617270ba
+main module: 442 sentences, 98 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-CELLS-DOTBAG-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-CELLS-DOTBAG as default.

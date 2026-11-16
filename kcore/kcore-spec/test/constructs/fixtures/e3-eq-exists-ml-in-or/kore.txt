@@ -1,0 +1,62 @@
+//@ 0
+module E3-EQ-EXISTS-ML-IN-OR
+//@ 55
+  symbol Lblf{}(SortBool{}) : SortBool{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,19,3,48)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or.k)"), symbol'Kywd'{}("f")]
+//@ 57
+  symbol Lblfx{}(SortBool{}) : SortBool{} [function{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,51,3,82)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or.k)"), symbol'Kywd'{}("fx")]
+//@ 139
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsSlshEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 140
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'UndsEqlsEqls'Bool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 153
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 154
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'andThenBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 155
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'impliesBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 158
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 159
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'orElseBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 160
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, Lbl'Unds'xorBool'Unds'{}(K0:SortBool{}, K1:SortBool{}))) [functional{}()] // functional
+//@ 182
+  axiom{R} \exists{R} (Val:SortBool{}, \equals{SortBool{}, R} (Val:SortBool{}, LblnotBool'Unds'{}(K0:SortBool{}))) [functional{}()] // functional
+//@ 233
+// rule f(X)=>#Or{Bool}(X,#Exists{Bool,Bool}(B,#And{Bool}(B,#Equals{Bool,Bool}(B,`notBool_`(X))))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(007c3efec760811b630a7ba973498c6905b6ae58de2712296c3bf813301abf0a), org.kframework.attributes.Location(Location(4,8,4,70)), org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-ml-in-or.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortBool{}, R} (
+            X0:SortBool{},
+            VarX:SortBool{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblf{}(X0:SortBool{}),
+     \and{SortBool{}} (
+       \or{SortBool{}}(VarX:SortBool{},\exists{SortBool{}}(VarB:SortBool{},\and{SortBool{}}(VarB:SortBool{},\equals{SortBool{}, SortBool{}}(VarB:SortBool{},LblnotBool'Unds'{}(VarX:SortBool{}))))),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("007c3efec760811b630a7ba973498c6905b6ae58de2712296c3bf813301abf0a"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,8,4,70)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or.k)")]
+//@ 234
+// rule fx(X)=>#Or{Bool}(X,#Exists{Bool,Bool}(B,#And{Bool}(B,#Equals{Bool,Bool}(B,X)))) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(d686981ad7fd38f409cdaa5f211536a882a81c8435048ca15f5908dad7ff226a), org.kframework.attributes.Location(Location(5,8,5,63)), org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-ml-in-or.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{R} \implies{R} (
+    \and{R}(
+      \top{R}(),
+      \and{R} (
+          \in{SortBool{}, R} (
+            X0:SortBool{},
+            VarX:SortBool{}
+          ),
+          \top{R} ()
+        )),
+    \equals{SortBool{},R} (
+      Lblfx{}(X0:SortBool{}),
+     \and{SortBool{}} (
+       \or{SortBool{}}(VarX:SortBool{},\exists{SortBool{}}(VarB:SortBool{},\and{SortBool{}}(VarB:SortBool{},\equals{SortBool{}, SortBool{}}(VarB:SortBool{},VarX:SortBool{})))),
+        \top{SortBool{}}())))
+  [UNIQUE'Unds'ID{}("d686981ad7fd38f409cdaa5f211536a882a81c8435048ca15f5908dad7ff226a"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,63)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or.k)")]
+//@ 283
+endmodule [org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e3-eq-exists-ml-in-or.k)")]

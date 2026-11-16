@@ -1,0 +1,50 @@
+command: kompile --backend haskell e3-ml-eq-arg-not.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.0
+output:
+  kore-exec: [54580] Error (ErrorVerify):
+      Error:
+        module 'E3-ML-EQ-ARG-NOT':
+        axiom declaration:
+        (definition.kore 1416:18):
+          Found invalid subterm in argument of function equation:
+              \not{SortInt{}}(\dv{SortInt{}}("0"))
+          The equation that the above occurs in is:
+              requires:
+                  \top{_}()
+              argument:
+                  \in{SortInt{}, _}(X0:SortInt{}, \not{SortInt{}}(\dv{SortInt{}}("0")))
+              antiLeft:
+                  
+              left:
+                  Lblf{}(X0:SortInt{})
+              right:
+                  \dv{SortInt{}}("1")
+              ensures:
+                  \top{_}()
+  Error:
+    module 'E3-ML-EQ-ARG-NOT':
+    axiom declaration:
+    (definition.kore 1416:18):
+      Found invalid subterm in argument of function equation:
+          \not{SortInt{}}(\dv{SortInt{}}("0"))
+      The equation that the above occurs in is:
+          requires:
+              \top{_}()
+          argument:
+              \in{SortInt{}, _}(X0:SortInt{}, \not{SortInt{}}(\dv{SortInt{}}("0")))
+          antiLeft:
+              
+          left:
+              Lblf{}(X0:SortInt{})
+          right:
+              \dv{SortInt{}}("1")
+          ensures:
+              \top{_}()
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-EQ-ARG-NOT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-EQ-ARG-NOT as default.

@@ -1,0 +1,16 @@
+command: kompile --backend haskell e2-all-path.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.9
+output:
+  kore-exec: [12019] Error (ErrorParse):
+      definition.kore:635:3: unexpected token TokenLeftBracket
+  
+  definition.kore:635:3: unexpected token TokenLeftBracket
+  
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ALL-PATH-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ALL-PATH as default.

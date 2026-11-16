@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-fn-assoc-unit.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 204366
+definition.kore sha256: 1e7f66ac41e7e1bf16f4d3aee816d3a5340323a4ae1b0780907e1ec4f081964a
+stripped sha256: a73b4faed028cca09f2d76af28df2081a621b93bd29073df62ed11b3a708c609
+main module: 398 sentences, 41 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-FN-ASSOC-UNIT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-FN-ASSOC-UNIT as default.

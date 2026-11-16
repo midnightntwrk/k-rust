@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-ML-SUPERSORT: 390 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  4 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 manyValuedRightSide
+      sentence 349 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-ml-supersort.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortKItem{}, R}(Lblf{}(X0:SortInt{}), \and{SortKItem{}}(\exists{SortKItem{}}(VarB:SortBool{}, \and{SortKItem{}}(inj{SortBool{}, SortKItem{}}(VarB:SortBool{}), \equals{SortBool{}, SortKItem{}}(VarB:SortBool{}, Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("0"))))), \top{So …
+      sentence 352 (Lblh): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-ml-supersort.k:7: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortKItem{}, R}(X0:SortKItem{}, VarK:SortKItem{}), \top{R}())), \equals{SortInt{}, R}(Lblh{}(X0:SortKItem{}), \and{SortInt{}}(\exists{SortInt{}}(VarZ:SortInt{}, \and{SortInt{}}(VarZ:SortInt{}, \equals{SortKItem{}, SortInt{}}(inj{SortInt{}, SortKItem{}}(VarZ:SortInt{}), VarK:SortKItem{}))), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("de9111af2abe168e6 …
+finish: sentence 349 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

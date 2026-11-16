@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-binder.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 273629
+definition.kore sha256: 5a13274a5e4c0202343e78b2b7676fbc45f56b961d2bf19b96091dafa4690ece
+stripped sha256: 6071994cd58a52114ab6f9eca413e08229ecd58b4743503eb63a2fc1b48f3500
+main module: 501 sentences, 88 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-BINDER-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-BINDER as default.

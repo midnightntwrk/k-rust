@@ -1,0 +1,30 @@
+// A hand-written KORE definition that uses every construct of the grammar,
+// including those krust's output for the round-trip inputs lacks.
+/* Comments are whitespace. */
+[ source{}("features.kore"), escapes{}("tab\t nl\n ff\f cr\r quote\" backslash\\ x\x7f u\u00e9 U\U0001F600") ]
+module FEATURES-BASE
+  sort SortNat{} []
+  hooked-sort SortInt{} [hook{}("INT.Int")]
+  sort SortList{E} []
+  symbol zero{}() : SortNat{} [constructor{}()]
+  symbol succ{}(SortNat{}) : SortNat{} [constructor{}()]
+  hooked-symbol plusInt{}(SortInt{}, SortInt{}) : SortInt{} [hook{}("INT.add"), left{}(plusInt{}())]
+  symbol cons{E}(E, SortList{E}) : SortList{E} []
+  symbol inj{From, To}(From) : To [sortInjection{}()]
+  symbol \bslash{}() : SortNat{} []
+endmodule [comment{}("base")]
+module FEATURES
+  import FEATURES-BASE []
+  alias rewritesTo{R}(R, R) : R where rewritesTo{R}(A:R, B:R) := \rewrites{R}(A:R, B:R) []
+  alias ev{R}(R) : R where ev{R}(@X:R) := \mu{}(@Y:R, \or{R}(@X:R, \next{R}(@Y:R))) []
+  axiom{R} \forall{R}(N:SortNat{}, \iff{R}(\floor{SortNat{}, R}(N:SortNat{}), \not{R}(\bottom{R}()))) []
+  axiom{R} \nu{}(@Z:R, \and{R}(@Z:R, \top{R}(), \next{R}(@Z:R))) []
+  axiom{} \left-assoc{}(plusInt{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"), \dv{SortInt{}}("3"))) []
+  axiom{E} \right-assoc{}(cons{E}(X:E, Y:E, Z:SortList{E})) []
+  axiom{R} \and{R}() []
+  axiom{R} \or{R}(\top{R}()) []
+  axiom{R} \equals{SortNat{}, R}(\bslash{}(), zero{}()) [label{}("weird \"label\"")]
+  axiom{R} \in{SortNat{}, R}(succ{}(zero{}()), \exists{SortNat{}}(M:SortNat{}, succ{}(M:SortNat{}))) []
+  axiom{R} \ceil{SortInt{}, R}(\dv{SortInt{}}("-42")) []
+  claim{} \implies{SortNat{}}(\top{SortNat{}}(), rewritesTo{SortNat{}}(zero{}(), zero{}())) [one-path{}()]
+endmodule []

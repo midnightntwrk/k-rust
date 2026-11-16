@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-req-forall.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 209297
+definition.kore sha256: 276322264ef6a3185a74efe23377c1e7f7bf048f6183294c9d2c006c30d28578
+stripped sha256: f12c3215ae78c0c53cee2c0d313cc2463fa9e8655cac20ca47950333fb26390f
+main module: 413 sentences, 57 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-FORALL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-FORALL as default.

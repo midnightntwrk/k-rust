@@ -1,0 +1,14 @@
+command: kompile --backend haskell e3-ml-rule-lhs-ceil.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: Illegal function symbol _/Int_ on LHS of rule. Consider
+  adding `simplification` attribute to the rule if this is intended.
+  	Source(FIXTURE/e3-ml-rule-lhs-ceil.k)
+  	Location(4,29,4,37)
+  	4 |	  rule <k> go(X) #And #Ceil(1 /Int X) => done ... </k>
+  	  .	                            ^~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-CEIL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-RULE-LHS-CEIL as default.

@@ -1,0 +1,742 @@
+/-
+  KCore. The meaning of the interpreted hooked symbols on ground values (KCORE-SPEC.md §6).
+  Frozen layer. Bool's and Int's operations, `==K` and `=/=K`, finite maps (`.Map`, `|->`, `_Map_`,
+  update, removal, lookup, `in_keys`, size, `keys`, `removeAll`) and finite sets (`.Set`,
+  `SetItem`, `_Set_` and `|Set` (union), `intersectSet`, `Set:difference`, `Set:in`, `<=Set`,
+  `size`) and finite lists (`.List`, `ListItem`, `_List_`, `pushList`, `L[I]`, `range`, `inList`,
+  `size`), and FLOAT's IEEE 754 operations (FloatDomain.lean): `+ - * / %Float`, `--Float`,
+  `absFloat`, floor, ceil, trunc, `sqrtFloat`, `roundFloat`, `Int2Float`, the comparisons, `isNaN`,
+  `isInfinite`, precision, exponent width, `maxValueFloat`, `minValueFloat`; STRING's operations on
+  Strings (StringDomain.lean): `+String`, `lengthString`, `ordChar`, `substrString`, `findString`,
+  `rfindString`, `findChar`, `rfindChar`, `String2Bool`, `String2Int`, `String2Base`, `replace`,
+  `replaceFirst`, the six comparisons, `chrChar`, `Int2String`, `Bool2String`; BYTES' operations on
+  Bytes: `Bytes2Int`, `B[I]`, `B[I <- V]`, `substrBytes`, `replaceAtBytes`, `memsetBytes`,
+  `padRightBytes`, `padLeftBytes`, `reverseBytes`, `lengthBytes`, `+Bytes`, `.Bytes`, `Int2Bytes`
+  (String and Bytes literals are values in every definition, `dvOK`); RANGEMAP's operations on
+  range maps (RangeMapHooks.lean): `.RangeMap`, `r|->`, `_RangeMap_`, lookup, `orDefault`,
+  `find_range`, update, `[_ <- undef]`, `-RangeMap`, `updateRangeMap`, `removeAll`, `in_keys`,
+  `size`, `<=RangeMap`, `keys`. Every other builtin hook
+  is a parameter (Builtins.lean): `Set:choice` (an unspecified element), RANGEMAP's
+  `keys_list`, `values` and `choice`, `L[I <- V]`, `makeList`,
+  `updateList`, `fillList`, the K-IO hooks; STRING's and BYTES' where K's documentation leaves the
+  value open (`Float2String`, `String2Float`, `FloatFormat`, `Base2String`, `replaceAll` and
+  `countAllOccurrences` at the empty needle, `Bytes2String`, `String2Bytes`, `Bytes2Hex`,
+  `decodeBytes`, `encodeBytes`, `Int2Bytes` without a length, the deprecated `categoryChar`,
+  `directionalityChar`, `newUUID`); and FLOAT's where K's documentation
+  leaves the value open (`Float2Int` at NaN and ∞, `signFloat` at NaN, `exponentFloat`, `minFloat`
+  and `maxFloat` at NaN and ±0) or IEEE 754 only recommends the operation (exp, log, the
+  trigonometric ones, `^Float`, `rootFloat`).
+
+  A registry hook's value has the library's collection sort (`Map`, `Set`, `List`); its arguments
+  are read by their entries, whatever their collection sort. A definition's own hooked symbol
+  implemented by a registry hook (`_AccountCellMap_`, `MAP.concat`) takes its declared result
+  sort (`Semantics.paramVal`, `GroundTerm.withSort`).
+
+  `hook f vs`: `none` if `f` is not an interpreted symbol; `some none` if it is, and is undefined
+  at `vs` (division by zero, a lookup off the keys, the union of maps with a common key, arguments
+  of the wrong shape); `some (some v)` its value. Every argument is a value (evaluation is strict,
+  Evaluation.lean).
+
+  This function is the standard model of the domain theories: Γ's domains (`ΓDomains`,
+  Faithful.lean) get, for each interpreted symbol, the graph of `hook` on ground values of its
+  argument sorts, ⊥ where it is undefined. So the domain theories
+  are not written by hand symbol by symbol; they are read off this one function, which is what a
+  reviewer checks against K's documented meaning of each hook (domains.md): Int is ℤ with
+  truncating `/Int` and `%Int` and Euclidean `divInt` and `modInt`, all undefined at divisor 0;
+  Float is IEEE 754 binary floating point of each value's format, every result rounded to nearest,
+  ties to even; a String is a sequence of code points and a Bytes value one of bytes, positions
+  counted from 0; Bool is the two-element Boolean
+  algebra; `==K` is equality of values; a Map is a finite function
+  from KItem to KItem, `_Map_` the union of two maps with disjoint keys.
+
+  Where `hook` gives no value, the text says either that there is none (`#False`, `#Bottom`: division
+  by zero, a lookup off the keys, `_Map_` and `_Set_` on a common key or member, `B[I]`, `B[I <- V]`,
+  `substrBytes`, `padRightBytes`, `padLeftBytes` and `replaceAtBytes` off their stated ranges), and Γ
+  states ⊥; or nothing of the value (an index off a String or a List, a binary Float operation on two
+  formats, a format without a model, a string off a conversion's syntax, …: `silentTable`), and Γ
+  states the interpretation's value there.
+-/
+import KcoreSpec.Value
+import KcoreSpec.StringDomain
+
+set_option autoImplicit false
+
+namespace KCore
+
+/-! ## Maps -/
+
+def hasKey (k : GroundTerm) (m : Entries) : Bool := m.any fun e => GroundTerm.cmp k e.1 == .eq
+
+/-- `m[k <- v]`: replace the entry of k, or insert it in key order. -/
+def insertE (k v : GroundTerm) : Entries → Entries
+  | [] => [(k, v)]
+  | (k', v') :: es => match GroundTerm.cmp k k' with
+    | .lt => (k, v) :: (k', v') :: es
+    | .eq => (k, v) :: es
+    | .gt => (k', v') :: insertE k v es
+
+def eraseK (k : GroundTerm) : Entries → Entries
+  | [] => []
+  | (k', v') :: es => if GroundTerm.cmp k k' == .eq then es else (k', v') :: eraseK k es
+
+def findK (k : GroundTerm) : Entries → Option GroundTerm
+  | [] => none
+  | (k', v') :: es => if GroundTerm.cmp k k' == .eq then some v' else findK k es
+
+def addNew (k v : GroundTerm) (m : Entries) : Option Entries :=
+  if hasKey k m then none else some (insertE k v m)
+
+/-- `_Map_`: the union of two maps, defined when their keys are disjoint. -/
+def union : Entries → Entries → Option Entries
+  | [], m => some m
+  | (k, v) :: es, m => (union es m).bind (addNew k v)
+
+/-! ## Sets: elements strictly increasing in `GroundTerm.cmp` -/
+
+def memS (k : GroundTerm) (s : List GroundTerm) : Bool := s.any fun e => GroundTerm.cmp k e == .eq
+
+/-- Insert an element in order (no change if present). -/
+def insertS (k : GroundTerm) : List GroundTerm → List GroundTerm
+  | [] => [k]
+  | e :: es => match GroundTerm.cmp k e with
+    | .lt => k :: e :: es
+    | .eq => e :: es
+    | .gt => e :: insertS k es
+
+def unionS (a b : List GroundTerm) : List GroundTerm := a.foldr insertS b
+
+/-- `_Set_`: the union of two sets with no member in common, undefined where they share one. -/
+def concatS (a b : List GroundTerm) : Option (List GroundTerm) :=
+  if a.all (fun x => !memS x b) then some (unionS a b) else none
+
+/-- The keys of a map, in order (they already are). -/
+def keysOf (m : Entries) : List GroundTerm := m.map (·.1)
+
+/-! ## The hooks -/
+
+def bool (b : Bool) : GroundTerm := .dv Srt.bool (.bool b)
+
+def asBool : GroundTerm → Option Bool
+  | .dv s (.bool b) => if s == Srt.bool then some b else none
+  | _ => none
+
+def int2 (vs : List GroundTerm) (f : Int → Int → Option GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a, b] => (asInt a).bind fun x => (asInt b).bind fun y => f x y
+  | _ => none
+
+def bool2 (vs : List GroundTerm) (f : Bool → Bool → Bool) : Option GroundTerm :=
+  match vs with
+  | [a, b] => (asBool a).bind fun x => (asBool b).map fun y => bool (f x y)
+  | _ => none
+
+def nonzero (y : Int) (r : Int) : Option GroundTerm := if y = 0 then none else some (int r)
+
+def boolHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(boolNot, fun vs => match vs with | [a] => (asBool a).map fun x => bool !x | _ => none),
+   (boolAnd, fun vs => bool2 vs (· && ·)), (boolAndThen, fun vs => bool2 vs (· && ·)),
+   (boolOr, fun vs => bool2 vs (· || ·)), (boolOrElse, fun vs => bool2 vs (· || ·)),
+   (boolXor, fun vs => bool2 vs (· != ·)), (boolImplies, fun vs => bool2 vs fun x y => !x || y),
+   (boolEq, fun vs => bool2 vs (· == ·)), (boolNe, fun vs => bool2 vs (· != ·))]
+
+def intHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(intAdd, fun vs => int2 vs fun x y => some (int (x + y))),
+   (intSub, fun vs => int2 vs fun x y => some (int (x - y))),
+   (intMul, fun vs => int2 vs fun x y => some (int (x * y))),
+   (intTDiv, fun vs => int2 vs fun x y => nonzero y (x.tdiv y)),
+   (intTMod, fun vs => int2 vs fun x y => nonzero y (x.tmod y)),
+   (intEDiv, fun vs => int2 vs fun x y => nonzero y (x.ediv y)),
+   (intEMod, fun vs => int2 vs fun x y => nonzero y (x.emod y)),
+   (intMin, fun vs => int2 vs fun x y => some (int (min x y))),
+   (intMax, fun vs => int2 vs fun x y => some (int (max x y))),
+   (intLt, fun vs => int2 vs fun x y => some (bool (decide (x < y)))),
+   (intLe, fun vs => int2 vs fun x y => some (bool (decide (x ≤ y)))),
+   (intGt, fun vs => int2 vs fun x y => some (bool (decide (x > y)))),
+   (intGe, fun vs => int2 vs fun x y => some (bool (decide (x ≥ y)))),
+   (intEq, fun vs => int2 vs fun x y => some (bool (decide (x = y)))),
+   (intNe, fun vs => int2 vs fun x y => some (bool (decide (x ≠ y)))),
+   (intAbs, fun vs => match vs with | [a] => (asInt a).map fun x => int x.natAbs | _ => none),
+   (freshInt, fun vs => match vs with | [a] => (asInt a).map int | _ => none)]
+
+def kHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(kEq, fun vs => match vs with | [a, b] => some (bool (GroundTerm.cmp a b == .eq)) | _ => none),
+   (kNe, fun vs => match vs with | [a, b] => some (bool (GroundTerm.cmp a b != .eq)) | _ => none)]
+
+def mapHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(mapUnit, fun vs => match vs with | [] => some (.map Srt.map []) | _ => none),
+   (mapElem, fun vs => match vs with | [k, v] => some (.map Srt.map [(k, v)]) | _ => none),
+   (mapConcat, fun vs => match vs with
+     | [.map _ a, .map _ b] => (union a b).map (.map Srt.map) | _ => none),
+   (mapUpdate, fun vs => match vs with
+     | [.map _ m, k, v] => some (.map Srt.map (insertE k v m)) | _ => none),
+   (mapRemove, fun vs => match vs with
+     | [.map _ m, k] => some (.map Srt.map (eraseK k m)) | _ => none),
+   (mapLookup, fun vs => match vs with | [.map _ m, k] => findK k m | _ => none),
+   (mapLookupOrDefault, fun vs => match vs with
+     | [.map _ m, k, d] => some ((findK k m).getD d) | _ => none),
+   (mapInKeys, fun vs => match vs with | [k, .map _ m] => some (bool (hasKey k m)) | _ => none),
+   (mapSize, fun vs => match vs with | [.map _ m] => some (int m.length) | _ => none),
+   (mapRemoveAll, fun vs => match vs with
+     | [.map _ m, .set _ ks] => some (.map Srt.map (m.filter fun e => !memS e.1 ks)) | _ => none),
+   (mapKeys, fun vs => match vs with | [.map _ m] => some (.set Srt.set (keysOf m)) | _ => none)]
+
+/-- Sets. `_Set_` is the union of two disjoint sets, undefined where they share a member (as
+`_Map_` is undefined where two maps share a key; KCORE-SPEC.md Q29); `|Set` is the union of any
+two sets. `<=Set` is true where every member of the first set is a member of the second
+(domains.md 780-786: inclusion; the sentence at 782 speaks of two different sets, where a subset is
+a strict subset), so true at two equal sets. -/
+def setHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(setUnit, fun vs => match vs with | [] => some (.set Srt.set []) | _ => none),
+   (setElem, fun vs => match vs with | [k] => some (.set Srt.set [k]) | _ => none),
+   (setConcat, fun vs => match vs with
+     | [.set _ a, .set _ b] => (concatS a b).map (.set Srt.set) | _ => none),
+   (setUnion, fun vs => match vs with
+     | [.set _ a, .set _ b] => some (.set Srt.set (unionS a b)) | _ => none),
+   (setIntersect, fun vs => match vs with
+     | [.set _ a, .set _ b] => some (.set Srt.set (a.filter (memS · b))) | _ => none),
+   (setDifference, fun vs => match vs with
+     | [.set _ a, .set _ b] => some (.set Srt.set (a.filter (!memS · b))) | _ => none),
+   (setIn, fun vs => match vs with | [k, .set _ a] => some (bool (memS k a)) | _ => none),
+   (setInclusion, fun vs => match vs with
+     | [.set _ a, .set _ b] => some (bool (a.all (memS · b)))
+     | _ => none),
+   (setSize, fun vs => match vs with | [.set _ a] => some (int a.length) | _ => none)]
+
+/-! ## Lists -/
+
+/-- The index of `L[I]`: from the front for `0 ≤ I`, from the back for `I < 0` (`-1` is the
+last element); `none` out of range. -/
+def listIndex (n : Nat) (i : Int) : Option Nat :=
+  if 0 ≤ i then (if i < n then some i.toNat else none)
+  else if -(n : Int) ≤ i then some (n - i.natAbs) else none
+
+/-- `range(L, a, b)`: L without its first a and its last b elements; `none` if a or b is negative
+or they overlap. -/
+def listRangeOf (es : List GroundTerm) (a b : Int) : Option (List GroundTerm) :=
+  if 0 ≤ a ∧ 0 ≤ b ∧ a + b ≤ es.length then
+    some ((es.drop a.toNat).take (es.length - a.toNat - b.toNat))
+  else none
+
+/-- Lists: `.List`, `ListItem`, `_List_` (concatenation, total), `pushList`, `L[I]`, `range`,
+`inList`, `size`. -/
+def listHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(listConcat, fun vs => match vs with
+     | [.list _ a, .list _ b] => some (.list Srt.list (a ++ b)) | _ => none),
+   (listUnit, fun vs => match vs with | [] => some (.list Srt.list []) | _ => none),
+   (listElem, fun vs => match vs with | [k] => some (.list Srt.list [k]) | _ => none),
+   (listPush, fun vs => match vs with
+     | [k, .list _ a] => some (.list Srt.list (k :: a)) | _ => none),
+   (listGet, fun vs => match vs with
+     | [.list _ a, i] => (asInt i).bind fun i => (listIndex a.length i).bind (a[·]?) | _ => none),
+   (listRange, fun vs => match vs with
+     | [.list _ a, x, y] => (asInt x).bind fun x => (asInt y).bind fun y =>
+         (listRangeOf a x y).map (.list Srt.list)
+     | _ => none),
+   (listIn, fun vs => match vs with
+     | [k, .list _ a] => some (bool (a.any fun e => GroundTerm.cmp k e == .eq)) | _ => none),
+   (listSize, fun vs => match vs with | [.list _ a] => some (int a.length) | _ => none)]
+
+/-! ## Floats -/
+
+open Float.Model in
+/-- A Float value: its format `(p, e)`, the format's model, and its datum. -/
+def asFloat : GroundTerm → Option (Nat × Nat × Format × UnpackedFloat)
+  | .dv s (.float p e b) =>
+    if s == Srt.float then (KFloat.spec? p e).map fun sp => (p, e, sp, KFloat.unpackBits sp b) else none
+  | _ => none
+
+open Float.Model in
+/-- The Float value of format `(p, e)` (model `sp`) of the datum `u`, rounded for it. -/
+def floatV (p e : Nat) (sp : Format) (u : UnpackedFloat) : GroundTerm :=
+  .dv Srt.float (.float p e (KFloat.packBits sp u))
+
+open Float.Model in
+/-- An operation on one Float, in its format. -/
+def fl1 (op : Format → UnpackedFloat → UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a] => (asFloat a).map fun (p, e, sp, u) => floatV p e sp (op sp u)
+  | _ => none
+
+open Float.Model in
+/-- An operation on two Floats of one format, in that format; undefined on two formats. -/
+def fl2 (op : Format → UnpackedFloat → UnpackedFloat → UnpackedFloat) (vs : List GroundTerm) :
+    Option GroundTerm :=
+  match vs with
+  | [a, b] => (asFloat a).bind fun (p, e, sp, u) => (asFloat b).bind fun (p', e', _, v) =>
+      if p = p' ∧ e = e' then some (floatV p e sp (op sp u v)) else none
+  | _ => none
+
+open Float.Model in
+/-- A test of one Float. -/
+def flTest (t : UnpackedFloat → Bool) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a] => (asFloat a).map fun (_, _, _, u) => bool (t u)
+  | _ => none
+
+/-- A comparison of two Floats of any formats, by their exact values (`KFloat.cmpExact`). -/
+def flCmp (t : Option Ordering → Bool) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a, b] => (asFloat a).bind fun (_, _, _, u) => (asFloat b).map fun (_, _, _, v) => bool (t (KFloat.cmpExact u v))
+  | _ => none
+
+/-- A property of a Float's format `(p, e)`, read off the value: `p` and `e` positive (domains.md
+1469-1476, `pNxM`), a format with a field of 1 included (`KFloat.thinOK`). -/
+def flFmt (f : Nat → Nat → Int) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [.dv s (.float p e _)] => if s == Srt.float ∧ 1 ≤ p ∧ 1 ≤ e then some (int (f p e)) else none
+  | _ => none
+
+open Float.Model in
+/-- A datum of the format `(p, e)` given by two Ints; undefined at a format without a model. -/
+def flAt (op : Format → UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [x, y] => (asInt x).bind fun p => (asInt y).bind fun e =>
+      (KFloat.spec? p.toNat e.toNat).map fun sp => floatV p.toNat e.toNat sp (op sp)
+  | _ => none
+
+open Float.Model in
+/-- A datum converted to the format `(p, e)` given by two Ints (`roundFloat`); undefined at a format
+without a model. -/
+def flTo (op : Format → UnpackedFloat → UnpackedFloat) (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [a, x, y] => (asFloat a).bind fun (_, _, _, u) => (asInt x).bind fun p => (asInt y).bind fun e =>
+      (KFloat.spec? p.toNat e.toNat).map fun sp => floatV p.toNat e.toNat sp (op sp u)
+  | _ => none
+
+/-- An Int converted to the format `(p, e)` given by two Ints (`Int2Float`); undefined at a format
+without a model. -/
+def flOfInt (vs : List GroundTerm) : Option GroundTerm :=
+  match vs with
+  | [i, x, y] => (asInt i).bind fun n => (asInt x).bind fun p => (asInt y).bind fun e =>
+      (KFloat.spec? p.toNat e.toNat).map fun sp => floatV p.toNat e.toNat sp (Float.Model.UnpackedFloat.ofInt sp n)
+  | _ => none
+
+/-- FLOAT's interpreted symbols (IEEE 754, nearest ties to even; FloatDomain.lean). A binary
+operation on two formats is undefined (K's documentation leaves it open; the symbols are not
+total); a comparison of two formats compares the exact values. -/
+def floatHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(floatAdd, fl2 Float.Model.UnpackedFloat.add), (floatSub, fl2 Float.Model.UnpackedFloat.sub),
+   (floatMul, fl2 Float.Model.UnpackedFloat.mul), (floatDiv, fl2 Float.Model.UnpackedFloat.div),
+   (floatRem, fl2 KFloat.remainder),
+   (floatNeg, fl1 fun _ => Float.Model.UnpackedFloat.neg), (floatAbs, fl1 fun _ => Float.Model.UnpackedFloat.abs),
+   (floatFloor, fl1 fun s => KFloat.roundToIntegral s .down), (floatCeil, fl1 fun s => KFloat.roundToIntegral s .up),
+   (floatTrunc, fl1 fun s => KFloat.roundToIntegral s .zero), (floatSqrt, fun vs => match vs with
+     | [a] => (asFloat a).bind fun (p, e, sp, u) => (KFloat.sqrt? sp u).map (floatV p e sp) | _ => none),
+   (floatLe, flCmp fun o => o == some .lt || o == some .eq), (floatLt, flCmp fun o => o == some .lt),
+   (floatGe, flCmp fun o => o == some .gt || o == some .eq), (floatGt, flCmp fun o => o == some .gt),
+   (floatEq, flCmp fun o => o == some .eq), (floatNe, flCmp fun o => o != some .eq),
+   (floatIsNaN, flTest KFloat.isNaN), (floatIsInfinite, flTest KFloat.isInf),
+   (floatPrecision, flFmt fun p _ => p), (floatExponentBits, flFmt fun _ e => e),
+   (floatRound, flTo KFloat.convertFormat), (int2Float, flOfInt),
+   (floatMaxValue, flAt KFloat.maxValue), (floatMinValue, flAt KFloat.minValue)]
+
+/-! ## Strings and Bytes -/
+
+/-- A String value: its code points. -/
+def asStr : GroundTerm → Option (List Char)
+  | .dv s (.tok t) => if s == Srt.string then some t.toList else none
+  | _ => none
+
+/-- The String value of the code points `cs`. -/
+def strV (cs : List Char) : GroundTerm := .dv Srt.string (.tok (String.ofList cs))
+
+/-- A Bytes value: its bytes, one character each. -/
+def asBytes : GroundTerm → Option (List Char)
+  | .dv s (.tok t) => if s == Srt.bytes then some t.toList else none
+  | _ => none
+
+/-- The Bytes value of the bytes `cs`. -/
+def bytesV (cs : List Char) : GroundTerm := .dv Srt.bytes (.tok (String.ofList cs))
+
+/-- An Endianness value: `BE` (most significant byte first) is true, `LE` false. -/
+def asEndian : GroundTerm → Option Bool
+  | .ctor f [] => if f == bigEndianBytes then some true else if f == littleEndianBytes then some false else none
+  | _ => none
+
+/-- A Signedness value: `Signed` is true, `Unsigned` false. -/
+def asSigned : GroundTerm → Option Bool
+  | .ctor f [] => if f == signedBytes then some true else if f == unsignedBytes then some false else none
+  | _ => none
+
+/-- A test of two Strings. -/
+def str2 (vs : List GroundTerm) (f : List Char → List Char → Bool) : Option GroundTerm :=
+  match vs with
+  | [a, b] => (asStr a).bind fun x => (asStr b).map fun y => bool (f x y)
+  | _ => none
+
+/-- STRING's interpreted symbols (StringDomain.lean). -/
+def stringHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(stringConcat, fun vs => match vs with
+     | [a, b] => (asStr a).bind fun x => (asStr b).map fun y => strV (x ++ y) | _ => none),
+   (stringLength, fun vs => match vs with | [a] => (asStr a).map fun x => int x.length | _ => none),
+   (stringOrd, fun vs => match vs with | [a] => (asStr a).bind fun x => (KStr.ord x).map fun n => int n | _ => none),
+   (stringSubstr, fun vs => match vs with
+     | [a, i, j] => (asStr a).bind fun x => (asInt i).bind fun i => (asInt j).bind fun j => (KStr.substrString x i j).map strV
+     | _ => none),
+   (stringFind, fun vs => match vs with
+     | [a, b, i] => (asStr a).bind fun x => (asStr b).bind fun y => (asInt i).bind fun i => (KStr.find x y i).map int
+     | _ => none),
+   (stringRfind, fun vs => match vs with
+     | [a, b, i] => (asStr a).bind fun x => (asStr b).bind fun y => (asInt i).bind fun i => (KStr.rfind x y i).map int
+     | _ => none),
+   (stringFindChar, fun vs => match vs with
+     | [a, b, i] => (asStr a).bind fun x => (asStr b).bind fun y => (asInt i).bind fun i =>
+         (KStr.findChar x y i).map int
+     | _ => none),
+   (stringRfindChar, fun vs => match vs with
+     | [a, b, i] => (asStr a).bind fun x => (asStr b).bind fun y => (asInt i).bind fun i =>
+         (KStr.rfindChar x y i).map int
+     | _ => none),
+   (string2Bool, fun vs => match vs with | [a] => (asStr a).bind fun x => (KStr.toBool x).map bool | _ => none),
+   (string2Int, fun vs => match vs with | [a] => (asStr a).bind fun x => (KStr.toInt x).map int | _ => none),
+   (string2Base, fun vs => match vs with
+     | [a, b] => (asStr a).bind fun x => (asInt b).bind fun b => (KStr.toIntBase x b).map int | _ => none),
+   (stringReplace, fun vs => match vs with
+     | [a, b, r, k] => (asStr a).bind fun x => (asStr b).bind fun y => (asStr r).bind fun z => (asInt k).bind fun k =>
+         (KStr.replace x y z k).map strV
+     | _ => none),
+   (stringReplaceFirst, fun vs => match vs with
+     | [a, b, r] => (asStr a).bind fun x => (asStr b).bind fun y => (asStr r).map fun z => strV (KStr.replaceFirst x y z)
+     | _ => none),
+   (stringEq, fun vs => str2 vs fun x y => x == y), (stringNe, fun vs => str2 vs fun x y => x != y),
+   (stringLt, fun vs => str2 vs KStr.lexLt), (stringLe, fun vs => str2 vs fun x y => !KStr.lexLt y x),
+   (stringGt, fun vs => str2 vs fun x y => KStr.lexLt y x), (stringGe, fun vs => str2 vs fun x y => !KStr.lexLt x y),
+   (stringChr, fun vs => match vs with | [i] => (asInt i).bind fun x => (KStr.chr x).map strV | _ => none),
+   (int2String, fun vs => match vs with | [i] => (asInt i).map fun x => strV (intRepr x).toList | _ => none),
+   (bool2String, fun vs => match vs with | [b] => (asBool b).map fun x => strV (boolRepr x).toList | _ => none)]
+
+/-- BYTES' interpreted symbols (StringDomain.lean). -/
+def bytesHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(bytes2Int, fun vs => match vs with
+     | [b, e, s] => (asBytes b).bind fun x => (asEndian e).bind fun be => (asSigned s).map fun sg =>
+         int (KBytes.toInt x be sg)
+     | _ => none),
+   (bytesUpdate, fun vs => match vs with
+     | [b, i, v] => (asBytes b).bind fun x => (asInt i).bind fun i => (asInt v).bind fun v =>
+         (KBytes.update x i v).map bytesV
+     | _ => none),
+   (bytesGet, fun vs => match vs with
+     | [b, i] => (asBytes b).bind fun x => (asInt i).bind fun i => (KBytes.get x i).map int | _ => none),
+   (bytesSubstr, fun vs => match vs with
+     | [b, i, j] => (asBytes b).bind fun x => (asInt i).bind fun i => (asInt j).bind fun j =>
+         (KStr.substr x i j).map bytesV
+     | _ => none),
+   (bytesReplaceAt, fun vs => match vs with
+     | [d, i, s] => (asBytes d).bind fun x => (asInt i).bind fun i => (asBytes s).bind fun y =>
+         (KBytes.replaceAt x i y).map bytesV
+     | _ => none),
+   (bytesMemset, fun vs => match vs with
+     | [d, i, n, v] => (asBytes d).bind fun x => (asInt i).bind fun i => (asInt n).bind fun n => (asInt v).bind fun v =>
+         (KBytes.memset x i n v).map bytesV
+     | _ => none),
+   (bytesPadRight, fun vs => match vs with
+     | [b, l, v] => (asBytes b).bind fun x => (asInt l).bind fun l => (asInt v).bind fun v =>
+         (KBytes.padRight x l v).map bytesV
+     | _ => none),
+   (bytesPadLeft, fun vs => match vs with
+     | [b, l, v] => (asBytes b).bind fun x => (asInt l).bind fun l => (asInt v).bind fun v =>
+         (KBytes.padLeft x l v).map bytesV
+     | _ => none),
+   (bytesReverse, fun vs => match vs with | [b] => (asBytes b).map fun x => bytesV x.reverse | _ => none),
+   (bytesLength, fun vs => match vs with | [b] => (asBytes b).map fun x => int x.length | _ => none),
+   (bytesConcat, fun vs => match vs with
+     | [a, b] => (asBytes a).bind fun x => (asBytes b).map fun y => bytesV (x ++ y) | _ => none),
+   (bytesEmpty, fun vs => match vs with | [] => some (bytesV []) | _ => none),
+   (int2Bytes, fun vs => match vs with
+     | [l, v, e] => (asInt l).bind fun l => (asInt v).bind fun v => (asEndian e).bind fun be =>
+         (KBytes.ofInt l v be).map bytesV
+     | _ => none)]
+
+/-- `ite(C, A, B)`: A if C is true, B if C is false. -/
+def iteHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(kIte, fun vs => match vs with
+     | [c, x, y] => (asBool c).map fun b => if b then x else y | _ => none)]
+
+/-! ## Range maps
+
+RANGEMAP's fifteen interpreted symbols, on the carrier of `CollKind.rangeMap` (`rangesOK`,
+Value.lean): fourteen in `rangeMapHooks`, `keys` in `rangeMapKeysHooks`. What the text states of
+each, why `keys` stands apart, and the carrier's lemmas: RangeMapHooks.lean. -/
+
+/-- An interval `[a, b)` with its value. -/
+abbrev RmTriple := Int × Int × GroundTerm
+
+/-- The entries as triples, where every key is a proper range. -/
+def rmTriples (m : Entries) : Option (List RmTriple) :=
+  m.mapM fun (k, v) => (asRange k).map fun (a, b) => (a, b, v)
+
+/-- Insert a triple by its lower bound. -/
+def rmInsert (t : RmTriple) : List RmTriple → List RmTriple
+  | [] => [t]
+  | u :: us => if t.1 ≤ u.1 then t :: u :: us else u :: rmInsert t us
+
+/-- Touching intervals of one value merged, in order. -/
+def rmMerge : List RmTriple → List RmTriple
+  | (a, b, v) :: (a', b', v') :: ts =>
+      if b == a' && GroundTerm.cmp v v' == .eq then rmMerge ((a, b', v) :: ts)
+      else (a, b, v) :: rmMerge ((a', b', v') :: ts)
+  | ts => ts
+  termination_by ts => ts.length
+
+/-- The canonical entries of pairwise disjoint proper intervals: sorted by lower bound, touching
+intervals of one value merged. -/
+def rmCanon (ts : List RmTriple) : Entries :=
+  (rmMerge (ts.foldr rmInsert [])).map fun (a, b, v) => (rangeT a b, v)
+
+/-- One interval less `[a, b)`: the parts below and above it. -/
+def rmCutOne (a b : Int) : RmTriple → List RmTriple
+  | (x, y, v) =>
+    (if x < min y a then [(x, min y a, v)] else []) ++ (if max x b < y then [(max x b, y, v)] else [])
+
+/-- The intervals of `ts` less `[a, b)`. -/
+def rmCut (a b : Int) (ts : List RmTriple) : List RmTriple := ts.flatMap (rmCutOne a b)
+
+/-- The interval holding `k`, with its value. -/
+def rmFind (k : Int) (ts : List RmTriple) : Option RmTriple := ts.find? fun (x, y, _) => x ≤ k && k < y
+
+/-- No interval of one meets an interval of the other. -/
+def rmDisjoint (ts us : List RmTriple) : Bool :=
+  ts.all fun (x, y, _) => us.all fun (x', y', _) => y ≤ x' || y' ≤ x
+
+/-- Every key of `ts` has its value in `us`: what remains of each interval after cutting `us`'s
+intervals of the same value is empty. -/
+def rmIncluded (ts us : List RmTriple) : Bool :=
+  ts.all fun t => ((us.filter fun u => GroundTerm.cmp u.2.2 t.2.2 == .eq).foldl
+    (fun acc u => rmCut u.1 u.2.1 acc) [t]).isEmpty
+
+/-- `m -RangeMap n`: m less each part where n gives the same value (584-588). -/
+def rmDiffT (ts us : List RmTriple) : List RmTriple :=
+  us.foldl (fun acc (a, b, w) => acc.flatMap fun t =>
+    if GroundTerm.cmp t.2.2 w == .eq then rmCutOne a b t else [t]) ts
+
+/-- `updateRangeMap(m, n)`: n's intervals written over m in turn (594-605). -/
+def rmOverT (ts us : List RmTriple) : List RmTriple :=
+  us.foldl (fun acc (a, b, w) => rmCut a b acc ++ [(a, b, w)]) ts
+
+/-- A range map value of the library's sort. -/
+def rmV (es : Entries) : GroundTerm := .map Srt.rangeMap es
+
+/-- RANGEMAP's fourteen interpreted symbols. -/
+def rangeMapHooks : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  [(rmUnit, fun vs => match vs with | [] => some (rmV []) | _ => none),
+   (rmElem, fun vs => match vs with
+     | [r, v] => (asRange r).map fun (a, b) => rmV [(rangeT a b, v)] | _ => none),
+   (rmConcat, fun vs => match vs with
+     | [.map _ m, .map _ n] => (rmTriples m).bind fun ts => (rmTriples n).bind fun us =>
+         if rmDisjoint ts us then some (rmV (rmCanon (ts ++ us))) else none
+     | _ => none),
+   (rmLookup, fun vs => match vs with
+     | [.map _ m, k] => (rmTriples m).bind fun ts => (asKInt k).bind fun i => (rmFind i ts).map (·.2.2)
+     | _ => none),
+   (rmLookupOrDefault, fun vs => match vs with
+     | [.map _ m, k, d] => (rmTriples m).map fun ts =>
+         (((asKInt k).bind fun i => rmFind i ts).map (·.2.2)).getD d
+     | _ => none),
+   (rmFindRange, fun vs => match vs with
+     | [.map _ m, k] => (rmTriples m).bind fun ts => (asKInt k).bind fun i =>
+         (rmFind i ts).map fun (a, b, _) => rangeT a b
+     | _ => none),
+   (rmUpdate, fun vs => match vs with
+     | [.map _ m, r, v] => (rmTriples m).bind fun ts => (asRange r).map fun (a, b) =>
+         rmV (rmCanon (rmCut a b ts ++ [(a, b, v)]))
+     | _ => none),
+   (rmRemove, fun vs => match vs with
+     | [.map _ m, r] => (rmTriples m).bind fun ts => (asRange r).map fun (a, b) => rmV (rmCanon (rmCut a b ts))
+     | _ => none),
+   (rmDifference, fun vs => match vs with
+     | [.map _ m, .map _ n] => (rmTriples m).bind fun ts => (rmTriples n).map fun us => rmV (rmCanon (rmDiffT ts us))
+     | _ => none),
+   (rmUpdateAll, fun vs => match vs with
+     | [.map _ m, .map _ n] => (rmTriples m).bind fun ts => (rmTriples n).map fun us =>
+         rmV (rmCanon (rmOverT ts us))
+     | _ => none),
+   (rmRemoveAll, fun vs => match vs with
+     | [.map _ m, .set _ rs] => (rmTriples m).bind fun ts => (rs.mapM asKRange).map fun ps =>
+         rmV (rmCanon (ps.foldl (fun acc (a, b) => rmCut a b acc) ts))
+     | _ => none),
+   (rmInKeys, fun vs => match vs with
+     | [k, .map _ m] => (rmTriples m).map fun ts => bool (((asKInt k).bind fun i => rmFind i ts).isSome)
+     | _ => none),
+   (rmSize, fun vs => match vs with | [.map _ m] => some (int m.length) | _ => none),
+   (rmInclusion, fun vs => match vs with
+     | [.map _ m, .map _ n] => (rmTriples m).bind fun ts => (rmTriples n).map fun us => bool (rmIncluded ts us)
+     | _ => none)]
+
+/-- `keys(M)`: the set of M's ranges, each as a KItem (domains.md 620-625). A Set value wherever
+every Range value is a KItem (`RangeBelow`, `rmK_keys_sorted`). -/
+def rmKeysHook : List GroundTerm → Option GroundTerm
+  | [.map _ m] => some (.set Srt.set (m.foldr (fun (k, _) s => insertS (.inj Srt.range Srt.kitem k) s) []))
+  | _ => none
+
+/-- RANGEMAP's `keys`, apart from `rangeMapHooks`: its value is a Set value where every Range value
+is a KItem, where the fourteen give a value of their result sort in every semantics. -/
+def rangeMapKeysHooks : List (Sym × (List GroundTerm → Option GroundTerm)) := [(rmKeys, rmKeysHook)]
+
+/-- The interpreted symbols and their meaning. -/
+def hookTable : List (Sym × (List GroundTerm → Option GroundTerm)) :=
+  boolHooks ++ intHooks ++ kHooks ++ mapHooks ++ setHooks ++ listHooks ++ floatHooks ++ stringHooks ++ bytesHooks ++
+    iteHooks ++ rangeMapHooks ++ rangeMapKeysHooks
+
+/-- The trie of `hookTable`, built level by level (`NatMap.ofListBy`), 16 levels deep: every
+number of the table is below 2^16 - 1 (`hookTable_keys`). One term for every lookup, so its levels
+are unfolded (evaluated) once. -/
+def hookTrie : NatMap (List GroundTerm → Option GroundTerm) := NatMap.ofListBy 16 hookTable
+
+/-- `none`: not an interpreted symbol; `some r`: interpreted, with value `r` (`none`: undefined).
+Reaching an entry of `hookTrie` unfolds about log₂ f levels, however many entries the table has. -/
+def hook (f : Sym) (vs : List GroundTerm) : Option (Option GroundTerm) :=
+  (hookTrie.find f).map fun h => h vs
+
+theorem hookTable_keys : ∀ e ∈ hookTable, e.1 + 1 < 2 ^ 16 := by decide +kernel
+
+/-- `hook` (by the trie of the hooks' numbers) is the table's first entry of that number. -/
+theorem hook_eq (f : Sym) (vs : List GroundTerm) :
+    hook f vs = (hookTable.find? (·.1 == f)).map fun (_, h) => h vs := by
+  rw [hook, hookTrie, NatMap.find_ofListBy]
+  split
+  · cases hookTable.find? (·.1 == f) <;> rfl
+  · rename_i hf
+    have : hookTable.find? (·.1 == f) = none := List.find?_eq_none.mpr fun e he h =>
+      hf (by have := hookTable_keys e he; simp only [beq_iff_eq] at h; rw [← h]; exact this)
+    rw [this]; rfl
+
+/-! ## Silent points -/
+
+/-- Where `hook f vs` gives no value, whether K's text says nothing of the value there (a silent
+point) rather than that there is none: per interpreted symbol, a test of the argument values,
+consulted only where `hook` gives `some none` (`Semantics.hookRes`). A key with `fun _ => true` makes
+every point where `hook` gives no value silent; every interpreted symbol off the table gives no value
+only where the text says there is none (`#False`, `#Bottom`). Where the text declares the symbol
+`total`, it states that a value exists at its silent points and not which: the interpretations it
+admits give one there (`totalSilentKeys`, `Semantics.silentTotal`, ParamsTotal.lean). A library
+equation whose instance at values reaches a silent point is likewise a condition on the
+interpretation (`Semantics.libAdmitted`, LibAdmitted.lean). Line numbers are domains.md's
+(K 7.1.337).
+- `L[I]`, `range`: the text describes an index of the list (960-963) and removing that many elements
+  from the front and the back (1012-1013); an index off the list, or more elements than there are, is
+  not described.
+- `+Float`, `-Float`, `*Float`, `/Float`, `%Float`: the exact result rounded (1556-1570); on two
+  formats the format of the result is not given.
+- `roundFloat`, `Int2Float`, `maxValueFloat`, `minValueFloat` at a format without a model (`p < 2` or
+  `e < 2`): `pNxM` names a format for positive N and M only (1469-1476); at a field of 1 the format
+  is named and KCore computes none of its data (`KFloat.thinOK`).
+- `ordChar`, `chrChar`: a string of one code point (1738-1739), a code point 0 … 0x10ffff (1702-1703);
+  another string or Int is not described; at a surrogate the string is not a value here.
+- `substrString`: "only defined on valid indices" (1753-1755), declared `total` (1758): a value exists
+  and none is given off `0 ≤ start < end ≤ length`, nor at an empty range strictly inside.
+- `findString`, `rfindString`, `findChar`, `rfindChar`: a search "starting at a certain `index`"
+  (1763-1765, 1774-1776); an index that is no position of the string is not described.
+- `String2Int`, `String2Base`: INT's syntax (1820-1822), a radix 2 … 36 (1825-1829); other strings
+  and radixes are not described.
+- `replace` at a negative count: "undefined … This allows different backends to implement their own
+  behavior" (1908-1910).
+- `String2Bool`: two equations, at `"true"` and `"false"` (1792-1794), and no `total`.
+- `replaceAtBytes` at a negative index whose end `index + N` is within the bytes: the `#False` of
+  2146-2147 speaks of `index + N` only, and "the `N` elements starting at `index`" names no element.
+- `memsetBytes`: "This will throw an exception" (2158-2164), of a run, where the text writes `#False`
+  for no value (227-228).
+- `Bytes2Int`, `Int2Bytes`: declared `total` (2082, 2083); a negative length, or an Endianness or
+  Signedness that is no constructor of BYTES, is not described.
+- `sqrtFloat` at −0: its equation `rootFloat(F, 2)` (1671) and "square root" name two IEEE 754
+  operations that differ there only (FloatDomain.lean `sqrt?`).
+- `--Float`, `absFloat`, `floorFloat`, `ceilFloat`, `truncFloat`, the six comparisons, `isNaN`,
+  `isInfinite` (and the operations above) at a value of a format with a field of 1
+  (`KFloat.thinOK`): KCore computes no operation on such a format's data, so Γ states there only
+  the interpretation's value, less than the text's IEEE 754 description (1481-1483).
+- RANGEMAP's `lookup` and `find_range` off the keys: "yield an exception during concrete execution"
+  (534-535, 555-556), of a run, and no `#False`, the reading taken for `memsetBytes`.
+- RANGEMAP's element symbol `r|->`, update, `[_ <- undef]` and `removeAll` at a range that is no proper Int range (for
+  `removeAll`, a member of the set that is none): the text describes ranges of Int keys bounded
+  inclusively below and exclusively above (471-477, 498-499) and says nothing of another. -/
+def silentTable : List (Sym × (List GroundTerm → Bool)) :=
+  [(listGet, fun _ => true), (listRange, fun _ => true),
+   (floatAdd, fun _ => true), (floatSub, fun _ => true), (floatMul, fun _ => true),
+   (floatDiv, fun _ => true), (floatRem, fun _ => true),
+   (floatRound, fun _ => true), (int2Float, fun _ => true),
+   (floatMaxValue, fun _ => true), (floatMinValue, fun _ => true),
+   (stringOrd, fun _ => true), (stringChr, fun _ => true), (stringSubstr, fun _ => true),
+   (stringFind, fun _ => true), (stringRfind, fun _ => true),
+   (stringFindChar, fun _ => true), (stringRfindChar, fun _ => true),
+   (string2Int, fun _ => true), (string2Base, fun _ => true), (stringReplace, fun _ => true),
+   (string2Bool, fun _ => true),
+   (bytesReplaceAt, fun vs => match vs with
+     | [d, i, s] => (asBytes d).any fun x => (asInt i).any fun i => (asBytes s).any fun y =>
+         decide (i < 0 ∧ 0 ≤ i + (y.length : Int) ∧ i + (y.length : Int) ≤ (x.length : Int))
+     | _ => false),
+   (bytesMemset, fun _ => true), (bytes2Int, fun _ => true), (int2Bytes, fun _ => true),
+   (floatSqrt, fun _ => true),
+   (floatNeg, fun _ => true), (floatAbs, fun _ => true), (floatFloor, fun _ => true),
+   (floatCeil, fun _ => true), (floatTrunc, fun _ => true),
+   (floatLe, fun _ => true), (floatLt, fun _ => true), (floatGe, fun _ => true),
+   (floatGt, fun _ => true), (floatEq, fun _ => true), (floatNe, fun _ => true),
+   (floatIsNaN, fun _ => true), (floatIsInfinite, fun _ => true),
+   (rmElem, fun _ => true), (rmLookup, fun _ => true), (rmFindRange, fun _ => true),
+   (rmUpdate, fun _ => true), (rmRemove, fun _ => true), (rmRemoveAll, fun _ => true)]
+
+/-- `vs` is a silent point of the interpreted symbol `f` (`silentTable`). -/
+def silent (f : Sym) (vs : List GroundTerm) : Bool :=
+  match silentTable.find? (·.1 == f) with
+  | some (_, p) => p vs
+  | none => false
+
+/-- `f` has silent points somewhere (a key of `silentTable`). -/
+def silentKey (f : Sym) : Bool := silentTable.any (·.1 == f)
+
+/-- A silent point is one of a key. -/
+theorem silentKey_of_silent {f : Sym} {vs : List GroundTerm} (h : silent f vs = true) :
+    silentKey f = true := by
+  unfold silent at h
+  unfold silentKey
+  cases he : silentTable.find? (·.1 == f) with
+  | none => rw [he] at h; cases h
+  | some e => exact List.any_eq_true.mpr ⟨e, List.mem_of_find?_eq_some he, by simpa using List.find?_some he⟩
+
+/-- Off the keys, no point is silent. -/
+theorem silent_of_not_silentKey {f : Sym} (h : silentKey f = false) (vs : List GroundTerm) :
+    silent f vs = false := by
+  cases hs : silent f vs
+  · rfl
+  · rw [silentKey_of_silent hs] at h; cases h
+
+/-- The interpreted symbols whose meaning the proofs read through `hook` directly, so that none
+may be a key of `silentTable` (`silentKey_fixed`): the map and collection pattern symbols (a pattern
+denotes `hook`'s value, `PatVal`, `Semantics.collVal`), `ite`, and the Bool, K equality, Int
+comparison and map update operations that deciders evaluate. -/
+def neverSilent : List Sym :=
+  patternHooks ++ collPatternHooks ++
+    [kIte, boolAnd, boolOr, boolNot, kEq, kNe, intLt, intLe, intGt, intGe, intEq, intNe, mapUpdate]
+
+theorem silentKey_fixed : ∀ f ∈ neverSilent, silentKey f = false := by decide +kernel
+
+/-- No symbol has two entries in `silentTable` (`silent` reads the first). -/
+theorem silentTable_nodup : (silentTable.map (·.1)).Nodup := by decide +kernel
+
+/-- Every key of `silentTable` is an interpreted symbol (`isHook`). -/
+theorem silentTable_hook : ∀ e ∈ silentTable, (hook e.1 []).isSome = true := by decide +kernel
+
+/-- Every key of `silentTable` is among `partialHooks`, which the totality deciders do not count
+total, but `Bytes2Int`, which has a value where Endianness and Signedness have only BYTES'
+constructors (`enumShapesOK`). -/
+theorem silentTable_partial : ∀ e ∈ silentTable, partialHooks.contains e.1 = true ∨ e.1 = bytes2Int := by
+  decide +kernel
+
+/-- The names of `hookSigs` are distinct: `lookupSig` finds each signature by its name, so
+`Semantics.fallback` (the result sort of the first signature of the name) and `Faithful.ΓFallback`
+(every signature) speak of the same signatures. -/
+theorem hookSigs_lookup : ∀ k ∈ hookSigs, lookupSig hookSigs k.name = some k := by decide +kernel
+
+theorem silentKey_of_mem {f : Sym} (h : neverSilent.contains f = true) : silentKey f = false :=
+  silentKey_fixed f (List.contains_iff_mem.mp h)
+
+theorem silentKey_of_patternHook {f : Sym} (h : patternHooks.contains f = true) : silentKey f = false :=
+  silentKey_fixed f (List.mem_append_left _ (List.mem_append_left _ (List.contains_iff_mem.mp h)))
+
+theorem silentKey_of_collPatternHook {f : Sym} (h : collPatternHooks.contains f = true) :
+    silentKey f = false :=
+  silentKey_fixed f (List.mem_append_left _ (List.mem_append_right _ (List.contains_iff_mem.mp h)))
+
+theorem silentKey_boolAnd : silentKey boolAnd = false := silentKey_of_mem rfl
+theorem silentKey_boolNot : silentKey boolNot = false := silentKey_of_mem rfl
+theorem silentKey_kIte : silentKey kIte = false := silentKey_of_mem rfl
+
+end KCore

@@ -1,0 +1,20 @@
+command: kompile --backend haskell e2-smt-lemma-lhs.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: Illegal function symbol sl on LHS of rule. Consider adding
+  `simplification` attribute to the rule if this is intended.
+  	Source(FIXTURE/e2-smt-lemma-lhs.k)
+  	Location(6,8,6,13)
+  	6 |	  rule sl(X) >=Int 0 => true [smt-lemma]
+  	  .	       ^~~~~
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-smt-lemma-lhs.k)
+  	Location(6,11,6,12)
+  	6 |	  rule sl(X) >=Int 0 => true [smt-lemma]
+  	  .	          ^
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SMT-LEMMA-LHS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-SMT-LEMMA-LHS as default.

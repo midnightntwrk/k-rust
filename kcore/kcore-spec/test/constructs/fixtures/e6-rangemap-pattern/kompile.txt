@@ -1,0 +1,38 @@
+command: kompile --backend haskell e6-rangemap-pattern.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: Illegal function symbol _RangeMap_ on LHS of rule. Consider
+  adding `simplification` attribute to the rule if this is intended.
+  	Source(FIXTURE/e6-rangemap-pattern.k)
+  	Location(6,14,6,34)
+  	6 |	  rule <k> m(([A, B) r|-> V) Rest) => V </k>
+  	  .	             ^~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Illegal function symbol _r|->_ on LHS of rule. Consider
+  adding `simplification` attribute to the rule if this is intended.
+  	Source(FIXTURE/e6-rangemap-pattern.k)
+  	Location(6,15,6,28)
+  	6 |	  rule <k> m(([A, B) r|-> V) Rest) => V </k>
+  	  .	              ^~~~~~~~~~~~~
+  [Warning] Compiler: Variable 'A' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e6-rangemap-pattern.k)
+  	Location(6,16,6,17)
+  	6 |	  rule <k> m(([A, B) r|-> V) Rest) => V </k>
+  	  .	               ^
+  [Warning] Compiler: Variable 'B' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e6-rangemap-pattern.k)
+  	Location(6,19,6,20)
+  	6 |	  rule <k> m(([A, B) r|-> V) Rest) => V </k>
+  	  .	                  ^
+  [Warning] Compiler: Variable 'Rest' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e6-rangemap-pattern.k)
+  	Location(6,30,6,34)
+  	6 |	  rule <k> m(([A, B) r|-> V) Rest) => V </k>
+  	  .	                             ^~~~
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-RANGEMAP-PATTERN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-RANGEMAP-PATTERN as default.

@@ -1,0 +1,4 @@
+main = "ref.k"
+text_from = "e8-ref"
+extra = ["--llvm-hidden-visibility"]
+same_as = "e8-ref"

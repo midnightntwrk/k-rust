@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-unbound.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 206672
+definition.kore sha256: 3c6d8bee53bd78872dd531193dcf0cda2ee0303b17ea827ad1865d3ebe4151e1
+stripped sha256: a1679865b992794615cf23a71b6fd80a738cdacc456fb21ca268e7896a537452
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-unbound.k)
+  	Location(4,21,4,22)
+  	4 |	  rule <k> a() => b(X) ... </k> [unboundVariables(X)]
+  	  .	                    ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-UNBOUND-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-UNBOUND as default.

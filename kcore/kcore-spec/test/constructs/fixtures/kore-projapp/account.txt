@@ -1,0 +1,30 @@
+f2-examples/projapp.kore: 5 modules; prelude agrees
+user module PROJAPP: 441 sentences
+  1 inert import [generated]
+  188 read [builtin]
+  190 read [generated]
+  4 read [user]
+  1 inert parametricFunctional [generated]
+  9 inert collectionLaw [generated]
+  7 inert injectivity [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  14 read projectionDomainAsClause [generated]
+  15 inert simplification [generated]
+stage refusals (of sentences classified read): 0
+read and not accounted for: 0
+inert constructor axioms not induced by the constructors: 0
+cell collection injections not of a collection of the definition: 0
+law axioms of no collection's concatenation: 0
+rules with an `ensures`: 0
+rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 1
+rules and clauses applying a function symbol in their left side: 0
+sentences the library's data induces that the text does not hold: 0
+library sentences of the modules held that the text does not hold: 0
+sentences every definition holds (kernelText) that the text does not: 0
+sorts without a value (not a condition of wf; the text's G-nonempty for them is not in Γ): 0: 
+parse: ok; wf true; failing: []
+coreOK: true; failing: []
+refused by the account: 0
+(exit 0)

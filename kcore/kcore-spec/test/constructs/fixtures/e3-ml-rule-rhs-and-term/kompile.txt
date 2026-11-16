@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-rhs-and-term.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 210287
+definition.kore sha256: 7e3de570096b46fb43b18e19c2a6ddcd4f9304132ade60f69d54ebbb0a49b022
+stripped sha256: 44b28321db86b1ad172016c069264a92f94c72262a5e66cc847893e5cda7dc0c
+main module: 414 sentences, 58 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-RHS-AND-TERM-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-RULE-RHS-AND-TERM as default.

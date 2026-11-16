@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-open-rec.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 85698
+definition.kore sha256: 69827b1553035e4f7b35bce3e607704bf958680e887b66c18baafda812fbe868
+stripped sha256: 6e33e04b50a0eabc5c2c01d2b934dfe0bf8750dcb6488a2e3d93df738ed15901
+main module: 249 sentences, 24 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-open-rec.k)
+  	Location(4,18,4,19)
+  	4 |	  rule <k> c(X & Y) => d(X) </k>
+  	  .	                 ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-REC-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-OPEN-REC as default.

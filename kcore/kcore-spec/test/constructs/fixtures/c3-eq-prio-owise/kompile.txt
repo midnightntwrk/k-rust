@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-prio-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 203789
+definition.kore sha256: c86fbf2a89aeabde18af947bfa37be4b74e5226f55613b2f2944b33766dc526a
+stripped sha256: 99e2b40794346aefec61a0730ba977e5a7284c936c614c0040756e36ebf67ebe
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-eq-only-prio-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-PRIO-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-EQ-PRIO-OWISE as default.

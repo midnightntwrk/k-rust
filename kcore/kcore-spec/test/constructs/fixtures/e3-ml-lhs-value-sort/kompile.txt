@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-ml-lhs-value-sort.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 218507
+definition.kore sha256: 94a54b3405263a2d347d2b7e350d30b09855cd92491d64d6ba6a1dbc08b061e0
+stripped sha256: 8bba4f2fe546a5aad1dec19caca91e358998d44ccd0524c2dbb30e7d034fc8e8
+main module: 451 sentences, 95 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-lhs-value-sort.k)
+  	Location(6,22,6,23)
+  	6 |	  rule <k> c(#Exists Y:Val. a()) => b() ... </k>
+  	  .	                     ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-LHS-VALUE-SORT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-LHS-VALUE-SORT as default.

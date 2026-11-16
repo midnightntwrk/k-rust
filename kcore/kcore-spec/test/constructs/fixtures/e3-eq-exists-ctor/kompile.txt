@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-eq-exists-ctor.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.8
+output:
+  [Error] Compiler: Cannot encode equations with existential variables to KORE.
+   If this is desired, please use #Exists with regular variables.
+   Offending variables: [?C]
+   context: rule pick(X)=>?C requires #token("true","Bool") ensures
+  `_=/=K_`(inj{Col,KItem}(?C),inj{Col,KItem}(X))
+  [UNIQUE_ID(348479d8369010e82f3fabeb9daa9d59e32310a550d3d0d52ee39f2647665d42),
+  org.kframework.attributes.Location(Location(5,8,5,39)),
+  org.kframework.attributes.Source(Source(FIXTURE/e3-eq-exists-ctor.k)),
+  org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody
+  "ensures" Bool [symbol(#ruleEnsures)])]
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-EQ-EXISTS-CTOR-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-EQ-EXISTS-CTOR as default.

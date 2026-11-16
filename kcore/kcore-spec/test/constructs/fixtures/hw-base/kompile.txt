@@ -1,0 +1,9 @@
+command: kompile --backend haskell hw-base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 215575
+definition.kore sha256: f7b0b1ea8582afef5915bc78f2d34d936b8701180b90fbb1cb66675f9240c68c
+stripped sha256: 05199d26bbdbae7db1124cfb6914c11751c6892edd8ac304c4812a4f7b832fcf
+main module: 429 sentences, 75 not in base's, in kore.txt
+output:
+  

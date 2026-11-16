@@ -1,0 +1,11 @@
+command: kompile --backend haskell e5-owise-nonexec.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 87336
+definition.kore sha256: 0cda18e98a86af5cdb583c34c168ee7127f7601117d8271d20a33e662a2479df
+stripped sha256: adebda75890eba3307e7bd1646b52e8a7706988d215023a7f7c5c381fed59414
+main module: 246 sentences, 21 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E5-OWISE-NONEXEC-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E5-OWISE-NONEXEC as default.

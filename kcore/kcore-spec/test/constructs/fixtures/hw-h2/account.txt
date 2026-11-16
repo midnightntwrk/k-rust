@@ -1,0 +1,19 @@
+test/constructs/fixtures/hw-h2/hw-h2.kore: 5 modules; prelude agrees
+user module E2-COMM-CTOR: 242 sentences
+  1 inert import [generated]
+  159 read [generated]
+  52 read [builtin]
+  2 refused openGenerator [user]
+      e.g. symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,36,2,67)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(/artifacts/worktrees/kcore-enum/draft-personal/k-semantics-core-2026-11/kcore-spec/.lake/kfix/e2-comm-ctor/src/e2-comm-ctor.k)"), symbol'Kywd'{}("and")]
+  2 read [user]
+  4 inert injectivity [generated]
+  10 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 openGeneratorEquation
+      sentence 256 (Lbland): openGeneratorEquation (Lbland: an open generator)
+        [user] (no label) at e2-comm-ctor.k:99: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortExp{}, R}(X0:SortExp{}, VarX:SortExp{}), \and{R}(\in{SortExp{}, R}(X1:SortExp{}, VarY:SortExp{}), \top{R}()))), \equals{SortExp{}, R}(Lbland{}(X0:SortExp{}, X1:SortExp{}), \and{SortExp{}}(Lbland{}(VarX:SortExp{}, VarX:SortExp{}), \top{SortExp{}}()))) [UNIQUE'Unds'ID{}("hw-h2"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(99, …
+finish: sentence 256 (Lbland): openGeneratorEquation (Lbland: an open generator)
+(exit 0)

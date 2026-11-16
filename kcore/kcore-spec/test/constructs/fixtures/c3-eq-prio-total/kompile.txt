@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-prio-total.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202523
+definition.kore sha256: 4631ce6f8187bbeb1b767f69f846a12e0c9f644c238ecbd22fc13590c7db55d6
+stripped sha256: cb0d079ed6ba8ad591ae711533f13e9f5fd36cdf53345eea28d872530ffb7d6e
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-eq-only-prio: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-PRIO-TOTAL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-EQ-PRIO-TOTAL as default.

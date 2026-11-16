@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-param-cases.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 211418
+definition.kore sha256: 6640fdfd578332c163a73ba6796ecc84b35547fb09ba7615b31639935628633b
+stripped sha256: a7dff8009f60912401e043c3ddf384238ad750efb572c6069813091d1d062e45
+main module: 411 sentences, 55 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-PARAM-CASES-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-PARAM-CASES as default.

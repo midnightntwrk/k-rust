@@ -1,0 +1,10 @@
+command: kompile --backend haskell e2-rule.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 223108
+definition.kore sha256: eada39de68fb9cee745b4cf2b7743f92cf6b493fcd3bf3cda3ed7197e45d61aa
+stripped sha256: d41b3e1ff3a63851c48058dc43572234e901915beb52e9dc5c1939bebd6a71ef
+main module: 430 sentences, 74 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name E2-RULE-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E2-RULE as default.

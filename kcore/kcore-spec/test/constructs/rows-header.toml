@@ -1,0 +1,101 @@
+# The construct table of DONE-0 C1 and C2: one row per key of the eight lists E1 to E8 that
+# test/constructs/extract.sh writes from K 7.1.337. test/constructs.sh fails unless each list's
+# keys here are exactly the extracted ones.
+#
+# A row: status, evidence, and optionally note, kimp, kore; a row of E1, E2, E3, E7, E8 also
+# fixture and either sentence or no_sentence, and optionally fixture_note.
+#   status    supported | parameter | inert | erased | refused | pending-fixture | not-handled.
+#             `not-handled` means that no recorded place gives the row a status; TRIAGE decides it.
+#             `pending-fixture`: TRIAGE leaves the row undecided until a fixture is made; `triage`
+#             names the entry and `pending` quotes why.
+#   evidence  the place that gives the status: findings/K-coverage.md's row (measured at
+#             kcore-reader 57f851ec, carried where its dated note records no change), or the library
+#             at this tree (FixedSignature.regHookNames, BuiltinData.modules, Builtins.libParams).
+#             It is the status's source, not yet DONE-0 C2's evidence (fixtures, theorems).
+#   kimp      the construct occurs in kimp (imp-semantics src/kimp/kdist/imp-semantics imp.k, calc.k,
+#             expr.k; for E4 and E6, its kompiled text f2-examples/ref-kimp.kore): true / false.
+#   kore      the same for krs/semantics/kore/kore.k (K sources for the K-level lists; for E4 and E6
+#             its kompiled text, fixture kore-k, through extract.sh's uses-kore.E4 / uses-kore.E6).
+#             kimp / kore absent: not checked for that row. The checks are textual (seed-rows.py):
+#             a keyword, attribute or terminal found in the text, not a parse of it.
+#             An E2 row of the classes rule, equation, simplification is marked from K's `rule`
+#             sentences, which the check does not tell apart: all three or none.
+#   fixture   a directory of test/constructs/fixtures/: a K text, kompile's report (kompile.txt), the
+#             sentences the text adds to an empty module (kore.txt) and `kcore account` of the text
+#             (account.txt); test/constructs/kfix.py says how they are written. "none": no fixture,
+#             the reason names a place in K's sources.
+#   sentence  substrings of the fixture's kore.txt (or kompile.txt) that locate the sentences
+#             carrying the row (kfix.py check finds each).
+#   no_sentence  "CLASS: reason" when no sentence of a kompiled text carries the row: erased (the
+#             fixture equals its same_as pair), rejected (kompile's error is the fixture), or the
+#             class the reason names.
+#   fixture_note  what the fixture shows beyond its sentences. These fields are evidence for TRIAGE,
+#             not a status.
+#   notes     on a row or a `cases` entry of any list: a table from a constructor of
+#             Parse.ReadingNote to a fixture directory whose account.txt prints the note (a read
+#             class, a per-sentence reading, or a count above 0); kfix.py check fails unless each
+#             is so and every constructor is named once at least.
+# First written by test/constructs/seed-rows.py (its docstring states how each status was carried).
+# Then test/constructs/apply-triage.py applies findings/TRIAGE-*.toml, copying each decision's fields
+# as written (names made one vocabulary; its docstring gives the renaming). Fields it adds:
+#   triage    the TRIAGE entry that decides the row (file and table).
+#   reason, reversal  the decision's reason and its reversal criterion.
+#   class     for refused: R-a (outside the fragment by a recorded decision), R-b (a quoted passage of
+#             K's documentation or of the KORE syntax document puts the form outside the language),
+#             R-c (the kernel has no notion for it), or scope (nothing excludes the form, but no
+#             text in scope holds it; fields place, reversal, shape or meaning, below); DONE-0 C2,
+#             findings/EX-KPROV-decision.md D5-D8. A `cases` entry (or a table of also_refused,
+#             split) carrying class is checked as a row is.
+#   cone      the cone declaration that changes (R-c; supported needing one), or "none ..." as TRIAGE
+#             writes it ("none (reader only)", "none (reader already reads it)").
+#   evidence  the decision's evidence where it gives one; evidence_seed then keeps the earlier one.
+#   notion, place, refused_by, reader, reader_today, reader_does_it, reader_reason, inert_class,
+#   confidence, settle, decided  the decision's fields of those names (confidence: TRIAGE-A's
+#             `confidence`, TRIAGE-B's `sure`).
+#   also_refused, in_simplification, elsewhere, split, cases  shapes of the row whose status differs
+#             from the row's (DONE-0 C2 (b)); `cases` a list of tables with case and status.
+#   was       the status recorded before TRIAGE, where TRIAGE changes or questions it.
+#   triage_note  the decision's notes, caveats and todos, as a list.
+#   pending   for pending-fixture: TRIAGE's `why`.
+#   planned   for class R-c: the lane of designs/CN-3-merged-constructs.md section 4 that supports it
+#             before R2 (owner, 2026-11-15: every R-c row is supported before R2).
+#   planned_refused  the shape of the row CN-3 section 5 keeps refused, with its reason.
+#   also_planned  for a row of another status: the CN-3 lane of an R-c (or undecided) shape inside it.
+# Field of the work plan (test/constructs/units.py, run by test/constructs.sh):
+#   unit      for a row of status refused and for a row of class R-c (on a row of another status,
+#             optional and checked the same way): the id of the ticket (`[ticket."ID"]` of
+#             progress/tickets-*.toml) or of the unit (`[unit]` of progress/units.toml; the main
+#             checkout's progress/ where the tree has none) that supports
+#             the row or the refused shape; for a row not of class R-c that no ticket supports, one
+#             of these, the word in parentheses the entry's own class:
+#               "none (R-a)", optionally followed by ": " and the reason;
+#               "none (R-b): shape at <list> <row key>[, case <name>]" (a passage of K's
+#                 documentation; the row that decides the KORE shape the form would be) or
+#               "none (R-b): no shape (ill-formed)" (a passage of the KORE syntax document);
+#               "none (scope): rejected", "none (scope): never written", "none (scope): option" or
+#               "none (scope): not delivered".
+#             A class R-c row always names a ticket or unit. units.py walks the rows and the tables
+#             nested in them (cases, also_refused, split), and fails on an entry without it, an id of
+#             neither file, another form, a class the unit does not name, or a `shape at` key that
+#             is no key of the list.
+# Grounds of a scope entry: rejected (kompile writes no definition for the K text), never written
+#   (no emit site writes the KORE form), option (only an option value outside R-12 produces it), and
+#   not delivered (KPROV-reopen-decision R2): a sentence kompile's frontend wrote and its validation
+#   step refused; the text exists, but the command delivers no definition, so no kompiled definition
+#   carries the sentence, and the reader's verdict is on a hand-written KORE text holding it.
+# Fields of a scope entry (EX-KPROV-decision D6, KPROV-reopen-decision R2; units.py checks each by
+# the ground):
+#   place     "DONE-0 R-10" (rejected, not delivered), "DONE-0 R-1" (never written), "DONE-0 R-12"
+#             (option).
+#   reversal  the event that ends the scope.
+#   shape     rejected and option: "<list> <row key>[, case <name>]", the row that decides the KORE
+#             shape the form would be, or "none: <emitter file>:<lines>: <what the site shows>".
+#   meaning   never written: "<path>:<line>: \"<passage>\"", the passage of the KORE syntax document
+#             that gives the form a meaning.
+#   refused_by  "kompile" (rejected); the reason the reader prints on the form (never written, not
+#             delivered).
+#   evidence  rejected: kompile.txt's exit and error; never written: the emitter's sites, the corpus
+#             count and a hand-written KORE fixture's account line; option: the command; not
+#             delivered: "fixtures/<dir>/kompile.txt: exit <n>, <validator> <version> <error class>
+#             at <location>: <the sentence>" and the hand-written fixture's account line
+#             ("fixtures/<dir>/account.txt: ...").

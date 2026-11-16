@@ -1,0 +1,24 @@
+command: kompile --backend haskell e3-ml-and-lhs.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.1
+output:
+  kore-exec: [53538] Error (ErrorVerify):
+      Error:
+        module 'E3-ML-AND-LHS':
+        axiom declaration:
+        (definition.kore 329:21):
+          Unsupported LHS of equation:
+          \and{SortInt{}}(Lblf{}(VarX:SortInt{}), Lblg{}(VarX:SortInt{}))
+  Error:
+    module 'E3-ML-AND-LHS':
+    axiom declaration:
+    (definition.kore 329:21):
+      Unsupported LHS of equation:
+      \and{SortInt{}}(Lblf{}(VarX:SortInt{}), Lblg{}(VarX:SortInt{}))
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-AND-LHS-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-ML-AND-LHS as default.

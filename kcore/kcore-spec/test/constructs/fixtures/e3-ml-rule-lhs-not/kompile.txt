@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-not.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 86797
+definition.kore sha256: 98210ab4bcab8b2364eac26e2431bdfd969fe3f4458828499f1b95c466246c74
+stripped sha256: 8bdadb0b9137a91c204eb489a81b48f089a610742e23bfaffff79856549aff23
+main module: 254 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-NOT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-RULE-LHS-NOT as default.

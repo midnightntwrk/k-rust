@@ -1,0 +1,18 @@
+command: kompile --backend haskell e3-ml-req-or-unheld.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 207074
+definition.kore sha256: 00f9e5962497685f2d13f153a6f19d4ccd387792cf3aea392a541174b5dae9c1
+stripped sha256: e29faec100e236e5559174da46ae955a677e892039f6c6cfc8bf5a36ee07ad76
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-req-or-unheld.k)
+  	Location(4,57,4,58)
+  	4 |	  rule <k> go(X) => done ... </k> requires X >Int 0 #Or Y:Int >Int 2
+  [unboundVariables(Y)]
+  	  .	                                                        ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-OR-UNHELD-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-OR-UNHELD as default.

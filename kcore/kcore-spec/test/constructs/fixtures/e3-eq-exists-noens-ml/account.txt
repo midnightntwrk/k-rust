@@ -1,0 +1,17 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-EQ-EXISTS-NOENS-ML: 279 sentences
+  1 inert import [generated]
+  157 read [generated]
+  95 read [builtin]
+  2 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 manyValuedRightSide
+      sentence 245 (Lblf): manyValuedRightSide (\exists)
+        [user] (no label) at e3-eq-exists-noens-ml.k:4: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortBool{}, R}(X0:SortBool{}, Var'Unds'Gen0:SortBool{}), \top{R}())), \equals{SortBool{}, R}(Lblf{}(X0:SortBool{}), \and{SortBool{}}(\exists{SortBool{}}(VarB:SortBool{}, VarB:SortBool{}), \top{SortBool{}}()))) [UNIQUE'Unds'ID{}("d4b64e14cbd2beba7374c55ac5f1b680303de27015b8c39b7876fabc75cc55b5"), org'Stop'kframework'Stop'attributes'Stop'Location{} …
+finish: sentence 245 (Lblf): manyValuedRightSide (\exists)
+(exit 0)

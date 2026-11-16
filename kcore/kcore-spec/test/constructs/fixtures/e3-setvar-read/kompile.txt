@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-setvar-read.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.8
+definition.kore bytes: 86557
+definition.kore sha256: 0178835ea2ca01321f0f14217e6563227a071f8796cf4663043aeb85a4bcc599
+stripped sha256: 697f71cf4b6119e2c477ebf5875b06591cf02caa705a51931b4b63bdedd5d7ac
+main module: 255 sentences, 30 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-SETVAR-READ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-SETVAR-READ as default.

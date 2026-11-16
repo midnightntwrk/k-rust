@@ -1,0 +1,2 @@
+# pair requires x [total]: a total function whose one equation has a requires; differs_from c3-eq-only-req: the text without the pair's second modifier
+differs_from = "c3-eq-only-req"

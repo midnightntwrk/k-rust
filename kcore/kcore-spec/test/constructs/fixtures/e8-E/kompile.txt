@@ -1,0 +1,86 @@
+command: kompile --backend haskell -E ref.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 0.6
+definition.kore: none written
+output:
+  module SORT-K 
+    syntax K [hook(K.K)]
+  endmodule
+  
+  module BASIC-K 
+    imports public ML-SYNTAX
+    imports public SORT-BOOL
+    syntax KItem [hook(K.KItem)]
+    syntax K  ::=
+      KItem 
+    syntax KConfigVar [token]
+    syntax KItem  ::=
+      KConfigVar 
+  endmodule
+  
+  module KSTRING 
+    syntax KString  ::=
+      r"[\\\"](([^\\\"\\n\\r\\\\])|([\\\\][nrtf\\\"\\\\])|([\\\\][x][0-9a-fA-F]{2})|([\\\\][u][0-9a-fA-F]{4})|([\\\\][U][0-9a-fA-F]{8}))*[\\\"]" [token]
+  endmodule
+  
+  module BUILTIN-ID-TOKENS 
+    syntax #LowerId  ::=
+      r"[a-z][a-zA-Z0-9]*" [prec(2), token]
+    syntax #UpperId  ::=
+      r"[A-Z][a-zA-Z0-9]*" [prec(2), token]
+  endmodule
+  
+  module SORT-KBOTT 
+    imports public SORT-K
+    syntax KBott 
+  endmodule
+  
+  module KAST 
+    imports public BASIC-K
+    imports public SORT-KBOTT
+    imports public KSTRING
+    imports public BUILTIN-ID-TOKENS
+    syntax KBott  ::=
+      "#token" "(" KString "," KString ")" [symbol(#KToken)]
+    | "#klabel" "(" KLabel ")" [symbol(#WrappedKLabel)]
+    | KLabel "(" KList ")" [symbol(#KApply)]
+    syntax KItem  ::=
+      KBott 
+    syntax KLabel  ::=
+      r"`(\\\\`|\\\\\\\\|[^`\\\\\\n\\r])+`" [token]
+    | #LowerId [token]
+    | r"[#a-z][a-zA-Z0-9]*" [prec(1), token]
+    syntax KList  ::=
+      K 
+    | ".KList" [symbol(#EmptyKList)]
+    | KList "," KList [assoc, left, prefer, symbol(#KList), unit(#EmptyKList)]
+  endmodule
+  
+  module KSEQ 
+    imports public KAST
+    imports public K-TOP-SORT
+    syntax K  ::=
+      ".K" [symbol(#EmptyK)]
+    | "." [deprecated, symbol(#EmptyK), unparseAvoid]
+    syntax K  ::=
+      K "~>" K [assoc, left, symbol(#KSequence), unit(#EmptyK)]
+    syntax left #KSequence 
+    syntax {Sort} Sort  ::=
+      "(" Sort ")" [applyPriority(1), bracket, group(defaultBracket)]
+  endmodule
+  
+  module ML-SYNTAX [not-lr1]
+    imports public SORT-K
+    syntax {Sort} Sort  ::=
+      "#Top" [group(mlUnary), symbol(#Top)]
+    | "#Bottom" [group(mlUnary), symbol(#Bottom)]
+    | "#Not" "(" Sort ")" [group(mlUnary, mlOp), mlOp, symbol(#Not)]
+    syntax {Sort1, Sort2} Sort2  ::=
+      "#Ceil" "(" Sort1 ")" [group(mlUnary, mlOp), mlOp, symbol(#Ceil)]
+    | "#Floor" "(" Sort1 ")" [group(mlUnary, mlOp), mlOp, symbol(#Floor)]
+    | "{" Sort1 "#Equals" Sort1 "}" [comm, format(%1%i%n%2%d%n%3%i%n%4%d%n%5), group(mlEquals, mlOp), mlOp, symbol(#Equals)]
+    syntax priority mlUnary  > mlEquals  > mlAnd  
+    syntax {Sort} Sort  ::=
+      Sort "#And" Sort [assoc, comm, format(%i%1%d%n%2%n%i%3%d), group(mlAnd, mlOp), left, mlOp, symbol(#And), unit(#Top)]
+    > Sort "#Or" Sort [assoc, comm, format(%i%1%d%n%2%n%i%3%d), group(mlOp), left, mlOp, symbol(#Or), unit(#Bottom)]
+  ... 1462 more lines

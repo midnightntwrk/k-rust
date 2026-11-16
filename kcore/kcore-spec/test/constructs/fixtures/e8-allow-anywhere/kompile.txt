@@ -1,0 +1,17 @@
+command: kompile --backend haskell --allow-anywhere-haskell e2-anywhere.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 205625
+definition.kore sha256: 89aa4d3850827d032745856ab1666be678b8700d3ae97583eb70773d61df2944
+stripped sha256: 5888c14a225bee0dbddd14ccee79c199b4a5e842c1bce2f00a38df233c927bbb
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Removed anywhere rule for Haskell backend execution; this
+  may change the behavior of your code.
+  	Source(FIXTURE/e2-anywhere.k)
+  	Location(4,8,4,20)
+  	4 |	  rule a(X) => b(X) [anywhere]
+  	  .	       ^~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ANYWHERE as default.

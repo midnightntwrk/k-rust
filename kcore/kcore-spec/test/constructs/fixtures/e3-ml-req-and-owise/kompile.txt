@@ -1,0 +1,23 @@
+command: kompile --backend haskell e3-ml-req-and-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 206679
+definition.kore sha256: 1f278a07f781aa28bd802356481570ceddba0569d58c988f29ec3bc29dc8c1ab
+stripped sha256: a8fab7a68bca80e4aa2f44fdbfdb2bf55b1f3fc7cfb4f71672f2217fd145e5e6
+main module: 396 sentences, 39 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-req-and-owise.k)
+  	Location(7,10,7,11)
+  	7 |	  rule f(X) => 2 [owise]
+  	  .	         ^
+  [Warning] Compiler: Variable 'X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-ml-req-and-owise.k)
+  	Location(9,11,9,12)
+  	9 |	  rule hh(X) => true
+  	  .	          ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-REQ-AND-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-ML-REQ-AND-OWISE as default.

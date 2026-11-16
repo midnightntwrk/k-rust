@@ -1,0 +1,25 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-LHS-EMPTY-SORT: 266 sentences
+  1 inert import [generated]
+  168 read [generated]
+  52 read [builtin]
+  6 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  10 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 read orSplit [user]
+  1 read existsAsVariable [user]
+  1 inert simplification [generated]
+connective readings per sentence: 2
+      sentence 226: orSplit
+      sentence 227: existsAsVariable
+stage refusals (of sentences classified read): 2
+  2 unheldVariable
+      sentence 226 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (Var'Unds'Gen0:Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and the text entails neither an element of the sort nor its emptiness)
+        [user] (no label) at e3-ml-lhs-empty-sort.k:5: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(\or{SortExp{}}(Lble{}(Var'Unds'Gen0:SortEmpty{}), Lbld{}())), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{ …
+      sentence 227 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (VarY':Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and the text entails neither an element of the sort nor its emptiness)
+        [user] (no label) at e3-ml-lhs-empty-sort.k:4: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(\exists{SortExp{}}(VarY:SortEmpty{}, Lbla{}()))), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kse …
+finish: sentence 226 (Lbl'-LT-'generatedTop'-GT-'): unheldVariable (Var'Unds'Gen0:Empty: a variable of the axiom that a rule read from it does not hold, of a sort of which the reader exhibits no value: the axiom holds for every element of the sort, so where the sort has none it states nothing while the rule would step, and the text entails neither an element of the sort nor its emptiness)
+(exit 0)

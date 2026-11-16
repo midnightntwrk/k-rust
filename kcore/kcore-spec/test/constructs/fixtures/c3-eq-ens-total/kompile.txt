@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-eq-ens-total.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 202624
+definition.kore sha256: b9256fea05d875cbe8ae6858d3db27c7b82e8c198913c651b167b3de5b04c3f0
+stripped sha256: 6cb97353d644767cc4ffe6683441a2b95aaf72cbdfa01af13a0cad2578863ec8
+main module: 392 sentences, 35 not in base's, in kore.txt
+differs_from c3-eq-only-ens: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-EQ-ENS-TOTAL-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-EQ-ENS-TOTAL as default.

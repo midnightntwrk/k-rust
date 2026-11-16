@@ -1,0 +1,20 @@
+//@ 356
+// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(a(.KList))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(b(`_+Int_`(#token("1","Int"),`_*Int_`(#token("2","Int"),#token("3","Int")))))~>_DotVar1),_DotVar0) requires #token("true","Bool") ensures #token("true","Bool") [UNIQUE_ID(34449e8175cc6d7f3746e7fe7ec0a7f9d529202dbd07bee8f3bc72e038faca6d), org.kframework.attributes.Location(Location(5,8,5,46)), org.kframework.attributes.Source(Source(FIXTURE/e7-constfold.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody [symbol(#ruleNoConditions)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \top{SortGeneratedTopCell{}}()),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}(Lbl'UndsPlus'Int'Unds'{}(\dv{SortInt{}}("1"),Lbl'UndsStar'Int'Unds'{}(\dv{SortInt{}}("2"),\dv{SortInt{}}("3"))))),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("34449e8175cc6d7f3746e7fe7ec0a7f9d529202dbd07bee8f3bc72e038faca6d"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,8,5,46)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e7-constfold.k)")]
+//@ 357
+// rule `<generatedTop>`(`<k>`(inj{Exp,KItem}(b(X))~>_DotVar1),_DotVar0)=>`<generatedTop>`(`<k>`(inj{Exp,KItem}(c(`_+String__STRING-COMMON_String_String_String`(#token("\"x\"","String"),#token("\"y\"","String"))))~>_DotVar1),_DotVar0) requires `_>Int_`(X,`_+Int_`(#token("2","Int"),#token("2","Int"))) ensures #token("true","Bool") [UNIQUE_ID(da030a1bd6e759aed5d1de8f1edac32b63f8d72f11b1d40315fc75d01b5df814), org.kframework.attributes.Location(Location(6,8,6,72)), org.kframework.attributes.Source(Source(FIXTURE/e7-constfold.k)), org.kframework.definition.Production(syntax #RuleContent ::= #RuleBody "requires" Bool [symbol(#ruleRequires)])]
+  axiom{} \rewrites{SortGeneratedTopCell{}} (
+      \and{SortGeneratedTopCell{}} (
+        Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}(VarX:SortInt{})),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}),
+        \equals{SortBool{},SortGeneratedTopCell{}}(
+        Lbl'Unds-GT-'Int'Unds'{}(VarX:SortInt{},Lbl'UndsPlus'Int'Unds'{}(\dv{SortInt{}}("2"),\dv{SortInt{}}("2"))),
+        \dv{SortBool{}}("true"))),
+      \and{SortGeneratedTopCell{}} (
+      Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(Lbl'UndsPlus'String'UndsUnds'STRING-COMMON'Unds'String'Unds'String'Unds'String{}(\dv{SortString{}}("x"),\dv{SortString{}}("y")))),Var'Unds'DotVar1:SortK{})),Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()))
+  [UNIQUE'Unds'ID{}("da030a1bd6e759aed5d1de8f1edac32b63f8d72f11b1d40315fc75d01b5df814"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,8,6,72)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e7-constfold.k)")]

@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-setvar-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.3
+definition.kore bytes: 87620
+definition.kore sha256: 2d1656d975b2291c1b4df631d6f9cd7346ef0de308e612d41549d59675f2b804
+stripped sha256: 574d8d1eabcbb57f8a4368f21b868e300ce578551abe39106f401928b5f8637c
+main module: 254 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-SETVAR-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-SETVAR-OWISE as default.

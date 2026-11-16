@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module C3-HOOK-EQ-OWISE: 390 sentences
+  1 inert import [generated]
+  177 read [generated]
+  184 read [builtin]
+  3 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 hookEquation
+      sentence 387 (Lblplus): hookEquation (Lblplus: a hooked symbol of the text, hook INT.add interpreted by the registry)
+        [user] (no label) at c3-hook-eq-owise.k:6: axiom{R} \implies{R}(\and{R}(\not{R}(\or{R}(\exists{R}(Var'Unds'Gen2:SortInt{}, \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen2:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}())))), \bottom{R}())), \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarY:SortInt{}), \top{R}() …
+      sentence 388 (Lblplus): hookEquation (Lblplus: a hooked symbol of the text, hook INT.add interpreted by the registry)
+        [user] (no label) at c3-hook-eq-owise.k:5: axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortInt{}, R}(Lblplus{}(X0:SortInt{}, X1:SortInt{}), \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("c48969bf401007a50220091c13dcef88d553f6ca41e524227fe2336858f548f6"), org'Stop'kframework'Stop'a …
+finish: sentence 387 (Lblplus): hookEquation (Lblplus: a hooked symbol of the text, hook INT.add interpreted by the registry)
+(exit 0)

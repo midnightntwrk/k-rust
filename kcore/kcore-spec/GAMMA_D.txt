@@ -1,0 +1,692 @@
+# Γ_D of ../milestone-1/kore/definition.kore
+# Γ^AML: 141 axioms; AML(Γ): 202 axioms; 154838 AML pattern nodes
+
+## Γ^AML (the encoding: TRANSLATION.md G-rules)
+[G-def] definedness
+  ∀x. ⌈x⌉
+[G-sort] sort SortK
+  ∃y:Sort. SortK = y
+[G-sort] sort SortKItem
+  ∃y:Sort. SortKItem = y
+[G-sort] sort SortBool (hooked)
+  ∃y:Sort. SortBool = y
+[G-sort] sort SortGeneratedCounterCell
+  ∃y:Sort. SortGeneratedCounterCell = y
+[G-sort] sort SortGeneratedCounterCellOpt
+  ∃y:Sort. SortGeneratedCounterCellOpt = y
+[G-sort] sort SortGeneratedTopCell
+  ∃y:Sort. SortGeneratedTopCell = y
+[G-sort] sort SortGeneratedTopCellFragment
+  ∃y:Sort. SortGeneratedTopCellFragment = y
+[G-sort] sort SortInt (hooked)
+  ∃y:Sort. SortInt = y
+[G-sort] sort SortKCell
+  ∃y:Sort. SortKCell = y
+[G-sort] sort SortKCellOpt
+  ∃y:Sort. SortKCellOpt = y
+[G-sort] sort SortKConfigVar
+  ∃y:Sort. SortKConfigVar = y
+[G-sort] sort SortList (hooked)
+  ∃y:Sort. SortList = y
+[G-sort] sort SortMInt (hooked)
+  SortS0 ∈ ⟦Sort⟧ → (∃y:Sort. SortMInt SortS0 = y)
+[G-sort] sort SortMap (hooked)
+  ∃y:Sort. SortMap = y
+[G-sort] sort SortNat
+  ∃y:Sort. SortNat = y
+[G-sort] sort SortSet (hooked)
+  ∃y:Sort. SortSet = y
+[G-sort] sort SortState
+  ∃y:Sort. SortState = y
+[G-sort] sort SortVal
+  ∃y:Sort. SortVal = y
+[G-nonempty] nonempty SortK
+  ¬(⟦SortK⟧ = ⊥)
+[G-nonempty] nonempty SortKItem
+  ¬(⟦SortKItem⟧ = ⊥)
+[G-nonempty] nonempty SortBool
+  ¬(⟦SortBool⟧ = ⊥)
+[G-nonempty] nonempty SortGeneratedCounterCell
+  ¬(⟦SortGeneratedCounterCell⟧ = ⊥)
+[G-nonempty] nonempty SortGeneratedCounterCellOpt
+  ¬(⟦SortGeneratedCounterCellOpt⟧ = ⊥)
+[G-nonempty] nonempty SortGeneratedTopCell
+  ¬(⟦SortGeneratedTopCell⟧ = ⊥)
+[G-nonempty] nonempty SortGeneratedTopCellFragment
+  ¬(⟦SortGeneratedTopCellFragment⟧ = ⊥)
+[G-nonempty] nonempty SortInt
+  ¬(⟦SortInt⟧ = ⊥)
+[G-nonempty] nonempty SortKCell
+  ¬(⟦SortKCell⟧ = ⊥)
+[G-nonempty] nonempty SortKCellOpt
+  ¬(⟦SortKCellOpt⟧ = ⊥)
+[G-nonempty] nonempty SortKConfigVar
+  ¬(⟦SortKConfigVar⟧ = ⊥)
+[G-nonempty] nonempty SortList
+  ¬(⟦SortList⟧ = ⊥)
+[G-nonempty] nonempty SortMInt
+  SortS0 ∈ ⟦Sort⟧ → ¬(⟦SortMInt SortS0⟧ = ⊥)
+[G-nonempty] nonempty SortMap
+  ¬(⟦SortMap⟧ = ⊥)
+[G-nonempty] nonempty SortNat
+  ¬(⟦SortNat⟧ = ⊥)
+[G-nonempty] nonempty SortSet
+  ¬(⟦SortSet⟧ = ⊥)
+[G-nonempty] nonempty SortState
+  ¬(⟦SortState⟧ = ⊥)
+[G-nonempty] nonempty SortVal
+  ¬(⟦SortVal⟧ = ⊥)
+[G-sorts] the sorts
+  ⟦Sort⟧ = (μS. SortK ∨ SortKItem ∨ SortBool ∨ SortGeneratedCounterCell ∨ SortGeneratedCounterCellOpt ∨ SortGeneratedTopCell ∨ SortGeneratedTopCellFragment ∨ SortInt ∨ SortKCell ∨ SortKCellOpt ∨ SortKConfigVar ∨ SortList ∨ SortMInt S ∨ SortMap ∨ SortNat ∨ SortSet ∨ SortState ∨ SortVal)
+[G-arity] arity kseq
+  kseq ⟦SortKItem⟧ ⟦SortK⟧ ⊆ ⟦SortK⟧
+[G-arity] arity dotk
+  dotk ⊆ ⟦SortK⟧
+[G-arity] arity append
+  append ⟦SortK⟧ ⟦SortK⟧ ⊆ ⟦SortK⟧
+[G-arity] arity inj
+  From ∈ ⟦Sort⟧ ∧ To ∈ ⟦Sort⟧ → inj From To ⟦From⟧ ⊆ ⟦To⟧
+[G-arity] arity LblisK
+  isK ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisBool
+  isBool ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisKItem
+  isKItem ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'Bool
+  project:Bool ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'K
+  project:K ⟦SortK⟧ ⊆ ⟦SortK⟧
+[G-arity] arity Lblproject'Coln'KItem
+  project:KItem ⟦SortK⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblisKConfigVar
+  isKConfigVar ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisInt
+  isInt ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'Int
+  project:Int ⟦SortK⟧ ⊆ ⟦SortInt⟧
+[G-arity] arity Lbl'Unds'List'Unds' (hooked)
+  _List_ ⟦SortList⟧ ⟦SortList⟧ ⊆ ⟦SortList⟧
+[G-arity] arity Lbl'Stop'List (hooked)
+  .List ⊆ ⟦SortList⟧
+[G-arity] arity LblListItem (hooked)
+  ListItem ⟦SortKItem⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblpushList (hooked)
+  pushList ⟦SortKItem⟧ ⟦SortList⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblList'Coln'get (hooked)
+  List:get ⟦SortList⟧ ⟦SortInt⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblList'Coln'getMInt (hooked)
+  SortWidth ∈ ⟦Sort⟧ → List:getMInt SortWidth ⟦SortList⟧ ⟦SortMInt SortWidth⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblList'Coln'set (hooked)
+  List:set ⟦SortList⟧ ⟦SortInt⟧ ⟦SortKItem⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblList'Coln'setMInt (hooked)
+  SortWidth ∈ ⟦Sort⟧ → List:setMInt SortWidth ⟦SortList⟧ ⟦SortMInt SortWidth⟧ ⟦SortKItem⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblmakeList'LParUndsCommUndsRParUnds'LIST'Unds'List'Unds'Int'Unds'KItem (hooked)
+  makeList(_,_)_LIST_List_Int_KItem ⟦SortInt⟧ ⟦SortKItem⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblupdateList'LParUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'List (hooked)
+  updateList(_,_,_)_LIST_List_List_Int_List ⟦SortList⟧ ⟦SortInt⟧ ⟦SortList⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblfillList'LParUndsCommUndsCommUndsCommUndsRParUnds'LIST'Unds'List'Unds'List'Unds'Int'Unds'Int'Unds'KItem (hooked)
+  fillList(_,_,_,_)_LIST_List_List_Int_Int_KItem ⟦SortList⟧ ⟦SortInt⟧ ⟦SortInt⟧ ⟦SortKItem⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblList'Coln'range (hooked)
+  List:range ⟦SortList⟧ ⟦SortInt⟧ ⟦SortInt⟧ ⊆ ⟦SortList⟧
+[G-arity] arity Lbl'Unds'inList'Unds' (hooked)
+  _inList_ ⟦SortKItem⟧ ⟦SortList⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblsizeList (hooked)
+  sizeList ⟦SortList⟧ ⊆ ⟦SortInt⟧
+[G-arity] arity LblsizeMInt (hooked)
+  SortWidth ∈ ⟦Sort⟧ → sizeMInt SortWidth ⟦SortList⟧ ⊆ ⟦SortMInt SortWidth⟧
+[G-arity] arity LblisList
+  isList ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'List
+  project:List ⟦SortK⟧ ⊆ ⟦SortList⟧
+[G-arity] arity Lbl'Hash'KConfigValue
+  #KConfigValue ⟦SortK⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity Lbl'Hash'unboxKConfigValue
+  #unboxKConfigValue ⟦SortKItem⟧ ⊆ ⟦SortK⟧
+[G-arity] arity Lbl'Unds'Set'Unds' (hooked)
+  _Set_ ⟦SortSet⟧ ⟦SortSet⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity Lbl'Stop'Set (hooked)
+  .Set ⊆ ⟦SortSet⟧
+[G-arity] arity LblSetItem (hooked)
+  SetItem ⟦SortKItem⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set (hooked)
+  _|Set__SET_Set_Set_Set ⟦SortSet⟧ ⟦SortSet⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity LblintersectSet'LParUndsCommUndsRParUnds'SET'Unds'Set'Unds'Set'Unds'Set (hooked)
+  intersectSet(_,_)_SET_Set_Set_Set ⟦SortSet⟧ ⟦SortSet⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity LblSet'Coln'difference (hooked)
+  Set:difference ⟦SortSet⟧ ⟦SortSet⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity LblSet'Coln'in (hooked)
+  Set:in ⟦SortKItem⟧ ⟦SortSet⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lbl'Unds-LT-Eqls'Set'UndsUnds'SET'Unds'Bool'Unds'Set'Unds'Set (hooked)
+  _<=Set__SET_Bool_Set_Set ⟦SortSet⟧ ⟦SortSet⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblsize'LParUndsRParUnds'SET'Unds'Int'Unds'Set (hooked)
+  size(_)_SET_Int_Set ⟦SortSet⟧ ⊆ ⟦SortInt⟧
+[G-arity] arity LblSet'Coln'choice (hooked)
+  Set:choice ⟦SortSet⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblisSet
+  isSet ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'Set
+  project:Set ⟦SortK⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity Lbl'Unds'Map'Unds' (hooked)
+  _Map_ ⟦SortMap⟧ ⟦SortMap⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity Lbl'Stop'Map (hooked)
+  .Map ⊆ ⟦SortMap⟧
+[G-arity] arity Lbl'UndsPipe'-'-GT-Unds' (hooked)
+  _|->_ ⟦SortKItem⟧ ⟦SortKItem⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity LblMap'Coln'lookup (hooked)
+  Map:lookup ⟦SortMap⟧ ⟦SortKItem⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblMap'Coln'lookupOrDefault (hooked)
+  Map:lookupOrDefault ⟦SortMap⟧ ⟦SortKItem⟧ ⟦SortKItem⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblMap'Coln'update (hooked)
+  Map:update ⟦SortMap⟧ ⟦SortKItem⟧ ⟦SortKItem⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity Lbl'UndsLSqBUnds-LT-'-undef'RSqB' (hooked)
+  _[_<-undef] ⟦SortMap⟧ ⟦SortKItem⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity Lbl'Unds'-Map'UndsUnds'MAP'Unds'Map'Unds'Map'Unds'Map (hooked)
+  _-Map__MAP_Map_Map_Map ⟦SortMap⟧ ⟦SortMap⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity LblupdateMap'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Map (hooked)
+  updateMap(_,_)_MAP_Map_Map_Map ⟦SortMap⟧ ⟦SortMap⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity LblremoveAll'LParUndsCommUndsRParUnds'MAP'Unds'Map'Unds'Map'Unds'Set (hooked)
+  removeAll(_,_)_MAP_Map_Map_Set ⟦SortMap⟧ ⟦SortSet⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity Lblkeys'LParUndsRParUnds'MAP'Unds'Set'Unds'Map (hooked)
+  keys(_)_MAP_Set_Map ⟦SortMap⟧ ⊆ ⟦SortSet⟧
+[G-arity] arity Lblkeys'Unds'list'LParUndsRParUnds'MAP'Unds'List'Unds'Map (hooked)
+  keys_list(_)_MAP_List_Map ⟦SortMap⟧ ⊆ ⟦SortList⟧
+[G-arity] arity Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map (hooked)
+  _in_keys(_)_MAP_Bool_KItem_Map ⟦SortKItem⟧ ⟦SortMap⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblvalues'LParUndsRParUnds'MAP'Unds'List'Unds'Map (hooked)
+  values(_)_MAP_List_Map ⟦SortMap⟧ ⊆ ⟦SortList⟧
+[G-arity] arity LblsizeMap (hooked)
+  sizeMap ⟦SortMap⟧ ⊆ ⟦SortInt⟧
+[G-arity] arity Lbl'Unds-LT-Eqls'Map'UndsUnds'MAP'Unds'Bool'Unds'Map'Unds'Map (hooked)
+  _<=Map__MAP_Bool_Map_Map ⟦SortMap⟧ ⟦SortMap⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblMap'Coln'choice (hooked)
+  Map:choice ⟦SortMap⟧ ⊆ ⟦SortKItem⟧
+[G-arity] arity LblisMap
+  isMap ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'Map
+  project:Map ⟦SortK⟧ ⊆ ⟦SortMap⟧
+[G-arity] arity Lblz
+  z ⊆ ⟦SortNat⟧
+[G-arity] arity Lbls
+  s ⟦SortNat⟧ ⊆ ⟦SortNat⟧
+[G-arity] arity Lblpred
+  pred ⟦SortNat⟧ ⊆ ⟦SortNat⟧
+[G-arity] arity Lblrun
+  run ⟦SortNat⟧ ⊆ ⟦SortState⟧
+[G-arity] arity Lbldone
+  done ⟦SortVal⟧ ⊆ ⟦SortState⟧
+[G-arity] arity Lbl'-LT-'k'-GT-'
+  <k> ⟦SortK⟧ ⊆ ⟦SortKCell⟧
+[G-arity] arity LblinitKCell
+  initKCell ⟦SortMap⟧ ⊆ ⟦SortKCell⟧
+[G-arity] arity LblisKCell
+  isKCell ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisNat
+  isNat ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisState
+  isState ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisVal
+  isVal ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'KCell
+  project:KCell ⟦SortK⟧ ⊆ ⟦SortKCell⟧
+[G-arity] arity Lblproject'Coln'Nat
+  project:Nat ⟦SortK⟧ ⊆ ⟦SortNat⟧
+[G-arity] arity Lblproject'Coln'State
+  project:State ⟦SortK⟧ ⊆ ⟦SortState⟧
+[G-arity] arity Lblproject'Coln'Val
+  project:Val ⟦SortK⟧ ⊆ ⟦SortVal⟧
+[G-arity] arity LblgetGeneratedCounterCell
+  getGeneratedCounterCell ⟦SortGeneratedTopCell⟧ ⊆ ⟦SortGeneratedCounterCell⟧
+[G-arity] arity Lbl'-LT-'generatedCounter'-GT-'
+  <generatedCounter> ⟦SortInt⟧ ⊆ ⟦SortGeneratedCounterCell⟧
+[G-arity] arity LblinitGeneratedCounterCell
+  initGeneratedCounterCell ⊆ ⟦SortGeneratedCounterCell⟧
+[G-arity] arity Lbl'-LT-'generatedTop'-GT-'
+  <generatedTop> ⟦SortKCell⟧ ⟦SortGeneratedCounterCell⟧ ⊆ ⟦SortGeneratedTopCell⟧
+[G-arity] arity LblinitGeneratedTopCell
+  initGeneratedTopCell ⟦SortMap⟧ ⊆ ⟦SortGeneratedTopCell⟧
+[G-arity] arity LblnoKCell
+  noKCell ⊆ ⟦SortKCellOpt⟧
+[G-arity] arity LblnoGeneratedCounterCell
+  noGeneratedCounterCell ⊆ ⟦SortGeneratedCounterCellOpt⟧
+[G-arity] arity Lbl'-LT-'generatedTop'-GT-'-fragment
+  <generatedTop>-fragment ⟦SortKCellOpt⟧ ⟦SortGeneratedCounterCellOpt⟧ ⊆ ⟦SortGeneratedTopCellFragment⟧
+[G-arity] arity LblisGeneratedCounterCell
+  isGeneratedCounterCell ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisGeneratedCounterCellOpt
+  isGeneratedCounterCellOpt ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisGeneratedTopCell
+  isGeneratedTopCell ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisGeneratedTopCellFragment
+  isGeneratedTopCellFragment ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity LblisKCellOpt
+  isKCellOpt ⟦SortK⟧ ⊆ ⟦SortBool⟧
+[G-arity] arity Lblproject'Coln'GeneratedCounterCell
+  project:GeneratedCounterCell ⟦SortK⟧ ⊆ ⟦SortGeneratedCounterCell⟧
+[G-arity] arity Lblproject'Coln'GeneratedCounterCellOpt
+  project:GeneratedCounterCellOpt ⟦SortK⟧ ⊆ ⟦SortGeneratedCounterCellOpt⟧
+[G-arity] arity Lblproject'Coln'GeneratedTopCell
+  project:GeneratedTopCell ⟦SortK⟧ ⊆ ⟦SortGeneratedTopCell⟧
+[G-arity] arity Lblproject'Coln'GeneratedTopCellFragment
+  project:GeneratedTopCellFragment ⟦SortK⟧ ⊆ ⟦SortGeneratedTopCellFragment⟧
+[G-arity] arity Lblproject'Coln'KCellOpt
+  project:KCellOpt ⟦SortK⟧ ⊆ ⟦SortKCellOpt⟧
+[G-ceil-arity] arity ⌈_⌉{s,s'}
+  s ∈ ⟦Sort⟧ ∧ s' ∈ ⟦Sort⟧ → ⌈⟦s⟧⌉[s,s'] ⊆ ⟦s'⟧
+[G-ceil-def] definedness ⌈_⌉{s,s'}
+  s ∈ ⟦Sort⟧ ∧ s' ∈ ⟦Sort⟧ ∧ x ∈ ⟦s⟧ → ⌈x⌉[s,s'] = ⟦s'⟧
+[G-next-arity] arity • at SortGeneratedTopCell{}
+  •⟦SortGeneratedTopCell⟧ ⊆ ⟦SortGeneratedTopCell⟧
+[G-dv-arity] arity \dv("true")
+  s ∈ ⟦Sort⟧ → dv[s]("true") ⊆ ⟦s⟧
+[G-dv-arity] arity \dv("false")
+  s ∈ ⟦Sort⟧ → dv[s]("false") ⊆ ⟦s⟧
+[G-dv-arity] arity \dv("$PGM")
+  s ∈ ⟦Sort⟧ → dv[s]("$PGM") ⊆ ⟦s⟧
+[G-dv-arity] arity \dv("0")
+  s ∈ ⟦Sort⟧ → dv[s]("0") ⊆ ⟦s⟧
+
+## AML(Γ) (the KORE axioms, translated by T-axiom)
+[T-axiom] axiom 1 (KSEQ)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ X1 ∈ ⟦SortK⟧ ∧ TAIL ∈ ⟦SortK⟧ → (⊤[R] ∧ X0 ∈[SortK,R] dotk ∧ X1 ∈[SortK,R] TAIL ∧ ⊤[R] →[R] append X0 X1 =[SortK,R] (TAIL ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 2 (KSEQ)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ K ∈ ⟦SortKItem⟧ ∧ KS ∈ ⟦SortK⟧ ∧ X1 ∈ ⟦SortK⟧ ∧ TAIL ∈ ⟦SortK⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq K KS ∧ X1 ∈[SortK,R] TAIL ∧ ⊤[R] →[R] append X0 X1 =[SortK,R] (kseq K (append KS TAIL) ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 3 (INJ) [simplification]
+  S1 ∈ ⟦Sort⟧ ∧ S2 ∈ ⟦Sort⟧ ∧ S3 ∈ ⟦Sort⟧ ∧ R ∈ ⟦Sort⟧ ∧ T ∈ ⟦S1⟧ → (inj S2 S3 (inj S1 S2 T) =[S3,R] inj S1 S3 T) = ⟦R⟧
+[T-axiom] axiom 4 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isK K0) = ⟦R⟧
+[T-axiom] axiom 5 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortBool⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortBool SortKItem From) = ⟦R⟧
+[T-axiom] axiom 6 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isBool K0) = ⟦R⟧
+[T-axiom] axiom 7 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isKItem K0) = ⟦R⟧
+[T-axiom] axiom 8 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortKConfigVar⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortKConfigVar SortKItem From) = ⟦R⟧
+[T-axiom] axiom 9 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isKConfigVar K0) = ⟦R⟧
+[T-axiom] axiom 10 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isInt K0) = ⟦R⟧
+[T-axiom] axiom 11 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortInt⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortInt SortKItem From) = ⟦R⟧
+[T-axiom] axiom 12 (PEANO) [assoc]
+  R ∈ ⟦Sort⟧ ∧ K1 ∈ ⟦SortList⟧ ∧ K2 ∈ ⟦SortList⟧ ∧ K3 ∈ ⟦SortList⟧ → (_List_ (_List_ K1 K2) K3 =[SortList,R] _List_ K1 (_List_ K2 K3)) = ⟦R⟧
+[T-axiom] axiom 13 (PEANO) [unit]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortList⟧ → (_List_ K .List =[SortList,R] K) = ⟦R⟧
+[T-axiom] axiom 14 (PEANO) [unit]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortList⟧ → (_List_ .List K =[SortList,R] K) = ⟦R⟧
+[T-axiom] axiom 15 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortList⟧ ∧ K1 ∈ ⟦SortList⟧ → (∃Val:SortList. Val =[SortList,R] _List_ K0 K1) = ⟦R⟧
+[T-axiom] axiom 16 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortList. Val =[SortList,R] .List) = ⟦R⟧
+[T-axiom] axiom 17 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ → (∃Val:SortList. Val =[SortList,R] ListItem K0) = ⟦R⟧
+[T-axiom] axiom 18 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ ∧ K1 ∈ ⟦SortList⟧ → (∃Val:SortList. Val =[SortList,R] pushList K0 K1) = ⟦R⟧
+[T-axiom] axiom 19 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ ∧ K1 ∈ ⟦SortList⟧ → (∃Val:SortBool. Val =[SortBool,R] _inList_ K0 K1) = ⟦R⟧
+[T-axiom] axiom 20 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortList⟧ → (∃Val:SortInt. Val =[SortInt,R] sizeList K0) = ⟦R⟧
+[T-axiom] axiom 21 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isList K0) = ⟦R⟧
+[T-axiom] axiom 22 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortList⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortList SortKItem From) = ⟦R⟧
+[T-axiom] axiom 23 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortKItem. Val =[SortKItem,R] #KConfigValue K0) = ⟦R⟧
+[T-axiom] axiom 24 (PEANO) [constructor]
+  X0 ∈ ⟦SortK⟧ ∧ Y0 ∈ ⟦SortK⟧ → (#KConfigValue X0 ∧ #KConfigValue Y0 →[SortKItem] #KConfigValue (X0 ∧ Y0)) = ⟦SortKItem⟧
+[T-axiom] axiom 25 (PEANO) [assoc]
+  R ∈ ⟦Sort⟧ ∧ K1 ∈ ⟦SortSet⟧ ∧ K2 ∈ ⟦SortSet⟧ ∧ K3 ∈ ⟦SortSet⟧ → (_Set_ (_Set_ K1 K2) K3 =[SortSet,R] _Set_ K1 (_Set_ K2 K3)) = ⟦R⟧
+[T-axiom] axiom 26 (PEANO) [idem]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortSet⟧ → (_Set_ K K =[SortSet,R] K) = ⟦R⟧
+[T-axiom] axiom 27 (PEANO) [unit]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortSet⟧ → (_Set_ K .Set =[SortSet,R] K) = ⟦R⟧
+[T-axiom] axiom 28 (PEANO) [unit]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortSet⟧ → (_Set_ .Set K =[SortSet,R] K) = ⟦R⟧
+[T-axiom] axiom 29 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortSet. Val =[SortSet,R] .Set) = ⟦R⟧
+[T-axiom] axiom 30 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ → (∃Val:SortSet. Val =[SortSet,R] SetItem K0) = ⟦R⟧
+[T-axiom] axiom 31 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortSet⟧ ∧ K1 ∈ ⟦SortSet⟧ → (∃Val:SortSet. Val =[SortSet,R] _|Set__SET_Set_Set_Set K0 K1) = ⟦R⟧
+[T-axiom] axiom 32 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortSet⟧ ∧ K1 ∈ ⟦SortSet⟧ → (∃Val:SortSet. Val =[SortSet,R] intersectSet(_,_)_SET_Set_Set_Set K0 K1) = ⟦R⟧
+[T-axiom] axiom 33 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortSet⟧ ∧ K1 ∈ ⟦SortSet⟧ → (∃Val:SortSet. Val =[SortSet,R] Set:difference K0 K1) = ⟦R⟧
+[T-axiom] axiom 34 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ ∧ K1 ∈ ⟦SortSet⟧ → (∃Val:SortBool. Val =[SortBool,R] Set:in K0 K1) = ⟦R⟧
+[T-axiom] axiom 35 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortSet⟧ ∧ K1 ∈ ⟦SortSet⟧ → (∃Val:SortBool. Val =[SortBool,R] _<=Set__SET_Bool_Set_Set K0 K1) = ⟦R⟧
+[T-axiom] axiom 36 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortSet⟧ → (∃Val:SortInt. Val =[SortInt,R] size(_)_SET_Int_Set K0) = ⟦R⟧
+[T-axiom] axiom 37 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isSet K0) = ⟦R⟧
+[T-axiom] axiom 38 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortSet⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortSet SortKItem From) = ⟦R⟧
+[T-axiom] axiom 39 (PEANO) [assoc]
+  R ∈ ⟦Sort⟧ ∧ K1 ∈ ⟦SortMap⟧ ∧ K2 ∈ ⟦SortMap⟧ ∧ K3 ∈ ⟦SortMap⟧ → (_Map_ (_Map_ K1 K2) K3 =[SortMap,R] _Map_ K1 (_Map_ K2 K3)) = ⟦R⟧
+[T-axiom] axiom 40 (PEANO) [unit]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortMap⟧ → (_Map_ K .Map =[SortMap,R] K) = ⟦R⟧
+[T-axiom] axiom 41 (PEANO) [unit]
+  R ∈ ⟦Sort⟧ ∧ K ∈ ⟦SortMap⟧ → (_Map_ .Map K =[SortMap,R] K) = ⟦R⟧
+[T-axiom] axiom 42 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortMap. Val =[SortMap,R] .Map) = ⟦R⟧
+[T-axiom] axiom 43 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ ∧ K1 ∈ ⟦SortKItem⟧ → (∃Val:SortMap. Val =[SortMap,R] _|->_ K0 K1) = ⟦R⟧
+[T-axiom] axiom 44 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortKItem⟧ ∧ K2 ∈ ⟦SortKItem⟧ → (∃Val:SortKItem. Val =[SortKItem,R] Map:lookupOrDefault K0 K1 K2) = ⟦R⟧
+[T-axiom] axiom 45 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortKItem⟧ ∧ K2 ∈ ⟦SortKItem⟧ → (∃Val:SortMap. Val =[SortMap,R] Map:update K0 K1 K2) = ⟦R⟧
+[T-axiom] axiom 46 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortKItem⟧ → (∃Val:SortMap. Val =[SortMap,R] _[_<-undef] K0 K1) = ⟦R⟧
+[T-axiom] axiom 47 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortMap⟧ → (∃Val:SortMap. Val =[SortMap,R] _-Map__MAP_Map_Map_Map K0 K1) = ⟦R⟧
+[T-axiom] axiom 48 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortMap⟧ → (∃Val:SortMap. Val =[SortMap,R] updateMap(_,_)_MAP_Map_Map_Map K0 K1) = ⟦R⟧
+[T-axiom] axiom 49 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortSet⟧ → (∃Val:SortMap. Val =[SortMap,R] removeAll(_,_)_MAP_Map_Map_Set K0 K1) = ⟦R⟧
+[T-axiom] axiom 50 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ → (∃Val:SortSet. Val =[SortSet,R] keys(_)_MAP_Set_Map K0) = ⟦R⟧
+[T-axiom] axiom 51 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKItem⟧ ∧ K1 ∈ ⟦SortMap⟧ → (∃Val:SortBool. Val =[SortBool,R] _in_keys(_)_MAP_Bool_KItem_Map K0 K1) = ⟦R⟧
+[T-axiom] axiom 52 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ → (∃Val:SortInt. Val =[SortInt,R] sizeMap K0) = ⟦R⟧
+[T-axiom] axiom 53 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortMap⟧ ∧ K1 ∈ ⟦SortMap⟧ → (∃Val:SortBool. Val =[SortBool,R] _<=Map__MAP_Bool_Map_Map K0 K1) = ⟦R⟧
+[T-axiom] axiom 54 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isMap K0) = ⟦R⟧
+[T-axiom] axiom 55 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortMap⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortMap SortKItem From) = ⟦R⟧
+[T-axiom] axiom 56 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortNat. Val =[SortNat,R] z) = ⟦R⟧
+[T-axiom] axiom 57 (PEANO) [constructor]
+  Y0 ∈ ⟦SortNat⟧ → ¬[SortNat] (z ∧ s Y0) = ⟦SortNat⟧
+[T-axiom] axiom 58 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortNat⟧ → (∃Val:SortNat. Val =[SortNat,R] s K0) = ⟦R⟧
+[T-axiom] axiom 59 (PEANO) [constructor]
+  X0 ∈ ⟦SortNat⟧ ∧ Y0 ∈ ⟦SortNat⟧ → (s X0 ∧ s Y0 →[SortNat] s (X0 ∧ Y0)) = ⟦SortNat⟧
+[T-axiom] axiom 60 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortNat⟧ → (∃Val:SortVal. Val =[SortVal,R] inj SortNat SortVal From) = ⟦R⟧
+[T-axiom] axiom 61 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortNat⟧ → (∃Val:SortState. Val =[SortState,R] run K0) = ⟦R⟧
+[T-axiom] axiom 62 (PEANO) [constructor]
+  X0 ∈ ⟦SortNat⟧ ∧ Y0 ∈ ⟦SortNat⟧ → (run X0 ∧ run Y0 →[SortState] run (X0 ∧ Y0)) = ⟦SortState⟧
+[T-axiom] axiom 63 (PEANO) [constructor]
+  X0 ∈ ⟦SortNat⟧ ∧ Y0 ∈ ⟦SortVal⟧ → ¬[SortState] (run X0 ∧ done Y0) = ⟦SortState⟧
+[T-axiom] axiom 64 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortVal⟧ → (∃Val:SortState. Val =[SortState,R] done K0) = ⟦R⟧
+[T-axiom] axiom 65 (PEANO) [constructor]
+  X0 ∈ ⟦SortVal⟧ ∧ Y0 ∈ ⟦SortVal⟧ → (done X0 ∧ done Y0 →[SortState] done (X0 ∧ Y0)) = ⟦SortState⟧
+[T-axiom] axiom 66 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortKCell. Val =[SortKCell,R] <k> K0) = ⟦R⟧
+[T-axiom] axiom 67 (PEANO) [constructor]
+  X0 ∈ ⟦SortK⟧ ∧ Y0 ∈ ⟦SortK⟧ → (<k> X0 ∧ <k> Y0 →[SortKCell] <k> (X0 ∧ Y0)) = ⟦SortKCell⟧
+[T-axiom] axiom 68 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isKCell K0) = ⟦R⟧
+[T-axiom] axiom 69 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isNat K0) = ⟦R⟧
+[T-axiom] axiom 70 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isState K0) = ⟦R⟧
+[T-axiom] axiom 71 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isVal K0) = ⟦R⟧
+[T-axiom] axiom 72 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortKCell⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortKCell SortKItem From) = ⟦R⟧
+[T-axiom] axiom 73 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortNat⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortNat SortKItem From) = ⟦R⟧
+[T-axiom] axiom 74 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortState⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortState SortKItem From) = ⟦R⟧
+[T-axiom] axiom 75 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortVal⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortVal SortKItem From) = ⟦R⟧
+[T-axiom] axiom 76 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortInt⟧ → (∃Val:SortGeneratedCounterCell. Val =[SortGeneratedCounterCell,R] <generatedCounter> K0) = ⟦R⟧
+[T-axiom] axiom 77 (PEANO) [constructor]
+  X0 ∈ ⟦SortInt⟧ ∧ Y0 ∈ ⟦SortInt⟧ → (<generatedCounter> X0 ∧ <generatedCounter> Y0 →[SortGeneratedCounterCell] <generatedCounter> (X0 ∧ Y0)) = ⟦SortGeneratedCounterCell⟧
+[T-axiom] axiom 78 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortGeneratedCounterCell. Val =[SortGeneratedCounterCell,R] initGeneratedCounterCell) = ⟦R⟧
+[T-axiom] axiom 79 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKCell⟧ ∧ K1 ∈ ⟦SortGeneratedCounterCell⟧ → (∃Val:SortGeneratedTopCell. Val =[SortGeneratedTopCell,R] <generatedTop> K0 K1) = ⟦R⟧
+[T-axiom] axiom 80 (PEANO) [constructor]
+  X0 ∈ ⟦SortKCell⟧ ∧ X1 ∈ ⟦SortGeneratedCounterCell⟧ ∧ Y0 ∈ ⟦SortKCell⟧ ∧ Y1 ∈ ⟦SortGeneratedCounterCell⟧ → (<generatedTop> X0 X1 ∧ <generatedTop> Y0 Y1 →[SortGeneratedTopCell] <generatedTop> (X0 ∧ Y0) (X1 ∧ Y1)) = ⟦SortGeneratedTopCell⟧
+[T-axiom] axiom 81 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortKCell⟧ → (∃Val:SortKCellOpt. Val =[SortKCellOpt,R] inj SortKCell SortKCellOpt From) = ⟦R⟧
+[T-axiom] axiom 82 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortKCellOpt. Val =[SortKCellOpt,R] noKCell) = ⟦R⟧
+[T-axiom] axiom 83 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortGeneratedCounterCell⟧ → (∃Val:SortGeneratedCounterCellOpt. Val =[SortGeneratedCounterCellOpt,R] inj SortGeneratedCounterCell SortGeneratedCounterCellOpt From) = ⟦R⟧
+[T-axiom] axiom 84 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ → (∃Val:SortGeneratedCounterCellOpt. Val =[SortGeneratedCounterCellOpt,R] noGeneratedCounterCell) = ⟦R⟧
+[T-axiom] axiom 85 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortKCellOpt⟧ ∧ K1 ∈ ⟦SortGeneratedCounterCellOpt⟧ → (∃Val:SortGeneratedTopCellFragment. Val =[SortGeneratedTopCellFragment,R] <generatedTop>-fragment K0 K1) = ⟦R⟧
+[T-axiom] axiom 86 (PEANO) [constructor]
+  X0 ∈ ⟦SortKCellOpt⟧ ∧ X1 ∈ ⟦SortGeneratedCounterCellOpt⟧ ∧ Y0 ∈ ⟦SortKCellOpt⟧ ∧ Y1 ∈ ⟦SortGeneratedCounterCellOpt⟧ → (<generatedTop>-fragment X0 X1 ∧ <generatedTop>-fragment Y0 Y1 →[SortGeneratedTopCellFragment] <generatedTop>-fragment (X0 ∧ Y0) (X1 ∧ Y1)) = ⟦SortGeneratedTopCellFragment⟧
+[T-axiom] axiom 87 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isGeneratedCounterCell K0) = ⟦R⟧
+[T-axiom] axiom 88 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isGeneratedCounterCellOpt K0) = ⟦R⟧
+[T-axiom] axiom 89 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isGeneratedTopCell K0) = ⟦R⟧
+[T-axiom] axiom 90 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isGeneratedTopCellFragment K0) = ⟦R⟧
+[T-axiom] axiom 91 (PEANO) [functional]
+  R ∈ ⟦Sort⟧ ∧ K0 ∈ ⟦SortK⟧ → (∃Val:SortBool. Val =[SortBool,R] isKCellOpt K0) = ⟦R⟧
+[T-axiom] axiom 92 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortGeneratedCounterCell⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortGeneratedCounterCell SortKItem From) = ⟦R⟧
+[T-axiom] axiom 93 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortGeneratedCounterCellOpt⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortGeneratedCounterCellOpt SortKItem From) = ⟦R⟧
+[T-axiom] axiom 94 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortGeneratedTopCell⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortGeneratedTopCell SortKItem From) = ⟦R⟧
+[T-axiom] axiom 95 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortGeneratedTopCellFragment⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortGeneratedTopCellFragment SortKItem From) = ⟦R⟧
+[T-axiom] axiom 96 (PEANO) [subsort]
+  R ∈ ⟦Sort⟧ ∧ From ∈ ⟦SortKCellOpt⟧ → (∃Val:SortKItem. Val =[SortKItem,R] inj SortKCellOpt SortKItem From) = ⟦R⟧
+[T-axiom] axiom 97 (PEANO) [constructor]
+  ⊤ → (⊤[SortBool] ∨[SortBool] ⊥[SortBool]) = ⟦SortBool⟧
+[T-axiom] axiom 98 (PEANO) [constructor]
+  ⊤ → ((∃X0:SortInt. <generatedCounter> X0) ∨[SortGeneratedCounterCell] ⊥[SortGeneratedCounterCell]) = ⟦SortGeneratedCounterCell⟧
+[T-axiom] axiom 99 (PEANO) [constructor]
+  ⊤ → (noGeneratedCounterCell ∨[SortGeneratedCounterCellOpt] (∃Val:SortGeneratedCounterCell. inj SortGeneratedCounterCell SortGeneratedCounterCellOpt Val) ∨[SortGeneratedCounterCellOpt] ⊥[SortGeneratedCounterCellOpt]) = ⟦SortGeneratedCounterCellOpt⟧
+[T-axiom] axiom 100 (PEANO) [constructor]
+  ⊤ → ((∃X0:SortKCell. ∃X1:SortGeneratedCounterCell. <generatedTop> X0 X1) ∨[SortGeneratedTopCell] ⊥[SortGeneratedTopCell]) = ⟦SortGeneratedTopCell⟧
+[T-axiom] axiom 101 (PEANO) [constructor]
+  ⊤ → ((∃X0:SortKCellOpt. ∃X1:SortGeneratedCounterCellOpt. <generatedTop>-fragment X0 X1) ∨[SortGeneratedTopCellFragment] ⊥[SortGeneratedTopCellFragment]) = ⟦SortGeneratedTopCellFragment⟧
+[T-axiom] axiom 102 (PEANO) [constructor]
+  ⊤ → (⊤[SortInt] ∨[SortInt] ⊥[SortInt]) = ⟦SortInt⟧
+[T-axiom] axiom 103 (PEANO) [constructor]
+  ⊤ → ((∃X0:SortK. <k> X0) ∨[SortKCell] ⊥[SortKCell]) = ⟦SortKCell⟧
+[T-axiom] axiom 104 (PEANO) [constructor]
+  ⊤ → (noKCell ∨[SortKCellOpt] (∃Val:SortKCell. inj SortKCell SortKCellOpt Val) ∨[SortKCellOpt] ⊥[SortKCellOpt]) = ⟦SortKCellOpt⟧
+[T-axiom] axiom 105 (PEANO) [constructor]
+  ⊤ → (⊤[SortKConfigVar] ∨[SortKConfigVar] ⊥[SortKConfigVar]) = ⟦SortKConfigVar⟧
+[T-axiom] axiom 106 (PEANO) [constructor]
+  ⊤ → ((∃X0:SortK. #KConfigValue X0) ∨[SortKItem] (∃Val:SortBool. inj SortBool SortKItem Val) ∨[SortKItem] (∃ValV2:SortGeneratedCounterCell. inj SortGeneratedCounterCell SortKItem ValV2) ∨[SortKItem] (∃ValV3:SortGeneratedCounterCellOpt. inj SortGeneratedCounterCellOpt SortKItem ValV3) ∨[SortKItem] (∃ValV4:SortGeneratedTopCell. inj SortGeneratedTopCell SortKItem ValV4) ∨[SortKItem] (∃ValV5:SortGeneratedTopCellFragment. inj SortGeneratedTopCellFragment SortKItem ValV5) ∨[SortKItem] (∃ValV6:SortInt. inj SortInt SortKItem ValV6) ∨[SortKItem] (∃ValV7:SortKCell. inj SortKCell SortKItem ValV7) ∨[SortKItem] (∃ValV8:SortKCellOpt. inj SortKCellOpt SortKItem ValV8) ∨[SortKItem] (∃ValV9:SortKConfigVar. inj SortKConfigVar SortKItem ValV9) ∨[SortKItem] (∃ValV10:SortList. inj SortList SortKItem ValV10) ∨[SortKItem] (∃ValV11:SortMap. inj SortMap SortKItem ValV11) ∨[SortKItem] (∃ValV12:SortNat. inj SortNat SortKItem ValV12) ∨[SortKItem] (∃ValV13:SortSet. inj SortSet SortKItem ValV13) ∨[SortKItem] (∃ValV14:SortState. inj SortState SortKItem ValV14) ∨[SortKItem] (∃ValV15:SortVal. inj SortVal SortKItem ValV15) ∨[SortKItem] ⊥[SortKItem]) = ⟦SortKItem⟧
+[T-axiom] axiom 107 (PEANO) [constructor]
+  ⊤ → (z ∨[SortNat] (∃X0:SortNat. s X0) ∨[SortNat] ⊥[SortNat]) = ⟦SortNat⟧
+[T-axiom] axiom 108 (PEANO) [constructor]
+  ⊤ → ((∃X0:SortNat. run X0) ∨[SortState] (∃X0V2:SortVal. done X0V2) ∨[SortState] ⊥[SortState]) = ⟦SortState⟧
+[T-axiom] axiom 109 (PEANO) [constructor]
+  ⊤ → ((∃Val:SortNat. inj SortNat SortVal Val) ∨[SortVal] ⊥[SortVal]) = ⟦SortVal⟧
+[T-axiom] axiom 110 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortBool⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortBool SortKItem VarK) dotk ∧ ⊤[R] →[R] project:Bool X0 =[SortBool,R] (VarK ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 111 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:Bool SelectorInput⌉[SortBool,R] =[R,R] (∃VarK:SortBool. SelectorInput =[SortK,R] kseq (inj SortBool SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 112 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Bool SelectorInput⌉[SortBool,R] →[R] kseq (inj SortBool SortKItem (project:Bool SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 113 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] project:K X0 =[SortK,R] (VarK ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 114 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:K SelectorInput⌉[SortK,R] =[R,R] (∃VarK:SortK. SelectorInput =[SortK,R] VarK)) = ⟦R⟧
+[T-axiom] axiom 115 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:K SelectorInput⌉[SortK,R] →[R] project:K SelectorInput =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 116 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortKItem⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq VarK dotk ∧ ⊤[R] →[R] project:KItem X0 =[SortKItem,R] (VarK ∧ ⊤[SortKItem])) = ⟦R⟧
+[T-axiom] axiom 117 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:KItem SelectorInput⌉[SortKItem,R] =[R,R] (∃VarK:SortKItem. SelectorInput =[SortK,R] kseq VarK dotk)) = ⟦R⟧
+[T-axiom] axiom 118 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:KItem SelectorInput⌉[SortKItem,R] →[R] kseq (project:KItem SelectorInput) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 119 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarBool ∈ ⟦SortBool⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortBool SortKItem VarBool) dotk ∧ ⊤[R] →[R] isBool X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 120 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortBool. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortBool SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isBool X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 121 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isK X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 122 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarKItem ∈ ⟦SortKItem⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq VarKItem dotk ∧ ⊤[R] →[R] isKItem X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 123 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortKItem. ⊤[R] ∧ X0 ∈[SortK,R] kseq Var_Gen0 dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isKItem X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 124 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarKConfigVar ∈ ⟦SortKConfigVar⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKConfigVar SortKItem VarKConfigVar) dotk ∧ ⊤[R] →[R] isKConfigVar X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 125 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortKConfigVar. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKConfigVar SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isKConfigVar X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 126 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortInt⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortInt SortKItem VarK) dotk ∧ ⊤[R] →[R] project:Int X0 =[SortInt,R] (VarK ∧ ⊤[SortInt])) = ⟦R⟧
+[T-axiom] axiom 127 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:Int SelectorInput⌉[SortInt,R] =[R,R] (∃VarK:SortInt. SelectorInput =[SortK,R] kseq (inj SortInt SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 128 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Int SelectorInput⌉[SortInt,R] →[R] kseq (inj SortInt SortKItem (project:Int SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 129 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarInt ∈ ⟦SortInt⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortInt SortKItem VarInt) dotk ∧ ⊤[R] →[R] isInt X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 130 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortInt. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortInt SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isInt X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 131 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortKItem⟧ ∧ VarK ∈ ⟦SortKItem⟧ ∧ X1 ∈ ⟦SortList⟧ ∧ VarL1 ∈ ⟦SortList⟧ → (⊤[R] ∧ X0 ∈[SortKItem,R] VarK ∧ X1 ∈[SortList,R] VarL1 ∧ ⊤[R] →[R] pushList X0 X1 =[SortList,R] (_List_ (ListItem VarK) VarL1 ∧ ⊤[SortList])) = ⟦R⟧
+[T-axiom] axiom 132 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortList⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortList SortKItem VarK) dotk ∧ ⊤[R] →[R] project:List X0 =[SortList,R] (VarK ∧ ⊤[SortList])) = ⟦R⟧
+[T-axiom] axiom 133 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:List SelectorInput⌉[SortList,R] =[R,R] (∃VarK:SortList. SelectorInput =[SortK,R] kseq (inj SortList SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 134 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:List SelectorInput⌉[SortList,R] →[R] kseq (inj SortList SortKItem (project:List SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 135 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarList ∈ ⟦SortList⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortList SortKItem VarList) dotk ∧ ⊤[R] →[R] isList X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 136 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortList. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortList SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isList X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 137 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortKItem⟧ ∧ VarKS ∈ ⟦SortK⟧ → (⊤[R] ∧ X0 ∈[SortKItem,R] #KConfigValue VarKS ∧ ⊤[R] →[R] #unboxKConfigValue X0 =[SortK,R] (VarKS ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 138 (PEANO) [concrete]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortSet⟧ ∧ VarS1 ∈ ⟦SortSet⟧ ∧ X1 ∈ ⟦SortSet⟧ ∧ VarS2 ∈ ⟦SortSet⟧ → (⊤[R] ∧ X0 ∈[SortSet,R] VarS1 ∧ X1 ∈[SortSet,R] VarS2 ∧ ⊤[R] →[R] _|Set__SET_Set_Set_Set X0 X1 =[SortSet,R] (_Set_ VarS1 (Set:difference VarS2 VarS1) ∧ ⊤[SortSet])) = ⟦R⟧
+[T-axiom] axiom 139 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortSet⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortSet SortKItem VarK) dotk ∧ ⊤[R] →[R] project:Set X0 =[SortSet,R] (VarK ∧ ⊤[SortSet])) = ⟦R⟧
+[T-axiom] axiom 140 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:Set SelectorInput⌉[SortSet,R] =[R,R] (∃VarK:SortSet. SelectorInput =[SortK,R] kseq (inj SortSet SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 141 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Set SelectorInput⌉[SortSet,R] →[R] kseq (inj SortSet SortKItem (project:Set SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 142 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarSet ∈ ⟦SortSet⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortSet SortKItem VarSet) dotk ∧ ⊤[R] →[R] isSet X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 143 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortSet. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortSet SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isSet X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 144 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortMap⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortMap SortKItem VarK) dotk ∧ ⊤[R] →[R] project:Map X0 =[SortMap,R] (VarK ∧ ⊤[SortMap])) = ⟦R⟧
+[T-axiom] axiom 145 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:Map SelectorInput⌉[SortMap,R] =[R,R] (∃VarK:SortMap. SelectorInput =[SortK,R] kseq (inj SortMap SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 146 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Map SelectorInput⌉[SortMap,R] →[R] kseq (inj SortMap SortKItem (project:Map SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 147 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarMap ∈ ⟦SortMap⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortMap SortKItem VarMap) dotk ∧ ⊤[R] →[R] isMap X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 148 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortMap. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortMap SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isMap X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 149 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortNat⟧ ∧ VarN ∈ ⟦SortNat⟧ → (⊤[R] ∧ X0 ∈[SortNat,R] s VarN ∧ ⊤[R] →[R] pred X0 =[SortNat,R] (VarN ∧ ⊤[SortNat])) = ⟦R⟧
+[T-axiom] axiom 150 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortNat⟧ ∧ Var_Gen0 ∈ ⟦SortNat⟧ → (¬[R] ((∃Var_Gen1:SortNat. ⊤[R] ∧ X0 ∈[SortNat,R] s Var_Gen1 ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortNat,R] Var_Gen0 ∧ ⊤[R] →[R] pred X0 =[SortNat,R] (z ∧ ⊤[SortNat])) = ⟦R⟧
+[T-axiom] axiom 151 (PEANO)
+  VarN ∈ ⟦SortNat⟧ ∧ Var_Gen4 ∈ ⟦SortNat⟧ ∧ Var_DotVar0 ∈ ⟦SortGeneratedCounterCell⟧ → (<generatedTop> (<k> (kseq (inj SortState SortKItem (run (s VarN ∧ Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell] →[SortGeneratedTopCell] •(<generatedTop> (<k> (kseq (inj SortState SortKItem (run (pred Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell])) = ⟦SortGeneratedTopCell⟧
+[T-axiom] axiom 152 (PEANO)
+  Var_Gen4 ∈ ⟦SortNat⟧ ∧ Var_DotVar0 ∈ ⟦SortGeneratedCounterCell⟧ → (<generatedTop> (<k> (kseq (inj SortState SortKItem (run (z ∧ Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell] →[SortGeneratedTopCell] •(<generatedTop> (<k> (kseq (inj SortState SortKItem (done (inj SortNat SortVal Var_Gen4))) dotk)) Var_DotVar0 ∧ ⊤[SortGeneratedTopCell])) = ⟦SortGeneratedTopCell⟧
+[T-axiom] axiom 153 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortMap⟧ ∧ VarInit ∈ ⟦SortMap⟧ → (⊤[R] ∧ X0 ∈[SortMap,R] VarInit ∧ ⊤[R] →[R] initKCell X0 =[SortKCell,R] (<k> (kseq (inj SortState SortKItem (project:State (#unboxKConfigValue (Map:lookup VarInit (inj SortKConfigVar SortKItem dv[SortKConfigVar]("$PGM")))))) dotk) ∧ ⊤[SortKCell])) = ⟦R⟧
+[T-axiom] axiom 154 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortKCell⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKCell SortKItem VarK) dotk ∧ ⊤[R] →[R] project:KCell X0 =[SortKCell,R] (VarK ∧ ⊤[SortKCell])) = ⟦R⟧
+[T-axiom] axiom 155 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:KCell SelectorInput⌉[SortKCell,R] =[R,R] (∃VarK:SortKCell. SelectorInput =[SortK,R] kseq (inj SortKCell SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 156 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:KCell SelectorInput⌉[SortKCell,R] →[R] kseq (inj SortKCell SortKItem (project:KCell SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 157 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortNat⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortNat SortKItem VarK) dotk ∧ ⊤[R] →[R] project:Nat X0 =[SortNat,R] (VarK ∧ ⊤[SortNat])) = ⟦R⟧
+[T-axiom] axiom 158 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:Nat SelectorInput⌉[SortNat,R] =[R,R] (∃VarK:SortNat. SelectorInput =[SortK,R] kseq (inj SortNat SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 159 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Nat SelectorInput⌉[SortNat,R] →[R] kseq (inj SortNat SortKItem (project:Nat SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 160 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortState⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortState SortKItem VarK) dotk ∧ ⊤[R] →[R] project:State X0 =[SortState,R] (VarK ∧ ⊤[SortState])) = ⟦R⟧
+[T-axiom] axiom 161 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:State SelectorInput⌉[SortState,R] =[R,R] (∃VarK:SortState. SelectorInput =[SortK,R] kseq (inj SortState SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 162 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:State SelectorInput⌉[SortState,R] →[R] kseq (inj SortState SortKItem (project:State SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 163 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortVal⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortVal SortKItem VarK) dotk ∧ ⊤[R] →[R] project:Val X0 =[SortVal,R] (VarK ∧ ⊤[SortVal])) = ⟦R⟧
+[T-axiom] axiom 164 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:Val SelectorInput⌉[SortVal,R] =[R,R] (∃VarK:SortVal. SelectorInput =[SortK,R] kseq (inj SortVal SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 165 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:Val SelectorInput⌉[SortVal,R] →[R] kseq (inj SortVal SortKItem (project:Val SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 166 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortGeneratedTopCell⟧ ∧ Var_DotVar0 ∈ ⟦SortKCell⟧ ∧ VarCell ∈ ⟦SortGeneratedCounterCell⟧ → (⊤[R] ∧ X0 ∈[SortGeneratedTopCell,R] <generatedTop> Var_DotVar0 VarCell ∧ ⊤[R] →[R] getGeneratedCounterCell X0 =[SortGeneratedCounterCell,R] (VarCell ∧ ⊤[SortGeneratedCounterCell])) = ⟦R⟧
+[T-axiom] axiom 167 (PEANO)
+  R ∈ ⟦Sort⟧ → (⊤[R] ∧ ⊤[R] →[R] initGeneratedCounterCell =[SortGeneratedCounterCell,R] (<generatedCounter> dv[SortInt]("0") ∧ ⊤[SortGeneratedCounterCell])) = ⟦R⟧
+[T-axiom] axiom 168 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortMap⟧ ∧ VarInit ∈ ⟦SortMap⟧ → (⊤[R] ∧ X0 ∈[SortMap,R] VarInit ∧ ⊤[R] →[R] initGeneratedTopCell X0 =[SortGeneratedTopCell,R] (<generatedTop> (initKCell VarInit) initGeneratedCounterCell ∧ ⊤[SortGeneratedTopCell])) = ⟦R⟧
+[T-axiom] axiom 169 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortGeneratedCounterCell⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedCounterCell SortKItem VarK) dotk ∧ ⊤[R] →[R] project:GeneratedCounterCell X0 =[SortGeneratedCounterCell,R] (VarK ∧ ⊤[SortGeneratedCounterCell])) = ⟦R⟧
+[T-axiom] axiom 170 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:GeneratedCounterCell SelectorInput⌉[SortGeneratedCounterCell,R] =[R,R] (∃VarK:SortGeneratedCounterCell. SelectorInput =[SortK,R] kseq (inj SortGeneratedCounterCell SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 171 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedCounterCell SelectorInput⌉[SortGeneratedCounterCell,R] →[R] kseq (inj SortGeneratedCounterCell SortKItem (project:GeneratedCounterCell SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 172 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortGeneratedCounterCellOpt⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedCounterCellOpt SortKItem VarK) dotk ∧ ⊤[R] →[R] project:GeneratedCounterCellOpt X0 =[SortGeneratedCounterCellOpt,R] (VarK ∧ ⊤[SortGeneratedCounterCellOpt])) = ⟦R⟧
+[T-axiom] axiom 173 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:GeneratedCounterCellOpt SelectorInput⌉[SortGeneratedCounterCellOpt,R] =[R,R] (∃VarK:SortGeneratedCounterCellOpt. SelectorInput =[SortK,R] kseq (inj SortGeneratedCounterCellOpt SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 174 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedCounterCellOpt SelectorInput⌉[SortGeneratedCounterCellOpt,R] →[R] kseq (inj SortGeneratedCounterCellOpt SortKItem (project:GeneratedCounterCellOpt SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 175 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortGeneratedTopCell⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedTopCell SortKItem VarK) dotk ∧ ⊤[R] →[R] project:GeneratedTopCell X0 =[SortGeneratedTopCell,R] (VarK ∧ ⊤[SortGeneratedTopCell])) = ⟦R⟧
+[T-axiom] axiom 176 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:GeneratedTopCell SelectorInput⌉[SortGeneratedTopCell,R] =[R,R] (∃VarK:SortGeneratedTopCell. SelectorInput =[SortK,R] kseq (inj SortGeneratedTopCell SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 177 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedTopCell SelectorInput⌉[SortGeneratedTopCell,R] →[R] kseq (inj SortGeneratedTopCell SortKItem (project:GeneratedTopCell SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 178 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortGeneratedTopCellFragment⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedTopCellFragment SortKItem VarK) dotk ∧ ⊤[R] →[R] project:GeneratedTopCellFragment X0 =[SortGeneratedTopCellFragment,R] (VarK ∧ ⊤[SortGeneratedTopCellFragment])) = ⟦R⟧
+[T-axiom] axiom 179 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:GeneratedTopCellFragment SelectorInput⌉[SortGeneratedTopCellFragment,R] =[R,R] (∃VarK:SortGeneratedTopCellFragment. SelectorInput =[SortK,R] kseq (inj SortGeneratedTopCellFragment SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 180 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:GeneratedTopCellFragment SelectorInput⌉[SortGeneratedTopCellFragment,R] →[R] kseq (inj SortGeneratedTopCellFragment SortKItem (project:GeneratedTopCellFragment SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 181 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortKCellOpt⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKCellOpt SortKItem VarK) dotk ∧ ⊤[R] →[R] project:KCellOpt X0 =[SortKCellOpt,R] (VarK ∧ ⊤[SortKCellOpt])) = ⟦R⟧
+[T-axiom] axiom 182 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⊤[R] →[R] ⌈project:KCellOpt SelectorInput⌉[SortKCellOpt,R] =[R,R] (∃VarK:SortKCellOpt. SelectorInput =[SortK,R] kseq (inj SortKCellOpt SortKItem VarK) dotk)) = ⟦R⟧
+[T-axiom] axiom 183 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ SelectorInput ∈ ⟦SortK⟧ → (⌈project:KCellOpt SelectorInput⌉[SortKCellOpt,R] →[R] kseq (inj SortKCellOpt SortKItem (project:KCellOpt SelectorInput)) dotk =[SortK,R] (SelectorInput ∧ ⊤[SortK])) = ⟦R⟧
+[T-axiom] axiom 184 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarGeneratedCounterCell ∈ ⟦SortGeneratedCounterCell⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedCounterCell SortKItem VarGeneratedCounterCell) dotk ∧ ⊤[R] →[R] isGeneratedCounterCell X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 185 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortGeneratedCounterCell. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedCounterCell SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isGeneratedCounterCell X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 186 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarGeneratedCounterCellOpt ∈ ⟦SortGeneratedCounterCellOpt⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedCounterCellOpt SortKItem VarGeneratedCounterCellOpt) dotk ∧ ⊤[R] →[R] isGeneratedCounterCellOpt X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 187 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortGeneratedCounterCellOpt. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedCounterCellOpt SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isGeneratedCounterCellOpt X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 188 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarGeneratedTopCell ∈ ⟦SortGeneratedTopCell⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedTopCell SortKItem VarGeneratedTopCell) dotk ∧ ⊤[R] →[R] isGeneratedTopCell X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 189 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortGeneratedTopCell. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedTopCell SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isGeneratedTopCell X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 190 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarGeneratedTopCellFragment ∈ ⟦SortGeneratedTopCellFragment⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedTopCellFragment SortKItem VarGeneratedTopCellFragment) dotk ∧ ⊤[R] →[R] isGeneratedTopCellFragment X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 191 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortGeneratedTopCellFragment. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortGeneratedTopCellFragment SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isGeneratedTopCellFragment X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 192 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarKCell ∈ ⟦SortKCell⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKCell SortKItem VarKCell) dotk ∧ ⊤[R] →[R] isKCell X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 193 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortKCell. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKCell SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isKCell X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 194 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarKCellOpt ∈ ⟦SortKCellOpt⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKCellOpt SortKItem VarKCellOpt) dotk ∧ ⊤[R] →[R] isKCellOpt X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 195 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortKCellOpt. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortKCellOpt SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isKCellOpt X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 196 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarNat ∈ ⟦SortNat⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortNat SortKItem VarNat) dotk ∧ ⊤[R] →[R] isNat X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 197 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortNat. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortNat SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isNat X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 198 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarState ∈ ⟦SortState⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortState SortKItem VarState) dotk ∧ ⊤[R] →[R] isState X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 199 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortState. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortState SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isState X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 200 (PEANO)
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarVal ∈ ⟦SortVal⟧ → (⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortVal SortKItem VarVal) dotk ∧ ⊤[R] →[R] isVal X0 =[SortBool,R] (dv[SortBool]("true") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 201 (PEANO) [owise]
+  R ∈ ⟦Sort⟧ ∧ X0 ∈ ⟦SortK⟧ ∧ VarK ∈ ⟦SortK⟧ → (¬[R] ((∃Var_Gen0:SortVal. ⊤[R] ∧ X0 ∈[SortK,R] kseq (inj SortVal SortKItem Var_Gen0) dotk ∧ ⊤[R]) ∨[R] ⊥[R]) ∧ ⊤[R] ∧ X0 ∈[SortK,R] VarK ∧ ⊤[R] →[R] isVal X0 =[SortBool,R] (dv[SortBool]("false") ∧ ⊤[SortBool])) = ⟦R⟧
+[T-axiom] axiom 202 (PEANO) [simplification]
+  R ∈ ⟦Sort⟧ ∧ Q0 ∈ ⟦Sort⟧ ∧ @VarK0 ⊆ ⟦SortKItem⟧ ∧ @VarK1 ⊆ ⟦SortKItem⟧ ∧ @VarRest ⊆ ⟦SortMap⟧ → (⊤[R] →[R] ⌈_Map_ (_|->_ @VarK0 @VarK1) @VarRest⌉[SortMap,Q0] =[Q0,R] ((_in_keys(_)_MAP_Bool_KItem_Map @VarK0 @VarRest =[SortBool,Q0] dv[SortBool]("false") ∧ ⊤[Q0] ∧ ⌈@VarK1⌉[SortKItem,Q0]) ∧ ⊤[Q0])) = ⟦R⟧

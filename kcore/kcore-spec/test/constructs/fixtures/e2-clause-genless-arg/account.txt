@@ -1,0 +1,19 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-CLAUSE-GENLESS-ARG: 419 sentences
+  1 inert import [generated]
+  195 read [generated]
+  184 read [builtin]
+  11 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unboundVariable
+      sentence 371 (Lblf): unboundVariable (VarH: in the requires, not bound by the left side)
+        [user] (no label) at e2-clause-genless-arg.k:10: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(LblisC{}(VarH:SortS{}), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("9e394484651ccfc756d807d44107063fb2ce8cce22e764d03ae37a39bfcb136a"), org'Stop'kframework'Stop'attri …
+finish: sentence 371 (Lblf): unboundVariable (VarH: in the requires, not bound by the left side)
+(exit 0)

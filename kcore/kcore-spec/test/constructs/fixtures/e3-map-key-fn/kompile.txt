@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-map-key-fn.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 211988
+definition.kore sha256: 0746c2bcede40c47d053a245724ac3d7389b24199545e12884201dec959d2f27
+stripped sha256: 6c89903d17a3d30ae0e3153de887983118cb3c6f602877d7bd48dad8362f72bd
+main module: 420 sentences, 88 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-MAP-KEY-FN-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E3-MAP-KEY-FN as default.

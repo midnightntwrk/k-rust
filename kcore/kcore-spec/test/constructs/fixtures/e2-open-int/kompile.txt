@@ -1,0 +1,19 @@
+command: kompile --backend haskell e2-open-int.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: Cannot add new constructors to hooked sort Int
+  	Source(FIXTURE/e2-open-int.k)
+  	Location(3,18,3,52)
+  	3 |	  syntax Int ::= Int "&" Int [comm, symbol(andInt)]
+  	  .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Sort Int was declared as a token. Productions of this sort
+  can only contain [function] or [token] labels.
+  	Source(FIXTURE/e2-open-int.k)
+  	Location(3,18,3,52)
+  	3 |	  syntax Int ::= Int "&" Int [comm, symbol(andInt)]
+  	  .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 2 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-INT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-OPEN-INT as default.

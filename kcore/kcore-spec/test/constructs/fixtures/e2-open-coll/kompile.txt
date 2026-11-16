@@ -1,0 +1,13 @@
+command: kompile --backend haskell e2-open-coll.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: Cannot add new constructors to hooked sort Map
+  	Source(FIXTURE/e2-open-coll.k)
+  	Location(4,18,4,52)
+  	4 |	  syntax Map ::= Int "&" Int [comm, symbol(andMap)]
+  	  .	                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-COLL-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-OPEN-COLL as default.

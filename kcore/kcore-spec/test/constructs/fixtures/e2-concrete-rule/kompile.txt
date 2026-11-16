@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-concrete-rule.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.2
+definition.kore bytes: 84803
+definition.kore sha256: de155f750474febe7ee1788615a60204679209b43b47ae32c01237f7d7522296
+stripped sha256: f35a594a2f3c87593953cebef321de59855ab9d9c67cdd3fce8bbd8664fec972
+main module: 244 sentences, 19 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CONCRETE-RULE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-CONCRETE-RULE as default.

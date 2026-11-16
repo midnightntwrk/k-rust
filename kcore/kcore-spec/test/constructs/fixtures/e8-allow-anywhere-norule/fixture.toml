@@ -1,0 +1,3 @@
+# e2-anywhere's text without its anywhere rule, default options: equal to e8-allow-anywhere's text after stripping, so the option drops the rule and nothing else
+main = "e2-anywhere.k"
+same_as = "e8-allow-anywhere"

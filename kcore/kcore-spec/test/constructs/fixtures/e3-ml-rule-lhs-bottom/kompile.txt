@@ -1,0 +1,11 @@
+command: kompile --backend haskell e3-ml-rule-lhs-bottom.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 86757
+definition.kore sha256: 79a3714c7ce437cb61904b215b891ca17d2d1993b41c456bbf6622d5657e8f3f
+stripped sha256: a256bb1d79f351fa27d50e39436b206812c9aba0534df86e6487efb4eb4c64ef
+main module: 254 sentences, 29 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-ML-RULE-LHS-BOTTOM-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E3-ML-RULE-LHS-BOTTOM as default.

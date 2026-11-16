@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-RULE-LHS-AND: 251 sentences
+  1 inert import [generated]
+  160 read [generated]
+  52 read [builtin]
+  5 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  6 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 patternConnective
+      sentence 215 (Lbl'-LT-'generatedTop'-GT-'): patternConnective (\and)
+        [user] (no label) at e3-ml-rule-lhs-and.k:3: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblc{}(\and{SortExp{}}(VarX:SortExp{}, Lbld{}(Var'Unds'Gen0:SortExp{}, Lblb{}())))), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-G …
+finish: sentence 215 (Lbl'-LT-'generatedTop'-GT-'): patternConnective (\and)
+(exit 0)

@@ -1,0 +1,17 @@
+command: kompile --backend haskell e3-vars-map-rest.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210321
+definition.kore sha256: 74244ce07ec20e8391f2f7668a2c6e77939b0b81454102ffb99159ebe51efc7a
+stripped sha256: e7f1798d11dfceda1370854e5fda7b78b9f90a670610723a79df56521c8ceecb
+main module: 416 sentences, 84 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '?K' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-vars-map-rest.k)
+  	Location(6,42,6,44)
+  	6 |	  rule <k> go() => .K ... </k> <m> M => (?K:Int |-> 0) M </m>
+  	  .	                                         ^~
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-VARS-MAP-REST-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-VARS-MAP-REST as default.

@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-rule-prio-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 208987
+definition.kore sha256: efcf433d915606d460d1a0f124a3ba19cb6ca807b82c85397536b328ddc1ec5a
+stripped sha256: 279b7f510ae4e12c1412b41175722addd7609344e5cfe9b85fb298ba6e0e704c
+main module: 411 sentences, 57 not in base's, in kore.txt
+differs_from c3-rule-only-prio-plain: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-RULE-PRIO-OWISE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-RULE-PRIO-OWISE as default.

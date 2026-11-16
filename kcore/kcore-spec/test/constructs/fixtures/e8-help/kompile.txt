@@ -1,0 +1,86 @@
+command: kompile --help  (cwd: the fixture directory)
+exit: 0
+seconds: 0.3
+definition.kore: none written
+output:
+  Usage: kompile [options] <file>
+    Options:
+      --backend <backend>
+        Choose a backend. <backend> is one of [llvm|haskell|kore]. Each creates 
+        the kompiled K definition.
+        Default: llvm
+      --coverage
+        Generate coverage data when executing semantics.
+        Default: false
+      --debug
+        Print debugging output messages and error stack traces
+        Default: false
+      --debug-warnings
+        Print debugging output messages and error/warning stack traces
+        Default: false
+      --emit-json
+        Emit JSON serialized version of parsed and kompiled definitions.
+        Default: false
+      --enable-llvm-debug
+        Enable debugging support for the LLVM backend.
+        Default: false
+      --enable-search
+        By default, to reduce compilation time, `krun --search` is disabled on 
+        the LLVM backend. Pass this flag to enable it.
+        Default: false
+      --gen-bison-parser
+        Emit bison parser for the PGM configuration variable within the syntax 
+        module of your definition into the kompiled definition.
+        Default: false
+      --gen-glr-bison-parser
+        Emit GLR bison parser for the PGM configuration variable within the 
+        syntax module of your definition into the kompiled definition.
+        Default: false
+      --help, -h
+        Print this help message
+      --help-hidden, -hh
+        Print advanced options help message
+      --main-module <name>
+        Specify main module in which a program starts to execute. This 
+        information is used by 'krun'. The default is the name of the given K 
+        definition file without the extension (.k).
+      --md-selector <expression>
+        Preprocessor: for .md files, select only the md code blocks that match 
+        the selector expression. Ex:'k&(!a|b)'.
+        Default: k
+      --output-definition <path>, -o <path>
+        Path to the exact directory in which the output resides.
+      --syntax-module <name>
+        Specify main module for syntax. This information is used by 'krun'. 
+        (Default: <main-module>-SYNTAX).
+      --temp-dir <path>
+        Put temp files in this location. Default is /tmp/.<tool>-xxx
+      --top-cell
+        Choose the top configuration cell when more than one is provided. Does 
+        nothing if only one top cell exists.
+      --verbose, -v
+        Print verbose output messages
+        Default: false
+      --version
+        Print version information
+        Default: false
+      --warnings <level>, -w <level>
+        Warning level. Values: [all|normal|none]
+        Default: NORMAL
+        Possible Values: [ALL, NORMAL, NONE]
+      --warnings-to-errors, -w2e
+        Convert warnings to errors.
+        Default: false
+      -E
+        Perform outer parsing and then stop and pretty print the definition to 
+        standard output. Useful for converting a K definition into a completely 
+        self-contained file when reporting a bug.
+        Default: false
+      -I <path>
+        Add a directory to the search path for requires statements.
+        Default: []
+      -O1
+        Optimize in ways that improve performance and code size, but interfere 
+        with debugging and increase compilation time slightly.
+        Default: false
+  ... 15 more lines

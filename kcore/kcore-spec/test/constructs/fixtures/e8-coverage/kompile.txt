@@ -1,0 +1,9 @@
+command: kompile --backend haskell --coverage ref.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.8
+output:
+  [Error] Compiler: Could not find productions for KApply with label
+  sideEffect:#SortParam{Q0} in module REF
+    while executing phase "Add sort injections" on sentence at
+  	Source(BUILTIN/domains.md)
+  	Location(1181,8,1181,84)

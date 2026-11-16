@@ -1,0 +1,72 @@
+command: kompile --backend haskell e2-clause-genless.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.0
+output:
+  kore-exec: [42533] Error (ErrorVerify):
+      Error:
+        module 'E2-CLAUSE-GENLESS':
+        axiom declaration:
+        (<unknown location>):
+          Found invalid subterm in argument of function equation:
+              \top{_}()
+          The equation that the above occurs in is:
+              requires:
+                  \top{_}()
+              argument:
+                  \top{_}()
+              antiLeft:
+                  \not{_}(
+                      \exists{_}(
+                          Var'Unds'Gen0:SortS{},
+                          \equals{SortBool{}, _}(
+                              LblisC{}(Var'Unds'Gen0:SortS{}),
+                              \dv{SortBool{}}("true")
+                          )
+                      )
+                  )
+              left:
+                  Lblf{}()
+              right:
+                  \dv{SortInt{}}("0")
+              ensures:
+                  \top{_}()
+  Error:
+    module 'E2-CLAUSE-GENLESS':
+    axiom declaration:
+    (<unknown location>):
+      Found invalid subterm in argument of function equation:
+          \top{_}()
+      The equation that the above occurs in is:
+          requires:
+              \top{_}()
+          argument:
+              \top{_}()
+          antiLeft:
+              \not{_}(
+                  \exists{_}(
+                      Var'Unds'Gen0:SortS{},
+                      \equals{SortBool{}, _}(
+                          LblisC{}(Var'Unds'Gen0:SortS{}),
+                          \dv{SortBool{}}("true")
+                      )
+                  )
+              )
+          left:
+              Lblf{}()
+          right:
+              \dv{SortInt{}}("0")
+          ensures:
+              \top{_}()
+  Created bug report: kore-exec.tar.gz
+  [Warning] Compiler: Variable 'H' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-genless.k)
+  	Location(10,30,10,31)
+  	10 |	  rule f() => 1 requires isC(H:S) [unboundVariables(H)]
+  	   .	                             ^
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-GENLESS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-CLAUSE-GENLESS as default.

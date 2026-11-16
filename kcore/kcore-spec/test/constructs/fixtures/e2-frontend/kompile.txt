@@ -1,0 +1,19 @@
+command: kompile --backend haskell m.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 226229
+definition.kore sha256: c0969c63a246ceaf7f63c951674c05935d7b47016f6ad6d0c9b94110e6d30157
+stripped sha256: f6aa18a3355900f6c9c648ef3cfbfdf0afb17994c485bef5e6cedcb512f143b9
+main module: 475 sentences, 119 not in base's, in kore.txt
+same_as e2-frontend-none: equal after stripping
+output:
+  [Warning] Compiler: The attribute 'latex' has been deprecated and all of its
+  functionality has been removed. Using it will be an error in the future.
+  	Source(FIXTURE/m.k)
+  	Location(8,18,8,110)
+  	8 |	               | Exp "+" Exp      [symbol(plus), left, avoid,
+  latex({#1}+{#2}), group(addg), format(%1 + %3)]
+  	  .	                
+  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name M-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using M as default.

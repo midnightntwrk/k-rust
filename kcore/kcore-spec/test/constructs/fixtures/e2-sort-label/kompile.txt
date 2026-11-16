@@ -1,0 +1,11 @@
+command: kompile --backend haskell e2-sort-label.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.6
+definition.kore bytes: 82845
+definition.kore sha256: dbdf562948eaa4f912554689f9435b857c345d13e4ed9cd8c666d8e4f9abfb49
+stripped sha256: 71fc0eefa8b9c7f6bf4d8b3f18e9f391b0bc320f14b77771f6558eb78a4492ad
+main module: 239 sentences, 14 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-SORT-LABEL-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-SORT-LABEL as default.

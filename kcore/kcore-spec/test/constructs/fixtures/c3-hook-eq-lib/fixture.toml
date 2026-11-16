@@ -1,0 +1,2 @@
+# pair hook x equation: an equation of the library's hooked symbol _+Int_ (hook INT.add); differs_from c3-hook-only-lib: the text without the equation
+differs_from = "c3-hook-only-lib"

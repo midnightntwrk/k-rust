@@ -1,0 +1,67 @@
+# findings/K-coverage.md Part B (the shapes kompile 7.1.337 emits, measured at 57f851ec), one line a
+# row in the table's order: number, K-coverage's status (its first, for "read / ..." rows), whether
+# the dated note of 2026-11-14 at the head of K-coverage.md names the row as changed since, the E5
+# sites (ModuleToKORE.java, extract.py's keys) that write the shape, and the row's name.
+# Row 26 has no status (its generator's call is commented out); row 59 is no site of ModuleToKORE:
+# kompile copies kore/prelude.kore as text (KoreBackend.java:95). The E5 recount (extract.py) checks
+# that the 58 rows with a status each name an E5 key, and that every E5 key is named.
+# n	status	changed	sites	row
+1	read	no	translateSorts:sort#1	user sort declaration
+2	not handled	no	translateSorts:sort#1	user token sort [token, hasDomainValues]
+3	read	no	translateSorts:hooked-#1	collection sort of a cell, or a user list sort hooked LIST.List
+4	not handled	yes	translateSorts:hooked-#2	user hooked sort with another hook (INT.Int redeclared without Location)
+5	read	no	translateSymbol:symbol#1	constructor symbol
+6	read	no	translateSymbol:symbol#1	function symbol with equations
+7	parameter	no	translateSymbol:symbol#1	function symbol without equation, not total
+8	read	no	translateSymbol:symbol#1	function symbol without equation, declared total
+9	read	no	translateSymbol:symbol#1	cell symbols, <generatedTop>, <generatedCounter>
+10	read	no	translateSymbol:symbol#1	cell fragment, noXCell, XCellOpt constructors
+11	read	no	translateSymbol:symbol#1	freezer constructors of strict
+12	inert	no	translateSymbol:symbol#1,convertRule:axiom#3	macro / alias symbol (macro rules to macros.kore)
+13	refused by decision	yes	translateSymbol:symbol#1	sort-parametric user symbol
+14	parameter	no	translateSymbol:hooked-#1	hooked symbol whose hook the registry does not interpret
+15	parameter	no	translateSymbol:hooked-#1	hooked symbol with a registry hook
+16	read	no	functionalPattern:axiom#1	subsort axiom (genSubsortAxiom)
+17	inert	no	functionalPattern:axiom#1	subsort of a cell into its collection sort
+18	not handled	yes	functionalPattern:axiom#1	subsort of a cell sort into a user sort
+19	read	no	functionalPattern:axiom#1	functional axiom (genFunctionalAxiom)
+20	inert	no	functionalPattern:axiom#1	functional axiom of a sort-parametric symbol
+21	not handled	no	functionalPattern:axiom#1	functional axiom of a non-total function
+22	inert	no	genNoConfusionAxioms:axiom#1	no confusion, same constructor
+23	inert	no	genNoConfusionAxioms:axiom#2	no confusion, different constructors
+24	inert	no	genNoJunkAxiom:axiom#1	no junk
+25	inert	no	genAssocAxiom:axiom#1,genUnitAxiom:axiom#1,genUnitAxiom:axiom#2,genIdemAxiom:axiom#1	associativity, unit, idempotency
+26	-	no	genCommAxiom:axiom#1	commutativity (not emitted: its call is commented out, ModuleToKORE.java:306)
+27	read	no	genOverloadedAxiom:axiom#1	symbol-overload axiom between functions
+28	refused by decision	yes	genOverloadedAxiom:axiom#1	symbol-overload axiom with a constructor
+29	inert	no	convertRule:axiom#1	MAP's generated #Ceil simplification
+30	read	no	convertRule:axiom#1	function equation
+31	read	no	convertRule:axiom#1	function equation with requires
+32	read	no	convertRule:axiom#1	function equation [owise]
+33	not handled	yes	convertRule:axiom#1	several [owise] equations of one function
+34	refused by decision	no	convertRule:axiom#1	[owise] beside a priority >= 200
+35	read	no	convertRule:axiom#1	function equation priority(n)
+36	read	yes	convertRule:axiom#1	function equation ensures (read as ensuresAsRequires at 57f851ec)
+37	read	no	convertRule:axiom#1	function equation concrete / symbolic
+38	not handled	no	convertRule:axiom#1	function equation non-executable
+39	refused by decision	yes	convertRule:axiom#1	equation of a sort-parametric user function
+40	read	no	convertRule:axiom#1	equation of a library function with a K-installation Source
+41	inert	no	convertRule:axiom#1	simplification equation
+42	inert	no	convertRule:axiom#1	projection domain (written by krust, not kompile)
+43	read	no	convertRule:axiom#1	generated sort predicate, projection, initXCell, getGeneratedCounterCell equations
+44	not handled	yes	convertRule:axiom#1	generated initializer applying a projection
+45	read	no	convertRule:axiom#1	initKCell with $PGM projected
+46	read	no	convertRule:axiom#2	rewrite rule
+47	read	no	convertRule:axiom#2	rewrite rule priority(n) / [owise]
+48	refused by decision	yes	convertRule:axiom#2	rewrite rule ensures
+49	not handled	no	convertRule:axiom#2	rewrite rule with an existential right-hand side
+50	refused by decision	yes	convertRule:axiom#2	rewrite rule with a set pattern in the left side
+51	not handled	no	convertRule:axiom#2	rewrite rule with a function symbol in the left side
+52	read	no	convertRule:axiom#2	rewrite rule with a list or map pattern
+53	not handled	no	convertRule:axiom#2	one-path / all-path rule
+54	not handled	yes	convertRule:axiom#2	rules of STDIN-STREAM / STDOUT-STREAM
+55	not handled	yes	convertRule:axiom#2,translateSymbol:symbol#1	default configuration of kast.md DEFAULT-CONFIGURATION
+56	inert	no	convertRule:claim#1,convertRule:claim#2	claim
+57	refused by decision	no	genAliasForSemanticsRuleLHS:alias#1,genPriorityGroups:alias#1	--enable-kore-antileft aliases and rules over them
+58	not handled	no	convertRule:axiom#1	heat/cool rules as equations (heatCoolEq)
+59	read	no	-	K's prelude (kore/prelude.kore)

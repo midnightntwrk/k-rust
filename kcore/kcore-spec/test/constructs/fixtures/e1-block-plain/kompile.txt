@@ -1,0 +1,12 @@
+command: kompile --backend haskell e1-syntax.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 224420
+definition.kore sha256: 82bf5ae3e83bc2d3b276bf9ff0e0a79012abc44323b313b26b194c62468d105d
+stripped sha256: 1a1d580732721d650050b5434e78a2c9ce1d5cdf341f621a06f83d49da4631e8
+main module: 471 sentences, 115 not in base's, in kore.txt
+same_as e1-syntax: equal after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E1-SYNTAX-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E1-SYNTAX as default.

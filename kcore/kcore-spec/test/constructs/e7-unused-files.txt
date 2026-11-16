@@ -1,0 +1,24 @@
+# E7 recount: files of k-frontend/src/main/java/org/kframework/compile/ that neither
+# KoreBackend.steps nor KoreBackend.getKompiledModule names, each with where it is used.
+AddImplicitCounterCell             KoreBackend's module pipeline for proof specifications (not steps)
+AddParentCells                     inside ConcretizeCells (step concretizeCells)
+AddTopCellToRules                  inside ConcretizeCells (step concretizeCells)
+CloseCells                         inside ConcretizeCells (step concretizeCells)
+SortCells                          inside ConcretizeCells (step concretizeCells)
+ConcretizationInfo                 data for AddParentCells, CloseCells, SortCells
+ConfigurationInfo                  interface of the configuration's data, read by the cell passes
+LabelInfo                          data of the cell passes
+SortInfo                           data of the cell passes
+IncompleteCellUtils                helpers of the cell passes
+ComputeTransitiveFunctionDependencies  used by ModuleToKORE and ResolveFunctionWithConfig
+RefreshRules                       used by ModuleToKORE
+ConvertDataStructureToLookup       used by AddSortInjections (emit pass 1)
+FloatBuiltin                       data class used by ConstantFolding
+NormalizeVariables                 used by NumberSentences
+GatherVarsVisitor                  visitor used by ResolveFun and checks
+PatternValueAwareVisitor           visitor used by checks
+RewriteAwareTransformer            base class of ConstantFolding, MinimizeTermConstruction, ResolveComm
+RewriteAwareVisitor                base class of visitors
+Backend                            the backend interface
+GenerateSentencesFromConfigDecl    the parse phase: DefinitionParsing (rows parse:DefinitionParsing:*)
+ResolveIOStreams                   Kompile.resolveIOStreams (step resolveIO)

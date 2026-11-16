@@ -1,0 +1,56 @@
+command: kompile --backend haskell e2-open-mixed-clause.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 2.1
+output:
+  kore-exec: [25600] Error (ErrorVerify):
+      Error:
+        module 'E2-OPEN-MIXED-CLAUSE':
+        axiom declaration:
+        (definition.kore 303:13):
+          Found invalid subterm in argument of function equation:
+              Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{})
+          The equation that the above occurs in is:
+              requires:
+                  \top{_}()
+              argument:
+                  \in{SortB{}, _}(
+                      X0:SortB{},
+                      Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{})
+                  )
+              antiLeft:
+                  
+              left:
+                  Lblfirst{}(X0:SortB{})
+              right:
+                  VarX:SortA{}
+              ensures:
+                  \top{_}()
+  Error:
+    module 'E2-OPEN-MIXED-CLAUSE':
+    axiom declaration:
+    (definition.kore 303:13):
+      Found invalid subterm in argument of function equation:
+          Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{})
+      The equation that the above occurs in is:
+          requires:
+              \top{_}()
+          argument:
+              \in{SortB{}, _}(
+                  X0:SortB{},
+                  Lbland{}(VarX:SortA{}, Var'Unds'Gen0:SortA{})
+              )
+          antiLeft:
+              
+          left:
+              Lblfirst{}(X0:SortB{})
+          right:
+              VarX:SortA{}
+          ensures:
+              \top{_}()
+  Created bug report: kore-exec.tar.gz
+  [Error] Critical: Haskell backend reported errors validating compiled
+  definition.
+  Examine output to see errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-OPEN-MIXED-CLAUSE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E2-OPEN-MIXED-CLAUSE as default.

@@ -1,0 +1,12 @@
+command: kompile --backend haskell e1-claim.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.6
+output:
+  [Error] Compiler: Claims are not allowed in the definition.
+  	Source(FIXTURE/e1-claim.k)
+  	Location(5,9,5,33)
+  	5 |	  claim <k> inc(1) => 2 ... </k>
+  	  .	        ^~~~~~~~~~~~~~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name E1-CLAIM-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E1-CLAIM as default.

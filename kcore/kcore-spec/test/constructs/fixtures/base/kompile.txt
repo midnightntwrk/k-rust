@@ -1,0 +1,10 @@
+command: kompile --backend haskell base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 79180
+definition.kore sha256: 1161ff15f29936c8756612b2954b93c7a4126267b00f82c88516003a2b048f03
+stripped sha256: ab6613583fb308be352c32e47fb12d7dcdb5395dc7055613c7860b2cf6fd14aa
+main module: 228 sentences, 176 in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name BASE-SYNTAX in
+  definition.  Use --syntax-module to specify one. Using BASE as default.

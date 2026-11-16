@@ -1,0 +1,16 @@
+command: kompile --backend haskell e3-fresh.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.5
+definition.kore bytes: 206953
+definition.kore sha256: 691ec69489ec7982f2115f835ff9dcddf6eb7c0bb03f2a89e459c56a229d68ec
+stripped sha256: 7a04311f342676ee3330a896ce52cf36abef7ccbbb6e3218b97d1d5b1f439593
+main module: 405 sentences, 49 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable '!X' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e3-fresh.k)
+  	Location(4,21,4,23)
+  	4 |	  rule <k> a() => b(!X:Int) ... </k>
+  	  .	                    ^~
+  [Warning] Compiler: Could not find main syntax module with name E3-FRESH-SYNTAX
+  in definition.  Use --syntax-module to specify one. Using E3-FRESH as default.

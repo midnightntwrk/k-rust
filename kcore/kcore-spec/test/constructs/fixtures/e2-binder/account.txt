@@ -1,0 +1,20 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E2-BINDER: 498 sentences
+  1 inert import [generated]
+  225 read [generated]
+  237 read [builtin]
+  4 refused builtinText [builtin]
+      e.g. hooked-sort SortKVar{} [hasDomainValues{}(), hook{}("KVAR.KVar"), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,39)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(BUILTIN/substitution.md)"), token{}()]
+  1 read [user]
+  5 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  13 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unknownSort
+      sentence 150 (Lbllam): unknownSort (KVar)
+        [user] (no label) at e2-binder.k:5: symbol Lbllam{}(SortKVar{}, SortExp{}) : SortExp{} [binder{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,31,5,75)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-binder.k)"), symbol'Kywd'{}("lam")]
+finish: sentence 150 (Lbllam): unknownSort (KVar)
+(exit 0)

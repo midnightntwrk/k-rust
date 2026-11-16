@@ -1,0 +1,17 @@
+command: kompile --backend haskell --allow-anywhere-haskell e2-anywhere-eq.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 201360
+definition.kore sha256: 6f58a4b59ed4a17720f04c0939fa0e5fca918939dea365b9b876e1aec7e49e50
+stripped sha256: c34c4db9e62cc0a0daf7e2a1967f2b378373b3a1733c8a51cf91ef5dad3152f4
+main module: 390 sentences, 33 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Removed anywhere rule for Haskell backend execution; this
+  may change the behavior of your code.
+  	Source(FIXTURE/e2-anywhere-eq.k)
+  	Location(4,8,4,17)
+  	4 |	  rule f(X) => X [anywhere]
+  	  .	       ^~~~~~~~~
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-EQ-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ANYWHERE-EQ as default.

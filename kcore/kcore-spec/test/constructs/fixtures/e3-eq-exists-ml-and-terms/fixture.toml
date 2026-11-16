@@ -1,0 +1,2 @@
+# two terms conjoined in a binder's body: f(X) => #Exists B:Bool. (B #And (notBool X)); k(X) => #Exists Z:Int. (Z #And (X +Int 1))
+# from the sentences: f(x) = {notBool x} (f(true) = false); k(x) = {x +Int 1} (k(2) = 3)

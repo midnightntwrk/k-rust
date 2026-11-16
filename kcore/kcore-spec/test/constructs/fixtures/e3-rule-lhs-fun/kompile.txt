@@ -1,0 +1,14 @@
+command: kompile --backend haskell e3-rule-lhs-fun.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: Illegal function symbol f on LHS of rule. Consider adding
+  `simplification` attribute to the rule if this is intended.
+  	Source(FIXTURE/e3-rule-lhs-fun.k)
+  	Location(8,14,8,22)
+  	8 |	  rule <k> c(f(X:Int)) => d(X) ... </k>
+  	  .	             ^~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E3-RULE-LHS-FUN-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E3-RULE-LHS-FUN as default.

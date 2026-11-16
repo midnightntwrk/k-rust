@@ -1,0 +1,21 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-ML-REQ-AND-OWISE: 393 sentences
+  1 inert import [generated]
+  176 read [generated]
+  184 read [builtin]
+  6 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 read andAtBool [user]
+  1 inert simplification [generated]
+connective readings per sentence: 1
+      sentence 350: andAtBool
+stage refusals (of sentences classified read): 1
+  1 patternConnective
+      sentence 350 (Lblf): patternConnective (\and)
+        [user] (no label) at e3-ml-req-and-owise.k:6: axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(\and{SortBool{}}(Lblg{}(VarX:SortInt{}), Lblhh{}(VarX:SortInt{})), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \top{R}())), \equals{SortInt{}, R}(Lblf{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))) [UNIQUE'Unds'ID{}("caa3d69f1c8d989e645c90a1d4a8093aac40cdb062fb785738fbe5111a1491a6 …
+finish: sentence 350 (Lblf): patternConnective (\and)
+(exit 0)

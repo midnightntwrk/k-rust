@@ -1,0 +1,23 @@
+out/definition.kore: 5 modules; prelude agrees
+user module REF: 476 sentences
+  1 inert import [generated]
+  242 read [generated]
+  183 read [builtin]
+  11 read [user]
+  9 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  1 inert parametricFunctional [generated]
+  15 inert noJunk [generated]
+  2 refused aliasDeclaration [generated]
+      e.g. alias rule29LHS{}(SortMap{}, SortInt{}, SortGeneratedCounterCell{}, SortK{}) : SortGeneratedTopCell{} where rule29LHS{}(VarM:SortMap{}, VarX:SortInt{}, Var'Unds'DotVar0:SortGeneratedCounterCell{}, Var'Unds'DotVar2:SortK{}) := \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}(Var …
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 2
+  2 aliasApplication
+      sentence 359 (rule29LHS): aliasApplication (rule29LHS)
+        [user] (no label) at ref.k:14: axiom{} \rewrites{SortGeneratedTopCell{}}(rule29LHS{}(VarM:SortMap{}, VarX:SortInt{}, Var'Unds'DotVar0:SortGeneratedCounterCell{}, Var'Unds'DotVar2:SortK{}), \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}(Lblf{}(VarX:SortInt{}))), Var'Unds'DotVar2:SortK{})), Lbl'-LT-'m'-GT-'{ …
+      sentence 361 (rule30LHS): aliasApplication (rule30LHS)
+        [user] (no label) at ref.k:15: axiom{} \rewrites{SortGeneratedTopCell{}}(rule30LHS{}(VarX:SortInt{}, Var'Unds'DotVar0:SortGeneratedCounterCell{}, Var'Unds'DotVar1:SortMCell{}, Var'Unds'DotVar2:SortK{}), \and{SortGeneratedTopCell{}}(\top{SortGeneratedTopCell{}}(), Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'t'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), Var'Unds'DotVar2:SortK{})), Var'Unds'DotVar1:So …
+finish: sentence 359 (rule29LHS): aliasApplication (rule29LHS)
+(exit 0)

@@ -1,0 +1,13 @@
+command: kompile --backend haskell e2-anywhere.k -o out  (cwd: the fixture directory)
+exit: 113
+seconds: 1.5
+output:
+  [Error] Compiler: anywhere is not supported by the haskell backend.
+  	Source(FIXTURE/e2-anywhere.k)
+  	Location(4,8,4,20)
+  	4 |	  rule a(X) => b(X) [anywhere]
+  	  .	       ^~~~~~~~~~~~
+  [Error] Compiler: Had 1 structural errors.
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-ANYWHERE-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E2-ANYWHERE as default.

@@ -1,0 +1,18 @@
+out/definition.kore: 5 modules; prelude agrees
+user module E3-VARS-MAP: 414 sentences
+  1 inert import [generated]
+  196 read [generated]
+  183 read [builtin]
+  5 read [user]
+  6 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  11 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 existentialRhs
+      sentence 314 (Lbl'-LT-'generatedTop'-GT-'): existentialRhs (Var'Ques'V)
+        [user] (no label) at e3-vars-map.k:6: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblset{}(VarK:SortInt{})), Var'Unds'DotVar1:SortK{})), Lbl'-LT-'m'-GT-'{}(Lbl'Stop'Map{}()), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \exists{SortGeneratedTopCell{}}(Var'Ques'V:SortInt{}, \and{SortGeneratedT …
+finish: sentence 314 (Lbl'-LT-'generatedTop'-GT-'): existentialRhs (Var'Ques'V)
+(exit 0)

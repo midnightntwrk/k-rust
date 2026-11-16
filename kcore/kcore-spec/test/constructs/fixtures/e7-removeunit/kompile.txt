@@ -1,0 +1,11 @@
+command: kompile --backend haskell e7-removeunit.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 210822
+definition.kore sha256: 33827ea0746d08743251f5770a98facaebc8949a0e24d4b37de7aaec2a47c04e
+stripped sha256: 923ec7b282a64f9e794d517fb84fd772445cb1e4f70cf31b1f33a0932bd0ea51
+main module: 419 sentences, 87 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E7-REMOVEUNIT-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  E7-REMOVEUNIT as default.
