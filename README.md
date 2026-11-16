@@ -35,6 +35,13 @@ compiles (its sorts, functions, rules and proved K equations) and proves preserv
 it. Its generator is a member of this workspace; its Lean libraries, demos and regression gate
 (the `k2lean-light` and `k2lean-heavy` entries of `scripts/gates.toml`) are under `k2lean/`.
 
+[`kcore/`](kcore/kcore-spec/README.md) holds KCore, a Lean 4 semantics of the fragment of K a
+kompiled KORE text is read into, with soundness and completeness of its rewrite step against the
+text's matching-logic theory (`kcore/kcore-spec`, its two path dependencies `kcore/aml-port` and
+`kcore/kore-lean`, the review cone `kcore/core-cone.txt` and the design notes `kcore/designs/`).
+It is work in progress: several headline statements still carry named hypotheses that later work
+discharges.
+
 ## Running examples
 
 Exercise Z3-backed parametric sort inference with the installed CLI:
