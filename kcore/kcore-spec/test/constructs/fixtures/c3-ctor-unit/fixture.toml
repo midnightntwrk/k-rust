@@ -1,0 +1,2 @@
+# unit without assoc on a constructor production (TRIAGE-B c3.pair 13; findings/C3-noncore-rulings.md section 6.1): the text of c3-ctor-law-base with unit(.E) on Exp + Exp. Predicted (weak): kompile exit 113 with e2-fn-unit's message; observed: kompile exit 0, so, as the ruling directs, differs_from c3-ctor-law-base
+differs_from = "c3-ctor-law-base"

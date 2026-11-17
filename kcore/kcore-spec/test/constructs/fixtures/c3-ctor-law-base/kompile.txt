@@ -1,0 +1,11 @@
+command: kompile --backend haskell c3-ctor-law-base.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 84342
+definition.kore sha256: edfeb993cfd3427f67cca46912f8463eafe67e72fd376f2f444764ab866c144f
+stripped sha256: 509e33e981de43c475ef2dd2d154c9c8637f3ee2a3c693ea0d358c2e588bf6f5
+main module: 247 sentences, 22 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-CTOR-LAW-BASE-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-CTOR-LAW-BASE as default.

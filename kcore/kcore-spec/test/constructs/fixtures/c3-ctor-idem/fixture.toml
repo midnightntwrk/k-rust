@@ -1,0 +1,2 @@
+# pair idem x constructor production (TRIAGE-B c3.pair 13; findings/C3-noncore-rulings.md section 6.1): the text of c3-ctor-law-base with idem on Exp + Exp. Predicted: kompile exit 0, the declaration without constructor and injective, the idempotence axiom, the account refused openGenerator and lawAxiom; the Semantics line not predicted
+differs_from = "c3-ctor-law-base"

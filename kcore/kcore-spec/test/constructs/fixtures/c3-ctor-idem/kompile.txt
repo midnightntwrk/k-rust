@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-ctor-idem.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 1.9
+definition.kore bytes: 83818
+definition.kore sha256: c018200691bd1703ca2785ec2eca2aa4a8c56d914b89f60d37818e0fc5940d5d
+stripped sha256: 29fde27ad302ee0848d021cb5d07540b8f26aa3cb2fc02508fc0cc0d1d9151f3
+main module: 245 sentences, 20 not in base's, in kore.txt
+differs_from c3-ctor-law-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-CTOR-IDEM-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-CTOR-IDEM as default.

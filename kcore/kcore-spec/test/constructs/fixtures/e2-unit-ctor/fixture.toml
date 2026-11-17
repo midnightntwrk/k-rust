@@ -1,0 +1,2 @@
+# pair unit x constructor production (TRIAGE-B c3.pair 13; findings/C3-noncore-rulings.md section 6.1): this text against c3-ctor-assoc, the same text without unit(.E)
+differs_from = "c3-ctor-assoc"

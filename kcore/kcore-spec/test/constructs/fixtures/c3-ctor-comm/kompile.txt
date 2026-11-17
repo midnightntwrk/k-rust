@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-ctor-comm.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 83700
+definition.kore sha256: 21884eb39fd34b6d4fc959e3a65c5077be234519c5c965718eec2db1acf23306
+stripped sha256: dc41efefb28ff377676c95e2ec748f507e32c86c00091f8bc2c874b073969e97
+main module: 244 sentences, 19 not in base's, in kore.txt
+differs_from c3-ctor-law-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-CTOR-COMM-SYNTAX in definition.  Use --syntax-module to specify one. Using
+  C3-CTOR-COMM as default.
