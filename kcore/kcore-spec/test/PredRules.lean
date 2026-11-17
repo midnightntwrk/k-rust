@@ -418,4 +418,42 @@ example (hI : I ⊧ᴵP Γ c) (tbl : KoreAML.VarTable) (e : ML.Valuation M) (a a
 
 end CondPred
 
+/-! ## A value in the instances of an application (`KCore.Faithful.famEx_value_pp`, `KCore.famEx_values_pp`)
+
+  At `rOr` (`b => ?Z` with post `or (mem Z b) (mem Z a(b))`, Z existential, a `post` that is not
+  `\top`): in any model of `Γc c`, y's element in `famEx c rOr σ` gives a σ' that is σ off Z, under
+  which the right side evaluates to y and `Holds … post true`. At the definition:
+  `famEx_values`'s statement from the per-rule facts `ruleSorted` and `rulePlainPP`. -/
+
+section FamExValues
+open Faithful
+
+variable {M : Type} [Inhabited M] {I : ML.Interpretation KoreAML.Sym M}
+
+/-- `rOr`'s existential variable Z is of a sort that is not confined, and its `post` is not `\top`
+and holds no binder. -/
+theorem famExValues_facts : (rOr.exs.any fun i => (rOr.vars[i]?.map c.confined).getD false) = false ∧
+    HoldsShape.hasBinder rOr.post = false ∧ rOr.post.isTop = false := by
+  decide +kernel
+
+example (hft : FnTerminates c) (hI : I ⊧ᴵP Γc c)
+    (hcw : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c = true → cl.CondDecided c)
+    {σ : Subst} (hσ : c.WellSorted rOr.vars σ) (y : Config c)
+    (e : ML.Valuation M) (hm : (famEx c rOr σ).interpret I e (elemOf c I y.val)) :
+    ∃ σ' : Subst, (∀ i, ¬ i ∈ rOr.exs → σ'.lookup i = σ.lookup i) ∧ c.WellSorted rOr.vars σ' ∧
+      EvalTerm c σ' rOr.rhs (some y.val) ∧ (∀ t, rOr.ens = some t → EvalTerm c σ' t (some (bool true))) ∧
+      Holds c rOr.vars.length σ' rOr.post true :=
+  famEx_value_pp coreOK hft hI hcw rOr_pp.1 rOr_pp.2.1
+    (fun h => absurd h (by rw [famExValues_facts.1]; decide))
+    (fun h => absurd h (by rw [famExValues_facts.2.1]; decide)) hσ y e hm
+
+/-- The pinned type of `famEx_values` (`test/Pins.lean`), from the per-rule facts. -/
+example : ∀ (hf : FnHyp c) (x y : Config c)
+    (r : Rule) (σ : Subst) (hs : ∃ y₀, StepBy c r σ x y₀)
+    (hy : Γc c ⊧ (den c y.val ⇒ famEx c r σ)),
+    ∃ σ', (∀ i, ¬ i ∈ r.exs → σ'.lookup i = σ.lookup i) ∧ StepBy c r σ' x y :=
+  fun hf => famEx_values_pp c coreOK hf rules_pp
+
+end FamExValues
+
 end PredRules
