@@ -206,7 +206,8 @@ def attrsAgree (k : Kore.Definition) (d : Definition) : Bool :=
 
 /-- What a tie shows of a sentence `s` of a class, for every interpretation of the hooks. -/
 inductive TieDir where
-  /-- An item of `Γ` is the translation of `s`: `Γ` entails `s`, and the item is a consequence of `s`. -/
+  /-- An item of `Γ` is the translation of `s`, as written or with its variables renamed: `Γ` entails
+  `s`, and the item is a consequence of `s`. -/
   | equal
   /-- `Γ ⊧ tr s`. -/
   | entailed
