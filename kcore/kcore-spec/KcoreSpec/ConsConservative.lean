@@ -136,7 +136,10 @@ theorem Cons.ext_model_cv {c : Semantics} {ss : List Srt} {ks : List Sym} (h : c
   have hdet := detached_of_decided c ss ks h hd
   have hpre := Semantics.sortedOK_preTop (Semantics.coreOK_parts h).1
   have hF : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, EqnFactsPre c fn cl := fun fn hfn cl hcl =>
-    clause_eqnFactsPre hm hfn hcl (by rw [hpre fn hfn cl hcl]; rfl)
+    clause_eqnFactsPre hm hfn hcl (by
+      rcases List.mem_append.mp hfn with hu | hp
+      · exact hm.preOK fn hu cl hcl
+      · rw [Semantics.sortPreds_pre hp cl hcl]; rfl)
   have hvars : ∀ fn ∈ c.allFns, ∀ cl ∈ fn.clauses, ∀ s ∈ cl.vars, s < nRegSorts + c.sortNames.length :=
     fun fn hfn cl hcl s hs => by
       obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hs
