@@ -11,7 +11,7 @@
   key steps; at `<k> 5 ~> . </k> 0` its `pre` is false, so it does not block the rule of priority
   200, which steps (`cM`, `cC`); with the key in `post`, the rule blocks it there and has no
   successor. Nothing runs out of fuel, so these lists are exactly the `Step` successors
-  (`CExec.step_iff_at`, `FnDet` of a core without functions), and `CExec.run_exact` applies.
+  (`CExec.step_iff_at`, `FnDet` of a core without user functions), and `CExec.run_exact` applies.
 -/
 import KcoreSpec
 
@@ -75,7 +75,41 @@ def cfg0 (n : Int) : GroundTerm :=
 theorem ready : CExec.execReady cM = true ∧ CExec.execReady cC = true ∧ CExec.execReady cP = true := by
   decide +kernel
 
-theorem core : cM.coreOK = true ∧ cC.coreOK = true ∧ cP.coreOK = true := by decide +kernel
+open Faithful.Model in
+/-- `coreOK` from its conjuncts, each a decision of its own: the names apart by their sorted codes
+(`namesApartFast`), `itesApart` on the names' codes (`itesApart_of_codes`). -/
+theorem coreOK_partsEPA {c : Semantics} {I : List Nat}
+    (hI : iteIdx ((allSymNames c).map KoreAML.Distinct.strCode) = I)
+    (hite : itesApartC c I ((allSortNames c).map KoreAML.Distinct.strCode) = true) (hs : c.sortedOK = true)
+    (h1 : namesNumbered c = true) (h2 : genWf c = true) (h3 : collSortsOK c = true)
+    (h4 : collsOK c = true) (h5 : patHeadsOK c = true) (h6 : namesApartFast c = true)
+    (h7 : LitsApart c = true) (h8 : sortsNumbered c = true) (h11 : kindsApart c = true)
+    (h12 : ctorsOnce c = true) (h13 : fnsApart c = true) (hha : c.hooksApart = true)
+    (hpa : c.predsApart = true) (hids : c.idsOK = true) (hov : c.overloadsOK = true) :
+    c.coreOK = true := by
+  have hfa := Semantics.faithCoreOK_of_parts h1 h2 h3 h4 h5 h6 h7 h8
+    (itesApart_of_codes rfl rfl hI hite) h11 h12 h13
+  simp only [Semantics.coreOK, hs, hfa, hha, hpa, hids, hov, Bool.and_self]
+
+theorem coreM : cM.coreOK = true :=
+  coreOK_partsEPA (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+
+theorem coreC : cC.coreOK = true :=
+  coreOK_partsEPA (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+
+theorem coreP : cP.coreOK = true :=
+  coreOK_partsEPA (I := []) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+
+theorem core : cM.coreOK = true ∧ cC.coreOK = true ∧ cP.coreOK = true := ⟨coreM, coreC, coreP⟩
 
 /-- What the executable step lists, at fuel 20, nothing out of fuel. -/
 theorem listed :
@@ -92,15 +126,11 @@ theorem sorts (d : Semantics) (hd : d = cM ∨ d = cC ∨ d = cP) :
     d.sortOf (cfgK 5 0) = some topCellSort ∧ d.sortOf (cfgK 5 7) = some topCellSort := by
   rcases hd with rfl | rfl | rfl <;> decide +kernel
 
-/-- No function, so one result at most. -/
-theorem fnDet (d : Semantics) (hd : d.allFns = []) : FnDet d := fun f _ _ _ h _ => by
-  have hl : d.lookupFn f = none := by rw [Semantics.lookupFn_eq, hd]; rfl
-  cases h with
-  | clause hfn .. => rw [hl] at hfn; cases hfn
-  | rest hfn _ => rw [hl] at hfn; cases hfn
-  | ensFails hfn .. => rw [hl] at hfn; cases hfn
+/-- No user function, and the sort predicates' clauses agree: one result at most. -/
+theorem fnDet (d : Semantics) (hd : d.fns = []) : FnDet d :=
+  fnDet_of_agree (fun _ h => by rw [hd] at h; cases h) (fun _ h => by rw [hd] at h; cases h)
 
-theorem allFns : cM.allFns = [] ∧ cC.allFns = [] ∧ cP.allFns = [] := by decide +kernel
+theorem noFns : cM.fns = [] ∧ cC.fns = [] ∧ cP.fns = [] := ⟨rfl, rfl, rfl⟩
 
 /-- **The rule with the key in `pre` steps at `<k> 1 ~> . </k> 0`**, read off the step. -/
 theorem stepM_A : Step cM ⟨cfgK 1 0, (sorts cM (.inl rfl)).1⟩ ⟨cfg0 0, (sorts cM (.inl rfl)).2.1⟩ :=
@@ -110,25 +140,29 @@ theorem stepM_A : Step cM ⟨cfgK 1 0, (sorts cM (.inl rfl)).1⟩ ⟨cfg0 0, (so
 200's, which the rule with the key does not block. -/
 theorem exactM_B (y : Config cM) :
     Step cM ⟨cfgK 5 0, (sorts cM (.inl rfl)).2.2.1⟩ y ↔ y.val = cfgK 5 7 := by
-  rw [CExec.step_iff_at ready.1 (fnDet cM allFns.1) listed.2.2.2.1, listed.2.2.1]
+  refine (CExec.step_iff_at (x := ⟨cfgK 5 0, (sorts cM (.inl rfl)).2.2.1⟩) ready.1 (fnDet cM noFns.1)
+    listed.2.2.2.1).trans ?_
+  rw [listed.2.2.1]
   simp
 
 theorem exactC_B (y : Config cC) :
     Step cC ⟨cfgK 5 0, (sorts cC (.inr (.inl rfl))).2.2.1⟩ y ↔ y.val = cfgK 5 7 := by
-  rw [CExec.step_iff_at ready.2.1 (fnDet cC allFns.2.1) listed.2.2.2.2.2.2.2.1, listed.2.2.2.2.2.2.1]
+  refine (CExec.step_iff_at (x := ⟨cfgK 5 0, (sorts cC (.inr (.inl rfl))).2.2.1⟩) ready.2.1
+    (fnDet cC noFns.2.1) listed.2.2.2.2.2.2.2.1).trans ?_
+  rw [listed.2.2.2.2.2.2.1]
   simp
 
 /-- **With the key in `post`, the rule applies at `<k> 5 ~> . </k> 0` and blocks the rule of
 priority 200, but its `post` is false there: no successor.** -/
 theorem exactP_B (y : Config cP) :
     ¬ Step cP ⟨cfgK 5 0, (sorts cP (.inr (.inr rfl))).2.2.1⟩ y :=
-  CExec.noStep_at ready.2.2 (fnDet cP allFns.2.2) listed.2.2.2.2.2.2.2.2.2.2.2 listed.2.2.2.2.2.2.2.2.2.2.1 y
+  CExec.noStep_at ready.2.2 (fnDet cP noFns.2.2) listed.2.2.2.2.2.2.2.2.2.2.2 listed.2.2.2.2.2.2.2.2.2.2.1 y
 
 /-- **`run_exact` at a core whose rule has a `pre`.** -/
 example : ((Γ cM ∪ Γstep cM) ⊧ (den cM (cfgK 5 0) ⇒
       KoreAML.allNext (KoreAML.disjList ((CExec.successorsN cM 20 (cfgK 5 0)).map (den cM))))) ∧
     ∀ y ∈ CExec.successorsN cM 20 (cfgK 5 0), Γ cM ⊧ (den cM (cfgK 5 0) ⇒ KoreAML.sNext (den cM y)) :=
-  CExec.run_exact (x := ⟨cfgK 5 0, (sorts cM (.inl rfl)).2.2.1⟩) core.1 ready.1 (fnDet cM allFns.1)
+  CExec.run_exact (x := ⟨cfgK 5 0, (sorts cM (.inl rfl)).2.2.1⟩) core.1 ready.1 (fnDet cM noFns.1)
     listed.2.2.2.1
 
 end ExecPreAtomsTest
@@ -136,6 +170,8 @@ end ExecPreAtomsTest
 end KCore
 
 #print axioms KCore.ExecPreAtomsTest.ready
+#print axioms KCore.ExecPreAtomsTest.core
+#print axioms KCore.ExecPreAtomsTest.fnDet
 #print axioms KCore.ExecPreAtomsTest.listed
 #print axioms KCore.ExecPreAtomsTest.stepM_A
 #print axioms KCore.ExecPreAtomsTest.exactM_B
