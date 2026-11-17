@@ -1,0 +1,9 @@
+# Hand-written KORE: the kompiled text of fixture e2-fn-assoc (K 7.1.337, sha256
+# 2d884cd8cfdb68867b0f86420b8131f940ab5cff2a700e79927e34247f008ed5), BUILTIN/ and FIXTURE/ restored as paths,
+# and one attribute added: symbol-overload{}(Lblpl{}(), Lblpl{}()) first on the equation of the rule
+# pl(A, B) => A +Int B, beside its id and place. Kompile writes symbol-overload only as the one attribute of
+# an equation f(p) = r without premise (Parse.overloadEqn?, overloadSyms?, ClausePres.overload).
+# Expected: refused overloadAxiom (Parse.classifyAxiom: an axiom carrying symbol-overload that is no
+# symbol-overload axiom). Parse.eqnPrio and Parse.nonExec give priority 0 and aside exactly where
+# overloadSyms? holds, so no reading of such an equation is given priority 0 without ClausePres.overload.
+kore = "test/constructs/fixtures/hw-ovl-attr-beside/hw-ovl-attr-beside.kore"

@@ -1,0 +1,8 @@
+# Hand-written KORE: the kompiled text of fixture e2-fn-assoc (K 7.1.337, sha256
+# 2d884cd8cfdb68867b0f86420b8131f940ab5cff2a700e79927e34247f008ed5), BUILTIN/ and FIXTURE/ restored as paths,
+# and one attribute added: assoc{}() first on the declaration of the function Lblpl. Kompile writes a
+# function production's assoc as the associativity axiom beside the declaration (read as a law of the
+# function, fnLaw) and not on the declaration (e2-fn-assoc/kore.txt:4, 62): only a hand-written text
+# carries the key there.
+# Expected: refused attrOutsideE2 (Lblpl: assoc, Parse.fnDeclLawWhy), not openGenerator (Lblpl is a function).
+kore = "test/constructs/fixtures/hw-fn-decl-assoc/hw-fn-decl-assoc.kore"

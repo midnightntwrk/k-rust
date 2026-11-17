@@ -1128,7 +1128,7 @@ and the user manual has no occurrence of it; kompile writes it on the axiom and 
 it, e2-rule/kore.txt:193-199), `symbolic` (which terms a prover
 applies the rule to, no statement of the theory: the text states the rewrite axiom and `Step` has
 its steps), `comm` (K gives it no meaning on a rule). Not among them: `anywhere`, `non-executable`,
-`simplification`, which the reader refuses (`Parse.ruleAttrRefused`). `owise` and `priority` are not attributes here:
+`simplification`, which the reader refuses (`Parse.attrVerdictOf` at class `rule`). `owise` and `priority` are not attributes here:
 they are read into `Rule.prio`. -/
 def inertRuleAttrs : List String := ["concrete", "cool-like", "cool", "preserves-definedness", "symbolic", "comm"]
 
