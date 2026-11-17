@@ -21,7 +21,8 @@
     `isElem` 627, 165 `match` 708, 171 `matchCol` 723, 184 `mkInj` 738, 224 `tag` 816). Of the
     same size as the item, the first six differ where the exclusion lists the other equations:
     the bound variables' sorts (30, 108, 165, 171) or the disjuncts (132, 224) come in another
-    order; 184 differs in the keys of its bound variables. No direction is shown for these 7.
+    order; 184 differs in the keys of its bound variables. These 7 are tied in
+    `test/TieKkOwise.lean`.
 -/
 import KcoreSpec
 

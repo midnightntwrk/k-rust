@@ -21,12 +21,20 @@
   (`Clause.not_refuted_at`). This is `exclEmptyCl_of`. The variables outside `leftVars` are given
   Bool and `true` (`Clause.leftSortsB`, `fillV`).
 
+  Where the clause's predicate is not `\top` the exclusion's body carries it at `R` (`withPre`), and
+  the clause fails also where `Holds` gives its predicate `false` (`ReqFails.pre`): the model's
+  reading of that truth value (`HoldsAt`, `ModelFailsCl`'s second case) at `R` (`PreRead.atR`) makes
+  the predicate empty; a witness's predicate is `true` and has no other truth value where terms
+  have one result (`CoherentAll`); and the predicate at the binders moves to Bool (`PreRead.toBool`)
+  against `Refuted`.
+
   `ModelFailsCl` is a hypothesis of `exclEmptyCl_of`, as `ModelFails` is of `ExclEmpty`: the
   evaluation lemmas give it, and for a semantics `coreOK` accepts it follows from `Fails`
   (`modelFailsCl_of_core`, through `evalTerm_den4`).
 -/
 import KcoreSpec.OpenCompete
 import KcoreSpec.ModelFns
+import KcoreSpec.ClausePreRead
 
 set_option autoImplicit false
 
@@ -76,28 +84,44 @@ theorem exclusion_canonCl (c : Semantics) (fn : Fn) (cl : Clause) (hpre : cl.pre
         (Term.koreList c (canonVars c cl.vars) cl.pats)) :=
   congrArg (KoreAML.existsAll KoreAML.R _) (withPre_top hpre)
 
+/-- A clause's exclusion under its canonical presentation: `∃x̄'. (⌈req = true⌉ ∧ X̄ ∈ p̄) ∧ pre`, x̄'
+the variables of its patterns and conditions, without the predicate where it is `\top`
+(`withPre`). -/
+theorem exclusion_canonPre (c : Semantics) (fn : Fn) (cl : Clause) :
+    exclusion c fn cl (canonClausePres cl) = KoreAML.existsAll KoreAML.R
+      ((((List.range cl.vars.length).filter cl.leftVars.contains).filterMap ((canonVars c cl.vars)[·]?)).map
+        KoreAML.Var.kore)
+      (withPre c (canonVars c cl.vars) cl
+        (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c (canonVars c cl.vars)))
+          (Term.koreList c (canonVars c cl.vars) cl.pats))) := rfl
+
 /-- **The clause fails in the model at the substitutions of values on its patterns and
 conditions**: under every σ well sorted over a list of sorts that agrees with the clause's at the
-variables of its patterns and conditions, under which the patterns denote `ws`, at every valuation
+variables of its patterns and conditions, under which the patterns denote `ws`: at every valuation
 that agrees with σ, the clause has a `requires` whose translation denotes a result other than
-`true`. `ModelFails` with the clause's other variables at any sort. -/
+`true`; or its predicate is not `\top` and the truth value `false` that `Holds` gives it under σ
+is read in I (`HoldsAt`). `ModelFails` with the clause's other variables at any sort. -/
 def ModelFailsCl {M : Type} (c : Semantics) (I : Interpretation KoreAML.Sym M) (cl : Clause) (ws : List GroundTerm) :
     Prop :=
   ∀ vars : List Srt, vars.length = cl.vars.length → (∀ i ∈ cl.leftVars, vars[i]? = cl.vars[i]?) →
-  ∀ σ, c.WellSorted vars σ → PatVals c σ cl.pats ws → ∀ (tbl : VarTable) (e : Valuation M),
-    Agrees c I tbl (canonVars c cl.vars) σ e →
-    ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
-      ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m
+  ∀ σ, c.WellSorted vars σ → PatVals c σ cl.pats ws →
+    (∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
+      ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
+        ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m) ∨
+    (cl.pre ≠ .top ∧ HoldsShape.HoldsAt c I cl.vars.length σ cl.pre false)
 
 /-- **A clause's exclusion is empty where it fails**, in the model `I`: at arguments of `fn`'s
 sorts where the clause fails (`Fails`, and in the model `ModelFailsCl`), its exclusion is empty, at
 a valuation that gives each formal argument `Xⱼ` the argument's element and `R` a sort. Only the
-keys of the variables of its patterns and conditions are asked of the table. `ExclEmpty` for a
-clause whose patterns need not bind every variable. -/
+keys of the variables of its patterns and conditions, and of the variables of its predicate's
+pattern where the predicate is not `\top`, are asked of the table. `ExclEmpty` for a clause whose
+patterns need not bind every variable. -/
 def ExclEmptyCl {M : Type} [Inhabited M] (c : Semantics) (I : Interpretation KoreAML.Sym M) (fn : Fn) (cl : Clause) :
     Prop :=
   ∀ {ws : List GroundTerm}, c.sortsOf ws = some fn.args → Fails c ws cl → ModelFailsCl c I cl ws →
     ∀ {tbl : VarTable}, (∀ i < cl.vars.length, i ∈ cl.leftVars → canonKey c cl.vars i ∈ tbl) →
+    (cl.pre.isTop = false →
+      ∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c cl.vars) KoreAML.R cl.pre), k ∈ tbl) →
     (∀ (j : Nat) s, fn.args[j]? = some s → VarKey.evar ("X" ++ toString j) (KoreAML.srt (c.sortName s)) ∈ tbl) →
     VarKey.sortVar "R" ∈ tbl →
     ∀ {e : Valuation M}, (∀ (j : Nat) w s, ws[j]? = some w → fn.args[j]? = some s →
@@ -154,22 +178,48 @@ theorem reqPat_resortCl (hI : I ⊧ᴵP Γ c) [OvlOK c] {tbl : VarTable} {e : Va
   rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (by rw [trSort_srt]; exact hσB1) hS' hσB2 hσS']
   exact ⟨hm', h.2⟩
 
-/-- **A clause's condition that holds is not refuted.** In a model of `Γc`, where `⌈req = true⌉`
-holds, at some sort, at a valuation of the conditions' variables in their sorts, the clause's
-conditions `∃ō. ⌈req = true⌉` (`Clause.condK`, the predicate `\top`) are satisfied at Bool, so
-`Clause.Refuted` fails. -/
-theorem Clause.not_refuted_at (hI : I ⊧ᴵP Γc c) [OvlOK c] {cl : Clause} (hpre : cl.pre = .top)
+/-- `⌈req = true⌉`, or `⊤` without a `requires`, at a sort holds at elements of that sort only. -/
+theorem reqPat_inhCl (hI : I ⊧ᴵP Γ c) [OvlOK c] {tbl : VarTable} {e : Valuation M} {S : Kore.KSort} {σS : M}
+    (hS : ∀ a, (KoreAML.trSort tbl S).interpret I e a ↔ a = σS) (hσS : IsSort I σS)
+    (hfree : (KoreAML.trSort tbl S).isFreeEvar KoreAML.topVar = false) {req : Option Kore.Pattern} {m : M}
+    (h : (KoreAML.tr ⟨tbl, []⟩ (reqPat S req)).interpret I e m) : Inh I σS m := by
+  have hD := defOK hI
+  cases req with
+  | none =>
+    simp only [reqPat] at h
+    rw [KoreAML.tr, KoreAML.interp_sTop hD hfree] at h
+    exact (KoreAML.interp_inhOf_of hS).mp h
+  | some tp =>
+    have hc := sat_sigItem hI (sig_ceilDef (c := c))
+    obtain ⟨σB, hσB1, hσB2⟩ := sortSing hI (bool_numbered (c := c))
+    rw [sortName_bool] at hσB1
+    simp only [reqPat] at h
+    rw [KoreAML.tr, KoreAML.interp_sEquals hD hc (by rw [trSort_srt]; exact hσB1) hS hσB2 hσS] at h
+    exact h.1
+
+/-- **A clause's conditions that hold are not refuted.** In a model of `Γc`, where `⌈req = true⌉`
+holds, at some sort, at a valuation of the conditions' variables in their sorts, and the clause's
+predicate (where it is not `\top`) holds at Bool at every valuation that gives its variables the
+same elements, the clause's conditions `∃ō. (⌈req = true⌉ ∧ pre)` (`Clause.condK`) are satisfied at
+Bool, so `Clause.Refuted` fails. -/
+theorem Clause.not_refuted_at (hI : I ⊧ᴵP Γc c) [OvlOK c] {cl : Clause} (hpreOK : c.condOK cl.vars cl.pre = true)
     {tbl : VarTable} {e : Valuation M}
     (hin : ∀ i < cl.vars.length, i ∈ cl.condVars → InS I (c.sortName (cl.vars.getD i 0))
       (e.evalEvar (tbl.ev (keyAt (canonVars c cl.vars) i))))
-    {t : Term} (ht : cl.req = some t) (hlt : ∀ i ∈ varOccs t, i < cl.vars.length)
+    (hlt : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < cl.vars.length)
     {S : Kore.KSort} {σS : M} (hS : ∀ a, (KoreAML.trSort tbl S).interpret I e a ↔ a = σS) (hσS : IsSort I σS)
-    {m : M} (hm : (KoreAML.tr ⟨tbl, []⟩ (reqPat S (some (Term.kore c (canonVars c cl.vars) t)))).interpret I e m) :
+    {m : M} (hm : ∀ t, cl.req = some t →
+      (KoreAML.tr ⟨tbl, []⟩ (reqPat S (some (Term.kore c (canonVars c cl.vars) t)))).interpret I e m)
+    (hpreB : cl.pre.isTop = false → ∀ (tbl2 : VarTable) (e2 : Valuation M) (mB : M),
+      (∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c cl.vars) (srtOf c Srt.bool) cl.pre), k ∈ tbl2) →
+      (∀ i ∈ varOccsCond cl.vars.length cl.pre,
+        e.evalEvar (tbl.ev (canonKey c cl.vars i)) = e2.evalEvar (tbl2.ev (canonKey c cl.vars i))) →
+      (KoreAML.inhOf (KoreAML.trSort tbl2 (srtOf c Srt.bool))).interpret I e2 mB →
+      (KoreAML.tr ⟨tbl2, []⟩ (Cond.kore c (canonVars c cl.vars) (srtOf c Srt.bool) cl.pre)).interpret I e2 mB) :
     ¬ cl.Refuted c := by
   intro href
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   have hD := defOK hIΓ
-  have hcv : ∀ i ∈ varOccs t, i ∈ cl.condVars := Clause.req_condVars ht
   obtain ⟨σB, hσB1, hσB2⟩ := sortSing hIΓ (bool_numbered (c := c))
   let B := srtOf c Srt.bool
   let vs := canonVars c cl.vars
@@ -178,10 +228,9 @@ theorem Clause.not_refuted_at (hI : I ⊧ᴵP Γc c) [OvlOK c] {cl : Clause} (hp
   have hbs : l.filterMap (vs[·]?) = l.map (vs.getD · default) :=
     filterMap_getElem?_of_lt vs l (fun i hi => by rw [canonVars_length]; exact hl i hi)
   have hK : cl.condK c = KoreAML.existsAll B ((l.map (vs.getD · default)).map KoreAML.Var.kore)
-      (.and B [reqPat B (some (Term.kore c vs t))]) := by
-    unfold Clause.condK
-    rw [← hbs]
-    simp [ht, hpre, Cond.conj, Cond.isTop, vs, l, B]
+      (.and B ([reqPat B (cl.req.map (Term.kore c vs))] ++ Cond.conj c vs B cl.pre)) :=
+    congrArg (fun (bs : List KoreAML.Var) => KoreAML.existsAll B (bs.map KoreAML.Var.kore)
+      (.and B ([reqPat B (cl.req.map (Term.kore c vs))] ++ Cond.conj c vs B cl.pre))) hbs
   unfold Clause.Refuted at href
   rw [hK] at href
   unfold KoreAML.denB at href
@@ -215,9 +264,8 @@ theorem Clause.not_refuted_at (hI : I ⊧ᴵP Γc c) [OvlOK c] {cl : Clause} (hp
     show InS I _ (e'.evalEvar (tbl2.ev (canonKey c cl.vars i)))
     rw [moveV_at hkeys2 (hl i hil) hil]
     exact hin i (hl i hil) (by simpa using (List.mem_filter.mp hil).2)
-  · show (KoreAML.tr ⟨tbl2, []⟩ (.and B [reqPat B (some (Term.kore c vs t))])).interpret I e' mB
-    rw [KoreAML.tr]
-    simp only [KoreAML.trAndList]
+  · show (KoreAML.tr ⟨tbl2, []⟩ (.and B ([reqPat B (cl.req.map (Term.kore c vs))] ++ Cond.conj c vs B cl.pre))).interpret
+      I e' mB
     have hB : ∀ (tb : VarTable) (ev : Valuation M) (a : M), (KoreAML.trSort tb B).interpret I ev a ↔ a = σB :=
       fun tb ev a => by
         show (KoreAML.trSort tb (srtOf c Srt.bool)).interpret I ev a ↔ _
@@ -225,28 +273,60 @@ theorem Clause.not_refuted_at (hI : I ⊧ᴵP Γc c) [OvlOK c] {cl : Clause} (hp
     have hmB : Inh I σB mB := by
       have := (elemOf_spec hIΓ (sortOf_bool (c := c) true) e).2
       exact (KoreAML.interp_inhOf_of (S := KoreAML.sym _) hσB1).mp this
-    have h1 := reqPat_resortCl hIΓ hS hσS (hB tbl e) hσB2 hmB hm
-    exact (reqPat_congrCl hIΓ (hB tbl e) (hB tbl2 e') hσB2 (fun i hi => (moveV_at hkeys2 (hlt i hi)
-      (List.mem_filter.mpr ⟨List.mem_range.mpr (hlt i hi), by simpa using hcv i hi⟩)).symm) mB).mp h1
+    have hreqB : (KoreAML.tr ⟨tbl2, []⟩ (reqPat B (cl.req.map (Term.kore c vs)))).interpret I e' mB := by
+      cases ht : cl.req with
+      | none =>
+        show (KoreAML.tr ⟨tbl2, []⟩ (.top (srtOf c Srt.bool))).interpret I e' mB
+        rw [KoreAML.tr, KoreAML.interp_sTop hD Model.srtOf_free_stdI]
+        exact (KoreAML.interp_inhOf_of (hB tbl2 e')).mpr hmB
+      | some t =>
+        have h1 := reqPat_resortCl hIΓ hS hσS (hB tbl e) hσB2 hmB (hm t ht)
+        exact (reqPat_congrCl hIΓ (hB tbl e) (hB tbl2 e') hσB2 (fun i hi => (moveV_at hkeys2 (hlt t ht i hi)
+          (List.mem_filter.mpr ⟨List.mem_range.mpr (hlt t ht i hi),
+            by simpa using Clause.req_condVars ht i hi⟩)).symm) mB).mp h1
+    cases hpt : cl.pre.isTop with
+    | true =>
+      rw [show Cond.conj c vs B cl.pre = [] from by simp [Cond.conj, hpt]]
+      rw [KoreAML.tr]
+      simp only [List.append_nil, KoreAML.trAndList]
+      exact hreqB
+    | false =>
+      rw [show Cond.conj c vs B cl.pre = [Cond.kore c vs B cl.pre] from by simp [Cond.conj, hpt]]
+      show (KoreAML.tr ⟨tbl2, []⟩ (.and B [reqPat B (cl.req.map (Term.kore c vs)), Cond.kore c vs B cl.pre])).interpret
+        I e' mB
+      rw [tr_and2, KoreAML.interp_sAnd]
+      refine ⟨hreqB, hpreB hpt tbl2 e' mB (fun k hk => ?_) (fun i hi => ?_)
+        ((KoreAML.interp_inhOf_of (hB tbl2 e')).mpr hmB)⟩
+      · rw [← htbl]; unfold KoreAML.tableOf
+        exact List.mem_eraseDups.mpr (List.mem_append_right _ (Model.varsOf_existsAll_bodyEx
+          (Model.varsOf_and_mem (List.mem_append_right _
+            (show Cond.kore c vs B cl.pre ∈ Cond.conj c vs B cl.pre by simp [Cond.conj, hpt])) hk) _))
+      · have hi' := varOccsCond_lt_twoT cl.pre hpreOK i hi
+        have hc : i ∈ cl.condVars := List.mem_append_right _ hi
+        exact (moveV_at hkeys2 hi' (List.mem_filter.mpr ⟨List.mem_range.mpr hi', by simpa using hc⟩)).symm
 
 /-- **A clause that fails has an empty exclusion in a model of `Γc`**, from what the proof reads
 of the semantics: for a clause whose patterns have the argument sorts, whose premise predicate is
-`\top`, whose `requires` is a Bool, and whose open condition variables are of confined sorts or
-whose conditions are closed; where its conditions are decided when `needsWitness` holds
-and the definition reads a confined sort where an open condition variable is of one. -/
+well sorted, whose `requires` is a Bool, and whose open condition variables are of confined sorts
+or whose conditions are closed; where its conditions are decided when `needsWitness` holds
+and the definition reads a confined sort where an open condition variable is of one. Where the
+predicate is not `\top`, it is read in the model (`PreRead`) and terms have at most one result
+(`CoherentAll`, no clause with an existential variable). -/
 theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : genWf c = true) (hsc : SortCtx c)
     [OvlOK c] (hph : patHooksApart c = true) (hcso : collSortsOK c = true) (hcs : collsOK c = true)
     (hph' : patHeadsOK c = true)
     (hcv : c.readsConfined = true → ∀ s, c.confined s = true → ∀ x, InS I (c.sortName s) x →
       ∃ v, c.sortOf v = some s ∧ elemOf c I v = x)
     {fn : Fn} {cl : Clause} {L : List CtorSig}
-    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args) (hpre : cl.pre = .top)
+    (hpats : sortsOfTerms c.patCtxAll cl.vars cl.pats = some fn.args)
+    (hpreOK : c.condOK cl.vars cl.pre = true)
+    (hpR : cl.pre ≠ .top → HoldsShape.PreRead c I cl ∧ CoherentAll c ∧ c.FnsNoExs)
     (hreqS : ∀ t, cl.req = some t → sortOfTerm (c.rhsCtx L) cl.vars t = some Srt.bool)
     (hconj : (!cl.reqOpen || cl.reqClosed ||
       cl.openCondVars.all fun i => (cl.vars[i]?.map c.confined).getD false) = true)
     (hrc : cl.openCondVars.any (fun i => (cl.vars[i]?.map c.confined).getD false) = true → c.readsConfined = true)
     (hw : cl.needsWitness c = true → cl.CondDecided c) : ExclEmptyCl c I fn cl := by
-  intro ws hws hf hmf tbl hkeys hXkeys hRkey e hX σR hR hσR m hm
+  intro ws hws hf hmf tbl hkeys hpkeys hXkeys hRkey e hX σR hR hσR m hm
   have hIΓ : I ⊧ᴵP Γ c := fun φ hφ => hI φ (Or.inl hφ)
   have hD := defOK hIΓ
   let vs := canonVars c cl.vars
@@ -261,17 +341,20 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
   have hpl : ∀ i ∈ varOccsList cl.pats, i < n := varOccsList_lt cl.pats hpats
   have hpL : ∀ i ∈ varOccsList cl.pats, i ∈ cl.leftVars := fun i hi => List.mem_append_left _ hi
   have hreqlt : ∀ t, cl.req = some t → ∀ i ∈ varOccs t, i < n := fun t ht => Exec.sortOfTerm_vars (hreqS t ht)
+  have hprelt : ∀ i ∈ varOccsCond cl.vars.length cl.pre, i < n := varOccsCond_lt_twoT cl.pre hpreOK
   have hleftlt : ∀ i ∈ cl.leftVars, i < n := fun i hi => by
     rcases List.mem_append.mp hi with hP | hC
     · exact hpl i hP
-    · rw [Clause.condVars_of_top hpre] at hC
-      cases ht : cl.req with
-      | none => rw [ht] at hC; cases hC
-      | some t => rw [ht] at hC; exact hreqlt t ht i hC
-  rw [exclusion_canonCl _ _ _ hpre] at hm
+    · rcases List.mem_append.mp (show i ∈ (cl.req.map varOccs).getD [] ++ varOccsCond cl.vars.length cl.pre from hC)
+        with hC | hC
+      · cases ht : cl.req with
+        | none => rw [ht] at hC; cases hC
+        | some t => rw [ht] at hC; exact hreqlt t ht i hC
+      · exact hprelt i hC
+  rw [exclusion_canonPre] at hm
   change (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll KoreAML.R ((l.filterMap (vs[·]?)).map KoreAML.Var.kore)
-    (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c vs)) (Term.koreList c vs cl.pats)))).interpret I e m
-    at hm
+    (withPre c vs cl (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c vs))
+      (Term.koreList c vs cl.pats))))).interpret I e m at hm
   rw [hbs] at hm
   have hnd : (((l.map (vs.getD · default)).map KoreAML.Var.kore).map fun b => tbl.ev (KoreAML.evarKey b)).Nodup := by
     rw [List.map_map, List.map_map]
@@ -303,9 +386,17 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     hagE _ (hnotb _ hRkey hneR)
   have hRv' : ∀ a, (KoreAML.trSort tbl KoreAML.R).interpret I e' a ↔ a = σR := fun a => by
     rw [trSort_R, KoreAML.interp_evar, he'R, hR]
-  unfold premise at hbody
-  rw [tr_and2, KoreAML.interp_sAnd] at hbody
-  obtain ⟨hreqE, hargs⟩ := hbody
+  -- the premise, and the predicate where it is not `\top`
+  obtain ⟨hprem, hpreE⟩ : (KoreAML.tr ⟨tbl, []⟩ (premise (fn.args.map c.sortName) (cl.req.map (Term.kore c vs))
+      (Term.koreList c vs cl.pats))).interpret I e' m ∧
+      (cl.pre.isTop = false → (KoreAML.tr ⟨tbl, []⟩ (Cond.kore c vs KoreAML.R cl.pre)).interpret I e' m) := by
+    cases hpt : cl.pre.isTop with
+    | true => rw [withPre_isTop hpt] at hbody; exact ⟨hbody, fun h => by cases h⟩
+    | false => exact ⟨((HoldsShape.withPre_interp hpt).mp hbody).1, fun _ => ((HoldsShape.withPre_interp hpt).mp hbody).2⟩
+  unfold premise at hprem
+  rw [tr_and2, KoreAML.interp_sAnd] at hprem
+  obtain ⟨hreqE, hargs⟩ := hprem
+  have hmR : Inh I σR m := reqPat_inhCl hIΓ hRv' hσR isFree_R hreqE
   have hcon := argsConj_back 0 _ hargs
   -- the binders are in their sorts
   have hinL : ∀ i < n, i ∈ cl.leftVars → InS I (c.sortName (cl.vars.getD i 0)) (e'.evalEvar (tbl.ev (keyAt vs i))) :=
@@ -370,6 +461,21 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
       · exact h'
     refine List.mem_filter.mpr ⟨?_, by simpa using hcv⟩
     simp only [Clause.opens, List.mem_filter, List.mem_range]; exact ⟨hi, by simpa using hnl⟩
+  -- the predicate is not given `false` under a substitution of values that e1 agrees with
+  have hpreNo : cl.pre ≠ .top → ∀ {σ : Subst}, c.WellSorted cl.leftSortsB σ → Agrees c I tbl vs σ e1 →
+      HoldsShape.HoldsAt c I cl.vars.length σ cl.pre false → False := fun hne σ hσ hag hF => by
+    have hpt := HoldsShape.isTop_false_of_ne hne
+    have hrd : ∀ i ∈ varOccsCond cl.vars.length cl.pre, ∀ v, σ.lookup i = some v →
+        ∀ m', m' = e'.evalEvar (tbl.ev (canonKey c cl.vars i)) ↔ (den c v).interpret I e' m' := fun i hi v hv m' => by
+      have hlt := hprelt i hi
+      have h1 := hag i v (by rw [canonVars_length]; exact hlt) hv m'
+      have h2 : e'.evalEvar (tbl.ev (canonKey c cl.vars i)) = e1.evalEvar (tbl.ev (canonKey c cl.vars i)) :=
+        (hoff1 i hlt (Clause.pre_leftVarsRH i hi)).symm
+      rw [h2]
+      exact h1.trans ((den_closed c v).interp e1 e' m')
+    have hiff := (hpR hne).1.atR (vars := cl.leftSortsB) (tbl := tbl) (e := e') hF (Clause.leftSortsB_length cl)
+      (fun i hi => Clause.leftSortsB_getElem? (hleftlt i hi) hi) hσ hrd (hpkeys hpt) hRkey hRv' hσR m hmR
+    exact absurd (hiff.mp (hpreE hpt)) (by decide)
   by_cases hconf : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) = true
   · -- every open condition variable is of a confined sort: the binders are values'
     have hwit2 : ∀ i < cl.leftSortsB.length, Witnessed c I tbl vs cl.leftSortsB e1 i := fun i hi => by
@@ -387,9 +493,11 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
           exact witnessed_of (by rw [Clause.leftSortsB_getElem? hi hil]; exact hvs) hv hel
       · exact hwitF i hi hil
     obtain ⟨hσ2, hag2⟩ := substOf_ok hIΓ hg hsc.trans hvsl hwit2
-    obtain ⟨t, r, ht, hr, hrs, hden⟩ := hmf cl.leftSortsB (Clause.leftSortsB_length cl)
-      (fun i hi => Clause.leftSortsB_getElem? (hleftlt i hi) hi) _ hσ2 hpv tbl e1 hag2
-    exact reqFalse_empty hIΓ (S' := KoreAML.R) hRv1 hσR hr hrs hden m (hreq1 t ht)
+    rcases hmf cl.leftSortsB (Clause.leftSortsB_length cl)
+      (fun i hi => Clause.leftSortsB_getElem? (hleftlt i hi) hi) _ hσ2 hpv with hreqF | ⟨hne, hpreF⟩
+    · obtain ⟨t, r, ht, hr, hrs, hden⟩ := hreqF tbl e1 hag2
+      exact reqFalse_empty hIΓ (S' := KoreAML.R) hRv1 hσR hr hrs hden m (hreq1 t ht)
+    · exact hpreNo hne hσ2 hag2 hpreF
   -- otherwise the conditions are closed, and `needsWitness` holds
   have hall' : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) = false := by
     cases hb : cl.openCondVars.all (fun i => (cl.vars[i]?.map c.confined).getD false) with
@@ -411,14 +519,8 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
     have := List.all_eq_true.mp hc2 j hj
     rw [List.contains_iff_mem.mpr hjp] at this
     exact absurd this (by decide)
-  obtain ⟨t, ht⟩ : ∃ t, cl.req = some t := by
-    cases h' : cl.req with
-    | none =>
-      have h2 := (List.mem_filter.mp hi0).2
-      rw [Clause.condVars_of_top hpre, h'] at h2; cases h2
-    | some t => exact ⟨t, rfl⟩
   rcases hw hnw with hW | href
-  · obtain ⟨σw, hσw, hreqw, -⟩ := id hW
+  · obtain ⟨σw, hσw, hreqw, hprew⟩ := id hW
     -- witnessed: the witness's values at the conditions' variables and the patterns' match elsewhere
     -- give a valuation of values, at whose substitution the clause fails
     have hkeysC : ∀ i < n, i ∈ cl.condVars → canonKey c cl.vars i ∈ tbl :=
@@ -474,12 +576,28 @@ theorem exclEmptyCl_ofCl (hI : I ⊧ᴵP Γc c) (hnn : NamesNumbered c) (hg : ge
           (by rw [Clause.leftSortsB_getD hi' (List.mem_append_right _ hc)]; exact hws') (by
             show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars i))
             rw [setV_on hkeysC hi' hc, hw', Option.getD_some])]
-      | pre hpf => rw [hpre] at hpf; exact absurd hpf.top_eq (by simp)
+      | pre hpf =>
+        -- the predicate is `true` at the witness's values, which the valuation's substitution reads,
+        -- and has one truth value there
+        by_cases hne : cl.pre = .top
+        · rw [hne] at hpf; exact absurd hpf.top_eq (by simp)
+        · have hT : Holds c cl.vars.length (substOf c I tbl vs cl.leftSortsB e2) cl.pre true :=
+            hprew.congr_NI fun j hj => by
+              have hc : j ∈ cl.condVars := List.mem_append_right _ hj
+              have hj' := hprelt j hj
+              obtain ⟨w, hw', hws'⟩ := hσwv j hc hj'
+              rw [hw', substOf_var hIΓ hg hsc.trans hnn.1 hvsl hin2 (hget j hj')
+                (by rw [Clause.leftSortsB_getD hj' (List.mem_append_right _ hc)]; exact hws') (by
+                  show elemOf c I w = (setV c tbl cl.vars cl.condVars _ e1).evalEvar (tbl.ev (canonKey c cl.vars j))
+                  rw [setV_on hkeysC hj' hc, hw', Option.getD_some])]
+          exact absurd (Holds.functional (hpR hne).2.1 (hpR hne).2.2 hT hpf) (by decide)
   · -- refuted: but the conditions hold at the binders
-    have h0 : (KoreAML.tr ⟨tbl, []⟩ (reqPat KoreAML.R (some (Term.kore c vs t)))).interpret I e' m := by
-      rw [ht] at hreqE; exact hreqE
-    exact Clause.not_refuted_at hI hpre (fun i hi hc => hinL i hi (List.mem_append_right _ hc)) ht (hreqlt t ht)
-      hRv' hσR h0 href
+    exact Clause.not_refuted_at hI hpreOK (fun i hi hc => hinL i hi (List.mem_append_right _ hc)) hreqlt hRv' hσR
+      (fun t ht => by rw [ht] at hreqE; exact hreqE)
+      (fun hpt tbl2 e2 mB hk2 hag2 hmB =>
+        (hpR (fun h => by rw [h] at hpt; simp [Cond.isTop] at hpt)).1.toBool (hpkeys hpt) hRkey hk2
+          (fun i hi => ⟨hinL i (hprelt i hi) (Clause.pre_leftVarsRH i hi), hag2 i hi⟩) hRv' hσR hmR hmB (hpreE hpt))
+      href
 
 /-- **A clause that fails has an empty exclusion in a model of `Γc`** (`exclEmptyCl_ofCl`), for a
 semantics `coreOK` accepts and a clause with `clauseSortedOpen` and `clausePlainOpen` over
@@ -499,8 +617,8 @@ theorem exclEmptyCl_of (h : c.coreOK = true) (hI : I ⊧ᴵP Γc c) {fn : Fn} {c
     obtain ⟨v, hv, hden⟩ := confined_value h hr hI hs' KoreAML.val0 x ((inS_iff KoreAML.val0).mpr hx)
     exact ⟨v, hv, (hden _).mp (((elemOf_spec hIΓ hv KoreAML.val0).1 _).mpr rfl)⟩
   intro ws
-  exact exclEmptyCl_ofCl hI hnn hg (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hph hcso hcs hph' hcv hpats hpre
-    hreqS hconj hrc hw
+  exact exclEmptyCl_ofCl hI hnn hg (sortCtx_of_all hok hsr (OvlOK.ovlCase hno)) hph hcso hcs hph' hcv hpats
+    (by rw [hpre, Semantics.condOK]) (fun hne => absurd hpre hne) hreqS hconj hrc hw
 
 /-- **For a semantics `coreOK` accepts, a clause that fails fails in the model at the
 substitutions of values on its patterns and conditions** (`evalTerm_den4`), where its predicate is
@@ -513,7 +631,8 @@ theorem modelFailsCl_of_core (h : c.coreOK = true) (hbc : ∀ fn ∈ c.fns, ∀ 
   obtain ⟨hok, hsr, hnn, -, hph, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   have hsc := sortCtx_of_all hok hsr (OvlOK.ovlCase hno)
-  intro vars hlen hagl σ hσ hpv tbl e hag
+  intro vars hlen hagl σ hσ hpv
+  refine Or.inl fun tbl e hag => ?_
   have hσL : c.WellSortedAt cl.vars cl.leftVars σ := fun i hi s hs => hσ i s (by rw [hagl i hi]; exact hs)
   cases hf with
   | intro hf =>
@@ -542,7 +661,8 @@ theorem exclEmptyCl_core (h : c.coreOK = true) (hbc : ∀ fn' ∈ c.fns, ∀ cl'
   exclEmptyCl_of h hI hL hs hp hrc hw hws hf
     (modelFailsCl_of_core h hbc (fun φ hφ => hI φ (Or.inl hφ)) hL (Semantics.clauseSortedOpen_parts hs).2.2.1
       (Semantics.clausePlainOpen_parts hp).2.1 hf)
-    hkeys hXkeys hRkey hX hR hσR m
+    hkeys (fun hpt => by rw [(Semantics.clausePlainOpen_parts hp).2.1] at hpt; simp [Cond.isTop] at hpt)
+    hXkeys hRkey hX hR hσR m
 
 end
 

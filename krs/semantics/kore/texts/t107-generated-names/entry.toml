@@ -1,0 +1,51 @@
+id = "t107-generated-names"
+kind = "text"
+subject = "The names and attributes kompile generates (a symbol label holding the module name, generated variables, UNIQUE_ID, Source, Location) and the order of disjuncts and attributes: whether any of them is part of what a sentence states."
+retro = ["T2"]
+
+[text]
+files = ["t107-generated-names.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "None of these is part of what a sentence states. Two KORE texts that differ by a one-to-one renaming of symbols (a label such as Lbla'LParUndsRParUnds'T107-GENERATED-NAMES'Unds'Exp'Unds'Int against Lbla), by a one-to-one renaming of the variables of an axiom (Var'Unds'Gen0, Var'Unds'DotVar1), by the attributes UNIQUE_ID, Source and Location, or by the order of attributes or of the disjuncts of a disjunction, have the same models up to that renaming: they are one theory."
+reason = """
+(1) A theory is a signature and a set of axioms, and a model satisfies a pattern when the pattern denotes the whole carrier under every valuation of the variables (introduction-to-matching-logic.tex:697-698, 767-768). So which name a variable has does not matter to whether an axiom holds: a one-to-one renaming of an axiom's variables gives a pattern that holds in the same models, and a quantifier ranges over every element whatever its variable is called (introduction-to-matching-logic.tex:737-741).
+(2) A symbol is a member of the signature, interpreted by the model (introduction-to-matching-logic.tex:728-730). A one-to-one renaming of the symbols of a text carries each model of the one to a model of the other with the same carriers and interpretations. A label that holds the module name (kore.txt:4, 6) is such a name.
+(3) Attributes are hints; their semantic information should correspond to axioms declared explicitly; the order of attributes is never significant (kore-syntax.md:223-229). UNIQUE_ID, Source and Location are attributes and state nothing.
+(4) A disjunction is defined from negation and conjunction (introduction-to-matching-logic.tex:684), which denote complement and intersection (:732-736); intersection does not depend on the order of its operands, so neither does a disjunction."""
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:697-698 (K 7.1.337)"
+quote = '''A matching logic \emph{theory} is a triple $(S, \Sigma, A)$ where $(S,\Sigma)$ is a signature and $A$ is a set of patterns called \emph{axioms}.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:767-768 (K 7.1.337)"
+quote = '''Model $M$ \emph{satisfies} $\varphi_s$, written ${M}\models \varphi_s$, iff $\overline{\rho}(\varphi_s) = M_s$ for all $\rho:\Var\rightarrow M$.'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:728-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\sigma(\varphi_{1},\ldots,\varphi_{n}))= \sigma_M(\overline{\rho}(\varphi_1),\ldots \overline{\rho}(\varphi_n))$ ... \item $\overline{\rho}(\varphi_1 \wedge \varphi_2) = \overline{\rho}(\varphi_1) \cap \overline{\rho}(\varphi_2)$ ... = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:684 (K 7.1.337)"
+quote = '''\varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'''
+
+[[ruling.basis]]
+source = "kore-syntax"
+locator = "haskell-backend/docs/kore-syntax.md:223-229 (K 7.1.337)"
+quote = "Attributes are hints to the backend, often collected by the frontend. Some attributes express syntactic information, while others express semantic information. All semantic information contained in attributes should correspond to axioms declared explicitly. The hints indicate when the backend may use faster algorithms, more efficent data structures, and so on. The meaning of particular attributes is implementation-defined. The order of attributes is _never_ significant."
+
+[[observe]]
+file = "kore.txt"
+contains = "symbol Lbla'LParUndsRParUnds'T107-GENERATED-NAMES'Unds'Exp'Unds'Int{}(SortInt{}) : SortExp{}"
+
+[[observe]]
+file = "kore.txt"
+contains = "UNIQUE'Unds'ID{}("

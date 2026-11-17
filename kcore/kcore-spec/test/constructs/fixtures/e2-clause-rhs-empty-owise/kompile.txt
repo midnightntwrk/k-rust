@@ -1,0 +1,17 @@
+command: kompile --backend haskell e2-clause-rhs-empty-owise.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 3.7
+definition.kore bytes: 211207
+definition.kore sha256: e28adfde75d8979ed41f77b769042618eb2997ea5fe1556482a9342909f6a717
+stripped sha256: 38dee7a1cdfbd52e6c1de615e18b2aecb0313468ee437363a122761a4e5bd9c6
+main module: 415 sentences, 59 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Variable 'Y' defined but not used. Prefix variable name
+  with underscore if this is intentional.
+  	Source(FIXTURE/e2-clause-rhs-empty-owise.k)
+  	Location(7,18,7,19)
+  	7 |	  rule f(0) => g(Y:Empty) [unboundVariables(Y)]
+  	  .	                 ^
+  [Warning] Compiler: Could not find main syntax module with name
+  E2-CLAUSE-RHS-EMPTY-OWISE-SYNTAX in definition.  Use --syntax-module to specify
+  one. Using E2-CLAUSE-RHS-EMPTY-OWISE as default.

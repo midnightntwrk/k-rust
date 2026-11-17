@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t100-ctor-unit.k": "14e341c286103cc1e2a4f8419d4fdf92a01c4594ddb6a8aa19a3982598c3be29"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t100-ctor-unit.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "8dbe608ec158fe100207fc983d395d0d02ab6e59a38077f03ce22cb6afe23128",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

@@ -34,6 +34,18 @@ commit = "18c499a44"
 frozen_at = []
 path = "kcore-spec"
 roots = ["KCore.SoundC", "KCore.CompleteC", "KCore.ExactC", "KCore.StepIs", "KCore.Semantics.coreOK", "KCore.FnHyp"]
+# left_out: what the statements of C9, C10 and C14 mention, or what the cone's rules would reach, that
+# kcore-spec/test/roots.toml does not make a root (or reads as opaque), each with its reason
+# (DONE-0 C5 part 3). roots above names the roots of the committed cone (core-cone.txt);
+# test/roots.toml holds the list it is next computed from.
+left_out = [
+  { declaration = "KCore.Parse.parse", reason = "R-15: C14 is stated per text on the literal d and re-proved by the kernel on each text, so the reader needs no trust and no freeze; no statement of C9, C10 or C14 mentions it" },
+  { declaration = "KCore.Definition.emit", reason = "R-15: as Parse.parse; Tied, which unfolds it, is required of no row (TIE-1 D2) and no root mentions it" },
+  { declaration = "KCore.wf", reason = "R-15: a package states coreOK_defn (coreOK is a root), which wf implies; wf is checked per text" },
+  { declaration = "KCore.CExec.successorsN", reason = "read as opaque (test/roots.toml [opaque]): a term of run_exact's conclusion, which holds of the list it gives; its body cannot change what run_exact says (findings/ROOTS-run-exact-decision.md 1.2). Evidence: CExec.step_iff_at, pinned in test/Pins.lean (under execReady, FnDet and outOfFuel = false, Step c x y iff y.val is in successorsN c n x.val), and ref-kimp's run instance (examples/ref-kimp/User/RunInstance.lean, run_instance: run_exact at one configuration with the list written out and no CExec name)" },
+  { declaration = "KCore.CExec.outOfFuel", reason = "read as opaque: a hypothesis of run_exact at one configuration and one fuel; a body true too often makes run_exact say less, never something false (findings/ROOTS-run-exact-decision.md 1.3). run_exact says nothing at a configuration where outOfFuel is true at every fuel tried, and which configurations those are is not reviewed. Evidence: ref-kimp's run instance, where it is false at fuel 100 by decide" },
+  { declaration = "the packages' declarations (RefKimp.defn, RefKimp.Syntax's constructors, the kk package's)", reason = "generated per text, not library: the rows' statements name them, and C14 ties each package's literal to its KORE text, per text" },
+]
 headline = ["KCore.sound_hyp (c) (h : c.coreOK = true) (hf : FnHyp c) : SoundC c", "KCore.complete_hyp (c) (ref) (h : c.coreOK = true) (hf : FnHyp c) : CompleteC c ref"]
 cone_size = "4,889 lines in 887 declarations"
 declarations_authority = "core-cone.txt beside this file lists every declaration of the cone by module with its line range (cone (v), which kcore-spec/test/ReviewCone.lean writes to kcore-spec/.lake/review-cone-core-hyp.txt and kcore-spec/test/ConeV.lean to kcore-spec/.lake/cone-v.txt, the NEW that kcore-spec/test/cone.py compares with this file, at the commit); the declarations fields below name the main ones of each layer"

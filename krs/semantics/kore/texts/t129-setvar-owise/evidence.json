@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t129-setvar-owise.k": "53d23039483bad8a48e01cc82ee2c52fd1ca24d7917e72a98c0e6801022fa33a"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t129-setvar-owise.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "1a2d0601a279b9e6f2df22e2f36c64791fc85cd779a6659c89c8f393e4405b64",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

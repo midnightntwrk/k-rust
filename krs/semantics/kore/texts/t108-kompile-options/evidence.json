@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t108-kompile-options.k": "8195b78f659e7f211e56d74feeca1d175150cd283c1573cf4f73086c2a24ba54"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t108-kompile-options.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "b0c353c82d4c3b84563ee475b7f20db77e4dc9225bb116fde9ada1f95cc859b4",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

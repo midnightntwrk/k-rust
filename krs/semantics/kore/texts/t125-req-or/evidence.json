@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "6c4c87e586d867422fd5b36aecff0ec7996900727f81d2c03b1e9f2cc1007f04",
+  "t125-req-or.k": "d55f0392ab625922f4c29164e45f5d76d4c2db091557cd5de7b1b993051c7761"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t125-req-or.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "f1b401981c6e900c0c79f5eef1a6b94f2e3ca29bfcc2e9c680abecdfc1a0128f",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

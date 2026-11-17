@@ -1,0 +1,32 @@
+id = "t103-ctor-hooked-sort"
+kind = "text"
+subject = "A constructor production of the hooked token sort Int: whether the frontend delivers a KORE text."
+retro = ["A2"]
+origin = "kcore-spec fixture e2-open-int"
+
+[text]
+files = ["t103-ctor-hooked-sort.k"]
+kompile = "rejects"
+frontend = "as-ruled"
+
+[ruling]
+status = "settled"
+form = "rejected"
+statement = "There is no KORE text: kompile 7.1.337 refuses the K text (exit 113, 'Cannot add new constructors to hooked sort Int' and 'Sort Int was declared as a token'). The manual states the rule the text breaks: a sort inhabited by domain values must not have any constructors declared, and INT declares Int a token sort."
+reason = """
+(1) INT-SYNTAX declares the sort Int with a hook and gives it a token production (domains.md:1209-1210). The manual says that the token attribute signals that the sort is inhabited by domain values, and that such a sort must not have any constructors declared (user_manual.md:610-612).
+(2) The text declares Int "&" Int, a production of sort Int with no function attribute: a constructor of Int. By (1) the text breaks a rule the manual states, and kompile refuses it (kompile.txt): the refusal is the one the manual's sentence foresees, so the frontend stands as ruled."""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1209-1210 (K 7.1.337)"
+quote = 'syntax Int [hook(INT.Int)] syntax Int ::= r"[0-9]+" [prefer, token, prec(2)]'
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:610-612 (K 7.1.337)"
+quote = "The `token` attribute signals to the Kore generator that the associated sort will be inhabited by domain values. Sorts inhabited by domain values must not have any constructors declared."
+
+[[observe]]
+file = "kompile.txt"
+contains = "Cannot add new constructors to hooked sort Int"

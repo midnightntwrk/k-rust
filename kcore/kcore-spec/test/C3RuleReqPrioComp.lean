@@ -33,6 +33,12 @@
   - `an1_step`: `a(-1)` steps to `c()`, from the sentence of the rule of default priority. From sentences: `PreS` (the function sentences and the rule sentences as written, and
     the families), by W1 (`rules_from_text`) and the cut (`TieRulePair.cutS`).
   - `an1_succs`: `c()` is `a(-1)`'s only successor: the rule of priority 40 does not apply at -1 (its `requires` is not true). Through the reading, from `Pre H` with the step's closure: the priority premise (prioRuleK: Γ's item of a rule holds only where no rule of a smaller priority applies); the step's closure (Γstep: every successor is one Step gives).
+
+  W2 at an instance: `stepBy_an1` (the step from `a(-1)` to `c()` by the rule of default priority at
+  its listed match σ1, `Cert.stepBy_of_checkStep`); `guard_an1` (the guard `RuleGuard` of that rule's
+  axiom at the valuation of σ1: the rule of priority 40 does not apply at `a(-1)` and the right side
+  is defined, `TieRulePair.ruleGuard_of_stepBy`); `w2_an1` (the sentence 159 as written holds there
+  in every model of Γ).
 -/
 import KcoreSpec
 
@@ -273,6 +279,50 @@ theorem an1_succs (H : HookParams) :
       (TieRulePair.listed_sound hok hsr hmr H (coherentH H) (x := An1) (n := 100) (by decide +kernel)
         (by decide +kernel) noRaw))
 
+/-! ## W2 at an instance -/
+
+/-- The rule of the default priority, `a(_) => c()`, the second of `c.rules` (sentence 159). -/
+noncomputable abbrev r1 : Rule := c.rules[1]'(by decide +kernel)
+
+/-- The match of that rule at `a(-1)` that the matcher lists. -/
+noncomputable def σ1 : Subst := ((Exec.ruleMatches c 100 r1 An1.val).headD ([], none)).1
+
+/-- It is the rule's one match there, and its `requires` (none) is `true`. -/
+theorem matches_an1 : Exec.ruleMatches c 100 r1 An1.val = [(σ1, some true)] := by decide +kernel
+kernel_rfl matches_an1_wh : ∀ H : HookParams,
+  Exec.ruleMatches (cH H) 100 r1 An1.val = Exec.ruleMatches c 100 r1 An1.val
+
+/-- **The step from `a(-1)` to `c()` by the rule of default priority, at σ1**, for every H. -/
+theorem stepBy_an1 (H : HookParams) : StepBy (cH H) r1 σ1 (XH An1 H) (XH Cc H) := by
+  obtain ⟨σ, hm, hb⟩ := Cert.stepBy_of_checkStep (hokH H) ((Semantics.srReady_withHooks c H).trans hsr)
+    ((Semantics.matchReady_withHooks c H).trans hmr) (n := 100) (r := r1)
+    (show r1 ∈ c.rules from List.getElem_mem _) (x := XH An1 H) (y := XH Cc H)
+    ((Cert.checkStep_withHooks c H noRaw 100 r1 _ _).trans
+      (show Cert.checkStep c 100 r1 An1.val Cc.val = true by decide +kernel))
+  have hm' : (σ, some true) ∈ Exec.ruleMatches (cH H) 100 r1 An1.val := hm
+  rw [matches_an1_wh H, matches_an1, List.mem_singleton] at hm'
+  obtain ⟨rfl, -⟩ := Prod.mk.inj hm'
+  exact hb
+
+/-- **The guard of W2 at σ1**, for every H: in every model of Γ, `RuleGuard` of the rule's axiom
+holds at the valuation `overV` of σ1. Its conjuncts there: the rule of priority 40 does not apply at
+`a(-1)` (its `requires` `-1 >Int 0` is false), and the right side `c()` is defined
+(`TieRulePair.ruleGuard_of_stepBy`). -/
+theorem guard_an1 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) :
+    TieRulePair.RuleGuard (prioRuleK (cH H) r1) I
+      (overV (cH H) I (tableOf [] (prioRuleK (cH H) r1)) r1.vars σ1 (val0 : Valuation M)) :=
+  TieRulePair.ruleGuard_of_stepBy (coreOKH H) (readsConfinedH H) (stepBy_an1 H) hI
+
+/-- **W2 at σ1**: in every model of Γ, for every H, the text's sentence 159 as written,
+`<k> a(_) => c() </k>` without the negation of the rule of priority 40, holds at the valuation of
+σ1 (`rules_w2` with `guard_an1`). -/
+theorem w2_an1 (H : HookParams) {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M}
+    (hI : I ⊧ᴵP Γ (cH H)) (m : M) :
+    (trS U.ax159).pat.interpret I
+      (overV (cH H) I (tableOf [] (prioRuleK (cH H) r1)) r1.vars σ1 (val0 : Valuation M)) m :=
+  rules_w2 H (j := 1) (show c.rules[1]? = some r1 from List.getElem?_eq_getElem _) rfl hI _ (guard_an1 H hI) m
+
 end KCore.C3RuleReqPrioComp
 
 #print axioms KCore.C3RuleReqPrioComp.wf_defn
@@ -292,3 +342,6 @@ end KCore.C3RuleReqPrioComp
 #print axioms KCore.C3RuleReqPrioComp.a5_succs
 #print axioms KCore.C3RuleReqPrioComp.an1_step
 #print axioms KCore.C3RuleReqPrioComp.an1_succs
+#print axioms KCore.C3RuleReqPrioComp.stepBy_an1
+#print axioms KCore.C3RuleReqPrioComp.guard_an1
+#print axioms KCore.C3RuleReqPrioComp.w2_an1

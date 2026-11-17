@@ -1,0 +1,13 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "50c1c5d480f27a6b6c4b993793d6247f7a9e215da5f45c9c72c7d5dca1a6ea35",
+  "t103-ctor-hooked-sort.k": "d89b5b8d73d4cdcbfc713396253aed6cc3a2ba82e655b5aefd885b8da3b49713"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t103-ctor-hooked-sort.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 113,
+  "message": "[Error] Compiler: Cannot add new constructors to hooked sort Int\n\tSource(t103-ctor-hooked-sort.k)\n\tLocation(3,18,3,52)\n\t3 |\t  syntax Int ::= Int \"&\" Int [comm, symbol(andInt)]\n\t  .\t                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n[Error] Compiler: Sort Int was declared as a token. Productions of this sort\ncan only contain [function] or [token] labels.\n\tSource(t103-ctor-hooked-sort.k)\n\tLocation(3,18,3,52)\n\t3 |\t  syntax Int ::= Int \"&\" Int [comm, symbol(andInt)]\n\t  .\t                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n[Error] Compiler: Had 2 structural errors.\n[Warning] Compiler: Could not find main syntax module with name\nT103-CTOR-HOOKED-SORT-SYNTAX in definition.  Use --syntax-module to specify\none. Using T103-CTOR-HOOKED-SORT as default.",
+  "release": "K v7.1.337"
+ }
+}

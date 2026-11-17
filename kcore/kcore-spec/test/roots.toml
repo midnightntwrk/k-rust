@@ -11,8 +11,18 @@
 # The file is read line by line, a subset of TOML: `title = "..."`, `roots = [` with one quoted name
 # per line and `]` on a line of its own, the table `[opaque]` with `"Name" = "reason"` lines, `#`
 # comments and blank lines; no escapes, no comment after a value.
+#
+# The roots after FnHyp are library definitions the statements of DONE-0 C9 (ref-kimp's
+# consistent, sound_at, complete_at, run_exact and totals_withHooks; the consumer's statement), C10
+# (kore.k's three) and C14 (the theory, the translation, the tie's statement definitions) mention.
+# With the roots before them they reach every library definition those statements mention (Step,
+# Config, NotApplies, den and the like through the closure). run_exact's executor, successorsN and
+# outOfFuel, is listed under [opaque] and is no root: run_exact, which names it, is a theorem, and a
+# root's value is printed whole in the cone's roots section; a root that reaches it reads it by its
+# type. What the statements mention and is left out is listed with its reason in
+# kcore/core-manifest.toml ([tree].left_out).
 
-title = "(v) KCore core: soundness and completeness over a semantics, from the hypothesis on its functions"
+title = "(v) KCore core: soundness and completeness over a semantics, from the hypothesis on its functions; the rows' statements (C9, C10) and the tie's (C14)"
 
 roots = [
   "KCore.SoundC",
@@ -21,6 +31,44 @@ roots = [
   "KCore.StepIs",
   "KCore.Semantics.coreOK",
   "KCore.FnHyp",
+  # C9, row imp: the package's consistent, sound_at, complete_at, run_exact and Total, for every H
+  "KCore.Consistent",
+  "KCore.Semantics.withHooks",
+  "KCore.StepDecided",
+  "KCore.Total",
+  "KCore.CExec.execReady",
+  # C9 part 5, the consumer's statement: all-path claims over Step, its configurations built by Tm
+  "KCore.Reachability.AllPath",
+  "KCore.Tm",
+  "KCore.Tm.val",
+  "KCore.Tm.ident",
+  "KCore.Tm.inj",
+  "KCore.Tm.int",
+  "KCore.Tm.kseq",
+  "KCore.Tm.map",
+  "KCore.Srt.ident",
+  "KCore.Srt.k",
+  "KCore.Srt.kitem",
+  "KCore.Srt.top",
+  # C10, row KORE in K: kore.k's three statements (with Sig, SuccsAt, d0, K0, CoherentAll)
+  "KCore.KK.SuccsSound",
+  "KCore.KK.SuccsStuck",
+  "KCore.KK.SuccsComplete",
+  # C14, the tie: the theory, the translation of a text, and the statement definitions
+  "KCore.Faithful.Γ",
+  "KoreAML.trAxiom",
+  "KoreAML.Theory.ofDefinition",
+  "KCore.AtValues",
+  "KCore.EntailsAtValues",
+  "KCore.SetVarsAtValues",
+  "KCore.EntailsAtSetValues",
+  "KCore.SetVarsAtMostOne",
+  "KCore.attrsAgree",
+  "KCore.symbolsOf",
+  "KCore.surplusItem",
+  "KCore.tieClasses",
 ]
 
 [opaque]
+"KCore.CExec.successorsN" = "a term of run_exact's conclusion: the statement holds of the list it gives, which step_iff_at (pinned) says is Step's successors where run_exact applies; its body cannot change what run_exact says (findings/ROOTS-run-exact-decision.md 1.2)"
+"KCore.CExec.outOfFuel" = "a hypothesis of run_exact at one configuration and fuel: a body true too often makes run_exact say less, never something false; where it is true at every fuel tried run_exact says nothing (findings/ROOTS-run-exact-decision.md 1.3)"

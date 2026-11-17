@@ -1,0 +1,155 @@
+# Row imp, tied (DONE-0 C14 part 3 and closure (a); [goal] column "tied"): kimp's text as kompile
+# wrote it (examples/ref-kimp/RefKimp/definition.kore), user module IMP, 901 sentences. Per class of
+# the account (test/TieKimp.lean `classes`, `account`, `account_sizes`), in the order of
+# `tieClasses`: its count, its direction, and how many of its sentences are kernel-checked on this
+# text in that direction (`proved`), entailed at values (`at_values`), refuted (`refuted`) or
+# without direction (`no_direction`, the side condition `absent_closed` checked); the rest is
+# `remainder`, with its reason, and for it the reader and the hook interpretations are trusted.
+# The theorems named are in `file` (kcore-spec-relative). test/imp-tie.sh checks this record by
+# text against those files.
+
+text = "examples/ref-kimp/RefKimp/definition.kore"
+sentences = 901
+
+[layer1]
+file = "test/TieKimp.lean"
+theorems = ["userAxioms_eq", "userAxioms_length", "indices_eq", "account", "account_sizes",
+  "account_classes", "account_absent", "absent_closed", "attrs_agree"]
+wf_file = "test/TieKimpWf.lean"
+wf_theorems = ["wf_defn"]
+sig_file = "test/TieKimpSig.lean"
+sig_theorems = ["sig_origin", "sig_sizes"]
+
+# Row 19: the declarations, which are not sentences of the account.
+[declarations]
+file = "test/TieKimpDecls.lean"
+theorems = ["decl_counts", "decl_params", "decls_in_sig", "decls_entailed"]
+sorts = 21
+symbols = 187
+proved = 155
+note = "the item of each of the 20 sort declarations without sort parameters and of the 135 symbol declarations without sort parameters of a symbol Gamma has is one of sigItems c, so Gamma entails it for every H; the other 53 have no direction: SortMInt{Width}, the 5 symbol declarations with sort parameters (inj, List:getMInt, List:setMInt, ite, sizeMInt) and 47 of symbols Gamma does not have"
+
+# Consistent at every H, so every H is one at which a layer-2 entailment counts.
+[consistent]
+file = "examples/ref-kimp/RefKimp/FnHyp.lean"
+theorems = ["consistent"]
+pinned = "test/PinsKimp.lean"
+reached = "Consistent holds at every H, so whatever failing-clause or silent point the text has is reached by an H at which the entailments count. The text has none, by native evaluation on the parse, not kernel-checked here: its 20 functions are the sort predicates, each with an [owise] equation (isK with one equation at a variable of sort K), and none of silentTable's 48 keys (List, Float, String, Bytes and RangeMap symbols) is applied by the rules (700 to 778) or the equations (838 to 876)"
+
+[[class]]
+name = "function equation"
+count = 39
+direction = "equal"
+proved = 39
+file = "test/TieKimp.lean"
+theorems = ["fn_shape", "fnText_mem", "fns_account", "fns_entailed", "fns_from_text"]
+
+[[class]]
+name = "rewrite rule"
+count = 79
+direction = "weaker"
+proved = 79
+file = "test/TieKimpRules.lean"
+theorems = ["rules_account", "rules_length", "rules_text", "rules_entail", "rules_from_text", "rules_w2_all", "rules_w2"]
+
+[[class]]
+name = "priority equation"
+count = 0
+direction = "weaker"
+
+[[class]]
+name = "constructor functional"
+count = 54
+direction = "entailed"
+proved = 54
+file = "test/TieKimpCons.lean"
+theorems = ["cons_account", "cons_kinds", "cons_entailed"]
+
+[[class]]
+name = "subsort"
+count = 25
+direction = "entailed"
+proved = 25
+file = "test/TieKimpCons.lean"
+theorems = ["cons_account", "cons_kinds", "cons_entailed"]
+
+[[class]]
+name = "injectivity"
+count = 49
+direction = "entailed"
+proved = 49
+file = "test/TieKimpCons.lean"
+theorems = ["cons_account", "cons_kinds", "cons_entailed"]
+
+[[class]]
+name = "distinctness"
+count = 437
+direction = "entailed"
+proved = 437
+file = "test/TieKimpCons.lean"
+theorems = ["cons_account", "cons_kinds", "cons_entailed"]
+
+[[class]]
+name = "no junk"
+count = 16
+direction = "entailed"
+proved = 16
+file = "test/TieKimpCons.lean"
+theorems = ["nojunk_account", "nojunk_entailed"]
+
+[[class]]
+name = "function functional"
+count = 20
+direction = "hypothesis"
+remainder = 20
+reason = "Gamma does not hold them: the functional sentences of the semantics' 20 functions (the sort predicates) are owed as FnHyp, which the package discharges at every H (RefKimp.fnHyp_withHooks_defn, examples/ref-kimp/RefKimp/FnHyp.lean); no theorem relates the 20 sentences to FnHyp"
+
+[[class]]
+name = "hooked functional"
+count = 48
+direction = "atValues"
+remainder = 48
+reason = "not kernel-checked at values on kimp's text: the library's statements (KcoreSpec/LibEv*.lean) take coreOK of the semantics, which on kimp's literal is one kernel decision above 12 GiB in a test file; they are applied on ens's and silentflt's texts (test/LibEv*Ens.lean, test/LibEv*Flt.lean). Native evidence: test/LibProbe.lean evaluates each such sentence of kimp's text on a grid of values (check on f2-examples/ref-kimp.kore, the same bytes)"
+
+[[class]]
+name = "collection law"
+count = 9
+direction = "atValues"
+remainder = 9
+reason = "as hooked functional: not kernel-checked at values on kimp's text; the laws are checked on ens's text (test/LibEvLawEns.lean) and probed natively on kimp's (test/LibProbe.lean)"
+
+[[class]]
+name = "library"
+count = 82
+direction = "atValues"
+remainder = 82
+reason = "as hooked functional: not kernel-checked at values on kimp's text; the library's equations and lemmas are checked on ens's and silentflt's texts and probed natively on kimp's (test/LibProbe.lean)"
+
+[[class]]
+name = "set idempotence"
+count = 1
+direction = "refuted"
+remainder = 1
+reason = "sentence 573, _Set_(K, K) = K: refuted on ens's text (sentence 61, idem_refuted in test/TieEns.lean, for every H), not stated on kimp's"
+
+[[class]]
+name = "set-variable lemma"
+count = 6
+direction = "refuted"
+remainder = 6
+reason = "sentences 671 to 675 and 904: refuted at sets of values on ens's text (sentences 126 to 130 and 266, test/LibEvCeilEns.lean), not stated on kimp's"
+
+[[class]]
+name = "no direction"
+count = 36
+direction = "none"
+no_direction = 36
+file = "test/TieKimp.lean"
+theorems = ["account_absent", "absent_closed"]
+groups = [
+  "functional of a hooked symbol Gamma does not have: 477 (&Int), 502 (-Map), 521 (<=Map), 592 (xorInt), 594 (|Int), 645 (updateMap), 654 (~Int)",
+  "library sentences over a hooked symbol Gamma does not have: 780 (&Int), 812 (dividesInt), 831 (bitRangeInt), 903 (signExtendBitRangeInt, bitRangeInt)",
+  "the counter cell's initialiser's functional: 611",
+  "cell initialisers and the counter getter: 833 to 837 (834 and 837 also apply projections)",
+  "projections: 883 to 901",
+]

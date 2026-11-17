@@ -1,0 +1,51 @@
+id = "t124-rule-lhs-top"
+kind = "text"
+subject = "A rewrite rule whose left side holds #Top under a constructor, c(#Top) => a(): what #Top at a term position states."
+retro = ["M4"]
+origin = "kcore-spec fixture e3-ml-rule-lhs-top"
+
+[text]
+files = ["t124-rule-lhs-top.k"]
+kompile = "accepts"
+
+[ruling]
+status = "settled"
+form = "means"
+statement = "The rule states that every configuration c(x), for every element x of Exp, has the successor a(): #Top at the argument denotes every element of the sort."
+reason = '''
+(1) The left side is written c(\top{SortExp{}}()) under the cells (kore.txt:51).
+(2) \top is the existential over a variable of the sort and denotes the whole carrier of the sort (introduction-to-matching-logic.tex:679, with :737-741). The extension of a symbol's interpretation to sets of arguments is named and not written out (introduction-to-matching-logic.tex:714-716); it is taken here as the union over the elements of the argument sets, the extension that notation names, so that an application to a union of arguments is the union of the applications, and an application to an argument that denotes nothing denotes nothing. So c(\top) denotes c(x) for every x of Exp.
+(3) A rewrite axiom \rewrites(L, R) is L -> next R, and a model satisfies it when, at every valuation, every element of L has a successor in R (introduction-to-matching-logic.tex:1965-1970, 1978-1980). So each such configuration has the successor a().'''
+
+[ruling.kore]
+statement = 'The rule is one \rewrites axiom whose left side holds Lblc{}(\top{SortExp{}}()) (kore.txt:51); it states what the ruling states.'
+
+[[ruling.kore.basis]]
+source = "kompiled"
+locator = "kore.txt:51"
+quote = 'Lblc{}(\top{SortExp{}}())'
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/kast.md:138-140 (K 7.1.337)"
+quote = 'syntax {Sort} Sort ::= "#Top" [symbol(#Top), group(mlUnary)] | "#Bottom" [symbol(#Bottom), group(mlUnary)] | "#Not" "(" Sort ")" [symbol(#Not), mlOp, group(mlUnary, mlOp)]'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:679-684 (K 7.1.337)"
+quote = '\top_{\!\!s} & \equiv & \exists x\!:\!s \,.\, x & \varphi_1 \ra \varphi_2 & \equiv & \neg\varphi_1 \vee \varphi_2 \\ \bot_{s} & \equiv & \neg \top_{\!\!s} & \varphi_1 \lra \varphi_2 & \equiv & (\varphi_1 \ra \varphi_2) \wedge (\varphi_2 \ra \varphi_1) \\ \varphi_1 \vee \varphi_2 & \equiv & \neg(\neg\varphi_1\wedge\neg\varphi_2) &'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:737-741 (K 7.1.337)"
+quote = '''\item $\overline{\rho}(\exists x . \varphi) = \bigcup\{\overline{\rho'}(\varphi) \mid \rho':\Var\rightarrow M,\ \rho'\!\!\upharpoonright_{\Var\backslash\{x\}} = \rho\!\!\upharpoonright_{\Var\backslash\{x\}}\} = \bigcup_{a\in M} \overline{\rho[a/x]}(\varphi)'''
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:714-716 (K 7.1.337)"
+quote = 'We tacitly use the same notation $\sigma_M$ for its extension to argument sets, ${\cal P}(M_{s_1})\times\cdots\times {\cal P}(M_{s_n}) \rightarrow {\cal P}(M_s)$.'
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:1965-1970 (K 7.1.337)"
+quote = '''We have $M \models \varphi \ra \snext \varphi'$ iff $\overline{\rho}(\varphi) \subseteq \snext_M(\overline{\rho}(\varphi'))$ for any $M$-valuation $\rho$, iff for any $a\in\overline{\rho}(\varphi)$ there is some $b \in \overline{\rho}(\varphi')$ such that $a\mathrel{R_s}b$, which is precisely the interpretation of a rewrite rule $\varphi \Rightarrow \varphi'$ in $M$.'''

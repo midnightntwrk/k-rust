@@ -44,12 +44,44 @@ lack a fixture of their own or a sentence.
 
 Usage (from kcore-spec): python3 -I test/constructs/closed.py [ROWS.toml]
   PROGRESS  as units.py: KCORE_PROGRESS, else ../progress, else the main checkout's.
+
+Mode `corpus` (DONE-0 C4 part 3):
+  python3 -I test/constructs/closed.py corpus [--log DIR] [--expected FILE] [ROWS.toml]
+reads the logs of test/corpus.py (DIR, default .lake/corpus/log: one SHA16.gen per text, written by
+a native run of `kcore gen TEXT PKG Cov --core` on a kcore built at the tree) for each text of FILE
+(default test/corpus.expected, the lines `SHA16 clean|unclean coreOK|no`), and lists every item a
+log prints: a refusal of the reader's stages (after "KCore's parse refuses it"), a sentence read and
+not accounted for (after "sentences classified read that the definition does not account for"), a
+refusal of the account (after "refusals of the account"), the account's `inertMismatch` refusals
+apart, and a failing `coreOK` with its conjuncts (finding 9 of findings/TRIAGE-B-E2.toml: a text
+read with coreOK false counts as refused, the conjuncts its reason). Each distinct item (its reason
+and detail, the account line without its sentence's index and head; for coreOK `coreOK fails:
+[conjuncts]`) is mapped to the entries of ROWS that name it: an entry names the item when it names
+the item's RefusalReason (as above: its fixtures' accounts, its `reasons`) and either an account.txt
+of its own fixtures (or of the fixtures its `reasons` are checked against) prints the same reason
+with the same detail, or its `evidence` quotes the item (`R (detail)`, or `coreOK fails: [...]`).
+Exit 1 on an item no entry names, a text of FILE without its log, a log line of no known form, or a
+log whose items do not agree with the text's verdict in FILE (`unclean` or `no` with no item,
+`clean coreOK` with one). Prints the counts (texts, items by kind and reason, unaccounted,
+inertMismatch, coreOK failures) and each distinct item with its texts and its entries.
 """
 import glob, os, re, sys, tomllib
 
 K = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FX = os.path.join(K, "test/constructs/fixtures")
-rows = sys.argv[1] if len(sys.argv) > 1 else os.path.join(K, "test/constructs/rows.toml")
+ARGS = sys.argv[1:]
+MODE = ARGS.pop(0) if ARGS[:1] == ["corpus"] else "rows"
+CORPUS_LOG = os.path.join(K, ".lake/corpus/log")
+CORPUS_EXPECTED = os.path.join(K, "test/corpus.expected")
+while MODE == "corpus" and ARGS[:1] in (["--log"], ["--expected"]):
+    opt = ARGS.pop(0)
+    if not ARGS:
+        sys.exit(f"closed corpus: {opt} needs a value")
+    if opt == "--log":
+        CORPUS_LOG = ARGS.pop(0)
+    else:
+        CORPUS_EXPECTED = ARGS.pop(0)
+rows = ARGS[0] if ARGS else os.path.join(K, "test/constructs/rows.toml")
 KR = os.environ.get("K_RUST", os.path.expanduser(
     "~/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust"))
 prog = os.environ.get("KCORE_PROGRESS") or next(
@@ -116,7 +148,6 @@ PINNED = [
     ("RefusalReason.literal", "R2-release.C4"),
     ("RefusalReason.requiresShape", "R2-release.C4"),
     ("RefusalReason.exclusionShape", "R2-release.C4"),
-    ("RefusalReason.functionInPattern", "R2-release.C4"),
     ("RefusalReason.sentenceInfo", "R2-release.C4"),
     ("RefusalReason.location", "R2-release.C4"),
     ("RefusalReason.hookAttribute", "R2-release.C4"),
@@ -235,6 +266,7 @@ cites = {c[:2]: [] for c in CATCHALL}     # catch-all -> (where, fixture or None
 unshown = []                              # `reasons` names with no account to show them
 unprinted = []                            # `reasons` names their evidence's fixtures do not print
 nreasons = 0
+entries = []                              # (where, names, (reason, detail) its fixtures print, evidence)
 for name in ALLFX:
     a = account(name)
     if a and a[2]:
@@ -281,10 +313,111 @@ for l, tab in t.items():
                 bad.append(f"{where} (refused, no fixture): no reasons")
             for x in here:
                 named.setdefault(x, []).append(where)
+            ev = e.get("evidence")
+            entries.append((where, set(here), {(x, d or "") for x, d, _ in refusals},
+                            " ".join(" ".join(ev if isinstance(ev, list) else [ev]).split())
+                            if isinstance(ev, (str, list)) else ""))
             for (cr, sub) in cites:
                 fs = sorted({f for x, d, f in refusals if x == cr and (sub is None or sub in d)})
                 if fs:
                     cites[(cr, sub)].append((where, fs, bool(fxs), sentence(e)))
+
+CORPUS_HEAD = re.compile(r"^(?P<file>\S+?): (?:(?P<prelude>\d+ sentences of the prelude; the user module's by class:)"
+                         r"|(?P<parse>KCore's parse refuses it: \d+ refusals)"
+                         r"|(?P<unacc>\d+ sentences classified read that the definition does not account for:)"
+                         r"|(?P<account>\d+ refusals of the account:)"
+                         r"|`coreOK` fails: \[(?P<core>.*)\]"
+                         r"|(?P<readerr>KORE read error))$")
+CORPUS_ITEM = re.compile(r"^  (?:sentence \d+|the module) \((?:.*?)\): (\w+)(?: \((.*)\))?$")
+CORPUS_COUNT = re.compile(r"^  \d+ \S.*$")
+
+
+def corpus_items(text):
+    """The items of one `kcore gen` log: (kind, reason, detail), kind one of refusal, unaccounted,
+    account, inertMismatch, coreOK, readError; and the lines of no known form."""
+    items, odd, sec = [], [], None
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        m = CORPUS_HEAD.match(line)
+        if m:
+            sec = ("parse" if m["parse"] else "unacc" if m["unacc"] else "account" if m["account"] else
+                   "prelude" if m["prelude"] else None)
+            if m["core"] is not None:
+                items.append(("coreOK", "coreOK", m["core"]))
+            if m["readerr"]:
+                items.append(("readError", "readError", ""))
+            continue
+        m = CORPUS_ITEM.match(line)
+        if m and sec in ("parse", "unacc", "account"):
+            r, d = m[1], m[2] or ""
+            kind = {"parse": "refusal", "unacc": "unaccounted"}.get(sec) or (
+                "inertMismatch" if r == "inertMismatch" else "account")
+            items.append((kind, r, d))
+        elif CORPUS_COUNT.match(line) and sec is not None:
+            continue
+        elif line.startswith("{") and line.endswith("}"):
+            sec = None                    # the package's summary (JSON), written after the account
+        else:
+            odd.append(line)
+    return items, odd
+
+
+def corpus_line(r, d):
+    return (f"coreOK fails: [{d}]" if r == "coreOK" else "KORE read error" if r == "readError" else
+            f"{r} ({d})" if d else r)
+
+
+def corpus():
+    """DONE-0 C4 part 3 over test/corpus.py's logs (the docstring's mode `corpus`)."""
+    fails = []
+    want = [l.split() for l in open(CORPUS_EXPECTED).read().split("\n") if l.strip()]
+    found = {}                            # (kind, reason, detail) -> the texts printing it
+    for w in want:
+        if len(w) != 3:
+            fails.append(f"{CORPUS_EXPECTED}: a line of no known form: {' '.join(w)}"); continue
+        h, read, core = w
+        p = os.path.join(CORPUS_LOG, h + ".gen")
+        if not os.path.isfile(p):
+            fails.append(f"{h}: no log {p} (run test/corpus.py on a kcore built at the tree)"); continue
+        items, odd = corpus_items(open(p).read())
+        fails += [f"{h}: a log line of no known form: {o[:160]}" for o in odd]
+        if (read == "clean" and core == "coreOK") == bool(items):
+            fails.append(f"{h}: the log's items ({len(items)}) do not agree with its verdict '{read} {core}'")
+        for it in dict.fromkeys(items):
+            found.setdefault(it, []).append(h)
+    unmapped, lines = 0, []
+    for (kind, r, d), hs in sorted(found.items()):
+        line = corpus_line(r, d)
+        es = [where for where, names, fxr, ev in entries
+              if (kind == "coreOK" or ("RefusalReason", r) in names)
+              and ((r, d) in fxr or line in ev)]
+        lines.append((kind, line, hs, es))
+        if not es:
+            unmapped += 1
+            fails.append(f"{kind} '{line}' ({len(hs)} texts, {hs[0]}...): no entry of rows.toml names it")
+    kinds = {}
+    for (kind, r, _), hs in found.items():
+        kinds.setdefault((kind, r), set()).update(hs)
+    nk = lambda k: sum(len(hs) for (kd, _), hs in kinds.items() if kd == k)
+    print(f"closed corpus: {len(want)} texts ({os.path.relpath(CORPUS_EXPECTED)}), "
+          f"{len({h for hs in found.values() for h in hs})} with an item; "
+          f"refusals of the reader's stages {nk('refusal')}, of the account {nk('account')}, "
+          f"unaccounted {nk('unaccounted')}, inertMismatch {nk('inertMismatch')}, "
+          f"coreOK failing {nk('coreOK')}, KORE read errors {nk('readError')} (texts per kind)")
+    print("  by reason: " + (", ".join(f"{kd} {r} {len(hs)}" for (kd, r), hs in sorted(kinds.items())) or "none"))
+    for kind, line, hs, es in lines:
+        print(f"  {kind} '{line}': {len(hs)} texts ({', '.join(hs[:3])}{', ...' if len(hs) > 3 else ''}); "
+              + (f"entries: {'; '.join(es)}" if es else "NO ENTRY"))
+    for b in fails[:40]:
+        print(f"  FAILS: {b}")
+    if len(fails) > 40:
+        print(f"  ... and {len(fails) - 40} more")
+    return 1 if fails else 0
+
+
+if MODE == "corpus":
+    sys.exit(corpus())
 
 pinned = dict(PINNED)
 unnamed = [(ind, c) for ind in INDUCTIVES for c in CTORS[ind] if (ind, c) not in named]
