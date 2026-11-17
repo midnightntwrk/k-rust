@@ -790,6 +790,9 @@ structure Names where
   `functional` axiom or their sentence `hookEqSentence`, each with what is missing
   (`hookEqualityUnstated`) -/
   eqUnstated : List (Sym × String) := []
+  /-- the overloading symbols one of whose own overloads is a function of the definition, each with
+  its result sort's name: a rule's left side applying one is read through the cut (`ovlCut`) -/
+  ovlCutSyms : List (Sym × String) := []
 
 /-- The aliases K's prelude declares: their applications are refused by name, except as a rewrite
 axiom's right side where the alias sentence is the identity (`identityAliases`, `unaliasRule`). -/
@@ -1211,6 +1214,68 @@ def keyCut (N : Names) (lhs : Term) (vs : List Var) (req : Option Term) : Rd (Te
       pure (lhs', vs', match parts with
         | [c] => some c
         | _ => some (Term.app kEq [seqOf parts, seqOf (parts.map fun _ => .dv Srt.bool (.bool true))]))
+
+/-! ## A function-overloaded symbol in a rule's left side
+
+An overloading symbol g one of whose own overloads is a function of the definition
+(`Semantics.fnOvlSyms`) denotes, at arguments an overload covers, the injected value of that
+function, and elsewhere its own application; matching `g(P̄)` against a value would need the
+function's inverse. A left side `C[g(P̄)]`, the hole under applications, is `∃V. C[V] ∧ V ∈ g(P̄)` in
+every interpretation, V fresh of g's sort: an application is pointwise over the elements its
+arguments hold (the cut, `KCore.cut_identity`). With V not in the right side or the `ensures`,
+`(∃V. C[V] ∧ V ∈ g(P̄)) ∧ req → •R` is `∀V. (C[V] ∧ req ∧ V ∈ g(P̄) → •R)`. So the reader reads the
+application as a fresh variable V and conjoins `V ∈ g(P̄)` to the rule's `pre` (`Cond.mem`, whose
+term is evaluated, not matched): the left side so read applies no function-overloaded symbol.
+Outermost applications are cut, left to right; an inner one stays in the term. An application whose
+arguments hold `#as` is not cut, since an `#as` names a matched subterm and the cut's term is not
+matched: it stays in the left side, refused (`functionInPattern`). The variables of P̄ that the rest of
+the left side does not hold are then variables the left side does not bind, decided as any such
+(`rulesPlain`; `openRefusal` names the symbol). -/
+
+mutual
+  /-- `t` with each outermost application of a symbol of `cs` whose arguments hold no `#as`
+  replaced by a fresh variable numbered from `n`: the term, the next number, and each fresh
+  variable with the symbol's result sort's name and the application it stands for, left to
+  right. -/
+  def cutOvlApps (cs : List (Sym × String)) (n : Nat) : Term → Term × Nat × List (Nat × String × Term)
+    | .app f ts => match cs.lookup f with
+      | some X => if asFreeList ts then (.var n, n + 1, [(n, X, .app f ts)]) else (.app f ts, n, [])
+      | none => let (ts', m, xs) := cutOvlAppsList cs n ts; (.app f ts', m, xs)
+    | .inj a b t => let (t', m, xs) := cutOvlApps cs n t; (.inj a b t', m, xs)
+    | .as t i => let (t', m, xs) := cutOvlApps cs n t; (.as t' i, m, xs)
+    | t => (t, n, [])
+    termination_by structural t => t
+  /-- `cutOvlApps` on each term of `ts`, the numbers continuing. -/
+  def cutOvlAppsList (cs : List (Sym × String)) (n : Nat) :
+      List Term → List Term × Nat × List (Nat × String × Term)
+    | [] => ([], n, [])
+    | t :: ts =>
+      let (t', m, xs) := cutOvlApps cs n t
+      let (ts', m', xs') := cutOvlAppsList cs m ts
+      (t' :: ts', m', xs ++ xs')
+    termination_by structural ts => ts
+end
+
+/-- The conjunction of the conditions, `\top` for none. -/
+def ovlCutConj : List Cond → Cond
+  | [] => .top
+  | [p] => p
+  | p :: ps => .and p (ovlCutConj ps)
+
+/-- A rule's left side `lhs` and its variables `vs`, read with each application of a
+function-overloaded symbol (`Names.ovlCutSyms`) cut (`cutOvlApps`): the left side, the variables with
+the fresh ones after them (`Ovl0`, `Ovl1`, …, primed until new), and the conjunction of the
+memberships `V ∈ g(P̄)` of the fresh variables in their applications, `\top` where nothing is cut. -/
+def ovlCut (N : Names) (lhs : Term) (vs : List Var) : Rd (Term × List Var × Cond) :=
+  match N.ovlCutSyms with
+  | [] => pure (lhs, vs, .top)
+  | cs => match cutOvlApps cs vs.length lhs with
+    | (_, _, []) => pure (lhs, vs, .top)
+    | (lhs', _, xs) => do
+      let vs' := xs.foldl (fun acc (_, X, _) =>
+        acc ++ [⟨freshName acc (acc.length + 1) ("Ovl" ++ toString (acc.length - vs.length)), X⟩]) vs
+      let mems ← xs.mapM fun (i, X, app) => do pure (Cond.mem (← N.srtE X) (.var i) app)
+      pure (lhs', vs', ovlCutConj mems)
 
 /-! ## Connectives with a term's reading
 
@@ -2604,6 +2669,9 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     -- bind something, looked up before `keyCut` adds its variables
     let exs := exIndices vs n0 kept
     let (lhs, vs, req) ← keyCut N lhs vs req
+    -- an application of a function-overloaded symbol in the left side: a fresh variable, its
+    -- membership in the application a conjunct of `pre` (`ovlCut`)
+    let (lhs, vs, pre) ← ovlCut N lhs vs
     let rhs := if empty then stripAs lhs else rhs
     let plain := a.attributes.filterMap fun ap =>
       if ap.sorts.isEmpty && ap.args.isEmpty then some ap.head.ident.name else none
@@ -2613,7 +2681,7 @@ def ruleBodyAnd (N : Names) (msrc : String) (a : Kore.Axiom) (l r0 : Kore.Patter
     let prio := match explicit with
       | some n => n
       | none => if plain.contains "owise" then 200 else 50
-    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs },
+    pure ({ vars := ← varSorts N vs, lhs, req, rhs, ens, prio, exs, pre },
           ⟨vs.map (·.name), ← need (info? a.attributes) .sentenceInfo, attrStr? a.attributes "label",
            plain.filter (· != "owise"), explicit.isSome,
            a.attributes.filterMap (fun ap => match ap.sorts, ap.args with
@@ -4048,6 +4116,14 @@ def envOf (m : Kore.Module) (S : Scan) : Rd Env := do
                                | F, E => some (f, s!"{σ}: declared without " ++ " and ".intercalate
                                    ((if F then [] else ["its functional axiom"]) ++
                                     (if E then [] else [s!"((K1 {σ} K2) = true) = (K1 = K2)"]))) }
+  -- the overloading symbols one of whose own overloads is a function of the definition, with
+  -- their result sorts (`ovlCut`)
+  let ovlCutSyms := ovlDecls.filterMap fun (d : Kore.SentenceSymbol) =>
+    match (ovlOver d.symbol.ident.ident.name).any (fnNames.contains ·), N.sym? d.symbol.ident.ident.name,
+        sortName? d.sort with
+    | true, some g, some X => some (g, X)
+    | _, _, _ => none
+  let N : Names := { N with ovlCutSyms := ovlCutSyms }
   -- the definition's sorts declared with a library sort's hook, each with that sort (`hookImplAt`)
   let stands := (← S.colls.mapM fun (x, k, _) => do pure (← N.srtE x, (builtinColl k).sort)) ++
     (← (S.carriers.filter (userSortNames.contains ·.1)).mapM fun (x, b) => do pure (← N.srtE x, ← N.srtE b))
