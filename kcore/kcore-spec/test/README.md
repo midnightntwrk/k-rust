@@ -349,6 +349,25 @@ agreement or match-independence fact named, else the open facts), and `vs_expect
 carries an expected result. `test/oracle-kore-in-k.sh` runs it on c03, c08 and c24 (haskell) against
 `test/oracle-kore-in-k.expected` (not an integration row).
 
+## The gap between a kompiled text and its print-back: `test/gap.sh`
+
+`kcore gap KORE [--all]` (KcoreGen.lean, the section "The gap between a text and its print-back";
+TIE-1 D2, "Is the gap a defect?"). For a text whose print-back is not the text up to order
+(`roundtrip`'s `differs`), the text's sentences `emit` does not write back and the emitted sentences
+the text lacks are paired one to one in stages, each key forgetting one more thing: `places` (the
+`Source` and `Location` attributes), `variable names`, `order` (of the attributes and of the
+arguments of `\and` and `\or`), `attributes` (named by the attributes not shared), `same name` (a
+declaration of one sort or symbol, an axiom with one `UNIQUE'Unds'ID`, stating different things).
+What no stage pairs is counted by kind and origin. Every text sentence of a kind with a direction
+(declarations, rewrite rules, the equations of `d`'s functions, constructor and subsort axioms)
+that only `same name` or nothing pairs is printed, with the reading notes the account gives it (a
+connective reading, `keysAsRequires`, a `readAs`, `unread` or `inert` class, an inert constructor
+axiom `d`'s constructors induce); one without a note is a candidate reader defect (exit 1).
+`--all` prints every sentence of the gap with its cause. `test/gap.sh [--all] [KORE...]` runs it,
+by default on `f2-examples/ens.kompile.kore`: 189 not emitted and 217 emitted, 183 paired by
+places and 6 by variable names, the 28 emitted alone the 14 projections' selector-domain axioms
+and selector-inverse lemmas (krust's; kompile writes none), no candidate.
+
 ## The construct lists: `test/constructs/`
 
 DONE-0 C1's eight key lists E1 to E8, extracted from K 7.1.337 by `test/constructs/extract.sh`
