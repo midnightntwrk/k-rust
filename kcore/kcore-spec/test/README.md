@@ -800,7 +800,7 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   `replaceFirst` against its equation; the header's findings (`substrString`'s two readings, code
   points, a search index above the length).
 - `test/RhsReader.lean`: the reading functions of `KcoreSpec/ReadFns.lean` for an equation's right
-  side (`Parse.frRead`: `\or`; `Parse.exRead`: one `\exists` over a Bool variable), which `clauseBody` does not call. Each is run on the fixtures'
+  side (`Parse.dropEmptyAlts`: the alternatives of an `\or` that are `\bottom` left out; `Parse.frRead`: `\or`; `Parse.exRead`: one `\exists` over a Bool variable, a conjunction of terms with the variable among them read as the variable with its memberships), which `clauseBody` does not call. Each is run on the fixtures'
   kompiled texts from `kfix.py`'s cache (so the cache must hold them, as for `kfix.py accounts`) and
   on hand-written equations, the clauses printed with `clauseSorted`, `condOK` and CN-4 §4.9's
   clause conjunct; one instance of each function is checked by the kernel (`kernel_rfl`).

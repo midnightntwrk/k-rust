@@ -30,9 +30,17 @@
   - `eqE`, `h(X) => f(X) #Or g(X) ensures X >Int 0`: each alternative's `pre` holds the `ensures`.
   - `eqOne`, `h(X) => f(X) #Or g(#Bottom)`: one alternative is left; `frRead` gives `none`.
   - `eqPlain`, `h(X) => f(X)`: no `\or`; `none`.
+  Alternatives that are `\bottom` (`Parse.dropEmptyAlts`), each right side put in the equation of
+  h of `e3-ml-eq-rhs-or-total` (h with its `functional` sentence) and of `e3-ml-eq-rhs-or` (h
+  without):
+  - `orEmpty`, `g(#Bottom) #Or X`: `dropEmptyAlts` gives `X`; `frRead` gives `none` in both texts
+    (test/ExClauseReader.lean prints the clause `Parse.ceRead` gives for that side, `rhs X`).
+  - `bothEmpty`, `(f(X) #And #Bottom) #Or (g(X) #And #Bottom)`: `\bottom`, the side is empty; `none`.
+  - `orBot`, `f(X) #Or #Bottom`: `f(X)`, and `hoist` gives what it gives of the text; `none`.
   Kernel-checked (`kernel_rfl`, `decide +kernel`): `frRead` on the fixture's equation written by
   hand (`Hand.eqH`; `tie` checks that it is the scanned text's equation) and on the hand-written
-  equations; `frClauses` with an `ensures`, and its length.
+  equations; `frClauses` with an `ensures`, and its length; `dropEmptyAlts` on the three right
+  sides, and `frRead`'s `none` on the first for a function without its `functional` sentence.
 
   ## ex: `\exists` over one Bool variable (`existsAsCases`)
 
@@ -49,12 +57,19 @@
     arguments do not bind it).
   - `eqEns`, with `ensures X`: each instance's `pre` holds the predicate, then the `ensures`.
   - `eqFloor`, a predicate `condOf` does not read (`\floor`): refused `patternConnective`.
-  - `eqTwo`, two conjuncts that are no predicates: `none`.
-  - `eqUnderAnd`, `#Exists B. notBool(B #And X)`, and `eqPredAnd`, a conjunction of two terms in a
-    predicate's operand: refused `patternConnective` (`exRead_noAs`): `term` would read
-    `\and(p, X)` as the left-side pattern `p #as X`.
+  - `eqTwo`, `#Exists B. (B #And notBool X)`, a conjunction of two terms, B one of them: read as B
+    with the predicate `B ∈ notBool(X)`, so each instance's `pre` holds `b ∈ notBool(X)`.
+  - `eqUnderAnd`, `#Exists B. notBool(B #And X)`, the conjunction under an application: the
+    alternative is `notBool(b)`, `pre` holds `b ∈ X`.
+  - `eqFresh`, `#Exists B. notBool(notBool(B) #And X)`, a conjunction without B: `none` (B alone
+    does not stand for it); `Parse.ceRead` reads it as one clause with a further variable.
+  - `eqPredAnd`, a conjunction of two terms in a predicate's operand: refused `patternConnective`
+    (`exRead_noAs`): `term` would read `\and(p, X)` as the left-side pattern `p #as X`.
+  The three, each as the right side of f's equation in `e3-eq-exists-bool-ml`'s text, are printed
+  in that definition.
   Kernel-checked: `exRead` on the fixture's equation written by hand (`HandEx.eqB`, tied to the
-  text), `none` and the refusals' reasons; `condOf` on the fixture's predicate.
+  text), on `eqTwo` and `eqUnderAnd`, `none` and the refusals' reasons; `condOf` on the fixture's
+  predicate.
 -/
 import KcoreSpec
 
@@ -156,10 +171,11 @@ def showClause (c : Semantics) (f : Fn) (i : Nat) (cl : Clause) (vs : List KoreA
   showFields c.symName c.sortName i cl vs
   IO.println s!"      clauseSorted {c.clauseSorted f (c.fns.map Fn.sig) cl}; condOK pre {c.condOK cl.vars cl.pre}, post {c.condOK cl.vars cl.post}; clauseE3 {clauseE3 c cl}"
 
-/-- `read` on the equations of the functions `fns` of fixture `n`: a refusal, `none`, or the
-clauses, put in the definition built from the patched text. -/
-def run (n : String) (fns : List String) (read : Names → RawEqn → Rd (Option (List Clause × List KoreAML.Var))) :
-    IO Unit := do
+/-- `read` on the equations of the functions `fns` of fixture `n` (each as `edit` gives it: a
+hand-written right side in the text's equation): a refusal, `none`, or the clauses, put in the
+definition built from the patched text. -/
+def run (n : String) (fns : List String) (read : Names → RawEqn → Rd (Option (List Clause × List KoreAML.Var)))
+    (edit : RawEqn → RawEqn := id) : IO Unit := do
   let k ← load n
   let some m := k.modules.getLast? | IO.println s!"{n}: no module"
   let S := scan m.sentences
@@ -174,7 +190,7 @@ def run (n : String) (fns : List String) (read : Names → RawEqn → Rd (Option
         let mut cls : List (Clause × List KoreAML.Var) := []
         let mut stop := false
         for e in S.eqs.filter (·.fn == fnName) do
-          match read E.N e with
+          match read E.N (edit e) with
           | .error f => stop := true; IO.println s!"{n} {fnName}: refused {repr f.reason} ({f.detail})"
           | .ok none => stop := true; IO.println s!"{n} {fnName}: none"
           | .ok (some (cs, vs)) => cls := cls ++ cs.map (·, vs)
@@ -215,7 +231,7 @@ info: e3-ml-eq-rhs-or-total Lblh: functional sentence true; clauses 3
       rhs Lblf(X) ens (some false) exs [] post ⊤
       clauseSorted true; condOK pre true, post true; clauseE3 true
   sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined true; litSort Bool true
-e3-ml-eq-rhs-or Lblh: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the function is not declared total, so where the sides differ that is more than one element, which no clause states)
+e3-ml-eq-rhs-or Lblh: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 e3-ml-eq-rhs-or-many Lblk: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: 9 alternatives, more than 8)
 -/
 #guard_msgs in
@@ -264,6 +280,15 @@ def eqOne : RawEqn := eqn "Lblh" (.or (srt "Int") [fX, ap "Lblg" [.bottom (srt "
 def eqPlain : RawEqn := eqn "Lblh" fX
 /-- `f(X) => f(X) #Or g(X)`: f has no `functional` sentence among `N0`'s. -/
 def eqNF : RawEqn := eqn "Lblf" (.or (srt "Int") [fX, gX])
+def bot : Kore.Pattern := .bottom (srt "Int")
+/-- `g(#Bottom) #Or X`. -/
+def orEmpty : Kore.Pattern := .or (srt "Int") [ap "Lblg" [bot], X]
+/-- `(f(X) #And #Bottom) #Or (g(X) #And #Bottom)`. -/
+def bothEmpty : Kore.Pattern := .or (srt "Int") [.and (srt "Int") [fX, bot], .and (srt "Int") [gX, bot]]
+/-- `f(X) #Or #Bottom`. -/
+def orBot : Kore.Pattern := .or (srt "Int") [fX, bot]
+/-- `f(X) => g(#Bottom) #Or X`: f has no `functional` sentence among `N0`'s. -/
+def eqOneNF : RawEqn := eqn "Lblf" orEmpty
 
 end Hand
 
@@ -316,7 +341,7 @@ eqE: clauses 3
       rhs sym4(X) ens (some false) exs [] post ⊤
 eqOne: none
 eqPlain: none
-eqNF: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the function is not declared total, so where the sides differ that is more than one element, which no clause states)
+eqNF: refused KCore.Parse.RefusalReason.manyValuedRightSide (\or: the sentence gives the function every element of each side; the text holds no functional sentence of the function, so where the sides differ that is more than one element, which no clause states)
 -/
 #guard_msgs in
 open Hand in
@@ -328,6 +353,23 @@ open Hand in
   showHand "eqOne" (frRead N0 eqOne)
   showHand "eqPlain" (frRead N0 eqPlain)
   showHand "eqNF" (frRead N0 eqNF)
+
+/--
+info: e3-ml-eq-rhs-or-total Lblh: none
+e3-ml-eq-rhs-or-total Lblh: none
+e3-ml-eq-rhs-or-total Lblh: none
+e3-ml-eq-rhs-or Lblh: none
+e3-ml-eq-rhs-or Lblh: none
+e3-ml-eq-rhs-or Lblh: none
+eqOneNF: none
+-/
+#guard_msgs in
+open Hand in
+#eval show IO Unit from do
+  for n in ["e3-ml-eq-rhs-or-total", "e3-ml-eq-rhs-or"] do
+    for r in [orEmpty, bothEmpty, orBot] do
+      run n ["Lblh"] frRead (fun e => { e with rhs := r })
+  showHand "eqOneNF" (frRead N0 eqOneNF)
 
 /-! ## Kernel-checked -/
 
@@ -369,6 +411,18 @@ theorem frRead_eqE : frRead N0 eqE = .ok (some
 theorem frRead_none : frRead N0 eqOne = .ok none ∧ frRead N0 eqPlain = .ok none := by
   constructor <;> kernel_rfl
 
+/-- `dropEmptyAlts`: the alternative left; `\bottom` where none is, an empty side for `hoist`;
+and of `t #Or #Bottom` the side `hoist` gives of the text. -/
+theorem dropEmptyAlts_hand :
+    dropEmptyAlts orEmpty = X ∧ dropEmptyAlts bothEmpty = bot ∧ (hoist (dropEmptyAlts bothEmpty)).2.2 = true ∧
+    dropEmptyAlts orBot = fX ∧ (hoist (dropEmptyAlts orBot)).1 = (hoist orBot).1 := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> kernel_rfl
+
+/-- One alternative left: not this function's, with the `functional` sentence (`eqOne`) or
+without (`eqOneNF`). -/
+theorem frRead_oneLeft : frRead N0 eqOneNF = .ok none ∧ frRead N0 (eqn "Lblh" orEmpty) = .ok none := by
+  constructor <;> kernel_rfl
+
 /-- The refusals' reasons: a variable the arguments do not bind, and no `functional` sentence. -/
 theorem frRead_refused :
     (match frRead N0 eqD with | .error f => decide (f.reason = .manyValuedRightSide) | .ok _ => false) = true ∧
@@ -399,6 +453,10 @@ end Hand
 #guard_msgs in #print axioms Hand.frRead_none
 /-- info: 'RhsReader.Hand.frRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Hand.frRead_refused
+/-- info: 'RhsReader.Hand.dropEmptyAlts_hand' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Hand.dropEmptyAlts_hand
+/-- info: 'RhsReader.Hand.frRead_oneLeft' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Hand.frRead_oneLeft
 
 /-! Opaque constants the reading functions reach (test/OpaqueAudit.lean's walk): the kernel
 cannot unfold one. `String.Internal.append` is reached through the details of refusals only, as
@@ -498,10 +556,12 @@ def eqYreq : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB Y)])) (
 def eqEns : RawEqn := eqn (exB (.and bool [B, .equals bool bool B (notB X)])) none (some X)
 /-- A predicate `condOf` does not read: `#Floor(B)`. -/
 def eqFloor : RawEqn := eqn (exB (.and bool [B, .floor bool bool B]))
-/-- Two conjuncts that are no predicates: not the shape. -/
+/-- `#Exists B. (B #And notBool X)`: a conjunction of two terms, B one of them. -/
 def eqTwo : RawEqn := eqn (exB (.and bool [B, notB X]))
-/-- `#Exists B. notBool(B #And X)`: a conjunction of two terms under an application. -/
+/-- `#Exists B. notBool(B #And X)`: such a conjunction under an application. -/
 def eqUnderAnd : RawEqn := eqn (exB (notB (.and bool [B, X])))
+/-- `#Exists B. notBool(notBool(B) #And X)`: a conjunction of two terms, B none of them. -/
+def eqFresh : RawEqn := eqn (exB (notB (.and bool [notB B, X])))
 /-- `#Exists B. (B #And {(notBool X #And B) #Equals X})`: a conjunction in a predicate's operand. -/
 def eqPredAnd : RawEqn := eqn (exB (.and bool [B, .equals bool bool (.and bool [notB X, B]) X]))
 
@@ -537,7 +597,32 @@ eqEns: clauses 3
       pre (¬(⌈true⌉:Bool ∧ ((true =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true))) ∧ ¬(⌈false⌉:Bool ∧ ((false =[Bool] LblnotBool'Unds'(X)) ∧ (X =[Bool] true))))
       rhs true ens (some false) exs [] post ⊤
 eqFloor: refused KCore.Parse.RefusalReason.patternConnective (\floor)
-eqTwo: none
+eqTwo: clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X)))
+      rhs true ens none exs [] post ⊤
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X)))
+      rhs false ens none exs [] post ⊤
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X))))
+      rhs true ens (some false) exs [] post ⊤
+eqUnderAnd: clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X))
+      rhs LblnotBool'Unds'(true) ens none exs [] post ⊤
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X))
+      rhs LblnotBool'Unds'(false) ens none exs [] post ⊤
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X)) ∧ ¬(⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X)))
+      rhs LblnotBool'Unds'(true) ens (some false) exs [] post ⊤
+eqFresh: none
+eqFresh by ceRead: clauses 1
+  [0] vars [X:Bool, B:Bool, 'Hash'Cut0:Bool] pats [X] req none prio 50 aside false
+      pre ⊤
+      rhs LblnotBool'Unds'('Hash'Cut0) ens none exs [1, 2] post (('Hash'Cut0 ∈[Bool] LblnotBool'Unds'(B)) ∧ ('Hash'Cut0 ∈[Bool] X))
+eqPredAnd: refused KCore.Parse.RefusalReason.patternConnective (\and)
 -/
 #guard_msgs in
 open HandEx in
@@ -548,6 +633,47 @@ open HandEx in
   showHand "eqEns" (exRead N1 eqEns)
   showHand "eqFloor" (exRead N1 eqFloor)
   showHand "eqTwo" (exRead N1 eqTwo)
+  showHand "eqUnderAnd" (exRead N1 eqUnderAnd)
+  showHand "eqFresh" (exRead N1 eqFresh)
+  showHand "eqFresh by ceRead" ((fun x => some ([x.1], x.2)) <$> ceRead N1 eqFresh)
+  showHand "eqPredAnd" (exRead N1 eqPredAnd)
+
+/--
+info: e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X)))
+      rhs true ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X)))
+      rhs false ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈true⌉:Bool ∧ (true ∈[Bool] LblnotBool'Unds'(X))) ∧ ¬(⌈false⌉:Bool ∧ (false ∈[Bool] LblnotBool'Unds'(X))))
+      rhs true ens (some false) exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined true; litSort Bool true
+e3-eq-exists-bool-ml Lblf: functional sentence true; clauses 3
+  [0] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X))
+      rhs LblnotBool'Unds'(true) ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [1] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X))
+      rhs LblnotBool'Unds'(false) ens none exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  [2] vars [X:Bool] pats [X] req none prio 50 aside false
+      pre (¬(⌈LblnotBool'Unds'(true)⌉:Bool ∧ (true ∈[Bool] X)) ∧ ¬(⌈LblnotBool'Unds'(false)⌉:Bool ∧ (false ∈[Bool] X)))
+      rhs LblnotBool'Unds'(true) ens (some false) exs [] post ⊤
+      clauseSorted true; condOK pre true, post true; clauseE3 true
+  sortedOK but clausesPlain true; clausesPlain false; every clause clauseE3 true; readsConfined true; litSort Bool true
+e3-eq-exists-bool-ml Lblf: none
+-/
+#guard_msgs in
+open HandEx in
+#eval show IO Unit from do
+  for e in [eqTwo, eqUnderAnd, eqFresh] do
+    run "e3-eq-exists-bool-ml" ["Lblf"] exRead (fun e0 => { e0 with rhs := e.rhs })
 
 namespace HandEx
 
@@ -567,8 +693,32 @@ theorem exRead_eqB : exRead N1 eqB = .ok (some
      [⟨"X", "Bool"⟩])) := by
   kernel_rfl
 
-/-- Two conjuncts that are no predicates: not this function's. -/
-theorem exRead_none : exRead N1 eqTwo = .ok none := by kernel_rfl
+/-- `true ∈ notBool(X)`, `false ∈ notBool(X)`. -/
+def memB (b : Bool) : Cond := .mem Srt.bool (boolT b) notX
+/-- `⌈b⌉ ∧ (b ∈ notBool(X))`. -/
+def preM (b : Bool) : Cond := .and (.ceil Srt.bool (boolT b)) (memB b)
+
+/-- A conjunction of B and a term is B where the term holds it: the instances' `pre` hold
+`b ∈ notBool(X)`. -/
+theorem exRead_eqTwo : exRead N1 eqTwo = .ok (some
+    ([cl (boolT true) none (preM true), cl (boolT false) none (preM false),
+      cl (boolT true) (some (boolT false)) (.and (.not (preM true)) (.not (preM false)))],
+     [⟨"X", "Bool"⟩])) := by
+  kernel_rfl
+
+def notT (b : Bool) : Term := .app (regSymNames.idxOf "LblnotBool'Unds'") [boolT b]
+/-- `⌈notBool(b)⌉ ∧ (b ∈ X)`. -/
+def preU (b : Bool) : Cond := .and (.ceil Srt.bool (notT b)) (.mem Srt.bool (boolT b) (.var 0))
+
+/-- The same under an application: the alternative is `notBool(b)`, `pre` holds `b ∈ X`. -/
+theorem exRead_eqUnderAnd : exRead N1 eqUnderAnd = .ok (some
+    ([cl (notT true) none (preU true), cl (notT false) none (preU false),
+      cl (notT true) (some (boolT false)) (.and (.not (preU true)) (.not (preU false)))],
+     [⟨"X", "Bool"⟩])) := by
+  kernel_rfl
+
+/-- A conjunction of two terms, B none of them: not this function's. -/
+theorem exRead_none : exRead N1 eqFresh = .ok none := by kernel_rfl
 
 /-- The refusals' reasons: a variable the arguments do not bind (in the `requires` or not), and a
 predicate `condOf` does not read. -/
@@ -578,10 +728,9 @@ theorem exRead_refused :
     (match exRead N1 eqFloor with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true := by
   decide +kernel
 
-/-- A conjunction of two terms under an application of an alternative, or in a predicate's
-operand, is refused: it is not read as the left-side pattern `p #as X`. -/
+/-- A conjunction of two terms in a predicate's operand is refused: it is not read as the
+left-side pattern `p #as X`. -/
 theorem exRead_noAs :
-    (match exRead N1 eqUnderAnd with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true ∧
     (match exRead N1 eqPredAnd with | .error f => decide (f.reason = .patternConnective) | .ok _ => false) = true := by
   decide +kernel
 
@@ -596,6 +745,10 @@ end HandEx
 #guard_msgs in #print axioms HandEx.exRead_eqB
 /-- info: 'RhsReader.HandEx.exRead_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandEx.exRead_none
+/-- info: 'RhsReader.HandEx.exRead_eqTwo' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.exRead_eqTwo
+/-- info: 'RhsReader.HandEx.exRead_eqUnderAnd' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms HandEx.exRead_eqUnderAnd
 /-- info: 'RhsReader.HandEx.exRead_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms HandEx.exRead_refused
 /-- info: 'RhsReader.HandEx.exRead_noAs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
