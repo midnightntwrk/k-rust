@@ -16,7 +16,7 @@
     `[owise]`): `fn_shape` shows that each of the 30 items of `fnItems` is the translation of one
     text sentence, in the order `fnText` lists them (`FnShape`, a kernel decision); variable names
     and the `[owise]` exclusions' binders give equal patterns. The entailments `fns_entailed` (E)
-    and `fns_from_text` (the converse) are stated under `FnShape`, which `fn_shape` gives.
+    and `fns_from_text` (the converse) follow.
   - The rule (155): Γ's item (`prioRuleK`, with the premise `⌈rhs ∧ ens⌉`) is a consequence of the
     text's sentence (`rule_from_text`, W1, every H).
   - No junk of Bool, Int, KConfigVar (115, 121, 124), `\or{S}(\top{S}(), \bottom{S}())`: entailed
@@ -32,12 +32,12 @@
     sentences, ten library sentences (171, `X <<Int 0 = X`, among them): no direction.
 
   Γ's content (the converse). `gamma_origin`: each premise of Γ (cH H) is a function sentence's
-  translation (under `FnShape`), a rule item entailed by sentence 155, or one of the five parts Γ
-  defines by predicates (`Families`), or definedness.
+  translation, a rule item entailed by sentence 155, or one of the five parts Γ defines by
+  predicates (`Families`), or definedness.
 
   The fixture's expectations (C7 form (a)), from `Pre H` (the 30 function sentences as written, Γ's
   rule item, the families; it has a model with the step's closure, `pre_model`, from `consistent`),
-  each by the cut from Γ's theorem (`cutΓ`, `gamma_from`), under `FnShape`: `half_4`
+  each by the cut from Γ's theorem (`cutΓ`, `gamma_from`): `half_4`
   (`half(4) = 2`), `half_neg4` (`half(-4) = ⊥`), `run_neg4` (`run(-4)` has no successor, with the
   step's closure). The text's rule sentence 155 itself is not a premise: with Γ it has no model.
 -/
@@ -158,23 +158,23 @@ theorem fnShape_of_eq (h : ((fnAxioms c).map fun a => (trAxiom [] [] ⟨0, "kern
 theorem fn_shape : FnShape :=
   fnShape_of_eq (by decide +kernel)
 
-/-- **E for the 30 equations** (under `FnShape`): Γ entails each, for every H. -/
-theorem fns_entailed (hs : FnShape) (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
+/-- **E for the 30 equations**: Γ entails each, for every H. -/
+theorem fns_entailed (H : HookParams) : ∀ ad ∈ fnText, Γ (cH H) ⊧ (trS ad).pat := by
   intro ad had M _ I hI
   have hmem : (trS ad).pat ∈ (fnItems c).map (·.pat) := by
-    rw [hs]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
+    rw [fn_shape]; exact List.mem_map.mpr ⟨ad, had, rfl⟩
   obtain ⟨it, hit, he⟩ := List.mem_map.mp hmem
   exact hI _ (mem_Γ_fns (Or.inl ⟨it, by rw [fnItems_withHooks]; exact hit, he⟩))
 
-/-- **The converse for `fnItems`** (under `FnShape`): each item is a text sentence's
-translation, the j-th's `fnText[j]`. -/
-theorem fns_from_text (hs : FnShape) (H : HookParams) :
+/-- **The converse for `fnItems`**: each item is a text sentence's translation, the j-th's
+`fnText[j]`. -/
+theorem fns_from_text (H : HookParams) :
     ∀ (j : Nat) (it : Item), (fnItems (cH H))[j]? = some it →
       ∃ ad, fnText[j]? = some ad ∧ (itemsPremises [trS ad] ⊧ it.pat) := by
   intro j it hj
   rw [fnItems_withHooks] at hj
   have h1 : ((fnItems c).map (·.pat))[j]? = some it.pat := by rw [List.getElem?_map, hj]; rfl
-  rw [hs, List.getElem?_map] at h1
+  rw [fn_shape, List.getElem?_map] at h1
   cases hf : fnText[j]? with
   | none => rw [hf] at h1; cases h1
   | some ad =>
@@ -449,11 +449,10 @@ def Families (H : HookParams) : Premises KoreAML.Sym :=
 of sentence 155, a consequence of it by `rule_from_text`), and the families. -/
 def Pre (H : HookParams) : Premises KoreAML.Sym := TextFns ∪ ΓRules (cH H) ∪ Families H
 
-/-- **The origin of each premise of Γ** (under `FnShape`, for its `ΓFns` case):
-a function equation is the translation of a text sentence; a rule item is a consequence of
+/-- **The origin of each premise of Γ**: a function equation is the translation of a text sentence; a rule item is a consequence of
 sentence 155 (and is the reading `ruleRightDefined`); everything else is one of the five parts
 defined by predicates (`Families`). -/
-theorem gamma_origin (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ →
+theorem gamma_origin (H : HookParams) : ∀ φ, Γ (cH H) φ →
     (∃ ad ∈ fnText, (trS ad).pat = φ) ∨ (ΓRules (cH H) φ ∧ (itemsPremises [trS U.ax155] ⊧ φ)) ∨
       Families H φ ∨ (∃ x : EVar, φ = @definedness KoreAML.Sym _ x) := by
   intro φ h
@@ -464,7 +463,7 @@ theorem gamma_origin (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ →
   · exact Or.inr (Or.inr (Or.inl (Or.inl (Or.inr h))))
   · rcases h with ⟨it, hit, rfl⟩ | hx
     · rw [fnItems_withHooks] at hit
-      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := hs ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
+      have hmem : it.pat ∈ fnText.map (trS · |>.pat) := fn_shape ▸ List.mem_map.mpr ⟨it, hit, rfl⟩
       obtain ⟨ad, had, he⟩ := List.mem_map.mp hmem
       exact Or.inl ⟨ad, had, he⟩
     · exact Or.inr (Or.inr (Or.inr hx))
@@ -473,10 +472,10 @@ theorem gamma_origin (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ →
     · exact Or.inr (Or.inr (Or.inr hx))
   · exact Or.inr (Or.inr (Or.inl (Or.inr h)))
 
-/-- Every premise of Γ is a consequence of `Pre` (under `FnShape`). -/
-theorem gamma_from (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
+/-- Every premise of Γ is a consequence of `Pre`. -/
+theorem gamma_from (H : HookParams) : ∀ φ, Γ (cH H) φ → Pre H ⊧ φ := by
   intro φ h M _ I hI
-  rcases gamma_origin hs H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
+  rcases gamma_origin H φ h with ⟨ad, had, he⟩ | ⟨hr, -⟩ | hf | hx
   · exact hI _ (Or.inl (Or.inl (Or.inl ⟨ad, had, he⟩)))
   · exact hI _ (Or.inl (Or.inr hr))
   · exact hI _ (Or.inr hf)
@@ -486,18 +485,18 @@ theorem gamma_from (hs : FnShape) (H : HookParams) : ∀ φ, Γ (cH H) φ → Pr
 theorem cutΓ {G T : Premises KoreAML.Sym} {ψ : P} (h : ∀ φ, G φ → T ⊧ φ) (hψ : G ⊧ ψ) : T ⊧ ψ :=
   fun hT => hψ fun φ hφ => h φ hφ hT
 
-/-- **`Pre` with the step's closure has a model, for every H** (under `FnShape`): every model of Γ
+/-- **`Pre` with the step's closure has a model, for every H**: every model of Γ
 with the step's closure is one, the function sentences being entailed (`fns_entailed`). The
 derivations below are therefore not vacuous; the text's own rule sentence is not in `Pre`, since
 with Γ it has no model (TIE-0 F3: `run(-4)` would need a successor in the empty set). -/
-theorem pre_model (hs : FnShape) (H : HookParams) :
+theorem pre_model (H : HookParams) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Pre H ∪ Γstep (cH H)) := by
   obtain ⟨M, hM, I, hI⟩ := consistent H
   have hΓ : I ⊧ᴵP Γ (cH H) := fun φ h => hI φ (Or.inl (Or.inl h))
   refine ⟨M, hM, I, fun φ h => ?_⟩
   rcases h with ((h | h) | h) | h
   · rcases h with ⟨ad, had, rfl⟩ | ⟨x, rfl⟩
-    · exact fns_entailed hs H ad had hΓ
+    · exact fns_entailed H ad had hΓ
     · exact hΓ _ (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inl (Or.inr ⟨x, rfl⟩))))))))
   · exact hΓ _ (mem_Γ_rules h)
   · rcases h with (((h | h) | h) | h) | h
@@ -568,14 +567,14 @@ noncomputable def halfAt (H : HookParams) (n : Int) : P := KoreAML.den (symApp (
 
 /-- **`half(4) = 2`, derived from `Pre`**: from the 30 function sentences as written (sentence 211
 among them), the rule's reading, and the families (here the graphs of `/Int` and `>=Int`), for
-every H; `Pre` has a model (`pre_model`). Under `FnShape`. -/
-theorem half_4 (hs : FnShape) (H : HookParams) : Pre H ⊧ (halfAt H 4 ≡ den (cH H) (int 2)) :=
-  cutΓ (gamma_from hs H) (eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+every H; `Pre` has a model (`pre_model`). -/
+theorem half_4 (H : HookParams) : Pre H ⊧ (halfAt H 4 ≡ den (cH H) (int 2)) :=
+  cutΓ (gamma_from H) (eval_some_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
     (eval_of_evalFC (by decide +kernel) (n := 10) (by decide +kernel) H) (hfnH H) (hvsH4 H))
 
-/-- **`half(-4)` has no value, derived from `Pre`**, for every H (under `FnShape`). -/
-theorem half_neg4 (hs : FnShape) (H : HookParams) : Pre H ⊧ (halfAt H (-4) ≡ ⊥) :=
-  cutΓ (gamma_from hs H) (eval_none_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
+/-- **`half(-4)` has no value, derived from `Pre`**, for every H. -/
+theorem half_neg4 (H : HookParams) : Pre H ⊧ (halfAt H (-4) ≡ ⊥) :=
+  cutΓ (gamma_from H) (eval_none_sound_core _ (hypSound_of_core (coreOKH H)) (Semantics.ok_clauseBinds (hokH H))
     (eval_of_evalFC (by decide +kernel) (n := 10) (by decide +kernel) H) (hfnH H) (hvsHm4 H))
 
 /-- The configuration with `it` in the k cell and the counter at 0. -/
@@ -590,14 +589,14 @@ theorem run_stuck (H : HookParams) : ∀ y, ¬ Step (cH H) (XH H) y :=
   Cert.stuckCheck_sound hok hsr hmr H (coherent H) (n := 100) (x := XH H)
     (show Cert.stuckCheck c 100 X.val = true by decide +kernel)
 
-/-- **`run(-4)` has no successor, derived from `Pre` with the step's closure**, for every H
-(under `FnShape`): `⟦run(-4)⟧ → ◦⊥`. The closure (`Γstep`) is a family with no sentence (TIE-0 L6),
+/-- **`run(-4)` has no successor, derived from `Pre` with the step's closure**, for every H:
+`⟦run(-4)⟧ → ◦⊥`. The closure (`Γstep`) is a family with no sentence (TIE-0 L6),
 and the rule enters as its reading (Γ's item), not as the text's sentence 155. -/
-theorem run_neg4 (hs : FnShape) (H : HookParams) :
+theorem run_neg4 (H : HookParams) :
     (Pre H ∪ Γstep (cH H)) ⊧ (den (cH H) (XH H).val ⇒ KoreAML.allNext (KoreAML.disjList (([] : List GroundTerm).map (den (cH H))))) :=
   cutΓ (fun φ h => by
       rcases h with h | h
-      · exact fun hT => gamma_from hs H φ h (fun ψ hψ => hT ψ (Or.inl hψ))
+      · exact fun hT => gamma_from H φ h (fun ψ hψ => hT ψ (Or.inl hψ))
       · exact fun hT => hT φ (Or.inr h))
     (complete_at_step _ (coreOKH H) ((Semantics.readsConfined_withHooks c H).trans readsConfined_c) (XH H)
       (stepDecided_of_fnHyp (coreOKH H) (fnHypH H) _) []
