@@ -71,7 +71,7 @@ CLASSWORD = {"refused": "RefusalReason", "inert": "InertReason", "unread": "Unre
 # The catch-alls: (reason, a substring of the detail or None for any detail, the arm that gives it).
 CATCHALL = [
     ("axiomShape", None, "classifyAxiom's last arm, and classRefusal's default"),
-    ("patternConnective", None, "term's last arm `| p => fail .patternConnective (connective p)`"),
+    ("patternConnective", None, "term's last arm `| p => fail (if isUnkompiledForm p then .unkompiledForm else .patternConnective) (connective p)`"),
     ("ruleShape", None, "ruleBodyOther's arms"),
     ("requiresShape", None, "`need (req? r)`"),
     ("unaccounted", None, "Account.unconsumedWhy's other arms"),
@@ -95,6 +95,7 @@ UNSHOWN = ("R2-release.C4", 7)
 # one stands here.
 PINNED = [
     ("RefusalReason.noModule", "R2-release.C4"),
+    ("RefusalReason.axiomShape", "R2-release.C4"),
     ("RefusalReason.preludeDiffers", "R2-release.C4"),
     ("RefusalReason.moduleSource", "R2-release.C4"),
     ("RefusalReason.moduleLocation", "R2-release.C4"),

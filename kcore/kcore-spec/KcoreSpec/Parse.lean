@@ -83,9 +83,11 @@ inductive RefusalReason where
   one not of the form `f(p̄) = r`, or between symbols one of which is not a function (a function
   agreeing with a constructor on its subsorts, which no clause of the function states as read). -/
   | overloadAxiom
-  /-- An axiom of no form the reader reads or knows inert. -/
+  /-- An axiom of no form the reader reads or knows inert, of a form kompile 7.1.337 writes (a form
+  it does not write at the top is `unkompiledForm`). -/
   | axiomShape
-  /-- A sort with parameters, or a sort variable. -/
+  /-- A sort with parameters, or a sort variable; a subsort axiom at an instance of a
+  sort-parametric sort (`isParametricSubsort`). -/
   | parametricSort
   /-- A sort the definition does not have. -/
   | unknownSort
@@ -112,8 +114,8 @@ inductive RefusalReason where
   | injShape
   /-- `ite` not applied to one sort. -/
   | iteShape
-  /-- A connective that no term has: `\or`, `\not`, `\ceil`, `\exists`, a string, a set
-  variable, … -/
+  /-- A connective that no term has, of those kompile 7.1.337 writes: `\or`, `\not`, `\ceil`,
+  `\exists`, … (the others are `unkompiledForm`). -/
   | patternConnective
   /-- An element variable not named `Var…`. -/
   | variableName
@@ -339,6 +341,12 @@ inductive RefusalReason where
   table's E2 rows). Only a KORE text written by hand carries it, and no text gives it a meaning
   there. The detail names the attribute and the class. -/
   | attrOutsideE2
+  /-- A form of KORE pattern that no text kompile 7.1.337 writes: `\mu`, `\nu`, `\next`, `\iff`,
+  `\left-assoc`, `\right-assoc`, or a string pattern (a string literal outside `\dv`)
+  (`isUnkompiledForm`), as a term (`term`) or at an axiom's top (`classifyAxiom`). The semantics
+  reads none of them: a fixpoint, a step, an equivalence, an application form the KORE syntax
+  abbreviates, or a pattern of no sort. The detail names the form. -/
+  | unkompiledForm
   deriving Repr, DecidableEq, Inhabited
 
 /-- The reason the reader refuses with, for a key `attrVerdict` refuses. -/
@@ -992,6 +1000,11 @@ def connective : Kore.Pattern → String
   | .leftAssoc .. => "\\left-assoc"
   | .rightAssoc .. => "\\right-assoc"
 
+/-- A form of pattern no text kompile 7.1.337 writes (`RefusalReason.unkompiledForm`). -/
+def isUnkompiledForm : Kore.Pattern → Bool
+  | .mu .. | .nu .. | .next .. | .iff .. | .leftAssoc .. | .rightAssoc .. | .string _ => true
+  | _ => false
+
 mutual
   def term (N : Names) (vs : List Var) : Kore.Pattern → Rd (Term × List Var)
     | .var (.evar x) => do let (i, vs) ← varIndex vs x; pure (.var i, vs)
@@ -1037,7 +1050,7 @@ mutual
       | some X => if X == "Bool" then fail .patternConnective (connective (.floor s r p)) else fail .openExtent X
       | none => fail .patternConnective "\\floor"
     | .var (.svar x) => fail .setVariable x.var.ident.name
-    | p => fail .patternConnective (connective p)
+    | p => fail (if isUnkompiledForm p then .unkompiledForm else .patternConnective) (connective p)
     termination_by structural p => p
   def terms (N : Names) (vs : List Var) : List Kore.Pattern → Rd (List Term × List Var)
     | [] => pure ([], vs)
@@ -3476,6 +3489,14 @@ def isNoPredSentence (s : Kore.Sentence) : Bool :=
         | _ => false)
   | _ => false
 
+/-- A subsort axiom (`[subsort{A, B}()]`) one of whose sorts is an instance of a sort-parametric
+sort (`subsort{SortMInt{Sort8{}}, SortKItem{}}`), which has no sort name (`sortName?`): refused
+`parametricSort`, as the declarations of such sorts are. -/
+def isParametricSubsort (a : Kore.Axiom) : Bool :=
+  match a.attributes with
+  | [⟨⟨⟨"subsort"⟩⟩, [A, B], []⟩] => (sortName? A).isNone || (sortName? B).isNone
+  | _ => false
+
 def classifyAxiom (a : Kore.Axiom) : SentenceClass :=
   let s := Kore.Sentence.axiom a
   if isBuiltinSource a.attributes then .read
@@ -3506,6 +3527,8 @@ def classifyAxiom (a : Kore.Axiom) : SentenceClass :=
   else if (source? a.attributes).isNone && isCollectionLaw a then .inert .collectionLaw
   else if (source? a.attributes).isNone && isParametricFunctional a then .inert .parametricFunctional
   else if (existentialAxiom? a).isSome then .refused .existentialAxiom
+  else if isParametricSubsort a then .refused .parametricSort
+  else if isUnkompiledForm a.pattern then .refused .unkompiledForm
   else .refused .axiomShape
 
 /-- An attribute of a sort declaration the reader reads (its place, `hasDomainValues`, `token`) or
