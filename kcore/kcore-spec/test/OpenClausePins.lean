@@ -731,6 +731,7 @@ theorem witW0 : clW0.Witnessed c3W := by
     | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
     | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
     | ovl _ ho _ => exact absurd ho (by decide +kernel)
+    | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- **`hc` at `c3W`, from the witness**: `clW0` is `Witnessed`; no other clause needs a witness. -/
 theorem hcW3 : ∀ fn ∈ c3W.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c3W = true → cl.CondDecided c3W := by

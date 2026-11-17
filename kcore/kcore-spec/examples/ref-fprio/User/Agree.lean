@@ -76,6 +76,7 @@ theorem agSq_val {σ : Subst} {r : Option GroundTerm}
       | call _ hh _ _ _ _ => exact absurd hh (by decide +kernel)
       | callUndef _ hh _ _ _ => exact absurd hh (by decide +kernel)
       | ovl _ ho _ => exact absurd ho (by decide +kernel)
+      | ovlFn _ ho => exact absurd ho (by decide +kernel)
 
 /-- **`ag`'s agreement**, the package's one named agreement (`agree_obligations`): its two clauses,
 of one priority, give one result where both apply, at `ag(0)`, in both orders. -/

@@ -1378,7 +1378,9 @@ mutual
       rw [kore_app, tr_symApp]
       simp only [Res, iff_false]
       exact ih.2 hvs' _ m
-    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
+    | _, _, _, .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+      rw [hsc.ovl.fnCover_none f ws] at hcov; cases hcov
+    | _, _, _, .ovl (f := f) (rs := rs) hk ho hts _, L, vars, vs, tbl, e, s, hL, hσ, hvs, hag, ht, hcall, m => by
       obtain ⟨k, hk', hargs, -⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
       obtain ⟨-, hcalls⟩ := heads_app hcall

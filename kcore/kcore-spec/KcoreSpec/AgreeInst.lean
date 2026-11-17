@@ -346,7 +346,8 @@ theorem EvalTerm.app_args {σ σ' : Subst} {f : Sym} {ts ts' : List Term} {r : O
   | param hc hhk hp hts hr => cases ht; exact EvalTerm.param hc hhk hp (ha _ hts) hr
   | call hc hh hts hvs hf hp => cases ht; exact EvalTerm.call hc hh (ha _ hts) hvs hf hp
   | callUndef hc hh hts hvs hp => cases ht; exact EvalTerm.callUndef hc hh (ha _ hts) hvs hp
-  | ovl hc ho hts => cases ht; exact EvalTerm.ovl hc ho (ha _ hts)
+  | ovl hc ho hts hnf => cases ht; exact EvalTerm.ovl hc ho (ha _ hts) hnf
+  | ovlFn hc ho hts hvs hlo hcov hf => cases ht; exact EvalTerm.ovlFn hc ho (ha _ hts) hvs hlo hcov hf
   | _ => cases ht
 
 theorem EvalTerm.as_false {σ : Subst} {t : Term} {i : Nat} {r : Option GroundTerm}
@@ -551,6 +552,7 @@ theorem hook2_inv {σ : Subst} {f : Sym} {t u : Term} {b : Bool} (hhk : isHook f
   | call _ h _ _ _ _ => cases ht; rw [hhk] at h; cases h
   | callUndef _ h _ _ _ => cases ht; rw [hhk] at h; cases h
   | ovl _ ho _ => cases ht; have h := (c.isOvl_parts ho).2.1; rw [hhk] at h; cases h
+  | ovlFn _ ho => cases ht; have h := (c.isOvl_parts ho).2.1; rw [hhk] at h; cases h
   | _ => cases ht
 
 theorem hook_kNe (v w : GroundTerm) : hook kNe [v, w] = some (some (bool (GroundTerm.cmp v w != .eq))) := rfl

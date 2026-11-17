@@ -319,7 +319,8 @@ def collVal (f : Sym) (vs : List GroundTerm) : Option GroundTerm :=
 
 /-- An overloading symbol of `c` (`ovls`) of no other kind: not a constructor, an interpreted
 hook, a parameter symbol or a function, which are read first. Its applications denote normal
-forms (`norm`). -/
+forms (`norm`), or, at arguments a function it overloads covers (`fnCover`), that function's
+value. -/
 def isOvl (f : Sym) : Bool :=
   !c.isCtor f && !isHook f && !c.isParam f && (c.lookupFn f).isNone && (c.lookupOvl f).isSome
 
@@ -522,10 +523,21 @@ mutual
     | callUndef {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
         (h : c.isCtor f = false) (hh : isHook f = false) (hts : EvalTerms c σ ts rs)
         (hvs : allSome rs = none) (hp : c.isParam f = false) : EvalTerm c σ (.app f ts) none
-    /-- An overloading symbol builds the normal form (`norm`; undefined if an argument is). -/
+    /-- An overloading symbol builds the normal form (`norm`; undefined if an argument is), where
+    no function it overloads covers the arguments (`fnCover`). -/
     | ovl {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
-        (h : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs) :
+        (h : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+        (hnf : ∀ vs, allSome rs = some vs → c.fnCover f vs = none) :
         EvalTerm c σ (.app f ts) ((allSome rs).map (c.norm f))
+    /-- An overloading symbol at values a function it overloads covers (`fnCover`) has that
+    function's result at the stripped arguments, lifted to the symbol's result sort; undefined
+    where the function is. -/
+    | ovlFn {σ : Subst} {f : Sym} {ts : List Term} {rs : List (Option GroundTerm)}
+        {vs : List GroundTerm} {o : OvlSig} {kg : CtorSig} {r : Option GroundTerm}
+        (h : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+        (hvs : allSome rs = some vs) (hlo : c.lookupOvl f = some o) (hcov : c.fnCover f vs = some kg)
+        (hf : Eval c kg.name (stripAll kg.args o.sig.args vs) r) :
+        EvalTerm c σ (.app f ts) (r.map (lift kg.result o.sig.result))
   inductive EvalTerms (c : Semantics) : Subst → List Term → List (Option GroundTerm) → Prop where
     | nil {σ : Subst} : EvalTerms c σ [] []
     | cons {σ : Subst} {t : Term} {ts : List Term} {r : Option GroundTerm}

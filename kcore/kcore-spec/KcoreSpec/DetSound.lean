@@ -112,6 +112,10 @@ theorem srcs_eval {σ : Subst} {vars : List Srt} (hσ : c.WellSorted vars σ) :
           cases ht
           have hph : patternHooks.contains f = true := by simpa [hk] using hf
           rw [c.isOvl_of_patternHook hph] at ho; cases ho
+        | ovlFn hk ho =>
+          cases ht
+          have hph : patternHooks.contains f = true := by simpa [hk] using hf
+          rw [c.isOvl_of_patternHook hph] at ho; cases ho
         | _ => cases ht
       exact ⟨a, w, injNormal_of_not_inj hni, List.mem_singleton_self _, hni, fun h => by cases h⟩
     · cases hs
@@ -161,6 +165,7 @@ mutual
     | _, _, .ovl hc ho hs hv => by
       rw [strip]
       have := EvalTerm.ovl (σ := σ) hc ho (PatVals.eval_strip hmc hs)
+        (fun vs _ => OvlLaws.fnCover_none_of_nil hmc.noOvl _ vs)
       rwa [allSome_map_some, Option.map_some, hv] at this
   theorem PatVals.eval_strip (hmc : MatchCtx c) {σ : Subst} : ∀ {ps : List Term} {ws : List GroundTerm},
       PatVals c σ ps ws → EvalTerms c σ (stripList ps) (ws.map some)
@@ -460,7 +465,8 @@ mutual
       | param hk hhk hp hts hr => exact .param hk hhk hp (trList_sound henv hts hts') hr
       | call hk hhk hts hvs hf hp => exact .call hk hhk (trList_sound henv hts hts') hvs hf hp
       | callUndef hk hhk hts hvs hp => exact .callUndef hk hhk (trList_sound henv hts hts') hvs hp
-      | ovl hk ho hts => exact .ovl hk ho (trList_sound henv hts hts')
+      | ovl hk ho hts hnf => exact .ovl hk ho (trList_sound henv hts hts') hnf
+      | ovlFn hk ho hts hvs hlo hcov hf => exact .ovlFn hk ho (trList_sound henv hts hts') hvs hlo hcov hf
     | .inj a b t, t', r, h, ht => by
       simp only [tr, Option.map_eq_some_iff] at ht
       obtain ⟨u, hu, rfl⟩ := ht
@@ -558,6 +564,7 @@ theorem and_inv {σ : Subst} {t₁ t₂ : Term} (h : EvalTerm c σ (.app boolAnd
   | call _ hhk _ _ _ _ => cases ht; rw [isHook_and] at hhk; cases hhk
   | callUndef _ _ _ _ _ => cases ht; cases hr
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_and] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_and] at this; cases this
   | _ => cases ht
 
 theorem not_inv {σ : Subst} {t : Term} (h : EvalTerm c σ (.app boolNot [t]) (some (bool true))) :
@@ -587,6 +594,7 @@ theorem not_inv {σ : Subst} {t : Term} (h : EvalTerm c σ (.app boolNot [t]) (s
   | call _ hhk _ _ _ _ => cases ht; rw [isHook_not] at hhk; cases hhk
   | callUndef _ _ _ _ _ => cases ht; cases hr
   | ovl _ ho _ => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_not] at this; cases this
+  | ovlFn _ ho => cases ht; have := (c.isOvl_parts ho).2.1; rw [isHook_not] at this; cases this
   | _ => cases ht
 
 theorem lits_sound {σ : Subst} : ∀ {t : Term}, EvalTerm c σ t (some (bool true)) →
@@ -872,6 +880,7 @@ theorem refutes_sound {σ : Subst} {vs : List Srt} (hσ : c.WellSorted vs σ) {A
               rw [← hres] at this
               exact absurd (bool_inj (Option.some.inj this)) (by simp)
           | ovl _ ho _ => cases hA; rw [c.isOvl_of_lookupFn hfn] at ho; cases ho
+          | ovlFn _ ho => cases hA; rw [c.isOvl_of_lookupFn hfn] at ho; cases ho
           | _ => cases hA
         · cases hr
       · cases hr
@@ -1037,6 +1046,7 @@ mutual
       | call _ h _ _ _ _ => cases ht; rw [hh] at h; cases h
       | callUndef _ h _ _ _ => cases ht; rw [hh] at h; cases h
       | ovl _ ho _ => cases ht; rw [c.isOvl_of_patternHook hp] at ho; cases ho
+      | ovlFn _ ho => cases ht; rw [c.isOvl_of_patternHook hp] at ho; cases ho
       | _ => cases ht
     | _, _, _, .coll (f := f) hc hp hs hv, he => by
       rw [strip] at he
@@ -1067,6 +1077,7 @@ mutual
         cases ht
         rw [PatVals.strip_det hmc hs hts, allSome_map_some] at hvs; cases hvs
       | ovl _ ho _ => cases ht; rw [c.isOvl_of_collPat hp] at ho; cases ho
+      | ovlFn _ ho => cases ht; rw [c.isOvl_of_collPat hp] at ho; cases ho
       | _ => cases ht
     | _, _, _, .inj h, he => by
       rw [strip] at he
@@ -1075,7 +1086,7 @@ mutual
     | _, _, _, .as h _, he => by rw [strip] at he; exact PatVal.strip_det hmc h he
     | _, _, _, .ovl _ ho hs hv, he => by
       rw [strip] at he
-      obtain ⟨rs, hts, rfl⟩ := EvalTerm.ovl_inv ho he
+      obtain ⟨rs, hts, rfl⟩ := EvalTerm.ovl_inv ho (OvlLaws.fnCover_none_of_nil hmc.noOvl _) he
       rw [PatVals.strip_det hmc hs hts, allSome_map_some, Option.map_some, hv]
   theorem PatVals.strip_det (hmc : MatchCtx c) {σ : Subst} : ∀ {ps : List Term} {ws : List GroundTerm}
       {rs : List (Option GroundTerm)}, PatVals c σ ps ws → EvalTerms c σ (stripList ps) rs → rs = ws.map some

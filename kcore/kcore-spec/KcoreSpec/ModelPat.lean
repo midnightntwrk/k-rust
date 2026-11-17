@@ -557,7 +557,7 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hov : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hov hrs⟩
+      | true => exact ⟨_, .ovl hc' hov hrs (fun vs _ => OvlLaws.fnCover_none_of_ok h.2.2.2.2.2.2.2.2.ok f vs)⟩
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩
