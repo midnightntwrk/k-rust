@@ -1,0 +1,2 @@
+# pair strict x result (TRIAGE-B c3.pair 20; findings/C3-noncore-rulings.md section 10): the text of c3-strict-base with result(Val) on neg. Predicted: exit 0, read, coreOK true; the heating and cooling rules of neg apply isVal in place of isKResult; text and Semantics differ
+differs_from = "c3-strict-base"

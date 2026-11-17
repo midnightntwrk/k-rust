@@ -1,0 +1,2 @@
+# pair seqstrict x argument order (TRIAGE-B c3.pair 20; findings/C3-noncore-rulings.md section 10): the text of c3-strict-base with seqstrict in place of strict on plus. Predicted: exit 0, read, coreOK true; the heating rule of the second argument requires the first to be a result (from the key's meaning only; no committed line)
+differs_from = "c3-strict-base"

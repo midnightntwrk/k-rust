@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-strict-result.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.0
+definition.kore bytes: 242517
+definition.kore sha256: d9b3ee485be091eb9f6e66e7d1f943f8bde81364897cdceba594e138ab0de3a0
+stripped sha256: 904ced8b2fea367e0f8af3197ca1768c375f69fb7d1fadc56789f91a1d960d1f
+main module: 481 sentences, 127 not in base's, in kore.txt
+differs_from c3-strict-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-STRICT-RESULT-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-STRICT-RESULT as default.

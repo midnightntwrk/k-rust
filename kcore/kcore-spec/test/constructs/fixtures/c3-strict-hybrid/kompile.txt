@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-strict-hybrid.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 244246
+definition.kore sha256: c3490ab4a6afa421913f94957526a1bb3863198f59e4252d8c3fd9e20d12474d
+stripped sha256: 29da8b13c1179bcbbdd5ef1386b5116d6141f4ca1c7c19ebabff15f78fffa6d9
+main module: 482 sentences, 128 not in base's, in kore.txt
+differs_from c3-strict-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-STRICT-HYBRID-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-STRICT-HYBRID as default.

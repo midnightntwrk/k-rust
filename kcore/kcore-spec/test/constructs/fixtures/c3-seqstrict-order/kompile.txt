@@ -1,0 +1,12 @@
+command: kompile --backend haskell c3-seqstrict-order.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.1
+definition.kore bytes: 242778
+definition.kore sha256: c5244fd951427362d4dc79c3498d12d34c8b73a6f4e355ba11a9f4550dbbf333
+stripped sha256: b01a2a960e372e5357e78e228a288bfd7c4ae765bb7b452cf87747a99b14695e
+main module: 481 sentences, 127 not in base's, in kore.txt
+differs_from c3-strict-base: different after stripping
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  C3-SEQSTRICT-ORDER-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using C3-SEQSTRICT-ORDER as default.
