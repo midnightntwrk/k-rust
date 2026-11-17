@@ -1969,7 +1969,7 @@ set variable `@S` there (`f(@S, @S)`), the value at every set's elements (refuse
 the patterns', which no clause read from the memberships states (not read as an equation). -/
 def lhsArgsOK_lhs (ls : List Kore.Pattern) (args : Kore.Pattern) : Bool :=
   match memberVars_lhs eqnFuel args with
-  | some xs => xs.eraseDups.length == xs.length && decide (ls = xs.map fun x => .var (.evar x))
+  | some xs => decide xs.Nodup && decide (ls = xs.map fun x => .var (.evar x))
   | none => false
 
 def rawEqn? (a : Kore.Axiom) : Option RawEqn :=
@@ -2234,11 +2234,21 @@ def pairExcl : List RawEqn → List Kore.Pattern → List (RawEqn × Option Kore
       | some (i, d) => (e, some d) :: pairExcl es (ds.eraseIdx i)
       | none => (e, some unexcluded) :: pairExcl es ds
 
+/-- The two symbols of a symbol-overload axiom. -/
+def overloadSyms? (as : List Kore.AppPattern) : Option (String × String) :=
+  match as with
+  | [⟨⟨⟨"symbol-overload"⟩⟩, [], [.app f [] [], .app g [] []]⟩] => some (f.ident.name, g.ident.name)
+  | _ => none
+
 /-- An equation that no premise of the text negates, read as an `aside` clause: one declared
 `non-executable`, which kompile's `[owise]` premise does not negate, or a symbol-overload axiom
 (`overloadEqn?`), which states its equation with no premise and which no `[owise]` premise
-negates (the premise's disjuncts are as many as the other equations, `fnFrom`). -/
-def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable" || hasAttr e.attrs "symbol-overload"
+negates (the premise's disjuncts are as many as the other equations, `fnFrom`). A symbol-overload
+axiom is an equation whose one attribute is `symbol-overload{}(f(), g())` (`overloadSyms?`), as
+`overloadEqn?` reads it and `ClausePres.overload` records it; an equation `P → f(p̄) = r` that
+carries the attribute beside others states its equation under its premise as any equation does,
+and the attribute adds no sentence. -/
+def nonExec (e : RawEqn) : Bool := hasAttr e.attrs "non-executable" || (overloadSyms? e.attrs).isSome
 
 /-- As `pairExcl`, the equations declared `non-executable` (`nonExec`) with no disjunct: no
 disjunct of an `[owise]` equation's exclusion excludes them. -/
@@ -2293,12 +2303,6 @@ def overloadEqn? (a : Kore.Axiom) : Option RawEqn :=
     if h.ident.name == f.ident.name then some ⟨f.ident.name, varNamedList args, none, none, varNamed rhs, a.attributes, none, false⟩
     else none
   | _, _ => none
-
-/-- The two symbols of a symbol-overload axiom. -/
-def overloadSyms? (as : List Kore.AppPattern) : Option (String × String) :=
-  match as with
-  | [⟨⟨⟨"symbol-overload"⟩⟩, [], [.app f [] [], .app g [] []]⟩] => some (f.ident.name, g.ident.name)
-  | _ => none
 
 /-- The argument `lift A B x` of an overload equation's left side, x a variable of sort A: the variable
 itself when A = B, `inj{A,B}(x)` otherwise; the variable's name. -/
@@ -2368,12 +2372,13 @@ def srcOver (msrc : String) (attrs : List Kore.AppPattern) : Option String :=
 
 /-- An equation's priority, with it where the text writes it `priority{}("n")`
 (`ClausePres.prioAttr`): `priority{}("n")`'s n; otherwise 0 for a symbol-overload axiom
-(`overloadEqn?`, whose `symbol-overload` attribute `emit` writes back, `ClausePres.overload`), 200
+(`overloadEqn?`, `overloadSyms?`: the attribute is its one attribute, which `emit` writes back,
+`ClausePres.overload`), 200
 for an `[owise]` equation (one with competitors) and 50 for the others. -/
 def eqnPrio (e : RawEqn) : Option Nat × Nat :=
   -- `digitsVal`, not `String.toNat?` (`ruleBody`)
   let explicit := (attrStr? e.attrs "priority").bind fun s => digitsVal s.toList 0
-  (explicit, explicit.getD (if hasAttr e.attrs "symbol-overload" then 0
+  (explicit, explicit.getD (if (overloadSyms? e.attrs).isSome then 0
     else if e.competitors.isSome || e.dom then 200 else 50))
 
 /-- The names of the two variables read in the set variable `X`'s place (`svinShape`): `X`'s name
@@ -3671,7 +3676,7 @@ def openIdemAx (f : String) (s : Kore.KSort) : Kore.Axiom :=
 
 /-- The axiom `a` is the law sentence `ax` with the attribute `key`. -/
 def lawSentenceIs (key : String) (ax : Kore.Axiom) (a : Kore.Axiom) : Bool :=
-  hasAttr a.attributes key && { a with attributes := [] } == ax
+  hasAttr a.attributes key && decide ({ a with attributes := [] } = ax)
 
 /-- The sentences `ss` hold the law sentence `ax` with the attribute `key`. -/
 def holdsLaw (ss : List Kore.Sentence) (key : String) (ax : Kore.Axiom) : Bool :=
@@ -3872,6 +3877,28 @@ def sortAttrOK (a : Kore.AppPattern) : Bool :=
   | .inert _ => true
   | .read => isPlaceAttr a || isTokenSortAttr a
 
+/-- Why `assoc` or `comm` on the declaration of a function is refused: kompile writes neither key
+on a function's declaration. It writes a function production's `assoc` as the associativity axiom,
+which the reader reads as a law of the function (`fnLaw`, owed as `FnLaws`), and its `comm` as no
+sentence (e2-fn-assoc/kore.txt:4, 62; c3-fn-comm/kore.txt:4). -/
+def fnDeclLawWhy : String :=
+  "kompile writes the key on no function's declaration: a function production's assoc is the associativity axiom it writes beside the declaration, which the reader reads as a law of the function (fnLaw, owed as FnLaws), and its comm no sentence (e2-fn-assoc/kore.txt:4, 62; c3-fn-comm/kore.txt:4); only a KORE text written by hand carries it, and no text gives it a meaning on the declaration"
+
+/-- The first attribute of a symbol or hooked-symbol declaration the reader refuses, as the reason
+and the attribute's name with why: `attrFault?` at class `symbol`, except that on the declaration
+of a function (`function{}()`) `assoc` and `comm` are refused `attrOutsideE2` (`fnDeclLawWhy`).
+`attrVerdict` refuses them `openGenerator`, which is the case of a symbol that is no function: a
+generator under a law. -/
+def symAttrFault? (as : List Kore.AppPattern) : Option (RefusalReason × String) :=
+  if hasKey as .function then
+    as.findSome? fun ap =>
+      let n := ap.head.ident.name
+      if n == AttrKeyE2.assoc.kore || n == AttrKeyE2.comm.kore then some (.attrOutsideE2, s!"{n}: {fnDeclLawWhy}")
+      else match attrVerdictOf .symbol .symbolAttribute n with
+        | .refused r' w => some (r'.reason, s!"{n}: {w}")
+        | _ => none
+  else attrFault? .symbol .symbolAttribute as
+
 /-- The class of a sentence of the user module, from the sentence alone. -/
 def classify : Kore.Sentence → SentenceClass
   | .import _ => .inert .import
@@ -3886,12 +3913,12 @@ def classify : Kore.Sentence → SentenceClass
       -- that is a generator of its sort (`ParamSig.raw`)
       else if isOpenGenerator s && !hasAttr s.attributes "functional" then .refused .openGenerator
       else if isNoPredSentence (.symbol s) then .unread .noSortPredicate
-      else match attrFault? .symbol .symbolAttribute s.attributes with
+      else match symAttrFault? s.attributes with
         | some (r, _) => .refused r
         | none => .read
   | .hookedSymbol s => if isMacroDecl s.attributes then .unread .macroUnused
       else if isKBuiltin s.attributes then classifyKBuiltin (.hookedSymbol s)
-      else match attrFault? .symbol .symbolAttribute s.attributes with
+      else match symAttrFault? s.attributes with
         | some (r, _) => .refused r
         | none => .read
   | .sort s => if isKBuiltin s.attributes then classifyKBuiltin (.sort s)
@@ -4710,11 +4737,26 @@ def coreBase (S : Scan) (E : Env) (prods : List Prod) (rules : List (Rule × Rul
          colls := E.colls, ovls := E.ovls }
   pure core
 
+/-- The character `c` as it is written inside a string literal: `\n`, `\t`, `\\` and `\"` escaped,
+another character below 32 and DEL as `\x` and two hexadecimal digits, any other as itself. -/
+def charLit_skel (c : Char) : String :=
+  if c = '\n' then "\\n"
+  else if c = '\t' then "\\t"
+  else if c = '\\' then "\\\\"
+  else if c = '\"' then "\\\""
+  else if c.toNat ≤ 31 ∨ c = '\x7f' then "\\x" ++ hexDigitRepr (c.toNat / 16) ++ hexDigitRepr (c.toNat % 16)
+  else String.singleton c
+
+/-- The string `s` as a string literal: in double quotes, each character as `charLit_skel` writes
+it (the text `String.quote` gives, by functions the kernel unfolds). -/
+def strLit_skel (s : String) : String :=
+  "\"" ++ String.join (s.toList.map charLit_skel) ++ "\""
+
 /-- A pattern's symbols, variables as `_` and domain values as their text, `fuel` levels deep. -/
 def eqnSkel : Nat → Kore.Pattern → String
   | 0, _ => "…"
   | _, .var (.evar _) => "_"
-  | _, .dv _ v => v.quote
+  | _, .dv _ v => strLit_skel v
   | n + 1, .app h _ ps => h.ident.name ++ (if ps.isEmpty then "" else "(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")")
   | n + 1, .and _ ps => "\\and(" ++ ", ".intercalate (ps.map (eqnSkel n)) ++ ")"
   | n + 1, .equals _ _ p q => "\\equals(" ++ eqnSkel n p ++ ", " ++ eqnSkel n q ++ ")"
@@ -5318,23 +5360,26 @@ def Fault.toRefusal (off : Nat) (m : Kore.Module) (f : Fault) : Refusal :=
   ⟨i, h, f.reason, f.detail⟩
 
 /-- The detail of a refusal `classify` gives the sentence `s` of the user module `m`: for an open
-generator (`openGenerator`), the law axioms `m` states of the symbol (kompile writes none for `comm`);
+generator (`openGenerator`, `isOpenGenerator`), the law axioms `m` states of the symbol (kompile
+writes none for `comm`);
 for a set variable on an equation's left side (`setVariable`, `lhsSetVar?`), the variable, the
-function and why; for an attribute of a declaration or a claim (`attrFault?`), the attribute and
+function and why; for an attribute of a declaration (`symAttrFault?`, also an `openGenerator`
+refusal of a symbol that is no open generator) or of a claim (`attrFault?`), the attribute and
 why; "" for the other reasons. -/
 def classDetail (m : Kore.Module) (s : Kore.Sentence) (r : RefusalReason) : String :=
   match r, s with
   | .openGenerator, .symbol x =>
     let n := x.symbol.ident.ident.name
+    if !isOpenGenerator x then ((symAttrFault? x.attributes).map fun (_, d) => s!"{n}: {d}").getD "" else
     let laws := (m.sentences.filterMap fun t => match t with
       | .axiom a => if isCollectionLaw a && lawHead? a == some n then some (lawKeys a) else none
       | _ => none).flatten.eraseDups
     s!"{n}: neither function nor constructor; law axioms: {if laws.isEmpty then "none" else ", ".intercalate laws}"
   | .sortAttribute, .sort x =>
     s!"{x.sort.ident.name}: {", ".intercalate ((x.attributes.filter (!sortAttrOK ·)).map (·.head.ident.name))}"
-  | _, .symbol x => ((attrFault? .symbol .symbolAttribute x.attributes).map fun (_, d) =>
+  | _, .symbol x => ((symAttrFault? x.attributes).map fun (_, d) =>
       s!"{x.symbol.ident.ident.name}: {d}").getD ""
-  | _, .hookedSymbol x => ((attrFault? .symbol .symbolAttribute x.attributes).map fun (_, d) =>
+  | _, .hookedSymbol x => ((symAttrFault? x.attributes).map fun (_, d) =>
       s!"{x.symbol.ident.ident.name}: {d}").getD ""
   | _, .claim c => ((attrFault? .claim .outsideE2 c.attributes).map (·.2)).getD ""
   | .userHookedSort, .hookedSort x => s!"{x.sort.ident.name}: hook {(attrStr? x.attributes "hook").getD "(none)"}"

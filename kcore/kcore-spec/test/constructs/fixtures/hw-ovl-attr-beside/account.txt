@@ -1,0 +1,32 @@
+test/constructs/fixtures/hw-ovl-attr-beside/hw-ovl-attr-beside.kore: 5 modules; prelude agrees
+user module E2-FN-ASSOC: 390 sentences
+  1 inert import [generated]
+  177 read [generated]
+  184 read [builtin]
+  1 read [user]
+  4 inert injectivity [generated]
+  10 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert parametricFunctional [generated]
+  9 inert noJunk [generated]
+  1 refused overloadAxiom [user]
+      e.g. axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarA:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarB:SortInt{}), \top{R}()))), \equals{SortInt{}, R}(Lblpl{}(X0:SortInt{}, X1:SortInt{}), \and{SortInt{}}(Lbl'UndsPlus'Int'Unds'{}(VarA:SortInt{}, VarB:SortInt{}), \top{SortInt{}}()))) [symbol-overload{}(Lblpl{}(), Lblpl{}()), UNIQUE'Unds'ID{}("047a0f0af94a3f2ab1 …
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 0
+read and not accounted for: 0
+inert constructor axioms not induced by the constructors: 0
+cell collection injections not of a collection of the definition: 0
+law axioms of no collection's concatenation: 0
+law axioms of functions, read as laws stated at values (Definition.laws; FnLaws owed, one entry per law): 1
+      sentence 249 (Lblpl): fnLaw (assoc): FnLaws owed
+rules with an `ensures`: 0
+rules read with the premise ⌈rhs ∧ ens⌉ (ruleRightDefined): 0
+rules and clauses applying a function symbol in their left side: 0
+sentences the library's data induces that the text does not hold: 0
+library sentences of the modules held that the text does not hold: 0
+sentences every definition holds (kernelText) that the text does not: 4
+      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \exists{R}(VarK:SortK{}, \equals{SortK{}, R}(SelectorInput:SortK{}, VarK:SortK{})))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-domain")]
+      axiom{R} \implies{R}(\ceil{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{})), \equals{SortK{}, R}(Lblproject'Coln'K{}(SelectorInput:SortK{}), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("25b529ddcefd25ef63f99a62040145ef27638e7679ea9202218fe14be98dff3a.selector-inv …
+      axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \exists{R}(VarK:SortKItem{}, \equals{SortK{}, R}(SelectorInput:SortK{}, kseq{}(VarK:SortKItem{}, dotk{}()))))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a6499101e8cdc …
+      axiom{R} \implies{R}(\ceil{SortKItem{}, R}(Lblproject'Coln'KItem{}(SelectorInput:SortK{})), \equals{SortK{}, R}(kseq{}(Lblproject'Coln'KItem{}(SelectorInput:SortK{}), dotk{}()), \and{SortK{}}(SelectorInput:SortK{}, \top{SortK{}}()))) [UNIQUE'Unds'ID{}("1242e49c17638c9a66a35e3bb8c237288f7e9aa9a649910 …
+(exit 0)

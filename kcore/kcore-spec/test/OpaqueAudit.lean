@@ -53,3 +53,30 @@ def usesSortBEq (s : Kore.KSort) : Bool := s == s
 /-- info: [Kore.instBEqKSort.beq] -/
 #guard_msgs in
 #eval show MetaM Unit from do IO.println s!"{← opaqueReach [``usesSortBEq]}"
+
+/-! The comparisons `parse` makes where a derived `BEq` would be opaque are decided by `DecidableEq`
+and the kernel evaluates them: `Parse.lhsArgsOK_lhs`'s distinct variables (`List.Nodup`) and
+`Parse.lawSentenceIs`'s equality of axioms. `Parse.strLit_skel` writes what `String.quote` writes,
+on the empty string, the escaped characters, the control characters and DEL, and others. -/
+
+section
+open KCore.Parse
+
+private def sInt_oa : Kore.KSort := .ctor ⟨⟨"SortInt"⟩⟩ []
+private def ev_oa (n : String) : Kore.EVar := ⟨⟨⟨n⟩⟩, sInt_oa⟩
+private def memb_oa (xs : List Kore.EVar) : Kore.Pattern :=
+  xs.foldr (fun x r => .and sInt_oa [.in sInt_oa sInt_oa (.var (.evar x)) (.var (.evar x)), r]) (.top sInt_oa)
+
+example : lhsArgsOK_lhs [.var (.evar (ev_oa "VarX")), .var (.evar (ev_oa "VarY"))]
+    (memb_oa [ev_oa "VarX", ev_oa "VarY"]) = true := by decide
+example : lhsArgsOK_lhs [.var (.evar (ev_oa "VarX")), .var (.evar (ev_oa "VarX"))]
+    (memb_oa [ev_oa "VarX", ev_oa "VarX"]) = false := by decide
+example : lawSentenceIs "assoc" (openAssocAx "Lblf" sInt_oa)
+    { openAssocAx "Lblf" sInt_oa with attributes := [KoreAML.attr "assoc"] } = true ∧
+    lawSentenceIs "assoc" (openAssocAx "Lblf" sInt_oa)
+    { openAssocAx "Lblg" sInt_oa with attributes := [KoreAML.attr "assoc"] } = false := by decide
+
+#guard ["", "abc", "a\"b\\c\nd\te", "\x00\x01\x1f\x7f", "é∀ x'"].all fun s => strLit_skel s == s.quote
+example : strLit_skel "a\"\x01\x7f" = "\"a\\\"\\x01\\x7f\"" := by decide
+
+end
