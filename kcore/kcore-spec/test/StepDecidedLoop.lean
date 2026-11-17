@@ -53,7 +53,7 @@ def c : Semantics :=
     pgmSort := Srt.k
     rules := [r] }
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 def i0 : GroundTerm := .dv Srt.int (.int 0)
 

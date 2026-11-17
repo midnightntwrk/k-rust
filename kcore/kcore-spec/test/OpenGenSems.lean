@@ -471,7 +471,7 @@ theorem coreOK_refuses : c2.coreOK = false ∧ c2.paramsPlain = false ∧ c2.sha
     (c2.subsortsOK && c2.fns.all (fun f => f.clauses.all (c2.clauseSorted f (c2.fns.map Fn.sig))) &&
       c2.rules.all c2.ruleSorted && c2.rulesPlain && c2.clausesPlain && c2.carriersOK &&
       c2.faithCoreOK && c2.hooksApart && c2.predsApart && c2.idsOK && c2.overloadsOK) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `c` itself is refused as well. -/
 theorem coreOK_refuses_c : c.coreOK = false ∧ c.paramsPlain = false := by decide +kernel
@@ -482,7 +482,7 @@ def c2n : Semantics :=
 
 /-- The raw parameter is the cause of the refusal: the same semantics with the parameter not raw
 meets `coreOK` and `shapesOK`. -/
-theorem coreOK_c2n : c2n.coreOK = true ∧ c2n.shapesOK = true := by decide +kernel
+theorem coreOK_c2n : c2n.coreOK = true ∧ c2n.shapesOK = true := by decide_cheap
 
 /-- The reason holds at `c2`: a value of Endianness applies its raw parameter, so the hypothesis
 of `libAdmitted_lawHooks_of` is false there. -/
@@ -635,10 +635,10 @@ statements for a semantics meeting `coreOK` are read with a raw parameter at han
 `paramsPlain`'s raw branch (`raw_of_core`), `raw_open_core`, `lawShape_core`, `openTotal_none`,
 `libAdmitted_lawHooks`, and the three of `lawHooks_lib` (also at IdemCtor). -/
 
-theorem commCtor_coreOK : CommCtor.c.coreOK = true := by decide +kernel
-theorem idemCtor_coreOK : IdemCtor.c.coreOK = true := by decide +kernel
-theorem openMixed_coreOK : OpenMixed.c.coreOK = true := by decide +kernel
-theorem openRule_coreOK : OpenRule.c.coreOK = true := by decide +kernel
+theorem commCtor_coreOK : CommCtor.c.coreOK = true := by decide_cheap
+theorem idemCtor_coreOK : IdemCtor.c.coreOK = true := by decide_cheap
+theorem openMixed_coreOK : OpenMixed.c.coreOK = true := by decide_cheap
+theorem openRule_coreOK : OpenRule.c.coreOK = true := by decide_cheap
 
 theorem commCtor_raw_or : CommCtor.orP.impl = none ∧
     ((CommCtor.orP.assoc || CommCtor.orP.idem) = true →

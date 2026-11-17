@@ -22,6 +22,7 @@ import KcoreSpec.FaithOK
 import KcoreSpec.RangeMapKeys
 import KcoreSpec.LazySound
 import KcoreSpec.Statements
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -279,11 +280,11 @@ def kBelow := fr { sortsBelowKItem := bI ++ [Srt.range, Srt.rangeMap], ctors := 
 example : kTok.coreOK = false ∧ collSortsOK kTok = false := by decide +kernel
 example : kCons.coreOK = false ∧ genWf kCons = false := by decide +kernel
 example : (wAt Srt.rangeMap .map).coreOK = false ∧ collsOK (wAt Srt.rangeMap .map) = false ∧
-    (wAt S .map).coreOK = true := by decide +kernel
+    (wAt S .map).coreOK = true := by decide_cheap
 example : (kCtor rmUnit).coreOK = false ∧ kindsApart (kCtor rmUnit) = false ∧
     (fr { sortsBelowKItem := bI }).coreOK = true := by
   decide +kernel
-example : kBelow.coreOK = true := by decide +kernel
+example : kBelow.coreOK = true := by decide_cheap
 
 end RowWitnesses
 

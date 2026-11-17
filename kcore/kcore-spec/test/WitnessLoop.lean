@@ -106,7 +106,7 @@ theorem dec : c5.sortedOKCl = true ∧ c5.srReady = true ∧ c5.ovls = [] ∧
     clC.needsWitness c5 = true ∧ cl1.needsWitness c5 = false ∧ cl2.needsWitness c5 = false ∧
     clO.needsWitness c5 = false ∧ (∀ fn ∈ c.fns.drop 1, ∀ cl ∈ fn.clauses, cl.needsWitness c5 = false) ∧
     clC.reqClosed = true ∧ c5.confined 32 = false := by
-  decide +kernel
+  decide_cheap
 
 instance ovl5 : OvlOK c5 := OvlOK.of_nil dec.2.2.1 dec.2.2.2.1
 
@@ -341,7 +341,7 @@ theorem dec6 : c6.sortedOKCl = true ∧ c6.srReady = true ∧ c6.ovls = [] ∧
     c6.hooksApart = true ∧ c6.predsApart = true ∧ c6.idsOK = true ∧ c6.overloadsOK = true ∧
     clW.needsWitness c6 = true ∧ clO.needsWitness c6 = false ∧
     (∀ fn ∈ c.fns.drop 1, ∀ cl ∈ fn.clauses, cl.needsWitness c6 = false) ∧ c6.confined Srt.int = false := by
-  decide +kernel
+  decide_cheap
 
 instance ovl6 : OvlOK c6 := OvlOK.of_nil dec6.2.2.1 dec6.2.2.2.1
 

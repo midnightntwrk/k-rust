@@ -15,6 +15,7 @@
   function terminating and evaluation functional, given Bad's totality (`mi_total`).
 -/
 import KcoreSpec.FnObligations
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -58,7 +59,7 @@ def mi : Semantics where
     { sig := ⟨cS, [S, S], S⟩, impl := some mapConcat }, { sig := ⟨eB, [Srt.int, Srt.bool], S⟩, impl := some mapElem }]
   colls := [collS]
 
-theorem mi_sorted : mi.sortedOK = true ∧ mi.srReady = true := by decide +kernel
+theorem mi_sorted : mi.sortedOK = true ∧ mi.srReady = true := by decide_cheap
 
 /-- `S.item` is a map collection's element symbol; `B.item` is not (its argument sorts are not the
 collection's). -/

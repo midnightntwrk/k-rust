@@ -104,7 +104,7 @@ theorem or_compound :
 
 `paramsPlain`'s raw branch no longer refuses a parameter with both laws: `c`, whose one parameter
 `or` is raw with `assoc` and `idem`, meets `coreOK`. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- `paramsPlain` at `c` with what its raw branch reads (and `floatShapeOK`, which `coreOK` gives),
 and that the branch is read at a parameter with both laws. -/

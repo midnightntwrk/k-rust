@@ -214,7 +214,7 @@ open Faithful.Model in
 theorem names_c : namesApartFast c = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_c : itesApart c = true := by decide +kernel
+theorem ites_c : itesApart c = true := by decide_cheap
 
 theorem ovls_c : c.overloadsOK = true := by decide +kernel
 
@@ -244,7 +244,7 @@ theorem obligations_c : c.rankObligations [negInt, negExp] ++ c.decObligationsL 
     c.totalObligationsRP [negInt, negExp] [] = [] ∧ c.agreeObligationsI = [] ∧
     c.matchObligationsL = ([] : List (Nat × Nat)) ∧ c.readsConfined = false := by decide +kernel
 
-theorem sortedOK_c : c.sortedOK = true := by decide +kernel
+theorem sortedOK_c : c.sortedOK = true := by decide_cheap
 
 /-- **`FnHyp`**: every obligation the deciders leave is empty (the two clauses of `negExp` meet at no
 argument), and `OpenDecided`, `OpenLaws` from a definition that reads no confined sort and is
@@ -278,7 +278,7 @@ theorem light_cC : light cC = true := by decide +kernel
 open Faithful.Model in
 theorem names_cC : namesApartFast cC = true := by decide +kernel
 open Faithful.Model in
-theorem ites_cC : itesApart cC = true := by decide +kernel
+theorem ites_cC : itesApart cC = true := by decide_cheap
 theorem ovls_cC : cC.overloadsOK = true := by decide +kernel
 
 /-- `coreOK` admits the competitor beside the `aside` clause. -/
@@ -337,7 +337,7 @@ theorem light_cO : light cO = true := by decide +kernel
 open Faithful.Model in
 theorem names_cO : namesApartFast cO = true := by decide +kernel
 open Faithful.Model in
-theorem ites_cO : itesApart cO = true := by decide +kernel
+theorem ites_cO : itesApart cO = true := by decide_cheap
 theorem ovls_cO : cO.overloadsOK = true := by decide +kernel
 
 /-- `coreOK` admits the `[owise]` clause beside the `aside` one. -/

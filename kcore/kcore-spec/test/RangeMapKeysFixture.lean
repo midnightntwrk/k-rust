@@ -89,7 +89,7 @@ theorem sortOfH (H : HookParams) : (c.withHooks H).sortOf = c.sortOf := Semantic
 private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem cfg_sorted (t : GroundTerm) (H : HookParams) (h : c.sortOf (cfg t) = some topCellSort) :
     (c.withHooks H).sortOf (cfg t) = some topCellSort := by rw [sortOfH]; exact h

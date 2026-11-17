@@ -50,7 +50,7 @@ noncomputable abbrev cR : Semantics := { c with rules := c.rules ++ [ok2] }
 rule count); it owes no clause; no function or parameter is named; `RightHeld` is decided. -/
 theorem shapeR : cR.coreOK = true ∧ cR.plain = false ∧ c.rules.length = 1 ∧ cR.owedRules = [1] ∧
     cR.owedClauses = [] ∧ ok2.condVars = [2] ∧ cR.rightValued = true := by
-  decide +kernel
+  decide_cheap
 
 /-- **`ok2` is `Witnessed`** at H := 0: `0 ==Int 0` evaluates to `true`. -/
 theorem wit2 : ok2.Witnessed cR := by

@@ -146,18 +146,18 @@ theorem genWf_eq (c : Semantics) : genWf c = (g1 c && g2 c && g3 c &&
 
 /-! ## The controls: `coreOK` holds without the constructor -/
 
-theorem ctl_fr : (fr { sortsBelowKItem := bI }).coreOK = true := by decide +kernel
-theorem ctl_fr_map : (fr { sortsBelowKItem := bI ++ [Srt.map] }).coreOK = true := by decide +kernel
-theorem ctl_frS_carrier : (frS carrierLib).coreOK = true := by decide +kernel
-theorem ctl_ownColl : (ownColl false).coreOK = true := by decide +kernel
-theorem ctl_fr_mint : (fr { sortsBelowKItem := bI ++ [Srt.mint] }).coreOK = true := by decide +kernel
-theorem ctl_fr_rangeMap : (fr { sortsBelowKItem := bI ++ [Srt.rangeMap] }).coreOK = true := by decide +kernel
+theorem ctl_fr : (fr { sortsBelowKItem := bI }).coreOK = true := by decide_cheap
+theorem ctl_fr_map : (fr { sortsBelowKItem := bI ++ [Srt.map] }).coreOK = true := by decide_cheap
+theorem ctl_frS_carrier : (frS carrierLib).coreOK = true := by decide_cheap
+theorem ctl_ownColl : (ownColl false).coreOK = true := by decide_cheap
+theorem ctl_fr_mint : (fr { sortsBelowKItem := bI ++ [Srt.mint] }).coreOK = true := by decide_cheap
+theorem ctl_fr_rangeMap : (fr { sortsBelowKItem := bI ++ [Srt.rangeMap] }).coreOK = true := by decide_cheap
 
 /-- An own constructor of result KItem, or of an own sort with no carrier, and a library
 constructor of such a sort: `coreOK` holds. -/
-theorem ctl_own_kitem : (own { sortsBelowKItem := bI } Srt.kitem).coreOK = true := by decide +kernel
-theorem ctl_ownS : (ownS { sortsBelowKItem := bI }).coreOK = true := by decide +kernel
-theorem ctl_libS : (frS { sortsBelowKItem := bI, ctors := [⟨rangeCtor, [], S⟩] }).coreOK = true := by decide +kernel
+theorem ctl_own_kitem : (own { sortsBelowKItem := bI } Srt.kitem).coreOK = true := by decide_cheap
+theorem ctl_ownS : (ownS { sortsBelowKItem := bI }).coreOK = true := by decide_cheap
+theorem ctl_libS : (frS { sortsBelowKItem := bI, ctors := [⟨rangeCtor, [], S⟩] }).coreOK = true := by decide_cheap
 
 /-! ## The library route -/
 
@@ -192,7 +192,7 @@ theorem own_coll : (ownColl true).coreOK = false ∧ g1 (ownColl true) = false �
 /-! ## Registry sorts the kernel gives no other values -/
 
 /-- A library constructor into MInt keeps `coreOK`. -/
-theorem lib_mint : (libC Srt.mint).coreOK = true := by decide +kernel
+theorem lib_mint : (libC Srt.mint).coreOK = true := by decide_cheap
 
 /-- RangeMap is a collection sort of the kernel: a library constructor into it fails `genWf`'s
 third conjunct. -/

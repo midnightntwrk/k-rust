@@ -60,8 +60,8 @@ def lInt : Lib := { sortsBelowKItem := [Srt.int, Srt.bool] }
 
 /-- Int keys and values, no Range constructor: `coreOK` holds at kind `.rangeMap` as at `.map`.
 Its one value of `S` is the empty map. -/
-theorem wInt_coreOK : (w lInt .rangeMap Srt.int Srt.int).coreOK = true := by decide +kernel
-theorem wInt_map_coreOK : (w lInt .map Srt.int Srt.int).coreOK = true := by decide +kernel
+theorem wInt_coreOK : (w lInt .rangeMap Srt.int Srt.int).coreOK = true := by decide_cheap
+theorem wInt_map_coreOK : (w lInt .map Srt.int Srt.int).coreOK = true := by decide_cheap
 
 example : (w lInt .rangeMap Srt.int Srt.int).sortOf (.map S []) = some S ∧
     (w lInt .rangeMap Srt.int Srt.int).paramVal uS [] = some (.map S []) := by decide +kernel
@@ -75,9 +75,9 @@ theorem kO_mem : kO ∈ cO.allColls := List.mem_append_right _ (List.mem_singlet
 
 instance : OvlOK cO := .of_nil rfl (by decide +kernel)
 
-theorem cO_sortedOK : cO.sortedOK = true := by decide +kernel
+theorem cO_sortedOK : cO.sortedOK = true := by decide_cheap
 
-theorem cO_coreOK : cO.coreOK = true := by decide +kernel
+theorem cO_coreOK : cO.coreOK = true := by decide_cheap
 
 theorem cO_fnHyp : FnHyp cO :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,

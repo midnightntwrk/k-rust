@@ -401,8 +401,8 @@ theorem fn_memH (H : HookParams) : fn ∈ (cH H).fns := by
   exact List.getElem_mem _
 
 /-- **The account**: `wf` and `coreOK` hold. -/
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- **The one named fact is the agreement of `choose`** (the package's `agree_named`), under every H. -/
@@ -711,8 +711,8 @@ theorem fn_clauses : fn.clauses = [clB, clA, clO] := rfl
 theorem hfnH (H : HookParams) : (cH H).lookupFn choose = some fn := by
   rw [Semantics.lookupFn_withHooks]; rfl
 
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 theorem okH (H : HookParams) : (cH H).ok = true := (Semantics.ok_withHooks c H).trans (by decide +kernel)
 

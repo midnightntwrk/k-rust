@@ -119,7 +119,7 @@ open Faithful.Model in
 theorem names_ok : namesApartFast c = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ok : itesApart c = true := by decide +kernel
+theorem ites_ok : itesApart c = true := by decide_cheap
 
 theorem others_ok : others c = true := others_of light_ok names_ok ites_ok
 
@@ -229,7 +229,7 @@ open Faithful.Model in
 theorem names_ovlfun : namesApartFast ovlfun = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ovlfun : itesApart ovlfun = true := by decide +kernel
+theorem ites_ovlfun : itesApart ovlfun = true := by decide_cheap
 
 theorem others_ovlfun : others ovlfun = true := others_of light_ovlfun names_ovlfun ites_ovlfun
 
@@ -239,7 +239,7 @@ open Faithful.Model in
 theorem names_lhs : namesApartFast lhs = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_lhs : itesApart lhs = true := by decide +kernel
+theorem ites_lhs : itesApart lhs = true := by decide_cheap
 
 theorem others_lhs : others lhs = true := others_of light_lhs names_lhs ites_lhs
 
@@ -327,7 +327,7 @@ open Faithful.Model in
 theorem names_ok : namesApartFast c = true := by decide +kernel
 
 open Faithful.Model in
-theorem ites_ok : itesApart c = true := by decide +kernel
+theorem ites_ok : itesApart c = true := by decide_cheap
 
 theorem others_ok : others c = true := others_of light_ok names_ok ites_ok
 

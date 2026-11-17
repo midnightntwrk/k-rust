@@ -175,7 +175,7 @@ theorem randInt_param :
     c.params.map (fun k => c.symName k.sig.name) = ["LblrandInt'LParUndsRParUnds'INT-COMMON'Unds'Int'Unds'Int"] := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 end EnsParam
 

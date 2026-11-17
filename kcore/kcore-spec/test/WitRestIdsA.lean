@@ -146,7 +146,7 @@ theorem not_ids3 : ids3 c = false := by decide +kernel
 /-- The predicate of `S` is named `""` in `c`, `LblisS` in `c0`; no other symbol is named either. -/
 theorem pred_names : c.symName nRegSyms = "" ∧ c0.symName nRegSyms = "LblisS" ∧ predOf S = some nRegSyms ∧
     namesApartK c = true ∧ namesApartK c0 = true :=
-  ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide_cheap, by decide_cheap⟩
+  ⟨by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩
 
 end Short
 
