@@ -222,8 +222,12 @@ theorem noOpens : (∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, cl.opens = []) ∧
 theorem rulesBindC : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true := by
   decide +kernel
 
-example : c.readsConfined = false := Semantics.readsConfined_of_coreCl coreOK rulesBindC noOpens.1
-example : Faithful.Γc c = Faithful.Γ c := Γc_coreCl coreOK rulesBindC noOpens.1
+/-- The text's rules have `\top` predicates. -/
+theorem rulesTopC : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top :=
+  Semantics.rulesTop_of_isTop (by decide +kernel)
+
+example : c.readsConfined = false := Semantics.readsConfined_of_coreCl coreOK rulesBindC rulesTopC noOpens.1
+example : Faithful.Γc c = Faithful.Γ c := Γc_coreCl coreOK rulesBindC rulesTopC noOpens.1
 example : OpenDecided c :=
   openDecided_of_coreCl coreOK rulesBindC fun fn hfn cl hcl hw => absurd hw (by rw [noOpens.2 fn hfn cl hcl]; decide)
 

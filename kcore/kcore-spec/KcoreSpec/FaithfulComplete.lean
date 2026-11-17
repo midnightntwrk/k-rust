@@ -248,7 +248,7 @@ include hI hnn hsc hok hbc hph hneg
 /-- **A rule that applies, in a model**: a configuration that a rule's left-hand side matches
 under a well-sorted σ, with its `requires` evaluating to `true`, has its element in the rule's
 `applies` pattern `∃x̄. (lhs ∧ ⌈req = true⌉)`. -/
-theorem applies_holds {r : Rule} (hr : r ∈ c.rules) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
+theorem applies_holds {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) (hb : binds r.vars.length (varOccs r.lhs) = true) {σ : Subst} (hσ : c.WellSorted r.vars σ) {x : Config c}
     (hmatch : PatVal c σ r.lhs x.val) (hreq : ∀ t, r.req = some t → EvalTerm c σ t (some (bool true)))
     {tbl : VarTable} (hkeys : ∀ i < r.vars.length, canonKey c r.vars i ∈ tbl) (e : Valuation M) :
     (KoreAML.tr ⟨tbl, []⟩ (applies c r (canonRulePres r))).interpret I e (elemOf c I x.val) := by
@@ -257,7 +257,7 @@ theorem applies_holds {r : Rule} (hr : r ∈ c.rules) (hb : binds r.vars.length 
   obtain ⟨hnd, hsrt⟩ := canon_binders hkeys
   have hag := overV_agrees hI hkeys hσ (e := e)
   have h := lhs_req_hold4 hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
-  rw [applies_top _ (Semantics.sortedOK_ruleTop hok hr).1 hb]
+  rw [applies_top _ hpre hb]
   show (KoreAML.tr ⟨tbl, []⟩ (KoreAML.existsAll (srtOf c topCellSort) (vs.map KoreAML.Var.kore)
       (.and (srtOf c topCellSort) [Term.kore c vs r.lhs, reqPat (srtOf c topCellSort) (r.req.map (Term.kore c vs))]))).interpret
         I e _
@@ -291,7 +291,7 @@ variable {c : Semantics}
 free in `L`, the canonical variables of the rule and of its competitors are among `L`'s, and an
 element of `L` is in the left-hand side and in `⌈req = true⌉`, and in no competitor's `applies`. -/
 theorem rule_parts {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hok : c.sortedOK = true)
-    (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+    (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     {r : Rule} (hr : r ∈ c.rules) :
     ∃ L, prioRuleK c r = .rewrites (srtOf c topCellSort) L
         (.and (srtOf c topCellSort) [Term.kore c (canonVars c r.vars) r.rhs,
@@ -306,7 +306,7 @@ theorem rule_parts {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (
         ∀ r' ∈ c.rules, r'.prio < r.prio →
           ¬ (KoreAML.tr ⟨tbl, []⟩ (applies c r' (canonRulePres r'))).interpret I e a := by
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := htop _ hr
   have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hok hr (hb r hr)
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
@@ -337,7 +337,7 @@ theorem rule_parts {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (
     · refine Model.varsOf_and_mem (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))) ?_
       simp only [KoreAML.varsOf]
       exact List.mem_append_right _ (mem_varsOf_anyOfC (hcomp r' hr' hlt)
-        (varsOf_applies (Semantics.sortedOK_ruleTop hok hr').1 (hb _ hr') hi))
+        (varsOf_applies (htop _ hr').1 (hb _ hr') hi))
     · rw [tr_and4, KoreAML.interp_sAnd, KoreAML.interp_sAnd, KoreAML.interp_sAnd] at h
       obtain ⟨h1, h2, h3, -⟩ := h
       rw [KoreAML.tr, KoreAML.interp_sNot] at h3
@@ -347,7 +347,7 @@ open Classical in
 /-- **Step completeness**: with the step's closure axiom, in every model of `Γ c`, every successor
 of the element of a configuration `x` is the element of a configuration that `ref`, a step function
 listing `Step`'s successors, gives for `x`. -/
-theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hft : FnTerminates c) (ref : StepFn) (href : StepIs c ref) (x : Config c) :
     (Γ c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList ((ref x.val).map (den c)))) := by
   obtain ⟨hok, hsr, hnn, hg, hph, hcso, hcs, hph', hno⟩ := id h
@@ -399,12 +399,12 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
   obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hp
   obtain ⟨hlhs, hreqs, hrhss⟩ := rule_ctx hok hr
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨L, hPL, hLfree, hLvars, hLcomp, hLread⟩ := rule_parts (I := I) hok hb hr
+  obtain ⟨L, hPL, hLfree, hLvars, hLcomp, hLread⟩ := rule_parts (I := I) hok hb htop hr
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let R : Kore.Pattern := .and C [Term.kore c vs r.rhs, reqPat C (r.ens.map (Term.kore c vs))]
   have hfreeP : ∀ k ∈ KoreAML.freeOf [] (.rewrites C L R), ∃ i < r.vars.length, k = canonKey c r.vars i :=
-    fun k hk => Model.freeOf_prio_of_sorted hok hb hr (by rw [hPL]; exact hk)
+    fun k hk => Model.freeOf_prio_of_sorted hok hb htop hr (by rw [hPL]; exact hk)
   rw [hPL] at hφm hoff
   rw [closureDisjunct_rewrites] at hφm
   -- the table of the disjunct
@@ -511,7 +511,7 @@ theorem step_complete (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars
       by_cases hvt : v = some (bool true)
       · rw [hvt] at hv; exact hv
       · exact absurd (RuleReqFails.intro ht hv hvt) hnf
-    exact hcomp r' hr' hlt (applies_holds hIΓ hnn hsc hok hbc hph hneg hr' (hb _ hr') hσ' hpv' hreq'
+    exact hcomp r' hr' hlt (applies_holds hIΓ hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hb _ hr') hσ' hpv' hreq'
       (fun i hi => hin_tbl _ (hLcomp r' hr' hlt i hi)) e2)
   -- the right-hand side evaluates to a configuration whose element is `b`
   obtain ⟨v, hv⟩ := Model.evalTerm_total h hft fns_headsOK hσ hrhss

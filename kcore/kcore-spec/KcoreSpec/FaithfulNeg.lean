@@ -2814,7 +2814,7 @@ end
 
 /-- **L4.** In the first stage, every step of `Step` is a consequence of `Γ`: in every model, the
 configuration `x` has the configuration `y` as a successor. -/
-theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage1 c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   have hy : HypCore c := hy.core
@@ -2836,7 +2836,7 @@ theorem step_sound_stage1 (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈
   have hprio : prioRuleK c r = (ruleAxiom c r).pattern := by
     have hnil : c.rules.filter (·.prio < r.prio) = [] :=
       List.filter_eq_nil_iff.mpr (fun r' hr' => by simpa using hs.1 r hr r' hr')
-    obtain ⟨hpre, hpost⟩ := Semantics.sortedOK_ruleTop hy.1 hr
+    obtain ⟨hpre, hpost⟩ := htop _ hr
     have hex : r.exs = [] := Semantics.sortedOK_exsNil hy.1 hr (hb r hr)
     rw [prioRuleK_top hex hpre hpost]
     dsimp only

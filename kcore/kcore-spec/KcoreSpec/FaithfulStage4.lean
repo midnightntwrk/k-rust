@@ -856,11 +856,11 @@ end
 
 /-- A rule that does not apply to a configuration (`NotApplies`) does not apply in the model, its
 `requires` read whether defined or not. -/
-theorem notApplies_model4 {r : Rule} (hr : r ∈ c.rules) {x : GroundTerm} (h : NotApplies c r x) :
+theorem notApplies_model4 {r : Rule} (hr : r ∈ c.rules) (hpre : r.pre = .top) {x : GroundTerm} (h : NotApplies c r x) :
     ModelNotApplies c I r x := by
   intro σ hσ hpv tbl e hag
   obtain ⟨-, hreqs, -⟩ := rule_ctx hok hr
-  obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top (Semantics.sortedOK_ruleTop hok hr).1
+  obtain ⟨_, _, ht, he, hv⟩ := (h σ (hσ.at _) hpv).req_of_top hpre
   · exact ⟨_, _, ht, hv, fun u hu => EvalTerm.sorted hsc he fns_headsOK hσ (hreqs _ ht) hu,
       evalTerm_den4 hI hnn hsc hok hbc hph hneg he fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs _ ht)⟩
 
@@ -998,11 +998,11 @@ an empty exclusion where it fails (`hneg`), and every rule read negatively has a
 does not apply (`hnegr`), the configuration `x` has each of its `Step` successors `y` as a
 successor. Left-hand sides and clause patterns read positively may be collection patterns
 (`patVal_den4`). -/
-theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (hnegr : ∀ r ∈ c.rules, RuleNeg c r → AppEmpty c I r) {x y : Config c} (hstep : Step c x y)
+theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top) (hnegr : ∀ r ∈ c.rules, RuleNeg c r → AppEmpty c I r) {x y : Config c} (hstep : Step c x y)
     (e : Valuation M) (m : M) (hm : (den c x.val).interpret I e m) :
     (KoreAML.sNext (den c y.val)).interpret I e m := by
   obtain ⟨r, hr, σ, hσ, hmatch, hreq, -, heval, hens, -, hprio⟩ := hstep
-  obtain ⟨hpre₀, hpost₀⟩ := Semantics.sortedOK_ruleTop hok hr
+  obtain ⟨hpre₀, hpost₀⟩ := htop _ hr
   have hex₀ : r.exs = [] := Semantics.sortedOK_exsNil hok hr (hb r hr)
   have hD := defOK hI
   obtain ⟨hlhs, hreqs, -⟩ := rule_ctx hok hr
@@ -1070,7 +1070,7 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
         obtain ⟨φ, hφ, hk⟩ := mem_freeOf_anyOfC hk
         obtain ⟨r', hr', -, rfl⟩ := hcomp φ hφ
         obtain ⟨hlhs', hreqs', -⟩ := rule_ctx hok hr'
-        exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (Semantics.sortedOK_ruleTop hok hr').1 (hb _ hr') hk
+        exact freeOf_applies hlhs' (fun t ht => varOccs_lt t (hreqs' t ht)) (htop _ hr').1 (hb _ hr') hk
       · exact freeOf_rule_parts hok hr (Or.inr (Or.inr hk))
     · have h := lhs_req_hold4 hI hnn hsc hok hbc hph hneg hr hσ hmatch hreq hag
       show (KoreAML.tr ⟨tbl, []⟩ (.and C _)).interpret I e' _
@@ -1082,10 +1082,10 @@ theorem step_at4 (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = 
         rw [trSort_srt]; rfl) comps (fun φ hφ => ?_), ?_⟩
       · obtain ⟨r', hr', hp, rfl⟩ := hcomp φ hφ
         refine hnegr r' hr' ⟨r, hr, hp⟩ x.property
-          (fun i hi => hkeys _ ?_) e' (notApplies_model4 hI hnn hsc hok hbc hph hneg hr' (hprio r' hr' hp))
+          (fun i hi => hkeys _ ?_) e' (notApplies_model4 hI hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hprio r' hr' hp))
         rw [KoreAML.varsOf, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOfList, KoreAML.varsOf]
         exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _
-          (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (Semantics.sortedOK_ruleTop hok hr').1 (hb _ hr') hi))))))
+          (List.mem_append_right _ (mem_varsOf_anyOfC hφ (varsOf_applies (htop _ hr').1 (hb _ hr') hi))))))
       · have hxs := elemOf_spec hI x.property e'
         show (KoreAML.inhOf (KoreAML.trSort tbl (KoreAML.srt (c.sortName topCellSort)))).interpret I e' _
         rw [trSort_srt]
@@ -1111,18 +1111,18 @@ def Stage4a (c : Semantics) : Prop :=
 as a successor. Its rules' left-hand sides and its clauses' patterns may hold map and collection
 patterns where no negated premise reads them; those are read through the collection symbols'
 graphs on values (`patVal_den4`). -/
-theorem step_sound_stage4a (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_sound_stage4a (c : Semantics) [OvlOK c] (hy : Hyp c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (hs : Stage4a c) :
     ∀ x y : Config c, Step c x y → Γ c ⊧ (den c x.val ⇒ KoreAML.sNext (den c y.val)) := by
   have hy : HypCore c := hy.core
   have hnn : NamesNumbered c := hy.2.2.2.2.2.2
   have hsc := sortCtx_of_all hy.1 hy.2.1 (OvlOK.ovlCase inferInstance)
   intro x y hstep M _ I hI e m hm
-  refine step_at4 hI hnn hsc hy.1 hbc hs.2.1 (fun fn hfn cl hcl hn => ?_) hb (fun r hr hn => ?_) hstep e m hm
+  refine step_at4 hI hnn hsc hy.1 hbc hs.2.1 (fun fn hfn cl hcl hn => ?_) hb htop (fun r hr hn => ?_) hstep e m hm
   · obtain ⟨hp', hb', -⟩ := clause_ctx hy.1 hbc hfn hcl
     exact exclEmpty_of_plain hI hs.1 hsc.trans hnn.1 (clause_preTop hy.1 hfn hcl) hp' hb' (hs.2.2.2 fn hfn cl hcl hn)
   · obtain ⟨hlhs, -⟩ := rule_ctx hy.1 hr
-    exact appEmpty_of_plain hI hs.1 hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (hs.2.2.1 r hr hn) (Semantics.sortedOK_ruleTop hy.1 hr).1
+    exact appEmpty_of_plain hI hs.1 hsc.trans hnn.1 hlhs (Exec.binds_all (hb _ hr)) (hs.2.2.1 r hr hn) (htop _ hr).1
 
 end Faithful
 

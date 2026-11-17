@@ -31,7 +31,7 @@ open Classical in
 of `Γ c`, a successor of the element of `x` that lies in a pattern ψ is the element of a
 configuration y with `Step c x y`, where the evaluations the step at `x` reads have results
 (`StepDecided`). -/
-theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (x : Config c) (hd : StepDecided c x.val)
     {M : Type} [Inhabited M] {I : Interpretation KoreAML.Sym M} (hI : I ⊧ᴵP (Γ c ∪ Γstep c))
     (e : Valuation M) (ψ : KoreAML.P)
@@ -77,12 +77,12 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
   obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hp
   obtain ⟨hlhs, hreqs, hrhss⟩ := rule_ctx hok hr
   have hbinds := Exec.binds_all (hb _ hr)
-  obtain ⟨L, hPL, hLfree, hLvars, hLcomp, hLread⟩ := rule_parts (I := I) hok hb hr
+  obtain ⟨L, hPL, hLfree, hLvars, hLcomp, hLread⟩ := rule_parts (I := I) hok hb htop hr
   let C := srtOf c topCellSort
   let vs := canonVars c r.vars
   let R : Kore.Pattern := .and C [Term.kore c vs r.rhs, reqPat C (r.ens.map (Term.kore c vs))]
   have hfreeP : ∀ k ∈ KoreAML.freeOf [] (.rewrites C L R), ∃ i < r.vars.length, k = canonKey c r.vars i :=
-    fun k hk => Model.freeOf_prio_of_sorted hok hb hr (by rw [hPL]; exact hk)
+    fun k hk => Model.freeOf_prio_of_sorted hok hb htop hr (by rw [hPL]; exact hk)
   rw [hPL] at hφm hoff
   rw [closureDisjunct_rewrites] at hφm
   -- the table of the disjunct
@@ -149,7 +149,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
   -- no rule of a smaller priority applies, in the sense of `RuleApplies`: the disjunct's negated
   -- competitors hold at the element of x
   have hnoapp : ∀ r' ∈ c.rules, r'.prio < r.prio → ¬ RuleApplies c r' x.val :=
-    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt (applies_holds hIΓ hnn hsc hok hbc hph hneg hr' (hb _ hr')
+    fun r' hr' hlt ⟨σ', hσ', hpv', hreq', _⟩ => hcomp r' hr' hlt (applies_holds hIΓ hnn hsc hok hbc hph hneg hr' (htop _ hr').1 (hb _ hr')
       (Rule.wellSorted_of_at (hb _ hr') hσ')
       hpv' hreq' (fun i hi => hin_tbl _ (hLcomp r' hr' hlt i hi)) e2)
   -- so the rule is one `StepDecided` speaks of, at this match
@@ -168,7 +168,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
         hvt (fun u hu => EvalTerm.sorted hsc hv fns_headsOK hσ (hreqs t ht) hu)
         (evalTerm_den4 hIΓ hnn hsc hok hbc hph hneg hv fns_headsOK hσ (canonVars_length c r.vars) hag (hreqs t ht))
         _ hreq
-  have hrest := hdr.2 _ hσ hmatch hreqT ((Semantics.sortedOK_ruleTop hok hr).1 ▸ .top)
+  have hrest := hdr.2 _ hσ hmatch hreqT ((htop _ hr).1 ▸ .top)
   -- the `ensures` evaluates to `true`
   have hensS := rule_ctx_ens hok hr
   have hensT : ∀ t, r.ens = some t → EvalTerm c (substOf c I tbl vs r.vars e2) t (some (bool true)) := by
@@ -191,7 +191,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
     have hun : ∀ r'' ∈ c.rules, r''.prio < r'.prio → ¬ RuleApplies c r'' x.val :=
       fun r'' hr'' hlt' => hnoapp r'' hr'' (Nat.lt_trans hlt' hlt)
     have hd' := ((hd r' hr' hun).1 σ' hσ' hpv').1
-    have hpre' : Holds c r'.vars.length σ' r'.pre true := (Semantics.sortedOK_ruleTop hok hr').1 ▸ .top
+    have hpre' : Holds c r'.vars.length σ' r'.pre true := (htop _ hr').1 ▸ .top
     cases ht : r'.req with
     | none =>
       exact absurd ⟨σ', hσ', hpv', (fun t h => by rw [ht] at h; cases h), hpre'⟩ (hnoapp r' hr' hlt)
@@ -218,7 +218,7 @@ theorem step_successor_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.
 `Γ c`, every successor of the element of `x` is the element of a value in `ys`, a list holding
 every successor `Step` gives of `x`, where the evaluations the step at `x` reads have results
 (`StepDecided`): `step_successor_at` at the complement of the values of `ys`. -/
-theorem step_complete_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true)
+theorem step_complete_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.vars.length (varOccs r.lhs) = true) (htop : ∀ r ∈ c.rules, r.pre = .top ∧ r.post = .top)
     (hbc : ∀ fn ∈ c.fns, ∀ cl ∈ fn.clauses, binds cl.vars.length (varOccsList cl.pats) = true) (x : Config c) (hd : StepDecided c x.val) (ys : List GroundTerm)
     (hys : ∀ y : Config c, Step c x y → y.val ∈ ys) :
     (Γ c ∪ Γstep c) ⊧ (den c x.val ⇒ KoreAML.allNext (KoreAML.disjList (ys.map (den c)))) := by
@@ -231,7 +231,7 @@ theorem step_complete_at (h : HypSoundCore c) (hb : ∀ r ∈ c.rules, binds r.v
   unfold KoreAML.allNext
   rw [interpret_neg]
   intro hnext
-  obtain ⟨y, hy, hψ⟩ := step_successor_at h hb hbc x hd hI e _ hnext
+  obtain ⟨y, hy, hψ⟩ := step_successor_at h hb htop hbc x hd hI e _ hnext
   rw [interpret_neg] at hψ
   exact hψ (disjList_of_mem (List.mem_map_of_mem (hys y hy)) (((elemOf_spec hIΓ y.property e).1 _).mpr rfl))
 
