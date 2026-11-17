@@ -16,13 +16,14 @@
   - the left-hand side follows H through constructor applications and binds a variable at each
     high position or above it (`lhsOK`); those variables, the rule's *high variables*
     (`hiVars`), occur once in the left-hand side, nowhere in its low part (`loVars`) and not in
-    the `requires` (`appOK`). So whether the rule applies, and its `requires`, do not depend on
-    what is at H;
+    the `requires` or the `pre` (`appOK`). So whether the rule applies, its `requires` and its
+    `pre`, do not depend on what is at H (a condition's truth value reads its variables only,
+    `Holds.congr_NI`);
   - the right-hand side places each high variable at a position with the same high part as
     where the left-hand side bound it, through constructor applications only (`rhsOK`); every
     other subterm reads no high variable. So the result is defined at both configurations or at
-    neither, and the two results agree outside H; the `ensures` reads no high variable (`ensOK`),
-    so it has one result at both;
+    neither, and the two results agree outside H; the `ensures` and the `post` read no high
+    variable (`ensOK`), so each has one result at both;
   - every rule of a smaller priority satisfies the first condition, so the same rules are blocked
     at both configurations.
 
@@ -60,6 +61,7 @@
 -/
 import KcoreSpec.Noninterference
 import KcoreSpec.Collections
+import KcoreSpec.HoldsCongr
 
 set_option autoImplicit false
 
@@ -337,23 +339,24 @@ mutual
     termination_by structural _ _ ts => ts
 end
 
-/-- Whether the rule applies, and its `requires`, do not depend on what is at H; no symbol's being a
-value reads its arguments (no overloading symbol, no raw parameter), so that terms equal outside H
-have one sort; and the rule has no predicate and its left side binds every variable, so that its
-conditions are its `requires`. -/
+/-- Whether the rule applies, its `requires` and its `pre`, do not depend on what is at H (no
+variable of `pre` is a high variable); no symbol's being a value reads its arguments (no
+overloading symbol, no raw parameter), so that terms equal outside H have one sort; and its left
+side binds every variable. -/
 def appOK (c : Semantics) (H : HPaths) (r : Rule) : Bool :=
   let ks := (hiVars H r.lhs).map (·.1)
   lhsOK c H r.lhs && nodupB ks && !(loVars H r.lhs).any ks.contains &&
     (match r.req with
       | none => true
       | some t => !(varOccs t).any ks.contains) && c.ovls.isEmpty && !c.params.any (·.raw) &&
-    r.pre.isTop && r.post.isTop && binds r.vars.length (varOccs r.lhs)
+    !(varOccsCond r.vars.length r.pre).any ks.contains && binds r.vars.length (varOccs r.lhs)
 
-/-- The rule's `ensures` reads none of its high variables. -/
+/-- The rule's `ensures` and its `post` read none of its high variables. -/
 def ensOK (H : HPaths) (r : Rule) : Bool :=
-  match r.ens with
+  (match r.ens with
   | none => true
-  | some t => !(varOccs t).any ((hiVars H r.lhs).map (·.1)).contains
+  | some t => !(varOccs t).any ((hiVars H r.lhs).map (·.1)).contains) &&
+  !(varOccsCond r.vars.length r.post).any ((hiVars H r.lhs).map (·.1)).contains
 
 /-- **The decided condition** at a rule. -/
 def cellsCond (c : Semantics) (H : HPaths) (r : Rule) : Bool :=
@@ -724,11 +727,38 @@ def LowEq (c : Semantics) (lo : GroundTerm → Prop) (H : HPaths) (x₁ x₂ : C
 /-- A configuration with no successor. -/
 def Stuck (c : Semantics) (y : Config c) : Prop := ∀ z, ¬ Step c y z
 
-/-- A rule `appOK` accepts has `\top` predicates and a left side that binds every variable. -/
+/-- A rule `appOK` accepts has a left side that binds every variable. -/
 theorem appOK_plain {H : HPaths} {r : Rule} (h : appOK c H r = true) :
-    r.pre = .top ∧ r.post = .top ∧ binds r.vars.length (varOccs r.lhs) = true := by
+    binds r.vars.length (varOccs r.lhs) = true := by
   simp only [appOK, Bool.and_eq_true] at h
-  exact ⟨Cond.eq_top_of_isTop h.1.1.2, Cond.eq_top_of_isTop h.1.2, h.2⟩
+  exact h.2
+
+/-- No variable of the `pre` of a rule `appOK` accepts is one of its high variables. -/
+theorem appOK_pre {H : HPaths} {r : Rule} (h : appOK c H r = true) :
+    ∀ j ∈ varOccsCond r.vars.length r.pre, j ∉ (hiVars H r.lhs).map (·.1) := by
+  simp only [appOK, Bool.and_eq_true] at h
+  intro j hj hm
+  have : (varOccsCond r.vars.length r.pre).any ((hiVars H r.lhs).map (·.1)).contains = true :=
+    List.any_eq_true.mpr ⟨j, hj, List.contains_iff_mem.mpr hm⟩
+  have h' := h.1.2
+  rw [this] at h'; cases h'
+
+/-- No variable of the `ensures` or the `post` of a rule `ensOK` accepts is one of its high
+variables. -/
+theorem ensOK_parts {H : HPaths} {r : Rule} (h : ensOK H r = true) :
+    (∀ t, r.ens = some t → ∀ j ∈ varOccs t, j ∉ (hiVars H r.lhs).map (·.1)) ∧
+    ∀ j ∈ varOccsCond r.vars.length r.post, j ∉ (hiVars H r.lhs).map (·.1) := by
+  unfold ensOK at h
+  rw [Bool.and_eq_true] at h
+  obtain ⟨he, hp⟩ := h
+  refine ⟨fun t ht j hj hm => ?_, fun j hj hm => ?_⟩
+  · rw [ht] at he
+    have : (varOccs t).any ((hiVars H r.lhs).map (·.1)).contains = true :=
+      List.any_eq_true.mpr ⟨j, hj, List.contains_iff_mem.mpr hm⟩
+    simp only [this, Bool.not_true] at he; cases he
+  · have : (varOccsCond r.vars.length r.post).any ((hiVars H r.lhs).map (·.1)).contains = true :=
+      List.any_eq_true.mpr ⟨j, hj, List.contains_iff_mem.mpr hm⟩
+    simp only [this, Bool.not_true] at hp; cases hp
 
 theorem appOK_parts {H : HPaths} {r : Rule} (h : appOK c H r = true) :
     lhsOK c H r.lhs = true ∧ nodupB ((hiVars H r.lhs).map (·.1)) = true ∧
@@ -736,7 +766,7 @@ theorem appOK_parts {H : HPaths} {r : Rule} (h : appOK c H r = true) :
     (∀ t, r.req = some t → ∀ j ∈ varOccs t, j ∉ (hiVars H r.lhs).map (·.1)) ∧ c.ovls = [] ∧
     ∀ k ∈ c.params, k.raw = false := by
   simp only [appOK, Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_iff] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, -⟩, -⟩, -⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, -⟩, -⟩ := h
   refine ⟨h1, h2, fun j hj hm => ?_, fun t ht j hj hm => ?_, h5,
     fun k hk => by simpa using List.any_eq_false.mp h6 k hk⟩
   · have : (loVars H r.lhs).any ((hiVars H r.lhs).map (·.1)).contains = true :=
@@ -797,10 +827,11 @@ every configuration equal to it outside H. -/
 theorem notApplies_other {H : HPaths} {r : Rule} (hap : appOK c H r = true) {x₁ x₂ : GroundTerm}
     (he : EqOut c lo H x₁ x₂) (h : NotApplies c r x₁) : NotApplies c r x₂ := by
   intro σ hσ hm
-  obtain ⟨hpre, -, hb⟩ := appOK_plain hap
-  obtain ⟨hσ', hm', hrq, _⟩ := match_other hap (Rule.wellSorted_of_at hb hσ) hm he.symm
-  obtain ⟨_, _, ht, he', hv⟩ := (h _ (hσ'.at _) hm').req_of_top hpre
-  exact .intro ht (EvalTerm.congr he' (hrq _ ht)) hv
+  obtain ⟨hσ', hm', hrq, _⟩ := match_other hap (Rule.wellSorted_of_at (appOK_plain hap) hσ) hm he.symm
+  have hoff := match_other_off hap hm he.symm
+  cases h _ (hσ'.at _) hm' with
+  | intro ht he' hv => exact .intro ht (EvalTerm.congr he' (hrq _ ht)) hv
+  | pre hp => exact .pre (hp.congr_NI fun j hj => hoff j (appOK_pre hap j hj))
 
 /-- **The condition is sound, where any `Inv` holds**: a rule that satisfies it makes matched steps
 from configurations equal outside H, into configurations equal outside H. The proof reads no
@@ -811,7 +842,7 @@ theorem cellsCond_sound_on {H : HPaths} (Inv : Config c → Prop) :
   simp only [cellsCond, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_true',
     decide_eq_false_iff_not, Nat.not_lt] at hc
   obtain ⟨⟨⟨hap, hrhs⟩, hens⟩, hlow⟩ := hc
-  obtain ⟨σ, hσ, hm, hreq, -, hev, hen, -, hprio⟩ := hb
+  obtain ⟨σ, hσ, hm, hreq, hpre, hev, hen, hpost, hprio⟩ := hb
   obtain ⟨hσ₂, hm₂, hrq, hsr⟩ := match_other hap hσ hm hR
   have hoff := match_other_off hap hm hR
   obtain ⟨r₂, hev₂, hrel⟩ := rhs_transfer hsr H r.rhs hrhs hev
@@ -820,14 +851,11 @@ theorem cellsCond_sound_on {H : HPaths} (Inv : Config c → Prop) :
   · cases h1
     have hs₂ : c.sortOf y₂ = some topCellSort := by
       rw [← hy.sortOf_eq (appOK_parts hap).2.2.2.2.1 (appOK_parts hap).2.2.2.2.2]; exact y₁.property
-    refine Or.inr ⟨⟨y₂, hs₂⟩, step_of_stepBy mem (appOK_plain hap).1 (appOK_plain hap).2.1 ⟨_, hσ₂, hm₂, fun t ht => ?_,
-      (appOK_plain hap).1 ▸ .top, hev₂, fun t ht => ?_, (appOK_plain hap).2.1 ▸ .top, fun r' hr' hlt => ?_⟩, hy⟩
+    refine Or.inr ⟨⟨y₂, hs₂⟩, step_of_stepBy_pp mem ⟨_, hσ₂, hm₂, fun t ht => ?_,
+      hpre.congr_NI fun j hj => (hoff j (appOK_pre hap j hj)).symm, hev₂, fun t ht => ?_,
+      hpost.congr_NI fun j hj => (hoff j ((ensOK_parts hens).2 j hj)).symm, fun r' hr' hlt => ?_⟩, hy⟩
     · exact EvalTerm.congr (hreq t ht) fun j hj => (hrq t ht j hj).symm
-    · unfold ensOK at hens
-      rw [ht] at hens
-      refine EvalTerm.congr (hen t ht) fun j hj => (hoff j fun hk => ?_).symm
-      simp only [Bool.not_eq_true', List.any_eq_false] at hens
-      exact hens j hj (List.contains_iff_mem.mpr hk)
+    · exact EvalTerm.congr (hen t ht) fun j hj => (hoff j ((ensOK_parts hens).1 t ht j hj)).symm
     · have hap' : appOK c H r' = true := by
         rcases hlow r' hr' with h | h
         · exact absurd hlt (Nat.not_lt.mpr h)

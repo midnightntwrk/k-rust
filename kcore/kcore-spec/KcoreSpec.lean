@@ -201,6 +201,7 @@ import KcoreSpec.AppliesPP
 import KcoreSpec.SatRulePP
 import KcoreSpec.ModelChoicePP
 import KcoreSpec.FamExPost
+import KcoreSpec.HoldsCongr
 import KcoreSpec.PredPlain
 import KcoreSpec.ExExact
 import KcoreSpec.OvlHeldDefs
