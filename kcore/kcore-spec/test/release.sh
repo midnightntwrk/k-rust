@@ -94,7 +94,7 @@ if grep -q '|ok|' "$R/examples.res"; then
   step axioms-sumspec axioms axioms-sumspec ref-kimp 'RefKimp.Sound User.SumSpec User.SumN User.RunInstance' \
     'RefKimp.SumSpec.sum_spec RefKimp.SumSpec.sum_spec_entailed RefKimp.SumN.sum_N RefKimp.sound_hyp RefKimp.complete_hyp RefKimp.RunInstance.run_instance'
   step axioms-refkimp axioms axioms-refkimp ref-kimp 'RefKimp.Sound RefKimp.FnHyp RefKimp.Facts.Terminates' \
-    'RefKimp.coreOK_defn RefKimp.consistent RefKimp.sound_at RefKimp.complete_at RefKimp.run_exact RefKimp.totals'
+    'RefKimp.coreOK_defn RefKimp.consistent RefKimp.sound_at RefKimp.complete_at RefKimp.run_exact RefKimp.totals RefKimp.totals_withHooks'
   step axioms-ni axioms axioms-ni 'kimp imp-sec imp-sec-leaky kink-imp vault vault-leaky kimp-ni' \
     'NI.Leak NI.Kind NI.Keyed Kimp.Kinds.NI Vault VaultLeaky User.Leak' \
     'NI.leaky_not_ni NI.checkers_differ NI.kimpNI_of_unwinding Kimp.noninterference NI.Keyed.not_noninterference NI.Keyed.var_not_unwinds Vault.noninterference VaultLeaky.noninterference VaultLeaky.not_noninterference VaultLeaky.leak_not_unwinds'
