@@ -19,7 +19,8 @@
   (`memberOK`). The decreasing positions are found by a search (`groupPos`) and then checked.
 
   - `rankObligations c ord`: the functions some callee of which (a function of `c` other than
-    itself) does not come before it in `ord`, unless the interval of its position is accepted.
+    itself) does not come before it in `ord`, unless the interval of its position is accepted; and
+    the functions that apply a function-overloaded symbol (`fnOvlCallers`).
   - `terminates_of_rankL`: every function terminates, given the named ones and those
     `decObligationsL` names. By induction on a stage: a function of an accepted interval has the
     interval's last position, every other function its own; the calls of a function go to
@@ -118,9 +119,12 @@ def rankNamed (ord labels : List Sym) (bad : List Fn) : List Sym :=
   (bad.filter fun f => !c.groupOKAt ord labels (fwdSpans ord labels bad) (ord.idxOf f.label)).map (·.label)
 
 /-- The functions some callee of which `ord` does not rank below them (`rankedCallees`), unless
-their position's interval is accepted (`groupOKAt`): their termination is named. -/
+their position's interval is accepted (`groupOKAt`), and the functions that apply a
+function-overloaded symbol (`fnOvlCallers`: the functions such a symbol overloads are callees no
+rank counts): their termination is named. -/
 def rankObligations (ord : List Sym) : List Sym :=
-  c.rankNamed ord (c.fns.map (·.label)) (c.fns.filter fun f => !rankedCallees ord (c.fns.map (·.label)) f)
+  c.rankNamed ord (c.fns.map (·.label)) (c.fns.filter fun f => !rankedCallees ord (c.fns.map (·.label)) f) ++
+    c.fnOvlCallers
 
 end Semantics
 
@@ -136,13 +140,14 @@ def groupMeasure (d : Sym → Nat) (h : Fn) (vs : List GroundTerm) : Nat :=
 /-- **A group of functions whose calls among themselves decrease in weight, and whose other calls
 reach terminating functions, terminates**: by induction on the weight at the decreasing position,
 for all functions of the interval I at once. Of each function of the interval, its clauses'
-variables are held or it terminates (`hheld`): the second kind has its result outright. -/
+variables are held and the functions that the symbols it applies overload terminate, or it
+terminates (`hheld`): the second kind has its result outright. -/
 theorem terminates_of_groupN (hc : EvalCtxN c) {ord labels : List Sym} (hl : labels = c.fns.map (·.label))
     {I : Nat × Nat} {d : Sym → Nat}
     (hmem : ∀ h ∈ c.fns, I.1 ≤ ord.idxOf h.label → ord.idxOf h.label ≤ I.2 →
       c.memberOK ord labels I d h = true)
     (hheld : ∀ h ∈ c.fns, I.1 ≤ ord.idxOf h.label → ord.idxOf h.label ≤ I.2 →
-      c.HeldFn h ∨ Terminates c h.label)
+      (c.HeldFn h ∧ ∀ g ∈ h.callees, OvlTerminates c g) ∨ Terminates c h.label)
     (hlow : ∀ g ∈ c.fns, ord.idxOf g.label < I.1 → Terminates c g.label) :
     ∀ h ∈ c.fns, I.1 ≤ ord.idxOf h.label → ord.idxOf h.label ≤ I.2 → Terminates c h.label := by
   suffices H : ∀ m, ∀ h ∈ c.fns, I.1 ≤ ord.idxOf h.label → ord.idxOf h.label ≤ I.2 →
@@ -156,9 +161,9 @@ theorem terminates_of_groupN (hc : EvalCtxN c) {ord labels : List Sym} (hl : lab
   | zero => intro _ _ _ _ _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ m ih =>
     intro h hh h1 h2 vs hvs hlt
-    rcases hheld h hh h1 h2 with hb | hT
+    rcases hheld h hh h1 h2 with ⟨hb, hovl⟩ | hT
     case inr => exact hT h (lookupFn_of_memN hc (List.mem_append_left _ hh)) vs hvs
-    refine eval_of_callsN hc (List.mem_append_left _ hh) hb hvs
+    refine eval_of_callsN hc (List.mem_append_left _ hh) hb hvs hovl
       (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
     have hmo := hmem h hh h1 h2
     simp only [Semantics.memberOK, List.all_eq_true] at hmo
@@ -200,9 +205,11 @@ theorem terminates_of_group (hc : EvalCtx c) {ord labels : List Sym} (hl : label
     {I : Nat × Nat} {d : Sym → Nat}
     (hmem : ∀ h ∈ c.fns, I.1 ≤ ord.idxOf h.label → ord.idxOf h.label ≤ I.2 →
       c.memberOK ord labels I d h = true)
+    (hovl : ∀ h ∈ c.fns, ∀ g ∈ h.callees, OvlTerminates c g)
     (hlow : ∀ g ∈ c.fns, ord.idxOf g.label < I.1 → Terminates c g.label) :
     ∀ h ∈ c.fns, I.1 ≤ ord.idxOf h.label → ord.idxOf h.label ≤ I.2 → Terminates c h.label :=
-  terminates_of_groupN hc.toN hl hmem (fun h hh _ _ => .inl (hc.binds h (List.mem_append_left _ hh))) hlow
+  terminates_of_groupN hc.toN hl hmem
+    (fun h hh _ _ => .inl ⟨hc.binds h (List.mem_append_left _ hh), hovl h hh⟩) hlow
 
 theorem groupMembers_mem {ord : List Sym} {I : Nat × Nat} {h : Fn} (hh : h ∈ c.fns)
     (h1 : I.1 ≤ ord.idxOf h.label) (h2 : ord.idxOf h.label ≤ I.2) (hlen : I.2 < ord.length) :
@@ -258,7 +265,8 @@ theorem not_rankObligations {ord : List Sym} {fn : Fn} (hmem : fn ∈ c.fns)
     · exfalso
       apply hN
       unfold Semantics.rankObligations Semantics.rankNamed
-      exact List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨List.mem_filter.mpr ⟨hmem, by simp [h1]⟩, by simp [h2]⟩, rfl⟩
+      exact List.mem_append_left _
+        (List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨List.mem_filter.mpr ⟨hmem, by simp [h1]⟩, by simp [h2]⟩, rfl⟩)
     · exact .inr rfl
   · exact .inl rfl
 
@@ -288,6 +296,9 @@ theorem terminates_of_rankLH (hok : c.sortedOK = true) (hsr : c.srReady = true) 
       rcases hheld fn hmem with hb | hT
       case inr => exact hT
       have hrk := not_rankObligations hmem (fun h => hN (List.mem_append_left _ h))
+      have hovl : ∀ g ∈ fn.callees, OvlTerminates c g := fun g hg =>
+        ovlTerminates_of_not_fnOvl (Semantics.not_fnOvl_of_not_caller hmem
+          (fun h => hN (List.mem_append_left _ (show fn.label ∈ c.rankObligations ord from List.mem_append_right _ h))) hg)
       rw [← hl, ← hsp] at hrk
       cases hok' : c.groupOKAt ord labels sp (ord.idxOf fn.label) with
       | true =>
@@ -298,7 +309,14 @@ theorem terminates_of_rankLH (hok : c.sortedOK = true) (hsr : c.srReady = true) 
         obtain ⟨-, hq, d, hd⟩ := groupOK_spec hg
         have hstage : n = (spanOf sp (ord.idxOf fn.label)).2 := by
           rw [← hn]; simp [stageOf, hok']
-        refine terminates_of_groupN hc hl hd (fun g hg _ _ => hheld g hg) (fun g hg hlt => ihs g hg ?_) fn hmem hp1 hp2
+        refine terminates_of_groupN hc hl hd
+          (fun g hg _ _ => by
+            by_cases hx : g.label ∈ c.fnOvlCallers
+            · exact .inr (hnamed _ (List.mem_append_left _
+                (show g.label ∈ c.rankObligations ord from List.mem_append_right _ hx)))
+            · exact (hheld g hg).imp (fun hb => ⟨hb, fun x hx' =>
+                ovlTerminates_of_not_fnOvl (Semantics.not_fnOvl_of_not_caller hg hx hx')⟩) id)
+          (fun g hg hlt => ihs g hg ?_) fn hmem hp1 hp2
         -- a function placed before the interval has a lower stage
         by_cases hgo : c.groupOKAt ord labels sp (ord.idxOf g.label) = true
         · simp only [stageOf, hgo, ↓reduceIte]
@@ -346,8 +364,8 @@ theorem terminates_of_rankLH (hok : c.sortedOK = true) (hsr : c.srReady = true) 
             simp only [Semantics.ctrReady, Bool.and_eq_true, Bool.not_eq_true'] at hr
             obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp hsome
             exact terminates_of_ctrN hc hr.1.1 hr.1.2 hr.2 (List.mem_append_left _ hmem) hb (List.find?_some hi)
-              hcallees
-        · exact terminates_of_decreasingLN hc (List.mem_append_left _ hmem) hb hd hcallees
+              hcallees hovl
+        · exact terminates_of_decreasingLN hc (List.mem_append_left _ hmem) hb hd hcallees hovl
   intro f fn hfn
   obtain ⟨hgm, hlab⟩ := lookupFn_spec hfn
   subst hlab

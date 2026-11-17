@@ -1443,12 +1443,6 @@ formed and the subsorts irreflexive (so the normal form of an overloading symbol
 value of its result sort, `OvlLaws.sortOf_norm`). -/
 def Semantics.OvlCase (c : Semantics) : Prop := c.ovls = [] ∨ (c.overloadsOK = true ∧ ∀ a, (a, a) ∉ c.subsorts)
 
-/-- With `OvlCase` no function overload covers anything: there is no overloading symbol, or each
-overloaded symbol is a constructor or an overloading symbol. -/
-theorem Semantics.OvlCase.fnCover_none {c : Semantics} (h : c.OvlCase) (f : Sym) (vs : List GroundTerm) :
-    c.fnCover f vs = none :=
-  h.elim (fun hno => OvlLaws.fnCover_none_of_nil hno f vs) (fun H => OvlLaws.fnCover_none_of_ok H.1 f vs)
-
 /-- What the laws read of the overloading symbols' declarations (`OvlLaws.OvlFnFacts`), with
 `OvlCase` and transitive subsorts. -/
 theorem Semantics.OvlCase.fnFacts {c : Semantics} (h : c.OvlCase)

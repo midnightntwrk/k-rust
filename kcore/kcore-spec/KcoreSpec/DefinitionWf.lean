@@ -728,9 +728,10 @@ def shapesOK : Bool :=
 mutual
   /-- A term whose value is defined wherever its variables have values: variables, domain values,
   injections, constructors, the interpreted symbols that are total (all but `partialHooks`), and
-  calls of the functions named in `tot` that are no interpreted symbol and no parameter symbol (an
+  calls of the functions named in `tot` that are no interpreted symbol, no parameter symbol (an
   application of one of those has its value, `EvalTerm.hook`, `EvalTerm.param`, whatever function
-  bears its number, and it may be undefined). -/
+  bears its number, and it may be undefined) and no overloading symbol (whose application is the
+  value of a function it overloads where one covers the arguments, `EvalTerm.ovlFn`). -/
   def totalTerm (tot : List Sym) : Term → Bool
     | .var _ => true
     | .dv _ _ => true
@@ -738,7 +739,8 @@ mutual
     | .as _ _ => false
     | .app f ts =>
       ((lookupSig c.ctorSigs f).isSome || (hookSigs.any (·.name == f) && !partialHooks.contains f) ||
-        (tot.contains f && !hookSigs.any (·.name == f) && !c.params.any (·.sig.name == f))) &&
+        (tot.contains f && !hookSigs.any (·.name == f) && !c.params.any (·.sig.name == f) &&
+          (c.lookupOvl f).isNone)) &&
         totalTermList tot ts
     termination_by structural t => t
   def totalTermList (tot : List Sym) : List Term → Bool
@@ -928,7 +930,16 @@ def appliedSyms : List Sym :=
   c.rules.flatMap (fun r => Term.heads r.rhs ++ (r.req.map Term.heads).getD []) ++
   c.fns.flatMap (·.callees)
 
-/-- The functions that call a function declared after them. Declaration order, with decreasing
+/-- The functions that apply a function-overloaded symbol (`fnOvlSyms`). At arguments a function
+it overloads covers, an application of such a symbol is that function's value (`EvalTerm.ovlFn`):
+a call of a function the term does not name, which neither the declaration order nor a rank of the
+functions counts. The termination of these functions is a named obligation (`orderObligations`,
+`rankObligations`). -/
+def fnOvlCallers : List Sym :=
+  (c.fns.filter fun f => f.callees.any c.fnOvlSyms.contains).map (·.label)
+
+/-- The functions that call a function declared after them, and those that apply a
+function-overloaded symbol (`fnOvlCallers`). Declaration order, with decreasing
 self calls (`Certificates.ok`), is KCore's argument that evaluation terminates
 (`terminates_of_order`, Terminates.lean); for these functions it does not apply, and their
 termination is a named obligation (`Obligations`, Statements.lean). -/
@@ -939,7 +950,7 @@ def orderObligations : List Sym :=
     | f :: fs =>
       (if f.callees.all (fun g => g == f.label || earlier.contains g || !labels.contains g) then []
        else [f.label]) ++ go (earlier ++ [f.label]) fs
-  go [] c.fns
+  go [] c.fns ++ c.fnOvlCallers
 
 /-- Well-formed clauses over constructors, hooks and the functions `heads` (`fnsOK`: every
 function of the definition, in any order: functions may call one another, mutually recursively,
