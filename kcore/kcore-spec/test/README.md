@@ -345,7 +345,10 @@ rows and E4's syntax-tree keys equal `test/ConstructsE4.lean`'s, and prints the 
 runs `test/constructs/units.py`: every refused row and every class R-c row names in `unit` a
 ticket of `progress/tickets-*.toml` or a unit of `progress/units.toml` (`KCORE_PROGRESS`, else the directory beside
 kcore-spec, else the main checkout's), or for a row not of class R-c `none (R-a)`, `none (R-b)` or
-`none (scope)`; it prints the refused rows by class and fails on a row without a valid `unit`.
+`none (scope)`; it prints the refused rows by class and fails on a row without a valid `unit`,
+except for the failures its allowance (`ALLOWANCE` in units.py) names as owed by a pending ticket:
+each kind of failure with its ticket and an exact pinned count, printed on every run, failing when
+the count differs from the pin or the ticket is missing or done (GUARD.units-standing).
 
 The K-level rows (E1, E2, E3, E7, E8) point at fixtures in `test/constructs/fixtures/`: small K texts
 kompiled by `python3 -I test/constructs/kfix.py run [NAME...]` (K 7.1.337, `--backend haskell`, one

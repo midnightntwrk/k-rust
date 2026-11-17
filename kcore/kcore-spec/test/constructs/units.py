@@ -36,8 +36,18 @@ Usage (from kcore-spec): python3 -I test/constructs/units.py [ROWS.toml]
              K_RUST/draft-personal/k-semantics-core-2026-11/progress)
 Prints the refused rows by class (R-a, R-b, scope, R-c, then any other class met) and how many of
 them have a unit, the same for the refused nested entries, the scope entries by ground, and each
-failing entry (at most 20, then the count). Exit 1 when an entry fails or PROGRESS has no ticket
-file or no units.toml.
+failing entry not allowed (at most 20, then the count). Exit 1 when an entry fails outside the
+allowance, when an allowance's count differs from its pin, or PROGRESS has no ticket file or no
+units.toml.
+
+The allowance (ALLOWANCE below, GUARD.units-standing): failures owed by a pending ticket of
+PROGRESS, each kind of failure named with the ticket that owes it and pinned at an exact count.
+Every run prints each allowance with its observed and pinned count. An allowance holds only while
+its ticket is in PROGRESS and its status is not done; a failure it does not cover, a count above the
+pin (a new failure of the kind) or below it (the ticket did part of its work: lower the pin), or a
+ticket missing or done, fails. Only the failure kinds the allowance names are allowed: an id that is
+no ticket, a malformed `none (...)`, a class the unit does not name and the scope fields are never
+allowed.
 """
 import collections, glob, os, re, sys, tomllib
 
@@ -55,8 +65,11 @@ if not tfiles or not os.path.isfile(ufile):
     print(f"units: no progress/tickets-*.toml or progress/units.toml under {prog} (set KCORE_PROGRESS)")
     sys.exit(1)
 ids = set(tomllib.load(open(ufile, "rb")).get("unit", {}))
+tstatus = {}
 for f in tfiles:
-    ids |= set(tomllib.load(open(f, "rb")).get("ticket", {}))
+    tk = tomllib.load(open(f, "rb")).get("ticket", {})
+    ids |= set(tk)
+    tstatus |= {k: v.get("status") for k, v in tk.items() if isinstance(v, dict)}
 
 CLASSES = ["R-a", "R-b", "scope", "R-c"]
 NONE = re.compile(r"none \(([^)]*)\)(.*)$", re.S)
@@ -69,6 +82,22 @@ UNDELIVERED = re.compile(r"fixtures/[^/\s]+/kompile\.txt: exit [1-9]\d*, \S+ \S+
 ACCOUNT = re.compile(r"fixtures/[^/\s]+/account\.txt: ")
 
 t = tomllib.load(open(rows, "rb"))
+
+# (ticket, pinned count, what the failures are, the test on (list, entry, failure kind)). The kinds:
+# "nounit" (an entry of status refused or class R-c without unit), "class" (a refused entry whose
+# class is outside CLASSES); every other failure is of kind "other" and is never allowed. A failure
+# is counted under the first allowance whose test holds.
+ALLOWANCE = [
+    ("ROWS-1.refresh-kore", 4,
+     "the two E5 entries whose class is outside R-a, R-b, scope, R-c (each its class and its "
+     "missing unit): convertRule:axiom#2 cases B49 (class undecided) and #Or in a left side "
+     "(class E3/E7's row decides); the E5 rows carry the status and class the merged line gives",
+     lambda l, e, k: l == "E5" and k in ("nounit", "class") and e.get("class") not in CLASSES),
+    ("ROWS-1.unit-rc", 62, "entries of class R-c without unit",
+     lambda l, e, k: k == "nounit" and e.get("class") == "R-c"),
+    ("ROWS-1.unit-refused", 121, "refused entries of class R-a, R-b or scope without unit",
+     lambda l, e, k: k == "nounit" and e.get("class") in ("R-a", "R-b", "scope")),
+]
 
 
 def rowref(s):
@@ -115,15 +144,22 @@ def scope_fields(e, ground):
 
 
 def check(where, e):
-    """The failures of one entry."""
+    """The failures of one entry: (kind, message), kind "class", "nounit" or "other" (ALLOWANCE)."""
+    bad = [("other", x) for x in check_rest(where, e)]
     refused, cls, u = e.get("status") == "refused", e.get("class"), e.get("unit")
-    bad = []
     if refused and cls not in CLASSES:
-        bad.append(f"{where} (refused): class {cls!r} is not one of {', '.join(CLASSES)}")
+        bad.insert(0, ("class", f"{where} (refused): class {cls!r} is not one of {', '.join(CLASSES)}"))
+    if u is None and (refused or cls == "R-c"):
+        bad.append(("nounit", f"{where} ({e.get('status')}, {cls}): no unit"))
+    return bad
+
+
+def check_rest(where, e):
+    """The failures of one entry other than its class and a missing unit."""
+    cls, u = e.get("class"), e.get("unit")
+    bad = []
     if u is None:
-        if refused or cls == "R-c":
-            bad.append(f"{where} ({e.get('status')}, {cls}): no unit")
-        elif cls == "scope":
+        if cls == "scope" and e.get("status") != "refused":
             bad.append(f"{where}: a scope entry has unit \"none (scope): <ground>\"")
         return bad
     if not isinstance(u, str):
@@ -177,6 +213,7 @@ def nested(e):
 tally = {"rows": (collections.Counter(), collections.Counter()),
          "nested": (collections.Counter(), collections.Counter())}
 grounds, bad = collections.Counter(), []
+allowed = collections.defaultdict(list)   # ticket -> the failures its allowance counts
 for l, tab in t.items():
     if not isinstance(tab, dict):
         continue
@@ -185,7 +222,9 @@ for l, tab in t.items():
             continue
         for kind, where, e in [("rows", f"{l} {key!r}", r)] + [
                 ("nested", f"{l} {key!r} {w}", c) for w, c in nested(r)]:
-            bad += check(where, e)
+            for k, msg in check(where, e):
+                owner = next((a[0] for a in ALLOWANCE if a[3](l, e, k)), None)
+                (allowed[owner] if owner else bad).append(msg)
             if e.get("status") == "refused":
                 bycls, withunit = tally[kind]
                 bycls[e.get("class")] += 1
@@ -201,9 +240,27 @@ def counts(kind):
     return ", ".join(f"{c} {bycls[c]} ({withunit[c]} with unit)" for c in cls)
 
 
+nbad, pins = len(bad), []
+for tid, pin, what, _ in ALLOWANCE:
+    got, st = allowed.get(tid, []), tstatus.get(tid)
+    why = ("" if len(got) == pin and st not in (None, "done") else
+           f"ticket {tid} is not in {prog}/tickets-*.toml" if st is None else
+           f"ticket {tid} is done, so it owes nothing" if st == "done" else
+           f"{len(got)} failures, pinned {pin}: " + ("a failure of this kind that the ticket does not owe"
+                                                     if len(got) > pin else
+                                                     "fewer than pinned: lower the pin"))
+    pins.append((tid, pin, what, st, got, why))
+    if why:
+        bad.append(f"allowance {tid}: {why}")
+nallow = sum(len(p[4]) for p in pins)
 print("units: refused rows by class: " + counts("rows") + "; refused nested entries by class: "
       + counts("nested") + "; scope by ground: "
-      + ", ".join(f"{g} {grounds[g]}" for g in GROUNDS) + f"; failing entries: {len(bad)}")
+      + ", ".join(f"{g} {grounds[g]}" for g in GROUNDS)
+      + f"; failing entries: {nallow + nbad}"
+      + f", of which {nallow} in the allowance of pending tickets")
+for tid, pin, what, st, got, why in pins:
+    print(f"  allowance {tid} (status {st}): {len(got)} of {pin} pinned: {what}"
+          + (f"; FAILS: {why}" if why else ""))
 for b in bad[:20]:
     print(f"  {b}")
 if len(bad) > 20:
