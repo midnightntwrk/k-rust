@@ -328,7 +328,7 @@ theorem sat_total (h : HypModelCore c)
 
 /-- **`Γ` with the step's closure and the totality axioms has a model** under `HypModelCore`: the
 value model, the one `has_model_core` gives. -/
-theorem has_model_total_core (h : HypModelCore c)
+theorem has_model_total_core (h : HypModelCore c) (hl : OpenLaws c)
     (hv : ∀ fn ∈ c.fns, fn.total = true → ∀ vs, c.sortsOf vs = some fn.args → ∃ v, Eval c fn.label vs (some v)) :
     stdI c ⊧ᴵP (Γ c ∪ Γstep c ∪ ΓTotal c) := by
   have hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true := fun _ hr => h.ruleFactsEx hr
@@ -336,7 +336,7 @@ theorem has_model_total_core (h : HypModelCore c)
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
     · exact satSigGoal h φ hφ
-    · exact satConsGoal h φ hφ
+    · exact satConsGoal h hl φ hφ
     · exact satDomainsGoal h φ hφ
     · exact satCollsGoal h φ hφ
     · exact satFnsGoal h φ hφ
@@ -352,7 +352,7 @@ end Model
 closure, and the functional axiom `∃y. f(x̄) = y` of every function declared `total`. -/
 theorem has_model_total {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
     Model.stdI c ⊧ᴵP (Γ c ∪ Γstep c ∪ Model.ΓTotal c) :=
-  Model.has_model_total_core (hypModel_of_fnHyp h hf) hf.2.1
+  Model.has_model_total_core (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 hf.2.1
 
 /-- The functional axiom of each `total` function holds in the value model, under `coreOK` and
 `FnHyp`, at every valuation. -/
@@ -372,7 +372,7 @@ theorem sound_total {c : Semantics} (h : c.coreOK = true) (hf : FnHyp c) :
   have hm : Model.stdI c ⊧ᴵP (Γc c ∪ Γstep c ∪ Model.ΓTotal c) := by
     intro φ hφ
     rcases hφ with hφ | hφ
-    · exact stdI_model_ex c h (hypModel_of_fnHyp h hf) (Semantics.ruleFactsEx_of_core h) φ hφ
+    · exact stdI_model_ex c h (hypModel_of_fnHyp h hf) hf.2.2.2.2.2 (Semantics.ruleFactsEx_of_core h) φ hφ
     · exact Model.sat_total (hypModel_of_fnHyp h hf) hf.2.1 φ hφ
   refine ⟨⟨_, inferInstance, _, hm⟩, fun x y r σ hs => ?_⟩
   obtain ⟨h1, h2⟩ := (sound_hyp c h hf).2 x y r σ hs

@@ -79,14 +79,14 @@ theorem boolClosed_modelCl {c : Semantics} (h : HypModelCore c)
 /-- **The value model satisfies `Γc c` with the step's closure** for a semantics with
 `HypModelCore` (whose clauses are asked `sortedOKCl`) and rules with `ruleSorted` and
 `rulePlainOpen`: `stdI_modelOpen` with `boolClosed_modelCl` for the closure axiom. -/
-theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c)
+theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
     · exact satSigGoal hm φ hφ
-    · exact satConsGoal hm φ hφ
+    · exact satConsGoal hm hl φ hφ
     · exact satDomainsGoal hm φ hφ
     · exact satCollsGoal hm φ hφ
     · exact satFnsGoal hm φ hφ
@@ -99,14 +99,14 @@ theorem stdI_modelOpenCl (c : Semantics) (hm : HypModelCore c)
 /-- **The value model satisfies `Γc c` with the step's closure** for a semantics with
 `HypModelCore` and rules with `ruleSorted` and `rulePlainEx`: `stdI_modelOpenCl` with the rules'
 axioms and the step's closure at `T := StepM c` (`satRulesGoal_StepM`, `satStepGoal_StepM`). -/
-theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c)
+theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
     · exact satSigGoal hm φ hφ
-    · exact satConsGoal hm φ hφ
+    · exact satConsGoal hm hl φ hφ
     · exact satDomainsGoal hm φ hφ
     · exact satCollsGoal hm φ hφ
     · exact satFnsGoal hm φ hφ
@@ -119,12 +119,13 @@ theorem stdI_modelExCl (c : Semantics) (hm : HypModelCore c)
 /-- **The theory of a semantics whose clauses are asked CN-4's bodies is consistent**:
 `consistent_of`'s conclusion for a semantics with `sortedOKCl` in place of `sortedOK`, `srReady`,
 `OvlOK`, `faithCoreOK`, `patHooksApart` and `idsOK`, whose functions have at most one result
-(`FnDet`) and whose evaluation solves the equations (`FnSolves`): the value model. Nothing is asked
+(`FnDet`), whose evaluation solves the equations (`FnSolves`) and whose interpretation satisfies the
+open generators' laws (`OpenLaws`): the value model. Nothing is asked
 of the sorts of the variables a clause's patterns and conditions do not hold. -/
 theorem consistent_ofCl (c : Semantics) (hok : c.sortedOKCl = true) (hsr : c.srReady = true) [hov : OvlOK c]
     (hfa : c.faithCoreOK = true) (hph : patHooksApart c = true) (hids : c.idsOK = true)
-    (hd : FnDet c) (hs : FnSolves c) : Consistent c := by
+    (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c) : Consistent c := by
   have hm := hypModel_ofCl hok hsr hov hfa hph hids hd hs
-  exact ⟨Elem, inferInstance, stdI c, stdI_modelExCl c hm fun _ hr => hm.ruleFactsEx hr⟩
+  exact ⟨Elem, inferInstance, stdI c, stdI_modelExCl c hm hl fun _ hr => hm.ruleFactsEx hr⟩
 
 end KCore

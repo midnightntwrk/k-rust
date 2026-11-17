@@ -278,14 +278,14 @@ example (hd : FnDet c) (hs : FnSolves c) (x y : Config c) :
 /-! ## The models, at the definition's rules -/
 
 example (hd : FnDet c) (hs : FnSolves c) : stdI_T c (StepM c) ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_T_model c coreOK (hypModel_of_fn coreOK hd hs) hrulesC (StepM c) (fun _ _ _ _ hT => hT)
+  stdI_T_model c coreOK (hypModel_of_fn coreOK hd hs) (openLaws_of_core coreOK) hrulesC (StepM c) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by c).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by c).mpr ⟨r, σ, hb⟩⟩)
 
 example (hd : FnDet c) (hs : FnSolves c) : stdI c ⊧ᴵP (Γc c ∪ Γstep c) :=
-  stdI_model_ex c coreOK (hypModel_of_fn coreOK hd hs) hrulesC
+  stdI_model_ex c coreOK (hypModel_of_fn coreOK hd hs) (openLaws_of_core coreOK) hrulesC
 
-example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_ex c coreOK hd hs hrulesC
+example (hd : FnDet c) (hs : FnSolves c) : Consistent c := consistent_ex c coreOK hd hs (openLaws_of_core coreOK) hrulesC
 
 /-- `has_model_choice_ex` at `T := Step c`. -/
 example (hf : FnHyp c) : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M),
@@ -312,9 +312,9 @@ theorem hrulesEx_of_coreC {c : Semantics} (h : c.coreOK = true) :
     ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true :=
   Semantics.ruleFactsEx_of_core h
 
-example : type_of% @stdI_modelOpen := fun c h hm hr => stdI_model_ex c h hm (hrulesEx_of_openC hr)
-example : type_of% @consistent_open := fun c h hd hs hr => consistent_ex c h hd hs (hrulesEx_of_openC hr)
-example : type_of% @consistent_of := fun c h hd hs _ => consistent_ex c h hd hs (hrulesEx_of_coreC h)
+example : type_of% @stdI_modelOpen := fun c h hm hl hr => stdI_model_ex c h hm hl (hrulesEx_of_openC hr)
+example : type_of% @consistent_open := fun c h hd hs hl hr => consistent_ex c h hd hs hl (hrulesEx_of_openC hr)
+example : type_of% @consistent_of := fun c h hd hs hl => consistent_ex c h hd hs hl (hrulesEx_of_coreC h)
 example : type_of% @has_model_choice_open := fun c h hf hr => has_model_choice_ex c h hf (hrulesEx_of_openC hr)
 example : type_of% @has_model_choice := fun c h hf => has_model_choice_ex c h hf (hrulesEx_of_coreC h)
 
@@ -710,14 +710,14 @@ example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP Γstep
 
 /-- `stdI_T_model` at `cX`'s rules at `StepM`: `hsome` read at `exTwo`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) : stdI_T cX (StepM cX) ⊧ᴵP (Γc cX ∪ Γstep cX) :=
-  stdI_T_model cX coreX.1 (hypModel_of_fn coreX.1 hd hs) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
+  stdI_T_model cX coreX.1 (hypModel_of_fn coreX.1 hd hs) (openLaws_of_core coreX.1) hrulesX (StepM cX) (fun _ _ _ _ hT => hT)
     (fun r σ _ _ hb _ => (stepM_iff_by cX).mpr ⟨r, σ, hb⟩)
     (fun r σ _ y hb _ => ⟨y, σ, fun _ _ => rfl, hb, (stepM_iff_by cX).mpr ⟨r, σ, hb⟩⟩)
 
 example (hd : FnDet cX) (hs : FnSolves cX) : stdI cX ⊧ᴵP (Γc cX ∪ Γstep cX) :=
-  stdI_model_ex cX coreX.1 (hypModel_of_fn coreX.1 hd hs) hrulesX
+  stdI_model_ex cX coreX.1 (hypModel_of_fn coreX.1 hd hs) (openLaws_of_core coreX.1) hrulesX
 
-example (hd : FnDet cX) (hs : FnSolves cX) : Consistent cX := consistent_ex cX coreX.1 hd hs hrulesX
+example (hd : FnDet cX) (hs : FnSolves cX) : Consistent cX := consistent_ex cX coreX.1 hd hs (openLaws_of_core coreX.1) hrulesX
 
 /-- The pinned `consistent_of` at `cX`. -/
 example (hd : FnDet cX) (hs : FnSolves cX) (hl : OpenLaws cX) : Consistent cX :=

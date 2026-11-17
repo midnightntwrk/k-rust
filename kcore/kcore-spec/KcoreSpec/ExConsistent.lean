@@ -15,8 +15,8 @@ open Faithful.Model
 semantics that `coreOK` accepts, whose functions have at most one result (`FnDet`) and whose
 evaluation solves the equations (`FnSolves`), and whose rules have `ruleSorted` and `rulePlainEx`,
 `Γc c` with the step's closure has a model: the value model (`stdI_model_ex`). -/
-theorem consistent_ex (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
+theorem consistent_ex (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainEx r = true) : Consistent c :=
-  ⟨Elem, inferInstance, stdI c, stdI_model_ex c h (hypModel_of_fn h hd hs) hrules⟩
+  ⟨Elem, inferInstance, stdI c, stdI_model_ex c h (hypModel_of_fn h hd hs) hl hrules⟩
 
 end KCore

@@ -238,6 +238,7 @@ theorem not_fnHypE : ¬ FnHyp cE := fun hf => by
 /-- **`consistent_ofCl` at `cE`**: the theory of `cE` with the step's closure has a model. -/
 theorem consistentE : Consistent cE :=
   consistent_ofCl cE decidedE.1 decidedE.2.1 decidedE.2.2.1 decidedE.2.2.2.1 decidedE.2.2.2.2.1 fnDetE fnSolvesE
+    (openLaws_of_plain (by decide +kernel))
 
 /-! ## `f() => g(Y:Int)`, `g(_) => 0` -/
 
@@ -430,6 +431,7 @@ theorem fnModelI : FnDet cI ∧ FnSolves cI :=
 /-- **`consistent_ofCl` at `cI`**: the theory of `cI` with the step's closure has a model. -/
 theorem consistentI : Consistent cI :=
   consistent_ofCl cI decidedI.1 decidedI.2.1 decidedI.2.2.1 decidedI.2.2.2.1 decidedI.2.2.2.2.1 fnModelI.1 fnModelI.2
+    (openLaws_of_plain (by decide +kernel))
 
 /-- info: 'KCore.consistent_ofCl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms KCore.consistent_ofCl

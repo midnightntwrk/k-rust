@@ -230,14 +230,14 @@ open Faithful Faithful.Model
 accepts with `HypModelCore`, whose rules have `ruleSorted` and `rulePlainOpen`: `Γ` with the rules'
 axioms by `satRulesGoal_open`, the step's closure by `satStepGoal_open`, and `boolClosed`, which
 `Γcl` holds where Bool holds only its literals, by `boolClosed_model`. -/
-theorem stdI_modelOpen (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c)
+theorem stdI_modelOpen (c : Semantics) (h : c.coreOK = true) (hm : HypModelCore c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) :
     stdI c ⊧ᴵP (Γc c ∪ Γstep c) := by
   intro φ hφ
   rcases hφ with (hφ | hφ) | hφ
   · rcases hφ with (((((hφ | hφ) | hφ) | hφ) | hφ) | hφ) | hφ
     · exact satSigGoal hm φ hφ
-    · exact satConsGoal hm φ hφ
+    · exact satConsGoal hm hl φ hφ
     · exact satDomainsGoal hm φ hφ
     · exact satCollsGoal hm φ hφ
     · exact satFnsGoal hm φ hφ

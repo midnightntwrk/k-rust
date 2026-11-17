@@ -346,7 +346,7 @@ theorem fnDet_of_fnSolves (h : c.coreOK = true) (hs : FnSolves c) : FnDet c := b
 /-- `consistent_open` with its `FnDet` from its other hypotheses. -/
 example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  consistent_open c h (fnDet_of_fnSolves h hs) hs hrules
+  consistent_open c h (fnDet_of_fnSolves h hs) hs (openLaws_of_core h) hrules
 
 /-- `consistent_of` (pinned, test/Pins.lean) with its `FnDet` from its other hypotheses. -/
 example (c : Semantics) (h : c.coreOK = true) (hs : FnSolves c) (hl : OpenLaws c) : Consistent c :=

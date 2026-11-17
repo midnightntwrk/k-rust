@@ -48,9 +48,9 @@ theorem has_model_step_of_hyp (h : HypModelCore c) (h2 : SatConsGoal c) (h5 : Sa
 
 /-- **`Γ` with the step's closure has a model** under `HypModelCore`: the value model. Of the
 rules it reads `ruleSorted` and `rulePlainEx` (`satRulesGoal_StepM`, `satStepGoal_StepM`). -/
-theorem has_model_core (h : HypModelCore c) :
+theorem has_model_core (h : HypModelCore c) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  has_model_step_of c (satSigGoal h) (satConsGoal h) (satDomainsGoal h) (satCollsGoal h) (satFnsGoal h)
+  has_model_step_of c (satSigGoal h) (satConsGoal h hl) (satDomainsGoal h) (satCollsGoal h) (satFnsGoal h)
     (satRulesGoal_StepM h (fun _ hr => h.ruleFactsEx hr))
     (satStepGoal_StepM h (fun _ hr => h.ruleFactsEx hr)) (satFallbackGoal h)
 
@@ -61,9 +61,9 @@ theorem HypModel.core (h : HypModel c) : HypModelCore c :=
   HypModel.core_of h hd (fnSolves_of_total h.sound.core hd h.hyp.core.2.2.1)
 
 /-- **`Γ` with the step's closure has a model** under `HypModel`: `has_model_core`. -/
-theorem has_model (h : HypModel c) :
+theorem has_model (h : HypModel c) (hl : OpenLaws c) :
     ∃ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  has_model_core h.core
+  has_model_core h.core hl
 
 end Model
 
@@ -74,7 +74,7 @@ theorem hypModel : Model.HypModel c :=
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
 
 theorem has_model : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  Model.has_model hypModel
+  Model.has_model hypModel (openLaws_of_plain (by decide +kernel))
 
 end UndefRhsWitness
 
@@ -86,7 +86,7 @@ theorem hypModel : Model.HypModel c :=
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩
 
 theorem has_model : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  Model.has_model hypModel
+  Model.has_model hypModel (openLaws_of_plain (by decide +kernel))
 
 end JunkWitness
 

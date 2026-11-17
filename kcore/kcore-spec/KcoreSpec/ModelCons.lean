@@ -1819,22 +1819,286 @@ theorem sat_ovlEq (h : HypModelCore c) {o : OvlSig} (ho : o ∈ c.ovls) {kg : Ct
     stdI c ⊧ᴵ (KoreAML.Cons.ovlEqItem (toK c o.sig) (toK c kg)).pat :=
   AtT.sat_ovlEq (c := c) (T := StepM c) (h := h) (o := o) (ho := ho) (kg := kg) (hkg := hkg)
 
+/-! ## The law sentences of the open generators
+
+Where the interpretation satisfies a law at values (`OpenAssoc`, `OpenIdem`, `OpenLaws`' conjuncts),
+the value model satisfies the sentence `consItemsK` writes for it (`lawItemsK`): both sides denote
+the values `paramVal` gives, a symbol's application at values being its `result`. -/
+
+/-- `f(φa, f(φb, φd))` at singletons: an element of `f(a, y)` for an element `y` of `f(b, d)`. -/
+theorem interp_symR {M : Type} {I : Interpretation KoreAML.Sym M} {e : Valuation M} (n : String)
+    {φa φb φd : KoreAML.P} {a b d : M}
+    (ha : ∀ m, φa.interpret I e m ↔ m = a) (hb : ∀ m, φb.interpret I e m ↔ m = b)
+    (hd : ∀ m, φd.interpret I e m ↔ m = d) (m : M) :
+    (KoreAML.appList (KoreAML.sym (.symbol n)) [φa, KoreAML.appList (KoreAML.sym (.symbol n)) [φb, φd]]).interpret I e m ↔
+      ∃ y, SymE I n [b, d] y ∧ SymE I n [a, y] m := by
+  rw [interp_appList]
+  constructor
+  · rintro ⟨h, hh, bs, hbs, happ⟩
+    cases hbs with
+    | cons hb1 hbs =>
+      cases hbs with
+      | cons hb2 hbs =>
+        cases hbs
+        rename_i x y
+        have hx := (ha x).mp hb1
+        subst hx
+        exact ⟨y, (interp_symList n _ [b, d] (.cons hb (.cons hd .nil)) y).mp hb2, h, hh, happ⟩
+  · rintro ⟨y, hy, h, hh, happ⟩
+    exact ⟨h, hh, [a, y], .cons ((ha a).mpr rfl)
+      (.cons ((interp_symList n _ [b, d] (.cons hb (.cons hd .nil)) y).mpr hy) .nil), happ⟩
+
+/-- `f(f(φa, φb), φd)` at singletons (`interp_concatElem` at one symbol). -/
+theorem interp_symL {M : Type} {I : Interpretation KoreAML.Sym M} {e : Valuation M} (n : String)
+    {φa φb φd : KoreAML.P} {a b d : M}
+    (ha : ∀ m, φa.interpret I e m ↔ m = a) (hb : ∀ m, φb.interpret I e m ↔ m = b)
+    (hd : ∀ m, φd.interpret I e m ↔ m = d) (m : M) :
+    (KoreAML.appList (KoreAML.sym (.symbol n)) [KoreAML.appList (KoreAML.sym (.symbol n)) [φa, φb], φd]).interpret I e m ↔
+      ∃ y, SymE I n [a, b] y ∧ SymE I n [y, d] m :=
+  interp_concatElem n n ha hb hd m
+
+/-- `tr` of an application (as `tr_ap_tbl`, ModelRead.lean, which this module does not import). -/
+private theorem tr_apL (tbl : KoreAML.VarTable) (f : String) (ps : List Kore.Pattern) :
+    KoreAML.tr ⟨tbl, []⟩ (KoreAML.ap f ps) =
+      KoreAML.appList (KoreAML.sym (.symbol f)) (ps.map (KoreAML.tr ⟨tbl, []⟩)) := by
+  unfold KoreAML.ap
+  rw [KoreAML.tr_app0, trArgs_appList]
+
+/-- **A raw parameter with a law has two arguments of its result sort.** Under `HypModelCore` no
+parameter is raw (`paramsPlain`), so this is where the law items take that fact; once `paramsPlain`
+is V8's body it holds by its `raw` branch (`k.sig.args == [k.sig.result, k.sig.result]` where
+`assoc` or `idem`). -/
+theorem HypModelCore.law_binary (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hr : k.raw = true)
+    (_ : k.assoc = true ∨ k.idem = true) : k.sig.args = [k.sig.result, k.sig.result] :=
+  absurd hr (by simp [Semantics.params_raw_of_sortedOKCl h.sound.1 _ hk])
+
+namespace AtT
+
+variable {T : GroundTerm → GroundTerm → Prop}
+
+/-- A parameter's symbol at two values: the parameter's value there (`paramVal`), for a parameter
+of two arguments. -/
+theorem symE_param2 (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hl : k.sig.args.length = 2)
+    (a b : GroundTerm) (m : Elem) :
+    SymE (stdI_T c T) (c.symName k.sig.name) [Elem.val a, Elem.val b] m ↔
+      ∃ v, m = .val v ∧ c.paramVal k.sig.name [a, b] = some v := by
+  have hks : k.sig ∈ kernelSyms c :=
+    List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem hk)))
+  have hkinds : c.isCtor k.sig.name = false ∧ isHook k.sig.name = false := by
+    have := h.kinds
+    simp only [kindsApart, Bool.and_eq_true, List.all_eq_true] at this
+    simpa using this.2 k hk
+  have hp : c.isParam k.sig.name = true := by
+    unfold Semantics.isParam
+    rw [Semantics.lookupParam_eq]
+    exact List.find?_isSome.mpr ⟨k, hk, by simp⟩
+  have := symE_vals (T := T) h.namesK hks (vs := [a, b]) (by simp [hl]) m
+  rw [show [Elem.val a, Elem.val b] = [a, b].map Elem.val from rfl, this,
+    result_param hkinds.1 hkinds.2 hp]
+
+/-- The guards of a law sentence: the sort variable `R` is a sort, and a variable `n` of the
+law's sort holds a value of it. -/
+theorem law_guards (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) {P : Kore.Pattern}
+    {tbl : KoreAML.VarTable} {e : Valuation Elem} {m : Elem}
+    (hgs : (KoreAML.conjList ((([KoreAML.Rv].map KoreAML.sortVarKey) ++ KoreAML.freeOf [] P).eraseDups.map
+      (KoreAML.guardOf tbl))).interpret (stdI_T c T) e m) :
+    KoreAML.IsSort (stdI_T c T) (e.evalEvar (tbl.ev (.sortVar "R"))) ∧
+    ∀ n, KoreAML.VarKey.evar n (KoreAML.srt (c.sortName k.sig.result)) ∈ KoreAML.freeOf [] P →
+      ∃ v, e.evalEvar (tbl.ev (.evar n (KoreAML.srt (c.sortName k.sig.result)))) = .val v ∧
+        c.sortOf v = some k.sig.result := by
+  have hks : k.sig ∈ kernelSyms c :=
+    List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem hk)))
+  have hres := h.symSorts hks _ (List.mem_cons_self ..)
+  have hguard : ∀ k' ∈ (([KoreAML.Rv].map KoreAML.sortVarKey) ++ KoreAML.freeOf [] P).eraseDups,
+      (KoreAML.guardOf tbl k').interpret (stdI_T c T) e m := fun k' hk' =>
+    conjList_elim hgs _ (List.mem_map.mpr ⟨k', hk', rfl⟩)
+  refine ⟨?_, fun n hn => ?_⟩
+  · have := hguard (.sortVar "R") (List.mem_eraseDups.mpr (List.mem_append_left _
+      (List.mem_map.mpr ⟨KoreAML.Rv, List.mem_singleton_self _, rfl⟩)))
+    obtain ⟨s, hs, he⟩ := sortGuard_iff.mp this
+    rw [he]; exact (isSort_iff _).mpr ⟨s, hs, rfl⟩
+  · have hg := hguard _ (List.mem_eraseDups.mpr (List.mem_append_right _ hn))
+    rw [KoreAML.interp_guard_evar defOK_std, trSort_srt] at hg
+    exact inSort_val ((inhOf_sort h.namesK hres e _).mp hg)
+
+/-- A variable read at its value. -/
+theorem ev_read {tbl : KoreAML.VarTable} {e : Valuation Elem} {n : String} {s : Kore.KSort} {v : GroundTerm}
+    (hv : e.evalEvar (tbl.ev (.evar n s)) = .val v) (m : Elem) :
+    (KoreAML.tr ⟨tbl, []⟩ (KoreAML.ev n s)).interpret (stdI_T c T) e m ↔ m = .val v := by
+  unfold KoreAML.ev
+  rw [KoreAML.tr, KoreAML.interp_evar]
+  exact Iff.of_eq (congrArg (m = ·) hv)
+
+/-- The two sides of the associativity sentence at values: `f(f(a, b), d)` is the value
+`paramVal` gives `f(a, b)` and then that with d. -/
+theorem symE_param2_bind (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params) (hl : k.sig.args.length = 2)
+    (a b d : GroundTerm) (m : Elem) :
+    (∃ y, SymE (stdI_T c T) (c.symName k.sig.name) [Elem.val a, Elem.val b] y ∧
+      SymE (stdI_T c T) (c.symName k.sig.name) [y, Elem.val d] m) ↔
+      ∃ w, m = .val w ∧ (c.paramVal k.sig.name [a, b]).bind (fun ab => c.paramVal k.sig.name [ab, d]) = some w := by
+  constructor
+  · rintro ⟨y, hy, hy2⟩
+    obtain ⟨v, rfl, hv⟩ := (symE_param2 h hk hl a b y).mp hy
+    obtain ⟨w, rfl, hw⟩ := (symE_param2 h hk hl v d m).mp hy2
+    exact ⟨w, rfl, by simp [hv, hw]⟩
+  · rintro ⟨w, rfl, hw⟩
+    cases hv : c.paramVal k.sig.name [a, b] with
+    | none => simp [hv] at hw
+    | some v =>
+      simp only [hv, Option.bind_some] at hw
+      exact ⟨.val v, (symE_param2 h hk hl a b _).mpr ⟨v, rfl, hv⟩, (symE_param2 h hk hl v d _).mpr ⟨w, rfl, hw⟩⟩
+
+/-- `sat_assocItem` at the transition `T`. -/
+theorem sat_assocItem (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params)
+    (hb : k.sig.args = [k.sig.result, k.sig.result]) (ha : OpenAssoc c k.sig.name k.sig.result) :
+    stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩).pat := by
+  have hn := h.namesK
+  have hks : k.sig ∈ kernelSyms c :=
+    List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem hk)))
+  have hres := h.symSorts hks _ (List.mem_cons_self ..)
+  have hl : k.sig.args.length = 2 := by rw [hb]; rfl
+  intro e m
+  unfold KoreAML.trAxiom
+  dsimp only
+  generalize hP : (assocAxK c k).pattern = P
+  have hsortP : KoreAML.sortOf [] P = some KoreAML.R := by rw [← hP]; rfl
+  simp only [hsortP]
+  rw [interpret_impl]
+  intro hgs
+  have hsv : (assocAxK c k).sortVars = [KoreAML.Rv] := rfl
+  rw [hsv] at hgs ⊢
+  generalize htb : KoreAML.tableOf [KoreAML.Rv] P = tbl at hgs ⊢
+  let S := KoreAML.srt (c.sortName k.sig.result)
+  let f := c.symName k.sig.name
+  have hPeq : P = .equals S KoreAML.R
+      (KoreAML.ap f [KoreAML.ap f [KoreAML.ev "K1" S, KoreAML.ev "K2" S], KoreAML.ev "K3" S])
+      (KoreAML.ap f [KoreAML.ev "K1" S, KoreAML.ap f [KoreAML.ev "K2" S, KoreAML.ev "K3" S]]) := by
+    rw [← hP]; rfl
+  have hfree : KoreAML.freeOf [] P = [.evar "K1" S, .evar "K2" S, .evar "K3" S,
+      .evar "K1" S, .evar "K2" S, .evar "K3" S] := by rw [hPeq]; rfl
+  obtain ⟨hRs, hval⟩ := law_guards h hk hgs
+  obtain ⟨a, hea, hsa⟩ := hval "K1" (by rw [hfree]; simp [S])
+  obtain ⟨b, heb, hsb⟩ := hval "K2" (by rw [hfree]; simp [S])
+  obtain ⟨d, hed, hsd⟩ := hval "K3" (by rw [hfree]; simp [S])
+  have hSres : ∀ x, (KoreAML.trSort tbl S).interpret (stdI_T c T) e x ↔ x = .srt k.sig.result := fun x => by
+    rw [trSort_srt]; exact sort_den hn hres e x
+  have hRr : ∀ x, (KoreAML.trSort tbl KoreAML.R).interpret (stdI_T c T) e x ↔ x = e.evalEvar (tbl.ev (.sortVar "R")) :=
+    fun x => by rw [trSort_R, KoreAML.interp_evar]
+  have hresS : KoreAML.IsSort (stdI_T c T) (.srt k.sig.result) := (isSort_iff _).mpr ⟨_, List.mem_range.mpr hres, rfl⟩
+  have hsorts : c.sortsOf [a, b, d] = some [k.sig.result, k.sig.result, k.sig.result] :=
+    sortsOf_cons.mpr ⟨_, _, hsa, sortsOf_cons.mpr ⟨_, _, hsb, sortsOf_cons.mpr ⟨_, _, hsd, sortsOf_nil, rfl⟩, rfl⟩, rfl⟩
+  rw [KoreAML.interp_equal defOK_std]
+  intro x
+  rw [hPeq, KoreAML.tr, KoreAML.interp_sEquals defOK_std sat_ceilDef hSres hRr hresS hRs,
+    KoreAML.interp_inhOf_of hRr]
+  refine ⟨fun hx => hx.1, fun hx => ⟨hx, fun y _ => ?_⟩⟩
+  simp only [tr_apL, List.map_cons, List.map_nil]
+  rw [interp_symL _ (ev_read hea) (ev_read heb) (ev_read hed), interp_symR _ (ev_read hea) (ev_read heb) (ev_read hed),
+    symE_param2_bind h hk hl, ha a b d hsorts]
+  constructor
+  · rintro ⟨w, rfl, hw⟩
+    cases hv : c.paramVal k.sig.name [b, d] with
+    | none => simp [hv] at hw
+    | some v =>
+      simp only [hv, Option.bind_some] at hw
+      exact ⟨.val v, (symE_param2 h hk hl b d _).mpr ⟨v, rfl, hv⟩, (symE_param2 h hk hl a v _).mpr ⟨w, rfl, hw⟩⟩
+  · rintro ⟨z, hz, hz2⟩
+    obtain ⟨v, rfl, hv⟩ := (symE_param2 h hk hl b d z).mp hz
+    obtain ⟨w, rfl, hw⟩ := (symE_param2 h hk hl a v y).mp hz2
+    exact ⟨w, rfl, by simp [hv, hw]⟩
+
+/-- `sat_idemItem` at the transition `T`. -/
+theorem sat_idemItem (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params)
+    (hb : k.sig.args = [k.sig.result, k.sig.result]) (hi : OpenIdem c k.sig.name k.sig.result) :
+    stdI_T c T ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", idemAxK c k⟩).pat := by
+  have hn := h.namesK
+  have hks : k.sig ∈ kernelSyms c :=
+    List.mem_append_left _ (List.mem_append_left _ (List.mem_append_right _ (List.mem_map_of_mem hk)))
+  have hres := h.symSorts hks _ (List.mem_cons_self ..)
+  have hl : k.sig.args.length = 2 := by rw [hb]; rfl
+  intro e m
+  unfold KoreAML.trAxiom
+  dsimp only
+  generalize hP : (idemAxK c k).pattern = P
+  have hsortP : KoreAML.sortOf [] P = some KoreAML.R := by rw [← hP]; rfl
+  simp only [hsortP]
+  rw [interpret_impl]
+  intro hgs
+  have hsv : (idemAxK c k).sortVars = [KoreAML.Rv] := rfl
+  rw [hsv] at hgs ⊢
+  generalize htb : KoreAML.tableOf [KoreAML.Rv] P = tbl at hgs ⊢
+  let S := KoreAML.srt (c.sortName k.sig.result)
+  have hPeq : P = .equals S KoreAML.R
+      (KoreAML.ap (c.symName k.sig.name) [KoreAML.ev "K" S, KoreAML.ev "K" S]) (KoreAML.ev "K" S) := by
+    rw [← hP]; rfl
+  have hfree : KoreAML.freeOf [] P = [.evar "K" S, .evar "K" S, .evar "K" S] := by rw [hPeq]; rfl
+  obtain ⟨hRs, hval⟩ := law_guards h hk hgs
+  obtain ⟨a, hea, hsa⟩ := hval "K" (by rw [hfree]; simp [S])
+  have hSres : ∀ x, (KoreAML.trSort tbl S).interpret (stdI_T c T) e x ↔ x = .srt k.sig.result := fun x => by
+    rw [trSort_srt]; exact sort_den hn hres e x
+  have hRr : ∀ x, (KoreAML.trSort tbl KoreAML.R).interpret (stdI_T c T) e x ↔ x = e.evalEvar (tbl.ev (.sortVar "R")) :=
+    fun x => by rw [trSort_R, KoreAML.interp_evar]
+  have hresS : KoreAML.IsSort (stdI_T c T) (.srt k.sig.result) := (isSort_iff _).mpr ⟨_, List.mem_range.mpr hres, rfl⟩
+  rw [KoreAML.interp_equal defOK_std]
+  intro x
+  rw [hPeq, KoreAML.tr, KoreAML.interp_sEquals defOK_std sat_ceilDef hSres hRr hresS hRs,
+    KoreAML.interp_inhOf_of hRr]
+  refine ⟨fun hx => hx.1, fun hx => ⟨hx, fun y _ => ?_⟩⟩
+  simp only [tr_apL, List.map_cons, List.map_nil]
+  rw [interp_symList _ _ [Elem.val a, Elem.val a] (.cons (ev_read hea) (.cons (ev_read hea) .nil)) y,
+    symE_param2 h hk hl, hi a hsa, ev_read hea]
+  constructor
+  · rintro ⟨w, rfl, hw⟩; cases hw; rfl
+  · rintro rfl; exact ⟨a, rfl, rfl⟩
+
+end AtT
+
+/-- **The associativity sentence of an open generator holds in the value model** where the
+interpretation satisfies it at values (`OpenAssoc`), for a parameter of two arguments of its result
+sort: both sides of `f(f(K1, K2), K3) = f(K1, f(K2, K3))` denote the values `paramVal` gives. -/
+theorem sat_assocItem (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params)
+    (hb : k.sig.args = [k.sig.result, k.sig.result]) (ha : OpenAssoc c k.sig.name k.sig.result) :
+    stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", assocAxK c k⟩).pat :=
+  AtT.sat_assocItem (c := c) (T := StepM c) h hk hb ha
+
+/-- **The idempotence sentence of an open generator holds in the value model** where the
+interpretation satisfies it at values (`OpenIdem`), for a parameter of two arguments: `f(K, K)`
+denotes what `K` does. -/
+theorem sat_idemItem (h : HypModelCore c) {k : ParamSig} (hk : k ∈ c.params)
+    (hb : k.sig.args = [k.sig.result, k.sig.result]) (hi : OpenIdem c k.sig.name k.sig.result) :
+    stdI c ⊧ᴵ (KoreAML.trAxiom [] [] ⟨0, "kernel", idemAxK c k⟩).pat :=
+  AtT.sat_idemItem (c := c) (T := StepM c) h hk hb hi
+
 /-! ## The constructors' axioms -/
 
 namespace AtT
 
 variable {T : GroundTerm → GroundTerm → Prop}
 
-/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms. -/
-theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
+/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms, the law sentences
+of the open generators where the interpretation satisfies the laws (`OpenLaws`). -/
+theorem satConsGoal (h : HypModelCore c) (hl : OpenLaws c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
   refine sat_itemsPremises c fun it hit => ?_
   unfold consItemsK at hit
   dsimp only at hit
   rcases List.mem_append.mp hit with hit | hit
   rotate_left
-  · -- the open generators' law items: `OpenLaws` (V2.d1-model-laws), not in `HypModelCore`
+  · -- the open generators' law items, each from its conjunct of `OpenLaws`
     obtain ⟨k, hk, hit⟩ := List.mem_flatMap.mp hit
-    simp [Semantics.params_raw_of_sortedOKCl h.sound.1 k hk] at hit
+    split at hit
+    · rename_i hraw
+      rcases List.mem_append.mp hit with hit | hit
+      · split at hit
+        · rename_i ha
+          rw [List.mem_singleton.mp hit]
+          exact sat_assocItem h hk (h.law_binary hk hraw (.inl ha)) ((hl k hk hraw).1 ha)
+        · exact absurd hit List.not_mem_nil
+      · split at hit
+        · rename_i hi
+          rw [List.mem_singleton.mp hit]
+          exact sat_idemItem h hk (h.law_binary hk hraw (.inr hi)) ((hl k hk hraw).2 hi)
+        · exact absurd hit List.not_mem_nil
+    · exact absurd hit List.not_mem_nil
   rcases List.mem_append.mp hit with hit | hit
   rotate_left
   · obtain ⟨o, ho, hit⟩ := List.mem_flatMap.mp hit
@@ -1866,9 +2130,10 @@ theorem satConsGoal (h : HypModelCore c) : (stdI_T c T ⊧ᴵP ΓCons c) := by
 
 end AtT
 
-/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms. -/
-theorem satConsGoal (h : HypModelCore c) : SatConsGoal c :=
-  AtT.satConsGoal (c := c) (T := StepM c) (h := h)
+/-- **`SatConsGoal`**: the value model satisfies the constructors' axioms, the law sentences of the
+open generators where the interpretation satisfies the laws (`OpenLaws`). -/
+theorem satConsGoal (h : HypModelCore c) (hl : OpenLaws c) : SatConsGoal c :=
+  AtT.satConsGoal (c := c) (T := StepM c) (h := h) (hl := hl)
 
 end Model
 

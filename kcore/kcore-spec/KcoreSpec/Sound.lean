@@ -131,9 +131,9 @@ consistent**: for a semantics that `coreOK` accepts, whose functions have at mos
 (`FnDet`) and whose evaluation solves the equations (`FnSolves`), and whose rules have `ruleSorted`
 and `rulePlainOpen`, `Γc c` with the step's closure has a model: the value model
 (`stdI_modelOpen`). -/
-theorem consistent_open (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
+theorem consistent_open (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c) (hl : OpenLaws c)
     (hrules : ∀ r ∈ c.rules, c.ruleSorted r = true ∧ c.rulePlainOpen r = true) : Consistent c :=
-  ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fn h hd hs) hrules⟩
+  ⟨Elem, inferInstance, stdI c, stdI_modelOpen c h (hypModel_of_fn h hd hs) hl hrules⟩
 
 /-- **Exactness of a definition whose rules' left sides need not bind every variable**: `ExactC`,
 for a semantics that `coreOK` accepts whose functions meet `FnHyp` and whose rules have
@@ -167,7 +167,7 @@ interpretation satisfies the open generators' laws (`OpenLaws`): the value model
 (`stdI_model_ex`, the term of `consistent_ex`). -/
 theorem consistent_of (c : Semantics) (h : c.coreOK = true) (hd : FnDet c) (hs : FnSolves c)
     (hl : OpenLaws c) : Consistent c :=
-  ⟨Elem, inferInstance, stdI c, stdI_model_ex c h (hypModel_of_fn h hd hs) (Semantics.ruleFactsEx_of_core h)⟩
+  ⟨Elem, inferInstance, stdI c, stdI_model_ex c h (hypModel_of_fn h hd hs) hl (Semantics.ruleFactsEx_of_core h)⟩
 
 /-! ## The statements over a semantics, under the hypothesis on its functions -/
 

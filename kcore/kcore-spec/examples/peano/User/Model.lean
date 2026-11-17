@@ -28,6 +28,6 @@ theorem hypModel : HypModel c :=
 
 /-- Peano's `Γ` with the step's closure has a model. -/
 theorem has_model : ∃ (M : Type) (_ : Inhabited M) (I : ML.Interpretation KoreAML.Sym M), I ⊧ᴵP (Γ c ∪ Γstep c) :=
-  Model.has_model hypModel
+  Model.has_model hypModel (openLaws_of_plain (by decide +kernel))
 
 end Peano.ModelWitness
