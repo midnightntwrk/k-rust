@@ -1288,3 +1288,11 @@ table above, on the tree before String and Bytes). Not investigated here.
   `SetVarsAtValues` (`ceil126_at`); so Γ with the sentence has no model (`ceil126_refuted`), and
   where Γ has a model the sentence is neither `EntailsAtValues` nor `EntailsAtSetValues`
   (`ceil126_not_at_values`, `ceil126_not_at_set_values`). Axioms guarded.
+- `test/CondResort.lean`: a condition's predicate at the sort variable `R`
+  (KcoreSpec/CondResort.lean, CondResortModel.lean), at the reader's semantics for
+  `f2-examples/symrule.kompile.kore` and `test/HoldsModel.lean`'s conditions. `crossEx`: in any
+  model of `Γ c`, `pEx` at `R` holds at an element of the sort `R` is given iff `pEx` at Int holds
+  at an element of Int (`cond_crossAt`). `entailsNotR`: the Holds lemma at `R` for `pNot` in any
+  model of `Γc` (`holds_entails_atR`). `modelR`: the Holds lemma at `R` in the value model at any
+  T, at `pNot`, `pEx`, `pAll`, `pMatch` (`holdsT_atR`, `termsInSort_stdI`). The variables of the
+  pattern at Int are variables of the pattern at `R` (`condKore_varsOf_resort`).
