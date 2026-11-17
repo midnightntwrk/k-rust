@@ -13,6 +13,13 @@
     (`Γc ⊧ den d(i) ⇒ famEx`) (`sound_x`, `sound_d`), by the pinned `sound_at`. These are the
     instances at a concrete step by an existential rule that test/ExRules.lean's `cX` section takes
     as a hypothesis.
+  - `Two` (e3-vars-two, the text copied to `f2-examples/exvarstwo.kompile.kore`):
+    `rule <k> c() => d(?Y:Int, ?Z:Int) ... </k>`, the text's one rewrite axiom, kompiled with the
+    right side under `\exists(?Y, \exists(?Z, …))` (`text_binders`: the binders of the kernel's
+    parse of the text, outermost first). The rule read has `exs = [2, 3]`, the variables named
+    `?Y` and `?Z` (`exs_order`): the text's order of nesting. The sentence `Definition.emit`
+    writes for the rule is the text's: the one rewrite axiom of the emitted definition has the
+    pattern of the text's (`emitted_eq`), binders included.
 -/
 import KcoreSpec
 
@@ -163,5 +170,51 @@ theorem r2_exs_ne : r2.exs ≠ [] := by rw [r2_shape.2.2.2.2]; exact List.cons_n
 #guard_msgs in #print axioms sound_xd
 
 end Vars
+
+namespace Two
+
+kore_term kore from "f2-examples/exvarstwo.kompile.kore"
+definition_of defn from "f2-examples/exvarstwo.kompile.kore"
+
+noncomputable abbrev c : Semantics := defn.sem
+
+/-- The patterns of a definition's rewrite axioms, in text order. -/
+def rewritesOf (k : Kore.Definition) : List Kore.Pattern :=
+  k.axiomDecls.filterMap fun ad => match ad.ax.pattern with
+    | .rewrites s l r => some (.rewrites s l r)
+    | _ => none
+
+/-- The names of the `\exists` binders heading a rewrite axiom's right side, outermost first. -/
+def bindersOf : Kore.Pattern → List String
+  | .rewrites _ _ r => go r
+  | _ => []
+where
+  go : Kore.Pattern → List String
+    | .exist _ v p => v.var.ident.name :: go p
+    | _ => []
+
+/-- The text has one rewrite axiom, and its right side is under `?Y`, then `?Z`. -/
+theorem text_binders : (rewritesOf kore).map bindersOf = [["Var'Ques'Y", "Var'Ques'Z"]] := by
+  decide +kernel
+
+/-- **`exs` is in the text's order of nesting**: the one rule read has the existential variables
+2 and 3, named `?Y` and `?Z`. -/
+theorem exs_order : c.rules.map (·.exs) = [[2, 3]] ∧
+    ((defn.pres.rules.getD 0 default).names.getD 2 "", (defn.pres.rules.getD 0 default).names.getD 3 "") =
+      ("'Ques'Y", "'Ques'Z") := by
+  decide +kernel
+
+/-- **The emitted sentence is the text's**: the rewrite axioms `Definition.emit` writes have the
+patterns of the text's, the binders in the same order. -/
+theorem emitted_eq : rewritesOf defn.emit = rewritesOf kore := by decide +kernel
+
+/-- info: 'ExFixtures.Two.emitted_eq' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms emitted_eq
+/-- info: 'ExFixtures.Two.exs_order' depends on axioms: [propext] -/
+#guard_msgs in #print axioms exs_order
+/-- info: 'ExFixtures.Two.text_binders' depends on axioms: [propext] -/
+#guard_msgs in #print axioms text_binders
+
+end Two
 
 end ExFixtures
