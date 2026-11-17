@@ -21,6 +21,16 @@
      first renamed; `instAgreeAny_Gm`); the equations disagree (`gm_disagree`): at the map
      `{1 |-> 1, 2 |-> 2}` the first matches with K = 1 and the second with K' = 2. `fnExclusiveI`
      names Gm (`gm_named`).
+  7. Different priorities with an `aside` clause (a `non-executable` equation; FIX-core.agree-aside-prio).
+     `Pa(0) = 0` (50) beside `Pa(X) = X` (60, `aside`), the clauses of the fixture
+     c3-eq-prio-nonexec: `ClausesAgree` asks nothing of the pair (its premise is false: the
+     priorities differ and the `aside` clause is the larger, `pa_premise`), `fnExclusiveL` names
+     Pa and `fnExclusiveI` does not (`pa_named`, by `notCompeting`), with or without overloading
+     symbols (`pa_pairO`); so the equations agree (`pa_agree`). Known-bad: `Pb(0) = 1` (60) beside
+     `Pb(X) = X` (50, `aside`), where the `aside` clause is the smaller: the pair competes
+     (`pb_premise`), at 0 the two state 1 and 0, and Pb stays named (`pb_named`, `pb_pairO`);
+     `Pc(0) = 1` (60, `aside`) beside `Pc(X) = X` (50, `aside`), both `aside`: competes, named
+     (`pc_named`). `notCompeting` is true exactly where the premise is false (`notCompeting_iff`).
 -/
 import KcoreSpec.AgreeInst
 
@@ -236,7 +246,63 @@ theorem gm_disagree : ¬ ClausesAgree gm fnGm := by
   · have := hr _ _ (.inl ⟨(fun _ ht => by cases ht), .var⟩) (.inl ⟨(fun _ ht => by cases ht), .var⟩)
     exact absurd this (by decide +kernel)
 
+/-! ## 7. Different priorities with an `aside` clause -/
+
+def Pa : Sym := nRegSyms + 126
+def Pb : Sym := nRegSyms + 127
+def Pc : Sym := nRegSyms + 128
+
+def clA0 : Clause := ⟨[], [lit 0], none, lit 0, none, 50, false, [], .top, .top⟩
+def clA1 : Clause := ⟨[Srt.int], [.var 0], none, .var 0, none, 60, true, [], .top, .top⟩
+def fnPa : Fn := ⟨Pa, [Srt.int], Srt.int, [clA0, clA1], false⟩
+
+def clB0 : Clause := ⟨[], [lit 0], none, lit 1, none, 60, false, [], .top, .top⟩
+def clB1 : Clause := ⟨[Srt.int], [.var 0], none, .var 0, none, 50, true, [], .top, .top⟩
+def fnPb : Fn := ⟨Pb, [Srt.int], Srt.int, [clB0, clB1], false⟩
+
+def clC0 : Clause := { clB0 with aside := true }
+def fnPc : Fn := ⟨Pc, [Srt.int], Srt.int, [clC0, clB1], false⟩
+
+def pa : Semantics := core [fnPa, fnPb, fnPc]
+
+theorem pa_sorted : pa.sortedOK = true ∧ pa.srReady = true ∧ pa.matchReady = true := by decide +kernel
+
+/-- The premise `ClausesAgree` reads of Pa's pair is false: nothing is asked of it. -/
+theorem pa_premise : ¬ (clA0.prio = clA1.prio ∨ (clA0.aside = true ∧ clA0.prio < clA1.prio) ∨
+    (clA1.aside = true ∧ clA1.prio < clA0.prio)) := by decide +kernel
+
+/-- Pb's pair competes (the `aside` clause is the smaller), and so does Pc's. -/
+theorem pb_premise : (clB0.prio = clB1.prio ∨ (clB0.aside = true ∧ clB0.prio < clB1.prio) ∨
+    (clB1.aside = true ∧ clB1.prio < clB0.prio)) ∧
+    (clC0.prio = clB1.prio ∨ (clC0.aside = true ∧ clC0.prio < clB1.prio) ∨
+    (clB1.aside = true ∧ clB1.prio < clC0.prio)) := by decide +kernel
+
+theorem pa_notCompeting : notCompeting clA0 clA1 = true ∧ notCompeting clA1 clA0 = true ∧
+    notCompeting clB0 clB1 = false ∧ notCompeting clB1 clB0 = false ∧ notCompeting clC0 clB1 = false := by
+  decide +kernel
+
+/-- `fnExclusiveL` names the three; `fnExclusiveI` names Pb and Pc only. -/
+theorem pa_named : pa.agreeObligationsL = [Pa, Pb, Pc] ∧ pa.agreeObligationsI = [Pb, Pc] := by decide +kernel
+
+/-- The same for the pair as `fnExclusiveIO` reads it (a definition with overloading symbols). -/
+theorem pa_pairO : pa.pairAgreeO (pa.fns.map Fn.sig) clA0 clA1 = true ∧
+    pa.pairAgreeO (pa.fns.map Fn.sig) clB0 clB1 = false ∧
+    pa.pairAgreeO (pa.fns.map Fn.sig) clC0 clB1 = false := by decide +kernel
+
+theorem pb_named : Pb ∈ pa.agreeObligationsI ∧ Pc ∈ pa.agreeObligationsI := by rw [pa_named.2]; decide
+
+/-- Pa's equations agree, by the decider's lemma. -/
+theorem pa_agree : ClausesAgree pa fnPa :=
+  fnExclusiveI_sound (Exec.matchCtx_of pa_sorted.2.2) (fun _ _ => ovlFreeList_of_nil rfl _)
+    (fun cl h => by
+      have := Semantics.sortedOK_sorted pa_sorted.1
+      simp only [Bool.and_eq_true, List.all_eq_true] at this
+      exact this.1.2 fnPa (by simp [pa, core]) cl h)
+    (by decide +kernel)
+
 end KCore.AgreeInstTest
+
+#print axioms KCore.AgreeInstTest.pa_agree
 
 #print axioms KCore.AgreeInstTest.in_agree
 #print axioms KCore.AgreeInstTest.ws_disagree

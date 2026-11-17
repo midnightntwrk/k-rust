@@ -742,9 +742,41 @@ theorem instAgree_sound (hmc : MatchCtxO c) {heads : List CtorSig} {cl cl' : Cla
 
 /-! ## The functions -/
 
-/-- `fnExclusiveL`'s cases for one pair of clauses. -/
+/-- Two clauses that do not compete: of different priorities, the one of the smaller priority not
+`aside`, so that it blocks the other (`Eval.clause`'s priority premise reads it). An `aside` clause
+of the larger priority is admitted: `ClausesAgree` asks nothing of such a pair
+(`notCompeting_iff`). -/
+def notCompeting (cl cl' : Clause) : Bool :=
+  cl.prio != cl'.prio && !(cl.aside && decide (cl.prio < cl'.prio)) &&
+    !(cl'.aside && decide (cl'.prio < cl.prio))
+
+/-- `notCompeting` is the negation of `ClausesAgree`'s premise on a pair, exactly. -/
+theorem notCompeting_iff {cl cl' : Clause} : notCompeting cl cl' = true ↔
+    ¬ (cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
+      (cl'.aside = true ∧ cl'.prio < cl.prio)) := by
+  simp only [notCompeting, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true',
+    Bool.and_eq_false_iff, decide_eq_false_iff_not, not_or, not_and, Bool.not_eq_true]
+  constructor
+  · rintro ⟨⟨h1, h2⟩, h3⟩
+    exact ⟨h1, fun ha => h2.resolve_left (by simp [ha]), fun ha => h3.resolve_left (by simp [ha])⟩
+  · rintro ⟨h1, h2, h3⟩
+    refine ⟨⟨h1, ?_⟩, ?_⟩
+    · cases ha : cl.aside
+      · exact .inl rfl
+      · exact .inr (h2 ha)
+    · cases ha : cl'.aside
+      · exact .inl rfl
+      · exact .inr (h3 ha)
+
+/-- The different-priorities case of `fnExclusiveL` (neither clause `aside`) is one of
+`notCompeting`'s. -/
+theorem notCompeting_of_plain {cl cl' : Clause} (h : (cl.prio != cl'.prio && !cl.aside && !cl'.aside) = true) :
+    notCompeting cl cl' = true := notCompeting_iff.mpr (not_compete h)
+
+/-- `fnExclusiveL`'s cases for one pair of clauses, or a pair that does not compete
+(`notCompeting`: beyond `fnExclusiveL`'s first case, an `aside` clause of the larger priority). -/
 def _root_.KCore.Semantics.pairAgreeL (c : Semantics) (heads : List CtorSig) (cl cl' : Clause) : Bool :=
-  (cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
+  notCompeting cl cl' || (cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
     !overlapList c.meet c.collHead cl.pats cl'.pats ||
     (c.clauseFixed cl && (c.clausesExclusive heads cl cl' || c.clausesExclusive heads cl' cl)) ||
     clausesAgree cl cl' || c.clausesListApart cl cl' || guardApart cl cl' || guardApart cl' cl ||
@@ -773,12 +805,13 @@ def _root_.KCore.Semantics.clausesHeadApart (c : Semantics) (cl cl' : Clause) : 
 
 /-- `fnExclusiveI`'s cases for a pair of clauses whose patterns may apply overloading symbols:
 `pairAgreeL` where neither clause's patterns apply one that overloads a symbol (`ovlFree`, which
-`overlap` reads), an instance at which the pair agrees, different priorities, one right-hand side,
+`overlap` reads), an instance at which the pair agrees, a pair that does not compete
+(`notCompeting`), one right-hand side,
 or heads apart at some argument (`clausesHeadApart`). -/
 def _root_.KCore.Semantics.pairAgreeO (c : Semantics) (heads : List CtorSig) (cl cl' : Clause) : Bool :=
   (c.ovlFreeList cl.pats && c.ovlFreeList cl'.pats && c.pairAgreeL heads cl cl') ||
   (cl.prio == cl'.prio && (c.instAgree heads cl cl' || c.instAgree heads cl' cl)) ||
-  (cl.prio != cl'.prio && !cl.aside && !cl'.aside) || clausesAgree cl cl' || c.clausesHeadApart cl cl'
+  notCompeting cl cl' || clausesAgree cl cl' || c.clausesHeadApart cl cl'
 
 /-- `pairAgreeO` for each pair of clauses. -/
 def _root_.KCore.Semantics.fnExclusiveIO (c : Semantics) (heads : List CtorSig) (f : Fn) : Bool :=
@@ -801,10 +834,13 @@ theorem pairAgreeL_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn} {cl
     (hprio : cl.prio = cl'.prio ∨ (cl.aside = true ∧ cl.prio < cl'.prio) ∨
       (cl'.aside = true ∧ cl'.prio < cl.prio)) :
     Coherent c cl cl' ∧ Coherent c cl' cl := by
+  by_cases hn : notCompeting cl cl' = true
+  · exact (notCompeting_iff.mp hn hprio).elim
   let g : Fn := { f with clauses := [cl, cl'] }
   have hg : c.fnExclusiveL heads g = true := by
     simp only [Semantics.fnExclusiveL, g, pairs, List.map_cons, List.map_nil,
       List.append_nil, List.all_cons, List.all_nil, Bool.and_true]
+    simp only [Semantics.pairAgreeL, Bool.eq_false_iff.mpr hn, Bool.false_or] at h
     exact h
   have hcls : ∀ x ∈ g.clauses, c.clauseSorted g heads x = true := by
     intro x hx
@@ -935,7 +971,7 @@ theorem fnExclusiveIO_sound (hmc : MatchCtxO c) {heads : List CtorSig} {f : Fn}
   · exact pairAgreeL_sound hmc hf1 hf2 hc1 hc2 hl hprio
   · exact instAgree_sound hmc hc1'.1.1.1.1.1 hc2'.1.1.1.1.1 hi
   · exact (instAgree_sound hmc hc2'.1.1.1.1.1 hc1'.1.1.1.1.1 hi).symm
-  · exact (not_compete (by revert hne; simp) hprio).elim
+  · exact (notCompeting_iff.mp hne hprio).elim
   · exact ⟨fun vs σ σ' _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').1,
       fun vs σ' σ _ _ _ _ _ _ => .inl (clausesAgree_sound ha σ σ').2⟩
   · exact ⟨fun vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ =>
@@ -991,7 +1027,7 @@ def _root_.KCore.Semantics.instAgreeT (T : Tables) (c : Semantics) (heads : List
      | none => false)
 
 def _root_.KCore.Semantics.fnExclusiveIT (T : Tables) (c : Semantics) (heads : List CtorSig) (f : Fn) : Bool :=
-  (pairs f.clauses).all fun (cl, cl') => ((cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
+  (pairs f.clauses).all fun (cl, cl') => (notCompeting cl cl' || (cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
     !overlapList (Semantics.meetT T) c.collHead cl.pats cl'.pats ||
     (c.clauseFixed cl && (c.clausesExclusiveT T heads cl cl' || c.clausesExclusiveT T heads cl' cl)) ||
     clausesAgree cl cl' || c.clausesListApartT T cl cl' || guardApart cl cl' || guardApart cl' cl ||
@@ -1000,13 +1036,13 @@ def _root_.KCore.Semantics.fnExclusiveIT (T : Tables) (c : Semantics) (heads : L
 
 def _root_.KCore.Semantics.fnExclusiveIOT (T : Tables) (c : Semantics) (heads : List CtorSig) (f : Fn) : Bool :=
   (pairs f.clauses).all fun (cl, cl') =>
-    (c.ovlFreeList cl.pats && c.ovlFreeList cl'.pats && ((cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
+    (c.ovlFreeList cl.pats && c.ovlFreeList cl'.pats && (notCompeting cl cl' || (cl.prio != cl'.prio && !cl.aside && !cl'.aside) ||
       !overlapList (Semantics.meetT T) c.collHead cl.pats cl'.pats ||
       (c.clauseFixed cl && (c.clausesExclusiveT T heads cl cl' || c.clausesExclusiveT T heads cl' cl)) ||
       clausesAgree cl cl' || c.clausesListApartT T cl cl' || guardApart cl cl' || guardApart cl' cl ||
       (c.clauseFixed cl && negConjApart cl cl'))) ||
     (cl.prio == cl'.prio && (c.instAgreeT T heads cl cl' || c.instAgreeT T heads cl' cl)) ||
-    (cl.prio != cl'.prio && !cl.aside && !cl'.aside) || clausesAgree cl cl' || c.clausesHeadApart cl cl'
+    notCompeting cl cl' || clausesAgree cl cl' || c.clausesHeadApart cl cl'
 
 /-- `agreeObligationsI`, read from the tables. -/
 def _root_.KCore.Semantics.agreeObligationsIT (T : Tables) (c : Semantics) : List Sym :=
