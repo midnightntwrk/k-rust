@@ -205,7 +205,7 @@ pool witnesses required lean1 test/Witnesses.lean
 pool cone required cone
 for f in test/*.lean; do
   case $(basename "$f" .lean) in
-    Pins|PinsPeano|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted) continue;;
+    Pins|PinsPeano|PinsKimp|Axioms|Witnesses|ConeV|ReviewCone|PrintNames|Member|PredSorted) continue;;
   esac
   order="$order ${f%.lean}"; testx="$testx ${f%.lean}"
   pool "${f%.lean}" scoreboard leanAx "$f"
