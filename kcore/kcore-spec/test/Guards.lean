@@ -93,6 +93,13 @@
     values where no other equation applies and do not override one that applies (`owise_values`);
     the point is reached: with the `[owise]` equations not read, `f(1, 5)` is the interpretation's
     (`owise_unread_H9`).
+  - G4 for the inert constructor classes (`distinctCtors`, `injectivity`, `noJunk`), for every
+    semantics with `coreOK` and every H: a constructor sentence the check `Faithful.tieConsB`
+    accepts on the data is entailed by `Γ (c.withHooks H)` (`inertCons_everyH`; the check reads no
+    interpretation), and `Γ (c.withHooks H)` entails the no-junk item of every constructor sort
+    with a generator (`inertNoJunk_everyH`). The fixture sentences are ens's, in test/TieEns.lean
+    (`cons_entailed`, `nojunk_items`, `nojunk_trivial_entailed`, `nojunk_kitem_entailed`), which
+    this file cannot import.
 -/
 import KcoreSpec
 
@@ -1574,6 +1581,28 @@ theorem owise_unread_H9 : Eval (c1.withHooks H9) f [int 1, int 5] (some (int 9))
 
 end DevOwise
 
+/-! ## G4: the inert constructor classes, for every interpretation -/
+
+/-- **A constructor sentence the data accepts is entailed, for every interpretation**: the text's
+`functional` or subsort sentence of a generator, its no-confusion sentence (`injectivity`) and the
+no-confusion sentence of two generators (`distinctCtors`), where `tieConsB` finds the constructor
+items `Γ` holds for them. `tieConsB` reads no interpretation. -/
+theorem inertCons_everyH (c : Semantics) (hcore : c.coreOK = true) (H : HookParams) {a : Kore.Axiom}
+    (h : tieConsB c a = true) (i : Nat) (mod : String) :
+    Γ (c.withHooks H) ⊧ (KoreAML.trAxiom [] [] ⟨i, mod, a⟩).pat := by
+  intro M _ I hI
+  haveI : OvlOK (c.withHooks H) := ovlOK_of_core ((Semantics.coreOK_withHooks c H).trans hcore)
+  exact tieCons_entailed (c := c.withHooks H) ((tieConsB_withHooks c H a).trans h) i mod hI
+
+/-- **No junk, for every interpretation**: `Γ` entails the no-junk item of every constructor sort
+that has a generator, over the sort's generators. -/
+theorem inertNoJunk_everyH (c : Semantics) (H : HookParams) {N : Srt} (hN : N ∈ consSorts (c.withHooks H))
+    (hg : ((c.withHooks H).gens N).isEmpty = false) :
+    Γ (c.withHooks H) ⊧ (KoreAML.Cons.noJunkItem ((c.withHooks H).sortName N)
+      (((c.withHooks H).gens N).map (Gen.toK (c.withHooks H)))).pat := by
+  intro M _ I hI
+  exact sat_cons (c := c.withHooks H) hI (Or.inl ⟨_, noJunkItem_mem (c := c.withHooks H) hN hg, rfl⟩)
+
 end KCore.Guards
 
 #print axioms KCore.Guards.g0_refuted
@@ -1596,6 +1625,8 @@ end KCore.Guards
 #print axioms KCore.Guards.ruleRightDefined_weaker
 #print axioms KCore.Guards.existsDropped_weaker
 #print axioms KCore.Guards.existsDropped_empty
+#print axioms KCore.Guards.inertCons_everyH
+#print axioms KCore.Guards.inertNoJunk_everyH
 #print axioms KCore.Guards.DevOr.or_steps
 #print axioms KCore.Guards.DevOr.or_one_stuck
 #print axioms KCore.Guards.DevTop.top_steps
@@ -1814,37 +1845,46 @@ def readingNote : ReadingNote → GuardEntry
 
 def inertReason : InertReason → GuardEntry
   | .import =>
-    { status := .pending "GUARD.inert",
-      note := "C1's class-use reason (the imported modules' sentences are in the user module) is not written as an entry" }
+    { status := .readerTest,
+      guard := [.test "test/imp-account.expected" "import"],
+      note := "no value is at stake: an import states no axiom; kompile writes the sentences of the imported modules into the user module, where each is classified by its own form, and K's prelude is read as a whole (the account's first line says whether it agrees); imp's account counts the import apart" }
   | .claim =>
-    { status := .pending "GUARD.inert",
-      note := "C1's class-use reason (a claim is a statement to prove, not an axiom) is not written as an entry" }
+    { status := .readerTest,
+      guard := [.test "test/constructs/rows.toml" "Sentence:kw:claim"],
+      note := "C1's class use (R-1): a claim is a statement to prove, a use of the definition and no axiom of its theory, so Γ holds nothing for it; kompile refuses a claim in a definition (fixture e1-claim), so no kompiled text holds one" }
   | .simplification =>
-    { status := .pending "GUARD.inert",
+    { status := .guarded,
       guard := [.decl ``KCore.Guards.ProjK.inverse_holds, .test "test/TieEns.lean" "lib166"],
-      note := "two lemmas at values, for every H, on two texts (G4; ens's sentence 166); not one per fixture of the class" }
+      invariant := [``KCore.Semantics.coreOK, ``KCore.Faithful.ΓDomains],
+      note := "at values, for every H, on two texts: the selector-inverse lemma of krust's projapp text holds at Eval's values (G4, inverse_holds); ens's sentence 166, I -Int 0 = I, is satisfied at every value of Int in every model of Γ (lib166). One lemma per text, not every simplification of the library: the class's claim (a lemma follows from the other sentences) is checked where a row lists the sentence" }
   | .distinctCtors =>
-    { status := .pending "GUARD.inert",
-      note := "no entailment of a fixture sentence of the class is stated" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertCons_everyH, .test "test/TieEns.lean" "cons_entailed"],
+      invariant := [``KCore.Faithful.consItemsK, ``KCore.Faithful.tieConsB],
+      note := "for every semantics with coreOK and every H, Γ entails a no-confusion sentence of two generators that tieConsB accepts (the items Cons-Fun of both and Cons-Dist); the fixture sentences are ens's distinctness sentences among the 30 of TieEns.cons_entailed, each accepted by decision (cons_checked) and translated without its declarations (cons_trS)" }
   | .injectivity =>
-    { status := .pending "GUARD.inert",
-      note := "no entailment of a fixture sentence of the class is stated" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertCons_everyH, .test "test/TieEns.lean" "cons_entailed"],
+      invariant := [``KCore.Faithful.consItemsK, ``KCore.Faithful.tieConsB],
+      note := "as distinctCtors, for the no-confusion sentence of one generator (the items Cons-Fun and Cons-Inj); the fixture sentences are ens's injectivity sentences among the 30 of TieEns.cons_entailed" }
   | .noJunk =>
-    { status := .pending "GUARD.inert",
-      guard := [.test "test/TieEns.lean" "nojunk_trivial_entailed", .test "test/TieEns.lean" "nojunk_items"],
-      note := "ens's no-junk sentences entailed for every H (115, 121, 124) or equal to Γ's items (116 to 123); left to GUARD.inert to accept as the class's entry" }
+    { status := .guarded,
+      guard := [.decl ``KCore.Guards.inertNoJunk_everyH, .test "test/TieEns.lean" "nojunk_items",
+        .test "test/TieEns.lean" "nojunk_trivial_entailed", .test "test/TieEns.lean" "nojunk_kitem_entailed"],
+      invariant := [``KCore.Faithful.consItemsK, ``KCore.Semantics.gens],
+      note := "for every semantics and every H, Γ entails the no-junk item of a constructor sort over its generators; on ens the sentences of the sorts with generators are those items (116 to 120, 122, 123: nojunk_items), KItem's is the item with its disjuncts in the text's order and is entailed (125), and those of the sorts without a generator are valid (115, 121, 124)" }
   | .collectionLaw =>
     { status := .pending "GUARD.inert",
       guard := [.test "test/LibProbe.lean" "collectionLaw"],
-      note := "the entailment at values is not stated" }
+      note := "the entailment at values is not stated: for a fixture's assoc, comm or unit sentence, Γ (c.withHooks H) ⊧ its translation at values of the collection sort (EntailsAtValues), from the concatenation hook's graph" }
   | .parametricFunctional =>
     { status := .pending "GUARD.inert",
       guard := [.test "test/LibProbe.lean" "parametricFunctional"],
-      note := "no entailment of a fixture sentence of the class is stated" }
+      note := "no entailment of a fixture sentence of the class is stated: the totality of an instance of ite{S} at values, from the graph of Lblite" }
   | .vacuousLeft =>
     { status := .pending "GUARD.inert",
       guard := [.test "test/Connectives.lean" "vacuousLeft"],
-      note := "a logical truth (⊥ → •R); its entailment is not stated" }
+      note := "a logical truth (⊥ → •R); its entailment is not stated: that the translation of a left side Parse.vacuous accepts is empty in every interpretation, by induction on the pattern" }
 
 def unreadReason : UnreadReason → GuardEntry
   | .cellCollectionInjection =>
