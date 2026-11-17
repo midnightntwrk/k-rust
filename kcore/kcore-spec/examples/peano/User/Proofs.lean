@@ -24,7 +24,7 @@ theorem pred_succ : pred_succ.statement := fun N hN =>
       | zero => cases h; exact ⟨N, rfl, hN⟩
       | succ i => cases h)
     (.cons (.ctor rfl (.cons (.var rfl) .nil)) .nil) (fun _ h => nomatch h) .top
-    (fun cl hcl _ hlt => absurd hlt (pred_prios cl hcl)) .var (fun _ h => nomatch h)
+    (fun cl hcl _ hlt => absurd hlt (pred_prios cl hcl)) rfl .var (fun _ h => nomatch h) .top
 
 theorem pred_owise : pred_owise.statement := fun N hS hN =>
   .clause (σ := [(0, N)]) lfPred (List.mem_cons_of_mem _ (List.mem_cons_self ..))
@@ -45,7 +45,7 @@ theorem pred_owise : pred_owise.statement := fun N hS hN =>
             | cons _ hs' => cases hs' with
               | nil => exact absurd rfl (hN _)
       · rw [List.mem_singleton.mp hcl] at hlt; exact absurd hlt (by decide))
-    (.ctor rfl .nil) (fun _ h => nomatch h)
+    rfl (.ctor rfl .nil) (fun _ h => nomatch h) .top
 
 theorem counterIs_iff (ctr v : GroundTerm) : (∃ k, v = top k ctr) ↔ v.atPath counterPath = some ctr := by
   constructor

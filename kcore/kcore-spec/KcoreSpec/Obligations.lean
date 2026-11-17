@@ -20,7 +20,8 @@ open Faithful
 /-- **What the statements assume of the functions of a semantics**: each function has a result at
 every argument list of its sorts, each `[total]` one a value there, any two equations of one
 priority of a function are coherent where both apply (`ClausesAgree`), and any two matches of a
-clause at one argument list give one result (`MatchIndependent`); every closed condition over
+clause at one argument list give one result, a clause with existential variables having a result
+at each match where it decides (`MatchIndependent`); every closed condition over
 variables the patterns do not bind is decided by the text (`OpenDecided`), and the interpretation
 satisfies the laws the text writes for its open generators (`OpenLaws`). -/
 def FnHyp (c : Semantics) : Prop :=

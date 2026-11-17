@@ -130,6 +130,8 @@ mutual
         | .clause hfn' .. => ⟨_, hfn'⟩
         | .rest hfn' _ => ⟨_, hfn'⟩
         | .ensFails hfn' .. => ⟨_, hfn'⟩
+        | .clauseEx hfn' .. => ⟨_, hfn'⟩
+        | .exNone hfn' .. => ⟨_, hfn'⟩
       obtain ⟨hkL, hkn⟩ := lookupSig_spec (rhs_lookup_fn hc hfn0.choose_spec hk')
       obtain ⟨fn, hfn, rfl⟩ := headsOK_preds hL k hkL
       have hlook : c.lookupFn f = some fn := by

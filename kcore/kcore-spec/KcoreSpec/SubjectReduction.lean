@@ -1582,6 +1582,8 @@ theorem Eval.lookupFn_ne {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm
   | .clause hfn' .. => by rw [hfn']; simp
   | .rest hfn' _ => by rw [hfn']; simp
   | .ensFails hfn' .. => by rw [hfn']; simp
+  | .clauseEx hfn' .. => by rw [hfn']; simp
+  | .exNone hfn' .. => by rw [hfn']; simp
 
 /-- A symbol of no overloading symbol's name is found among the functions a right-hand side may call
 as it is found in the right-hand sides' context past the parameters. -/
@@ -1627,11 +1629,17 @@ mutual
       (hvs : c.sortsOf vs = some fn.args) {v : GroundTerm} (hr : r = some v) :
       c.sortOf v = some fn.result :=
     match h with
-    | .clause (cl := cl) hfn' hmem hσ _ _ _ _ hrhs _ => by
+    | .clause (cl := cl) hfn' hmem hσ _ _ _ _ _ hrhs _ _ => by
       rw [hfn] at hfn'
       cases hfn'
       obtain ⟨L, hL, hcl⟩ := hc.fns fn (lookupFn_spec hfn).1
       exact EvalTerm.sorted hc hrhs hL hσ (hcl cl hmem) hr
+    | .clauseEx (cl := cl) hfn' hmem hσ _ _ _ _ _ hrhs _ _ _ => by
+      rw [hfn] at hfn'
+      cases hfn'
+      obtain ⟨L, hL, hcl⟩ := hc.fns fn (lookupFn_spec hfn).1
+      exact EvalTerm.sorted hc hrhs hL hσ (hcl cl hmem) hr
+    | .exNone .. => by cases hr
     | .rest (fn := fn') hfn' _ => by
       rw [hfn] at hfn'
       cases hfn'
@@ -1705,6 +1713,8 @@ mutual
         | .clause hfn' .. => ⟨_, hfn'⟩
         | .rest hfn' _ => ⟨_, hfn'⟩
         | .ensFails hfn' .. => ⟨_, hfn'⟩
+        | .clauseEx hfn' .. => ⟨_, hfn'⟩
+        | .exNone hfn' .. => ⟨_, hfn'⟩
       obtain ⟨hkL, hkn⟩ := lookupSig_spec (rhs_lookup_fn hc hfn0.choose_spec hk')
       obtain ⟨fn, hfn, rfl⟩ := headsOK_preds hL k hkL
       have hlook : c.lookupFn f = some fn := by

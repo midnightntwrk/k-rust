@@ -90,7 +90,7 @@ mutual
   theorem eval_den3 : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio _ hrhs hens _,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -102,7 +102,7 @@ mutual
           (fun t ht m' => evalTerm_den3 (hens t ht) hL hσ' (canonVars_length c cl.vars) hag (henss t ht) m'))
         (fun t ht tbl e' hag m' => evalTerm_den3 (hreq t ht) hL hσ' (canonVars_length c cl.vars) hag (hreqs t ht) m')
         (fun cl' hcl'' hna'' hlt => fails_den3 (hprio cl' hcl'' hna'' hlt) hmem hcl'') e m
-    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio ht he hw,
+    | _, _, _, .ensFails (fn := fn') (cl := cl) (σ := σ') (t := t) hfn' hcl hσ' hmatch hreq _ hprio _ ht he hw,
         fn, hfn, hws, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -118,6 +118,12 @@ mutual
       obtain ⟨hmem, hlab⟩ := lookupFn_spec hfn
       have h := rest_den hI hmem hws hnone e m
       rwa [hlab] at h
+    | _, _, _, .clauseEx (fn := fn') hfn' hcl _ _ _ _ _ hne _ _ _ _, fn, hfn, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
+    | _, _, _, .exNone (fn := fn') hfn' hcl hne _ _ _ _ _ _ _, fn, hfn, _, _, _ => by
+      rw [hfn] at hfn'; cases hfn'
+      exact absurd (clause_exsNil hok (lookupFn_spec hfn).1 hcl) hne
   termination_by structural _ _ _ h => h
   /-- A clause that fails at arguments of its function's sorts fails in the model. -/
   theorem fails_den3 : ∀ {ws : List GroundTerm} {cl : Clause}, Fails c ws cl →

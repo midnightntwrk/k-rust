@@ -105,8 +105,8 @@ theorem eval_f : Eval c fl [] (some v1) :=
     (fun cl' h _ hlt => by
       rcases List.mem_cons.mp h with rfl | h
       · exact absurd hlt (Nat.lt_irrefl _)
-      · rw [List.mem_singleton.mp h] at hlt; exact absurd hlt (by decide))
-    .dv (fun _ h => by simp [cl1] at h)
+      · rw [List.mem_singleton.mp h] at hlt; exact absurd hlt (by decide)) rfl
+    .dv (fun _ h => by simp [cl1] at h) .top
 
 theorem hyp : Hyp c := by
   refine ⟨okAll, srReady, fun g hg vs hvs => ?_, fun g hg ht => ?_, fun g hg => ?_, fun g hg cl' hcl' => ?_,
@@ -126,11 +126,12 @@ theorem hyp : Hyp c := by
     obtain ⟨rfl, rfl⟩ := Prod.mk.inj hp
     exact absurd hprio (by decide)
   · rw [List.mem_singleton.mp hg] at hcl'
-    intro vs σ σ' _ _ _ _ _ _
     rcases List.mem_cons.mp hcl' with rfl | h
-    · exact Or.inl ⟨rfl, rfl, fun i hi => (by simp [cl1, varOccs] at hi), fun t ht => (by simp [cl1] at ht)⟩
+    · exact (matchIndependent_iff_noExs rfl).mpr fun vs σ σ' _ _ _ _ _ _ =>
+        Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl1, varOccs] at hi), fun t ht => (by simp [cl1] at ht)⟩
     · rw [List.mem_singleton.mp h]
-      exact Or.inl ⟨rfl, rfl, fun i hi => (by simp [cl2, varOccs] at hi), fun t ht => (by simp [cl2] at ht)⟩
+      exact (matchIndependent_iff_noExs rfl).mpr fun vs σ σ' _ _ _ _ _ _ =>
+        Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl2, varOccs] at hi), fun t ht => (by simp [cl2] at ht)⟩
 
 theorem hypSound : HypSound c :=
   ⟨okAll, srReady, namesNumbered, by decide +kernel, by decide +kernel, by decide +kernel,
