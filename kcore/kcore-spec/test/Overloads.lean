@@ -355,11 +355,11 @@ theorem ready : CExec.execReady c = true := by decide +kernel
 
 theorem readsConfined_ready : c.readsConfined = false := CExec.readsConfined_of_execReady coreOK ready
 
-/-- `execReady` gives the rule `wrap` its `\top` predicates and a left side binding both of its
-variables. -/
-theorem wrap_plain_ready : wrapR.pre = .top ∧ wrapR.post = .top ∧
+/-- `execReady` gives the rule `wrap` predicates the executable step evaluates and a left side
+binding both of its variables. -/
+theorem wrap_plain_ready : CExec.predAtoms wrapR.pre = true ∧ CExec.predAtoms wrapR.post = true ∧
     binds wrapR.vars.length (varOccs wrapR.lhs) = true :=
-  CExec.rule_plain_of_execReady ready (List.getElem_mem _)
+  CExec.rule_atoms_of_execReady ready (List.getElem_mem _)
 
 theorem exec_run : Step c X1 Y1 :=
   (CExec.successorsN_step_ready ready (n := 20) (x := X1) (y := Y1.val) (by decide +kernel)).2

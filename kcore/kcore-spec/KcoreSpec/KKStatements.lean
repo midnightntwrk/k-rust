@@ -119,12 +119,10 @@ example (r : Rule) : r.opens.isEmpty = binds r.vars.length (varOccs r.lhs) :=
 example (cl : Clause) : cl.opens.isEmpty = binds cl.vars.length (varOccsList cl.pats) :=
   opens_isEmpty_iff_binds _ _
 
-/-- What `execReady` gives of `ruleShapeOK`: all but `exs`. -/
+/-- What `execReady` gives of `ruleShapeOK`: the left side binds every variable. -/
 example {c : Semantics} (hr : CExec.execReady c = true) {r : Rule} (hmem : r ∈ c.rules) :
-    (r.opens.isEmpty && r.pre.isTop && r.post.isTop) = true := by
-  obtain ⟨hpre, hpost, hb⟩ := CExec.rule_plain_of_execReady hr hmem
-  have ho : r.opens.isEmpty = true := (opens_isEmpty_iff_binds _ _).trans hb
-  rw [ho, hpre, hpost]; rfl
+    r.opens.isEmpty = true :=
+  (opens_isEmpty_iff_binds _ _).trans (CExec.rule_atoms_of_execReady hr hmem).2.2
 
 /-! ## The members the statements are about -/
 
