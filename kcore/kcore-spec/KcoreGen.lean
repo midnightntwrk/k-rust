@@ -2819,6 +2819,11 @@ def account (koreFile : String) : IO UInt32 := do
     unless rp.isEmpty do
       IO.println s!"rules and clauses binding a variable under a range-map symbol in their left side: {rp.length}"
       for r in rp.take 10 do IO.println s!"      {r.toText}"
+    -- printed only when some rule or clause has the shape
+    let gp := Parse.openGeneratorInPattern k d
+    unless gp.isEmpty do
+      IO.println s!"rules and clauses applying an open generator in their left side: {gp.length}"
+      for r in gp.take 10 do IO.println s!"      {r.toText}"
     -- printed only when some rule is read so
     let kr := Parse.keysAsRequires k
     unless kr.isEmpty do

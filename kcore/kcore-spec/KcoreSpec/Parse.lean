@@ -138,8 +138,8 @@ inductive RefusalReason where
   both equations apply. -/
   | owisePriority
   /-- A rule's left side or a clause's argument pattern that applies a function symbol (a function
-  or sort predicate of the definition, a parameter, a hooked symbol of the registry), neither a
-  constructor nor a collection's symbol: K's `List:set(L, I, J)` in a cell. A pattern denotes the
+  or sort predicate of the definition, a parameter that is no open generator, a hooked symbol of the
+  registry), neither a constructor nor a collection's symbol: K's `List:set(L, I, J)` in a cell. A pattern denotes the
   values it matches; a function's application denotes the values the function takes at some
   arguments, and matching it needs what the function's inverse says, which no part of the semantics
   gives (the account's check, `Account.functionInPattern`). -/
@@ -221,8 +221,15 @@ inductive RefusalReason where
   the variable and its sort. -/
   | existentialEquation
   /-- An open generator (a symbol the text declares total, lists among its result sort's
-  generators and gives no constructor axiom) binding a variable in a left side: matching it needs
-  which elements its sort has, which the text does not state. The detail names the symbol. -/
+  generators and gives no constructor axiom) applied in a rule's left side or a clause's argument
+  pattern (`Account.openGeneratorInPattern`): the pattern matches a value where the interpretation
+  sends some arguments to it, which the text leaves open beyond the laws it writes. One row, two
+  reasons, by the generator's result sort S (`Semantics.confined`): where S is not confined (it is
+  recursive or reaches an unconfined sort), an element of S that is no value's may be the
+  generator's image of other such elements, so the arguments that match depend on elements the
+  text does not name; where S is confined, the arguments that match are values, the value's
+  preimage under the interpretation's graph, which the semantics does not build. The detail names
+  the symbol, S and the reason. -/
   | openGeneratorPattern
   /-- A range-map symbol binding a variable in a left side: the range's bounds are of KItem
   (`RangeMap:Range(KItem, KItem)`), the entry's value of KItem and the rest of RangeMap, all
