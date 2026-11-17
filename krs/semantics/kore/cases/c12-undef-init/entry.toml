@@ -1,0 +1,17 @@
+id = "c12-undef-init"
+kind = "case"
+subject = "An initial term that is undefined (a division by zero in a function the term applies) is no configuration: there is no final one."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in the initial term. The initial configuration \
+is \\bottom, which has no final configuration."""

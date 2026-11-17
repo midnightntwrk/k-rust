@@ -1,0 +1,10 @@
+id = "c25-map-equal"
+kind = "case"
+subject = "Map concatenation is commutative: A B and B A are one map, so the variable M seen twice in p(M, M) matches them."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

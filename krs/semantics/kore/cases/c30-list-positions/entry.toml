@@ -1,0 +1,10 @@
+id = "c30-list-positions"
+kind = "case"
+subject = "List patterns match by position: ListItem(X) L takes the first element and L ListItem(X) the last; a pattern without a frame matches only a list of exactly its length."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

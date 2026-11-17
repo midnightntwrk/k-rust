@@ -1,0 +1,21 @@
+id = "c43-ensures"
+kind = "case"
+subject = "A rule whose ensures is not true: where the ensures holds the rule gives its right side; where it is false the rule has applied with an empty result, so that configuration has no successor and is not final."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend does not evaluate the ensures: it steps a(0) to b(0) although 0 >Int 0 is \
+false. A rule l => r requires P ensures E is the axiom l and P implies next (r and E = true), so \
+where E is false the rule's result is empty: the rule has applied, a(0) has no successor and is \
+not final (the K manual, "Rule Structure": the ensures may make the term undefined, and the \
+backend applies the rule anyway). The haskell backend's result is \
+kore.k's, b(1) alone."""

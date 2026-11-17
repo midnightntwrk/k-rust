@@ -1,0 +1,10 @@
+id = "c41-total-requires"
+kind = "case"
+subject = "A function declared total used in a requires: its equation gives its value, and the rule applies where that value is true; the [owise] rule applies where it is false."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

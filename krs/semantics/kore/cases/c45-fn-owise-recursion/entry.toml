@@ -1,0 +1,10 @@
+id = "c45-fn-owise-recursion"
+kind = "case"
+subject = "A recursive function with an [owise] equation: the [owise] right side is evaluated only where no equation of smaller priority applies, so f(2) reaches f(0) and stops."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

@@ -1,0 +1,10 @@
+id = "c07-strict-args"
+kind = "case"
+subject = "A function's argument is evaluated before its equations are matched: f(g(1)) matches f(kk())."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

@@ -1,0 +1,10 @@
+id = "c22-map-hooks"
+kind = "case"
+subject = "The Map hooks on a two-entry map: lookup, lookup with a default (present and missing key), update of a present key and of a new key between the two present ones, removal of a present and of a missing key, in_keys and size."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

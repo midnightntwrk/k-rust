@@ -1,0 +1,10 @@
+id = "c15-nonlinear-rule"
+kind = "case"
+subject = "A variable seen twice in a rule's left side: the rule does not apply to distinct values."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

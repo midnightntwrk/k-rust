@@ -1,0 +1,10 @@
+id = "c35-cell-map"
+kind = "case"
+subject = "A cell collection (multiplicity=\"*\", type=\"Map\", keyed by the child cell <id>): a rule adds an instance beside the others, a rule removes the instance of a key, and a rule rewrites a child of the one instance of a key among three; the instances are created in an order other than that of their keys."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

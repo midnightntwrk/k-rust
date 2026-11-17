@@ -1,0 +1,10 @@
+id = "c31-list-concat"
+kind = "case"
+subject = "List concatenation is associative and not commutative: A B and B A differ, so p(L, L) does not match them; (A B) A and A (B A) are one list, which q(L, L) matches; a list may hold an element twice; size counts every element."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

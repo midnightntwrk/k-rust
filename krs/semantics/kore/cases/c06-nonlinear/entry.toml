@@ -1,0 +1,10 @@
+id = "c06-nonlinear"
+kind = "case"
+subject = "A variable seen twice in a left side: the equation and the rule apply only to equal values."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

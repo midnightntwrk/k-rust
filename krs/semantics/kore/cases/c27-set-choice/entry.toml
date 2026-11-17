@@ -1,0 +1,10 @@
+id = "c27-set-choice"
+kind = "case"
+subject = "A rule whose left side is SetItem(X) S, with S a frame variable, matches every element of the set: one successor per element, each with the rest of the set bound to S."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

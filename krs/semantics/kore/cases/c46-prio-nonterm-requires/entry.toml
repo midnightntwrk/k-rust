@@ -1,0 +1,10 @@
+id = "c46-prio-nonterm-requires"
+kind = "case"
+subject = "A rule of priority 50 applies; the rule of priority 60 beside it, whose requires has no value (its evaluation does not terminate), is not tried."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

@@ -1,0 +1,10 @@
+id = "c24-map-fn-pattern"
+kind = "case"
+subject = "Function equations whose argument pattern is K |-> V M: total sums the values, whichever entry each step takes; keyOfBig takes the entry whose value satisfies its requires, which is not the first entry of the map, and its [owise] equation applies to no map that has such an entry."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

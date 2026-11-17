@@ -1,0 +1,10 @@
+id = "c01-fn-prio"
+kind = "case"
+subject = "Function equations of three priorities, an [owise] equation, and requires that fail."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

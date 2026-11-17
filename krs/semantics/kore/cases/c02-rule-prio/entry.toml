@@ -1,0 +1,10 @@
+id = "c02-rule-prio"
+kind = "case"
+subject = "Rewrite rules of several priorities: a rule whose requires fails does not block a larger priority; one that applies does; an [owise] rule applies only where nothing else does."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

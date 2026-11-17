@@ -1,0 +1,10 @@
+id = "c16-bool-pattern"
+kind = "case"
+subject = "A Bool domain value in a left side matches only itself."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

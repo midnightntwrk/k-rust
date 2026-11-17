@@ -1,0 +1,19 @@
+id = "c21-map-concat"
+kind = "case"
+subject = "Map concatenation is defined on maps with disjoint keys: M (1 |-> 3) where M has the key 1 is undefined, so that rule has no successor; M (2 |-> 3) is the union; M .Map is M."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on M (1 |-> 3) where M has the key 1 ([hook_MAP_concat]: Duplicate \
+keys in map concatenation). K's MAP module states that the concatenation of maps with a common \
+key is #False: MAP.concat is defined on maps with disjoint keys. That rule's result is \
+undefined, and the rules of the same priority give the final configurations."""

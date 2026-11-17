@@ -1,0 +1,19 @@
+id = "c47-undef-rhs-same-prio"
+kind = "case"
+subject = "Two rules of one priority apply, one with an undefined right side: the other's successor is kept."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on X /Int 0 in the right side of one of two rules of one priority \
+([hook_INT_tdiv]: Division by zero). That rule applies with an undefined result, which is no \
+successor; the other rule of the same priority applies with c(1), which is the one final \
+configuration."""

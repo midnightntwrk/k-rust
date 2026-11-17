@@ -1,0 +1,10 @@
+id = "c19-map-choice"
+kind = "case"
+subject = "A rule whose left side is K |-> V M, with M a frame variable, matches every entry of the map: one successor per entry, each with the rest of the map bound to M."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

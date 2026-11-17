@@ -1,0 +1,10 @@
+id = "c05-hooks"
+kind = "case"
+subject = "The Int and Bool hooks of the fragment, on negative operands too (truncating /Int and %Int)."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

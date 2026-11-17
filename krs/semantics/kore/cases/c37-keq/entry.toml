@@ -1,0 +1,10 @@
+id = "c37-keq"
+kind = "case"
+subject = "==K and =/=K: a value reached through a subsort against the same value written at its own sort, values of one sort and of two sorts, maps built in two orders, and maps that differ in one value."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"

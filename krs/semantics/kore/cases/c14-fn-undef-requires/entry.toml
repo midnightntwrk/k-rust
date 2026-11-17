@@ -1,0 +1,17 @@
+id = "c14-fn-undef-requires"
+kind = "case"
+subject = "An equation whose requires is undefined (a division by zero) does not apply: the [owise] equation gives the value."
+
+[text]
+files = ["def.k", "pgm"]
+kompile = "accepts"
+
+[ruling]
+status = "pending"
+
+[[disposition]]
+implementation = "llvm"
+is = "difference"
+reason = """
+The llvm backend aborts on the division by zero in an equation's requires. That requires is not \
+true, so the equation does not apply and the [owise] equation gives the value."""
