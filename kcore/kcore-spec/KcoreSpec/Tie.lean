@@ -70,29 +70,18 @@ def Semantics.carriersOK (c : Semantics) : Bool :=
     !c.lib.tokenSorts.contains p.1 && !c.lib.byteSorts.contains p.1 && !c.colls.any (·.sort == p.1)) &&
   nodup (c.lib.carriers.map (·.1))
 
-/-- **Every value of sort Float is a Float literal**: no constructor, injection, collection sort of
-the definition's own, overloading symbol, token or byte sort, nor raw parameter has Float as its
-sort. Then
-`precisionFloat` and `exponentBitsFloat`, which read a literal's format, have a value at every
-Float (`fmt_total`, ParamsTotal.lean). -/
-def Semantics.floatShapeOK (c : Semantics) : Bool :=
-  c.ctorSigs.all (·.result != Srt.float) && c.subsorts.all (·.2 != Srt.float) &&
-  !(c.lib.tokenSorts ++ c.lib.byteSorts).contains Srt.float &&
-  c.colls.all (·.sort != Srt.float) && c.ovlSigs.all (·.result != Srt.float) &&
-  c.params.all (fun k => !(k.raw && k.sig.result == Srt.float))
-
 /-- The parameters' shapes, and the carriers. A parameter that is no open generator has no
 associativity or idempotence axiom. An open generator (`raw`) has no registry hook,
 two arguments of its result sort where it has a law (associativity, idempotence or both), a number outside the registry (so `lookupOpen`
-answers for it) and no name like an `ite`'s (`iteSort?`), and the semantics has `shapesOK` and
-`floatShapeOK` (no value of a sort the library's sentences read applies it). The sorts hooked to a
+answers for it) and no name like an `ite`'s (`iteSort?`), and the semantics has `shapesOK` (no value
+of a sort the library's sentences read, other than Float, applies it). The sorts hooked to a
 library carrier are well formed (`carriersOK`). -/
 def Semantics.paramsPlain (c : Semantics) : Bool :=
   c.params.all (fun k =>
     if k.raw then k.impl.isNone &&
       (!(k.assoc || k.idem) || k.sig.args == [k.sig.result, k.sig.result]) &&
       decide (nRegSyms ≤ k.sig.name) && (iteSort? (c.symName k.sig.name)).isNone &&
-      c.shapesOK && c.floatShapeOK
+      c.shapesOK
     else !k.assoc && !k.idem) && c.carriersOK
 
 /-- The core is well-formed: declarations over declared sorts, its rules, clauses and parameters

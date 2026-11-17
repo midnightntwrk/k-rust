@@ -104,7 +104,7 @@ theorem Semantics.raw_of_sortedOKCl {c : Semantics} (h : c.sortedOKCl = true) {k
     k.impl = none ∧
     ((k.assoc || k.idem) = true → k.sig.args = [k.sig.result, k.sig.result]) ∧
     nRegSyms ≤ k.sig.name ∧ iteSort? (c.symName k.sig.name) = none ∧
-    c.shapesOK = true ∧ c.floatShapeOK = true :=
+    c.shapesOK = true :=
   Semantics.raw_of_paramsPlain (Semantics.sortedOKCl_parts h).2.2.2.2 hk hr
 
 /-- **`sortedOK` gives `sortedOKCl`**: the two ask the same of each clause (`clauseSorted` is
