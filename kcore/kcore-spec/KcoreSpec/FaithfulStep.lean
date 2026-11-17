@@ -1222,7 +1222,7 @@ mutual
   theorem eval_den : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args → Callable c f →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hrhs hens, fn, hfn, hws, hcall, e, m => by
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ _ hrhs hens, fn, hfn, hws, hcall, e, m => by
       rw [hfn] at hfn'; cases hfn'
       obtain ⟨hlows, -⟩ := hcall fn' hfn
       have hol := hlows cl hcl

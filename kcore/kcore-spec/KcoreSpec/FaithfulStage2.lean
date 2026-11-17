@@ -741,7 +741,7 @@ mutual
   theorem eval_den2 : ∀ {f : Sym} {ws : List GroundTerm} {r : Option GroundTerm}, Eval c f ws r →
       ∀ {fn : Fn}, c.lookupFn f = some fn → c.sortsOf ws = some fn.args → Callable2 c f →
       ∀ (e : Valuation M) m, (KoreAML.den (symApp c f (GroundTerm.koreList c ws))).interpret I e m ↔ Res c I e r m
-    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq hprio hrhs hens,
+    | _, _, _, .clause (fn := fn') (cl := cl) (σ := σ') hfn' hcl hσ' hmatch hreq _ hprio hrhs hens,
         fn, hfn, hws, hcall, e, m => by
       rw [hfn] at hfn'; cases hfn'
       have hmem := (lookupFn_spec hfn).1
@@ -793,6 +793,8 @@ mutual
       ∀ (tbl : VarTable) (e : Valuation M), Agrees c I tbl (canonVars c cl.vars) σ e →
       ∃ t r, cl.req = some t ∧ r ≠ some (bool true) ∧ (∀ v, r = some v → c.sortOf v = some Srt.bool) ∧
         ∀ m, (KoreAML.tr ⟨tbl, []⟩ (Term.kore c (canonVars c cl.vars) t)).interpret I e m ↔ Res c I e r m
+    | _, cl, .pre h, fn, hfn, hcl, hσ, tbl, e, hag => by
+      rw [clause_preTop hok hfn hcl] at h; exact absurd h.top_eq (by simp)
     | _, cl, .intro (t := t) (r := r) ht he hr, fn, hfn, hcl, hσ, tbl, e, hag => by
       obtain ⟨-, -, L, hL, hreqs, -⟩ := clause_ctx hok hbc hfn hcl
       obtain ⟨-, hcalls⟩ := hst.2.2 fn hfn cl hcl
