@@ -203,6 +203,25 @@ def HoldsDen' (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (p :
     ∀ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a →
       ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret I e a ↔ b = true)
 
+/-- `HoldsDen'` with the Bool that bounds the condition's binders a parameter: `HoldsDen' c I p` is
+`HoldsDenB (Cond.bound c) c I p`. -/
+def HoldsDenB (bd : Nat → Cond → Bool) (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (p : Cond) : Prop :=
+  ∀ {vars : List Srt} {P : Nat → Prop} {σ : Subst} {b : Bool} {tbl : KoreAML.VarTable} {e : Valuation M} {S : Srt},
+    c.condOK vars p = true → bd vars.length p = true →
+    (∀ i ∈ varOccsCond vars.length p, i < vars.length → P i) → Reads c I vars P σ tbl e →
+    (∀ k ∈ KoreAML.varsOf (Cond.kore c (canonVars c vars) (srtOf c S) p), k ∈ tbl) →
+    S < nRegSorts + c.sortNames.length → Holds c vars.length σ p b →
+    ∀ a, (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c S))).interpret I e a →
+      ((KoreAML.tr ⟨tbl, []⟩ (Cond.kore c (canonVars c vars) (srtOf c S) p)).interpret I e a ↔ b = true)
+
+/-- The sort s is numbered and each of its elements in I is a value's: what the Holds lemma reads
+of the sort of an `ex` or `all` binder. -/
+def ElemsValues (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (s : Srt) : Prop :=
+  s < nRegSorts + c.sortNames.length ∧
+  ∀ (tbl : KoreAML.VarTable) (e : Valuation M) (a : M),
+    (KoreAML.inhOf (KoreAML.trSort tbl (srtOf c s))).interpret I e a →
+    ∃ v, c.sortOf v = some s ∧ ∀ m, (den c v).interpret I e m ↔ m = a
+
 /-- The Holds lemma for p in I over every variable in scope: σ well sorted on all of them, at a
 valuation that agrees with it. -/
 def HoldsDenAll (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (p : Cond) : Prop :=
@@ -320,10 +339,11 @@ theorem holds_bot' (F : AtomFacts c I) : HoldsDen' c I .bot := by
   rw [KoreAML.interp_sNot, KoreAML.interp_sTop F.defOK Model.srtOf_free_stdI]
   exact ⟨fun hn => absurd ha hn.1, fun hf => by cases hf⟩
 
-theorem holds_not' {p : Cond} (ih : HoldsDen' c I p) : HoldsDen' c I (.not p) := by
+theorem holds_notB {bd : Nat → Cond → Bool} {p : Cond} (L : ∀ {n}, bd n (.not p) = true → bd n p = true)
+    (ih : HoldsDenB bd c I p) : HoldsDenB bd c I (.not p) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   rw [Semantics.condOK] at hok
-  rw [Cond.bound] at hbd
+  replace hbd := L hbd
   cases hh with
   | not hp =>
     rename_i b'
@@ -333,10 +353,15 @@ theorem holds_not' {p : Cond} (ih : HoldsDen' c I p) : HoldsDen' c I (.not p) :=
     rw [Cond.kore, KoreAML.tr, KoreAML.interp_sNot, this]
     cases b' <;> simp [ha]
 
-theorem holds_and' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) : HoldsDen' c I (.and p q) := by
+theorem holds_not' {p : Cond} (ih : HoldsDen' c I p) : HoldsDen' c I (.not p) :=
+  holds_notB (bd := Cond.bound c) (fun h => by rw [Cond.bound] at h; exact h) ih
+
+theorem holds_andB {bd : Nat → Cond → Bool} {p q : Cond}
+    (L : ∀ {n}, bd n (.and p q) = true → bd n p = true ∧ bd n q = true)
+    (ihp : HoldsDenB bd c I p) (ihq : HoldsDenB bd c I q) : HoldsDenB bd c I (.and p q) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   cases hh with
   | and hp hq =>
     rename_i b1 b2
@@ -353,10 +378,15 @@ theorem holds_and' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) 
     rw [Cond.kore, tr_and2, KoreAML.interp_sAnd, h1, h2]
     cases b1 <;> cases b2 <;> simp
 
-theorem holds_or' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) : HoldsDen' c I (.or p q) := by
+theorem holds_and' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) : HoldsDen' c I (.and p q) :=
+  holds_andB (bd := Cond.bound c) (fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h) ihp ihq
+
+theorem holds_orB {bd : Nat → Cond → Bool} {p q : Cond}
+    (L : ∀ {n}, bd n (.or p q) = true → bd n p = true ∧ bd n q = true)
+    (ihp : HoldsDenB bd c I p) (ihq : HoldsDenB bd c I q) : HoldsDenB bd c I (.or p q) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   cases hh with
   | or hp hq =>
     rename_i b1 b2
@@ -373,11 +403,15 @@ theorem holds_or' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) :
     rw [Cond.kore, Model.tr_or2Stdi, KoreAML.interp_sOr, h1, h2]
     cases b1 <;> cases b2 <;> simp [ha]
 
-theorem holds_implies' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) :
-    HoldsDen' c I (.implies p q) := by
+theorem holds_or' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) : HoldsDen' c I (.or p q) :=
+  holds_orB (bd := Cond.bound c) (fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h) ihp ihq
+
+theorem holds_impliesB {bd : Nat → Cond → Bool} {p q : Cond}
+    (L : ∀ {n}, bd n (.implies p q) = true → bd n p = true ∧ bd n q = true)
+    (ihp : HoldsDenB bd c I p) (ihq : HoldsDenB bd c I q) : HoldsDenB bd c I (.implies p q) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   rw [Semantics.condOK, Bool.and_eq_true] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   cases hh with
   | implies hp hq =>
     rename_i b1 b2
@@ -392,6 +426,10 @@ theorem holds_implies' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I
       hr hkq hS hq a ha
     rw [Cond.kore, KoreAML.tr, KoreAML.interp_sImp, h1, h2]
     cases b1 <;> cases b2 <;> simp [ha]
+
+theorem holds_implies' {p q : Cond} (ihp : HoldsDen' c I p) (ihq : HoldsDen' c I q) :
+    HoldsDen' c I (.implies p q) :=
+  holds_impliesB (bd := Cond.bound c) (fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h) ihp ihq
 
 /-- **`ceil`, once for every interpretation with the atoms' facts.** -/
 theorem holds_ceil' (F : AtomFacts c I) (s : Srt) (t : Term) : HoldsDen' c I (.ceil s t) := by
@@ -636,14 +674,17 @@ theorem Reads.snoc {vars : List Srt} {P : Nat → Prop} {σ σ' : Subst} {tbl : 
     rw [Function.update_same]
     exact (((den_closed c v).interp _ e m).trans (hd m)).symm
 
-/-- **`ex`, once for every interpretation with the facts.** -/
-theorem holds_ex' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Cond} (ih : HoldsDen' c I body) :
-    HoldsDen' c I (.ex s body) := by
+/-- **`ex`, once for every interpretation with the atoms' facts**, where the Bool that bounds the
+binders gives that the elements of the binder's sort are values' (`ElemsValues`) and bounds the
+body. -/
+theorem holds_exB (F : AtomFacts c I) {bd : Nat → Cond → Bool} (s : Srt) {body : Cond}
+    (L : ∀ {n}, bd n (.ex s body) = true → ElemsValues c I s ∧ bd (n + 1) body = true)
+    (ih : HoldsDenB bd c I body) : HoldsDenB bd c I (.ex s body) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   rw [Semantics.condOK] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
-  have hsn : s < nRegSorts + c.sortNames.length := G.confinedNum hbd.1
+  have hsn : s < nRegSorts + c.sortNames.length := hbd.1.1
   obtain ⟨τ, hτ, hτd⟩ := F.sort hsn
   obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
   let K := canonKey c (vars ++ [s]) vars.length
@@ -681,7 +722,7 @@ theorem holds_ex' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Co
     simp only [KoreAML.interp_member F.defOK, Function.update_same, hsrt]
     constructor
     · rintro ⟨m, hm, hbody⟩
-      obtain ⟨v, hv, hdv⟩ := G.confined hbd.1 tbl e m ((KoreAML.interp_inhOf_of (hτd tbl e)).mpr hm)
+      obtain ⟨v, hv, hdv⟩ := hbd.1.2 tbl e m ((KoreAML.interp_inhOf_of (hτd tbl e)).mpr hm)
       have hσ'' : ∀ i < vars.length, (Model.extOneStdI σ vars.length v).lookup i = σ.lookup i :=
         fun i hi => Model.extOneStdI_off σ v (by omega)
       have hext : Extends c vars.length [s] σ (Model.extOneStdI σ vars.length v) :=
@@ -697,14 +738,26 @@ theorem holds_ex' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Co
       obtain ⟨a0, ha0, hin⟩ := F.val hsv tbl e
       exact ⟨a0, (KoreAML.interp_inhOf_of (hτd tbl e)).mp hin, (hread σ' v a0 hext.1 hv hsv ha0 _ (hb σ' hext)).mpr hg⟩
 
-/-- **`all`, once for every interpretation with the facts.** -/
-theorem holds_all' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Cond} (ih : HoldsDen' c I body) :
-    HoldsDen' c I (.all s body) := by
+/-- The elements of a confined sort are values', from the binders' facts. -/
+theorem BinderFacts.elemsValues (G : BinderFacts c I) {s : Srt} (hs : c.confined s = true) : ElemsValues c I s :=
+  ⟨G.confinedNum hs, fun tbl e a => G.confined hs tbl e a⟩
+
+/-- **`ex`, once for every interpretation with the facts.** -/
+theorem holds_ex' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Cond} (ih : HoldsDen' c I body) :
+    HoldsDen' c I (.ex s body) :=
+  holds_exB F (bd := Cond.bound c) s
+    (fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact ⟨G.elemsValues h.1, h.2⟩) ih
+
+/-- **`all`, once for every interpretation with the atoms' facts**, where the Bool that bounds the
+binders gives that the elements of the binder's sort are values' and bounds the body. -/
+theorem holds_allB (F : AtomFacts c I) {bd : Nat → Cond → Bool} (s : Srt) {body : Cond}
+    (L : ∀ {n}, bd n (.all s body) = true → ElemsValues c I s ∧ bd (n + 1) body = true)
+    (ih : HoldsDenB bd c I body) : HoldsDenB bd c I (.all s body) := by
   intro vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   rw [Semantics.condOK] at hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   have hlen : (vars ++ [s]).length = vars.length + 1 := by simp
-  have hsn : s < nRegSorts + c.sortNames.length := G.confinedNum hbd.1
+  have hsn : s < nRegSorts + c.sortNames.length := hbd.1.1
   obtain ⟨τ, hτ, hτd⟩ := F.sort hsn
   obtain ⟨τS, hτS, hτSd⟩ := F.sort hS
   let K := canonKey c (vars ++ [s]) vars.length
@@ -754,7 +807,7 @@ theorem holds_all' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : C
       exact (hread σ' v a0 hext.1 hv hsv ha0 _ (hb σ' hext)).mp
         (hall a0 ((KoreAML.interp_inhOf_of (hτd tbl e)).mp hin))
     · intro hbt m hm
-      obtain ⟨v, hv, hdv⟩ := G.confined hbd.1 tbl e m ((KoreAML.interp_inhOf_of (hτd tbl e)).mpr hm)
+      obtain ⟨v, hv, hdv⟩ := hbd.1.2 tbl e m ((KoreAML.interp_inhOf_of (hτd tbl e)).mpr hm)
       have hσ'' : ∀ i < vars.length, (Model.extOneStdI σ vars.length v).lookup i = σ.lookup i :=
         fun i hi => Model.extOneStdI_off σ v (by omega)
       have hext : Extends c vars.length [s] σ (Model.extOneStdI σ vars.length v) :=
@@ -764,19 +817,34 @@ theorem holds_all' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : C
           | succ j => simp at hj⟩
       exact (hread _ v m hσ'' (Model.extOneStdI_at σ _ v) hv hdv _ (hb _ hext)).mpr (hr'.mp hbt _ hext)
 
+/-- **`all`, once for every interpretation with the facts.** -/
+theorem holds_all' (F : AtomFacts c I) (G : BinderFacts c I) (s : Srt) {body : Cond} (ih : HoldsDen' c I body) :
+    HoldsDen' c I (.all s body) :=
+  holds_allB F (bd := Cond.bound c) s
+    (fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact ⟨G.elemsValues h.1, h.2⟩) ih
+
 /-- The `exMatch` case of the Holds lemma in I: the lemma for a match under binders, given it for
 the match's body. -/
 def ExMatchCase (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) : Prop :=
   ∀ (ys : List Srt) (s : Srt) (p t : Term) {body : Cond}, HoldsDen' c I body → HoldsDen' c I (.exMatch ys s p t body)
 
+/-- `ExMatchCase` with the Bool that bounds the binders a parameter. -/
+def ExMatchCaseB (bd : Nat → Cond → Bool) (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) : Prop :=
+  ∀ (ys : List Srt) (s : Srt) (p t : Term) {body : Cond},
+    HoldsDenB bd c I body → HoldsDenB bd c I (.exMatch ys s p t body)
+
 /-- **`exMatch`, once for every interpretation with the facts.** A binder the pattern holds is a
 value's element by the pattern's reading (`BinderFacts.pat`); one it does not hold is of a confined
 sort (`Cond.bound`). -/
-theorem holds_exMatch' (F : AtomFacts c I) (G : BinderFacts c I) : ExMatchCase c I := by
+theorem holds_exMatchB (F : AtomFacts c I) (G : BinderFacts c I) {bd : Nat → Cond → Bool}
+    (L : ∀ {n : Nat} {ys : List Srt} {s : Srt} {p t : Term} {body : Cond}, bd n (.exMatch ys s p t body) = true →
+      (List.range ys.length).all (fun j =>
+        (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) = true ∧
+      bd (n + ys.length) body = true) : ExMatchCaseB bd c I := by
   intro ys s p t body ih vars P σ b tbl e S hok hbd hP hr hk hS hh a ha
   simp only [Semantics.condOK, Bool.and_eq_true, beq_iff_eq] at hok
   obtain ⟨⟨⟨hpS, htS⟩, hokB⟩, -⟩ := hok
-  rw [Cond.bound, Bool.and_eq_true] at hbd
+  replace hbd := L hbd
   obtain ⟨hbnd, hbdB⟩ := hbd
   have hlen : (vars ++ ys).length = vars.length + ys.length := by simp
   let Bs := (List.range' vars.length ys.length).map fun i => ((canonVars c (vars ++ ys)).getD i default).kore
@@ -1043,6 +1111,53 @@ theorem holds_exMatch' (F : AtomFacts c I) (G : BinderFacts c I) : ExMatchCase c
         show InS I _ (e'.evalEvar (tbl.ev (canonKey c (vars ++ ys) i)))
         rw [setV_on hkis (by simp; omega) hix]
         exact (hfe i h1 h2).2
+
+/-- **`exMatch`, once for every interpretation with the facts**, at `Cond.bound`. -/
+theorem holds_exMatch' (F : AtomFacts c I) (G : BinderFacts c I) : ExMatchCase c I :=
+  holds_exMatchB F G (bd := Cond.bound c) (fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h)
+
+/-- What the Holds lemma reads of the Bool that bounds a condition's binders: it bounds the parts
+of a connective, at a match under binders it is `Cond.bound`'s test of the binders with the body
+bounded, and at an `ex` or `all` it gives that the elements of the binder's sort are values' with
+the body bounded. -/
+structure BoundReads (c : Semantics) {M : Type} (I : Interpretation KoreAML.Sym M) (bd : Nat → Cond → Bool) : Prop where
+  not : ∀ {n : Nat} {p : Cond}, bd n (.not p) = true → bd n p = true
+  and : ∀ {n : Nat} {p q : Cond}, bd n (.and p q) = true → bd n p = true ∧ bd n q = true
+  or : ∀ {n : Nat} {p q : Cond}, bd n (.or p q) = true → bd n p = true ∧ bd n q = true
+  implies : ∀ {n : Nat} {p q : Cond}, bd n (.implies p q) = true → bd n p = true ∧ bd n q = true
+  exMatch : ∀ {n : Nat} {ys : List Srt} {s : Srt} {p t : Term} {body : Cond}, bd n (.exMatch ys s p t body) = true →
+    (List.range ys.length).all (fun j =>
+      (ctorOccs c p).contains (n + j) || (ys[j]?.map c.confined).getD false) = true ∧
+    bd (n + ys.length) body = true
+  ex : ∀ {n : Nat} {s : Srt} {body : Cond}, bd n (.ex s body) = true → ElemsValues c I s ∧ bd (n + 1) body = true
+  all : ∀ {n : Nat} {s : Srt} {body : Cond}, bd n (.all s body) = true → ElemsValues c I s ∧ bd (n + 1) body = true
+
+/-- `Cond.bound` is such a Bool, from the binders' facts. -/
+theorem boundReads_bound (G : BinderFacts c I) : BoundReads c I (Cond.bound c) where
+  not := fun h => by rw [Cond.bound] at h; exact h
+  and := fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h
+  or := fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h
+  implies := fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h
+  exMatch := fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact h
+  ex := fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact ⟨G.elemsValues h.1, h.2⟩
+  all := fun h => by rw [Cond.bound, Bool.and_eq_true] at h; exact ⟨G.elemsValues h.1, h.2⟩
+
+/-- **The Holds lemma for every interpretation with the facts, over a Bool that bounds the
+binders** (`BoundReads`), by structural recursion. -/
+theorem holds_denB (F : AtomFacts c I) (G : BinderFacts c I) {bd : Nat → Cond → Bool} (L : BoundReads c I bd) :
+    ∀ p : Cond, HoldsDenB bd c I p
+  | .top => fun hok _ hP hr hk hS hh a ha => holds_top' F hok rfl hP hr hk hS hh a ha
+  | .bot => fun hok _ hP hr hk hS hh a ha => holds_bot' F hok rfl hP hr hk hS hh a ha
+  | .not p => holds_notB (bd := bd) L.not (holds_denB F G L p)
+  | .and p q => holds_andB (bd := bd) L.and (holds_denB F G L p) (holds_denB F G L q)
+  | .or p q => holds_orB (bd := bd) L.or (holds_denB F G L p) (holds_denB F G L q)
+  | .implies p q => holds_impliesB (bd := bd) L.implies (holds_denB F G L p) (holds_denB F G L q)
+  | .ceil s t => fun hok _ hP hr hk hS hh a ha => holds_ceil' F s t hok rfl hP hr hk hS hh a ha
+  | .equals s t u => fun hok _ hP hr hk hS hh a ha => holds_equals' F s t u hok rfl hP hr hk hS hh a ha
+  | .mem s t u => fun hok _ hP hr hk hS hh a ha => holds_mem' F s t u hok rfl hP hr hk hS hh a ha
+  | .exMatch ys s p t body => holds_exMatchB F G (bd := bd) L.exMatch ys s p t (holds_denB F G L body)
+  | .ex s body => holds_exB F (bd := bd) (body := body) s L.ex (holds_denB F G L body)
+  | .all s body => holds_allB F (bd := bd) (body := body) s L.all (holds_denB F G L body)
 
 /-- **The Holds lemma for every interpretation with the facts and the `exMatch` case**, by structural
 recursion. -/

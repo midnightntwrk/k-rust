@@ -778,6 +778,15 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   the reader's semantics for `f2-examples/mlandt.kompile.kore` (`go(X) => f(X) #And g(X)`) and
   `f2-examples/mlandc.kompile.kore` (`c(X) => X #And a()`), every hypothesis decided
   (`rule_shape_dec`: the rule as the reader reads it).
+- `test/HoldsModelFixed.lean`: a condition with an `ex` binder of a sort that is not confined, in
+  the value model at a transition (KcoreSpec/HoldsModelFixed.lean), at the reader's semantics for
+  `f2-examples/symrule.kompile.kore`. `conds_ok`: `Z ∈ 3 ∨ ∃ B:Int. (Z ∈ B ∧ B = 4)` and its
+  negation are refused by `Cond.bound` (Int is not confined) and accepted by
+  `Cond.boundV c c.valueSorts.contains`; `∃ B:Int. Z ∈ B`, whose body does not fix B, is refused
+  by both; a binder of Bool is accepted by both. `hval`: every sort of `valueSorts` is numbered
+  (decided). `holds_atT_fixed` and `holds_stdI_fixed` at the two accepted conditions under
+  `FnHyp`, the truth value from `holds_decided`; `Cond.boundV_none`, `Cond.boundV_of_bound` at
+  instances.
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under
