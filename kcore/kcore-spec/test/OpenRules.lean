@@ -117,7 +117,7 @@ noncomputable def okB : Rule := mk [sK, sC, Srt.bool] (cfg (.var 1)) none (some 
 
 /-! ## Arms A and C: `Rule.decided_of_fnHyp` -/
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- The text's semantics reads no confined sort, so each clause's conditions are decided where
 `needsWitness` holds (`openDecided_of_readsConfined`): the clause-side hypothesis of the lemmas
@@ -202,7 +202,7 @@ noncomputable def okBc : Rule := mk [sK, sC, Srt.bool] (cfg (.var 1)) (some (.va
 /-- The text's semantics with the larger rule. -/
 noncomputable abbrev c2 : Semantics := { c with rules := c.rules ++ [plain] }
 
-theorem coreOK2 : c2.coreOK = true := by decide +kernel
+theorem coreOK2 : c2.coreOK = true := by decide_cheap
 
 /-- `hcT` at `c2`. -/
 theorem hcT2 : ∀ fn ∈ c2.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c2 = true → cl.CondDecided c2 :=

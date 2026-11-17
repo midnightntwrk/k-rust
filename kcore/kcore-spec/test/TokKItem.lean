@@ -43,7 +43,7 @@ noncomputable def gsText : List Gen := (gensInOrder c defn.pres Srt.kitem).filte
   | .ctor _ => true
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem tok_named : c.sortName tok = "'Hash'Tok" := by decide +kernel
 /-- `#Tok` is a sort of the definition below KItem (`sortsBelowKItem`); the text states no subsort
 axiom of it. -/

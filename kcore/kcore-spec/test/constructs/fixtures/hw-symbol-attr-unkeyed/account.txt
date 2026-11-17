@@ -1,0 +1,20 @@
+test/constructs/fixtures/hw-symbol-attr-unkeyed/hw-symbol-attr-unkeyed.kore: 5 modules; prelude agrees
+user module E7-IMPLICITK: 240 sentences
+  1 inert import [generated]
+  158 read [generated]
+  52 read [builtin]
+  1 refused symbolAttrUnkeyed [user]
+      e.g. symbol Lbla{}() : SortExp{} [foo{}(), constructor{}(), functional{}(), injective{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,33)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(kcore-spec/test/constructs/fixtures/e7-implicitk/e7-implicitk.k)"), symbol'Kywd'{}("a")]
+  2 read [user]
+  4 inert injectivity [generated]
+  9 inert collectionLaw [generated]
+  1 unread setIdempotence [generated]
+  1 inert distinctCtors [generated]
+  10 inert noJunk [generated]
+  1 inert simplification [generated]
+stage refusals (of sentences classified read): 1
+  1 unknownSymbol
+      sentence 204 (Lbl'-LT-'generatedTop'-GT-'): unknownSymbol (Lbla)
+        [user] (no label) at e7-implicitk.k:3: axiom{} \rewrites{SortGeneratedTopCell{}}(\and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lbla{}()), Var'Unds'DotVar1:SortK{})), Var'Unds'DotVar0:SortGeneratedCounterCell{}), \top{SortGeneratedTopCell{}}()), \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortExp{}, SortKItem{}}(Lblb{}()), Var …
+finish: sentence 204 (Lbl'-LT-'generatedTop'-GT-'): unknownSymbol (Lbla)
+(exit 0)

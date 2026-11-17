@@ -61,7 +61,7 @@ noncomputable def cS : Semantics := { c with fns := c.fns ++ [fS], params := c.p
 `rightValued` fails and `f` is the one held-named function; `coreOK` holds at `cS`. -/
 theorem shape : cS.valued Srt.string = false ∧ clS.leftVars = [] ∧ cS.rightValued = false ∧
     cS.heldObligations = [391] ∧ cS.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 theorem coreS : cS.coreOK = true := shape.2.2.2.2
 

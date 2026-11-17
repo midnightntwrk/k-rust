@@ -26,7 +26,7 @@ noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 /-- `tr s`: the item `Theory.ofDefinition kore` holds for the sentence. -/
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 theorem fn175 (H : HookParams) : EntailsAtValues (cH H) U.ax175 (trS U.ax175).pat := by

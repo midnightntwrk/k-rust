@@ -94,7 +94,7 @@ theorem f_unguarded : c.distGuarded (.ctor fSig) (.ctor fSig) = false := by deci
 /-- **`Γ c` has no model.** -/
 theorem no_model : ∀ (M : Type) (_ : Inhabited M) (I : Interpretation KoreAML.Sym M), ¬ (I ⊧ᴵP Γ c) := by
   intro M _ I hI
-  have hit := sat_cons hI (Or.inl ⟨_, distItem_mem (by decide +kernel) k_cons f_pair (fun _ _ h _ => by cases h) f_unguarded, rfl⟩)
+  have hit := sat_cons hI (Or.inl ⟨_, distItem_mem k_cons f_pair (fun _ _ h _ => by cases h) f_unguarded, rfl⟩)
   have hx : InS I (c.sortName Srt.int) (elemOf c I (int 0)) :=
     (inS_iff _).mp (elemOf_spec hI (sortOf_int 0) KoreAML.val0).2
   exact dist_at (defOK hI) hit (xs := [elemOf c I (int 0)]) (ys := [elemOf c I (int 0)]) rfl rfl

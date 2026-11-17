@@ -36,6 +36,7 @@
      symbol's: `totalOK` refuses f.
 -/
 import KcoreSpec.Totals
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -74,7 +75,7 @@ def gapDec : Semantics where
 
 def certDec : Certificates := ⟨[some 0]⟩
 
-theorem gapDec_okAll : gapDec.okAll = true := by decide +kernel
+theorem gapDec_okAll : gapDec.okAll = true := by decide_cheap
 theorem gapDec_srReady : gapDec.srReady = true := by decide +kernel
 /-- The certificate's check refuses the decreasing argument: f is named. -/
 theorem gapDec_cert : certDec.ok gapDec = false ∧ certDec.obligations gapDec = [F] := by decide +kernel
@@ -144,7 +145,7 @@ theorem match_dec {σ : Subst} {v : GroundTerm} (hσ : gapDec.WellSorted [Srt.ma
 /-- The clause is match independent: every match binds its one variable to the argument. -/
 theorem gapDec_matchIndependent : MatchIndependent gapDec clDec := by
   refine ⟨?_, fun hne => absurd rfl hne⟩
-  intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
+  intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ _
   refine .inl ⟨rfl, rfl, rfl, rfl, ?_, fun t ht => by simp [clDec] at ht⟩
   intro i hi
   have hi0 : i = 0 := by simpa [clDec, varOccs, varOccsList] using hi
@@ -281,7 +282,7 @@ def gapCov : Semantics where
     { sig := ⟨cS, [S, S], S⟩, impl := some mapConcat }]
   colls := [collS]
 
-theorem gapCov_okAll : gapCov.okAll = true := by decide +kernel
+theorem gapCov_okAll : gapCov.okAll = true := by decide_cheap
 theorem gapCov_srReady : gapCov.srReady = true := by decide +kernel
 theorem gapCov_collOK : gapCov.collOK collS = true := by decide +kernel
 /-- `totalOK` refuses f: G is in `totalObligations`. -/
@@ -293,7 +294,7 @@ theorem gapCov_match : gapCov.matchObligations = [(G, 0)] := by decide +kernel
 
 /-- The clause's obligation holds: it has no variable. -/
 theorem gapCov_matchIndependent : MatchIndependent gapCov clCov :=
-  ⟨fun _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
+  ⟨fun _ _ _ _ _ _ _ _ _ _ => Or.inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [clCov, varOccs] at hi),
     fun t ht => (by simp [clCov] at ht)⟩, fun hne => absurd rfl hne⟩
 
 def mS : GroundTerm := .map S [(.dv Srt.int (.int 1), .dv Srt.int (.int 1))]
@@ -353,7 +354,7 @@ def gapLin : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapLin_okAll : gapLin.okAll = true := by decide +kernel
+theorem gapLin_okAll : gapLin.okAll = true := by decide_cheap
 theorem gapLin_srReady : gapLin.srReady = true := by decide +kernel
 /-- Read as independent variables, the row `X, X` covers. -/
 theorem gapLin_row : gapLin.covers (Semantics.coverFuel fLin) fLin.args [clLin.pats] = true := by
@@ -419,7 +420,7 @@ def gapSelf : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapSelf_okAll : gapSelf.okAll = true ∧ gapSelf.srReady = true := by decide +kernel
+theorem gapSelf_okAll : gapSelf.okAll = true ∧ gapSelf.srReady = true := by decide_cheap
 /-- The row covers and the right-hand side is total over f itself; the self call does not
 decrease: `totalOK` refuses f, and the certificate names it. -/
 theorem gapSelf_totalOK :
@@ -545,7 +546,7 @@ def gapDv : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapDv_okAll : gapDv.okAll = true ∧ gapDv.srReady = true := by decide +kernel
+theorem gapDv_okAll : gapDv.okAll = true ∧ gapDv.srReady = true := by decide_cheap
 /-- Int is a user sort, no collection sort, and holds the Int literals: it is not enumerable, and
 `totalOK` refuses f. -/
 theorem gapDv_totalOK : gapDv.userSorts.contains Srt.int = true ∧ (gapDv.collOf Srt.int).isNone = true ∧
@@ -603,7 +604,7 @@ def gapParam : Semantics where
   rules := []
   params := [{ sig := ⟨P6, [Srt.int], Srt.int⟩ }]
 
-theorem gapParam_okAll : gapParam.okAll = true ∧ gapParam.srReady = true := by decide +kernel
+theorem gapParam_okAll : gapParam.okAll = true ∧ gapParam.srReady = true := by decide_cheap
 /-- P is among the total functions before f and is a parameter symbol: `totalOK` refuses f. -/
 theorem gapParam_totalOK : gapParam.totalBefore fPar = [P6] ∧
     gapParam.params.any (·.sig.name == P6) = true ∧ gapParam.totalOK fPar = false ∧
@@ -675,7 +676,7 @@ def gapHook : Semantics where
   pgmSort := Srt.k
   rules := []
 
-theorem gapHook_okAll : gapHook.okAll = true ∧ gapHook.srReady = true := by decide +kernel
+theorem gapHook_okAll : gapHook.okAll = true ∧ gapHook.srReady = true := by decide_cheap
 /-- `_/Int_` is among the total functions before f and is an interpreted symbol: `totalOK`
 refuses f. -/
 theorem gapHook_totalOK : gapHook.totalBefore fHook = [intTDiv] ∧

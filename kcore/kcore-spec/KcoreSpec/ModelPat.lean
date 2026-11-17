@@ -62,8 +62,9 @@ variable {c : Semantics}
 
 /-- The patterns the reading covers: variables in `P`, literals of their sorts, injections between
 numbered sorts, `p as X` for `X` in `P`, and applications of a symbol with a signature that is a
-constructor, a map pattern symbol or a collection pattern symbol, to as many arguments as it
-takes. -/
+constructor, a map pattern symbol, a collection pattern symbol or an overloading symbol, to as many
+arguments as it takes; the symbol is no function-overloaded symbol (`fnOvlSyms`: a pattern of one
+denotes its normal forms, the model the function's values at covered arguments). -/
 inductive PatOK (c : Semantics) (P : Nat → Prop) : Term → Prop where
   | var {i : Nat} (h : P i) : PatOK c P (.var i)
   | dv {s : Srt} {lit : Lit} (h : dvOK c.lib s lit = true) : PatOK c P (.dv s lit)
@@ -73,6 +74,7 @@ inductive PatOK (c : Semantics) (P : Nat → Prop) : Term → Prop where
   | app {f : Sym} {ts : List Term} {k : CtorSig} (hk : k ∈ kernelSyms c) (hkn : k.name = f)
       (hl : ts.length = k.args.length)
       (hkind : c.isCtor f = true ∨ patternHooks.contains f = true ∨ c.isCollPat f = true ∨ c.isOvl f = true)
+      (hnf : f ∉ c.fnOvlSyms)
       (h : ∀ t ∈ ts, PatOK c P t) : PatOK c P (.app f ts)
 
 theorem patVal_var_inv {σ : Subst} {i : Nat} {v : GroundTerm} (h : PatVal c σ (.var i) v) :
@@ -256,7 +258,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
     · rintro ⟨v, hv, rfl⟩
       obtain ⟨h1, h2⟩ := patVal_as_inv hv
       exact ⟨⟨v, h1, rfl⟩, ⟨v, h2, rfl⟩⟩
-  | @app f ts k hk hkn hl hkind _ ih =>
+  | @app f ts k hk hkn hl hkind hnf _ ih =>
     intro m
     subst hkn
     rw [kore_app_tr, interp_appList]
@@ -296,7 +298,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
       by_cases ho : c.isOvl k.name = true
       · have hp' := (c.isOvl_parts ho).2.2.1
         simp only [hp', ho, Bool.false_eq_true, ↓reduceIte] at hr
-        rw [ovlRes_none (OvlLaws.fnCover_none_of_ok h.ovlOK _ _)] at hr
+        rw [ovlRes_none (OvlLaws.fnCover_none_of_not_fnOvl hnf _)] at hr
         subst hr
         exact ⟨_, .ovl hc' ho hws rfl, rfl⟩
       have hcp : c.isCollPat k.name = true := by
@@ -349,7 +351,7 @@ theorem tr_pat (h : HypModelCore c) {P : Nat → Prop} {vs : List KoreAML.Var} {
           exact key _ hts ((result_param hc hh' (collPat_param hcp hh') _).mpr ⟨v, rfl, hv'⟩)
       | ovl _ ho hts hnv =>
         subst hf
-        exact key _ hts ((result_ovl ho (OvlLaws.fnCover_none_of_ok h.ovlOK _ _) _).mpr (by rw [hnv]))
+        exact key _ hts ((result_ovl ho (OvlLaws.fnCover_none_of_not_fnOvl hnf _) _).mpr (by rw [hnv]))
 
 end AtT
 
@@ -388,7 +390,8 @@ mutual
       have hh := List.all_eq_true.mp h.patHeads k hkm
       simp only [downHead, Bool.or_eq_true] at hh
       rw [hkn] at hh
-      refine .app (patHead_kernel hkm) hkn (sortsOfTerms_length hargs) ?_ (patOKs_of_sorted h hargs)
+      refine .app (patHead_kernel hkm) hkn (sortsOfTerms_length hargs) ?_
+        (by rw [(h.sound.2.2.2.2.2.2.2.2 : OvlOK c).noFn]; exact List.not_mem_nil) (patOKs_of_sorted h hargs)
       rcases hh with h1 | (h1 | h1) | h1
       · exact Or.inl h1
       · exact Or.inr (Or.inl h1)
@@ -558,7 +561,12 @@ mutual
       · exact ⟨_, .param hc' hh' hp hrs rfl⟩
       have hp' : c.isParam f = false := by simpa using hp
       cases hov : c.isOvl f with
-      | true => exact ⟨_, .ovl hc' hov hrs (fun vs _ => OvlLaws.fnCover_none_of_ok h.2.2.2.2.2.2.2.2.ok f vs)⟩
+      | true =>
+        have hsc := sortCtx_of_all h.1 h.2.1 (OvlOK.ovlCase h.2.2.2.2.2.2.2.2)
+        obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk hov
+        exact EvalTerm.ovl_result (h.2.2.2.2.2.2.2.2.hyp hsc.trans).fnFacts hc' hov hrs hlo
+          (fun ws has => EvalTerms.sorted hsc hrs hL hσ hargs has)
+          (fun kg _ _ fn hfn _ hn vs hvs => hn ▸ hft fn hfn vs hvs)
       | false =>
       cases has : allSome rs with
       | none => exact ⟨none, .callUndef hc' hh' hrs has hp'⟩

@@ -309,7 +309,7 @@ theorem rule2 :
     c.rulePlainEx (c.rules[2]'(by decide +kernel)) = true ∧
     (Parse.openRefusal c (c.rules[2]'(by decide +kernel)) []).isNone = true ∧
     c.rulesPlain = true ∧ c.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 end Vars
 

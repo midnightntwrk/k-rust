@@ -166,19 +166,16 @@ tables_of T from "f2-examples/setcat.kompile.kore"
 
 theorem T_eq : T = tables c := by decide +kernel
 
--- `itesApart`, decided here directly, compares every pair of the semantics' symbols, the interpreted
--- ones (`hookSigs`) among them
+-- `faithCoreOK` by `decide_cheap`: each conjunct apart, the names on their codes
 set_option maxHeartbeats 1000000 in
 open Faithful Faithful.Model in
 /-- `coreOK`, conjunct by conjunct, the sort checks from the tables. -/
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (Semantics.faithCoreOK_of_parts (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel))
+    (by decide_cheap)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem srReady : c.srReady = true := srReady_of_T T_eq (by decide +kernel)
 theorem matchReady : c.matchReady = true := matchReady_of_T T_eq (by decide +kernel)
 theorem fnsOK : c.fnsOK = true := by decide +kernel

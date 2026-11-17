@@ -51,9 +51,9 @@ def cR : Semantics :=
 
 instance : OvlOK cR := .of_nil rfl (by decide +kernel)
 
-theorem sortedOK : cR.sortedOK = true := by decide +kernel
+theorem sortedOK : cR.sortedOK = true := by decide_cheap
 
-theorem coreOK : cR.coreOK = true := by decide +kernel
+theorem coreOK : cR.coreOK = true := by decide_cheap
 
 /-- `cR` has no function: `FnHyp` holds. -/
 theorem fnHyp : FnHyp cR :=

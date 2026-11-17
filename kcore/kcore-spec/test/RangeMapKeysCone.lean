@@ -151,7 +151,7 @@ theorem c0_coreOK : c0.coreOK = true :=
 /-- With Range below KItem, and with no Range constructor, `coreOK` and `srReady` hold. -/
 theorem accepted : c1.coreOK = true ∧ c1.srReady = true ∧ c1.sortOf (rangeT 0 3) = some Srt.range ∧
     c0.coreOK = true ∧ c0.srReady = true ∧ c0.subsorts.contains (Srt.range, Srt.kitem) = false :=
-  ⟨c1_coreOK, by decide +kernel, by decide +kernel, c0_coreOK, by decide +kernel, by decide +kernel⟩
+  ⟨c1_coreOK, by decide_cheap, by decide_cheap, c0_coreOK, by decide_cheap, by decide_cheap⟩
 
 /-! ## `hooksApart` at the fifteenth row -/
 

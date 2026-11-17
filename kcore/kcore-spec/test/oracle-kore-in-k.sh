@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `kcore oracle` on three cases of test/agree-kore-in-k.jsonl (c03-nondet: several successors and
+# `kcore oracle` on three cases of kk/agree-kore-in-k.jsonl (c03-nondet: several successors and
 # finals; c08-undef-rhs-blocks: a configuration at which a rule applies with no result, U;
 # c24-map-fn-pattern: `CoherentAll` not decided), one line per case
 # `ID oracle:B reached:R N:n U:u coherent:C vs:V`, compared with test/oracle-kore-in-k.expected.
@@ -9,7 +9,7 @@ set -u
 K=$(cd "$(dirname "$0")/.." && pwd); cd "$K"
 [ -d .lake/kore-in-k ] || { echo "texts not built"; exit 77; }
 cases=.lake/oracle-kore-in-k.jsonl; out=.lake/oracle-kore-in-k.txt
-grep -E '"id": "(c03-nondet|c08-undef-rhs-blocks|c24-map-fn-pattern)/haskell"' test/agree-kore-in-k.jsonl > "$cases"
+grep -E '"id": "(c03-nondet|c08-undef-rhs-blocks|c24-map-fn-pattern)/haskell"' kk/agree-kore-in-k.jsonl > "$cases"
 # the definitions (`../.lake/kore-in-k/...`) resolve against the case file's directory, .lake as test/
 systemd-run --user --scope -q -p MemoryMax=12G -p MemorySwapMax=0 timeout 600 \
   .lake/build/bin/kcore oracle "$cases" > "$out" 2>&1

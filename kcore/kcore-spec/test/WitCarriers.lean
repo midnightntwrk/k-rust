@@ -61,6 +61,7 @@
 -/
 import KcoreSpec.Tie
 import KcoreSpec.Obligations
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 set_option maxRecDepth 100000
@@ -169,8 +170,8 @@ def c0 : Semantics := mk { base with carriers := [(myInt, Srt.int)] }
 /-- MyInt hooked to nothing. -/
 def c00 : Semantics := mk base
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
-theorem c00_coreOK : c00.coreOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
+theorem c00_coreOK : c00.coreOK = true := by decide_cheap
 theorem c0_vals : vals c0 = [true, false, false] := by decide +kernel
 
 namespace Reg
@@ -178,7 +179,7 @@ namespace Reg
 def l : Lib := { base with carriers := [(Srt.int, Srt.int)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (Srt.int, Srt.int) = [false, false, true, true, true, true, true] := by decide +kernel
 /-- The pair is not read: each sort is its own carrier. -/
@@ -195,7 +196,7 @@ namespace Tgt
 def l : Lib := { base with carriers := [(myInt, Srt.k)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (myInt, Srt.k) = [true, true, false, true, true, true, true] := by decide +kernel
 theorem c_vals : vals c = [false, false, false] ∧ (consSorts c).contains myInt = false ∧
@@ -207,7 +208,7 @@ namespace TgtVar
 def l : Lib := { base with carriers := [(myInt, Srt.kconfigVar)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (myInt, Srt.kconfigVar) = [true, true, false, true, true, true, true] := by decide +kernel
 theorem c_vals : vals c = [false, false, true] := by decide +kernel
@@ -218,7 +219,7 @@ namespace Tok
 def l : Lib := { base with carriers := [(myInt, Srt.int)], tokenSorts := [myInt] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (myInt, Srt.int) = [true, true, true, false, true, true, true] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel
@@ -229,7 +230,7 @@ namespace Byte
 def l : Lib := { base with carriers := [(myInt, Srt.int)], byteSorts := [myInt] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (myInt, Srt.int) = [true, true, true, true, false, true, true] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel
@@ -240,7 +241,7 @@ namespace Dup
 def l : Lib := { base with carriers := [(myInt, Srt.int), (myInt, Srt.int)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (myInt, Srt.int) = [true, true, true, true, true, true, false] := by decide +kernel
 theorem c_vals : vals c = [true, false, false] := by decide +kernel
@@ -251,7 +252,7 @@ namespace Dup2
 def l : Lib := { base with carriers := [(myInt, Srt.int), (myInt, Srt.bool)] }
 def c : Semantics := mk l
 set_option maxHeartbeats 1000000 in
-theorem meets_others : Others c := others l (by decide +kernel) (by decide +kernel)
+theorem meets_others : Others c := others l (by decide_cheap) (by decide +kernel)
 theorem not_carriersOK : c.carriersOK = false ∧
     parts c (myInt, Srt.int) = [true, true, true, true, true, true, false] ∧
     parts c (myInt, Srt.bool) = [true, true, true, true, true, true, false] := by decide +kernel

@@ -1,0 +1,40 @@
+id = "t201-int-bitrange"
+kind = "text"
+subject = "bitRangeInt and signExtendBitRangeInt, at a negative index or length and in range: what the INT module's equations state of their values."
+retro = ["H4"]
+rests_on = ["kk:t30-hooks-strict", "kk:t31-int-division", "kk:t200-int-shift-log2"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1438 (K 7.1.337)", quote = "rule bitRangeInt(I::Int, IDX::Int, LEN::Int) => (I >>Int IDX) modInt (1 <<Int LEN)" }
+kompile = "not-run"
+
+[ruling]
+status = "settled"
+form = "hook-value"
+hook = ["INT.bitRange", "INT.signExtendBitRange"]
+statement = "bitRangeInt(I, IDX, LEN) is (I >>Int IDX) modInt (1 <<Int LEN) at every integer argument: for IDX >= 0 and LEN >= 0 the LEN bits of I from bit IDX, read unsigned; for IDX < 0 or LEN < 0 no value. signExtendBitRangeInt(I, IDX, LEN) is the same bits read signed by its equation, for IDX >= 0 and LEN >= 1; for IDX < 0 or LEN <= 0 no value."
+points = [
+  { at = "bitRangeInt(13, 1, 2)", value = "2" },
+  { at = "signExtendBitRangeInt(13, 1, 2)", value = "-2" },
+  { at = "bitRangeInt(1, -1, 1), bitRangeInt(1, 0, -1)", value = "no value" },
+  { at = "signExtendBitRangeInt(1, 0, 0)", value = "no value" },
+]
+reason = """
+(1) The prose describes index and length and states no edge (domains.md:1309-1315). The two equations (domains.md:1438, 1440) are unconditional: each application equals its right side at every integer argument.
+(2) A shift by a negative amount has no value (kk:t200-int-shift-log2), and an application to an argument that has no value has none (kk:t30-hooks-strict): at IDX < 0 the subterm I >>Int IDX has none, at LEN < 0 the subterm 1 <<Int LEN, so bitRangeInt has none. In signExtendBitRangeInt the subterm 1 <<Int (LEN -Int 1) has none at LEN <= 0.
+(3) For IDX >= 0 and LEN >= 0, 1 <<Int LEN is at least 1, so modInt has a value (kk:t31-int-division): bitRangeInt(13, 1, 2) = (13 >>Int 1) modInt 4 = 6 modInt 4 = 2, and signExtendBitRangeInt(13, 1, 2) = (2 +Int 2) modInt 4 -Int 2 = -2."""
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1438 (K 7.1.337)"
+quote = "rule bitRangeInt(I::Int, IDX::Int, LEN::Int) => (I >>Int IDX) modInt (1 <<Int LEN)"
+
+[[ruling.basis]]
+source = "builtin-module"
+locator = "k-distribution/include/kframework/builtin/domains.md:1440 (K 7.1.337)"
+quote = "rule signExtendBitRangeInt(I::Int, IDX::Int, LEN::Int) => (bitRangeInt(I, IDX, LEN) +Int (1 <<Int (LEN -Int 1))) modInt (1 <<Int LEN) -Int (1 <<Int (LEN -Int 1))"
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1309-1312 (K 7.1.337)"
+quote = "You can compute the value of a range of bits in the twos-complement representation of an integer, as interpeted either unsigned or signed, of an integer. `index` is offset from 0 and `length` is the number of bits, starting with `index`, that should be read."

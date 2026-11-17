@@ -295,9 +295,10 @@ def AttrClassE2.name : AttrClassE2 → String
 equation's (`equationAttribute`), a sort declaration's (`sortAttribute`), `assoc` or `comm` on a
 symbol that is no function (`openGenerator`: a generator under a law), and, at a symbol
 declaration, a simplification axiom, a claim or the module, a key that no kompiled text carries
-there (`attrOutsideE2`). `AttrRefusalE2.reason` (Parse.lean) is the map. -/
+there (`attrOutsideE2`), and a name that is no key on a symbol declaration (`symbolAttrUnkeyed`; no
+verdict gives it). `AttrRefusalE2.reason` (Parse.lean) is the map. -/
 inductive AttrRefusalE2 where
-  | ruleAttribute | equationAttribute | sortAttribute | openGenerator | outsideE2
+  | ruleAttribute | equationAttribute | sortAttribute | openGenerator | outsideE2 | symbolAttribute
   deriving Repr, DecidableEq, Inhabited
 
 /-- What the reader does with an attribute: reads it; reads the sentence with the key saying
@@ -323,16 +324,42 @@ def unkompiled (row : String) : String :=
 def unwritten : String :=
   "K admits the key at no sentence of this class (no row of E2): only a KORE text written by hand carries it"
 
+/-- Why a printing attribute of a production is inert on a rewrite axiom. -/
+def printedForm : String :=
+  "a printing form of the production the rule is generated from (how its terms are printed): kompile copies the production's attributes onto the heating and cooling rules of a strict production (c3-strict-result/kore.txt:283 carries format); it says nothing of where or how the rule applies; the axiom states the rule"
+
+/-- Why the KORE name of a production is inert on a rewrite axiom. -/
+def productionName : String :=
+  "the name of the production the rule is generated from: kompile copies the production's attributes onto the heating and cooling rules of a strict production (c3-strict-result/kore.txt:283); a name says nothing of where or how the rule applies; the axiom states the rule"
+
+/-- Why a key of a declaration is refused on a rewrite axiom or an equation. -/
+def declarationKey : String :=
+  "the key states a property of a symbol or sort declaration (a collection's concatenation, a sort's domain values, a symbol's overload), where the reader reads it; no text gives it a meaning on this sentence, so that reading the sentence with the key dropped states no more than the text cannot be shown"
+
 /-- The verdict on key `k` at a sentence of class `c`: what the E2 row of `k` at `c` decides, else
-the row of `k` at class `any`, else refused. Every class and key is an arm. -/
+the row of `k` at class `any`, else refused. Every class and key is an arm. Four exceptions, where
+a row's verdict would not be the reader's:
+- at a rewrite axiom, `format`, `colors` and `symbol` are inert, which no row admits there: the
+  production's attributes that kompile copies onto the heating and cooling rules it generates;
+- at a rewrite axiom, `concat`, `hasDomainValues` and `symbol-overload`, and at an equation `concat`
+  and `hasDomainValues`, are refused, where the rows at class `any` read them: the reader reads them
+  at a declaration (and `symbol-overload` at an equation), and no text gives them a meaning at the
+  sentence;
+- at a symbol declaration, `anywhere` is read, which no row admits there: kompile writes it on the
+  declaration of an overloaded production's symbol (86 declarations of the corpus and the fixtures'
+  texts), and the reader reads it (an overloading symbol, `Parse.isOpenGenerator`);
+- at an equation, `anywhere` is refused as its row decides, with a why of its own: the row's is the
+  frontend's refusal under the haskell backend, while kompile writes the key on an equation under
+  another backend. -/
 def attrVerdict : AttrClassE2 → AttrKeyE2 → AttrVerdict
   -- symbol
   | .symbol, .alias => .inert (ruled "ALIAS(alias)@symbol")
   | .symbol, .aliasRec => .inert (ruled "ALIAS_REC(alias-rec)@symbol")
-  | .symbol, .anywhere | .symbol, .circularity | .symbol, .cool | .symbol, .depends
+  | .symbol, .circularity | .symbol, .cool | .symbol, .depends
   | .symbol, .nonExecutable | .symbol, .owise | .symbol, .preservesDefinedness
   | .symbol, .simplification | .symbol, .smtLemma | .symbol, .syntactic | .symbol, .trusted =>
     .refused .outsideE2 unwritten
+  | .symbol, .anywhere => .read
   | .symbol, .assoc => .refused .openGenerator (ruled "ASSOC(assoc)@symbol")
   | .symbol, .binder => .inert (ruled "BINDER(binder)@symbol")
   | .symbol, .bracket => .refused .outsideE2 (erased "BRACKET(bracket)@symbol")
@@ -391,17 +418,20 @@ def attrVerdict : AttrClassE2 → AttrKeyE2 → AttrVerdict
   | .sort, .terminals => .refused .sortAttribute (erased "TERMINALS(terminals)@any")
   -- rule
   | .rule, .alias | .rule, .aliasRec | .rule, .assoc | .rule, .binder | .rule, .bracket
-  | .rule, .cell | .rule, .circularity | .rule, .colors | .rule, .constructor | .rule, .depends
-  | .rule, .deprecated | .rule, .element | .rule, .format | .rule, .freshGenerator
+  | .rule, .cell | .rule, .circularity | .rule, .constructor | .rule, .depends
+  | .rule, .deprecated | .rule, .element | .rule, .freshGenerator
   | .rule, .function | .rule, .functional | .rule, .hook | .rule, .idem | .rule, .impure
   | .rule, .injective | .rule, .klabel | .rule, .macroKey | .rule, .macroRec | .rule, .memo
-  | .rule, .noEvaluators | .rule, .smtHook | .rule, .smtlib | .rule, .symbol | .rule, .token
+  | .rule, .noEvaluators | .rule, .smtHook | .rule, .smtlib | .rule, .token
   | .rule, .total | .rule, .trusted | .rule, .unit | .rule, .update =>
     .refused .ruleAttribute unwritten
+  | .rule, .colors | .rule, .format => .inert printedForm
+  | .rule, .symbol => .inert productionName
+  | .rule, .concat | .rule, .hasDomainValues | .rule, .symbolOverload => .refused .ruleAttribute declarationKey
   | .rule, .anywhere => .refused .ruleAttribute "the key's meaning is the rule applied in every context of the configuration, an equation's closure under contexts, which the axiom, one rewrite at the top cell, does not state; reading the axiom with the key dropped would assert its step without that meaning"
   | .rule, .comm => .inert "K gives comm on a rule no meaning (it is a production's attribute); the axiom states the rule"
-  | .rule, .concat | .rule, .hasDomainValues | .rule, .label | .rule, .location | .rule, .source
-  | .rule, .owise | .rule, .priority | .rule, .symbolOverload | .rule, .uniqueId =>
+  | .rule, .label | .rule, .location | .rule, .source | .rule, .owise | .rule, .priority
+  | .rule, .uniqueId =>
     .read
   | .rule, .concrete => .inert "which terms a prover applies the rule to (concrete values of the named variables): no statement of the theory; the axiom states the rule"
   | .rule, .cool => .inert "marks a cooling rule of a strictness declaration; the axiom states the rule"
@@ -428,12 +458,13 @@ def attrVerdict : AttrClassE2 → AttrKeyE2 → AttrVerdict
   | .equation, .token | .equation, .total | .equation, .trusted | .equation, .unit
   | .equation, .update =>
     .refused .equationAttribute unwritten
-  | .equation, .anywhere => .refused .equationAttribute (unkompiled "ANYWHERE(anywhere)@equation")
+  | .equation, .anywhere => .refused .equationAttribute "K gives anywhere its meaning on a rule, the rewrite applied in every context (the frontend refuses the key on a function's rule under the haskell backend, row E2 ANYWHERE(anywhere)@equation); on a function equation no text gives the key a meaning, so that reading the equation with the key dropped states no more than the text cannot be shown"
   | .equation, .comm => .inert (ruled "COMM(comm)@equation")
-  | .equation, .concat | .equation, .cool | .equation, .hasDomainValues | .equation, .label
-  | .equation, .nonExecutable | .equation, .location | .equation, .source | .equation, .owise
-  | .equation, .priority | .equation, .symbolOverload | .equation, .uniqueId =>
+  | .equation, .cool | .equation, .label | .equation, .nonExecutable | .equation, .location
+  | .equation, .source | .equation, .owise | .equation, .priority | .equation, .symbolOverload
+  | .equation, .uniqueId =>
     .read
+  | .equation, .concat | .equation, .hasDomainValues => .refused .equationAttribute declarationKey
   | .equation, .concrete => .inert (ruled "CONCRETE(concrete)@equation")
   | .equation, .coolLike => .inert (ruled "COOL_LIKE(cool-like)@any")
   | .equation, .left => .refused .equationAttribute (erased "LEFT_INTERNAL(left)@any")

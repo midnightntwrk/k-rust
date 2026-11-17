@@ -110,6 +110,11 @@ status = "killed"
 killer = "cases/c04-subsort/kore.pgm"
 
 [[run.mutation]]
+id = "subsort-walk-out-holds"
+status = "killed"
+killer = "cases/c52-subsort-one-entry/kore.pgm"
+
+[[run.mutation]]
 id = "inj-not-composed"
 status = "killed"
 killer = "cases/c13-inj-bool/kore.pgm"
@@ -383,6 +388,7 @@ work_factor = 4
 open = [
 ]
 argued = [
+  { id = "rule:KORE.leq-refl", standing = "text" },
   { id = "rule:KORE.tag-other", standing = "text" },
   { id = "rule:KORE.ins-dup", standing = "text" },
 ]
@@ -392,6 +398,8 @@ open = [
 ]
 argued = [
   { id = "requirement:KORE.m-tok:S:Int ==Int T:Int:false", standing = "text" },
+  { id = "requirement:KORE.leq-refl:held", standing = "text" },
+  { id = "requirement:KORE.leq-up:refuted", standing = "text" },
   { id = "requirement:KORE.ins-dup:held", standing = "text" },
 ]
 

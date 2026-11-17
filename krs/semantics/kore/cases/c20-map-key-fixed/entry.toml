@@ -1,10 +1,34 @@
 id = "c20-map-key-fixed"
 kind = "case"
 subject = "Element patterns whose key is fixed: by a domain value (2 |-> V M), by a variable bound earlier in the left side (b(K, K |-> V M)); an element chosen under a requires on its value; and a pattern without a frame, which matches only a map of exactly its entries."
+rests_on = ["kk:t01-rule-applies", "kk:t02-step-successors", "kk:t06-final-configuration", "kk:t17-nonlinear", "kk:t34-collection-values", "kk:t38-collection-patterns"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "settled"
+finals = ["r(20, 1 |-> 10 3 |-> 30)", "r(30, 1 |-> 10 2 |-> 20)", "r(2, .Map)", "r(3, .Map)", "d(1 |-> 10 2 |-> 20 3 |-> 30)"]
+reason = """
+(1) M0 is the map of 1 |-> 10, 2 |-> 20 and 3 |-> 30 (kk:t34-collection-values). The four rules for go have priority 50 and no requires (user_manual.md:1748-1749): go(M0) has the successors a(M0), b(3, M0), c(M0) and d(M0) (kk:t02-step-successors).
+(2) a(2 |-> V:Int M:Map) matches M0 only at the split whose element has the key 2 (kk:t38-collection-patterns): V = 20, M the map of 1 |-> 10 and 3 |-> 30. a(M0) steps to r(20, 1 |-> 10 3 |-> 30).
+(3) In b(K:Int, K |-> V:Int M:Map) K occurs twice and stands for one value (kk:t17-nonlinear): with K = 3 from the first argument the element pattern matches only the pair of key 3: b(3, M0) steps to r(30, 1 |-> 10 2 |-> 20).
+(4) c(K:Int |-> V:Int _:Map) requires V >Int 15 matches at each of the three splits; its requires is true at V = 20 and V = 30 and false at V = 10 (domains.md:1324-1325), so the rule applies at the splits of keys 2 and 3 and not at that of key 1 (kk:t01-rule-applies): c(M0) steps to r(2, .Map) and to r(3, .Map).
+(5) d(K:Int |-> _:Int) has one element pattern and no frame: it denotes the maps of exactly one pair, and M0 has three, so it does not match and no rule applies to d(M0), which is final (kk:t06-final-configuration).
+(6) No rule's left side matches r(_, _). The final configurations are the four of (2) to (4) and d(M0): r(10, .Map), r(1, .Map) and r(10, 2 |-> 20 3 |-> 30) would need the rule for c to apply at key 1 or the rule for a to take another key than 2, which (2) and (4) exclude."""
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:2238-2240 (K 7.1.337)"
+quote = "// 0 or more elements in any order plus by 0 or 1 variables of sort Map // in any order K1 |-> E1 K2 |-> E2 M::Map K3 |-> E3 K4 |-> E4"
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:1748-1749 (K 7.1.337)"
+quote = "There is one more rule by which priorities are assigned: a rule with no attributes indicating its priority is assigned the priority 50."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."

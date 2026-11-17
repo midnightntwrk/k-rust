@@ -33,6 +33,7 @@
      (`pc_named`). `notCompeting` is true exactly where the premise is false (`notCompeting_iff`).
 -/
 import KcoreSpec.AgreeInst
+import KcoreSpec.CoreDecide
 
 set_option autoImplicit false
 
@@ -92,7 +93,7 @@ def fnLf : Fn := ⟨Lf, [T0, T0], Srt.int,
 
 def inst : Semantics := core [fnDw, fnRn, fnSc, fnLf]
 
-theorem in_sorted : inst.sortedOK = true ∧ inst.srReady = true ∧ inst.matchReady = true := by decide +kernel
+theorem in_sorted : inst.sortedOK = true ∧ inst.srReady = true ∧ inst.matchReady = true := by decide_cheap
 
 /-- `fnExclusiveL` names the four functions. -/
 theorem in_L : inst.agreeObligationsL = [Dw, Rn, Sc, Lf] := by decide +kernel
@@ -113,7 +114,7 @@ def fnWs : Fn := ⟨Ws, [T0, Srt.int], T0, [clW0, clW1], false⟩
 
 def ws : Semantics := core [fnWs]
 
-theorem ws_sorted : ws.sortedOK = true ∧ ws.srReady = true ∧ ws.matchReady = true := by decide +kernel
+theorem ws_sorted : ws.sortedOK = true ∧ ws.srReady = true ∧ ws.matchReady = true := by decide_cheap
 
 theorem ws_named : ws.agreeObligationsL = [Ws] ∧ ws.agreeObligationsI = [Ws] := by decide +kernel
 
@@ -169,7 +170,7 @@ def fnGm : Fn := ⟨Gm, [Srt.map], Srt.kitem, [clG0, clG1], false⟩
 
 def gm : Semantics := core [fnGm]
 
-theorem gm_sorted : gm.sortedOK = true ∧ gm.srReady = true ∧ gm.matchReady = true := by decide +kernel
+theorem gm_sorted : gm.sortedOK = true ∧ gm.srReady = true ∧ gm.matchReady = true := by decide_cheap
 
 /-- `fnExclusiveI` names Gm: the map symbols are no constructors, so no instance is read. -/
 theorem gm_named : gm.agreeObligationsI = [Gm] := by decide +kernel
@@ -265,7 +266,7 @@ def fnPc : Fn := ⟨Pc, [Srt.int], Srt.int, [clC0, clB1], false⟩
 
 def pa : Semantics := core [fnPa, fnPb, fnPc]
 
-theorem pa_sorted : pa.sortedOK = true ∧ pa.srReady = true ∧ pa.matchReady = true := by decide +kernel
+theorem pa_sorted : pa.sortedOK = true ∧ pa.srReady = true ∧ pa.matchReady = true := by decide_cheap
 
 /-- The premise `ClausesAgree` reads of Pa's pair is false: nothing is asked of it. -/
 theorem pa_premise : ¬ (clA0.prio = clA1.prio ∨ (clA0.aside = true ∧ clA0.prio < clA1.prio) ∨

@@ -803,7 +803,7 @@ theorem ensVal_not_false_true (hco : CoherentAll c) {r : Rule} (hr : r ∈ c.rul
       cases hw : evalT c m σ t with
       | none => simp [hw] at hm
       | some w =>
-        cases EvalTerm.functional hco hcc.fnsNoExs (evalT_sound hsc hcc hmc n hv headsOK_fns hσw (reqOK_some hens))
+        cases EvalTerm.functional hco (evalT_sound hsc hcc hmc n hv headsOK_fns hσw (reqOK_some hens))
           (evalT_sound hsc hcc hmc m hw headsOK_fns hσw (reqOK_some hens))
         simp only [hv, hw, Option.map_some, Option.some.injEq] at hn hm
         rw [hn] at hm; cases hm
@@ -830,7 +830,7 @@ theorem successorsN_nil_of_stuckCheck (hco : CoherentAll c) {n : Nat} {x : Groun
   have hagree : ∀ {t : Term} {v w : Option GroundTerm} {s : Srt},
       sortOfTerm (c.rhsCtx (c.fns.map Fn.sig)) r.vars t = some s → evalT c n σ t = some v →
       evalT c m σ t = some w → v = w := fun ht hv hw =>
-    EvalTerm.functional hco hcc.fnsNoExs (evalT_sound hsc hcc hmc n hv headsOK_fns hσw ht)
+    EvalTerm.functional hco (evalT_sound hsc hcc hmc n hv headsOK_fns hσw ht)
       (evalT_sound hsc hcc hmc m hw headsOK_fns hσw ht)
   have hreq : reqVal c n r σ = some true ∨ reqVal c n r σ = none := by
     unfold reqVal at hb ⊢

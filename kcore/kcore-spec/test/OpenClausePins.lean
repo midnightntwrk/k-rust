@@ -67,7 +67,7 @@ noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.p
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c3`. -/
 theorem shape : c3.ctorSigs.all (·.result != 33) = true ∧ c3.valued 33 = false ∧ clYE.leftVars = [] ∧
     c3.rightValued = false ∧ c3.sortedOK = true ∧ c3.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 /-- No clause of a function of `c3` has an existential variable or a right side's predicate other
 than `\top`. -/
@@ -78,12 +78,12 @@ theorem plain3 : ∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.po
 theorem decided : c3.sortedOKCl = true ∧ c3.srReady = true ∧ c3.ovls = [] ∧
     c3.subsorts.all (fun p => p.1 != p.2) = true ∧ c3.faithCoreOK = true ∧ Faithful.patHooksApart c3 = true ∧
     c3.overloadsOK = true ∧ (∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c3 = false) := by
-  decide +kernel
+  decide_cheap
 
 /-- `coreOK`'s conjuncts other than `sortedOK` hold at `c3`. -/
 example : c3.faithCoreOK = true ∧ c3.hooksApart = true ∧ c3.predsApart = true ∧ c3.idsOK = true ∧
     c3.overloadsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl3 : OvlOK c3 := OvlOK.of_nil decided.2.2.1 decided.2.2.2.1
 
@@ -464,7 +464,7 @@ example : FnDet c3 ∧ FnSolves c3 := fnModel_of_fnHypCl decided.1 decided.2.1 o
 
 /-- **`fnDet_of_agree` at `c3`**: one result for every function from the agreement of the equations
 and the match independence of the clauses, nothing else of `c3` read. -/
-example : FnDet c3 := Faithful.fnDet_of_agree agree3 matchInd3 (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1)
+example : FnDet c3 := Faithful.fnDet_of_agree agree3 matchInd3
 
 /-- `_(1) => 1 requires H ==Int 0`, H:Int open (a clause, not one of `c3`'s). -/
 def clR : Clause :=
@@ -474,7 +474,7 @@ def clR : Clause :=
 /-- **`Clause.witnessedDet_of_fnHyp` at `clR`**: H := 0 makes its `requires` `true`, and with
 `FnHyp c3` that is its only result, so `clR` is `Witnessed` in `c3`. -/
 example : clR.Witnessed c3 :=
-  Clause.witnessedDet_of_fnHyp fnHyp3 (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1)
+  Clause.witnessedDet_of_fnHyp fnHyp3
     ⟨[(0, .dv Srt.int (.int 0))], (fun j _ s hs => by
       cases j with
       | zero => cases (show some Srt.int = some s from hs); exact ⟨_, rfl, sortOf_int 0⟩
@@ -520,8 +520,7 @@ theorem succ_go {r : Rule} {σ : Subst} {y : Config c3} (hs : StepBy c3 r σ Go 
     simp [varOccs, varOccsList] at hi
     subst hi
     rw [h0]; rfl
-  have := EvalTerm.functional (Faithful.coherentAll_ofCl agree3 matchInd3)
-    (Semantics.fnsNoExs_of_sortedOK shape.2.2.2.2.1) hs.heval hev
+  have := EvalTerm.functional (Faithful.coherentAll_ofCl agree3 matchInd3) hs.heval hev
   exact Option.some.inj this
 
 /-- **`complete_atCl` at `<k> go </k>`**: with the step's closure, in every model of `Γc c3`, every
@@ -716,7 +715,7 @@ theorem shapeW : c3W.coreOK = true ∧ clW0.needsWitness c3W = true ∧ clW0.con
     c.fns.all (fun fn => fn.clauses.all fun cl => !cl.needsWitness c3W) = true ∧
     [clYE, clOne].all (fun cl => !cl.needsWitness c3W) = true ∧
     c3W.rules.all (fun r => !r.needsWitness c3W) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- **`clW0` is `Witnessed`** at H := 0: `0 ==Int 0` is `true`, and by inversion of the hook nothing else. -/
 theorem witW0 : clW0.Witnessed c3W := by
@@ -808,7 +807,7 @@ noncomputable def c5 : Semantics := { c with fns := c.fns ++ [fF5], params := c.
 
 theorem shape5 : clYE.leftVars = [] ∧ clYE.vars = [33] ∧ c5.coreOK = true ∧ c5.rightValued = false ∧
     c5.ctorSigs.all (·.result != 33) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `clYE` is among `clOne5`'s `lowerClauses`: not `aside`, of a smaller priority. -/
 theorem clYE_low : clYE ∈ Faithful.lowerClauses fF5 clOne5 :=
@@ -817,7 +816,7 @@ theorem clYE_low : clYE ∈ Faithful.lowerClauses fF5 clOne5 :=
 theorem decided5 : c5.sortedOKCl = true ∧ c5.srReady = true ∧ c5.ovls = [] ∧
     c5.subsorts.all (fun p => p.1 != p.2) = true ∧ c5.faithCoreOK = true ∧ Faithful.patHooksApart c5 = true ∧
     c5.idsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl5 : OvlOK c5 := OvlOK.of_nil decided5.2.2.1 decided5.2.2.2.1
 
@@ -930,7 +929,7 @@ theorem preTop5 : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre = .top :=
   fun fn hfn cl hcl =>
     Cond.eq_top_of_isTop ((by decide +kernel : ∀ fn ∈ c5.fns, ∀ cl ∈ fn.clauses, cl.pre.isTop = true) fn hfn cl hcl)
 
-theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5 (Semantics.fnsNoExs_of_coreOK shape5.2.2.1)
+theorem fnDet5 : FnDet c5 := Faithful.fnDet_of_agree agree5 matchInd5
 
 /-- **Evaluation solves `c5`'s equations**: a clause instance that decides is one of the text's or
 `clOne5`, whose right sides are literals; `clYE` decides nowhere. -/

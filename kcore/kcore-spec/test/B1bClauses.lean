@@ -75,7 +75,7 @@ noncomputable abbrev c : Semantics := defn.sem
 /-- `f`'s one clause owes its `CondDecided`, over HOLE (index 1); no rule owes. -/
 example : c.coreOK = true ∧ c.owedClauses = [(0, 0)] ∧ Parse.owedClauseCondDecided c = [(0, 0, [1])] ∧
     c.owedRules = [] ∧ (c.fns.map fun fn => c.symName fn.label) = ["Lblf"] := by
-  decide +kernel
+  decide_cheap
 
 end Cool
 
@@ -90,7 +90,7 @@ noncomputable abbrev c : Semantics := defn.sem
 theorem shape : c.coreOK = true ∧ c.owedClauses = [(0, 0)] ∧ Parse.owedClauseCondDecided c = [(0, 0, [0])] ∧
     c.owedRules = [] ∧ (c.fns.map fun fn => c.symName fn.label) = ["Lblf"] ∧
     c.rules.all (fun r => !r.needsWitness c) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- The owed fact: the condition of `f`'s clause (function 0, clause 0) is decided. -/
 def Owed : Prop := ∀ fn, c.fns[0]? = some fn → ∀ cl, fn.clauses[0]? = some cl → cl.CondDecided c
@@ -125,7 +125,7 @@ noncomputable abbrev c : Semantics := defn.sem
 theorem shape : c.coreOK = true ∧ c.owedClauses = [(0, 0)] ∧ Parse.owedClauseCondDecided c = [(0, 0, [1])] ∧
     c.owedRules = [] ∧ (c.fns.map fun fn => c.symName fn.label) = ["Lblf", "LblisC"] ∧ c.confined 32 = false ∧
     c.rules.all (fun r => !r.needsWitness c) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- The owed fact: the condition of `f`'s first clause is decided. -/
 def Owed : Prop := ∀ fn, c.fns[0]? = some fn → ∀ cl, fn.clauses[0]? = some cl → cl.CondDecided c
@@ -163,7 +163,7 @@ example : c.coreOK = true ∧ c.rightValued = true ∧ (c.fns.map fun fn => c.sy
     (c.matchObligations.map fun p => (c.symName p.1, p.2)) = [("Lblf", 0)] ∧
     (c.matchObligationsL.map fun p => (c.symName p.1, p.2)) = [("Lblf", 0)] ∧
     c.owedClauses = [] ∧ c.owedRules = [] := by
-  decide +kernel
+  decide_cheap
 
 theorem rh : c.RightHeld := Semantics.rightHeld_of_valued (by decide +kernel)
 
@@ -181,7 +181,7 @@ example : c.coreOK = true ∧ c.rightValued = true ∧ (c.fns.map fun fn => c.sy
     (c.matchObligations.map fun p => (c.symName p.1, p.2)) = [("Lblf", 0)] ∧
     (c.matchObligationsL.map fun p => (c.symName p.1, p.2)) = [("Lblf", 0)] ∧
     c.owedClauses = [] ∧ c.owedRules = [] := by
-  decide +kernel
+  decide_cheap
 
 end IntRhs
 

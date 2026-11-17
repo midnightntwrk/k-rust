@@ -164,8 +164,10 @@ as `S`, named as `E`) accounts for:
   with its equation or, without one, a parameter), or a function's of `d` that `d` reads total: one of
   its own declared `total` (`Fn.total`, whose totality is decided or an obligation) or one of the
   registry's; or a parameter's: the registry's, or one of `d`'s own declared `total`
-  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`), an
-  open generator's not among them (`Definition.totalParams` leaves it out);
+  (`ParamPres.total`), which the statements' interpretations are total on (`ParamsTotal`); or an
+  open generator's, stated at values under `OpenTotal` (`Definition.totalParams` leaves it out:
+  the sentence reads the sort at the interpretation's values, and `Γ` holds no functionality item
+  for it), which the account lists (`openFunctionalSentences`);
 - a `subsort` axiom is one of `d`'s subsorts or one of the library's below a sort of `d` (its
   place, `eventOf`), one of the library's (`Lib.subsorts`) or of the cells' (`cellSubsorts`), or
   a sort of `d` below KItem, as every sort is in KCore;
@@ -191,8 +193,9 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
   -- its declared `total` states (`ParamPres.total`, `Definition.totalParams`)
   let ownParams := withPres (c.params.filter fun k => decide (nRegSyms ≤ k.sig.name)) d.pres.params
   let paramNotTotal := fun (f : String) => ownParams.any fun (k, kp) => c.symName k.sig.name == f && !kp.total
-  -- an open generator's `functional` axiom reads the sort at the interpretation's values
-  -- (`OpenTotal`), which `Definition.totalParams` leaves out: no parameter's declared total
+  -- an open generator's `functional` axiom reads the sort at the interpretation's values: it is
+  -- stated at values under `OpenTotal`, not a parameter's declared total (`Definition.totalParams`
+  -- leaves it out)
   let openGen := fun (f : String) => c.params.any fun k => k.raw && c.symName k.sig.name == f
   -- the overloading symbol f overloads g (`Semantics.ovls`)
   let ovlPair := fun (as : List Kore.AppPattern) => match overloadSyms? as with
@@ -225,7 +228,8 @@ def consumedWith (generated : Bool) (S : Scan) (E : Env) (d : Definition) (s : K
     | none => match scanEvent s with
       -- a macro symbol's functional axiom: of a symbol that is not part of the reading
       | some (.inl f) => S.macros.contains f || c.ctors.any (fun k => c.symName k.name == f) ||
-        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f && !openGen f) ||
+        (symHas f && (c.fns.all fun fn => c.symName fn.label != f || fn.total) && !paramNotTotal f) ||
+        openGen f ||
         ((initCell f).any fun x => initFunctionalOK E.N E.src S.eqs (functionalSyms S.events) c x) ||
         isProj f
       | some (.inr (x, y)) =>
@@ -402,24 +406,6 @@ def tokKItemOmitted (k : Kore.Definition) (d : Definition) : List (Nat × List (
         | xs => some (off + i, xs.map fun x => (x, stated.contains x))
       | none => none
 
-/-- The user module's equations classified read, and its `[simplification]` axioms, that carry a
-key of `eqnAttrInert`: each with its place, the key and why it is inert, beside `simplification`
-the axiom's own class said as well. -/
-def eqnAttrsInert (k : Kore.Definition) : List (Nat × String × String) :=
-  match k.modules.getLast? with
-  | none => []
-  | some m =>
-    let off := preludeLength k
-    m.sentences.zipIdx.flatMap fun (s, i) => match s with
-      | .axiom a =>
-        let simp := hasAttr a.attributes "simplification"
-        if !(simp || (isRead s && (rawEqn? a).isSome)) then [] else
-        a.attributes.filterMap fun ap =>
-          let n := ap.head.ident.name
-          (eqnAttrInert.lookup n).map fun w =>
-            (off + i, n, if simp then s!"beside simplification (the axiom is inert): {w}" else w)
-      | _ => []
-
 /-! ## A function symbol in a left side
 
 A rule's left side and a clause's argument patterns are patterns, which the matcher reads as
@@ -433,10 +419,11 @@ set's element) are not named here: they are collection patterns, which the patte
 decides (`collPatternHooks`). -/
 
 /-- The rules and clauses that apply a function symbol (a function or sort predicate of `d`, a
-parameter, a hooked symbol of the registry, or an overloading symbol that overloads a function,
-`Semantics.fnOvlSyms`, whose application at covered arguments is that function's value; no
-constructor and no collection's symbol) in their left side: one refusal (`functionInPattern`) for
-each, the symbol named. -/
+parameter that is no open generator, a hooked symbol of the registry, or an overloading symbol that
+overloads a function, `Semantics.fnOvlSyms`, whose application at covered arguments is that
+function's value; no constructor, no collection's symbol and no open generator, which
+`openGeneratorInPattern` names) in their left side: one refusal (`functionInPattern`) for each, the
+symbol named. -/
 def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -445,7 +432,8 @@ def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
     let off := preludeLength k
     let collSyms := c.allColls.flatMap fun cs => [cs.unit, cs.elem, cs.concat]
     let isFn := fun (g : Sym) => !collSyms.contains g && !c.ctorSigs.any (·.name == g) &&
-      (c.fns.any (·.label == g) || c.sortPreds.any (·.label == g) || c.params.any (·.sig.name == g) ||
+      (c.fns.any (·.label == g) || c.sortPreds.any (·.label == g) ||
+        c.params.any (fun k => !k.raw && k.sig.name == g) ||
         hookSigs.any (·.name == g) || c.fnOvlSyms.contains g)
     let named := fun (ts : List Term) => ((Term.headsList ts).filter isFn).eraseDups.map c.symName
     -- the rewrite axioms read, each as many times as it has rules (`scanRewrites`), in the order of
@@ -465,6 +453,59 @@ def functionInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
             | some (s, j) => (some (off + j), headOf s)
             | none => (none, c.symName fn.label)
           (⟨i, h, .functionInPattern, f⟩ : Refusal)
+    ruleRs ++ clauseRs
+
+/-! ## An open generator in a left side
+
+An open generator (`ParamSig.raw`: a symbol the text declares total, lists among its result sort's
+generators and gives no constructor axiom) applied in a rule's left side or a clause's argument
+pattern: the pattern matches a value v exactly where some arguments are sent to v by the
+interpretation, which the text leaves open beyond the laws it writes. The pattern context sorts no
+open generator (`patCtxAll`), so such a rule or clause is not sorted. It is refused with a reason
+of its own (`RefusalReason.openGeneratorPattern`), the symbol named with the reason that applies at
+its result sort S:
+- S is not confined (`Semantics.confined`: S is recursive, as through the generator itself, or
+  reaches a sort whose elements the text does not state): an element of S that is no value's may be
+  the generator's image of other such elements, so which arguments match depends on elements of S
+  the text does not name;
+- S is confined: every element of S is a value's and the arguments that match are values, a finite
+  preimage of the value under the interpretation's graph, which the semantics does not build. -/
+
+/-- The rules and clauses whose left side applies an open generator of `d`: one refusal
+(`openGeneratorPattern`) for each, the symbol named with its result sort and the reason that
+applies there (`Semantics.confined`). -/
+def openGeneratorInPattern (k : Kore.Definition) (d : Definition) : List Refusal :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    let opens := c.params.filter (·.raw)
+    let why := fun (g : Sym) => match opens.find? (·.sig.name == g) with
+      | some k =>
+        let s := k.sig.result
+        let sn := c.sortName s
+        if c.confined s then
+          s!"{c.symName g}: its sort {sn} is confined: the arguments it matches at a value are the value's preimage under the interpretation's graph, which the semantics does not build"
+        else
+          s!"{c.symName g}: its sort {sn} is recursive or reaches an unconfined sort: the arguments it matches depend on elements of {sn} the text does not name"
+      | none => c.symName g
+    let named := fun (ts : List Term) =>
+      ((Term.headsList ts).filter (fun g => opens.any (·.sig.name == g))).eraseDups.map why
+    let rws := (m.sentences.zipIdx.flatMap fun (s, i) =>
+      if isRead s then (scanRewrites s).map fun _ => (s, i) else []).zip c.rules
+    let ruleRs := rws.flatMap fun ((s, i), r) =>
+      (named [r.lhs]).map fun f => (⟨some (off + i), headOf s, .openGeneratorPattern, f⟩ : Refusal)
+    let locate := fun (uid : String) => m.sentences.zipIdx.find? fun (s, _) => match s with
+      | .axiom a => uid != "" && attrStr? a.attributes "UNIQUE'Unds'ID" == some uid
+      | _ => false
+    let clauseRs := (withPres c.fns d.pres.fns).flatMap fun (fn, fp) =>
+      (withPres fn.clauses fp.clauses).flatMap fun (cl, cp) =>
+        (named cl.pats).map fun f =>
+          let (i, h) := match locate cp.info.uid with
+            | some (s, j) => (some (off + j), headOf s)
+            | none => (none, c.symName fn.label)
+          (⟨i, h, .openGeneratorPattern, f⟩ : Refusal)
     ruleRs ++ clauseRs
 
 /-! ## A range-map symbol binding a variable in a left side
@@ -580,9 +621,14 @@ ranges overlap the text states no value (`silentTable`), Γ states the interpret
 there is a condition on the interpretation. The same law of another
 symbol states something of that symbol which no reading of the collections states. -/
 
-/-- The law axioms whose symbol is neither the concatenation of a collection of `d` (an idempotence
-axiom: of a set) nor a function of `d` or a parameter no hook implements and no open generator
-(`fnLawHead`; whose laws `presOf` reads into `Presentation.laws`, `fnLawAxioms`): one refusal (`lawAxiom`, the symbol and the law named) for each. -/
+/-- The law axioms read by none of the readings, in this order: the concatenation of a
+collection of `d` (an idempotence axiom: of a set), an open generator's associativity or
+idempotence sentence (`openLawRead`, read into `ParamSig.assoc`, `ParamSig.idem`), a function of
+`d` or a parameter no hook implements and no open generator (`fnLawHead`; whose laws `presOf` reads
+into `Presentation.laws`, `fnLawAxioms`). One refusal for each other: `openLaw` for another law of
+an open generator, `lawAxiom` for the law of any other symbol, the symbol and the law named, with,
+for the idempotence of a symbol that kept `constructor`, that it contradicts the constructor's
+no-confusion axioms (`f(x, x) = x` against the distinctness of `f` and `x`). -/
 def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
   match k.modules.getLast? with
   | none => []
@@ -591,12 +637,27 @@ def lawUnmatched (k : Kore.Definition) (d : Definition) : List Refusal :=
     let off := preludeLength k
     let concatOf := fun (h : String) (set : Bool) =>
       c.allColls.any fun cs => c.symName cs.concat == h && (!set || cs.kind == .set)
+    let openGen := fun (h : String) => c.params.any fun k => k.raw && c.symName k.sig.name == h
+    let ctor := fun (h : String) => c.ctors.any fun k => c.symName k.name == h
     m.sentences.zipIdx.filterMap fun (s, i) => match s, classify s with
       | .axiom a, .inert .collectionLaw | .axiom a, .unread .setIdempotence =>
         let h := (lawHead? a).getD ""
-        if concatOf h (hasAttr a.attributes "idem") || fnLawHead c h then none
-        else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {", ".intercalate (lawKeys a)}"⟩
+        let keys := ", ".intercalate (lawKeys a)
+        if concatOf h (hasAttr a.attributes "idem") || openLawRead c a || fnLawHead c h then none
+        else if openGen h then some ⟨some (off + i), headOf s, .openLaw, s!"{h}: {keys}"⟩
+        else if ctor h && hasAttr a.attributes "idem" then
+          some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}: idempotence of a constructor contradicts its no-confusion axioms"⟩
+        else some ⟨some (off + i), headOf s, .lawAxiom, s!"{h}: {keys}"⟩
       | _, _ => none
+
+/-- The law axioms of the open generators of `d` (`openLawAxioms`), each an axiom of `Γ`
+(`Faithful.lawItemsK`): the sentence's index, the symbol and the laws named. The interpretations
+the statements speak of satisfy each at values (`OpenLaws`, owed). -/
+def openLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String × List String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m => (openLawAxioms d.sem m.sentences).map fun (i, a) =>
+    (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
 
 /-- The law axioms on the functions of `d` (`fnLawAxioms`), each read as the law of
 `Presentation.laws` at its place: the sentence's index, the symbol and the laws named. Each is
@@ -606,6 +667,57 @@ def fnLawSentences (k : Kore.Definition) (d : Definition) : List (Nat × String 
   | none => []
   | some m => (fnLawAxioms d.sem m.sentences).map fun (i, a) =>
     (preludeLength k + i, (lawHead? a).getD "", lawKeys a)
+
+/-- The `functional` axioms of the open generators of `d` (`ParamSig.raw`): the sentence's index and
+the symbol. Each is stated at values under `OpenTotal` (the interpretation gives the generator a
+value at every argument list of its sorts), owed: `Γ` holds no functionality item for an open
+generator, and `ΓDomains` states its application to values to be the interpretation's value, or
+nothing where the interpretation gives none. -/
+def openFunctionalSentences (k : Kore.Definition) (d : Definition) : List (Nat × String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    m.sentences.zipIdx.filterMap fun (s, i) =>
+      if isRead s then match scanEvent s with
+        | some (.inl f) => if c.params.any (fun k => k.raw && c.symName k.sig.name == f) then some (off + i, f) else none
+        | _ => none
+      else none
+
+/-- The `unit` attributes the reader ignores: a symbol declaration of the user module carrying
+`unit{}(u)` whose symbol `d` reads as a constructor or an open generator, where no axiom of the
+module with the attribute `unit` states a law of that symbol (`lawHead?`): the sentence's index, the
+symbol and the unit named. A theory is its sentences, and an attribute is no sentence: with no
+sentence `f(K, u) = K` or `f(u, K) = K` the text states no unit law of `f`, so the declaration read
+without the attribute reads the theory the text states. Nothing is added for it (`ParamSig` has no
+unit; `Γ` holds no unit item). Where the text writes the unit sentences (of a function, read into
+`Presentation.laws`; of a collection's concatenation) the attribute is not listed. -/
+def unitIgnored (k : Kore.Definition) (d : Definition) : List (Nat × String × String) :=
+  match k.modules.getLast? with
+  | none => []
+  | some m =>
+    let c := d.sem
+    let off := preludeLength k
+    let named := fun (f : String) =>
+      c.ctors.any (fun g => c.symName g.name == f) ||
+        c.params.any (fun g => g.raw && c.symName g.sig.name == f)
+    let unitSentence := fun (f : String) => m.sentences.any fun s => match s with
+      | .axiom a => hasAttr a.attributes "unit" && lawHead? a == some f
+      | _ => false
+    m.sentences.zipIdx.filterMap fun (s, i) => match s with
+      | .symbol ss =>
+        let f := ss.symbol.ident.ident.name
+        match ss.attributes.find? (·.head.ident.name == "unit") with
+        | some u =>
+          if named f && !unitSentence f then
+            let us := match u.args with
+              | [.app h _ _] => h.ident.name
+              | _ => ""
+            some (off + i, f, us)
+          else none
+        | none => none
+      | _ => none
 
 /-! ## The library's modules in a K installation's text
 
@@ -939,10 +1051,10 @@ def libraryUnstated (k : Kore.Definition) (d : Definition) : List Refusal :=
 /-- The account's refusals of a text the reader reads as `d`: the inert constructor axioms not
 induced, the library modules not whole in the text, the cell collections' injections and the laws
 of no collection of `d`, the library's data the text does not state, the left sides applying a
-function symbol or binding a variable under a range-map symbol. -/
+function symbol or an open generator, or binding a variable under a range-map symbol. -/
 def accountRefusals (k : Kore.Definition) (d : Definition) : List Refusal :=
   uninduced k d ++ missingBuiltin k d ++ cellCollUnmatched k d ++ libraryUnstated k d ++
-    functionInPattern k d ++ lawUnmatched k d ++ rangeMapInPattern k d
+    functionInPattern k d ++ lawUnmatched k d ++ rangeMapInPattern k d ++ openGeneratorInPattern k d
 
 /-! ## Connective readings and `#configuration`
 

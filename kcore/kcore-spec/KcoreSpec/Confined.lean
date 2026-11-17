@@ -344,8 +344,9 @@ theorem gen_value (hn : Model.NamesApartK c)
     subst hg hkr
     have hks := knownSig_of_mem hn hk
     have hr := OvlLaws.ovlRank_le (c := c) k.name
-    refine ⟨c.norm k.name ws, OvlLaws.sortOf_norm_known (hO.hyp htr) _ k hks hr ws hws, ?_⟩
-    exact ((norm_gs hI htr _ k hks hr ws hws m).mp hm).symm
+    have hnf := OvlOK.fnCover_none (c := c) k.name ws
+    refine ⟨c.norm k.name ws, OvlLaws.sortOf_norm_known_ovlF (hO.hyp htr) (hO.hyp htr).fnFacts _ k hks hr ws hws hnf, ?_⟩
+    exact ((norm_gs hI htr _ k hks hr ws hws hnf m).mp hm).symm
   rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, hres, rfl⟩
   · exact sig k (List.mem_append_left _ hk) hkr rfl
   · exact sig o.sig (List.mem_append_right _ (List.mem_map.mpr ⟨o, ho, rfl⟩)) hor rfl
@@ -503,7 +504,8 @@ theorem gen_hasValue {c : Semantics} [hO : OvlOK c] (hn : Model.NamesApartK c)
       ∃ v, c.sortOf v = some N := by
     intro k hk hkr hg
     subst hg hkr
-    exact ⟨_, OvlLaws.sortOf_norm_known (hO.hyp htr) _ k (knownSig_of_mem hn hk) (OvlLaws.ovlRank_le (c := c) k.name) ws hws⟩
+    exact ⟨_, OvlLaws.sortOf_norm_known_ovlF (hO.hyp htr) (hO.hyp htr).fnFacts _ k (knownSig_of_mem hn hk)
+      (OvlLaws.ovlRank_le (c := c) k.name) ws hws (OvlOK.fnCover_none k.name ws)⟩
   rcases Model.mem_gens hgm with ⟨k, hk, hkr, rfl⟩ | ⟨o, ho, hor, rfl⟩ | ⟨a, hab, rfl⟩ | ⟨k, hk, hkr, hres, rfl⟩
   · exact sig k (List.mem_append_left _ hk) hkr rfl
   · exact sig o.sig (List.mem_append_right _ (List.mem_map.mpr ⟨o, ho, rfl⟩)) hor rfl

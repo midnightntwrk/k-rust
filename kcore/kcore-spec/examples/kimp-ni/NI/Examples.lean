@@ -49,7 +49,7 @@ theorem eval_of_checkIn {f : Sym} {vs : List GroundTerm} {w : GroundTerm} (n : N
 theorem eval_unique_of_checkIn (hco : CoherentAll chk) {f : Sym} {vs : List GroundTerm}
     {w : GroundTerm} {r : Option GroundTerm} (n : Nat) (h : checkIn chk n f vs w = true)
     (h' : Eval chk f vs r) : r = some w :=
-  Eval.functional hco (Semantics.fnsNoExs_of_ok hok) h' (eval_of_checkIn hok hsr hmr n h)
+  Eval.functional hco h' (eval_of_checkIn hok hsr hmr n h)
 
 end
 

@@ -126,8 +126,8 @@ theorem names : c.sortName expS = "Exp" ∧ c.symName eS = "Lble" ∧ c.symName 
     c.symName negInt = "LblnegInt" := by decide +kernel
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- The overload sentence, as a clause of `negExp`. -/
@@ -228,8 +228,8 @@ theorem names : c.sortName expS = "Exp" ∧ c.symName eS = "Lble" ∧ c.symName 
     c.symName negInt = "LblnegInt" := by decide +kernel
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- `negExp(_) => e [owise]`. -/
@@ -458,8 +458,8 @@ theorem names : c.sortName nS = "N" ∧ c.sortName expS = "Exp" ∧ c.symName eS
     c.symName sN = "LblsN" ∧ c.symName zS = "Lblz" ∧ c.symName sExp = "LblsExp" := by decide +kernel
 
 theorem noRaw : ∀ k ∈ c.params, k.raw = false := by decide +kernel
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- The overload sentence, as a clause of `sExp`: its right side a constructor term. -/

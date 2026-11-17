@@ -44,7 +44,7 @@ def cIO : Semantics :=
     pgmSort := Srt.k
     rules := [] }
 
-theorem cIO_core : cIO.coreOK = true := by decide +kernel
+theorem cIO_core : cIO.coreOK = true := by decide_cheap
 
 theorem cIO_valueSorts : cIO.valueSorts.contains ioError = true := by decide +kernel
 
@@ -116,7 +116,7 @@ def cLoop : Semantics :=
     pgmSort := Srt.k
     rules := [] }
 
-theorem cLoop_core : cLoop.coreOK = true := by decide +kernel
+theorem cLoop_core : cLoop.coreOK = true := by decide_cheap
 
 theorem cLoop_valueSorts : cLoop.valueSorts.contains sS = false ∧ cLoop.valueless = [sS] ∧
     [Srt.int, Srt.kitem, Srt.k, Srt.top, nRegSorts].all cLoop.valueSorts.contains = true := by decide +kernel

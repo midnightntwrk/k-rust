@@ -1,0 +1,4 @@
+# Float literals of each production of FLOAT-SYNTAX (domains.md:1495-1497), the K text of the kk entry
+# t90-float-literal-forms (krs/semantics/kore/texts): the first production with and without a point,
+# fraction, exponent and sign, `.d+`, each suffix in each case; `[+-]?Infinity` suffixed; `NaN` suffixed.
+# Expected: every literal read (Parse.floatLit?), parse ok.

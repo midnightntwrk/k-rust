@@ -1,4 +1,4 @@
-"""Build the agreement cases of the kore-in-k corpus (test/agree-kore-in-k.jsonl, read by `kcore agree`)
+"""Build the agreement cases of the kore-in-k corpus (kk/agree-kore-in-k.jsonl, read by `kcore agree`)
 from that corpus's directory: the argument, else $KORE_IN_K (krs/semantics/kore of a checkout of the
 kore-in-k branch). The expected results are only the corpus's recorded ones: the haskell and llvm
 rows of each case's `evidence.json` (`implementations`).
@@ -36,7 +36,7 @@ canonical text (its README, "A case"), or the backend's error. Each (case, backe
   the kompiled text's declaration of its head). A backend's error gives no `expected` and
   `no_reference` its text: verdict `no-reference`.
 
-Usage: python3 -I test/agree-kore-in-k.py [DIR] > test/agree-kore-in-k.jsonl"""
+Usage: python3 -I kk/agree-kore-in-k.py [DIR] > kk/agree-kore-in-k.jsonl"""
 import hashlib, json, os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))

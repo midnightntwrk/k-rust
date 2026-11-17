@@ -12,7 +12,7 @@ user module E2-OPEN-CTOR-ARG: 242 sentences
   1 inert simplification [generated]
 stage refusals (of sentences classified read): 1
   1 openGenerator
-      sentence 62 (Lbland): openGenerator (Lbland: its result sort Exp has a constructor with arguments)
+      sentence 62 (Lbland): openGenerator (Lbland: its sort Exp has a constructor with arguments, an overloading symbol or a subsort (here a constructor with arguments): the text writes no sentence that keeps the generator's applications out of the constructor's or the injection's image at an element no term denotes)
         [user] (no label) at e2-open-ctor-arg.k:2: symbol Lbland{}(SortExp{}, SortExp{}) : SortExp{} [functional{}(), org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,57,2,88)"), org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FIXTURE/e2-open-ctor-arg.k)"), symbol'Kywd'{}("and")]
-finish: sentence 62 (Lbland): openGenerator (Lbland: its result sort Exp has a constructor with arguments)
+finish: sentence 62 (Lbland): openGenerator (Lbland: its sort Exp has a constructor with arguments, an overloading symbol or a subsort (here a constructor with arguments): the text writes no sentence that keeps the generator's applications out of the constructor's or the injection's image at an element no term denotes)
 (exit 0)

@@ -27,7 +27,7 @@ theorem clauseFixed_sound {cl : Clause} {ss : List Srt} {x : TermCtx} {s : Srt} 
     (hfx : c.clauseFixed cl = true) (hx : cl.exs = []) :
     MatchIndependent c cl := by
   refine ⟨?_, fun hne => absurd hx hne⟩
-  intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _
+  intro vs σ σ' ⟨hσ, hm, _⟩ ⟨hσ', hm', _⟩ _ _ _ _ _
   unfold Semantics.clauseFixed at hfx
   split at hfx
   · rename_i D hD

@@ -403,7 +403,7 @@ theorem fEA_a : Eval cEA fEAL [] (some (.ctor aL [])) :=
     rfl eval_aTerm
 
 /-- `clA` has no variable: it is match independent. -/
-theorem clA_coherent : Coherent cEA clA clA := fun _ _ _ _ _ _ _ _ _ =>
+theorem clA_coherent : Coherent cEA clA clA := fun _ _ _ _ _ _ _ _ _ _ =>
   .inl ⟨rfl, rfl, rfl, rfl, fun i hi => by simp [clA, varOccs, varOccsList] at hi, fun t ht => by cases ht⟩
 
 theorem sortsOf_nil {vs : List GroundTerm} (h : cEA.sortsOf vs = some []) : vs = [] := by
@@ -470,7 +470,7 @@ theorem fU_hu : Eval c fUL [] (some (.ctor hL [.ctor uL []])) :=
 (`u_only`), so two matches are one instance of the right side. -/
 theorem matchIndependent_U : MatchIndependent c clU := by
   refine ⟨?_, fun hne => absurd rfl hne⟩
-  intro vs σ σ' ha ha' _ _ _ _
+  intro vs σ σ' ha ha' _ _ _ _ _
   refine .inl ⟨rfl, rfl, rfl, rfl, fun i hi => ?_, fun t ht => by cases ht⟩
   simp only [clU, varOccs, varOccsList, List.append_nil, List.mem_singleton] at hi
   subst hi
@@ -535,8 +535,8 @@ theorem not_matchIndependent_I : ¬ MatchIndependent c clI := fun h => by
     fun n => ⟨ws_int n, .nil, (fun t h => by cases h), .top⟩
   have hdec : ∀ n : Int, clI.Decides c fI [(0, .dv Srt.int (.int n))] [] := fun n =>
     ⟨ha n, fun cl' h _ hlt => by simp only [fI, List.mem_singleton] at h; subst h; simp at hlt⟩
-  rcases h.1 [] σ0 σ1 (ha 0) (ha 1) (fun t h => by cases h) (fun _ => hdet_k σ0) (fun t h => by cases h)
-      ⟨fIL, fI, hfnI, List.Mem.head _, List.Mem.head _, hdec 0, hdec 1⟩ with ⟨-, -, -, -, hv, -⟩ | hr
+  rcases h.1 [] σ0 σ1 (ha 0) (ha 1) (fun t h => by cases h) (fun _ _ => hdet_k σ0) (fun _ t h => by cases h)
+      (fun hne => absurd rfl hne) ⟨fIL, fI, hfnI, List.Mem.head _, List.Mem.head _, hdec 0, hdec 1⟩ with ⟨-, -, -, -, hv, -⟩ | hr
   · have := hv 0 (by simp [clI, varOccs, varOccsList])
     simp [σ0, σ1] at this
   · have := hr _ _ (.inl ⟨rfl, .inl ⟨(fun t h => by cases h), .top, eval_k 0⟩⟩)

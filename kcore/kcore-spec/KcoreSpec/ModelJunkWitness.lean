@@ -198,7 +198,7 @@ theorem hyp : Hyp c := by
       intro vs σ _ h _ _ _ _
       exact (cl1_noσ σ h.1).elim
     · refine (matchIndependent_iff_noExs rfl).mpr ?_
-      intro vs σ σ' _ _ _ _ _ _
+      intro vs σ σ' _ _ _ _ _ _ _
       exact .inl ⟨rfl, rfl, rfl, rfl, fun i hi => (by simp [cl2, varOccs] at hi), fun t ht => (by simp [cl2] at ht)⟩
 
 end JunkWitness

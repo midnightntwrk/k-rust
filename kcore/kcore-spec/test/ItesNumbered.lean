@@ -136,7 +136,7 @@ def c : Semantics :=
 
 instance : OvlOK c := .of_nil rfl (by decide +kernel)
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 /-- `c` has no function: `FnHyp` holds. -/
 theorem fnHyp : FnHyp c :=
@@ -152,10 +152,10 @@ theorem meets_others : c.sortedOK = true ∧ c.hooksApart = true ∧ c.predsApar
     patHeadsOK c = true ∧ Model.namesApartK c = true ∧ Model.LitsApart c = true ∧
     Model.sortsNumbered c = true ∧ Model.kindsApart c = true ∧ Model.ctorsOnce c = true ∧
     Model.fnsApart c = true ∧ itesOnce c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, fnHyp⟩
 
 /-- The first half of `itesApart` fails. -/
 theorem not_itesNumbered : itesNumbered c = false := by decide +kernel

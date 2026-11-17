@@ -125,7 +125,7 @@ theorem named : c.coreOK = true ∧ c.rightValued = false ∧ c.heldObligations 
     c.rankObligations ord ++ c.decObligationsL = [] ∧ c.totalObligationsRP ord [] = [] ∧
     c.agreeObligationsI = [388] ∧ c.matchObligationsL = [(388, 1)] ∧ c.owedRules = [] ∧
     c.owedClauses = [] := by
-  decide +kernel
+  decide_cheap
 
 theorem core : c.coreOK = true := named.1
 
@@ -283,7 +283,7 @@ example : c.symName 388 = "Lblf" ∧ c.symName 386 = "Lbla" ∧ c.symName 387 = 
 /-- `coreOK`; `f` is the one held-named function; its clause 0 is named for match independence. -/
 theorem named : c.coreOK = true ∧ c.rightValued = false ∧ c.heldObligations = [388] ∧
     c.agreeObligationsI = [] ∧ c.matchObligationsL = [(388, 0)] := by
-  decide +kernel
+  decide_cheap
 
 theorem core : c.coreOK = true := named.1
 

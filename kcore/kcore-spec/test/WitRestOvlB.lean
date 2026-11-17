@@ -101,17 +101,17 @@ namespace Self
 def c0 : Semantics := { base with ovls := [⟨fSig, []⟩] }
 def c : Semantics := { base with ovls := [⟨fSig, [fSig.name]⟩] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov6 c = true ∧ ov7 c = true ∧ ov8 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_ov5 : ov5 c = false := by decide +kernel
 
@@ -131,17 +131,17 @@ def fOpt : CtorSig := ⟨nRegSyms + 4, [Srt.int], KCellOpt⟩
 def c0 : Semantics := { base with ovls := [⟨fOpt, []⟩] }
 def c : Semantics := { base with ovls := [⟨fOpt, [counterLabel]⟩] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ ov1 c = true ∧ ov2 c = true ∧ ov3 c = true ∧ ov4 c = true ∧
     ov5 c = true ∧ ov6 c = true ∧ ov8 c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap,
+    by decide_cheap, by decide_cheap, fnHyp⟩
 
 theorem not_ov7 : ov7 c = false := by decide +kernel
 

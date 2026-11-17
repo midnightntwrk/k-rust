@@ -12,7 +12,6 @@ theorem term_named : defn.sem.rankObligations callOrder ++ defn.sem.decObligatio
     464 /- eval(_,_)_KORE_Term_Def_Term -/,
     466 /- evalIf(_,_,_,_,_)_KORE_Res_Def_Ts_Clauses_Int_Res -/,
     467 /- evalTs(_,_)_KORE_Ts_Def_Ts -/,
-    482 /- leq(_,_,_)_KORE_Bool_Int_Int_Subs -/,
     486 /- match(_,_,_,_)_KORE_Ms_Term_Term_Bind_Subs -/,
     487 /- matchCol(_,_,_,_,_,_)_KORE_Ms_Kind_Int_Ts_Ts_Bind_Subs -/,
     488 /- matchK(_,_,_,_)_KORE_Ms_Ms_Ts_Ts_Subs -/,
@@ -21,6 +20,7 @@ theorem term_named : defn.sem.rankObligations callOrder ++ defn.sem.decObligatio
     504 /- split(_,_,_,_,_,_,_)_KORE_Ms_Int_Term_Ts_Ts_Ts_Bind_Subs -/,
     505 /- splitOn(_,_,_,_,_,_,_)_KORE_Ms_Int_Term_Ts_Ts_Ts_Bind_Subs -/,
     507 /- stepIf(_,_,_,_,_)_KORE_Step_Def_Rules_Term_Int_Ts -/,
+    446 /- above(_,_,_,_,_)_KORE_Bool_Int_Int_Subs_Subs_Subs -/,
     479 /- join(_,_)_KORE_Term_Term_Ts -/] := by decide +kernel
 
 end RefKk

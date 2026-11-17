@@ -16,7 +16,7 @@
   }
  },
  "inputs": {
-  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "answer": "14b0ffcd035682dd4b00286db09762c5223c75549239f04f302ece29229fbd03",
   "def.k": "f3be3876fec98f4bf6267e9ff5dac93a65a8bddc967f933bded4a7d94bc01d57",
   "pgm": "fcf30c52afccd3e538bf058db18f9a2fce988a13dc8e1e84ac773b32edbdfccf"
  },
@@ -27,5 +27,10 @@
   "message": null,
   "release": "K v7.1.337"
  },
- "ruling_canonical": {}
+ "ruling_canonical": {
+  "settled": [
+   "inj{SortS,SortKItem}(Lblb'LParUndsCommUndsCommUndsCommUndsCommUndsCommUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool'Unds'Bool(false,true,false,true,false,true))",
+   "inj{SortS,SortKItem}(Lblc'LParUndsRParUnds'CASE-SYNTAX'Unds'S'Unds'String(#token(\"ac\",SortString)))"
+  ]
+ }
 }

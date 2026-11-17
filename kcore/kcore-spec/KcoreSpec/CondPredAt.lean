@@ -78,7 +78,7 @@ mutual
       rw [Term.kore, KoreAML.tr_injP, interp_injApp] at hm
       obtain ⟨x, hx, hm⟩ := hm
       have hxs := rhsSort_at ht' (fun i hi => hin i (by rw [varOccs]; exact hi)) x hx
-      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gensF_inj hab) (xs := [x]) rfl (single_sorts hxs)
+      obtain ⟨y, hy, hys⟩ := gen_fun hI (genWf_sub hg hab).1 (gensF_inj hab) rfl (xs := [x]) rfl (single_sorts hxs)
       rw [(hys m).mp hm]; exact hy
     | .as _ _, s, ht, _, _, _ => absurd ht Model.sortOfTerm_rhs_as
   theorem rhsSorts_at : ∀ {ts : List Term} {ss : List Srt} {bs : List M},

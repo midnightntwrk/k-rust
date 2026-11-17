@@ -1,0 +1,11 @@
+command: kompile --backend haskell e6-float-literals.k -o out  (cwd: the fixture directory)
+exit: 0
+seconds: 2.4
+definition.kore bytes: 268264
+definition.kore sha256: d0d2cc5799297eec8d192c013fb909aa9d7f819c943c37ce8d30de4a29f19b7b
+stripped sha256: 6519c9e97bb88480093a2c3dc20a9ad6a94cb32977e2c65cae97cdd8b5a55ea6
+main module: 501 sentences, 102 not in base's, in kore.txt
+output:
+  [Warning] Compiler: Could not find main syntax module with name
+  E6-FLOAT-LITERALS-SYNTAX in definition.  Use --syntax-module to specify one.
+  Using E6-FLOAT-LITERALS as default.

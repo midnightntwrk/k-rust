@@ -27,7 +27,7 @@
 import KcoreSpec.SetLaws
 import KcoreSpec.Step
 import KcoreSpec.Tie
-import KcoreSpec.OvlLaws
+import KcoreSpec.OvlLawsFn
 import KcoreSpec.RangeMapSorted
 
 set_option autoImplicit false
@@ -1449,6 +1449,36 @@ theorem Semantics.OvlCase.fnCover_none {c : Semantics} (h : c.OvlCase) (f : Sym)
     c.fnCover f vs = none :=
   h.elim (fun hno => OvlLaws.fnCover_none_of_nil hno f vs) (fun H => OvlLaws.fnCover_none_of_ok H.1 f vs)
 
+/-- What the laws read of the overloading symbols' declarations (`OvlLaws.OvlFnFacts`), with
+`OvlCase` and transitive subsorts. -/
+theorem Semantics.OvlCase.fnFacts {c : Semantics} (h : c.OvlCase)
+    (htr : ∀ a b e, (a, b) ∈ c.subsorts → (b, e) ∈ c.subsorts → (a, e) ∈ c.subsorts) : OvlLaws.OvlFnFacts c := by
+  rcases h with hno | ⟨hok, hirr⟩
+  · have hnil : ∀ o, o ∉ c.ovls := fun o ho => by rw [hno] at ho; cases ho
+    exact ⟨fun o ho => absurd ho (hnil o), fun o ho => absurd ho (hnil o),
+      fun o ho => absurd ho (hnil o), fun o ho => absurd ho (hnil o)⟩
+  · exact (OvlLaws.OvlHyp.mk hok htr hirr).fnFacts
+
+/-- **An application of an overloading symbol has a result** where its arguments have results and
+each function among the symbols it overloads has a result at arguments of its sorts: the normal
+form where no function overload covers the arguments' values (or an argument is undefined), the
+covering function's result, lifted, where one does. -/
+theorem EvalTerm.ovl_result {c : Semantics} (F : OvlLaws.OvlFnFacts c) {σ : Subst} {f : Sym} {ts : List Term}
+    {rs : List (Option GroundTerm)} (hk : c.isCtor f = false) (ho : c.isOvl f = true) (hts : EvalTerms c σ ts rs)
+    {o : OvlSig} (hlo : c.lookupOvl f = some o) (hws : ∀ ws, allSome rs = some ws → c.sortsOf ws = some o.sig.args)
+    (hft : ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = true → ∀ fn ∈ c.fns, c.lookupFn kg.name = some fn →
+      kg.name = fn.label → ∀ vs, c.sortsOf vs = some fn.args → ∃ r, Eval c kg.name vs r) :
+    ∃ r, EvalTerm c σ (.app f ts) r := by
+  cases has : allSome rs with
+  | none => exact ⟨_, .ovl hk ho hts (fun vs hv => by rw [has] at hv; cases hv)⟩
+  | some ws =>
+    cases hcv : c.fnCover f ws with
+    | none => exact ⟨_, .ovl hk ho hts (fun vs hv => by rw [has] at hv; cases hv; exact hcv)⟩
+    | some kg =>
+      obtain ⟨fn, hfn, hlook, hsig, hkg, hb, -, hus⟩ := OvlLaws.fnCover_fn_ovlF F hlo (hws ws has) hcv
+      obtain ⟨r, hr⟩ := hft kg hkg hb fn hfn hlook (by rw [hsig]) _ hus
+      exact ⟨_, .ovlFn hk ho hts has hlo hcv hr⟩
+
 /-- `OvlCase`, decided. -/
 theorem Semantics.ovlCase_of {c : Semantics}
     (h : (c.ovls.isEmpty || (c.overloadsOK && c.subsorts.all fun p => p.1 != p.2)) = true) : c.OvlCase := by
@@ -1614,7 +1644,7 @@ theorem lookupOvl_none_of (hc : SortCtx c) {f : Sym} (h : c.isOvl f = false) : c
   | some o =>
     rcases hc.ovl with hno | H
     · simp [Semantics.lookupOvl, hno] at ho
-    · rw [(OvlLaws.ovl_facts ⟨H.1, hc.trans, H.2⟩ ho).2.1] at h; cases h
+    · rw [(OvlLaws.ovl_facts_ovlF (OvlLaws.OvlHyp.fnFacts ⟨H.1, hc.trans, H.2⟩) ho).2.2.1] at h; cases h
 
 /-- A function a well-sorted right-hand side calls has the signature it is found under among the
 functions it may call: no overloading symbol shares its name. -/
@@ -1630,7 +1660,7 @@ theorem rhs_lookup_fn (hc : SortCtx c) {L : List CtorSig} {f : Sym} {k : CtorSig
     obtain ⟨o, ho, -⟩ := Option.map_eq_some_iff.mp hk'
     rcases hc.ovl with hno | H
     · simp [Semantics.lookupOvl, hno] at ho
-    · have := (OvlLaws.ovl_facts ⟨H.1, hc.trans, H.2⟩ ho).2.1
+    · have := (OvlLaws.ovl_facts_ovlF (OvlLaws.OvlHyp.fnFacts ⟨H.1, hc.trans, H.2⟩) ho).2.2.1
       rw [Semantics.isOvl, hfn] at this
       simp at this
 
@@ -1733,13 +1763,34 @@ mutual
         rw [← hkn, Semantics.lookupFn_eq]; exact find?_label hc.nodupFns hfn
       exact Eval.sorted hc hf hlook (EvalTerms.sorted hc hts hL hσ hargs hvs) hr
     | .callUndef .. => by cases hr
-    | .ovl (f := f) (rs := rs) hk ho hts _ => by
+    | .ovl (f := f) (rs := rs) hk ho hts hnf => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
       obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' ho
       obtain ⟨ws, hws, rfl⟩ := Option.map_eq_some_iff.mp hr
       have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
-      exact OvlLaws.sortOf_norm ⟨H.1, hc.trans, H.2⟩ hlo (EvalTerms.sorted hc hts hL hσ hargs hws)
-    | .ovlFn (f := f) (vs := ws) _ _ _ _ _ hcov _ => by rw [hc.ovl.fnCover_none f ws] at hcov; cases hcov
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      exact OvlLaws.sortOf_norm_ovlF HH HH.fnFacts hlo (EvalTerms.sorted hc hts hL hσ hargs hws) (hnf ws hws)
+    | .ovlFn (f := f) (vs := ws) (kg := kg) _ ho hts hws hlo hcov hf => by
+      -- the covering function's value, of its result sort, lifted to the symbol's
+      obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
+      obtain ⟨o', hlo', rfl⟩ := rhs_lookup_ovl hc hL hk' ho
+      rw [hlo] at hlo'
+      cases hlo'
+      obtain ⟨r1, hr1, rfl⟩ := Option.map_eq_some_iff.mp hr
+      have H := hc.ovl.resolve_left fun hno => by simp [Semantics.lookupOvl, hno] at hlo
+      have HH : OvlLaws.OvlHyp c := ⟨H.1, hc.trans, H.2⟩
+      obtain ⟨o2, hlo2, hkg, hb, hcv⟩ := OvlLaws.fnCover_some_parts hcov
+      rw [hlo] at hlo2
+      cases hlo2
+      obtain ⟨fn, -, hfn, hsig⟩ := OvlLaws.byFn_fn hkg hb
+      have ha : fn.args = kg.args := by rw [hsig]
+      have hres' : fn.result = kg.result := by rw [hsig]
+      obtain ⟨hlen, -, hres, -⟩ := OvlLaws.over_ovlF HH.fnFacts hlo hkg
+      obtain ⟨-, -, hlies⟩ := OvlLaws.covers_iff.mp hcv
+      have hvs := EvalTerms.sorted hc hts hL hσ hargs hws
+      have hs1 := Eval.sorted hc hf hfn (by rw [ha]; exact OvlLaws.sortsOf_stripAll hlen hvs hlies) hr1
+      rw [hres'] at hs1
+      exact OvlLaws.sortOf_lift HH hs1 hres
   termination_by structural h
   theorem EvalTerms.sorted (hc : SortCtx c) {σ : Subst} {ts : List Term}
       {rs : List (Option GroundTerm)} (h : EvalTerms c σ ts rs) {L : List CtorSig}

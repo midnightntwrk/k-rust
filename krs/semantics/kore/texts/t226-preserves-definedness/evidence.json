@@ -1,0 +1,14 @@
+{
+ "implementations": {},
+ "inputs": {
+  "answer": "1b09453fab730f83c6515c867fb636bcb7cc0a26da077ade5a8473357e85942e",
+  "t226-preserves-definedness.k": "b79b0e9133d852caa43646e987727db66c3938241995338988110b68801225b5"
+ },
+ "kompile": {
+  "command": "kompile --backend haskell t226-preserves-definedness.k -o out  (cwd: a copy of the entry's directory)",
+  "exit": 0,
+  "kore.txt": "f18270a26e496bc6d23758a8356ae2e687a46ad761c1feedb624c03ff978c364",
+  "message": null,
+  "release": "K v7.1.337"
+ }
+}

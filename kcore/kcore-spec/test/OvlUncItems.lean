@@ -37,9 +37,9 @@ theorem names_ok : c.symName capN = "LblcapN" ∧ c.symName capGas = "LblcapGas"
     c.sortName nS = "N" ∧ c.ovls = [⟨capSig, [capN]⟩] ∧ c.fns = [] := by
   decide +kernel
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 
 /-- `c` has no function of its own: `FnHyp` holds. -/
 theorem fnHyp : FnHyp c :=

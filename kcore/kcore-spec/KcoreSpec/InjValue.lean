@@ -57,7 +57,7 @@ theorem inj_defined (h : c.coreOK = true) (hI : I ⊧ᴵP Γ c) {a b : Srt} (hab
   obtain ⟨-, -, -, hg, -, -, -, -, hno⟩ := hypSound_of_core h
   haveI : OvlOK c := hno
   have hab' : (a, b) ∈ c.subsorts := by simpa using hab
-  exact gen_fun hI (genWf_sub hg hab').1 (gensF_inj hab') (xs := [e]) rfl (single_sorts he)
+  exact gen_fun hI (genWf_sub hg hab').1 (gensF_inj hab') rfl (xs := [e]) rfl (single_sorts he)
 
 /-- **`inj_value`.** In a model of `Γ` of a definition with `coreOK`, for a subsort pair (a, b): an
 element e of a whose injection is the element of a value v of b is the element of a value w of a,

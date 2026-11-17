@@ -662,7 +662,7 @@ def cU : Semantics :=
 
 instance : OvlOK cU := .of_nil rfl (by decide +kernel)
 
-theorem cU_coreOK : cU.coreOK = true := by decide +kernel
+theorem cU_coreOK : cU.coreOK = true := by decide_cheap
 
 theorem cU_intBelow : IntBelow cU := by unfold IntBelow; decide +kernel
 

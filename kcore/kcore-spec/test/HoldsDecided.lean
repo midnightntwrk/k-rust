@@ -29,7 +29,7 @@ definition_of defn from "f2-examples/symrule.kompile.kore"
 
 noncomputable abbrev c : Semantics := defn.sem
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- `∀B:Bool. B ==Bool B`, closed. -/
 def pAll : Cond := .all Srt.bool (.equals Srt.bool (.var 0) (.var 0))

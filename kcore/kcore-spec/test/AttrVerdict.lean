@@ -150,7 +150,60 @@ example : AttrKeyE2.ofName? "subsort" = none := by decide +kernel
 
 -- a key at a class with no row: the row at class `any`, else refused
 example : attrVerdict .rule .uniqueId = .read := rfl
-example : attrVerdict .rule .format = .refused .ruleAttribute unwritten := rfl
+example : attrVerdict .rule .format = .inert printedForm := rfl
+example : attrVerdict .rule .uniqueId = .read ∧ attrVerdict .equation .symbolOverload = .read := ⟨rfl, rfl⟩
+
+/-! The verdicts the readers of a rewrite axiom and of a function equation apply (`ruleAttrFault?`,
+`eqnAttrFault?`): every refusal at class `rule` is `ruleAttribute` and at class `equation`
+`equationAttribute`; the keys read at a rule are those `Parse.ruleBody` reads (its id, label,
+priority, place, `owise`), and the inert ones the presentation keeps (`inertRuleAttrs` and
+`inertArgAttrs` of DefinitionWf, written out). -/
+
+def verdictKeys (c : AttrClassE2) (p : AttrVerdict → Bool) : List String :=
+  (AttrKeyE2.all.filter fun k => p (attrVerdict c k)).map (·.kore)
+
+def isRefusedBy (r : AttrRefusalE2) : AttrVerdict → Bool
+  | .refused r' _ => r' == r
+  | _ => false
+
+def isRead : AttrVerdict → Bool
+  | .read => true
+  | _ => false
+
+def isInert : AttrVerdict → Bool
+  | .inert _ => true
+  | _ => false
+
+def isRefused : AttrVerdict → Bool
+  | .refused _ _ => true
+  | _ => false
+
+theorem rule_refusals : AttrKeyE2.all.all (fun k => !isRefused (attrVerdict .rule k) || isRefusedBy .ruleAttribute (attrVerdict .rule k)) = true := by decide +kernel
+theorem equation_refusals : AttrKeyE2.all.all (fun k => !isRefused (attrVerdict .equation k) || isRefusedBy .equationAttribute (attrVerdict .equation k)) = true := by decide +kernel
+
+theorem rule_read : verdictKeys .rule isRead =
+    ["label", "org'Stop'kframework'Stop'attributes'Stop'Location", "org'Stop'kframework'Stop'attributes'Stop'Source",
+     "owise", "priority", "UNIQUE'Unds'ID"] := by decide +kernel
+theorem rule_inert : verdictKeys .rule isInert =
+    ["colors", "comm", "concrete", "cool", "cool-like", "format", "preserves-definedness", "symbol'Kywd'", "symbolic"] := by
+  decide +kernel
+theorem equation_read : verdictKeys .equation isRead =
+    ["cool", "label", "non-executable", "org'Stop'kframework'Stop'attributes'Stop'Location",
+     "org'Stop'kframework'Stop'attributes'Stop'Source", "owise", "priority", "symbol-overload", "UNIQUE'Unds'ID"] := by
+  decide +kernel
+theorem equation_inert : verdictKeys .equation isInert =
+    ["comm", "concrete", "cool-like", "preserves-definedness", "simplification", "smt-lemma", "symbolic"] := by
+  decide +kernel
+
+-- the readers: an attribute is refused with its name and why, a name that is no key as well
+example : ruleAttrFault? [KoreAML.attr "format"] = none ∧ ruleAttrFault? [KoreAML.attr "symbol'Kywd'"] = none ∧
+    ruleAttrFault? [KoreAML.attr "cool-like"] = none := by decide +kernel
+example : (ruleAttrFault? [KoreAML.attr "owise", KoreAML.attr "concat"]).isSome ∧
+    (ruleAttrFault? [KoreAML.attr "heat"]).isSome ∧ (ruleAttrFault? [KoreAML.attr "anywhere"]).isSome := by decide +kernel
+example : eqnAttrFault? [KoreAML.attr "concrete", KoreAML.attr "preserves-definedness"] = none ∧
+    (eqnAttrFault? [KoreAML.attr "anywhere"]).isSome ∧ (eqnAttrFault? [KoreAML.attr "syntactic"]).isSome ∧
+    (eqnAttrFault? [KoreAML.attr "functional"]).isSome ∧ (eqnAttrFault? [KoreAML.attr "heat"]).isSome := by
+  decide +kernel
 example : attrVerdict .symbol .bracket = .refused .outsideE2 (erased "BRACKET(bracket)@symbol") := rfl
 
 #eval do
@@ -158,3 +211,41 @@ example : attrVerdict .symbol .bracket = .refused .outsideE2 (erased "BRACKET(br
   for k in AttrKeyE2.all do IO.println s!"key {k.name} {k.kore}"
 
 #print axioms attrVerdict_rows
+
+/-! The verdicts the readers of a declaration, a claim and the module apply (`attrFault?`,
+`sortAttrOK`). No key that a kompiled text's symbol or hooked-symbol declaration carries is refused
+(the keys of the corpus's and the fixtures' kompiled texts, written out); the keys the readers of a
+symbol declaration read (`symProdBody`, `cellSym?`, `hookFnSym`, `isOpenGenerator`) are read, and
+its name (`symbol`) inert, kept in the presentation. -/
+
+theorem symbol_kompiled : [AttrKeyE2.alias, .aliasRec, .anywhere, .binder, .cell, .concrete, .constructor,
+    .deprecated, .element, .freshGenerator, .function, .functional, .hook, .idem, .impure, .injective,
+    .klabel, .label, .macroKey, .macroRec, .memo, .noEvaluators, .location, .source, .priority,
+    .smtHook, .smtlib, .symbol, .symbolic, .total, .unit, .update].all
+      (fun k => !isRefused (attrVerdict .symbol k)) = true := by decide +kernel
+theorem symbol_readers : [AttrKeyE2.cell, .constructor, .total, .functional, .hook, .function, .anywhere].all
+      (fun k => isRead (attrVerdict .symbol k)) = true ∧ isInert (attrVerdict .symbol .symbol) = true ∧
+    attrVerdict .equation .symbolOverload = .read := by decide +kernel
+
+example : attrFault? .symbol .symbolAttribute [KoreAML.attr "constructor", KoreAML.attr "anywhere",
+    KoreAML.attrStr "symbol'Kywd'" "a"] = none := by decide +kernel
+example : (attrFault? .symbol .symbolAttribute [KoreAML.attr "sortInjection"]).map (·.1) = some .symbolAttrUnkeyed ∧
+    (attrFault? .symbol .symbolAttribute [KoreAML.attr "assoc"]).map (·.1) = some .openGenerator ∧
+    (attrFault? .symbol .symbolAttribute [KoreAML.attr "bracket"]).map (·.1) = some .attrOutsideE2 ∧
+    (attrFault? .claim .outsideE2 [KoreAML.attr "owise"]).map (·.1) = some .attrOutsideE2 ∧
+    attrFault? .claim .outsideE2 [KoreAML.attr "trusted"] = none ∧
+    attrFault? .module .outsideE2 [KoreAML.attrStr "org'Stop'kframework'Stop'attributes'Stop'Source" "Source(x)"] = none ∧
+    (attrFault? .module .outsideE2 [KoreAML.attr "concrete"]).map (·.1) = some .attrOutsideE2 := by decide +kernel
+
+-- a sort declaration: its place, token, hasDomainValues, label, cool-like; not nat, a hooked sort's
+-- key or a name that is no key
+example : sortAttrOK (KoreAML.attr "token") ∧ sortAttrOK (KoreAML.attr "hasDomainValues") ∧
+    sortAttrOK (KoreAML.attrStr "label" "x") ∧ sortAttrOK (KoreAML.attr "cool-like") ∧
+    sortAttrOK (KoreAML.attrStr "org'Stop'kframework'Stop'attributes'Stop'Location" "Location(1,1,1,1)") ∧
+    !sortAttrOK (KoreAML.attr "nat") ∧ !sortAttrOK (KoreAML.attrStr "hook" "INT.Int") ∧
+    !sortAttrOK (KoreAML.attr "concat") ∧ !sortAttrOK (KoreAML.attr "subsort") := by decide +kernel
+
+-- a claim: refused where the verdict at class claim refuses one of its attributes, inert otherwise
+example : classify (.claim ⟨[], .string "p", [KoreAML.attr "owise"]⟩) = .refused .attrOutsideE2 ∧
+    classify (.claim ⟨[], .string "p", [KoreAML.attr "trusted", KoreAML.attrStr "label" "c"]⟩) = .inert .claim ∧
+    classify (.claim ⟨[], .string "p", [KoreAML.attr "foo"]⟩) = .refused .attrOutsideE2 := by decide +kernel

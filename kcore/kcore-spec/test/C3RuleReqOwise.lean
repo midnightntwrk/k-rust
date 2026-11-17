@@ -60,8 +60,8 @@ theorem trS_is_text : (Theory.ofDefinition kore).axioms = kore.axiomDecls.map tr
 
 /-! ## Layer 1 -/
 
-theorem wf_defn : wf defn = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem wf_defn : wf defn = true := by decide_cheap
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- The attributes of the text agree with `defn` (`attrsAgree`): constructors, functions, hooks,

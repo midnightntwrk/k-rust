@@ -1,31 +1,75 @@
 id = "c11-fn-no-equation"
 kind = "case"
-subject = "A function application that no equation applies to stays in the configuration."
+subject = "A partial function applied at an argument no equation applies to (half(3), half's one equation requiring an even argument), in the right side of the one rule: what the configuration a(3) steps to, and whether it is final."
+retro = ["F1", "R1"]
+rests_on = ["kk:t01-rule-applies", "kk:t03-applied-rule-blocks", "kk:t06-final-configuration", "kk:t10-fn-innermost", "kk:t11-eq-applies", "kk:t13-fn-no-equation"]
 
 [text]
 files = ["def.k", "pgm"]
 kompile = "accepts"
 
 [ruling]
-status = "pending"
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) half's one equation, half(X) => X /Int 2 requires X %Int 2 ==Int 0, states half(X) = X /Int 2 at the X where its requires is true and nothing elsewhere (kk:t11-eq-applies). At 3, 3 %Int 2 is 1 (domains.md:1233-1234) and 1 ==Int 0 is false (domains.md:1324-1325): the equation states nothing of half(3), and no other sentence of def.k speaks of it. half is declared function and not total (user_manual.md:540-551).
+(2) The one rule for a matches a(3) with no requires, and its right side is b(half(3)). b applied to a value is a value, and b applied to an argument that denotes nothing denotes nothing (kk:t10-fn-innermost).
+What the text does not determine:
+(3) What half(3) denotes: kk:t13-fn-no-equation's question, at this very application. Where it is one integer n, a(3) steps to b(n), which no rule's left side matches and which is final (kk:t01-rule-applies, kk:t06-final-configuration). Where it is nothing, the rule's right side has no value at a(3), and whether a(3) is then final is kk:t03-applied-rule-blocks's question (kk:t06-final-configuration leaves it there).
+(4) The readings are kk:t13-fn-no-equation's, with closure-none taken under each of kk:t03-applied-rule-blocks's readings; b(half(3)) kept as a term is no reading, half(3) being no element of the carrier of Int unless it is an integer."""
+interpreter = "closure-none+applied-blocks"
+separates = ["undefined-result-does-not-block", "undefined-step-is-final"]
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1233-1234 (K 7.1.337)"
+quote = "Compute the quotient `/Int` or modulus `%Int` of two integers using t-division, which rounds towards zero. Division by zero is `#False`."
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1324-1325 (K 7.1.337)"
+quote = "You can compute whether two integers are less than or equal to, less than, greater than or equal to, greater than, equal, or unequal to another integer."
+
+[[ruling.basis]]
+source = "matching-logic"
+locator = "haskell-backend/docs/introduction-to-matching-logic.tex:704-713 (K 7.1.337)"
+quote = '''and a function $\sigma_M:M_{s_1}\times\cdots\times M_{s_n} \rightarrow {\cal P}(M_s)$ for each symbol $\sigma\in\Sigma_{s_1\ldots s_n,s}$, called the \emph{interpretation} of $\sigma$ in $M$.'''
+
+[[reading]]
+name = "closure-none+applied-blocks"
+statement = "half(3) has no value (kk:t13-fn-no-equation, reading closure-none), so the rule for a applies at a(3) with a result that has no value, and a(3) is a configuration to which a rule applies (kk:t03-applied-rule-blocks, reading applied-blocks)."
+finals = []
+consequence = "a(3) has no successor and is not final: there is no final configuration."
+
+[[reading]]
+name = "closure-none+undefined-rhs-does-not-block"
+statement = "half(3) has no value (kk:t13-fn-no-equation, reading closure-none), and the rule for a, whose right side has no value at a(3), has been tried and failed there (kk:t03-applied-rule-blocks, reading undefined-rhs-does-not-block); no rule applies to a(3)."
+finals = ["a(3)"]
+consequence = "a(3) is final."
+
+[[reading]]
+name = "any-member"
+statement = "half(3) is one integer n, which the text does not name (kk:t13-fn-no-equation, reading any-member)."
+answer = "The final configuration is b(n), for the one integer n that half(3) is; the text names no n."
+consequence = "a(3) has one successor and is not final; the final configuration holds an integer the text does not determine."
+
+[[reading]]
+name = "rest"
+statement = "The text does not choose: per interpretation half(3) is nothing or one integer (kk:t13-fn-no-equation, reading rest)."
+answer = "Per interpretation, the final configurations of closure-none (under a reading of kk:t03-applied-rule-blocks), or b(n) for the integer n that half(3) is there."
+consequence = "Only what holds under each of the other readings is a consequence of the text: that no configuration b(n) is final for two values of n."
 
 [[disposition]]
 implementation = "haskell"
-is = "difference"
-reason = """
-half is a partial function (not declared total) with no equation for 3. Only an equation gives \
-an application of a function a value, and kompile states no functional axiom for a partial \
-function, so half(3) has no value and neither has b(half(3)): the rule applies at a(3) with an \
-undefined result, a(3) has no successor and is not final, and kore.k has no final \
-configuration. The haskell backend keeps b(half(3)) under the condition \\ceil(half(3)), a \
-final configuration that exists only if half(3) is defined; under kore.k's reading that \
-condition is false."""
+is = "reading:rest"
+reason = "It gives b(half(3)) under the condition that half(3) is defined: per interpretation, b(n) where half(3) is an integer n and nothing where it is none, which is the reading rest taken with applied-blocks, and cannot be compared mechanically with a list of finals."
 
 [[disposition]]
 implementation = "llvm"
 is = "difference"
-reason = """
-The llvm backend aborts (Called finish_rewriting with no output file specified) on half(3), \
-which no equation of the partial function half applies to; half(3) has no value, so the rule \
-applies with an undefined result and there is no final configuration, as the entry for the \
-haskell backend says."""
+reason = "The llvm backend aborts on half(3), at which no equation of half applies (Called finish_rewriting with no output file specified): an error, which is no reading's answer."

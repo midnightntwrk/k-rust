@@ -97,7 +97,7 @@ private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn f = some (c.fns[0]'(by decide +kernel)) := rfl
 
-theorem core_ok : c.coreOK = true := by decide +kernel
+theorem core_ok : c.coreOK = true := by decide_cheap
 
 /-- `f`'s clauses: the equation read with its memberships dropped, then the `[owise]` one. -/
 theorem f_prios : (c.fns[0]'(by decide +kernel)).clauses.map (·.prio) = [50, 200] := by
@@ -154,7 +154,7 @@ private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
 private theorem hfn : c.lookupFn f = some (c.fns[0]'(by decide +kernel)) := rfl
 
-theorem core_ok : c.coreOK = true := by decide +kernel
+theorem core_ok : c.coreOK = true := by decide_cheap
 
 /-- The values of `Exp`. -/
 def vals : List GroundTerm := [ca, cb, r]

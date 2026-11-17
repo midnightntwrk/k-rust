@@ -1,7 +1,8 @@
 /-
   KCore, checked layer: `coreOK`, `faithCoreOK` and `sortedOK` decided conjunct by conjunct, each
   conjunct a kernel decision of its own, the three conjuncts of `faithCoreOK` that read names
-  (`namesNumbered`, `namesApartK`, `itesApart`) decided on the names' codes (NameCodes.lean).
+  (`namesNumbered`, `namesApartK`, `itesApart`) decided on the names' codes (NameCodes.lean), the
+  codes of the registry's names computed once, here (`regSymCodesCD`, `regSortCodesCD`).
 
   A single kernel decision of `coreOK` keeps every reduction it makes until it ends, so its memory is
   the sum of its conjuncts'. `namesApartK` and `itesApart` compare every two entries of `kernelSyms`,
@@ -24,28 +25,69 @@ import KcoreSpec.NameCodes
 
 set_option autoImplicit false
 
+open Lean Elab Term in
+/-- The list of the codes (`strCode`) of the names in `l`, computed when the term is elaborated
+and written as numerals. -/
+elab "codes_of%" l:term : term => do
+  let e ← instantiateMVars (← elabTerm l (some (mkApp (mkConst ``List [0]) (mkConst ``String))))
+  let v ← unsafe Meta.evalExpr (List String) (mkApp (mkConst ``List [0]) (mkConst ``String)) e
+  return toExpr (v.map KoreAML.Distinct.strCode)
+
 namespace KCore
 
 open KoreAML.Distinct Faithful Faithful.Model
 
 variable {c : Semantics}
 
+/-! ## The names' codes, the registry's computed once -/
+
+/-- The codes of the registry's symbol names. -/
+def Faithful.regSymCodesCD : List Nat := codes_of% regSymNames
+
+/-- The codes of the registry's sort names. -/
+def Faithful.regSortCodesCD : List Nat := codes_of% regSortNames
+
+theorem Faithful.regSymCodesCD_eq : regSymNames.map strCode = regSymCodesCD := by decide +kernel
+
+theorem Faithful.regSortCodesCD_eq : regSortNames.map strCode = regSortCodesCD := by decide +kernel
+
+/-- The codes of the numbered symbols' names: the registry's, then the definition's own. -/
+def Faithful.symCodesCD (c : Semantics) : List Nat := regSymCodesCD ++ c.symNames.map strCode
+
+/-- The codes of the numbered sorts' names: the registry's, then the definition's own. -/
+def Faithful.sortCodesCD (c : Semantics) : List Nat := regSortCodesCD ++ c.sortNames.map strCode
+
+theorem Faithful.symCodesCD_eq (c : Semantics) : (allSymNames c).map strCode = symCodesCD c := by
+  rw [allSymNames, List.map_append, regSymCodesCD_eq, symCodesCD]
+
+theorem Faithful.sortCodesCD_eq (c : Semantics) : (allSortNames c).map strCode = sortCodesCD c := by
+  rw [allSortNames, List.map_append, regSortCodesCD_eq, sortCodesCD]
+
 /-- `namesNumbered`, decided on the names' codes. -/
-theorem Faithful.namesNumbered_of_codesCD (h : namesNumberedC c (iteIdx ((allSymNames c).map strCode)) = true) :
+theorem Faithful.namesNumbered_of_codesCD (h : namesNumberedC c (iteIdx (symCodesCD c)) = true) :
     namesNumbered c = true :=
-  namesNumbered_of_codes rfl rfl h
+  namesNumbered_of_codes (symCodesCD_eq c) rfl h
 
 /-- `namesApartK`, decided on the names' codes. -/
-theorem Faithful.namesApartK_of_codesCD
-    (h : namesApartC c ((allSymNames c).map strCode) ((allSortNames c).map strCode) = true) :
+theorem Faithful.namesApartK_of_codesCD (h : namesApartC c (symCodesCD c) (sortCodesCD c) = true) :
     namesApartK c = true :=
-  namesApartK_of_codes rfl rfl h
+  namesApartK_of_codes (symCodesCD_eq c) (sortCodesCD_eq c) h
 
 /-- `itesApart`, decided on the names' codes. -/
 theorem Faithful.itesApart_of_codesCD
-    (h : itesApartC c (iteIdx ((allSymNames c).map strCode)) ((allSortNames c).map strCode) = true) :
-    itesApart c = true :=
-  itesApart_of_codes rfl rfl rfl h
+    (h : itesApartC c (iteIdx (symCodesCD c)) (sortCodesCD c) = true) : itesApart c = true :=
+  itesApart_of_codes (symCodesCD_eq c) (sortCodesCD_eq c) rfl h
+
+/-- No symbol is named like `ite` at a sort when no name's code is one of such a name
+(`iteIdx` empty). -/
+theorem Faithful.iteSort_none_of_iteIdxCD (h : iteIdx (symCodesCD c) = []) (f : Sym) :
+    iteSort? (c.symName f) = none := by
+  cases hs : iteSort? (c.symName f) with
+  | none => rfl
+  | some X =>
+    have := mem_iteIdx (symCodesCD_eq c) (f := f) (by rw [hs]; exact Option.some_ne_none X)
+    rw [h] at this
+    exact absurd this List.not_mem_nil
 
 /-- `sortedOK` from its conjuncts. -/
 theorem Semantics.sortedOK_of_conjCD (h1 : c.subsortsOK = true)

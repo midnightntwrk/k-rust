@@ -234,7 +234,6 @@ theorem fnDet : FnDet c := by
   have hcf : c.clausesFixed = true := by decide +kernel
   refine fnDet_of_coherent (coherentAll_of_parts
     (matchIndependentAll_of_sortedOK hok hmr (.of_fixed hcf (Exec.matchCtx_of hmr).noOvl)) fun f fn hfn => ?_)
-    (Semantics.fnsNoExs_of_sortedOK hok)
   obtain ⟨hmem, -⟩ := lookupFn_spec hfn
   rcases List.mem_append.mp hmem with h | h
   · exact clausesAgree_of_sortedOK hok hsr hmr (fun f hf => by rw [hag] at hf; nomatch hf) fn h

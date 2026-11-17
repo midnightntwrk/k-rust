@@ -103,7 +103,7 @@ theorem overloadsOK_split (c : Semantics) : c.overloadsOK = (ovlsButIte c && ovl
     obtain ⟨⟨⟨⟨⟨⟨a, b⟩, d⟩, e⟩, f⟩, g⟩, k⟩ := h1 x hx
     exact ⟨⟨⟨⟨⟨⟨⟨a, b⟩, h2 x hx⟩, d⟩, e⟩, f⟩, g⟩, k⟩
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem readsConfined : c.readsConfined = false := by decide +kernel
 
 theorem fnHyp : FnHyp c :=
@@ -116,7 +116,7 @@ set_option maxHeartbeats 1000000 in
 and `FnHyp`. -/
 theorem meets_others : c.sortedOK = true ∧ c.faithCoreOK = true ∧ c.hooksApart = true ∧
     c.predsApart = true ∧ c.idsOK = true ∧ Model.itesApart c = true ∧ FnHyp c :=
-  ⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, fnHyp⟩
+  ⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap, fnHyp⟩
 
 /-- Every condition of `overloadsOK` but "not named like `ite` at a sort" holds. -/
 theorem ovlsButIte_c : ovlsButIte c = true := by decide +kernel
@@ -129,8 +129,8 @@ theorem ite_f : iteSort? (c.symName fSig.name) = some "KCell" := by decide +kern
 theorem not_overloadsOK : c.overloadsOK = false := by
   rw [overloadsOK_split, not_ovlsPlain, Bool.and_false]
 
-theorem c2_core : c2.coreOK = true := by decide +kernel
-theorem c2_sortedOK : c2.sortedOK = true := by decide +kernel
+theorem c2_core : c2.coreOK = true := by decide_cheap
+theorem c2_sortedOK : c2.sortedOK = true := by decide_cheap
 
 theorem c2_fnHyp : FnHyp c2 :=
   ⟨fun _ h => absurd h List.not_mem_nil, fun _ h => absurd h List.not_mem_nil,
@@ -311,8 +311,11 @@ theorem ren_den (v : GroundTerm) : ren (den c v) = den c2 v := ren_kore v
 
 /-! ## `Lblite` applied to `SortKCell` and an argument denotes nothing -/
 
-theorem noIte2_all : (kernelSyms c2).all (fun k => (iteSort? (c2.symName k.name)).isNone) = true := by
-  decide +kernel
+/-- No name of `c2` has the code of a name like `ite` at a sort. -/
+theorem iteIdx2 : iteIdx (symCodesCD c2) = [] := by decide +kernel
+
+theorem noIte2_all : (kernelSyms c2).all (fun k => (iteSort? (c2.symName k.name)).isNone) = true :=
+  List.all_eq_true.mpr fun k _ => by rw [iteSort_none_of_iteIdxCD iteIdx2 k.name]; rfl
 
 theorem noIte2 (X : String) : (kernelSyms c2).find? (fun k => iteSort? (c2.symName k.name) == some X) = none := by
   rw [List.find?_eq_none]
@@ -324,7 +327,7 @@ theorem noIte2 (X : String) : (kernelSyms c2).find? (fun k => iteSort? (c2.symNa
 theorem resolve_ite2 (s : Srt) (tail : List Elem) : resolve c2 "Lblite" (.srt s :: tail) = none := by
   rw [resolve_ite, noIte2]; rfl
 
-theorem names2 : namesApartK c2 = true := by decide +kernel
+theorem names2 : namesApartK c2 = true := by decide_cheap
 
 theorem symAt_one {u x : Elem} (hr : resolve c2 "Lblite" [u] = none) (h : symAt c2 "Lblite" [u] x) :
     x = .app (.sym "Lblite") [u] := by
@@ -390,9 +393,10 @@ theorem arity_sat : I ⊧ᴵ (symArityItem c fSig).pat := by
   intro a ha
   exact absurd ha (iteApp_empty e _ a)
 
+set_option maxHeartbeats 1000000 in
 theorem sig_align : (sigItems c).map (fun it => if it.pat = (symArityItem c fSig).pat then (symArityItem c2 fSig).pat
     else ren it.pat) = (sigItems c2).map (·.pat) := by
-  decide +kernel
+  decide_map_blocks 25 8
 
 theorem satI_sig {φ : KoreAML.P} (h : ΓSig c φ) : I ⊧ᴵ φ := by
   rcases h with (⟨it, hit, rfl⟩ | ⟨x, rfl⟩) | ⟨lit, rfl⟩

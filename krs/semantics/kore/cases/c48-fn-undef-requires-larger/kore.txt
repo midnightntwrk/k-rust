@@ -144,7 +144,7 @@
           \exists{R} (Var'Unds'Gen0:SortInt{},
             \and{R} (
               \equals{SortBool{},R}(
-        Lbl'UndsEqlsEqls'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(Var'Unds'Gen0:SortInt{},\dv{SortInt{}}("0")),\dv{SortInt{}}("0")),
+        Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen0:SortInt{},\dv{SortInt{}}("0")),
         \dv{SortBool{}}("true")),
               \and{R} (
                 \in{SortInt{}, R} (
@@ -158,7 +158,7 @@
           \exists{R} (Var'Unds'Gen1:SortInt{},
             \and{R} (
               \equals{SortBool{},R}(
-        Lbl'Unds-GT-'Int'Unds'{}(Var'Unds'Gen1:SortInt{},\dv{SortInt{}}("0")),
+        Lbl'UndsEqlsEqls'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(Var'Unds'Gen1:SortInt{},\dv{SortInt{}}("0")),\dv{SortInt{}}("0")),
         \dv{SortBool{}}("true")),
               \and{R} (
                 \in{SortInt{}, R} (

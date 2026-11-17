@@ -1,0 +1,45 @@
+id = "t202-int-pow-negative"
+kind = "text"
+subject = "^Int at a negative exponent: what the INT module states of A ^Int B for B < 0."
+retro = ["H4"]
+
+[text]
+declaration = { source = "builtin-module", locator = "k-distribution/include/kframework/builtin/domains.md:1250 (K 7.1.337)", quote = 'Int "^Int" Int [function, symbol(_^Int_), left, smt-hook(^), hook(INT.pow)]' }
+kompile = "not-run"
+
+[ruling]
+status = "unsettled"
+reason = """
+What every reading shares:
+(1) domains.md:1228: ^Int is the exponentiation of two integers. For B >= 0, A ^Int B is A to the power B: 2 ^Int 3 = 8 and (-2) ^Int 3 = -8.
+(2) ^Int is declared function and not total (domains.md:1250): at most one value at each pair of arguments (user_manual.md:540-544), and at least one is not stated.
+What the text does not determine:
+(3) A ^Int B at B < 0. The sentence speaks of the exponentiation of two integers, whose result at a negative exponent is an integer only where |A| = 1; it writes no #False and no restriction, and no other sentence speaks of the point."""
+
+[[ruling.basis]]
+source = "domains"
+locator = "k-distribution/include/kframework/builtin/domains.md:1228 (K 7.1.337)"
+quote = "* Compute the exponentiation `^Int` of two integers."
+
+[[ruling.basis]]
+source = "manual"
+locator = "docs/user_manual.md:540-544 (K 7.1.337)"
+quote = "Semantically, it means that evaluation of that symbol will result in at most one return value (that is, the symbol is a *partial function*)."
+
+[[reading]]
+name = "unstated"
+statement = "The text states no value at B < 0: each interpretation gives A ^Int B its own value there, an integer or none."
+answer = "2 ^Int -1 is whatever the interpretation gives: no integer is excluded."
+consequence = "A rule whose right side holds 2 ^Int -1 has a successor per integer value an interpretation may give, or none."
+
+[[reading]]
+name = "integer-power"
+statement = "A ^Int B at B < 0 is the power where it is an integer, at |A| = 1, and is not stated elsewhere."
+answer = "1 ^Int -3 = 1 and (-1) ^Int -3 = -1; 2 ^Int -1 is not stated."
+consequence = "At |A| = 1 the value is fixed; elsewhere as unstated."
+
+[[reading]]
+name = "no-value"
+statement = "A ^Int B has no value at B < 0, the power not being an integer in general."
+answer = "2 ^Int -1 and 1 ^Int -3 have no value."
+consequence = "A rule whose right side holds A ^Int B with B < 0 gives no successor."

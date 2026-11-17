@@ -202,10 +202,10 @@ theorem transfer_fnEq (hc : I ⊧ᴵ KoreAML.ceilDefItem.pat) (hne : ∃ τ, IsS
     intro key hk
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
     rcases hk with rfl | rfl | rfl | rfl
-    · exact ⟨"X0", s, rfl, rfl⟩
-    · exact ⟨"VarA", s, rfl, rfl⟩
-    · exact ⟨"X0", s, rfl, rfl⟩
-    · exact ⟨"VarA", s, rfl, rfl⟩
+    · exact ⟨"X0", _, rfl, hn⟩
+    · exact ⟨"VarA", _, rfl, hn⟩
+    · exact ⟨"X0", _, rfl, hn⟩
+    · exact ⟨"VarA", _, rfl, hn⟩
   · rw [hfr]
     generalize KoreAML.tableOf [KoreAML.Rv] (fnEqIdPat f s) = t
     have htr : KoreAML.tr ⟨t, []⟩ (fnEqIdPat f s) =

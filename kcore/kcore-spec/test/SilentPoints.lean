@@ -177,9 +177,7 @@ set_option maxHeartbeats 1000000 in
 open Faithful.Model in
 theorem coreOK : c.coreOK = true :=
   Semantics.coreOK_of_T T_eq (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (Semantics.faithCoreOK_of_parts (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
-      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel))
+    (by decide_cheap)
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem fns_nil : c.fns = [] := by decide +kernel
@@ -301,7 +299,7 @@ noncomputable def midN : Sym := c.symBase + (c.symNames.length - c.sortNames.len
 noncomputable def c2 : Semantics :=
   { c with ctors := c.ctors ++ [⟨midN, [], Srt.endianness⟩], symNames := c.symNames ++ ["LblmidEndianBytes"] }
 
-theorem c2_coreOK : c2.coreOK = true := by decide +kernel
+theorem c2_coreOK : c2.coreOK = true := by decide_cheap
 theorem c2_enumShapes : c2.enumShapesOK = false := by decide +kernel
 
 theorem fnHyp2 (H : HookParams) : FnHyp (c2.withHooks H) := by
@@ -355,7 +353,7 @@ def c3 : Semantics :=
 
 instance : OvlOK c3 := .of_nil rfl (by decide +kernel)
 
-theorem c3_coreOK : c3.coreOK = true := by decide +kernel
+theorem c3_coreOK : c3.coreOK = true := by decide_cheap
 
 theorem fnHyp3 (H : HookParams) : FnHyp (c3.withHooks H) := by
   have h : (c3.withHooks H).fns = [] := rfl
