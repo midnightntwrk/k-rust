@@ -665,7 +665,7 @@ theorem rule_shape : c.rules = [r] ∧ r.vars[0]? = some exp ∧
   obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := rule_shape_dec
   exact ⟨rules_single _ h1, h2, optIs_eq h3, isNone_eq h4, Cond.eq_top_of_isTop h5, Cond.eq_top_of_isTop h6, h7⟩
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- `a()` evaluates to the value `a` of Exp. -/
 theorem a_sort (σ : Subst) (w : GroundTerm) (h : EvalTerm c σ (.app a []) (some w)) : c.sortOf w = some exp := by

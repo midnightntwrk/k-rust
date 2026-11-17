@@ -119,7 +119,7 @@ theorem coreOK : c.coreOK = true :=
       (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel))
     (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem srReady : c.srReady = true := srReady_of_T T_eq (by decide +kernel)
 theorem matchReady : c.matchReady = true := matchReady_of_T T_eq (by decide +kernel)
 theorem fnsOK : c.fnsOK = true := by decide +kernel

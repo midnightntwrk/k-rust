@@ -52,7 +52,7 @@ def p : Cond := .not (.ceil Srt.int (.app F [.dv Srt.int (.int 0)]))
 
 def i0 : GroundTerm := .dv Srt.int (.int 0)
 
-theorem coreOK : c₀.coreOK = true := by decide +kernel
+theorem coreOK : c₀.coreOK = true := by decide_cheap
 
 section AnyRules
 
@@ -256,7 +256,7 @@ def c₁ : Semantics := cR [r]
 `coreOK`. -/
 theorem c₁_rulesPlain : c₁.rulesPlain = true := by decide +kernel
 theorem c₁_ruleSorted : c₁.rules.all c₁.ruleSorted = true := by decide +kernel
-theorem c₁_coreOK : c₁.coreOK = true := by decide +kernel
+theorem c₁_coreOK : c₁.coreOK = true := by decide_cheap
 
 theorem c₁_undecided : ∀ n σ b, ¬ Holds c₁ n σ r.pre b := p_undecided' [r]
 

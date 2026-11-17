@@ -90,14 +90,14 @@ def Id : Srt := 9
 def c0 : Semantics := { base with lib := { sortsBelowKItem := [Id] } }
 def c : Semantics := { base with userSorts := cellSorts ++ [Id] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids6 c = true ∧ ids7 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, fnHyp⟩
 
@@ -120,14 +120,14 @@ def kv : CtorSig := ⟨kconfigValue, [Srt.k], Srt.kitem⟩
 def c0 : Semantics := { base with lib := { ctors := [kv] } }
 def c : Semantics := { base with ctors := cellCtors ++ [kv] }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids7 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, fnHyp⟩
 
@@ -153,14 +153,14 @@ def MInt : Srt := 8
 def c0 : Semantics := { base with lib := { sortsBelowKItem := [MInt] } }
 def c : Semantics := { base with lib := { sortsBelowKItem := [MInt, MInt] } }
 
-theorem c0_coreOK : c0.coreOK = true := by decide +kernel
-theorem sortedOK : c.sortedOK = true := by decide +kernel
+theorem c0_coreOK : c0.coreOK = true := by decide_cheap
+theorem sortedOK : c.sortedOK = true := by decide_cheap
 theorem fnHyp : FnHyp c := fnHyp_of_nil rfl (by decide +kernel) (by decide +kernel)
 
 set_option maxHeartbeats 1000000 in
 theorem meets_others : outside c ∧ ids1 c = true ∧ ids2 c = true ∧ ids3 c = true ∧ ids4 c = true ∧
     ids5 c = true ∧ ids6 c = true ∧ FnHyp c :=
-  ⟨⟨sortedOK, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel⟩,
+  ⟨⟨sortedOK, by decide_cheap, by decide_cheap, by decide_cheap, by decide_cheap⟩,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, fnHyp⟩
 

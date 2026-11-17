@@ -94,7 +94,7 @@ theorem sortsOfH (H : HookParams) : (c.withHooks H).sortsOf = c.sortsOf := Seman
 private theorem hok : c.ok = true := by decide +kernel
 private theorem hsr : c.srReady = true := by decide +kernel
 private theorem hmr : c.matchReady = true := by decide +kernel
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 
 /-! ## `m`, for every interpretation -/

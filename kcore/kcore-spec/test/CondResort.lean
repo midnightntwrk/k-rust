@@ -42,7 +42,7 @@ def pEx : Cond := .ex Srt.bool (.equals Srt.bool (.var 1) tt)
 def pAll : Cond := .all Srt.bool (.or (.mem Srt.bool (.var 0) tt) (.mem Srt.bool (.var 0) ff))
 noncomputable def pMatch : Cond := .exMatch [Srt.int] sC (.app 73 [.var 1]) (.var 0) .top
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 theorem conds_ok :
     (c.condOK [32, 32] pNot = true ∧ Cond.bound c 2 pNot = true) ∧

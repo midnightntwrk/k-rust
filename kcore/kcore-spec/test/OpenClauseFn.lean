@@ -67,18 +67,18 @@ theorem clO_pre : clO.pre = .top := by rfl
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c4`. -/
 theorem shape : c4.ctorSigs.all (·.result != 33) = true ∧ c4.valued 33 = false ∧ clG0.leftVars = [] ∧
     c4.rightValued = false ∧ c4.sortedOK = true ∧ c4.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 /-- What `eval_den4_coreCl` asks of `c4`, decided, and no clause of `c4` needs a witness. -/
 theorem decided : c4.sortedOKCl = true ∧ c4.srReady = true ∧ c4.ovls = [] ∧
     c4.subsorts.all (fun p => p.1 != p.2) = true ∧ c4.faithCoreOK = true ∧ Faithful.patHooksApart c4 = true ∧
     (∀ fn ∈ c4.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c4 = false) := by
-  decide +kernel
+  decide_cheap
 
 /-- `coreOK`'s conjuncts other than `sortedOK` hold at `c4`. -/
 example : c4.faithCoreOK = true ∧ c4.hooksApart = true ∧ c4.predsApart = true ∧ c4.idsOK = true ∧
     c4.overloadsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl4 : OvlOK c4 := OvlOK.of_nil decided.2.2.1 decided.2.2.2.1
 

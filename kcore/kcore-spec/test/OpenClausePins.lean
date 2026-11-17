@@ -67,7 +67,7 @@ noncomputable def c3 : Semantics := { c with fns := c.fns ++ [fF], params := c.p
 patterns and conditions, so `rightValued` fails; `sortedOK` and `coreOK` hold at `c3`. -/
 theorem shape : c3.ctorSigs.all (·.result != 33) = true ∧ c3.valued 33 = false ∧ clYE.leftVars = [] ∧
     c3.rightValued = false ∧ c3.sortedOK = true ∧ c3.coreOK = true := by
-  decide +kernel
+  decide_cheap
 
 /-- No clause of a function of `c3` has an existential variable or a right side's predicate other
 than `\top`. -/
@@ -78,12 +78,12 @@ theorem plain3 : ∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.exs = [] ∧ cl.po
 theorem decided : c3.sortedOKCl = true ∧ c3.srReady = true ∧ c3.ovls = [] ∧
     c3.subsorts.all (fun p => p.1 != p.2) = true ∧ c3.faithCoreOK = true ∧ Faithful.patHooksApart c3 = true ∧
     c3.overloadsOK = true ∧ (∀ fn ∈ c3.fns, ∀ cl ∈ fn.clauses, cl.needsWitness c3 = false) := by
-  decide +kernel
+  decide_cheap
 
 /-- `coreOK`'s conjuncts other than `sortedOK` hold at `c3`. -/
 example : c3.faithCoreOK = true ∧ c3.hooksApart = true ∧ c3.predsApart = true ∧ c3.idsOK = true ∧
     c3.overloadsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl3 : OvlOK c3 := OvlOK.of_nil decided.2.2.1 decided.2.2.2.1
 
@@ -715,7 +715,7 @@ theorem shapeW : c3W.coreOK = true ∧ clW0.needsWitness c3W = true ∧ clW0.con
     c.fns.all (fun fn => fn.clauses.all fun cl => !cl.needsWitness c3W) = true ∧
     [clYE, clOne].all (fun cl => !cl.needsWitness c3W) = true ∧
     c3W.rules.all (fun r => !r.needsWitness c3W) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- **`clW0` is `Witnessed`** at H := 0: `0 ==Int 0` is `true`, and by inversion of the hook nothing else. -/
 theorem witW0 : clW0.Witnessed c3W := by
@@ -807,7 +807,7 @@ noncomputable def c5 : Semantics := { c with fns := c.fns ++ [fF5], params := c.
 
 theorem shape5 : clYE.leftVars = [] ∧ clYE.vars = [33] ∧ c5.coreOK = true ∧ c5.rightValued = false ∧
     c5.ctorSigs.all (·.result != 33) = true := by
-  decide +kernel
+  decide_cheap
 
 /-- `clYE` is among `clOne5`'s `lowerClauses`: not `aside`, of a smaller priority. -/
 theorem clYE_low : clYE ∈ Faithful.lowerClauses fF5 clOne5 :=
@@ -816,7 +816,7 @@ theorem clYE_low : clYE ∈ Faithful.lowerClauses fF5 clOne5 :=
 theorem decided5 : c5.sortedOKCl = true ∧ c5.srReady = true ∧ c5.ovls = [] ∧
     c5.subsorts.all (fun p => p.1 != p.2) = true ∧ c5.faithCoreOK = true ∧ Faithful.patHooksApart c5 = true ∧
     c5.idsOK = true := by
-  decide +kernel
+  decide_cheap
 
 instance ovl5 : OvlOK c5 := OvlOK.of_nil decided5.2.2.1 decided5.2.2.2.1
 

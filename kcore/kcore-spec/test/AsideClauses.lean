@@ -61,7 +61,7 @@ theorem hfn : c.lookupFn choose = some fn := rfl
 theorem fn_clauses : fn.clauses = [clA, clB, clO] := rfl
 
 /-- The core is accepted. -/
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 
 /-- The `non-executable` equation is read as an `aside` clause; the others are not. -/
 theorem aside_b : clB.aside = true ∧ clA.aside = false ∧ clO.aside = false := by decide +kernel

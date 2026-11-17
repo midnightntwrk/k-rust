@@ -34,7 +34,7 @@ noncomputable abbrev c : Semantics := defn.sem
 noncomputable abbrev cH (H : HookParams) : Semantics := c.withHooks H
 noncomputable def trS (ad : AxiomDecl) : Item := trAxiom kore.symbolDecls kore.aliasNames ad
 
-theorem coreOK : c.coreOK = true := by decide +kernel
+theorem coreOK : c.coreOK = true := by decide_cheap
 theorem coreOKH (H : HookParams) : (cH H).coreOK = true := (Semantics.coreOK_withHooks c H).trans coreOK
 
 /-- The valuation: every element variable at `σ`, every set variable at the set `{a, b}`. -/
