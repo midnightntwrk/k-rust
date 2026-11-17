@@ -951,7 +951,9 @@ end {ns}
   let fnName := fun (i : Nat) => match c.fns[i]? with | some f => nm f.label | _ => "?"
   -- the named facts with each function's source location
   let entries : List String :=
-    (c.rankObligations ord).map (fun f => s!"termination (a call not ranked below it) {nm f} {locOf f}") ++
+    (c.rankObligations ord).map (fun f =>
+      if c.fnOvlCallers.contains f then s!"termination (it applies a function-overloaded symbol) {nm f} {locOf f}"
+      else s!"termination (a call not ranked below it) {nm f} {locOf f}") ++
     c.decObligationsL.map (fun f => s!"termination (a self call not decreasing) {nm f} {locOf f}") ++
     totL.map (fun f => s!"totality {nm f} {locOf f}") ++
     agrL.map (fun f => s!"agreement {nm f} {locOf f}") ++

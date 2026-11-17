@@ -86,31 +86,56 @@ def CallOK (c : Semantics) (σ : Subst) (g : Sym) (ts : List Term) : Prop :=
   ∀ gfn, c.lookupFn g = some gfn → ∀ rs vs, EvalTerms c σ ts rs → allSome rs = some vs →
     c.sortsOf vs = some gfn.args → ∃ r, Eval c g vs r
 
+/-- Each function among the symbols `f` overloads has a result at every argument list of its
+sorts: so an application of `f` has one at arguments such a function covers (`EvalTerm.ovlFn`).
+True of a symbol that is not function-overloaded. -/
+def OvlTerminates (c : Semantics) (f : Sym) : Prop :=
+  ∀ o, c.lookupOvl f = some o → ∀ kg ∈ c.ovlOver o, c.ovlByFn kg = true → Terminates c kg.name
+
+theorem ovlTerminates_of_not_fnOvl {f : Sym} (h : f ∉ c.fnOvlSyms) : OvlTerminates c f :=
+  fun o ho kg hkg hb => by
+    rw [OvlLaws.noFnOver_of_not_fnOvl h o ho kg hkg] at hb
+    cases hb
+
+/-- A callee of a function `fnOvlCallers` does not name is not function-overloaded. -/
+theorem Semantics.not_fnOvl_of_not_caller {fn : Fn} (hfn : fn ∈ c.fns) (hn : fn.label ∉ c.fnOvlCallers)
+    {g : Sym} (hg : g ∈ fn.callees) : g ∉ c.fnOvlSyms := fun hm =>
+  hn (List.mem_map.mpr ⟨fn, List.mem_filter.mpr ⟨hfn, List.any_eq_true.mpr ⟨g, hg, List.contains_iff_mem.mpr hm⟩⟩, rfl⟩)
+
 /-! ## A term has a result when its calls do -/
 
 mutual
   /-- A right-hand side well sorted over the heads `L`, under a well-sorted σ, has a result when
-  each of its calls does. -/
+  each of its calls does, and each function among the symbols a head overloads has one
+  (`OvlTerminates`). -/
   theorem evalTerm_result (hc : SortCtx c) {L : List CtorSig} (hL : HeadsOK c L) {vars : List Srt}
       {σ : Subst} (hσ : c.WellSorted vars σ) :
       ∀ (t : Term) {s : Srt}, sortOfTerm (c.rhsCtx L) vars t = some s →
+        (∀ f ∈ Term.heads t, OvlTerminates c f) →
         (∀ g ts, ts ∈ callsOf g t → CallOK c σ g ts) → ∃ r, EvalTerm c σ t r
-    | .var _, _, _, _ => ⟨_, EvalTerm.var⟩
-    | .dv _ _, _, _, _ => ⟨_, EvalTerm.dv⟩
-    | .inj _ _ t, _, ht, hcall => by
+    | .var _, _, _, _, _ => ⟨_, EvalTerm.var⟩
+    | .dv _ _, _, _, _, _ => ⟨_, EvalTerm.dv⟩
+    | .inj _ _ t, _, ht, hovl, hcall => by
       obtain ⟨_, ht', _⟩ := sortOfTerm_inj.mp ht
-      obtain ⟨r, hr⟩ := evalTerm_result hc hL hσ t ht' (fun g ts h => hcall g ts (by simpa [callsOf] using h))
+      obtain ⟨r, hr⟩ := evalTerm_result hc hL hσ t ht' (fun g hg => hovl g (by rw [Term.heads]; exact hg))
+        (fun g ts h => hcall g ts (by simpa [callsOf] using h))
       exact ⟨_, EvalTerm.inj hr⟩
-    | .as _ _, _, ht, _ => by simp [sortOfTerm, Semantics.rhsCtx] at ht
-    | .app f ts, _, ht, hcall => by
+    | .as _ _, _, ht, _, _ => by simp [sortOfTerm, Semantics.rhsCtx] at ht
+    | .app f ts, _, ht, hovl, hcall => by
       obtain ⟨k, hk', hargs, rfl⟩ := sortOfTerm_app.mp ht
-      obtain ⟨rs, hts⟩ := evalTerms_result hc hL hσ ts hargs (fun g us h =>
+      obtain ⟨rs, hts⟩ := evalTerms_result hc hL hσ ts hargs
+        (fun g hg => hovl g (by rw [Term.heads]; exact List.mem_cons_of_mem _ hg)) (fun g us h =>
         hcall g us (by simp only [callsOf, List.mem_append]; exact Or.inr h))
       cases hct : c.isCtor f
       · cases hhk : isHook f
         · cases hpar : c.isParam f
           · cases hov : c.isOvl f with
-            | true => exact ⟨_, EvalTerm.ovl hct hov hts (fun vs _ => hc.ovl.fnCover_none f vs)⟩
+            | true =>
+              obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hc hL hk' hov
+              exact EvalTerm.ovl_result (hc.ovl.fnFacts hc.trans) hct hov hts hlo
+                (fun ws has => EvalTerms.sorted hc hts hL hσ hargs has)
+                (fun kg hkg hb fn _ hlook _ vs hvs =>
+                  hovl f (by rw [Term.heads]; exact List.mem_cons_self ..) o hlo kg hkg hb fn hlook vs hvs)
             | false =>
             cases hvs : allSome rs with
             | none => exact ⟨none, EvalTerm.callUndef hct hhk hts hvs hpar⟩
@@ -136,13 +161,16 @@ mutual
   theorem evalTerms_result (hc : SortCtx c) {L : List CtorSig} (hL : HeadsOK c L) {vars : List Srt}
       {σ : Subst} (hσ : c.WellSorted vars σ) :
       ∀ (ts : List Term) {ss : List Srt}, sortsOfTerms (c.rhsCtx L) vars ts = some ss →
+        (∀ f ∈ Term.headsList ts, OvlTerminates c f) →
         (∀ g us, us ∈ callsOfList g ts → CallOK c σ g us) → ∃ rs, EvalTerms c σ ts rs
-    | [], _, _, _ => ⟨[], EvalTerms.nil⟩
-    | t :: ts, _, hts, hcall => by
+    | [], _, _, _, _ => ⟨[], EvalTerms.nil⟩
+    | t :: ts, _, hts, hovl, hcall => by
       obtain ⟨_, _, ht, hts', rfl⟩ := sortsOfTerms_cons.mp hts
-      obtain ⟨r, hr⟩ := evalTerm_result hc hL hσ t ht (fun g us h =>
+      obtain ⟨r, hr⟩ := evalTerm_result hc hL hσ t ht
+        (fun g hg => hovl g (by rw [Term.headsList]; exact List.mem_append_left _ hg)) (fun g us h =>
         hcall g us (by simp only [callsOfList, List.mem_append]; exact Or.inl h))
-      obtain ⟨rs, hrs⟩ := evalTerms_result hc hL hσ ts hts' (fun g us h =>
+      obtain ⟨rs, hrs⟩ := evalTerms_result hc hL hσ ts hts'
+        (fun g hg => hovl g (by rw [Term.headsList]; exact List.mem_append_right _ hg)) (fun g us h =>
         hcall g us (by simp only [callsOfList, List.mem_append]; exact Or.inr h))
       exact ⟨r :: rs, EvalTerms.cons hr hrs⟩
 end
@@ -297,7 +325,7 @@ theorem lookupFn_of_mem (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) :
 argument sorts where each call in its clauses (under a match of the clause's patterns at the
 arguments) has one. The held variables are read of this function alone. -/
 theorem eval_of_callsN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn) {vs : List GroundTerm}
-    (hvs : c.sortsOf vs = some fn.args)
+    (hvs : c.sortsOf vs = some fn.args) (hovl : ∀ g ∈ fn.callees, OvlTerminates c g)
     (hcl : ∀ cl ∈ fn.clauses, ∀ σ, PatVals c σ cl.pats vs → ∀ t, (t = cl.rhs ∨ cl.req = some t ∨ cl.ens = some t) →
       ∀ g ts, ts ∈ callsOf g t → CallOK c σ g ts) :
     ∃ r, Eval c fn.label vs r := by
@@ -310,21 +338,24 @@ theorem eval_of_callsN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb :
   · have hq := hreqs cl hcl'
     rw [ht] at hq
     simp only [reqOK, beq_iff_eq] at hq
-    exact evalTerm_result hc.sort hL' hσ t hq (hcl cl hcl' σ hm t (Or.inr (Or.inl ht)))
-  · exact evalTerm_result hc.sort hL ha.1 cl.rhs (hrs cl hcl') (hcl cl hcl' σ ha.2.1 _ (Or.inl rfl))
+    exact evalTerm_result hc.sort hL' hσ t hq (fun g hg => hovl g (heads_req_callees hcl' ht hg))
+      (hcl cl hcl' σ hm t (Or.inr (Or.inl ht)))
+  · exact evalTerm_result hc.sort hL ha.1 cl.rhs (hrs cl hcl') (fun g hg => hovl g (heads_rhs_callees hcl' hg))
+      (hcl cl hcl' σ ha.2.1 _ (Or.inl rfl))
   · have hq := hens cl hcl'
     rw [ht] at hq
     simp only [reqOK, beq_iff_eq] at hq
-    exact evalTerm_result hc.sort hL'' ha.1 t hq (hcl cl hcl' σ ha.2.1 t (Or.inr (Or.inr ht)))
+    exact evalTerm_result hc.sort hL'' ha.1 t hq (fun g hg => hovl g (heads_ens_callees hcl' ht hg))
+      (hcl cl hcl' σ ha.2.1 t (Or.inr (Or.inr ht)))
 
 /-- A function has a result at an argument list of its argument sorts where each call in its
 clauses (under a match of the clause's patterns at the arguments) has one. -/
 theorem eval_of_calls (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {vs : List GroundTerm}
-    (hvs : c.sortsOf vs = some fn.args)
+    (hvs : c.sortsOf vs = some fn.args) (hovl : ∀ g ∈ fn.callees, OvlTerminates c g)
     (hcl : ∀ cl ∈ fn.clauses, ∀ σ, PatVals c σ cl.pats vs → ∀ t, (t = cl.rhs ∨ cl.req = some t ∨ cl.ens = some t) →
       ∀ g ts, ts ∈ callsOf g t → CallOK c σ g ts) :
     ∃ r, Eval c fn.label vs r :=
-  eval_of_callsN hc.toN hfn (hc.binds fn hfn) hvs hcl
+  eval_of_callsN hc.toN hfn (hc.binds fn hfn) hvs hovl hcl
 
 theorem heads_callees {fn : Fn} {cl : Clause} (hcl : cl ∈ fn.clauses) {t : Term}
     (ht : t = cl.rhs ∨ cl.req = some t ∨ cl.ens = some t) {g : Sym} (hg : g ∈ Term.heads t) : g ∈ fn.callees := by
@@ -335,19 +366,22 @@ theorem heads_callees {fn : Fn} {cl : Clause} (hcl : cl ∈ fn.clauses) {t : Ter
 
 /-- `terminates_of_callees` with the held variables read of the one function (`hb`). -/
 theorem terminates_of_calleesN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.allFns) (hb : c.HeldFn fn)
-    (hcall : ∀ g ∈ fn.callees, Terminates c g) : Terminates c fn.label := by
+    (hcall : ∀ g ∈ fn.callees, Terminates c g) (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) :
+    Terminates c fn.label := by
   intro fn' hfn' vs hvs
   rw [lookupFn_of_memN hc hfn] at hfn'
   cases hfn'
-  exact eval_of_callsN hc hfn hb hvs
+  exact eval_of_callsN hc hfn hb hvs hovl
     (fun cl hcl _ _ t ht g ts hts gfn hg _ vs' _ _ hsrt =>
       hcall g (heads_callees hcl ht (mem_heads_of_callsOf t hts)) gfn hg vs' hsrt)
 
 /-- **A function whose callees terminate terminates**: each call in its clauses reaches a function of the definition at argument values of its argument sorts (subject
-reduction), where the callee has a result. -/
+reduction), where the callee has a result; an application of an overloading symbol reaches, at
+arguments a function it overloads covers, that function (`hovl`). -/
 theorem terminates_of_callees (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns)
-    (hcall : ∀ g ∈ fn.callees, Terminates c g) : Terminates c fn.label :=
-  terminates_of_calleesN hc.toN hfn (hc.binds fn hfn) hcall
+    (hcall : ∀ g ∈ fn.callees, Terminates c g) (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) :
+    Terminates c fn.label :=
+  terminates_of_calleesN hc.toN hfn (hc.binds fn hfn) hcall hovl
 
 /-- The generated sort predicates call nothing: their right-hand sides are Bool literals. -/
 theorem sortPreds_callees {fn : Fn} (hfn : fn ∈ c.sortPreds) : fn.callees = [] := by
@@ -360,6 +394,7 @@ theorem sortPreds_terminateN (hc : EvalCtxN c) {fn : Fn} (hfn : fn ∈ c.sortPre
     Terminates c fn.label :=
   terminates_of_calleesN hc (List.mem_append_right _ hfn)
     (fun cl hcl => Semantics.heldAt_of_bindsRH (Semantics.sortPreds_binds hfn cl hcl))
+    (by rw [sortPreds_callees hfn]; intro g hg; nomatch hg)
     (by rw [sortPreds_callees hfn]; intro g hg; nomatch hg)
 
 theorem sortPreds_terminate (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.sortPreds) :
@@ -606,7 +641,8 @@ induction on the size of the argument at the decreasing position. A self call is
 strictly inside the clause's pattern there, whose value is strictly smaller (`strictlyIn_size`). -/
 theorem terminates_of_decreasing (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allFns) {dec : Option Nat}
     (hdec : decreasingOK c fn dec = true)
-    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g) : Terminates c fn.label := by
+    (hcall : ∀ g ∈ fn.callees, g ≠ fn.label → Terminates c g)
+    (hovl : ∀ g ∈ fn.callees, OvlTerminates c g) : Terminates c fn.label := by
   have hlook := lookupFn_of_mem hc hfn
   intro fn' hfn' vs hvs
   rw [hlook] at hfn'
@@ -618,7 +654,7 @@ theorem terminates_of_decreasing (hc : EvalCtx c) {fn : Fn} (hfn : fn ∈ c.allF
   | zero => intro _ _ h; exact absurd h (Nat.not_lt_zero _)
   | succ n ih =>
     intro vs hvs hlt
-    refine eval_of_calls hc hfn hvs (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
+    refine eval_of_calls hc hfn hvs hovl (fun cl hcl σ hm t ht g ts hts gfn hg rs vs' hrs hall hsrt => ?_)
     by_cases hgl : g = fn.label
     · subst hgl
       rw [hlook] at hg
@@ -673,9 +709,12 @@ theorem terminates_of_order_core (hok : c.sortedOK = true) (hsr : c.srReady = tr
       by_cases hN : fn.label ∈ c.orderObligations ++ z.obligations c
       · exact hnamed _ hN
       have hord : fn.label ∉ Semantics.orderObligations.go (c.fns.map (·.label)) [] c.fns :=
-        fun h => hN (List.mem_append_left _ h)
+        fun h => hN (List.mem_append_left _ (show fn.label ∈ c.orderObligations from List.mem_append_left _ h))
+      have hovl : ∀ g ∈ fn.callees, OvlTerminates c g := fun g hg =>
+        ovlTerminates_of_not_fnOvl (Semantics.not_fnOvl_of_not_caller hmem
+          (fun h => hN (List.mem_append_left _ (show fn.label ∈ c.orderObligations from List.mem_append_right _ h))) hg)
       obtain ⟨dec, hdec⟩ := decreasing_of_not_named (z := z) hmem (fun h => hN (List.mem_append_right _ h))
-      refine terminates_of_decreasing hc (List.mem_append_left _ hmem) hdec fun g hg hgl => ?_
+      refine terminates_of_decreasing hc (List.mem_append_left _ hmem) hdec (fun g hg hgl => ?_) hovl
       rcases order_go _ c.fns [] n fn hn hord g hg with h | h | h
       · exact absurd h hgl
       · simp only [List.nil_append, List.mem_map] at h

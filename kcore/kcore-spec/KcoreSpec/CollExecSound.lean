@@ -302,9 +302,31 @@ mutual
           · have hp' : c.isParam f = false := by simpa using hp
             simp only [hp', Bool.false_eq_true, ↓reduceIte] at hk
             by_cases ho : c.isOvl f = true
-            · simp only [ho, ↓reduceIte, Option.pure_def, Option.some.injEq] at hk
-              subst hk
-              exact .ovl hc' ho hts (fun vs _ => hsc.ovl.fnCover_none f vs)
+            · simp only [ho, ↓reduceIte] at hk
+              cases has : allSome rs with
+              | none =>
+                simp only [has, Option.pure_def, Option.some.injEq] at hk
+                subst hk
+                have := EvalTerm.ovl hc' ho hts (fun vs hv => by rw [has] at hv; cases hv)
+                rw [has] at this
+                exact this
+              | some ws =>
+                simp only [has] at hk
+                cases hcv : c.fnCover f ws with
+                | none =>
+                  simp only [hcv, Option.pure_def, Option.some.injEq] at hk
+                  subst hk
+                  have := EvalTerm.ovl hc' ho hts (fun vs hv => by rw [has] at hv; cases hv; exact hcv)
+                  rw [has] at this
+                  exact this
+                | some kg =>
+                  obtain ⟨o, hlo, rfl⟩ := rhs_lookup_ovl hsc hL hk' ho
+                  have hws := EvalTerms.sorted hsc hts hL hσ hargs has
+                  obtain ⟨fn, -, hlook, -, -, -, -, hus⟩ :=
+                    OvlLaws.fnCover_fn_ovlF (hsc.ovl.fnFacts hsc.trans) hlo hws hcv
+                  simp only [hcv, hlo, Option.map_eq_some_iff] at hk
+                  obtain ⟨r₀, hr₀, rfl⟩ := hk
+                  exact .ovlFn hc' ho hts has hlo hcv (evalF_sound n hr₀ hlook hus)
             have ho' : c.isOvl f = false := by simpa using ho
             simp only [ho', Bool.false_eq_true, ↓reduceIte] at hk
             cases hall : allSome rs with

@@ -74,7 +74,9 @@
     it. The frame's rest equals its value only because values of well-sorted patterns are
     canonical (`canonI_perm`); a defined `_Map_` or `_Set_` of canonical arguments holds their
     items each once (`union_perm`, `concatS_perm`).
-  - Overloading symbols (`PatVal.ovl`, `EvalTerm.ovl`): `patEval` and `evalT` compute `norm`; the
+  - Overloading symbols (`PatVal.ovl`, `EvalTerm.ovl`, `EvalTerm.ovlFn`): `patEval` and `evalT`
+    compute `norm`, and `evalT` the covering function's value, lifted, where a function the symbol
+    overloads covers the arguments (`fnCover`); the
     candidates of `f(p̄)` at v are the argument patterns matched at `ovlArgs c f v`, the one
     argument list at which f's normal form can be v (`ovlArgs_complete`, from
     `OvlLaws.norm_decomp`). The laws of `norm` read `overloadsOK`, which `execReady` holds through
@@ -351,7 +353,12 @@ mutual
         | none => pure none
         | some vs => c.hookRes f vs
       else if c.isParam f then pure ((allSome rs).bind (c.paramVal f))
-      else if c.isOvl f then pure ((allSome rs).map (c.norm f))
+      else if c.isOvl f then match allSome rs with
+        | none => pure none
+        | some vs => (match c.fnCover f vs, c.lookupOvl f with
+          | some kg, some o =>
+            (evalF c n kg.name (stripAll kg.args o.sig.args vs)).map (·.map (lift kg.result o.sig.result))
+          | _, _ => pure (some (c.norm f vs)))
       else match allSome rs with
         | none => pure none
         | some vs => evalF c n f vs
