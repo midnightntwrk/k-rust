@@ -5,11 +5,13 @@
   `∀x̄. (L → •R)` with x̄ in neither L nor R, which is `(∃x̄. L) → •R`, and `∃x. L` is `L` exactly
   where the sort of x has an element. The reader reads the rule only at a sort of which it exhibits a
   value (`Parse.exhibit?`, `Parse.sortOf_of_exhibit`); `Γ` entails an element there
-  (`inhabited_of_value`, from `ΓDomains`'s item `∃y:s. ⟦v⟧ = y`). Not part of the reviewed layer's
-  statements: no headline reads it.
+  (`inhabited_of_value`, from `ΓDomains`'s item `∃y:s. ⟦v⟧ = y`), at every interpretation of the
+  parameters, since an exhibited value applies no open generator (`inhabited_of_exhibit_withHooks`).
+  Not part of the reviewed layer's statements: no headline reads it.
 -/
 import KcoreSpec.FaithfulNeg
 import KcoreSpec.Parse
+import KcoreSpec.Params
 
 set_option autoImplicit false
 
@@ -36,5 +38,19 @@ theorem inhabited_of_exhibit {c : Semantics} (hI : I ⊧ᴵP Γ c) {s : Srt} {v 
     (h : Parse.exhibit? c s = some v) (e : Valuation M) :
     ∃ a, (KoreAML.inhOf (KoreAML.Cons.sortP (c.sortName s))).interpret I e a :=
   inhabited_of_value hI (Parse.sortOf_of_exhibit h) e
+
+/-- An exhibited value of `s` is a value of `s` at every interpretation of the parameters: it
+applies no open generator (`Parse.rawFree_of_exhibit`), and such a value's sort reads no
+interpretation (`Semantics.sortOf_withHooks_rawFree`). -/
+theorem sortOf_withHooks_of_exhibit {c : Semantics} {s : Srt} {v : GroundTerm}
+    (h : Parse.exhibit? c s = some v) (H : HookParams) : (c.withHooks H).sortOf v = some s :=
+  (Semantics.sortOf_withHooks_rawFree c H (Parse.rawFree_of_exhibit h)).trans (Parse.sortOf_of_exhibit h)
+
+/-- A sort of which the reader exhibits a value is inhabited in every model of `Γ` at every
+interpretation of the parameters, open generators included. -/
+theorem inhabited_of_exhibit_withHooks {c : Semantics} (H : HookParams) (hI : I ⊧ᴵP Γ (c.withHooks H))
+    {s : Srt} {v : GroundTerm} (h : Parse.exhibit? c s = some v) (e : Valuation M) :
+    ∃ a, (KoreAML.inhOf (KoreAML.Cons.sortP ((c.withHooks H).sortName s))).interpret I e a :=
+  inhabited_of_value hI (sortOf_withHooks_of_exhibit h H) e
 
 end KCore.Faithful
