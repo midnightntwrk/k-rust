@@ -974,14 +974,17 @@ def decimal? (cs : List Char) : Option (Nat × Int) :=
 /-- A Float literal's text as the literal of its datum, for a string of one of K's FLOAT-SYNTAX
 productions (domains.md:1495-1497) before a suffix (`floatSuffix`): a decimal, `[+-]?d+(.d*)?` or
 `.d+` (a sign only before a digit), with an optional exponent `[eE][+-]?d+`; `[+-]?Infinity`;
-`NaN` unsigned. A decimal's value is its value rounded to the format, nearest ties to even
-(`UnpackedFloat.ofScientific`), the sign applied after (rounding is symmetric, and `-0.0` is
-negative zero), encoded (`KFloat.packBits`); `Infinity` and `NaN` are the format's infinity and
-canonical NaN. `none` for another text (`+.5`, `-.5`, `+NaN`, `1.0p24`: no production holds them,
-and the text K gives the sort, read so, gives them no value) or a format without a model. -/
+`NaN` unsigned. A decimal's value is its value rounded to the nearest value of the format where the
+text states which that is (`KFloat.ofDecimal?`, domains.md 1478-1483), the sign applied after
+(rounding is symmetric, and `-0.0` is negative zero), encoded (`KFloat.packBits`); `Infinity` and
+`NaN` are the format's infinity and canonical NaN. `none` for another text (`+.5`, `-.5`, `+NaN`,
+`1.0p24`: no production holds them), a format without a model, and a decimal whose datum the text
+does not state: one halfway between two data of the format, above its largest finite value, or
+nonzero and rounding to zero. -/
 def floatLit? (text : String) : Option Lit := do
   let (body, p, e) ← floatSuffix text.toList
   let s ← KFloat.spec? p e
+  let s' ← KFloat.spec? (p + 1) e
   let (neg, mag) := match body with
     | '-' :: r => (true, r)
     | '+' :: r => (false, r)
@@ -990,7 +993,7 @@ def floatLit? (text : String) : Option Lit := do
   let u ← if body == "NaN".toList then some Float.Model.UnpackedFloat.notANumber
     else if mag == "Infinity".toList then some (Float.Model.UnpackedFloat.infinity .positive)
     else if signed && !((mag.head?.map Char.isDigit).getD false) then none
-    else (decimal? mag).map fun (m, x) => Float.Model.UnpackedFloat.ofScientific s m x
+    else (decimal? mag).bind fun (m, x) => KFloat.ofDecimal? s s' m x
   pure (.float p e (KFloat.packBits s (if neg then u.neg else u)))
 
 /-- A literal of sort `s`, read from its text. -/

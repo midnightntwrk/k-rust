@@ -493,7 +493,8 @@ theorem fl1_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : fl1 op vs =
     c.sortOf v = some Srt.float := by
   unfold fl1 at h
   split at h
-  · obtain ⟨⟨p, e, sp, u⟩, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+  · obtain ⟨⟨p, e, sp, u⟩, ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
     exact floatV_sorted (asFloat_spec ha) _
   · cases h
 
@@ -505,7 +506,9 @@ theorem fl2_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : fl2 op vs =
     obtain ⟨⟨p', e', sp', u'⟩, -, h⟩ := Option.bind_eq_some_iff.mp h
     dsimp only at h
     by_cases hpe : p = p' ∧ e = e'
-    · rw [if_pos hpe, Option.some.injEq] at h; subst h; exact floatV_sorted (asFloat_spec ha) _
+    · rw [if_pos hpe] at h
+      obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
+      exact floatV_sorted (asFloat_spec ha) _
     · rw [if_neg hpe] at h; cases h
   · cases h
 
@@ -516,7 +519,8 @@ theorem flTo_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : flTo op vs
   · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨sp, hs, rfl⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨sp, hs, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
     exact floatV_sorted hs _
   · cases h
 
@@ -527,7 +531,8 @@ theorem flOfInt_sorted {vs : List GroundTerm} {v : GroundTerm} (h : flOfInt vs =
   · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨p, -, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨e, -, h⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨sp, hs, rfl⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨sp, hs, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
     exact floatV_sorted hs _
   · cases h
 
@@ -544,6 +549,13 @@ theorem flAt_sorted {op} {vs : List GroundTerm} {v : GroundTerm} (h : flAt op vs
 theorem flTest_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flTest t vs = some v) :
     c.sortOf v = some Srt.bool := by
   unfold flTest at h
+  split at h
+  · obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h; exact sortOf_bool _
+  · cases h
+
+theorem flTestM_sorted {t} {vs : List GroundTerm} {v : GroundTerm} (h : flTestM t vs = some v) :
+    c.sortOf v = some Srt.bool := by
+  unfold flTestM at h
   split at h
   · obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h; exact sortOf_bool _
   · cases h
@@ -596,7 +608,7 @@ theorem floatHook_sorted {f : Sym} {g : List GroundTerm → Option GroundTerm} {
          obtain ⟨_, -, rfl⟩ := Option.map_eq_some_iff.mp h
          exact floatV_sorted (asFloat_spec ha) _
        · cases hev)
-    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flCmp_sorted hev)
+    | (rw [hB (by decide)]; first | exact flTest_sorted hev | exact flTestM_sorted hev | exact flCmp_sorted hev)
     | (rw [hI (by decide)]; exact flFmt_sorted hev)
 
 /-! ## The interpreted String and Bytes symbols return values of their declared result sort
