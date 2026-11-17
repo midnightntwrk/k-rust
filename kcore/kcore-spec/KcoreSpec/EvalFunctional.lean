@@ -481,6 +481,84 @@ theorem leaf {σ : Subst} {t : Term} {r : Option GroundTerm} (hs : subterms t = 
     (top : ∀ r', EvalTerm c σ t r' → r = r') : M4 c σ t r :=
   mk4 top fun u hu => by rw [hs, List.mem_singleton] at hu; exact .inl hu
 
+/-! ### The cases of `Holds`: a condition has one truth value where its terms have one result -/
+
+abbrev M6 (c : Semantics) (n : Nat) (σ : Subst) (p : Cond) (b : Bool) : Prop :=
+  ∀ b', Holds c n σ p b' → b = b'
+
+theorem caseH_not {n : Nat} {σ : Subst} {p : Cond} {b : Bool} (ih : M6 c n σ p b) :
+    M6 c n σ (.not p) (!b) := by
+  intro b' h'; cases h' with | not h2 => rw [ih _ h2]
+
+theorem caseH_and {n : Nat} {σ : Subst} {p q : Cond} {b b' : Bool} (ih : M6 c n σ p b)
+    (ih' : M6 c n σ q b') : M6 c n σ (.and p q) (b && b') := by
+  intro b'' h'; cases h' with | and h2 h2' => rw [ih _ h2, ih' _ h2']
+
+theorem caseH_or {n : Nat} {σ : Subst} {p q : Cond} {b b' : Bool} (ih : M6 c n σ p b)
+    (ih' : M6 c n σ q b') : M6 c n σ (.or p q) (b || b') := by
+  intro b'' h'; cases h' with | or h2 h2' => rw [ih _ h2, ih' _ h2']
+
+theorem caseH_implies {n : Nat} {σ : Subst} {p q : Cond} {b b' : Bool} (ih : M6 c n σ p b)
+    (ih' : M6 c n σ q b') : M6 c n σ (.implies p q) (!b || b') := by
+  intro b'' h'; cases h' with | implies h2 h2' => rw [ih _ h2, ih' _ h2']
+
+theorem caseH_ceil {n : Nat} {σ : Subst} {s : Srt} {t : Term} {r : Option GroundTerm}
+    (ih : M4 c σ t r) : M6 c n σ (.ceil s t) r.isSome := by
+  intro b' h'; cases h' with | ceil h2 => rw [ih.1 _ h2]
+
+theorem caseH_equals {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {r r' : Option GroundTerm}
+    (ih : M4 c σ t r) (ih' : M4 c σ u r') : M6 c n σ (.equals s t u) (sameResult r r') := by
+  intro b' h'; cases h' with | equals h2 h2' => rw [ih.1 _ h2, ih'.1 _ h2']
+
+theorem caseH_mem {n : Nat} {σ : Subst} {s : Srt} {t u : Term} {r r' : Option GroundTerm}
+    (ih : M4 c σ t r) (ih' : M4 c σ u r') :
+    M6 c n σ (.mem s t u) (r.isSome && sameResult r r') := by
+  intro b' h'; cases h' with | mem h2 h2' => rw [ih.1 _ h2, ih'.1 _ h2']
+
+theorem caseH_exNone {n : Nat} {σ : Subst} {ys : List Srt} {s : Srt} {p t : Term} {body : Cond}
+    (ih : M4 c σ t none) : M6 c n σ (.exMatch ys s p t body) false := by
+  intro b' h'
+  cases h' with
+  | exNone _ => rfl
+  | exSome g h2 _ _ => cases ih.1 _ h2
+
+theorem caseH_exSome {n : Nat} {σ : Subst} {ys : List Srt} {s : Srt} {p t : Term} {body : Cond}
+    {v : GroundTerm} {b : Bool} {g : Subst → Bool}
+    (hr : b = true ↔ ∃ σ', Extends c n ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true)
+    (ih : M4 c σ t (some v))
+    (ihb : ∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → M6 c (n + ys.length) σ' body (g σ')) :
+    M6 c n σ (.exMatch ys s p t body) b := by
+  intro b' h'
+  cases h' with
+  | exNone h2 => cases ih.1 _ h2
+  | exSome g' h2 hb' hr' =>
+    cases ih.1 _ h2
+    rw [Bool.eq_iff_iff, hr, hr']
+    exact ⟨fun ⟨σ', hx, hm, hg⟩ => ⟨σ', hx, hm, (ihb σ' hx hm _ (hb' σ' hx hm)).symm.trans hg⟩,
+      fun ⟨σ', hx, hm, hg⟩ => ⟨σ', hx, hm, (ihb σ' hx hm _ (hb' σ' hx hm)).trans hg⟩⟩
+
+theorem caseH_ex {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool} {g : Subst → Bool}
+    (hr : b = true ↔ ∃ σ', Extends c n [s] σ σ' ∧ g σ' = true)
+    (ihb : ∀ σ', Extends c n [s] σ σ' → M6 c (n + 1) σ' body (g σ')) :
+    M6 c n σ (.ex s body) b := by
+  intro b' h'
+  cases h' with
+  | ex g' hb' hr' =>
+    rw [Bool.eq_iff_iff, hr, hr']
+    exact ⟨fun ⟨σ', hx, hg⟩ => ⟨σ', hx, (ihb σ' hx _ (hb' σ' hx)).symm.trans hg⟩,
+      fun ⟨σ', hx, hg⟩ => ⟨σ', hx, (ihb σ' hx _ (hb' σ' hx)).trans hg⟩⟩
+
+theorem caseH_all {n : Nat} {σ : Subst} {s : Srt} {body : Cond} {b : Bool} {g : Subst → Bool}
+    (hr : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true)
+    (ihb : ∀ σ', Extends c n [s] σ σ' → M6 c (n + 1) σ' body (g σ')) :
+    M6 c n σ (.all s body) b := by
+  intro b' h'
+  cases h' with
+  | all g' hb' hr' =>
+    rw [Bool.eq_iff_iff, hr, hr']
+    exact ⟨fun hall σ' hx => (ihb σ' hx _ (hb' σ' hx)).symm.trans (hall σ' hx),
+      fun hall σ' hx => (ihb σ' hx _ (hb' σ' hx)).trans (hall σ' hx)⟩
+
 end EvalFunctional
 
 open EvalFunctional in
@@ -492,6 +570,7 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
   Eval.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
+    (motive_6 := fun n σ p b _ => M6 c n σ p b)
     (fun hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens =>
       case_clause hco hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens)
     (fun hfn _ ihnone => case_rest hfn ihnone)
@@ -510,6 +589,19 @@ theorem Eval.functional {c : Semantics} (hco : CoherentAll c) {f : Sym}
     (fun hk ho _ ihts => case_ovl hk ho ihts)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
+    (fun b' h' => by cases h'; rfl)
+    (fun b' h' => by cases h'; rfl)
+    (fun _ ih => caseH_not ih)
+    (fun _ _ ih ih' => caseH_and ih ih')
+    (fun _ _ ih ih' => caseH_or ih ih')
+    (fun _ _ ih ih' => caseH_implies ih ih')
+    (fun _ ih => caseH_ceil ih)
+    (fun _ _ ih ih' => caseH_equals ih ih')
+    (fun _ _ ih ih' => caseH_mem ih ih')
+    (fun _ ih => caseH_exNone ih)
+    (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
+    (fun _ _ hr ihb => caseH_ex hr ihb)
+    (fun _ _ hr ihb => caseH_all hr ihb)
     h r' h'
 
 open EvalFunctional in
@@ -520,6 +612,7 @@ theorem EvalTerm.functional_hdet {c : Semantics} (hco : CoherentAll c) {σ : Sub
   EvalTerm.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
+    (motive_6 := fun n σ p b _ => M6 c n σ p b)
     (fun hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens =>
       case_clause hco hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens)
     (fun hfn _ ihnone => case_rest hfn ihnone)
@@ -538,12 +631,67 @@ theorem EvalTerm.functional_hdet {c : Semantics} (hco : CoherentAll c) {σ : Sub
     (fun hk ho _ ihts => case_ovl hk ho ihts)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
+    (fun b' h' => by cases h'; rfl)
+    (fun b' h' => by cases h'; rfl)
+    (fun _ ih => caseH_not ih)
+    (fun _ _ ih ih' => caseH_and ih ih')
+    (fun _ _ ih ih' => caseH_or ih ih')
+    (fun _ _ ih ih' => caseH_implies ih ih')
+    (fun _ ih => caseH_ceil ih)
+    (fun _ _ ih ih' => caseH_equals ih ih')
+    (fun _ _ ih ih' => caseH_mem ih ih')
+    (fun _ ih => caseH_exNone ih)
+    (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
+    (fun _ _ hr ihb => caseH_ex hr ihb)
+    (fun _ _ hr ihb => caseH_all hr ihb)
     h
 
 /-- A term has one result under each substitution when clauses of one priority are coherent. -/
 theorem EvalTerm.functional {c : Semantics} (hco : CoherentAll c) {σ : Subst} {t : Term}
     {r r' : Option GroundTerm} (h : EvalTerm c σ t r) (h' : EvalTerm c σ t r') : r = r' :=
   (EvalTerm.functional_hdet hco h).1 r' h'
+
+open EvalFunctional in
+/-- A condition has one truth value under each substitution when clauses of one priority are
+coherent. -/
+theorem Holds.functional {c : Semantics} (hco : CoherentAll c) {n : Nat} {σ : Subst} {p : Cond}
+    {b b' : Bool} (h : Holds c n σ p b) (h' : Holds c n σ p b') : b = b' :=
+  Holds.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
+    (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
+    (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
+    (motive_6 := fun n σ p b _ => M6 c n σ p b)
+    (fun hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens =>
+      case_clause hco hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens)
+    (fun hfn _ ihnone => case_rest hfn ihnone)
+    (fun hfn hmem hσ hmatch hreq hprio ht he hw ihreq ihprio ihe =>
+      case_ensFails hco hfn hmem hσ hmatch hreq hprio ht he hw ihreq ihprio ihe)
+    (fun _ ih => fun σ hw hp hq => ih σ hw hp hq)
+    (fun ht _ hr ihe => fun hall => hr (ihe.1 _ (hall _ ht)))
+    (leaf rfl fun r' h' => by cases h'; rfl)
+    (leaf rfl fun r' h' => by cases h'; rfl)
+    (fun _ ih => case_inj ih)
+    (fun hk _ ihts => case_ctor hk ihts)
+    (fun hk hhk _ hh hund ihts => case_hook hk hhk hh hund ihts)
+    (fun hk hhk hp _ hr ihts => case_param hk hhk hp hr ihts)
+    (fun hk hhk _ hvs hf hp ihts ihf => case_call hk hhk hvs hp hf.isOvl_false ihts ihf)
+    (fun hk hhk _ hvs hp ihts => case_callUndef hk hhk hvs hp ihts)
+    (fun hk ho _ ihts => case_ovl hk ho ihts)
+    ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
+    (fun _ _ ih1 ih2 => case_cons ih1 ih2)
+    (fun b' h' => by cases h'; rfl)
+    (fun b' h' => by cases h'; rfl)
+    (fun _ ih => caseH_not ih)
+    (fun _ _ ih ih' => caseH_and ih ih')
+    (fun _ _ ih ih' => caseH_or ih ih')
+    (fun _ _ ih ih' => caseH_implies ih ih')
+    (fun _ ih => caseH_ceil ih)
+    (fun _ _ ih ih' => caseH_equals ih ih')
+    (fun _ _ ih ih' => caseH_mem ih ih')
+    (fun _ ih => caseH_exNone ih)
+    (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
+    (fun _ _ hr ihb => caseH_ex hr ihb)
+    (fun _ _ hr ihb => caseH_all hr ihb)
+    h b' h'
 
 /-- A function has at most one result at each argument list. -/
 def FnDet (c : Semantics) : Prop :=
@@ -585,6 +733,7 @@ theorem EvalTerm.functional_hdet_of_fnDet {c : Semantics} (hd : FnDet c) {σ : S
   EvalTerm.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun _ _ _ => True)
     (motive_3 := fun _ _ _ => True) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
+    (motive_6 := fun n σ p b _ => M6 c n σ p b)
     (fun hfn hmem hσ hmatch hreq hprio hrhs hens _ _ _ _ => fun r' h' =>
       hd _ _ _ _ (.clause hfn hmem hσ hmatch hreq hprio hrhs hens) h')
     (fun hfn hnone _ => fun r' h' => hd _ _ _ _ (.rest hfn hnone) h')
@@ -603,6 +752,19 @@ theorem EvalTerm.functional_hdet_of_fnDet {c : Semantics} (hd : FnDet c) {σ : S
     (fun hk ho _ ihts => case_ovl hk ho ihts)
     ⟨fun rs' h' => by cases h'; rfl, fun u hu => by simp [subtermsList] at hu⟩
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
+    (fun b' h' => by cases h'; rfl)
+    (fun b' h' => by cases h'; rfl)
+    (fun _ ih => caseH_not ih)
+    (fun _ _ ih ih' => caseH_and ih ih')
+    (fun _ _ ih ih' => caseH_or ih ih')
+    (fun _ _ ih ih' => caseH_implies ih ih')
+    (fun _ ih => caseH_ceil ih)
+    (fun _ _ ih ih' => caseH_equals ih ih')
+    (fun _ _ ih ih' => caseH_mem ih ih')
+    (fun _ ih => caseH_exNone ih)
+    (fun _ _ _ hr ih ihb => caseH_exSome hr ih ihb)
+    (fun _ _ hr ihb => caseH_ex hr ihb)
+    (fun _ _ hr ihb => caseH_all hr ihb)
     h
 
 /-- A term has one result under each substitution where every function has at most one

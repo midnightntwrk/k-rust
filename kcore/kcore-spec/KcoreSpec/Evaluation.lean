@@ -417,6 +417,18 @@ theorem wellSortedAt_univ {c : Semantics} {cl : Clause} {σ : Subst} (h : cl.exs
   · intro hw i _ s hs
     exact hw i s hs
 
+/-! ## Conditions -/
+
+def sameResult : Option GroundTerm → Option GroundTerm → Bool
+  | none, none => true
+  | some v, some w => GroundTerm.cmp v w == .eq
+  | _, _ => false
+
+/-- σ' is σ on the first `n` variables and gives the next `ys.length` values of the sorts `ys`. -/
+def Extends (c : Semantics) (n : Nat) (ys : List Srt) (σ σ' : Subst) : Prop :=
+  (∀ i, i < n → σ'.lookup i = σ.lookup i) ∧
+  ∀ j s, ys[j]? = some s → ∃ v, σ'.lookup (n + j) = some v ∧ c.sortOf v = some s
+
 mutual
   /-- `Eval c f vs r`: the function `f` of `c` at `vs` has the result `r` (`none`: undefined). -/
   inductive Eval (c : Semantics) : Sym → List GroundTerm → Option GroundTerm → Prop where
@@ -508,6 +520,32 @@ mutual
     | cons {σ : Subst} {t : Term} {ts : List Term} {r : Option GroundTerm}
         {rs : List (Option GroundTerm)}
         (h : EvalTerm c σ t r) (hs : EvalTerms c σ ts rs) : EvalTerms c σ (t :: ts) (r :: rs)
+  /-- `Holds c n σ p b`: the condition p, with n variables in scope, has the truth value b under σ.
+  A negation is the result `false`, never a `¬`. -/
+  inductive Holds (c : Semantics) : Nat → Subst → Cond → Bool → Prop where
+    | top {n σ} : Holds c n σ .top true
+    | bot {n σ} : Holds c n σ .bot false
+    | not {n σ p b} (h : Holds c n σ p b) : Holds c n σ (.not p) (!b)
+    | and {n σ p q b b'} (h : Holds c n σ p b) (h' : Holds c n σ q b') : Holds c n σ (.and p q) (b && b')
+    | or {n σ p q b b'} (h : Holds c n σ p b) (h' : Holds c n σ q b') : Holds c n σ (.or p q) (b || b')
+    | implies {n σ p q b b'} (h : Holds c n σ p b) (h' : Holds c n σ q b') :
+        Holds c n σ (.implies p q) (!b || b')
+    | ceil {n σ s t r} (h : EvalTerm c σ t r) : Holds c n σ (.ceil s t) r.isSome
+    | equals {n σ s t u r r'} (h : EvalTerm c σ t r) (h' : EvalTerm c σ u r') :
+        Holds c n σ (.equals s t u) (sameResult r r')
+    | mem {n σ s t u r r'} (h : EvalTerm c σ t r) (h' : EvalTerm c σ u r') :
+        Holds c n σ (.mem s t u) (r.isSome && sameResult r r')
+    | exNone {n σ ys s p t body} (h : EvalTerm c σ t none) : Holds c n σ (.exMatch ys s p t body) false
+    | exSome {n σ ys s p t body v b} (g : Subst → Bool) (h : EvalTerm c σ t (some v))
+        (hb : ∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → Holds c (n + ys.length) σ' body (g σ'))
+        (hr : b = true ↔ ∃ σ', Extends c n ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true) :
+        Holds c n σ (.exMatch ys s p t body) b
+    | ex {n σ s body b} (g : Subst → Bool)
+        (hb : ∀ σ', Extends c n [s] σ σ' → Holds c (n + 1) σ' body (g σ'))
+        (hr : b = true ↔ ∃ σ', Extends c n [s] σ σ' ∧ g σ' = true) : Holds c n σ (.ex s body) b
+    | all {n σ s body b} (g : Subst → Bool)
+        (hb : ∀ σ', Extends c n [s] σ σ' → Holds c (n + 1) σ' body (g σ'))
+        (hr : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : Holds c n σ (.all s body) b
 end
 
 /-- A function with a result is a function, so no overloading symbol. -/
@@ -517,44 +555,5 @@ theorem Eval.isOvl_false {c : Semantics} {f : Sym} {vs : List GroundTerm} {r : O
   | clause hfn _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
   | rest hfn _ => exact c.isOvl_of_lookupFn hfn
   | ensFails hfn _ _ _ _ _ _ _ _ => exact c.isOvl_of_lookupFn hfn
-
-/-! ## Conditions -/
-
-def sameResult : Option GroundTerm → Option GroundTerm → Bool
-  | none, none => true
-  | some v, some w => GroundTerm.cmp v w == .eq
-  | _, _ => false
-
-/-- σ' is σ on the first `n` variables and gives the next `ys.length` values of the sorts `ys`. -/
-def Extends (c : Semantics) (n : Nat) (ys : List Srt) (σ σ' : Subst) : Prop :=
-  (∀ i, i < n → σ'.lookup i = σ.lookup i) ∧
-  ∀ j s, ys[j]? = some s → ∃ v, σ'.lookup (n + j) = some v ∧ c.sortOf v = some s
-
-/-- `Holds c n σ p b`: the condition p, with n variables in scope, has the truth value b under σ.
-A negation is the result `false`, never a `¬`. -/
-inductive Holds (c : Semantics) : Nat → Subst → Cond → Bool → Prop where
-  | top {n σ} : Holds c n σ .top true
-  | bot {n σ} : Holds c n σ .bot false
-  | not {n σ p b} (h : Holds c n σ p b) : Holds c n σ (.not p) (!b)
-  | and {n σ p q b b'} (h : Holds c n σ p b) (h' : Holds c n σ q b') : Holds c n σ (.and p q) (b && b')
-  | or {n σ p q b b'} (h : Holds c n σ p b) (h' : Holds c n σ q b') : Holds c n σ (.or p q) (b || b')
-  | implies {n σ p q b b'} (h : Holds c n σ p b) (h' : Holds c n σ q b') :
-      Holds c n σ (.implies p q) (!b || b')
-  | ceil {n σ s t r} (h : EvalTerm c σ t r) : Holds c n σ (.ceil s t) r.isSome
-  | equals {n σ s t u r r'} (h : EvalTerm c σ t r) (h' : EvalTerm c σ u r') :
-      Holds c n σ (.equals s t u) (sameResult r r')
-  | mem {n σ s t u r r'} (h : EvalTerm c σ t r) (h' : EvalTerm c σ u r') :
-      Holds c n σ (.mem s t u) (r.isSome && sameResult r r')
-  | exNone {n σ ys s p t body} (h : EvalTerm c σ t none) : Holds c n σ (.exMatch ys s p t body) false
-  | exSome {n σ ys s p t body v b} (g : Subst → Bool) (h : EvalTerm c σ t (some v))
-      (hb : ∀ σ', Extends c n ys σ σ' → PatVal c σ' p v → Holds c (n + ys.length) σ' body (g σ'))
-      (hr : b = true ↔ ∃ σ', Extends c n ys σ σ' ∧ PatVal c σ' p v ∧ g σ' = true) :
-      Holds c n σ (.exMatch ys s p t body) b
-  | ex {n σ s body b} (g : Subst → Bool)
-      (hb : ∀ σ', Extends c n [s] σ σ' → Holds c (n + 1) σ' body (g σ'))
-      (hr : b = true ↔ ∃ σ', Extends c n [s] σ σ' ∧ g σ' = true) : Holds c n σ (.ex s body) b
-  | all {n σ s body b} (g : Subst → Bool)
-      (hb : ∀ σ', Extends c n [s] σ σ' → Holds c (n + 1) σ' body (g σ'))
-      (hr : b = true ↔ ∀ σ', Extends c n [s] σ σ' → g σ' = true) : Holds c n σ (.all s body) b
 
 end KCore

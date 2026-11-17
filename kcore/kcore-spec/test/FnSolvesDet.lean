@@ -309,6 +309,7 @@ theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he 
   Eval.rec (motive_1 := fun f vs r _ => V1 c f vs r) (motive_2 := fun vs cl _ => V2 c vs cl)
     (motive_3 := fun σ cl _ => V3 c σ cl) (motive_4 := fun σ t r _ => V4 c σ t r)
     (motive_5 := fun σ ts rs _ => V5 c σ ts rs)
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun hfn hmem hσ hmatch hreq _ _ _ _ ihprio ihrhs _ =>
       case_clause h hs hfn hmem hσ hmatch hreq ihprio ihrhs)
     (fun hfn _ ihnone => case_rest hfn ihnone)
@@ -326,6 +327,19 @@ theorem eval_value {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm} (he 
     (fun hk ho _ ihts => case_ovl hk ho ihts)
     (fun rs' h' _ => by cases h'; rfl)
     (fun _ _ ih1 ih2 => case_cons ih1 ih2)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     he
 
 end Fns

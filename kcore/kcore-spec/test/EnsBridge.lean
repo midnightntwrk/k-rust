@@ -615,6 +615,7 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
     (motive_3 := fun σ cl _ => ReqFails (withRules c rs) σ cl)
     (motive_4 := fun σ t r _ => EvalTerm (withRules c rs) σ t r)
     (motive_5 := fun σ ts rs' _ => EvalTerms (withRules c rs) σ ts rs')
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun hfn hmem hσ hmatch _ _ _ _ ihreq ihprio ihrhs ihens =>
       .clause hfn hmem (wellSorted_rules.mpr hσ) (patVals_rules rs hmatch) ihreq ihprio ihrhs ihens)
     (fun hfn _ ihnone => by
@@ -632,7 +633,21 @@ theorem evalTerm_rules {t : Term} {r : Option GroundTerm} (h : EvalTerm c σ t r
     (fun hk ho _ ih => by
       have := EvalTerm.ovl (c := withRules c rs) hk ho ih
       rwa [norm_withRules] at this)
-    .nil (fun _ _ ih1 ih2 => .cons ih1 ih2) h
+    .nil (fun _ _ ih1 ih2 => .cons ih1 ih2)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    h
 
 theorem evalTerm_rules_back {t : Term} {r : Option GroundTerm} (h : EvalTerm (withRules c rs) σ t r) :
     EvalTerm c σ t r :=
@@ -1021,6 +1036,7 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
   have key : fApp ≠ fApp :=
     EvalTerm.rec (motive_1 := fun f vs _ _ => f ≠ F ∨ vs ≠ [int 0]) (motive_2 := fun _ _ _ => True)
       (motive_3 := fun _ _ _ => True) (motive_4 := fun _ t _ _ => t ≠ fApp) (motive_5 := fun _ _ _ _ => True)
+      (motive_6 := fun _ _ _ _ _ => True)
       (fun {f fn vs cl _ _} hfn' hmem _ _ _ _ _ _ _ _ ihrhs _ => by
         refine Or.inl fun hf => ?_
         subst hf
@@ -1076,7 +1092,21 @@ theorem no_result {σ : Subst} {r : Option GroundTerm} : ¬ EvalTerm c σ fApp r
         | cons h1 h2 => cases h1; cases h2; simp [allSome] at hvs)
       (fun {_ f _ _} _ ho' _ _ h => by
         simp only [fApp, Term.app.injEq] at h; rw [h.1, ho] at ho'; cases ho')
-      trivial (fun _ _ _ _ => trivial) h
+      trivial (fun _ _ _ _ => trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      (by intros; trivial)
+      h
   exact key rfl
 
 def cfg (n : Int) : GroundTerm := .ctor topLabel [.ctor kIds.label [.ctor dotk []], .ctor counterLabel [int n]]

@@ -85,6 +85,7 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
       ∀ w, σ.lookup 0 = some w → c.sortOf w = some Srt.int → False)
     (motive_5 := fun σ ts _ _ => ts = [.app F [.var 0], .dv Srt.int (.int 2)] →
       ∀ w, σ.lookup 0 = some w → c.sortOf w = some Srt.int → False)
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun {_ _ _ cl _ _} hfn hmem _ hmatch _ _ _ _ ihreq ihprio _ _ => fun hf w hvs hw => by
       subst hf; subst hvs
       rw [lookupF] at hfn; cases hfn
@@ -156,6 +157,19 @@ theorem f_none {w : GroundTerm} (hw : c.sortOf w = some Srt.int) {res : Option G
     (fun _ _ ih1 _ => fun h w hl hw => by
       cases h
       exact ih1 (.inr rfl) w hl hw)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     hv rfl w rfl hw
 
 /-- The first equation's `requires` has no result at a substitution giving `X` an integer. -/

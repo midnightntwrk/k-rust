@@ -177,6 +177,7 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
     (motive_2 := fun _ _ _ => True) (motive_3 := fun _ _ _ => True)
     (motive_4 := fun σ t _ _ => t = .app F [.var 0] → σ.lookup 0 = some m0 → False)
     (motive_5 := fun _ _ _ _ => True)
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun {_ _ _ _ _ _} hfn hmem hσ hmatch _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
       subst hf; subst hvs
       rw [gapDec_lookup] at hfn; cases hfn
@@ -219,6 +220,19 @@ theorem gapDec_not_terminates : ¬ Terminates gapDec F := by
         simp [allSome] at hvs)
     (fun _ ho _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
     trivial (fun _ _ _ _ => trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     hr rfl rfl
 
 /-! ## 2. Coverage over a collection sort of the definition -/
@@ -390,6 +404,7 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
     (motive_2 := fun _ _ _ => True) (motive_3 := fun _ _ _ => True)
     (motive_4 := fun σ t _ _ => t = .app S4 [.var 0] → σ.lookup 0 = some i1 → False)
     (motive_5 := fun _ _ _ _ => True)
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun {_ _ _ _ _ _} hfn hmem _ hmatch _ _ _ _ _ _ ihrhs _ => fun hf hvs => by
       subst hf; subst hvs
       rw [hlook] at hfn; cases hfn
@@ -440,6 +455,19 @@ theorem gapSelf_not_total : ¬ Total gapSelf S4 := by
         simp [allSome] at hvs)
     (fun _ ho _ _ => fun h _ => by cases h; exact absurd ho (by decide +kernel))
     trivial (fun _ _ _ _ => trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     hv rfl rfl
 
 /-! ## 5. A user sort holding domain values -/

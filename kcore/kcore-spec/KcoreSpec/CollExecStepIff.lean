@@ -669,6 +669,7 @@ theorem EvalTerm.exec (hna : c.AsideFree) {σ : Subst} {t : Term} {r : Option Gr
   EvalTerm.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens =>
       case_clause hsc hcc hcm hfd hfn hmem hσ hmatch hreq (fun x h hlt => hprio x h (hna hfn x h) hlt)
         hrhs hens (fun x h hlt => ihprio x h (hna hfn x h) hlt) ihreq ihrhs ihens)
@@ -689,6 +690,19 @@ theorem EvalTerm.exec (hna : c.AsideFree) {σ : Subst} {t : Term} {r : Option Gr
     (fun hk ho _ ihts => case_ovl hsc hcc hcm hfd hk ho ihts)
     (fun _ _ _ _ _ _ => ⟨1, rfl⟩)
     (fun _ _ ih1 ih2 => case_cons hsc hcc hcm hfd ih1 ih2)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     h
 
 /-- A function's `Eval` result is computed by the executable evaluation with some fuel, at
@@ -698,6 +712,7 @@ theorem Eval.exec (hna : c.AsideFree) {f : Sym} {vs : List GroundTerm} {r : Opti
   Eval.rec (motive_1 := fun f vs r _ => M1 c f vs r) (motive_2 := fun vs cl _ => M2 c vs cl)
     (motive_3 := fun σ cl _ => M3 c σ cl) (motive_4 := fun σ t r _ => M4 c σ t r)
     (motive_5 := fun σ ts rs _ => M5 c σ ts rs)
+    (motive_6 := fun _ _ _ _ _ => True)
     (fun hfn hmem hσ hmatch hreq hprio hrhs hens ihreq ihprio ihrhs ihens =>
       case_clause hsc hcc hcm hfd hfn hmem hσ hmatch hreq (fun x h hlt => hprio x h (hna hfn x h) hlt)
         hrhs hens (fun x h hlt => ihprio x h (hna hfn x h) hlt) ihreq ihrhs ihens)
@@ -718,6 +733,19 @@ theorem Eval.exec (hna : c.AsideFree) {f : Sym} {vs : List GroundTerm} {r : Opti
     (fun hk ho _ ihts => case_ovl hsc hcc hcm hfd hk ho ihts)
     (fun _ _ _ _ _ _ => ⟨1, rfl⟩)
     (fun _ _ ih1 ih2 => case_cons hsc hcc hcm hfd ih1 ih2)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     h
 
 

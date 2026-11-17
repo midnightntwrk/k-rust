@@ -651,6 +651,7 @@ theorem eval_value_of_G {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm}
     (motive_3 := fun σ cl _ => c.WellSorted cl.vars σ → TotReq c c.totalLabels tp σ cl)
     (motive_4 := fun σ t r _ => TotM4 c c.totalLabels tp σ t r)
     (motive_5 := fun σ ts rs _ => TotM5 c c.totalLabels tp σ ts rs)
+    (motive_6 := fun _ _ _ _ _ => True)
     -- a clause decides
     (fun {f fn₀ vs cl σ r} hfn hmem hσ hmatch hreq hprio hrhs hens _ _ ihrhs _ => by
       intro fn hlook hT hvs
@@ -792,6 +793,19 @@ theorem eval_value_of_G {f : Sym} {vs : List GroundTerm} {r : Option GroundTerm}
       obtain ⟨v, rfl⟩ := ih1 L hL vars hσ _ ht fs hfs htt.1
       obtain ⟨vs, rfl⟩ := ih2 L hL vars hσ _ hts' fs hfs htt.2
       exact ⟨v :: vs, rfl⟩)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
+    (by intros; trivial)
     h
 
 end Induction
