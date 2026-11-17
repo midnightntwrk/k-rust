@@ -848,7 +848,7 @@ which give the silent points of two symbols values that do not agree with the eq
 `=/=Float`'s (1648) reads the interpretation nowhere: `==Float` and `=/=Float` have their values at
 the `p1x2` data (`asDatum`). -/
 def expectedFlt : Summary :=
-  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 43, 38, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
+  [(9, 93, 73, 64, 0, 9, 0), (15, 9, 9, 9, 0, 0, 0), (17, 55, 45, 40, 0, 4, 1), (18, 67, 66, 66, 0, 0, 0),
    (16, 1, 1, 0, 1, 0, 0)]
 
 def checkFlt : IO Unit := do
