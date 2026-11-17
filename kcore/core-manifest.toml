@@ -8,7 +8,13 @@
 #
 # status = "stable":      the declaration's text is expected to stay; teach it.
 # status = "provisional": named reason and the ticket that settles it; the course gives it one line
-#                         ("not settled: <reason>") and no explanation.
+#                         ("not settled: <reason>") and no explanation. None is admitted at the
+#                         freeze: kcore-spec/test/constructs/provisional.py fails on one.
+# relabelled = "...":     on a stable entry whose subject is not resolved, why it is stable; with
+#                         `leaves`, the rows.toml entries it leaves refused or parameter
+#                         ("<list> <row key>[, case <name>]", as "E6 hook:INT.and:Lbl'UndsAnd-'Int'Unds'"),
+#                         or the sentence "no construct depends on it", which the gate checks is true.
+#                         provisional.py checks that each named entry is refused or parameter.
 #
 # The entries are the review cone of the roots below, grouped in teaching order. The cone is computed
 # by `#review_cone` (KcoreSpec/ReviewCone.lean): types of reached declarations, values of reached
