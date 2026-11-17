@@ -722,6 +722,12 @@ with the premise `⌈rhs ∧ ens⌉` (`ReadingNote.ruleRightDefined`).
   result, at a sort without a value): `fnHyp3N` of `test/OpenClausePins.lean`, with each form a
   package's statements instantiate; the owed fact refuted: `not_heldOwedE` of
   `test/OpenClauseConsistent.lean`.
+- `test/InjValue.lean`: injections at values in a model of Γ (`KCore.CE.inj_value`,
+  `inj_no_element`, `inj_value_unique`, KcoreSpec/InjValue.lean) at a definition with a model:
+  `base2` (Int and Bool below KItem, no function, no rule) has `coreOK` and `FnHyp`, so Γ has a
+  model, and in every model an element of Int whose injection into KItem is the element of
+  `inj{Int,KItem}(3)` is the element of 3, and no element of Int has the element of
+  `inj{Bool,KItem}(true)` as its injection (`inj_value_instance`).
 - `test/HooksSet.lean`: the 10 supported hook rows of SET (the sort and nine operations) against
   domains.md's prose, cited by line: each operation at every argument list by the members of its
   result (the one set with them), with hand-derived values that `hook` gives, the result under

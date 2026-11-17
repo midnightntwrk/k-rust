@@ -232,3 +232,4 @@ import KcoreSpec.LawHooks
 import KcoreSpec.OpenValues
 import KcoreSpec.LawHooksLib
 import KcoreSpec.ReadFns
+import KcoreSpec.InjValue
